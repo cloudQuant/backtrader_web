@@ -1,0 +1,14 @@
+import Timeline from './src/timeline.mjs';
+export { timelineProps } from './src/timeline.mjs';
+import TimelineItem from './src/timeline-item.mjs';
+export { timelineItemProps } from './src/timeline-item2.mjs';
+export { TIMELINE_INJECTION_KEY } from './src/tokens.mjs';
+import { withInstall, withNoopInstall } from '../../utils/vue/install.mjs';
+
+const ElTimeline = withInstall(Timeline, {
+  TimelineItem
+});
+const ElTimelineItem = withNoopInstall(TimelineItem);
+
+export { ElTimeline, ElTimelineItem, ElTimeline as default };
+//# sourceMappingURL=index.mjs.map

@@ -1,0 +1,51 @@
+[project]
+name = "backtrader-web-backend"
+version = "1.0.0"
+description = "Backtrader Web 后端服务"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Backtrader Web Team"}
+]
+
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "sqlalchemy[asyncio]>=2.0.25",
+    "aiosqlite>=0.19.0",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "loguru>=0.7.2",
+    "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.26.0",
+    "ruff>=0.1.0",
+]
+postgres = ["asyncpg>=0.29.0"]
+mysql = ["aiomysql>=0.2.0"]
+redis = ["redis>=5.0.0"]
+backtrader = ["backtrader>=1.9.78.123", "pandas>=2.1.0", "numpy>=1.26.0"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

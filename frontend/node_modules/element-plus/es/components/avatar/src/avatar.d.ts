@@ -1,0 +1,31 @@
+import type { ExtractPropTypes, ExtractPublicPropTypes } from 'vue';
+export declare const avatarProps: {
+    readonly size: {
+        readonly type: import("vue").PropType<import("element-plus/es/utils").EpPropMergeType<readonly [NumberConstructor, StringConstructor], "" | "small" | "default" | "large", number>>;
+        readonly required: false;
+        readonly validator: ((val: unknown) => boolean) | undefined;
+        __epPropKey: true;
+    };
+    readonly shape: {
+        readonly type: import("vue").PropType<import("element-plus/es/utils").EpPropMergeType<StringConstructor, "circle" | "square", unknown>>;
+        readonly required: false;
+        readonly validator: ((val: unknown) => boolean) | undefined;
+        __epPropKey: true;
+    };
+    readonly icon: {
+        readonly type: import("vue").PropType<import("element-plus/es/utils").EpPropMergeType<(new (...args: any[]) => (string | import("vue").Component) & {}) | (() => string | import("vue").Component) | ((new (...args: any[]) => (string | import("vue").Component) & {}) | (() => string | import("vue").Component))[], unknown, unknown>>;
+        readonly required: false;
+        readonly validator: ((val: unknown) => boolean) | undefined;
+        __epPropKey: true;
+    };
+    readonly src: import("element-plus/es/utils").EpPropFinalized<StringConstructor, unknown, unknown, "", boolean>;
+    readonly alt: StringConstructor;
+    readonly srcSet: StringConstructor;
+    readonly fit: import("element-plus/es/utils").EpPropFinalized<(new (...args: any[]) => "fill" | "contain" | "-moz-initial" | "inherit" | "initial" | "revert" | "revert-layer" | "unset" | "none" | "cover" | "scale-down") | (() => import("csstype").Property.ObjectFit | undefined) | ((new (...args: any[]) => "fill" | "contain" | "-moz-initial" | "inherit" | "initial" | "revert" | "revert-layer" | "unset" | "none" | "cover" | "scale-down") | (() => import("csstype").Property.ObjectFit | undefined))[], unknown, unknown, "cover", boolean>;
+};
+export type AvatarProps = ExtractPropTypes<typeof avatarProps>;
+export type AvatarPropsPublic = ExtractPublicPropTypes<typeof avatarProps>;
+export declare const avatarEmits: {
+    error: (evt: Event) => boolean;
+};
+export type AvatarEmits = typeof avatarEmits;

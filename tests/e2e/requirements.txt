@@ -1,0 +1,5 @@
+# Playwright E2E 测试依赖
+pytest>=8.0.0
+pytest-playwright>=0.4.4
+playwright>=1.41.0
+requests>=2.31.0
