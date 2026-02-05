@@ -179,36 +179,28 @@ class BacktestService:
     
     def _get_strategy_class(self, strategy_id: str, params: Dict[str, Any] = None):
         """
-        根据策略ID获取策略类
+        根据策略ID获取策略类（安全版本）
         """
-        import backtrader as bt
         from app.services.strategy_service import STRATEGY_TEMPLATES
-        
+        from app.utils.sandbox import execute_strategy_safely
+
         # 查找策略模板
         template = None
         for t in STRATEGY_TEMPLATES:
             if t.id == strategy_id:
                 template = t
                 break
-        
+
         if not template:
             raise ValueError(f"未找到策略: {strategy_id}")
-        
-        # 动态执行策略代码，获取策略类
-        namespace = {'bt': bt}
-        exec(template.code, namespace)
-        
-        # 查找策略类（继承自bt.Strategy的类）
-        strategy_class = None
-        for name, obj in namespace.items():
-            if isinstance(obj, type) and issubclass(obj, bt.Strategy) and obj != bt.Strategy:
-                strategy_class = obj
-                break
-        
-        if not strategy_class:
-            raise ValueError(f"策略代码中未找到有效的Strategy类")
-        
-        return strategy_class
+
+        # 使用安全沙箱执行策略代码
+        try:
+            strategy_class = execute_strategy_safely(template.code, params)
+            return strategy_class
+        except (ValueError, SyntaxError, NameError, AttributeError, ImportError, RuntimeError) as e:
+            logger.error(f"策略代码执行失败: {e}")
+            raise ValueError(f"策略代码执行失败: {e}")
     
     def _parse_backtest_results(
         self, 

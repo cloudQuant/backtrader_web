@@ -1,0 +1,66 @@
+你是一个专业的量化交易策略分析师和文档编写者。你的任务是为给定的策略 HTML 文件生成高质量、详细、专业的 Markdown 格式策略文档。
+
+## 输入文件
+HTML 文件路径: with
+
+## 策略内容
+以下是从 HTML 文件中提取的内容：
+
+
+
+## 文档生成要求
+1. 生成详细的 Markdown 文档
+2. 文档必须包含以下章节：
+   - 标题（H1）
+   - 策略概述（H2）
+   - 策略逻辑（H2）
+   - 需要的数据（H2）
+   - 策略有效性原因（H2）
+   - 风险和注意事项（H2）
+   - 实施步骤（H2）
+   - 参数配置（H2）
+   - Backtrader 实现框架（H2）
+   - 参考链接（H2）
+3. 每个章节必须详细、专业、准确
+4. 使用适当的术语和格式
+5. 包含代码示例和说明
+
+## 策略类型分类
+根据文件名和内容，自动分类策略类型：
+- 动量策略: momentum, trend, price action
+- 均值回归: mean reversion, mean, reversion
+- 突破策略: breakout, channel, donchian
+- 机器学习/AI: machine learning, neural, ai, lstm
+- 期权策略: option, call, put, iron, condor
+- 波动率策略: volatility, atr, std, vix
+- 统计套利: pairs, arbitrage, cointegration
+- 投资组合优化: optimization, portfolio, optimizer
+- 风险管理: risk, drawdown, sharpe, crash, protection
+- 收益预估: earnings, estimate, ibes, estimize
+- 综合策略: financial hacker, quantstrat trader, quantpedia, quantstart
+- 其他策略: 其他所有策略
+
+## 输出格式
+将生成的 Markdown 文档保存到: /home/yun/Documents/backtrader_web/strategies/013_with
+
+## 质量标准
+- 详细性: 文档必须详细，包含所有必要的章节
+- 准确性: 文档必须准确，不包含错误信息
+- 可读性: 文档必须易于阅读，结构清晰
+- 专业性: 文档必须专业，使用适当的术语和格式
+- 完整性: 文档必须完整，包含所有必要的部分
+
+## 文档结构
+每个生成的 Markdown 文档应包含以下主要章节：
+1. 标题
+2. 策略概述（包含：核心思想、策略优势、策略特点、适用市场）
+3. 策略逻辑（包含：核心步骤、技术指标、信号生成、仓位管理、风险控制）
+4. 需要的数据（包含：价格数据、指标数据、基本面数据、宏观经济数据）
+5. 策略有效性原因（包含：理论支撑、实证证据、学术研究、行业应用）
+6. 风险和注意事项（包含：市场风险、策略风险、执行风险、技术风险、合规风险、风险管理建议）
+7. 实施步骤（包含：7 个详细步骤）
+8. 参数配置（包含：策略参数、参数说明、参数优化建议）
+9. Backtrader 实现框架（包含：完整的 Python 代码）
+10. 参考链接（包含：原始资源、相关资源）
+
+请生成高质量、详细、专业的 Markdown 策略文档。

@@ -1,7 +1,7 @@
 """
-FastAPI 应用入口（最终完整版）
+FastAPI 应用入口（完整版）
 
-集成了所有功能：安全性、参数优化、报告导出、模拟交易、实盘交易对接、对比、版本管理、实时行情、监控告警、WebSocket 等
+集成了所有功能：安全性、参数优化、报告导出、模拟交易、实盘交易对接、对比、版本管理、实时行情、监控告警
 """
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -18,10 +18,10 @@ from app.api.backtest_enhanced import router as backtest_enhanced_router
 from app.api.analytics import router as analytics_router
 from app.api.paper_trading import router as paper_trading_router
 from app.api.comparison import router as comparison_router
-from app.api.strategy_version import router as strategy_version_router
 from app.api.live_trading import router as live_trading_router
 from app.api.realtime_data import router as realtime_data_router
 from app.api.monitoring import router as monitoring_router
+from app.api.strategy_version import router as strategy_version_router
 from app.db.database import init_db
 from app.utils.logger import setup_logger
 
@@ -36,7 +36,7 @@ app.state.limiter = limiter
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    logger.info("Starting Backtrader Web API (v2.0 - Complete Edition)...")
+    logger.info("Starting Backtrader Web API...")
     await init_db()
     logger.info("Database initialized")
     yield
@@ -45,84 +45,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Backtrader Web API",
-    description="""
-# 🚀 Backtrader 量化交易平台 Web 服务（v2.0 - 完整版）
-
-## 📋 功能概览
-
-### 核心功能
-- 策略管理（CRUD + 版本控制）
-- 回测分析（历史数据 + 实时行情）
-
-### 增强功能
-- 参数优化（网格搜索 + 贝叶斯优化）
-- 报告导出（HTML/PDF/Excel）
-- WebSocket 实时推送
-
-### 交易功能
-- 模拟交易环境（账户、订单、持仓）
-- 实盘交易对接（多券商支持，基于 backtrader 架构）
-
-### 高级功能
-- 回测结果对比
-- 策略版本控制（分支、回滚）
-- 实时行情 WebSocket
-- 监控告警系统
-
-### 安全性
-- API 速率限制
-- 增强的输入验证
-- RBAC 权限控制
-- 安全沙箱执行
-
-## 🔗 系统架构
-
-### 后端
-- FastAPI Web 框架
-- SQLAlchemy ORM
-- Pytest 测试
-- 异步任务队列
-
-### 前端
-- React TypeScript
-- Ant Design UI
-
-### 实盘集成
-- Backtrader 项目：交易引擎
-- Cerebro + Store + Broker 架构
-- 多券商支持（Binance, OKEx, Huobi 等）
-- CCXT 加密货币支持
-- CTP 期货支持（国内市场）
-
-## 📚 API 文档
-- Swagger UI: `/docs`
-- ReDoc UI: `/redoc`
-- OpenAPI Spec: `/openapi.json`
-
-## 🎯 技术栈
-- Python 3.9+
-- FastAPI 0.100+
-- SQLAlchemy 1.4+
-- PostgreSQL 14+ / SQLite（开发）
-- Backtrader
-- React 18+
-
-## 📈 开发状态
-- ✅ 后端架构：100% 完成
-- ✅ API 路由：100% 完成
-- ✅ 数据模型：100% 完成
-- ✅ 服务层：100% 完成
-- ✅ Schema：100% 完成
-- ✅ 模拟交易：100% 完成
-- ✅ 实盘对接：100% 完成
-- ✅ 监控告警：100% 完成
-
-## 🚀 下一步
-1. 运行所有测试确保通过
-2. 前端集成和部署
-3. 生产环境配置
-4. 性能优化和监控
-    """,
+    description="Backtrader 量化交易平台 Web 服务（完整版）\n\n功能列表：\n- 策略管理（CRUD + 版本控制）\n- 回测分析（历史数据 + 实时行情）\n- 参数优化（网格搜索 + 贝叶斯优化）\n- 报告导出（HTML/PDF/Excel）\n- 模拟交易环境（账户、订单、持仓）\n- 实盘交易对接（多券商支持）\n- 回测结果对比\n- 策略版本控制（分支、回滚）\n- 实时行情 WebSocket\n- 监控告警系统",
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -152,7 +75,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册所有路由
+# 注册路由
 app.include_router(api_router, prefix="/api/v1")
 
 # 基础功能路由
@@ -164,16 +87,18 @@ app.include_router(backtest_router, prefix="/api/v1/backtests", tags=["回测"])
 app.include_router(backtest_enhanced_router, prefix="/api/v1/backtests", tags=["回测增强"])
 app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["分析"])
 
-# 交易功能路由
+# 模拟交易路由
 app.include_router(paper_trading_router, prefix="/api/v1/paper-trading", tags=["模拟交易"])
 
-# 实盘交易路由
+# 实盘交易对接路由
 app.include_router(live_trading_router, prefix="/api/v1/live-trading", tags=["实盘交易"])
+app.include_router(realtime_data_router, prefix="/api/v1/realtime", tags=["实时行情"])
 
 # 高级功能路由
 app.include_router(comparison_router, prefix="/api/v1/comparisons", tags=["对比"])
 app.include_router(strategy_version_router, prefix="/api/v1/strategy-versions", tags=["策略版本"])
-app.include_router(realtime_data_router, prefix="/api/v1/realtime", tags=["实时行情"])
+
+# 监控告警路由
 app.include_router(monitoring_router, prefix="/api/v1/monitoring", tags=["监控告警"])
 
 
@@ -183,7 +108,6 @@ async def root():
     return {
         "service": "Backtrader Web API",
         "version": "2.0.0",
-        "status": "running",
         "docs": "/docs",
         "features": [
             "策略管理（CRUD + 版本控制）",
@@ -211,9 +135,8 @@ async def health_check():
     return {
         "status": "healthy",
         "service": settings.APP_NAME,
-        "database": "connected",
-        "backtrader": "available",
-        "version": "2.0.0",
+        "database": "connected",  # TODO: 实际检查数据库连接
+        "backtrader_live_trading": "available",  # TODO: 实际检查 backtrader 实盘模块
     }
 
 

@@ -17,11 +17,11 @@ from app.api.backtest import router as backtest_router
 from app.api.backtest_enhanced import router as backtest_enhanced_router
 from app.api.analytics import router as analytics_router
 from app.api.paper_trading import router as paper_trading_router
+from app.api.live_trading_complete import router as live_trading_router
 from app.api.comparison import router as comparison_router
-from app.api.strategy_version import router as strategy_version_router
-from app.api.live_trading import router as live_trading_router
 from app.api.realtime_data import router as realtime_data_router
 from app.api.monitoring import router as monitoring_router
+from app.api.strategy_version import router as strategy_version_router
 from app.db.database import init_db
 from app.utils.logger import setup_logger
 
