@@ -35,7 +35,7 @@ def check_services():
         print(f"✓ 后端服务运行中: {backend_url}")
     except:
         print(f"✗ 后端服务未启动: {backend_url}")
-        print("  请运行: cd backend && uvicorn app.main:app --reload --port 8000")
+        print("  请运行: cd src/backend && uvicorn app.main:app --reload --port 8000")
         return False
     
     # 检查前端
@@ -44,7 +44,7 @@ def check_services():
         print(f"✓ 前端服务运行中: {frontend_url}")
     except:
         print(f"✗ 前端服务未启动: {frontend_url}")
-        print("  请运行: cd frontend && npm run dev")
+        print("  请运行: cd src/frontend && npm run dev")
         return False
     
     return True

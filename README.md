@@ -41,7 +41,7 @@ git clone https://gitee.com/xxx/backtrader_web.git
 cd backtrader_web
 
 # 后端
-cd backend
+cd src/backend
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -49,7 +49,7 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 
 # 前端 (新终端)
-cd frontend
+cd src/frontend
 npm install
 npm run dev
 ```
@@ -63,22 +63,24 @@ npm run dev
 
 ```
 backtrader_web/
-├── backend/                 # FastAPI 后端
-│   ├── app/
-│   │   ├── api/            # API 路由
-│   │   ├── services/       # 业务逻辑
-│   │   ├── db/             # 数据库层
-│   │   ├── models/         # ORM 模型
-│   │   └── schemas/        # Pydantic 模型
-│   └── strategies/         # 内置策略
-├── frontend/               # Vue3 前端
-│   ├── src/
-│   │   ├── api/           # API 调用
-│   │   ├── components/    # 组件
-│   │   ├── views/         # 页面
-│   │   └── stores/        # Pinia 状态
-│   └── package.json
-└── docs/                   # 文档
+├── src/
+│   ├── backend/             # FastAPI 后端
+│   │   ├── app/
+│   │   │   ├── api/         # API 路由
+│   │   │   ├── services/    # 业务逻辑
+│   │   │   ├── db/          # 数据库层
+│   │   │   ├── models/      # ORM 模型
+│   │   │   └── schemas/     # Pydantic 模型
+│   │   └── strategies/      # 内置策略
+│   └── frontend/            # Vue3 前端
+│       ├── src/
+│       │   ├── api/         # API 调用
+│       │   ├── components/  # 组件
+│       │   ├── views/       # 页面
+│       │   └── stores/      # Pinia 状态
+│       └── package.json
+├── strategies/              # 策略示例
+└── docs/                    # 文档
     └── AGILE_DEVELOPMENT.md
 ```
 

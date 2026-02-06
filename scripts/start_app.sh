@@ -17,8 +17,8 @@ NC='\033[0m' # No Color
 
 # 项目根目录
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKEND_DIR="$PROJECT_ROOT/backend"
-FRONTEND_DIR="$PROJECT_ROOT/frontend"
+BACKEND_DIR="$PROJECT_ROOT/src/backend"
+FRONTEND_DIR="$PROJECT_ROOT/src/frontend"
 PID_DIR="$PROJECT_ROOT/.pids"
 LOG_DIR="$PROJECT_ROOT/logs"
 

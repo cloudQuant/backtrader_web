@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 
 # 项目根目录
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]})/.." )" && pwd)"
-BACKEND_DIR="$PROJECT_ROOT/backend"
+BACKEND_DIR="$PROJECT_ROOT/src/backend"
 
 echo -e "${CYAN}"
 echo "======================================"
