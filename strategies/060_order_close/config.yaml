@@ -1,0 +1,19 @@
+# Strategy basic information
+strategy:
+  name: "收盘价订单执行策略"
+  description: "基于SMA交叉信号，使用bt.Order.Close类型在每个bar的收盘价执行订单"
+  author: "backtrader"
+
+# Strategy parameters
+params:
+  period: 15  # SMA period for crossover signal
+
+# Data configuration
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

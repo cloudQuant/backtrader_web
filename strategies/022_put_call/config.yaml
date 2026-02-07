@@ -1,0 +1,26 @@
+# 策略基本信息
+strategy:
+  name: "Put/Call比率情绪策略"
+  description: "基于Put/Call比率的逆向投资策略，在市场恐惧时买入，贪婪时卖出"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  high_threshold: 1.0  # Put/Call比率高阈值（恐惧），高于此值买入
+  low_threshold: 0.45  # Put/Call比率低阈值（贪婪），低于此值卖出
+
+# 数据配置
+data:
+  symbol: "SPY"                    # 标普500ETF
+  data_type: "stock"               # 股票数据
+  data_file: "spy-put-call-fear-greed-vix.csv"
+
+# 回测配置
+backtest:
+  initial_cash: 100000    # 初始资金
+  data_start: "2011-01-01" # 数据开始日期
+  data_end: "2021-12-31"   # 数据结束日期
+
+# 情绪指标配置
+sentiment:
+  put_call_range: [0, 2]  # Put/Call比率典型范围

@@ -1,0 +1,20 @@
+# 策略基本信息
+strategy:
+  name: "VWR波动率加权收益率策略"
+  description: "双移动平均线交叉策略，用于测试VWR（Variability-Weighted Return）分析器。VWR是一个考虑收益波动性的风险调整后收益指标。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  p1: 10  # 快速移动平均线周期
+  p2: 30  # 慢速移动平均线周期
+
+# 数据配置
+data:
+  symbol: "BTC"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.0

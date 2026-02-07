@@ -1,0 +1,24 @@
+# Strategy basic information
+strategy:
+  name: "RSI长短周期策略"
+  description: "使用长周期和短周期两个RSI指标组合判断入场时机，长周期确认趋势，短周期寻找入场点"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10
+  period_long: 14
+  period_short: 5
+  buy_rsi_long: 50
+  buy_rsi_short: 65
+  sell_rsi_short: 45
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

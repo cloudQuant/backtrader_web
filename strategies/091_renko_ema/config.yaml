@@ -1,0 +1,22 @@
+# 策略基本信息
+strategy:
+  name: "Renko EMA交叉策略"
+  description: "结合Renko图表过滤和EMA交叉信号的趋势策略。Renko过滤平滑价格噪音，EMA交叉产生交易信号。"
+  author: "Backtrader1.0"
+
+# 策略参数
+params:
+  stake: 10
+  fast_period: 10          # 快速EMA周期
+  slow_period: 20          # 慢速EMA周期
+  renko_brick_size: 1.0    # Renko砖块大小
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "EMA双均线交叉策略"
+  description: "基于双EMA交叉的多周期交易策略，使用5分钟和日线数据进行过滤"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  fast_period: 80    # 快线EMA周期
+  slow_period: 200   # 慢线EMA周期
+  short_size: 2      # 空头仓位规模
+  long_size: 1       # 多头仓位规模
+
+# 数据配置
+data:
+  data_type: "stock"  # 股票数据
+  timeframes:
+    - "5min"          # 5分钟数据（主周期）
+    - "day"           # 日线数据（过滤用）
+
+# 回测配置
+backtest:
+  initial_cash: 100000    # 初始资金
+  coc: true               # Cheat On Close - 收盘价执行

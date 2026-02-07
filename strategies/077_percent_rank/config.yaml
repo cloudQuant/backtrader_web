@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "百分位排名策略"
+  description: "基于MACD柱状图百分位排名的均值回归策略。当指标处于极端低位后回升时买入，处于极端高位后回落时卖出。"
+  author: "backtrader/backhacker"
+
+# 策略参数
+params:
+  stake: 10
+  percent_period: 200
+  limit1: 10
+  limit2: 30
+  period1: 12
+  period2: 26
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

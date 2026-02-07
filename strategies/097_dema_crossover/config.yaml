@@ -1,0 +1,21 @@
+# Strategy basic information
+strategy:
+  name: "双指数移动平均交叉策略"
+  description: "使用快速和慢速双指数移动平均线(DEMA)交叉产生交易信号的趋势跟踪策略，金叉买入死叉卖出"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10
+  fast_period: 5
+  slow_period: 21
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

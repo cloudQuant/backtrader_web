@@ -9,6 +9,8 @@ import io
 import csv
 from datetime import datetime, timedelta
 
+from pathlib import Path
+
 from app.schemas.analytics import (
     BacktestDetailResponse,
     KlineWithSignalsResponse,
@@ -18,6 +20,8 @@ from app.schemas.analytics import (
 )
 from app.services.analytics_service import AnalyticsService
 from app.services.backtest_service import BacktestService
+from app.services.log_parser_service import parse_data_log, parse_value_log, find_latest_log_dir
+from app.services.strategy_service import STRATEGIES_DIR
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -46,6 +50,18 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
     equity_dates = result.equity_dates or []
     drawdown_values = result.drawdown_curve or []
     
+    # 尝试从策略日志目录获取真实现金数据
+    real_cash_map: dict = {}
+    try:
+        strategy_dir = STRATEGIES_DIR / result.strategy_id
+        log_dir = find_latest_log_dir(strategy_dir)
+        if log_dir:
+            value_data = parse_value_log(log_dir)
+            for d, c in zip(value_data.get('dates', []), value_data.get('cash_curve', [])):
+                real_cash_map[d] = c
+    except Exception:
+        pass
+    
     peak = equity_values[0] if equity_values else 0
     
     for i, (date, value) in enumerate(zip(equity_dates, equity_values)):
@@ -53,19 +69,19 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
             peak = value
         dd = (value - peak) / peak if peak > 0 else 0
         
-        # 简单估算现金和持仓比例
-        cash = value * 0.3
-        position = value * 0.7
+        date_str = date if isinstance(date, str) else str(date)
+        cash = real_cash_map.get(date_str, value * 0.3)
+        position = value - cash
         
         equity_curve.append({
-            'date': date if isinstance(date, str) else str(date),
+            'date': date_str,
             'total_assets': round(value, 2),
             'cash': round(cash, 2),
             'position_value': round(position, 2),
         })
         
         drawdown_curve.append({
-            'date': date if isinstance(date, str) else str(date),
+            'date': date_str,
             'drawdown': round(dd, 6),
             'peak': round(peak, 2),
             'trough': round(value, 2),
@@ -77,17 +93,19 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
     raw_trades = result.trades or []
     
     for i, t in enumerate(raw_trades):
+        # t 可能是 TradeRecord pydantic 对象或 dict
+        td = t.model_dump() if hasattr(t, 'model_dump') else (t if isinstance(t, dict) else {})
         trade = {
             'id': i + 1,
-            'datetime': t.get('datetime', ''),
+            'datetime': td.get('datetime', ''),
             'symbol': result.symbol,
-            'direction': t.get('direction', 'buy'),
-            'price': t.get('price', 0),
-            'size': t.get('size', 0),
-            'value': t.get('value', 0),
-            'commission': t.get('commission', 0),
-            'pnl': t.get('pnl'),
-            'barlen': t.get('barlen'),
+            'direction': td.get('direction', 'buy'),
+            'price': td.get('price', 0),
+            'size': td.get('size', 0),
+            'value': td.get('value', 0),
+            'commission': td.get('commission', 0),
+            'pnl': td.get('pnl') or td.get('pnlcomm'),
+            'barlen': td.get('barlen'),
         }
         trades.append(trade)
         
@@ -98,22 +116,46 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
             'size': trade['size'],
         })
     
-    # 生成K线数据（从资金曲线反推价格变化）
+    # 从log目录获取真实K线数据
     klines = []
-    base_price = 10.0
-    for i, date in enumerate(equity_dates):
-        if i > 0 and equity_values[i-1] > 0:
-            change = (equity_values[i] - equity_values[i-1]) / equity_values[i-1]
-            base_price = base_price * (1 + change * 0.5)
-        
-        klines.append({
-            'date': date if isinstance(date, str) else str(date),
-            'open': round(base_price * 0.998, 2),
-            'high': round(base_price * 1.01, 2),
-            'low': round(base_price * 0.99, 2),
-            'close': round(base_price, 2),
-            'volume': 500000,
-        })
+    log_indicators: dict = {}
+    try:
+        strategy_dir = STRATEGIES_DIR / result.strategy_id
+        log_dir = find_latest_log_dir(strategy_dir)
+        if log_dir:
+            kline_data = parse_data_log(log_dir)
+            kline_dates = kline_data.get('dates', [])
+            kline_ohlc = kline_data.get('ohlc', [])
+            kline_volumes = kline_data.get('volumes', [])
+            log_indicators = kline_data.get('indicators', {})
+            for j in range(len(kline_dates)):
+                ohlc = kline_ohlc[j] if j < len(kline_ohlc) else [0, 0, 0, 0]
+                klines.append({
+                    'date': kline_dates[j],
+                    'open': round(ohlc[0], 4),
+                    'high': round(ohlc[3], 4),
+                    'low': round(ohlc[2], 4),
+                    'close': round(ohlc[1], 4),
+                    'volume': kline_volumes[j] if j < len(kline_volumes) else 0,
+                })
+    except Exception:
+        pass
+    
+    # 如果无法从日志获取，回退使用资金曲线反推
+    if not klines:
+        base_price = 10.0
+        for i, date in enumerate(equity_dates):
+            if i > 0 and equity_values[i-1] > 0:
+                change = (equity_values[i] - equity_values[i-1]) / equity_values[i-1]
+                base_price = base_price * (1 + change * 0.5)
+            klines.append({
+                'date': date if isinstance(date, str) else str(date),
+                'open': round(base_price * 0.998, 2),
+                'high': round(base_price * 1.01, 2),
+                'low': round(base_price * 0.99, 2),
+                'close': round(base_price, 2),
+                'volume': 500000,
+            })
     
     # 计算月度收益
     monthly_returns = {}
@@ -151,6 +193,7 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
         'trades': trades,
         'signals': signals,
         'klines': klines,
+        'log_indicators': log_indicators,
         'monthly_returns': monthly_returns,
         'created_at': str(result.created_at) if result.created_at else '',
     }
@@ -226,8 +269,12 @@ async def get_kline_with_signals(
         klines = [k for k in klines if k['date'] <= end_date]
         signals = [s for s in signals if s['date'] <= end_date]
     
-    # 计算指标
-    indicators = service.calculate_indicators(klines)
+    # 优先使用日志中的真实指标，没有则计算均线
+    log_indicators = result.get('log_indicators', {})
+    if log_indicators:
+        indicators = log_indicators
+    else:
+        indicators = service.calculate_indicators(klines)
     
     return KlineWithSignalsResponse(
         symbol=result['symbol'],

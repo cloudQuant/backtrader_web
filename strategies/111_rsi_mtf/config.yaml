@@ -1,0 +1,24 @@
+# Strategy basic information
+strategy:
+  name: "RSI多周期策略"
+  description: "使用长周期和短周期RSI组合识别交易机会的多周期策略"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares/contracts per trade
+  period_long: 14  # Period for long-term RSI
+  period_short: 3  # Period for short-term RSI
+  buy_rsi_long: 50  # RSI level for long-term trend confirmation
+  buy_rsi_short: 70  # RSI level for short-term momentum trigger
+  sell_rsi_short: 35  # RSI level for exit signal
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

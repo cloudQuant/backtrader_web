@@ -4,7 +4,7 @@ FastAPI 应用入口（最终完整版）
 集成了所有功能：安全性、参数优化、报告导出、模拟交易、实盘交易对接、对比、版本管理、实时行情、监控告警、WebSocket 等
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -22,8 +22,10 @@ from app.api.strategy_version import router as strategy_version_router
 from app.api.live_trading import router as live_trading_router
 from app.api.realtime_data import router as realtime_data_router
 from app.api.monitoring import router as monitoring_router
+from app.api.data import router as data_router
 from app.db.database import init_db
 from app.utils.logger import setup_logger
+from app.websocket_manager import manager as ws_manager
 
 settings = get_settings()
 logger = setup_logger(__name__)
@@ -167,6 +169,7 @@ app.include_router(comparison_router, prefix="/api/v1/comparisons", tags=["对�
 app.include_router(strategy_version_router, prefix="/api/v1/strategy-versions", tags=["策略版本"])
 app.include_router(realtime_data_router, prefix="/api/v1/realtime", tags=["实时行情"])
 app.include_router(monitoring_router, prefix="/api/v1/monitoring", tags=["监控告警"])
+app.include_router(data_router, prefix="/api/v1/data", tags=["行情数据"])
 
 
 @app.get("/", summary="根路由")
@@ -230,6 +233,22 @@ async def system_info():
             "monitoring": True,
         },
     }
+
+
+@app.websocket("/ws/backtest/{task_id}")
+async def websocket_backtest_progress(websocket: WebSocket, task_id: str):
+    """WebSocket端点：接收回测任务的实时进度推送"""
+    import uuid
+    client_id = str(uuid.uuid4())[:8]
+    await ws_manager.connect(websocket, task_id, client_id)
+    try:
+        while True:
+            # 保持连接，等待客户端消息（如心跳）
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, task_id, client_id)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "括号订单策略"
+  description: "使用移动平均交叉信号生成括号订单（主订单+止损+止盈），当快速SMA上穿慢速SMA时，同时设置止损和止盈订单。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  p1: 5                # 快速SMA周期
+  p2: 15               # 慢速SMA周期
+  limit: 0.005         # 限价订单偏移比例（0.5%）
+  limdays: 3           # 主订单有效期（天数）
+  limdays2: 1000       # 止损/止盈订单有效期（天数）
+  hold: 10             # 持仓周期
+
+# 数据配置
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

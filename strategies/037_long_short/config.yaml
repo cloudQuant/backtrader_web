@@ -1,0 +1,21 @@
+# 策略基本信息
+strategy:
+  name: "多空策略"
+  description: "基于价格与SMA交叉的多空策略。当价格上穿SMA时做多，当价格下穿SMA时做空。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  period: 15          # SMA周期
+  stake: 1            # 每次交易数量
+  onlylong: false     # 是否只做多（false=允许做空）
+
+# 数据配置
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

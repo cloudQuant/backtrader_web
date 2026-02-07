@@ -1,0 +1,23 @@
+# Strategy basic information
+strategy:
+  name: "超级趋势RSI策略"
+  description: "结合SuperTrend趋势指标和RSI动量指标的趋势跟踪策略"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares/contracts per trade
+  atr_period: 14  # ATR period for SuperTrend calculation
+  atr_mult: 2  # ATR multiplier for SuperTrend calculation
+  rsi_period: 14  # RSI calculation period
+  rsi_threshold: 40  # RSI threshold for entry signal
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

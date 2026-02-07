@@ -24,6 +24,10 @@
           <el-icon><DataLine /></el-icon>
           <span>回测分析</span>
         </el-menu-item>
+        <el-menu-item index="/optimization">
+          <el-icon><MagicStick /></el-icon>
+          <span>参数优化</span>
+        </el-menu-item>
         <el-menu-item index="/strategy">
           <el-icon><Document /></el-icon>
           <span>策略管理</span>
@@ -31,6 +35,14 @@
         <el-menu-item index="/data">
           <el-icon><Grid /></el-icon>
           <span>数据查询</span>
+        </el-menu-item>
+        <el-menu-item index="/live-trading">
+          <el-icon><VideoPlay /></el-icon>
+          <span>实盘交易</span>
+        </el-menu-item>
+        <el-menu-item index="/portfolio">
+          <el-icon><TrendCharts /></el-icon>
+          <span>组合管理</span>
         </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
@@ -46,6 +58,11 @@
         <div class="text-lg font-medium">{{ pageTitle }}</div>
         
         <div class="flex items-center gap-4">
+          <el-tooltip :content="isDark ? '切换亮色模式' : '切换暗色模式'">
+            <el-button circle @click="toggleTheme">
+              <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
+            </el-button>
+          </el-tooltip>
           <el-dropdown @command="handleCommand">
             <span class="flex items-center gap-2 cursor-pointer">
               <el-avatar :size="32">
@@ -73,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import {
@@ -84,6 +101,10 @@ import {
   Setting,
   ArrowDown,
   TrendCharts,
+  Sunny,
+  Moon,
+  VideoPlay,
+  MagicStick,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -93,12 +114,29 @@ const authStore = useAuthStore()
 const currentRoute = computed(() => route.path)
 const user = computed(() => authStore.user)
 
+const isDark = ref(localStorage.getItem('theme') === 'dark')
+
+function toggleTheme() {
+  isDark.value = !isDark.value
+  document.documentElement.classList.toggle('dark', isDark.value)
+  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
+}
+
+onMounted(() => {
+  if (isDark.value) {
+    document.documentElement.classList.add('dark')
+  }
+})
+
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
     '/': '仪表盘',
     '/backtest': '回测分析',
+    '/optimization': '参数优化',
     '/strategy': '策略管理',
     '/data': '数据查询',
+    '/live-trading': '实盘交易',
+    '/portfolio': '组合管理',
     '/settings': '系统设置',
   }
   return titles[route.path] || 'Backtrader Web'

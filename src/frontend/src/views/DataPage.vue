@@ -70,6 +70,7 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
+import api from '@/api/index'
 import KlineChart from '@/components/charts/KlineChart.vue'
 import type { KlineData } from '@/types'
 import dayjs from 'dayjs'
@@ -87,45 +88,19 @@ const queryForm = reactive({
 async function queryData() {
   loading.value = true
   try {
-    // 模拟数据查询
-    const days = dayjs(queryForm.endDate).diff(queryForm.startDate, 'day')
-    const dates: string[] = []
-    const ohlc: number[][] = []
-    const volumes: number[] = []
-    const data: any[] = []
+    const start = dayjs(queryForm.startDate).format('YYYY-MM-DD')
+    const end = dayjs(queryForm.endDate).format('YYYY-MM-DD')
     
-    let lastClose = 10 + Math.random() * 5
+    const resp: any = await api.get('/data/kline', {
+      params: { symbol: queryForm.symbol, start_date: start, end_date: end },
+    })
     
-    for (let i = 0; i < days; i++) {
-      const date = dayjs(queryForm.startDate).add(i, 'day').format('YYYY-MM-DD')
-      const change = (Math.random() - 0.5) * 0.06
-      const open = lastClose * (1 + (Math.random() - 0.5) * 0.02)
-      const close = lastClose * (1 + change)
-      const high = Math.max(open, close) * (1 + Math.random() * 0.02)
-      const low = Math.min(open, close) * (1 - Math.random() * 0.02)
-      const volume = Math.floor(Math.random() * 10000000)
-      
-      dates.push(date)
-      ohlc.push([+open.toFixed(2), +close.toFixed(2), +low.toFixed(2), +high.toFixed(2)])
-      volumes.push(volume)
-      
-      data.push({
-        date,
-        open: +open.toFixed(2),
-        high: +high.toFixed(2),
-        low: +low.toFixed(2),
-        close: +close.toFixed(2),
-        volume,
-        change: change * 100,
-      })
-      
-      lastClose = close
-    }
+    klineData.value = resp.kline
+    tableData.value = resp.records.slice().reverse()
     
-    klineData.value = { dates, ohlc, volumes }
-    tableData.value = data.reverse()
-    
-    ElMessage.success(`查询到 ${data.length} 条数据`)
+    ElMessage.success(`查询到 ${resp.count} 条数据`)
+  } catch {
+    // error handled by interceptor
   } finally {
     loading.value = false
   }

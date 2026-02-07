@@ -1,0 +1,25 @@
+# BOLLKDJ Bollinger Bands + KDJ strategy configuration
+# 策略基本信息
+strategy:
+  name: "布林带KDJ组合策略"
+  description: "结合布林带突破和KDJ金叉死叉的双重确认策略，布林带提供趋势信号，KDJ提供入场时机确认。"
+  author: "backtrader-example"
+
+# 策略参数
+params:
+  boll_period: 53    # 布林带周期
+  boll_mult: 2       # 布林带标准差倍数
+  kdj_period: 9      # KDJ周期
+  kdj_ma1: 3         # KDJ快速均线周期
+  kdj_ma2: 3         # KDJ慢速均线周期
+  price_diff: 0.5    # 止损价格差
+
+# 数据配置
+data:
+  symbol: "sh600000"
+  data_type: "stock"  # stock
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

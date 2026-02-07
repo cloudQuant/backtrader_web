@@ -2,7 +2,7 @@
 SQL数据库Repository实现 - 支持PostgreSQL/MySQL/SQLite
 """
 from typing import TypeVar, Generic, List, Optional, Dict, Any, Type
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import select, update, delete, func, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import BaseRepository
@@ -61,9 +61,11 @@ class SQLRepository(BaseRepository[T], Generic[T]):
         self,
         filters: Dict[str, Any] = None,
         skip: int = 0,
-        limit: int = 100
+        limit: int = 100,
+        order_by: str = None,
+        order_desc: bool = True,
     ) -> List[T]:
-        """列表查询"""
+        """列表查询，支持排序"""
         async with async_session_maker() as session:
             query = select(self.model_class)
             
@@ -73,6 +75,10 @@ class SQLRepository(BaseRepository[T], Generic[T]):
                         query = query.where(
                             getattr(self.model_class, key) == value
                         )
+            
+            if order_by and hasattr(self.model_class, order_by):
+                col = getattr(self.model_class, order_by)
+                query = query.order_by(desc(col) if order_desc else asc(col))
             
             query = query.offset(skip).limit(limit)
             result = await session.execute(query)

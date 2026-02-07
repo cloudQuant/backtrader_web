@@ -1,0 +1,23 @@
+# Strategy basic information
+strategy:
+  name: "随机指标策略"
+  description: "基于KD随机指标的策略，K线向上穿越D线且在超卖区域时买入，K线向下穿越D线且在超买区域时卖出"
+  author: "George Lane"
+
+# Strategy parameters
+params:
+  stake: 10
+  period: 14
+  period_dfast: 3
+  oversold: 20
+  overbought: 80
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

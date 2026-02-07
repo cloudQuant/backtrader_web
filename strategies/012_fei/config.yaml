@@ -1,0 +1,28 @@
+# 策略基本信息
+strategy:
+  name: "菲阿里四价改进版策略"
+  description: "基于布林带过滤的菲阿里四价突破策略，适用于螺纹钢期货等品种的日内交易"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  boll_period: 200  # 布林带周期
+  boll_mult: 2      # 布林带标准差倍数
+
+# 数据配置
+data:
+  symbol: "RB889"          # 螺纹钢连续合约
+  data_type: "future"      # 期货数据
+
+# 回测配置
+backtest:
+  initial_cash: 1000000    # 初始资金
+  commission: 0.0001       # 手续费率
+  margin: 0.10             # 保证金比例
+  mult: 10                 # 合约乘数
+
+# 交易时间配置
+trading:
+  entry_hours: [21, 22, 23, 9, 10, 11]  # 允许开仓的小时
+  exit_hour: 14
+  exit_minute: 55           # 平仓时间(14:55)

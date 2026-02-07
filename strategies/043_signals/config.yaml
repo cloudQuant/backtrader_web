@@ -1,0 +1,19 @@
+# 策略基本信息
+strategy:
+  name: "信号策略 (Signals)"
+  description: "使用cerebro.add_signal()方法实现基于指标的信号驱动策略，无需编写完整的Strategy类。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  period: 30          # SMA周期
+
+# 数据配置
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 50000
+  commission: 0.001

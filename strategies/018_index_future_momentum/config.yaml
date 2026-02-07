@@ -1,0 +1,28 @@
+# 策略基本信息
+strategy:
+  name: "国债期货MACD策略"
+  description: "基于MACD指标的国债期货交易策略，支持合约换月"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  period_me1: 10   # 快线EMA周期
+  period_me2: 20   # 慢线EMA周期
+  period_dif: 9    # DEA线EMA周期
+
+# 数据配置
+data:
+  symbol: "T"               # 国债期货品种代码
+  data_type: "future"       # 期货数据
+  data_file: "CFFEX_Futures_Contract_Data.csv"
+
+# 回测配置
+backtest:
+  initial_cash: 1000000    # 初始资金
+  commission: 0.0002       # 手续费率
+  margin: 0.1              # 保证金比例
+  mult: 10                 # 合约乘数
+
+# 换月配置
+rollover:
+  use_open_interest: true  # 使用持仓量确定主力合约

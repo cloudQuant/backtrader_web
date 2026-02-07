@@ -1,0 +1,24 @@
+# Strategy basic information
+strategy:
+  name: "终极震荡指标策略"
+  description: "基于Ultimate Oscillator的策略，整合三个不同时间周期以减少虚假信号，在超卖区域买入超买区域卖出"
+  author: "Larry Williams"
+
+# Strategy parameters
+params:
+  stake: 10
+  p1: 7
+  p2: 14
+  p3: 28
+  oversold: 30
+  overbought: 70
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

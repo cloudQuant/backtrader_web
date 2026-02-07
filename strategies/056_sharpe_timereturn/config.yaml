@@ -1,0 +1,29 @@
+# 策略基本信息
+strategy:
+  name: "Sharpe比率与时间收益率分析策略"
+  description: "演示Sharpe比率和TimeReturn分析器的使用，计算不同时间周期的收益率。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  p1: 10   # 快速移动平均线周期
+  p2: 30   # 慢速移动平均线周期
+
+# 数据配置
+data:
+  symbol: "BTC"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.0
+
+# 分析器配置
+analyzers:
+  sharpe:
+    timeframe: "Days"   # 计算Sharpe的时间框架
+    annualize: true     # 是否年化
+  time_return:
+    yearly: true        # 按年计算收益率
+    monthly: true       # 按月计算收益率

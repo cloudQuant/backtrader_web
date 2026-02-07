@@ -1,0 +1,25 @@
+# 策略基本信息
+strategy:
+  name: "策略选择 (Strategy Selection)"
+  description: "演示如何在运行时动态选择不同的策略进行比较。包含两个策略示例：双均线交叉策略和价格SMA交叉策略。"
+  author: "Backtrader"
+
+# 策略参数
+# StrategyA: 双均线交叉
+strategy_a:
+  p1: 10              # 快速SMA周期
+  p2: 30              # 慢速SMA周期
+
+# StrategyB: 价格SMA交叉
+strategy_b:
+  period: 10          # SMA周期
+
+# 数据配置
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

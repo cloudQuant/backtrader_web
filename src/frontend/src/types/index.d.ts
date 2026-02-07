@@ -124,6 +124,25 @@ export interface StrategyListResponse {
   items: Strategy[]
 }
 
+// 策略配置（从 config.yaml 读取）
+export interface StrategyConfig {
+  strategy_id: string
+  strategy: {
+    name?: string
+    description?: string
+    author?: string
+  }
+  params: Record<string, number | string>
+  data: {
+    symbol?: string
+    data_type?: string
+  }
+  backtest: {
+    initial_cash?: number
+    commission?: number
+  }
+}
+
 // K线数据类型
 export interface KlineData {
   dates: string[]

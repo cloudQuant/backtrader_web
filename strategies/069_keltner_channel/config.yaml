@@ -1,0 +1,21 @@
+# Strategy basic information
+strategy:
+  name: "肯特纳通道策略"
+  description: "基于肯特纳通道突破的趋势策略，价格突破上轨做多，跌破中轨平仓"
+  author: "backtrader"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares per trade
+  period: 20  # EMA period for middle line
+  atr_mult: 2.0  # ATR multiplier for bands
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

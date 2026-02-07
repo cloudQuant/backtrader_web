@@ -1,0 +1,25 @@
+# 策略基本信息
+strategy:
+  name: "自适应SuperTrend策略"
+  description: "使用基于ATR动态调整倍数的SuperTrend指标。倍数根据当前波动率与平均波动率的关系自动调整。"
+  author: "Backtrader1.0"
+
+# 策略参数
+params:
+  stake: 10
+  st_period: 20           # SuperTrend ATR周期
+  vol_lookback: 20        # 波动率回溯周期
+  a_coef: 0.5             # 基础倍数系数a
+  b_coef: 2.0             # 基础倍数系数b
+  min_mult: 0.5           # 最小倍数
+  max_mult: 3.0           # 最大倍数
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

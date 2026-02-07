@@ -1,0 +1,23 @@
+# BB_ADX Bollinger Bands + ADX mean reversion strategy configuration
+# 策略基本信息
+strategy:
+  name: "布林带ADX均值回归策略"
+  description: "使用布林带提供均值回归信号，ADX用于识别和避免趋势市场。仅在ADX低于阈值时执行均值回归交易。"
+  author: "backtrader-backtests"
+
+# 策略参数
+params:
+  BB_MA: 20        # 布林带均线周期
+  BB_SD: 2         # 布林带标准差倍数
+  ADX_Period: 14   # ADX周期
+  ADX_Max: 40      # ADX阈值（超过则避免交易）
+
+# 数据配置
+data:
+  symbol: "sh600000"
+  data_type: "stock"  # stock
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

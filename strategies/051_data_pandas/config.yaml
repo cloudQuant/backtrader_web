@@ -1,0 +1,21 @@
+# 策略基本信息
+strategy:
+  name: "Pandas数据加载策略"
+  description: "演示如何从Pandas DataFrame加载数据到Backtrader，使用双移动平均线交叉策略。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  fast_period: 10   # 快速移动平均线周期
+  slow_period: 30   # 慢速移动平均线周期
+
+# 数据配置
+data:
+  symbol: "BTC"
+  data_type: "stock"  # bond/stock/future/index
+  source: "pandas"  # 数据源类型：pandas/csv/ysql
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.0

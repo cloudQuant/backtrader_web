@@ -1,0 +1,26 @@
+# 策略基本信息
+strategy:
+  name: "VIX波动率指数策略"
+  description: "基于VIX波动率指数的逆向投资策略，在波动率极端高时买入，低时卖出"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  high_threshold: 35  # VIX高阈值（恐慌），高于此值买入
+  low_threshold: 10   # VIX低阈值（平静），低于此值卖出
+
+# 数据配置
+data:
+  symbol: "SPY"                    # 标普500ETF
+  data_type: "stock"               # 股票数据
+  data_file: "spy-put-call-fear-greed-vix.csv"
+
+# 回测配置
+backtest:
+  initial_cash: 100000    # 初始资金
+  data_start: "2011-01-01" # 数据开始日期
+  data_end: "2021-12-31"   # 数据结束日期
+
+# 波动率指标配置
+volatility:
+  vix_range: [0, 100]  # VIX指数典型范围

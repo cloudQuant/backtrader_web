@@ -1,0 +1,21 @@
+# Abbration Bollinger Band breakout strategy configuration
+# 策略基本信息
+strategy:
+  name: "布林带突破策略"
+  description: "基于布林带突破的趋势跟踪策略，当价格突破布林带上轨时做多，突破下轨时做空，回归中轨时平仓。"
+  author: "backtrader-example"
+
+# 策略参数
+params:
+  boll_period: 200  # 布林带周期
+  boll_mult: 2      # 布林带标准差倍数
+
+# 数据配置
+data:
+  symbol: "sh600000"
+  data_type: "stock"  # stock
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

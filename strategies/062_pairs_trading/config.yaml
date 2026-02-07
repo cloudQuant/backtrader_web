@@ -1,0 +1,25 @@
+# Strategy basic information
+strategy:
+  name: "配对交易策略"
+  description: "基于OLS变换和Z-Score的配对交易策略，当价差超出统计区间时进行交易"
+  author: "arikaufman"
+
+# Strategy parameters
+params:
+  period: 20  # OLS transformation period
+  stake: 10  # Position size
+  upper: 2.5  # Upper Z-Score threshold (short spread)
+  lower: -2.5  # Lower Z-Score threshold (long spread)
+  up_medium: 0.5  # Upper medium threshold (close position)
+  low_medium: -0.5  # Lower medium threshold (close position)
+  stop_loss: 3.0  # Stop loss threshold
+
+# Data configuration
+data:
+  symbol: "V-MA"  # Visa and Mastercard pair
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -1,0 +1,23 @@
+# Strategy basic information
+strategy:
+  name: "成交量突破策略"
+  description: "基于成交量突破信号识别潜在突破机会的动量策略"
+  author: "Backtrader NUPL Strategy"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares/contracts per trade
+  vol_period: 20  # Period for volume moving average
+  vol_mult: 1.05  # Volume multiplier for breakout signal
+  rsi_period: 14  # Period for RSI calculation
+  rsi_exit: 70  # RSI threshold for exit signal
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

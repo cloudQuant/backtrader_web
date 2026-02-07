@@ -1,8 +1,11 @@
-"""
-策略服务 - 策略CRUD和配置加载
-"""
-from typing import Optional, List
+"""策略服务 - 策略CRUD和配置加载"""
+import glob
+import logging
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 from datetime import datetime
+
+import yaml
 
 from app.models.strategy import Strategy
 from app.schemas.strategy import (
@@ -15,104 +18,112 @@ from app.schemas.strategy import (
 )
 from app.db.sql_repository import SQLRepository
 
+logger = logging.getLogger(__name__)
 
-# 内置策略模板
-STRATEGY_TEMPLATES = [
-    StrategyTemplate(
-        id="ma_cross",
-        name="双均线交叉策略",
-        description="基于快慢均线交叉的趋势跟踪策略，金叉买入，死叉卖出",
-        category="trend",
-        code='''import backtrader as bt
+# 策略目录（项目根目录/strategies）
+STRATEGIES_DIR = Path(__file__).resolve().parents[4] / "strategies"
 
-class MaCrossStrategy(bt.Strategy):
-    """双均线交叉策略"""
-    params = (
-        ('fast_period', 5),
-        ('slow_period', 20),
-    )
-    
-    def __init__(self):
-        self.fast_ma = bt.indicators.SMA(period=self.params.fast_period)
-        self.slow_ma = bt.indicators.SMA(period=self.params.slow_period)
-        self.crossover = bt.indicators.CrossOver(self.fast_ma, self.slow_ma)
-    
-    def next(self):
-        if not self.position:
-            if self.crossover > 0:
-                self.buy()
-        elif self.crossover < 0:
-            self.sell()
-''',
-        params={
-            "fast_period": ParamSpec(type="int", default=5, min=2, max=50, description="快线周期"),
-            "slow_period": ParamSpec(type="int", default=20, min=10, max=200, description="慢线周期"),
-        }
-    ),
-    StrategyTemplate(
-        id="rsi",
-        name="RSI超买超卖策略",
-        description="基于RSI指标的均值回归策略，超卖买入，超买卖出",
-        category="mean_reversion",
-        code='''import backtrader as bt
 
-class RSIStrategy(bt.Strategy):
-    """RSI超买超卖策略"""
-    params = (
-        ('period', 14),
-        ('overbought', 70),
-        ('oversold', 30),
-    )
-    
-    def __init__(self):
-        self.rsi = bt.indicators.RSI(period=self.params.period)
-    
-    def next(self):
-        if not self.position:
-            if self.rsi < self.params.oversold:
-                self.buy()
-        elif self.rsi > self.params.overbought:
-            self.sell()
-''',
-        params={
-            "period": ParamSpec(type="int", default=14, min=5, max=50, description="RSI周期"),
-            "overbought": ParamSpec(type="int", default=70, min=60, max=90, description="超买阈值"),
-            "oversold": ParamSpec(type="int", default=30, min=10, max=40, description="超卖阈值"),
-        }
-    ),
-    StrategyTemplate(
-        id="bollinger",
-        name="布林带策略",
-        description="基于布林带的突破策略，价格触及下轨买入，触及上轨卖出",
-        category="volatility",
-        code='''import backtrader as bt
+def _infer_category(name: str, description: str) -> str:
+    """根据策略名称和描述推断分类"""
+    text = (name + description).lower()
+    if any(k in text for k in ["均线", "ma", "trend", "supertrend", "turtle", "海龟", "突破", "动量", "momentum"]):
+        return "trend"
+    if any(k in text for k in ["rsi", "均值回归", "反转", "reverser", "oscillat", "超买", "超卖", "kdj", "stochastic"]):
+        return "mean_reversion"
+    if any(k in text for k in ["boll", "波动", "atr", "volatil", "vix", "chandelier"]):
+        return "volatility"
+    if any(k in text for k in ["套利", "arbitrage", "对冲", "hedge", "long_short"]):
+        return "arbitrage"
+    if any(k in text for k in ["macd", "ema", "信号", "signal"]):
+        return "indicator"
+    return "custom"
 
-class BollingerStrategy(bt.Strategy):
-    """布林带策略"""
-    params = (
-        ('period', 20),
-        ('devfactor', 2.0),
-    )
-    
-    def __init__(self):
-        self.boll = bt.indicators.BollingerBands(
-            period=self.params.period,
-            devfactor=self.params.devfactor
-        )
-    
-    def next(self):
-        if not self.position:
-            if self.data.close[0] < self.boll.lines.bot[0]:
-                self.buy()
-        elif self.data.close[0] > self.boll.lines.top[0]:
-            self.sell()
-''',
-        params={
-            "period": ParamSpec(type="int", default=20, min=10, max=50, description="布林带周期"),
-            "devfactor": ParamSpec(type="float", default=2.0, min=1.0, max=3.0, description="标准差倍数"),
-        }
-    ),
-]
+
+def _scan_strategies_folder() -> List[StrategyTemplate]:
+    """扫描 strategies/ 目录，自动构建策略模板列表"""
+    templates: List[StrategyTemplate] = []
+    if not STRATEGIES_DIR.is_dir():
+        logger.warning(f"策略目录不存在: {STRATEGIES_DIR}")
+        return templates
+
+    for config_path in sorted(STRATEGIES_DIR.glob("*/config.yaml")):
+        strategy_dir = config_path.parent
+        dir_name = strategy_dir.name  # e.g. "029_macd_kdj"
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+
+            strat_info = config.get("strategy", {})
+            name = strat_info.get("name", dir_name)
+            description = strat_info.get("description", "")
+            author = strat_info.get("author", "")
+
+            # 读取策略代码文件
+            code_files = list(strategy_dir.glob("strategy_*.py"))
+            if not code_files:
+                continue
+            code = code_files[0].read_text(encoding="utf-8")
+
+            # 解析参数
+            raw_params = config.get("params", {})
+            params: Dict[str, ParamSpec] = {}
+            for k, v in raw_params.items():
+                ptype = "float" if isinstance(v, float) else "int"
+                params[k] = ParamSpec(
+                    type=ptype, default=v, description=k,
+                )
+
+            category = _infer_category(name, description)
+
+            # 读取回测配置作为额外元数据
+            bt_config = config.get("backtest", {})
+            data_config = config.get("data", {})
+
+            # description 追加作者和标的信息
+            meta_parts = []
+            if author:
+                meta_parts.append(f"作者: {author}")
+            if data_config.get("symbol"):
+                meta_parts.append(f"默认标的: {data_config['symbol']}")
+            full_desc = description
+            if meta_parts:
+                full_desc += " | " + " | ".join(meta_parts)
+
+            templates.append(StrategyTemplate(
+                id=dir_name,
+                name=name,
+                description=full_desc,
+                category=category,
+                code=code,
+                params=params,
+            ))
+        except Exception as e:
+            logger.warning(f"扫描策略 {dir_name} 失败: {e}")
+            continue
+
+    logger.info(f"从 {STRATEGIES_DIR} 加载了 {len(templates)} 个策略模板")
+    return templates
+
+
+# 启动时扫描一次
+STRATEGY_TEMPLATES: List[StrategyTemplate] = _scan_strategies_folder()
+
+# 构建ID -> 模板的快速查找字典
+_TEMPLATE_MAP: Dict[str, StrategyTemplate] = {t.id: t for t in STRATEGY_TEMPLATES}
+
+
+def get_template_by_id(template_id: str) -> Optional[StrategyTemplate]:
+    """根据ID获取策略模板"""
+    return _TEMPLATE_MAP.get(template_id)
+
+
+def get_strategy_readme(template_id: str) -> Optional[str]:
+    """读取策略的README.md内容"""
+    readme_path = STRATEGIES_DIR / template_id / "README.md"
+    if readme_path.is_file():
+        return readme_path.read_text(encoding="utf-8")
+    return None
 
 
 class StrategyService:

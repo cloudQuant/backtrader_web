@@ -1,0 +1,23 @@
+# Strategy basic information
+strategy:
+  name: "数据重放布林带策略"
+  description: "使用数据重放功能将日线数据重放为周线，结合布林带指标进行交易"
+  author: "Backtrader"
+
+# Strategy parameters
+params:
+  period: 20  # Bollinger Bands period
+  devfactor: 2.0  # Bollinger Bands deviation factor
+
+# Data configuration
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+  timeframe: "Days"  # Original data timeframe
+  replay_timeframe: "Weeks"  # Replay to this timeframe
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001
+  stake: 10  # Fixed size for each trade

@@ -1,0 +1,20 @@
+# Strategy basic information
+strategy:
+  name: "唐奇安通道策略"
+  description: "经典唐奇安通道突破策略，价格突破上轨做多，突破下轨做空"
+  author: "backhacker"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares per trade
+  period: 20  # Lookback period for channel calculation
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

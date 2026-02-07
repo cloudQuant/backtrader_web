@@ -1,0 +1,19 @@
+# 策略基本信息
+strategy:
+  name: "抛物线SAR策略"
+  description: "使用Parabolic SAR（抛物线转向）指标生成交易信号，这是一个经典的趋势跟踪指标。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  # PSAR参数使用默认值，无需额外配置
+
+# 数据配置
+data:
+  symbol: "BTC"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.0

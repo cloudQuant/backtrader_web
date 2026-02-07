@@ -1,0 +1,24 @@
+# Strategy basic information
+strategy:
+  name: "ATR动量策略"
+  description: "结合RSI、SMA200和ATR的动量策略，使用ATR计算动态止损和止盈位"
+  author: "papodetrader"
+
+# Strategy parameters
+params:
+  bet: 100  # Base bet size
+  stop_atr_multiplier: 2  # Stop loss as ATR multiplier
+  target_atr_multiplier: 5  # Take profit as ATR multiplier
+  rsi_period: 14  # RSI period
+  sma_period: 200  # SMA period for trend filter
+  atr_period: 14  # ATR period
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

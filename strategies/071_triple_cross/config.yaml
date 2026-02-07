@@ -1,0 +1,22 @@
+# Strategy basic information
+strategy:
+  name: "三均线交叉策略"
+  description: "基于三条均线对齐的趋势策略，短期>中期>长期时做多，反之做空"
+  author: "backhacker"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares per trade
+  ma1_period: 5  # Short-term MA period
+  ma2_period: 8  # Medium-term MA period
+  ma3_period: 13  # Long-term MA period
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

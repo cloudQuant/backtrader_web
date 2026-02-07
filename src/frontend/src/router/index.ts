@@ -36,6 +36,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/BacktestResultPage.vue'),
       },
       {
+        path: 'optimization',
+        name: 'Optimization',
+        component: () => import('@/views/OptimizationPage.vue'),
+      },
+      {
         path: 'strategy',
         name: 'Strategy',
         component: () => import('@/views/StrategyPage.vue'),
@@ -44,6 +49,21 @@ const routes: RouteRecordRaw[] = [
         path: 'data',
         name: 'Data',
         component: () => import('@/views/DataPage.vue'),
+      },
+      {
+        path: 'live-trading',
+        name: 'LiveTrading',
+        component: () => import('@/views/LiveTradingPage.vue'),
+      },
+      {
+        path: 'live-trading/:id',
+        name: 'LiveTradingDetail',
+        component: () => import('@/views/LiveTradingDetailPage.vue'),
+      },
+      {
+        path: 'portfolio',
+        name: 'Portfolio',
+        component: () => import('@/views/PortfolioPage.vue'),
       },
       {
         path: 'settings',

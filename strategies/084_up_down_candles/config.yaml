@@ -1,0 +1,22 @@
+# 策略基本信息
+strategy:
+  name: "涨跌蜡烛均值回归策略"
+  description: "基于蜡烛强度和价格收益率识别超买超卖的均值回归策略。当价格在指定周期内出现极端下跌时做多，极端上涨时做空。"
+  author: "backtrader-stuff"
+
+# 策略参数
+params:
+  stake: 10                    # 每次交易的数量
+  strength_period: 20           # 蜡烛强度计算周期
+  returns_period: 40            # 收益率计算周期
+  returns_threshold: 0.01       # 收益率阈值(1%)
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "OCO订单策略 (One Cancels Other)"
+  description: "使用OCO（一单取消另一单）订单策略，当均线金叉时创建多个限价买单，任一成交后其他自动取消。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  p1: 5               # 快速SMA周期
+  p2: 15              # 慢速SMA周期
+  limit: 0.005        # 限价偏移比例（0.5%）
+  limdays: 3          # 主订单有效期
+  limdays2: 1000      # 次级订单有效期
+  hold: 10            # 持仓周期
+
+# 数据配置
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

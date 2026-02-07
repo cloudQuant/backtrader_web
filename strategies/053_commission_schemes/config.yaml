@@ -1,0 +1,25 @@
+# 策略基本信息
+strategy:
+  name: "佣金方案策略"
+  description: "演示Backtrader中不同佣金计算方案的使用，使用双移动平均线交叉策略测试。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  stake: 10         # 每次交易股数
+  fast_period: 10   # 快速移动平均线周期
+  slow_period: 30   # 慢速移动平均线周期
+
+# 数据配置
+data:
+  symbol: "BTC"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+
+# 佣金配置
+commission:
+  type: "percentage"  # percentage/fixed
+  rate: 0.001        # 佣金率（0.1%）

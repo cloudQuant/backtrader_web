@@ -48,12 +48,17 @@ class BacktestResponse(BaseModel):
 
 class TradeRecord(BaseModel):
     """交易记录"""
-    date: datetime
-    type: str  # buy/sell
-    price: float
-    size: int
-    value: float
+    datetime: Optional[str] = None
+    date: Optional[str] = None
+    direction: Optional[str] = None
+    type: Optional[str] = None
+    price: float = 0
+    size: float = 0
+    value: float = 0
+    commission: float = 0
     pnl: Optional[float] = None
+    pnlcomm: Optional[float] = None
+    barlen: Optional[int] = None
 
 
 class BacktestResult(BaseModel):

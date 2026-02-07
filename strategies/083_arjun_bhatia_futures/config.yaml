@@ -1,0 +1,20 @@
+# Strategy basic information
+strategy:
+  name: "Arjun Bhatia Futures Strategy"
+  description: "A futures trading strategy combining Alligator indicator and SuperTrend indicator. Uses ATR for stop loss and take profit calculation."
+
+# Strategy parameters
+params:
+  stake: 10
+  jaw_period: 13
+  teeth_period: 8
+  lips_period: 5
+  supertrend_period: 10
+  supertrend_multiplier: 3.0
+  atr_sl_mult: 2.0
+  atr_tp_mult: 4.0
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

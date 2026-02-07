@@ -1,0 +1,22 @@
+# Strategy basic information
+strategy:
+  name: "三重指数移动平均线策略"
+  description: "利用三条不同周期EMA的排列关系判断趋势方向的趋势跟踪策略"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares/contracts per trade
+  fast: 5  # Fast EMA period
+  mid: 10  # Mid EMA period
+  slow: 20  # Slow EMA period
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -101,7 +101,11 @@
       </template>
       
       <el-table :data="recentBacktests" stripe>
-        <el-table-column prop="strategy_id" label="策略" width="150" />
+        <el-table-column label="策略" width="150">
+          <template #default="{ row }">
+            {{ getStrategyName(row.strategy_id) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="symbol" label="标的" width="120" />
         <el-table-column label="收益率" width="120">
           <template #default="{ row }">
@@ -172,10 +176,17 @@ function getStatusText(status: string) {
   return texts[status] || status
 }
 
+function getStrategyName(id: string): string {
+  const t = strategyStore.templates.find(t => t.id === id)
+  if (t) return t.name
+  return id
+}
+
 onMounted(async () => {
   await Promise.all([
     backtestStore.fetchResults(5),
     strategyStore.fetchStrategies(100),
+    strategyStore.fetchTemplates(),
   ])
   
   recentBacktests.value = backtestStore.results

@@ -1,0 +1,23 @@
+# 策略基本信息
+strategy:
+  name: "MACD+DMI简化策略"
+  description: "结合MACD和DMI指标的趋势策略。MACD金叉做多，死叉做空。DMI作为辅助参考。"
+  author: "backtrader-strategies"
+
+# 策略参数
+params:
+  stake: 10
+  macd_fast: 12           # MACD快速EMA周期
+  macd_slow: 26           # MACD慢速EMA周期
+  macd_signal: 9          # MACD信号线周期
+  dmi_period: 14          # DMI周期
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

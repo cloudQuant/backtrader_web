@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import type { MonthlyReturn } from '@/types/analytics'
 
@@ -26,11 +26,13 @@ let chartInstance: echarts.ECharts | null = null
 const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
 
 onMounted(() => {
-  if (chartRef.value) {
-    chartInstance = echarts.init(chartRef.value)
-    renderChart()
-    window.addEventListener('resize', handleResize)
-  }
+  nextTick(() => {
+    if (chartRef.value) {
+      chartInstance = echarts.init(chartRef.value)
+      renderChart()
+    }
+  })
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {

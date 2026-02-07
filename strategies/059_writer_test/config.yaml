@@ -1,0 +1,25 @@
+# 策略基本信息
+strategy:
+  name: "Writer输出测试策略"
+  description: "演示Backtrader中Writer功能的使用，将回测结果输出到文件或控制台。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  period: 15    # SMA周期
+
+# 数据配置
+data:
+  symbol: "BTC"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.0
+
+# Writer配置
+writer:
+  output: "console"  # console/csv/file
+  csv: false         # 是否输出CSV
+  rounding: 4        # 小数位数

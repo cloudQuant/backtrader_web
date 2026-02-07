@@ -1,0 +1,44 @@
+# 策略基本信息
+strategy:
+  name: "日出波动率扩展策略"
+  description: "基于EMA交叉和回调确认的四阶段入场系统策略。包含信号扫描、回调确认、突破窗口开启、突破监控四个阶段。"
+  author: "backtrader-pullback-window-xauusd"
+
+# 策略参数
+params:
+  stake: 10
+  # EMA参数
+  ema_fast: 14
+  ema_medium: 14
+  ema_slow: 24
+  ema_confirm: 1
+  ema_filter_price: 100
+  # ATR参数
+  atr_period: 10
+  atr_sl_mult: 4.5
+  atr_tp_mult: 6.5
+  # 多头过滤器
+  long_use_ema_order: false
+  long_use_price_filter: true
+  long_use_candle_direction: false
+  long_use_angle_filter: false
+  long_min_angle: 35.0
+  long_max_angle: 95.0
+  long_angle_scale: 10.0
+  # 回调入场参数
+  use_pullback_entry: true
+  long_pullback_candles: 3
+  entry_window_periods: 1
+  window_price_offset_mult: 0.001
+  # 全局失效
+  use_global_invalidation: true
+
+# 数据配置
+data:
+  symbol: "XAUUSD"
+  data_type: "future"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

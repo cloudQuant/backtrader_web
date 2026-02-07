@@ -18,6 +18,7 @@ from app.schemas.backtest import (
 )
 from app.db.sql_repository import SQLRepository
 from app.db.cache import get_cache
+from app.websocket_manager import manager as ws_manager, MessageType
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +64,9 @@ class BacktestService:
         )
         task = await self.task_repo.create(task)
         
-        # 创建异步任务
-        asyncio.create_task(self._execute_backtest(task.id, user_id, request))
+        # 创建异步任务并保存引用（用于取消）
+        async_task = asyncio.create_task(self._execute_backtest(task.id, user_id, request))
+        self._running_tasks[task.id] = async_task
         
         return BacktestResponse(
             task_id=task.id,
@@ -79,44 +81,170 @@ class BacktestService:
         request: BacktestRequest
     ):
         """
-        执行回测任务
+        执行回测任务 - 调用策略目录中的 run.py
         """
         try:
             # 更新状态为运行中
             await self.task_repo.update(task_id, {"status": TaskStatus.RUNNING})
-            
-            # 执行回测逻辑
-            result = await self._run_backtrader(request)
-            
+            await ws_manager.send_to_task(task_id, {
+                "type": MessageType.PROGRESS, "task_id": task_id,
+                "progress": 10, "message": "任务开始执行",
+            })
+
+            # 查找策略目录
+            from app.services.strategy_service import STRATEGIES_DIR
+            strategy_dir = STRATEGIES_DIR / request.strategy_id
+            run_py = strategy_dir / "run.py"
+
+            if not run_py.is_file():
+                raise ValueError(f"策略 {request.strategy_id} 的 run.py 不存在")
+
+            # 清空 logs 目录
+            import shutil
+            logs_dir = strategy_dir / "logs"
+            if logs_dir.is_dir():
+                shutil.rmtree(logs_dir)
+
+            await ws_manager.send_to_task(task_id, {
+                "type": MessageType.PROGRESS, "task_id": task_id,
+                "progress": 20, "message": "正在写入配置参数...",
+            })
+
+            # 如果前端传入了自定义参数，临时写入 config.yaml
+            config_path = strategy_dir / "config.yaml"
+            original_config = None
+            if self._has_custom_params(request):
+                original_config = config_path.read_text(encoding="utf-8") if config_path.is_file() else None
+                self._write_temp_config(config_path, request, original_config)
+
+            await ws_manager.send_to_task(task_id, {
+                "type": MessageType.PROGRESS, "task_id": task_id,
+                "progress": 30, "message": "正在运行回测...",
+            })
+
+            # 调用 run.py
+            try:
+                result = await self._run_strategy_subprocess(strategy_dir)
+            finally:
+                # 恢复原始 config.yaml
+                if original_config is not None:
+                    config_path.write_text(original_config, encoding="utf-8")
+
+            await ws_manager.send_to_task(task_id, {
+                "type": MessageType.PROGRESS, "task_id": task_id,
+                "progress": 80, "message": "正在解析日志...",
+            })
+
+            # 解析 logs 目录
+            from app.services.log_parser_service import parse_all_logs
+            log_result = parse_all_logs(strategy_dir)
+            if not log_result:
+                raise ValueError("回测完成但未找到日志文件")
+
             # 保存结果
             result_model = BacktestResultModel(
                 task_id=task_id,
-                total_return=result.get("total_return", 0),
-                annual_return=result.get("annual_return", 0),
-                sharpe_ratio=result.get("sharpe_ratio", 0),
-                max_drawdown=result.get("max_drawdown", 0),
-                win_rate=result.get("win_rate", 0),
-                total_trades=result.get("total_trades", 0),
-                profitable_trades=result.get("profitable_trades", 0),
-                losing_trades=result.get("losing_trades", 0),
-                equity_curve=result.get("equity_curve", []),
-                equity_dates=result.get("equity_dates", []),
-                drawdown_curve=result.get("drawdown_curve", []),
-                trades=result.get("trades", []),
+                total_return=log_result.get("total_return", 0),
+                annual_return=log_result.get("annual_return", 0),
+                sharpe_ratio=log_result.get("sharpe_ratio", 0),
+                max_drawdown=log_result.get("max_drawdown", 0),
+                win_rate=log_result.get("win_rate", 0),
+                total_trades=log_result.get("total_trades", 0),
+                profitable_trades=log_result.get("profitable_trades", 0),
+                losing_trades=log_result.get("losing_trades", 0),
+                equity_curve=log_result.get("equity_curve", []),
+                equity_dates=log_result.get("equity_dates", []),
+                drawdown_curve=log_result.get("drawdown_curve", []),
+                trades=log_result.get("trades", []),
             )
             await self.result_repo.create(result_model)
-            
+
             # 更新任务状态
             await self.task_repo.update(task_id, {"status": TaskStatus.COMPLETED})
-            
-            logger.info(f"回测完成: {task_id}")
-            
+
+            await ws_manager.send_to_task(task_id, {
+                "type": MessageType.COMPLETED, "task_id": task_id,
+                "progress": 100, "message": "回测完成",
+                "data": {"total_return": log_result.get("total_return", 0)},
+            })
+
+            logger.info(f"回测完成: {task_id}, 收益率: {log_result.get('total_return', 0)}%")
+
+        except asyncio.CancelledError:
+            logger.info(f"回测已取消: {task_id}")
+            await ws_manager.send_to_task(task_id, {
+                "type": MessageType.CANCELLED, "task_id": task_id,
+                "message": "任务已取消",
+            })
         except Exception as e:
             logger.error(f"回测失败: {task_id}, {e}")
             await self.task_repo.update(task_id, {
                 "status": TaskStatus.FAILED,
                 "error_message": str(e),
             })
+            await ws_manager.send_to_task(task_id, {
+                "type": MessageType.FAILED, "task_id": task_id,
+                "message": str(e),
+            })
+        finally:
+            self._running_tasks.pop(task_id, None)
+
+    def _has_custom_params(self, request: BacktestRequest) -> bool:
+        """检查是否有自定义参数需要覆盖 config.yaml"""
+        return bool(request.params) or request.initial_cash != 100000 or request.commission != 0.001
+
+    def _write_temp_config(self, config_path, request: BacktestRequest, original_text: str):
+        """将前端传入的自定义参数临时写入 config.yaml"""
+        import yaml
+        config = {}
+        if original_text:
+            config = yaml.safe_load(original_text) or {}
+
+        # 覆盖策略参数
+        if request.params:
+            if "params" not in config:
+                config["params"] = {}
+            config["params"].update(request.params)
+
+        # 覆盖回测配置
+        if "backtest" not in config:
+            config["backtest"] = {}
+        config["backtest"]["initial_cash"] = request.initial_cash
+        config["backtest"]["commission"] = request.commission
+
+        # 覆盖数据配置
+        if request.symbol:
+            if "data" not in config:
+                config["data"] = {}
+            config["data"]["symbol"] = request.symbol
+
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
+
+    async def _run_strategy_subprocess(self, strategy_dir) -> dict:
+        """通过子进程运行策略的 run.py"""
+        import subprocess
+        import sys
+
+        python_exec = sys.executable
+        run_py = strategy_dir / "run.py"
+
+        proc = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                [python_exec, str(run_py)],
+                cwd=str(strategy_dir),
+                capture_output=True,
+                text=True,
+                timeout=300,
+            ),
+        )
+
+        if proc.returncode != 0:
+            err_msg = proc.stderr.strip().split("\n")[-1] if proc.stderr else "未知错误"
+            raise RuntimeError(f"run.py 执行失败: {err_msg}")
+
+        return {"stdout": proc.stdout, "stderr": proc.stderr}
     
     def _get_stock_data(self, symbol: str, start_date: datetime, end_date: datetime):
         """
@@ -180,27 +308,88 @@ class BacktestService:
     def _get_strategy_class(self, strategy_id: str, params: Dict[str, Any] = None):
         """
         根据策略ID获取策略类（安全版本）
+        支持: 1) strategies/目录模板（受信任，直接执行）
+              2) 数据库中用户自定义策略（沙箱执行）
         """
-        from app.services.strategy_service import STRATEGY_TEMPLATES
+        from app.services.strategy_service import get_template_by_id
         from app.utils.sandbox import execute_strategy_safely
 
-        # 查找策略模板
-        template = None
-        for t in STRATEGY_TEMPLATES:
-            if t.id == strategy_id:
-                template = t
-                break
+        # 1) 先从文件系统策略模板查找（受信任代码，直接执行）
+        template = get_template_by_id(strategy_id)
+        if template:
+            try:
+                return self._load_strategy_from_code(template.code, params or {}, strategy_id)
+            except Exception as e:
+                logger.error(f"加载内置策略失败: {strategy_id}, {e}")
+                raise ValueError(f"加载内置策略失败: {e}")
 
-        if not template:
+        # 2) 尝试从数据库查找用户策略（沙箱执行）
+        code = None
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    strategy = pool.submit(
+                        asyncio.run,
+                        self.strategy_repo.get_by_id(strategy_id)
+                    ).result(timeout=5)
+            else:
+                strategy = asyncio.run(self.strategy_repo.get_by_id(strategy_id))
+            if strategy and strategy.code:
+                code = strategy.code
+        except Exception as e:
+            logger.warning(f"从数据库查找策略失败: {strategy_id}, {e}")
+
+        if not code:
             raise ValueError(f"未找到策略: {strategy_id}")
 
-        # 使用安全沙箱执行策略代码
         try:
-            strategy_class = execute_strategy_safely(template.code, params)
+            strategy_class = execute_strategy_safely(code, params)
             return strategy_class
         except (ValueError, SyntaxError, NameError, AttributeError, ImportError, RuntimeError) as e:
             logger.error(f"策略代码执行失败: {e}")
             raise ValueError(f"策略代码执行失败: {e}")
+
+    def _load_strategy_from_code(self, code: str, params: Dict[str, Any], strategy_id: str = None):
+        """
+        从受信任的代码加载策略类（内置模板专用，不经过沙箱）
+        注入 __file__ 以便策略代码中 Path(__file__) / load_config() 正常工作
+        """
+        import sys
+        import builtins
+        import types as _types
+        import backtrader as bt
+        from app.services.strategy_service import STRATEGIES_DIR
+
+        module_name = f"strategy_{strategy_id or id(code)}"
+        module = _types.ModuleType(module_name)
+        module.__dict__['__builtins__'] = builtins
+
+        # 注册到 sys.modules，backtrader 元类需要通过 sys.modules[cls.__module__] 查找
+        sys.modules[module_name] = module
+
+        # 如果是文件系统策略，注入 __file__ 指向实际的 .py 文件
+        if strategy_id:
+            strategy_dir = STRATEGIES_DIR / strategy_id
+            code_files = list(strategy_dir.glob("strategy_*.py"))
+            if code_files:
+                real_file = str(code_files[0])
+                module.__dict__['__file__'] = real_file
+                # 把策略目录加入 sys.path 以便相对导入
+                str_dir = str(strategy_dir)
+                if str_dir not in sys.path:
+                    sys.path.insert(0, str_dir)
+
+        exec(compile(code, module.__dict__.get('__file__', '<strategy>'), 'exec'), module.__dict__)
+
+        # 查找 bt.Strategy 子类
+        for name, obj in module.__dict__.items():
+            if isinstance(obj, type) and issubclass(obj, bt.Strategy) and obj is not bt.Strategy:
+                return obj
+
+        raise ValueError("策略代码中未找到有效的 Strategy 类")
     
     def _parse_backtest_results(
         self, 
@@ -255,35 +444,62 @@ class BacktestService:
         
         win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
         
-        # 获取资金曲线
+        # 获取资金曲线（使用 TimeReturn 分析器）
         equity_curve = []
         equity_dates = []
         drawdown_curve = []
         
         try:
-            # 从TimeReturn分析器获取每日收益
-            returns_analysis = strat.analyzers.returns.get_analysis()
-            
-            # 计算资金曲线
+            timereturn = strat.analyzers.timereturn.get_analysis()
             current_value = initial_cash
             peak = initial_cash
             
-            for dt, ret in sorted(returns_analysis.items()):
-                if isinstance(dt, datetime):
-                    current_value = current_value * (1 + (ret or 0))
-                    equity_curve.append(round(current_value, 2))
-                    equity_dates.append(dt.strftime("%Y-%m-%d"))
-                    
-                    if current_value > peak:
-                        peak = current_value
-                    dd = ((peak - current_value) / peak) * 100 if peak > 0 else 0
-                    drawdown_curve.append(round(dd, 2))
+            for dt, ret in sorted(timereturn.items()):
+                current_value = current_value * (1 + (ret or 0))
+                date_str = dt.strftime("%Y-%m-%d") if isinstance(dt, datetime) else str(dt)
+                equity_curve.append(round(current_value, 2))
+                equity_dates.append(date_str)
+                
+                if current_value > peak:
+                    peak = current_value
+                dd = ((peak - current_value) / peak) * 100 if peak > 0 else 0
+                drawdown_curve.append(round(dd, 2))
+            
+            logger.info(f"资金曲线: {len(equity_curve)} 个数据点")
         except Exception as e:
             logger.warning(f"解析资金曲线失败: {e}")
-            # 简化的资金曲线
             equity_curve = [initial_cash, final_value]
             equity_dates = [start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")]
             drawdown_curve = [0, max_drawdown]
+        
+        # 提取交易记录
+        import backtrader as bt
+        trade_records = []
+        try:
+            for data_trades in strat._trades.values():
+                for tid, t_list in data_trades.items():
+                    for t in t_list:
+                        if t.isclosed:
+                            dt_close = ""
+                            try:
+                                dt_close = bt.num2date(t.dtclose).strftime("%Y-%m-%d %H:%M:%S")
+                            except Exception:
+                                pass
+                            trade_records.append({
+                                "datetime": dt_close,
+                                "direction": "long" if t.long else "short",
+                                "price": round(t.price, 4),
+                                "size": abs(t.size),
+                                "value": round(abs(t.value), 2) if t.value else 0,
+                                "commission": round(t.commission, 4),
+                                "pnl": round(t.pnl, 2),
+                                "pnlcomm": round(t.pnlcomm, 2),
+                                "barlen": t.barlen or 0,
+                            })
+        except Exception as e:
+            logger.warning(f"解析交易记录失败: {e}")
+        
+        logger.info(f"交易记录: {len(trade_records)} 条")
         
         return {
             "total_return": round(total_return, 2),
@@ -297,7 +513,7 @@ class BacktestService:
             "equity_curve": equity_curve,
             "equity_dates": equity_dates,
             "drawdown_curve": drawdown_curve,
-            "trades": [],
+            "trades": trade_records,
         }
 
     async def _run_backtrader(self, request: BacktestRequest) -> Dict[str, Any]:
@@ -334,7 +550,7 @@ class BacktestService:
         # 添加分析器
         cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.02)
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-        cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
+        cerebro.addanalyzer(bt.analyzers.TimeReturn, _name='timereturn')
         cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
         
         # 运行回测
@@ -388,7 +604,7 @@ class BacktestService:
             equity_curve=result_model.equity_curve if result_model else [],
             equity_dates=result_model.equity_dates if result_model else [],
             drawdown_curve=result_model.drawdown_curve if result_model else [],
-            trades=[],
+            trades=result_model.trades if result_model else [],
             created_at=task.created_at,
             error_message=task.error_message,
         )
@@ -398,6 +614,27 @@ class BacktestService:
             await self.cache.set(cache_key, result.model_dump(mode="json"), ttl=3600)
         
         return result
+    
+    async def cancel_task(self, task_id: str, user_id: str) -> bool:
+        """取消运行中的回测任务"""
+        task = await self.task_repo.get_by_id(task_id)
+        if not task or task.user_id != user_id:
+            return False
+        
+        if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
+            return False
+        
+        # 取消asyncio任务（如果存在）
+        running = self._running_tasks.get(task_id)
+        if running and not running.done():
+            running.cancel()
+            del self._running_tasks[task_id]
+        
+        await self.task_repo.update(task_id, {
+            "status": TaskStatus.FAILED,
+            "error_message": "用户取消任务",
+        })
+        return True
     
     async def get_task_status(self, task_id: str) -> Optional[TaskStatus]:
         """获取任务状态"""
@@ -410,13 +647,17 @@ class BacktestService:
         self,
         user_id: str,
         limit: int = 20,
-        offset: int = 0
+        offset: int = 0,
+        sort_by: str = "created_at",
+        sort_desc: bool = True,
     ) -> BacktestListResponse:
-        """列出回测结果"""
+        """列出回测结果，支持排序"""
         tasks = await self.task_repo.list(
             filters={"user_id": user_id},
             skip=offset,
-            limit=limit
+            limit=limit,
+            order_by=sort_by,
+            order_desc=sort_desc,
         )
         total = await self.task_repo.count(filters={"user_id": user_id})
         

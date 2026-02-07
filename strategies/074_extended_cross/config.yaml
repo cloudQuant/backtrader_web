@@ -1,0 +1,23 @@
+# 策略基本信息
+strategy:
+  name: "扩展交叉策略"
+  description: "使用ATR扩展的移动平均线交叉策略。快速EMA突破（慢速EMA+ATR）且价格高于长期EMA时买入，反之卖出。"
+  author: "backtrader/backhacker"
+
+# 策略参数
+params:
+  stake: 10
+  ma1: 5
+  ma2: 20
+  ma3: 50
+  atr_mult: 1
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

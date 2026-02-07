@@ -1,0 +1,21 @@
+# BtcSentiment Bitcoin Sentiment strategy configuration
+# 策略基本信息
+strategy:
+  name: "比特币情绪指标策略"
+  description: "基于Google Trends情绪数据和布林带的比特币交易策略。情绪超过布林带上轨做多，低于下轨做空，回归中性区域平仓。"
+  author: "Backtrader-Guide-AlgoTrading101"
+
+# 策略参数
+params:
+  period: 10        # 布林带周期
+  devfactor: 1      # 标准差倍数
+
+# 数据配置
+data:
+  symbol: "BTCUSD"
+  data_type: "crypto"  # crypto
+
+# 回测配置
+backtest:
+  initial_cash: 10000
+  commission: 0.0025

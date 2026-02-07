@@ -1,0 +1,19 @@
+# 策略基本信息
+strategy:
+  name: "目标仓位策略 (Order Target)"
+  description: "根据日期动态调整目标仓位比例，演示order_target_percent的用法。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  use_target_percent: true  # 是否使用order_target_percent
+
+# 数据配置
+data:
+  symbol: "yhoo-1996-2014"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 1000000
+  commission: 0.001

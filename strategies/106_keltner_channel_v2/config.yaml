@@ -1,0 +1,21 @@
+# Strategy basic information
+strategy:
+  name: "肯特纳通道策略"
+  description: "基于肯特纳通道的突破交易策略，价格突破上轨时买入，回落到中轨时卖出，使用ATR动态调整通道宽度"
+  author: "Chester Keltner"
+
+# Strategy parameters
+params:
+  stake: 10
+  period: 20
+  atr_mult: 2.0
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -1,0 +1,20 @@
+# 策略基本信息
+strategy:
+  name: "Calmar比率分析策略"
+  description: "双移动平均线交叉策略，用于测试Calmar比率分析器。Calmar比率衡量风险调整后收益，计算公式为：年化收益率 / 最大回撤。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  p1: 15  # 快速移动平均线周期
+  p2: 50  # 慢速移动平均线周期
+
+# 数据配置
+data:
+  symbol: "YHOO"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.0

@@ -1,0 +1,27 @@
+# 策略基本信息
+strategy:
+  name: "国债期货跨期套利策略"
+  description: "基于价差的国债期货跨期套利策略，支持合约换月"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  spread_low: 0.06   # 价差下限，低于此值开多价差
+  spread_high: 0.52  # 价差上限，高于此值开空价差
+
+# 数据配置
+data:
+  symbol: "T"               # 国债期货品种代码
+  data_type: "future"       # 期货数据
+  data_file: "CFFEX_Futures_Contract_Data.csv"
+
+# 回测配置
+backtest:
+  initial_cash: 1000000    # 初始资金
+  commission: 0.0002       # 手续费率
+  margin: 0.02             # 保证金比例
+  mult: 10000              # 合约乘数
+
+# 套利配置
+arbitrage:
+  use_open_interest: true  # 使用持仓量确定近月和远月合约

@@ -23,6 +23,10 @@ export const backtestApi = {
     return api.get('/backtest/', { params: { limit, offset } })
   },
 
+  async cancel(taskId: string): Promise<void> {
+    return api.post(`/backtest/${taskId}/cancel`)
+  },
+
   async delete(taskId: string): Promise<void> {
     return api.delete(`/backtest/${taskId}`)
   },

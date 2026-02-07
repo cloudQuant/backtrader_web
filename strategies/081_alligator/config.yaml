@@ -1,0 +1,22 @@
+# 策略基本信息
+strategy:
+  name: "Alligator策略"
+  description: "Bill Williams的Alligator（鳄鱼）指标策略。价格突破鳄鱼下颚线时买入，跌破时卖出。"
+  author: "Backtesting/strategies"
+
+# 策略参数
+params:
+  stake: 10
+  jaw_period: 13
+  teeth_period: 8
+  lips_period: 5
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

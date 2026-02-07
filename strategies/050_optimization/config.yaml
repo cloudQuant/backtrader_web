@@ -1,0 +1,27 @@
+# 策略基本信息
+strategy:
+  name: "参数优化策略"
+  description: "SMA与MACD组合策略，用于演示参数优化功能。通过遍历参数空间，寻找最优参数组合。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  smaperiod: 10      # SMA移动平均线周期
+  macdperiod1: 12    # MACD快速EMA周期
+  macdperiod2: 26    # MACD慢速EMA周期
+  macdperiod3: 9     # MACD信号线周期
+
+# 数据配置
+data:
+  symbol: "BTC"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.0
+
+# 优化配置
+optimization:
+  smaperiod_range: [10, 11, 12]  # SMA周期优化范围
+  maxcpus: 1  # 最大CPU数，1表示单线程

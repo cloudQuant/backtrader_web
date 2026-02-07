@@ -1,0 +1,20 @@
+# 策略基本信息
+strategy:
+  name: "斜率策略"
+  description: "基于移动平均线斜率方向的趋势跟踪策略。MA上升时买入，MA下降时卖出。"
+  author: "backtrader/backhacker"
+
+# 策略参数
+params:
+  stake: 10
+  ma_period: 14
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

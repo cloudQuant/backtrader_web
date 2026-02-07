@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "简单RSI策略"
+  description: "结合RSI超买超卖信号与EMA趋势过滤的策略。在RSI超卖且EMA显示上升趋势时买入，在RSI超买时卖出。"
+  author: "backtrader/backhacker"
+
+# 策略参数
+params:
+  stake: 10
+  period_ema_fast: 10
+  period_ema_slow: 100
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

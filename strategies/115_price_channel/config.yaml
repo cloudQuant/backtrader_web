@@ -1,0 +1,21 @@
+# Strategy basic information
+strategy:
+  name: "价格通道突破策略"
+  description: "基于价格通道突破的趋势跟踪策略，突破N日最高时买入，跌破M日最低时卖出"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares/contracts per trade
+  entry_period: 20  # Period for highest high calculation
+  exit_period: 10  # Period for lowest low calculation
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

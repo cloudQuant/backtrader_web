@@ -52,7 +52,7 @@
         </el-tab-pane>
         
         <el-tab-pane label="资金曲线" name="equity">
-          <el-card>
+          <el-card v-if="activeTab === 'equity'">
             <EquityCurve
               :data="detail.equity_curve"
               :height="350"
@@ -66,7 +66,7 @@
         </el-tab-pane>
         
         <el-tab-pane label="收益分析" name="analysis">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div v-if="activeTab === 'analysis'" class="space-y-4">
             <el-card>
               <ReturnHeatmap
                 :returns="monthlyReturns?.returns || []"
@@ -76,15 +76,15 @@
             </el-card>
             <el-card>
               <div class="p-4">
-                <h4 class="text-md font-medium mb-4">年度收益汇总</h4>
-                <div class="space-y-2">
+                <h4 class="text-md font-medium mb-3">年度收益汇总</h4>
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 max-h-48 overflow-y-auto">
                   <div 
                     v-for="(ret, year) in monthlyReturns?.summary" 
                     :key="year"
-                    class="flex justify-between items-center p-2 bg-gray-50 rounded"
+                    class="flex justify-between items-center px-3 py-2 bg-gray-50 rounded text-sm"
                   >
-                    <span class="font-medium">{{ year }}年</span>
-                    <span :class="ret >= 0 ? 'text-green-600' : 'text-red-600'">
+                    <span class="font-medium mr-2">{{ year }}</span>
+                    <span :class="ret >= 0 ? 'text-green-600' : 'text-red-600'" class="whitespace-nowrap">
                       {{ ret >= 0 ? '+' : '' }}{{ (ret * 100).toFixed(2) }}%
                     </span>
                   </div>

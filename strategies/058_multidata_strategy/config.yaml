@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "多数据源策略"
+  description: "演示如何在策略中使用多个数据源，从一个数据源生成信号，在另一个数据源上执行交易。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  period: 15    # SMA周期（用于生成信号）
+  stake: 10     # 每次交易股数
+
+# 数据配置
+data:
+  data0:
+    symbol: "YHOO"    # 交易数据源
+    data_type: "stock"
+  data1:
+    symbol: "YHOO"    # 信号数据源
+    data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.005  # 0.5%佣金

@@ -1,0 +1,21 @@
+# Strategy basic information
+strategy:
+  name: "布林带均值回归策略"
+  description: "基于布林带的均值回归策略，价格跌破下轨后回升至中轨买入，突破上轨后回落至中轨卖出"
+  author: "backhacker"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares per trade
+  bbands_period: 20  # Bollinger Bands period
+  devfactor: 2.0  # Standard deviation multiplier
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -1,0 +1,21 @@
+# 策略基本信息
+strategy:
+  name: "SuperTrend指标策略"
+  description: "基于SuperTrend趋势跟踪指标的策略。价格突破SuperTrend线上方做多，跌破下方平仓。"
+  author: "Backtrader1.0"
+
+# 策略参数
+params:
+  stake: 10
+  st_period: 20          # SuperTrend ATR周期
+  st_mult: 3.0           # SuperTrend倍数
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

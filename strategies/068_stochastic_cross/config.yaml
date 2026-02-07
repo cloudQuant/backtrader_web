@@ -1,0 +1,24 @@
+# Strategy basic information
+strategy:
+  name: "随机指标交叉策略"
+  description: "结合均线和随机指标的策略，短期均线大于长期均线且随机指标超卖时买入"
+  author: "backhacker"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares per trade
+  ma1: 14  # Short-term MA period
+  ma2: 30  # Long-term MA period
+  stoch_period: 14  # Stochastic period
+  oversold: 20  # Oversold threshold
+  overbought: 80  # Overbought threshold
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

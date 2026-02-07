@@ -1,0 +1,22 @@
+# Strategy basic information
+strategy:
+  name: "威廉指标策略"
+  description: "基于威廉%%R指标的超买超卖策略，在超卖区域且指标开始上升时买入，超买区域卖出"
+  author: "Larry Williams"
+
+# Strategy parameters
+params:
+  stake: 10
+  period: 14
+  oversold: -80
+  overbought: -20
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

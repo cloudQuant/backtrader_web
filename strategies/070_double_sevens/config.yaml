@@ -1,0 +1,22 @@
+# Strategy basic information
+strategy:
+  name: "双七策略"
+  description: "Larry Connor的双七策略，价格在均线上方且创N日新低时买入，创N日新高时卖出"
+  author: "Larry Connor"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares per trade
+  period: 7  # N-day high/low period
+  sma_short: 70  # Short SMA for trend filter
+  sma_long: 200  # Long SMA for trend filter
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

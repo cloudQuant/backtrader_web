@@ -1,0 +1,25 @@
+# Strategy basic information
+strategy:
+  name: "TD序列策略"
+  description: "基于Tom DeMark的TD序列指标的交易策略，通过Setup和Countdown阶段识别买卖点"
+  author: "mk99999"
+
+# Strategy parameters
+params:
+  candles_past_to_compare: 4  # Number of past candles to compare
+  cancel_1: true  # Cancel setup when price breaks high/low
+  cancel_2: true  # Cancel opposite setup on setup completion
+  cancel_3: 2  # Recycle option
+  recycle_12: true  # Allow recycling between setup and countdown
+  aggressive_countdown: false  # Use low price for countdown comparison
+  cancel_1618: true  # 16-18 cancellation rule
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

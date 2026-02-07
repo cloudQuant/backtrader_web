@@ -4,6 +4,7 @@ import type {
   StrategyCreate,
   StrategyListResponse,
   StrategyTemplate,
+  StrategyConfig,
 } from '@/types'
 
 export const strategyApi = {
@@ -27,7 +28,19 @@ export const strategyApi = {
     return api.get('/strategy/', { params: { limit, offset, category } })
   },
 
-  async getTemplates(): Promise<{ templates: StrategyTemplate[] }> {
-    return api.get('/strategy/templates')
+  async getTemplates(category?: string): Promise<{ templates: StrategyTemplate[]; total: number }> {
+    return api.get('/strategy/templates', { params: { category } })
+  },
+
+  async getTemplateDetail(id: string): Promise<StrategyTemplate> {
+    return api.get(`/strategy/templates/${id}`)
+  },
+
+  async getTemplateReadme(id: string): Promise<{ template_id: string; content: string }> {
+    return api.get(`/strategy/templates/${id}/readme`)
+  },
+
+  async getTemplateConfig(id: string): Promise<StrategyConfig> {
+    return api.get(`/strategy/templates/${id}/config`)
   },
 }

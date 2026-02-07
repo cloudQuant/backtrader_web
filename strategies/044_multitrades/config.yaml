@@ -1,0 +1,22 @@
+# 策略基本信息
+strategy:
+  name: "多交易ID策略 (MultiTrades)"
+  description: "使用多个交易ID管理并发的独立交易，每个交易ID可以单独跟踪和管理。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  period: 15          # SMA周期
+  stake: 10           # 每次交易数量
+  onlylong: false     # 是否只做多
+  mtrade: true        # 是否启用多交易ID模式
+
+# 数据配置
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

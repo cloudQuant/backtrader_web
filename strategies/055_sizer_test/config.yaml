@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "仓位管理测试策略"
+  description: "演示Backtrader中Sizer（仓位管理器）的使用，通过自定义Sizer控制每次交易的数量。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  period: 15    # SMA周期
+
+# 数据配置
+data:
+  symbol: "YHOO"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 50000
+  commission: 0.0
+
+# 仓位配置
+sizer:
+  type: "LongOnly"  # LongOnly/Fixed/Percent
+  stake: 100        # 每次交易股数

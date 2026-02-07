@@ -1,0 +1,21 @@
+# SMA Cross Signal moving average crossover strategy configuration
+# 策略基本信息
+strategy:
+  name: "SMA交叉信号策略"
+  description: "简单移动平均线交叉策略，短期均线上穿长期均线时买入（金叉），下穿时卖出（死叉）。"
+  author: "backtrader-master2"
+
+# 策略参数
+params:
+  sma1: 10   # 短期均线周期
+  sma2: 20   # 长期均线周期
+
+# 数据配置
+data:
+  symbol: "DATA"
+  data_type: "stock"  # stock
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

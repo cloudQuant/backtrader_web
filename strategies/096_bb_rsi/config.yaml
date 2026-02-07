@@ -1,0 +1,24 @@
+# Strategy basic information
+strategy:
+  name: "布林带RSI策略"
+  description: "结合布林带和RSI指标的均值回归策略，当价格超卖且RSI低位时买入，超买或突破上轨时卖出"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10
+  bb_period: 20
+  bb_devfactor: 2.0
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

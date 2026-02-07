@@ -1,0 +1,21 @@
+# 策略基本信息
+strategy:
+  name: "MACD梯度策略"
+  description: "基于MACD连续上升/下降动量的动量策略。当MACD连续三期上升时买入，连续三期下降时卖出。"
+  author: "backtrader/backhacker"
+
+# 策略参数
+params:
+  stake: 10
+  period_me1: 12
+  period_me2: 26
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

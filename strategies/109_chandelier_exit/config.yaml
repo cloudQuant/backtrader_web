@@ -1,0 +1,23 @@
+# Strategy basic information
+strategy:
+  name: "吊灯止损策略"
+  description: "结合移动平均线和吊灯止损指标的趋势跟踪策略"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares to trade
+  sma_fast: 8  # Fast SMA period
+  sma_slow: 15  # Slow SMA period
+  ce_period: 22  # Chandelier Exit period
+  ce_mult: 3  # Chandelier Exit ATR multiplier
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

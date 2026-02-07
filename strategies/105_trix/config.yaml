@@ -1,0 +1,20 @@
+# Strategy basic information
+strategy:
+  name: "三重指数平滑平均线策略"
+  description: "基于TRIX指标的趋势跟踪策略，TRIX向上穿越零轴时买入，向下穿越零轴时卖出，有效过滤短期波动"
+  author: "Jack Hutson"
+
+# Strategy parameters
+params:
+  stake: 10
+  period: 15
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

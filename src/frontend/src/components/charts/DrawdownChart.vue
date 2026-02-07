@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import type { DrawdownPoint } from '@/types/analytics'
 
@@ -22,11 +22,13 @@ const chartRef = ref<HTMLElement>()
 let chartInstance: echarts.ECharts | null = null
 
 onMounted(() => {
-  if (chartRef.value) {
-    chartInstance = echarts.init(chartRef.value)
-    renderChart()
-    window.addEventListener('resize', handleResize)
-  }
+  nextTick(() => {
+    if (chartRef.value) {
+      chartInstance = echarts.init(chartRef.value)
+      renderChart()
+    }
+  })
+  window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {

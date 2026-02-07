@@ -1,0 +1,23 @@
+# Strategy basic information
+strategy:
+  name: "双周期RSI策略"
+  description: "Larry Connor的2周期RSI策略，价格在200日均线上方且RSI低于5时买入"
+  author: "Larry Connor"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares per trade
+  rsi_period: 2  # RSI period
+  sma_short: 5  # Short SMA for exit signal
+  sma_long: 200  # Long SMA for trend filter
+  rsi_buy_threshold: 5  # RSI threshold for buy signal
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

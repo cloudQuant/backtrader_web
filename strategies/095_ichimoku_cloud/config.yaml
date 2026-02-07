@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "Ichimoku云图策略"
+  description: "基于Ichimoku Kinko Hyo一目均衡表指标的趋势策略。价格位于云带上方时做多，跌破云带平仓。"
+  author: "backtrader-strategies-compendium"
+
+# 策略参数
+params:
+  stake: 10
+  tenkan: 9               # 转换线周期
+  kijun: 26               # 基准线周期
+  senkou: 52              # 后行带Span B周期
+  senkou_lead: 26         # 云带前移周期
+  chikou: 26              # 迟行线后移周期
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

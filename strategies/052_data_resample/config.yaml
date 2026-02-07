@@ -1,0 +1,22 @@
+# 策略基本信息
+strategy:
+  name: "数据重采样策略"
+  description: "演示如何使用Backtrader的数据重采样功能，将日K线数据转换为周K线，使用双移动平均线交叉策略。"
+  author: "Backtrader社区"
+
+# 策略参数
+params:
+  fast_period: 5    # 快速移动平均线周期（基于周线）
+  slow_period: 15   # 慢速移动平均线周期（基于周线）
+
+# 数据配置
+data:
+  symbol: "BTC"
+  data_type: "stock"  # bond/stock/future/index
+  timeframe: "Days"    # 原始数据时间框架
+  resample_to: "Weeks" # 重采样目标时间框架
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.0

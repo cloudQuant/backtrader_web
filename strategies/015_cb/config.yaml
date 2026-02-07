@@ -1,0 +1,30 @@
+# 策略基本信息
+strategy:
+  name: "可转债多因子日内策略"
+  description: "基于多因子筛选的可转债日内交易策略，同时交易多个可转债品种"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  ma_period: 20        # 均线周期
+  can_trade_num: 2     # 最大可同时持有的可转债数量
+
+# 数据配置
+data:
+  symbol: "bond_merged_all_data"  # 可转债合并数据
+  data_type: "bond"               # 可转债数据
+  index_symbol: "000000"          # 指数代码
+
+# 回测配置
+backtest:
+  initial_cash: 1000000    # 初始资金
+  commission: 0.0001       # 手续费率
+  margin: 0.1              # 保证金比例
+  mult: 1                  # 合约乘数
+
+# 因子配置
+factors:
+  price_change_range: [-0.01, 0.01]  # 价格涨跌幅范围
+  volume_multiplier: 4                # 成交量倍数限制
+  profit_target: 0.03                 # 目标收益率(3%)
+  max_hold_bars: 10                   # 最大持仓bar数

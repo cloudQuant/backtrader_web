@@ -1,0 +1,26 @@
+# 策略基本信息
+strategy:
+  name: "HMA多趋势策略"
+  description: "使用4条不同周期的Hull移动平均线判断趋势方向。所有HMA按升序或降序排列时产生交易信号。"
+  author: "Backtrader1.0"
+
+# 策略参数
+params:
+  stake: 10
+  fast: 10                 # 快速HMA周期
+  mid1: 20                 # 中速HMA1周期
+  mid2: 30                 # 中速HMA2周期
+  mid3: 50                 # 慢速HMA周期
+  atr_period: 14           # ATR周期
+  adx_period: 14           # ADX周期
+  adx_threshold: 0.0       # ADX阈值(0=禁用ADX过滤)
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

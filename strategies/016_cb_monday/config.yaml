@@ -1,0 +1,25 @@
+# 策略基本信息
+strategy:
+  name: "可转债周五高溢价轮动策略"
+  description: "每周五买入溢价率最高的3只可转债，下周五平仓并重新轮动"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  hold_num: 3  # 每周持有的可转债数量
+
+# 数据配置
+data:
+  symbol: "bond_merged_all_data"  # 可转债合并数据（含溢价率）
+  data_type: "bond"               # 可转债数据
+  index_symbol: "000000"          # 指数代码
+
+# 回测配置
+backtest:
+  initial_cash: 1000000    # 初始资金
+  commission: 0.0005       # 手续费率
+
+# 轮动配置
+rotation:
+  rebalance_day: 5         # 轮动日（5=周五）
+  position_size: 0.1       # 单只可转债仓位比例(10%)

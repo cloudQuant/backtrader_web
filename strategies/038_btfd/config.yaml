@@ -1,0 +1,23 @@
+# 策略基本信息
+strategy:
+  name: "抄底策略 (Buy The F* Dip)"
+  description: "当日内价格下跌超过阈值时买入，持有固定天数后卖出。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  fall: -0.01         # 价格下跌阈值（-1%）
+  hold: 2             # 持有天数
+  approach: "highlow" # 价格下跌计算方式
+  target: 1.0         # 目标仓位比例
+
+# 数据配置
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001
+  cheat_on_close: true  # 允许在收盘时下单

@@ -1,0 +1,24 @@
+# 策略基本信息
+strategy:
+  name: "RSI抄底策略"
+  description: "基于RSI指标的抄底策略。RSI向上突破50时买入，跌破45或触及止损/止盈时卖出。"
+  author: "Backtesting/strategies"
+
+# 策略参数
+params:
+  stake: 10
+  rsi_period: 10
+  rsi_buy: 50
+  rsi_sell: 45
+  stop_loss: 0.005
+  take_profit: 0.005
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

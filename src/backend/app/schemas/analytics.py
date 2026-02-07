@@ -66,7 +66,7 @@ class TradeSignal(BaseModel):
     date: str
     type: str
     price: float
-    size: int
+    size: Optional[float] = 0
     reason: Optional[str] = None
 
 
@@ -77,7 +77,7 @@ class KlineData(BaseModel):
     high: float
     low: float
     close: float
-    volume: int
+    volume: float
     change_pct: Optional[float] = None
 
 

@@ -29,3 +29,71 @@ body {
 .kline-down {
   color: #00da3c;
 }
+
+/* 暗色模式 */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #1a1a2e;
+  color: #e0e0e0;
+}
+
+html.dark .el-header {
+  background-color: #16213e !important;
+  border-color: #2a2a4a !important;
+}
+
+html.dark .el-main {
+  background-color: #1a1a2e !important;
+}
+
+html.dark .el-card {
+  background-color: #16213e;
+  border-color: #2a2a4a;
+  color: #e0e0e0;
+}
+
+html.dark .el-table {
+  --el-table-bg-color: #16213e;
+  --el-table-tr-bg-color: #16213e;
+  --el-table-header-bg-color: #0f3460;
+  --el-table-row-hover-bg-color: #1a3a5c;
+  --el-table-text-color: #e0e0e0;
+  --el-table-header-text-color: #e0e0e0;
+  --el-table-border-color: #2a2a4a;
+}
+
+html.dark .el-dialog {
+  background-color: #16213e;
+  color: #e0e0e0;
+}
+
+html.dark .el-input__wrapper,
+html.dark .el-textarea__inner,
+html.dark .el-select .el-input__wrapper {
+  background-color: #0f3460 !important;
+  box-shadow: 0 0 0 1px #2a2a4a inset !important;
+  color: #e0e0e0;
+}
+
+html.dark .el-input__inner {
+  color: #e0e0e0;
+}
+
+html.dark .bg-gray-50 {
+  background-color: #1a1a2e !important;
+}
+
+html.dark .bg-gray-100 {
+  background-color: #16213e !important;
+}
+
+html.dark .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+html.dark .text-gray-800 {
+  color: #e0e0e0 !important;
+}

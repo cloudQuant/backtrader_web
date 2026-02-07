@@ -1,0 +1,26 @@
+# 策略基本信息
+strategy:
+  name: "恐惧贪婪情绪指标策略"
+  description: "基于Fear & Greed情绪指数的逆向投资策略，在极端恐惧时买入，极端贪婪时卖出"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  fear_threshold: 10   # 恐惧阈值，低于此值买入
+  greed_threshold: 94  # 贪婪阈值，高于此值卖出
+
+# 数据配置
+data:
+  symbol: "SPY"                    # 标普500ETF
+  data_type: "stock"               # 股票数据
+  data_file: "spy-put-call-fear-greed-vix.csv"
+
+# 回测配置
+backtest:
+  initial_cash: 100000    # 初始资金
+  data_start: "2011-01-01" # 数据开始日期
+  data_end: "2021-12-31"   # 数据结束日期
+
+# 情绪指标配置
+sentiment:
+  fear_greed_range: [0, 100]  # Fear & Greed指数范围

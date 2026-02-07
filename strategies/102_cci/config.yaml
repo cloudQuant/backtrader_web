@@ -1,0 +1,22 @@
+# Strategy basic information
+strategy:
+  name: "商品通道指标策略"
+  description: "基于CCI指标的趋势跟踪策略，CCI从超卖区域向上穿越-100时买入，从超买区域向下穿越+100时卖出"
+  author: "Donald Lambert"
+
+# Strategy parameters
+params:
+  stake: 10
+  period: 20
+  oversold: -100
+  overbought: 100
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

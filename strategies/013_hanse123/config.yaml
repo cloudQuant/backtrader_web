@@ -1,0 +1,28 @@
+# 策略基本信息
+strategy:
+  name: "Hans123日内突破策略"
+  description: "基于开盘后N根K线高低点突破的日内交易策略，配合均线过滤信号"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  ma_period: 200  # 均线周期（用于趋势过滤）
+  bar_num: 2      # 开盘后用于计算高低点的K线数量
+
+# 数据配置
+data:
+  symbol: "RB889"          # 螺纹钢连续合约
+  data_type: "future"      # 期货数据
+
+# 回测配置
+backtest:
+  initial_cash: 1000000    # 初始资金
+  commission: 0.0001       # 手续费率
+  margin: 0.10             # 保证金比例
+  mult: 10                 # 合约乘数
+
+# 交易时间配置
+trading:
+  entry_hours: [21, 22, 23, 9, 10, 11]  # 允许开仓的小时
+  exit_hour: 14
+  exit_minute: 55           # 平仓时间(14:55)

@@ -1,0 +1,21 @@
+# 策略基本信息
+strategy:
+  name: "SuperTrend策略"
+  description: "基于平均真实波幅（ATR）的趋势跟踪策略。当SuperTrend方向由负转正时买入，由正转负时卖出。"
+  author: "Backtesting/strategies"
+
+# 策略参数
+params:
+  stake: 10
+  period: 10
+  multiplier: 3.0
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

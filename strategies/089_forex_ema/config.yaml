@@ -1,0 +1,22 @@
+# 策略基本信息
+strategy:
+  name: "外汇EMA三均线策略"
+  description: "基于三条指数移动平均线(EMA)的外汇交易策略。短期、中期、长期EMA排列确认趋势后入场。"
+  author: "backtrader-strategies"
+
+# 策略参数
+params:
+  stake: 10
+  shortema: 5            # 短期EMA周期
+  mediumema: 20          # 中期EMA周期
+  longema: 50            # 长期EMA周期
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

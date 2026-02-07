@@ -1,0 +1,20 @@
+# 策略基本信息
+strategy:
+  name: "Pinkfish挑战策略"
+  description: "当价格创N日新高时买入，持有固定天数后卖出。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  highperiod: 20      # 创新高判断周期
+  sellafter: 2        # 持有天数后卖出
+
+# 数据配置
+data:
+  symbol: "yhoo-1996-2014"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 50000
+  commission: 0.001

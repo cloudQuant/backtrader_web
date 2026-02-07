@@ -1,0 +1,15 @@
+{
+  "0458de67": {
+    "id": "0458de67",
+    "strategy_id": "002_dual_ma",
+    "strategy_name": "双均线交叉策略",
+    "status": "stopped",
+    "pid": null,
+    "error": null,
+    "params": {},
+    "created_at": "2026-02-07 19:10:25",
+    "started_at": null,
+    "stopped_at": null,
+    "log_dir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/strategies/002_dual_ma/logs/TwoMAStrategy_20260207_163112"
+  }
+}

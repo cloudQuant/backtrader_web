@@ -1,0 +1,21 @@
+# 策略基本信息
+strategy:
+  name: "滑点模拟策略"
+  description: "双均线交叉策略，演示如何在回测中模拟滑点对交易绩效的影响。"
+  author: "Backtrader"
+
+# 策略参数
+params:
+  p1: 10              # 快速SMA周期
+  p2: 30              # 慢速SMA周期
+
+# 数据配置
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 50000
+  commission: 0.001
+  slippage_perc: 0.01  # 滑点百分比（1%）

@@ -1,0 +1,25 @@
+# Stochastic SR (Stochastic Support/Resistance) strategy configuration
+# 策略基本信息
+strategy:
+  name: "随机指标支撑阻力策略"
+  description: "利用随机指标识别超买超卖区域作为入场点，使用唐奇安通道确定历史支撑阻力位，并设置双重止损。"
+  author: "backtrader-backtests"
+
+# 策略参数
+params:
+  period: 14        # 随机指标周期
+  pfast: 3          # 快速均线周期
+  pslow: 3          # 慢速均线周期
+  upperLimit: 80    # 超买阈值
+  lowerLimit: 20    # 超卖阈值
+  stop_pips: 0.5    # 止损点数
+
+# 数据配置
+data:
+  symbol: "sh600000"
+  data_type: "stock"  # stock
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

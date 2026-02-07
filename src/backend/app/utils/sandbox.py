@@ -137,7 +137,7 @@ class StrategySandbox:
             compiled_code = compile(code, '<strategy>', 'exec')
 
             # 执行代码
-            exec(compiled_code.code, safe_globals)
+            exec(compiled_code, safe_globals)
 
             # 查找策略类
             strategy_class = None

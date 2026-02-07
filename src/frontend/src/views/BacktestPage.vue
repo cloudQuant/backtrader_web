@@ -6,81 +6,78 @@
         <span class="font-bold">回测配置</span>
       </template>
       
-      <el-form :model="form" label-width="100px" class="max-w-3xl">
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="策略">
-              <el-select v-model="form.strategy_id" placeholder="选择策略" class="w-full">
-                <el-option
-                  v-for="s in strategies"
-                  :key="s.id"
-                  :label="s.name"
-                  :value="s.id"
+      <el-form :model="form" label-width="120px" class="max-w-3xl">
+        <!-- 策略选择 -->
+        <el-form-item label="策略">
+          <el-select v-model="form.strategy_id" placeholder="选择策略" class="w-full" filterable @change="onStrategyChange">
+            <el-option-group label="策略库">
+              <el-option
+                v-for="t in templates"
+                :key="t.id"
+                :label="t.name"
+                :value="t.id"
+              />
+            </el-option-group>
+            <el-option-group label="我的策略" v-if="strategies.length">
+              <el-option
+                v-for="s in strategies"
+                :key="s.id"
+                :label="s.name"
+                :value="s.id"
+              />
+            </el-option-group>
+          </el-select>
+        </el-form-item>
+
+        <!-- 策略描述 -->
+        <el-form-item v-if="strategyConfig" label="策略说明">
+          <div class="text-gray-500 text-sm">
+            <span v-if="strategyConfig.strategy.description">{{ strategyConfig.strategy.description }}</span>
+            <span v-if="strategyConfig.strategy.author" class="ml-2 text-gray-400">— {{ strategyConfig.strategy.author }}</span>
+          </div>
+        </el-form-item>
+
+        <!-- 动态策略参数（从config.yaml的params段读取） -->
+        <template v-if="Object.keys(dynamicParams).length > 0">
+          <el-divider content-position="left">策略参数</el-divider>
+          <el-row :gutter="20">
+            <el-col :span="12" v-for="(val, key) in dynamicParams" :key="key">
+              <el-form-item :label="String(key)">
+                <el-input-number
+                  v-if="typeof val === 'number'"
+                  v-model="dynamicParams[key]"
+                  :step="Number.isInteger(val) ? 1 : 0.01"
+                  :precision="Number.isInteger(val) ? 0 : 4"
+                  class="w-full"
                 />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="标的代码">
-              <el-input v-model="form.symbol" placeholder="如: 000001.SZ" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="开始日期">
-              <el-date-picker
-                v-model="form.start_date"
-                type="date"
-                placeholder="选择开始日期"
-                class="w-full"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="结束日期">
-              <el-date-picker
-                v-model="form.end_date"
-                type="date"
-                placeholder="选择结束日期"
-                class="w-full"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="初始资金">
-              <el-input-number
-                v-model="form.initial_cash"
-                :min="1000"
-                :step="10000"
-                class="w-full"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="手续费率">
-              <el-input-number
-                v-model="form.commission"
-                :min="0"
-                :max="0.1"
-                :step="0.0001"
-                :precision="4"
-                class="w-full"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+                <el-input
+                  v-else
+                  v-model="dynamicParams[key]"
+                  class="w-full"
+                />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </template>
         
         <el-form-item>
           <el-button type="primary" :loading="loading" @click="runBacktest">
             运行回测
           </el-button>
+          <el-button v-if="loading && currentTaskId" type="danger" @click="cancelBacktest">
+            取消
+          </el-button>
         </el-form-item>
       </el-form>
+      
+      <!-- 进度条 -->
+      <div v-if="loading && progressInfo.progress > 0" class="mt-4">
+        <div class="flex justify-between text-sm text-gray-500 mb-1">
+          <span>{{ progressInfo.message }}</span>
+          <span>{{ progressInfo.progress }}%</span>
+        </div>
+        <el-progress :percentage="progressInfo.progress" :status="progressInfo.progress >= 100 ? 'success' : undefined" />
+      </div>
     </el-card>
     
     <!-- 回测结果 -->
@@ -171,7 +168,11 @@
       </template>
       
       <el-table :data="results" stripe v-loading="backtestStore.loading">
-        <el-table-column prop="strategy_id" label="策略" width="150" />
+        <el-table-column label="策略" width="180">
+          <template #default="{ row }">
+            {{ getStrategyName(row.strategy_id) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="symbol" label="标的" width="120" />
         <el-table-column label="收益率" width="100">
           <template #default="{ row }">
@@ -213,12 +214,14 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useBacktestStore } from '@/stores/backtest'
 import { useStrategyStore } from '@/stores/strategy'
+import { strategyApi } from '@/api/strategy'
+import { backtestApi } from '@/api/backtest'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
-import type { BacktestResult } from '@/types'
+import type { BacktestResult, StrategyConfig } from '@/types'
 import dayjs from 'dayjs'
 
 const router = useRouter()
@@ -226,19 +229,54 @@ const backtestStore = useBacktestStore()
 const strategyStore = useStrategyStore()
 
 const loading = ref(false)
+const configLoading = ref(false)
 const currentResult = ref<BacktestResult | null>(null)
+const currentTaskId = ref('')
+const progressInfo = ref({ progress: 0, message: '' })
+const strategyConfig = ref<StrategyConfig | null>(null)
+const dynamicParams = reactive<Record<string, number | string>>({})
+let ws: WebSocket | null = null
 
 const form = reactive({
   strategy_id: '',
-  symbol: '000001.SZ',
-  start_date: dayjs().subtract(1, 'year').toDate(),
-  end_date: new Date(),
-  initial_cash: 100000,
-  commission: 0.001,
 })
 
+async function onStrategyChange(strategyId: string) {
+  if (!strategyId) {
+    strategyConfig.value = null
+    return
+  }
+  configLoading.value = true
+  try {
+    const config = await strategyApi.getTemplateConfig(strategyId)
+    strategyConfig.value = config
+
+    // 填充策略参数（仅 params 段）
+    Object.keys(dynamicParams).forEach(k => delete dynamicParams[k])
+    if (config.params) {
+      Object.entries(config.params).forEach(([k, v]) => {
+        dynamicParams[k] = v
+      })
+    }
+  } catch {
+    ElMessage.warning('无法加载策略配置，将使用默认参数')
+    strategyConfig.value = null
+  } finally {
+    configLoading.value = false
+  }
+}
+
 const strategies = computed(() => strategyStore.strategies)
+const templates = computed(() => strategyStore.templates)
 const results = computed(() => backtestStore.results)
+
+function getStrategyName(id: string): string {
+  const t = templates.value.find(t => t.id === id)
+  if (t) return t.name
+  const s = strategies.value.find(s => s.id === id)
+  if (s) return s.name
+  return id
+}
 
 function getStatusType(status: string) {
   const types: Record<string, string> = {
@@ -260,6 +298,50 @@ function getStatusText(status: string) {
   return texts[status] || status
 }
 
+function connectWebSocket(taskId: string) {
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/ws/backtest/${taskId}`
+  ws = new WebSocket(wsUrl)
+  
+  ws.onmessage = async (event) => {
+    const data = JSON.parse(event.data)
+    if (data.type === 'progress') {
+      progressInfo.value = { progress: data.progress, message: data.message }
+    } else if (data.type === 'completed') {
+      progressInfo.value = { progress: 100, message: '回测完成' }
+      const result = await backtestStore.fetchResult(taskId)
+      if (result) {
+        currentResult.value = result
+        await backtestStore.fetchResults()
+      }
+      loading.value = false
+      closeWebSocket()
+      ElMessage.success('回测完成')
+    } else if (data.type === 'failed') {
+      loading.value = false
+      closeWebSocket()
+      ElMessage.error('回测失败: ' + data.message)
+    } else if (data.type === 'cancelled') {
+      loading.value = false
+      closeWebSocket()
+      ElMessage.warning('回测已取消')
+    }
+  }
+  
+  ws.onerror = () => {
+    // WebSocket连接失败，回退到轮询
+    closeWebSocket()
+    pollResult(taskId)
+  }
+}
+
+function closeWebSocket() {
+  if (ws) {
+    ws.close()
+    ws = null
+  }
+}
+
 async function runBacktest() {
   if (!form.strategy_id) {
     ElMessage.warning('请选择策略')
@@ -267,42 +349,65 @@ async function runBacktest() {
   }
   
   loading.value = true
+  progressInfo.value = { progress: 0, message: '提交任务中...' }
   try {
     const response = await backtestStore.runBacktest({
-      ...form,
-      start_date: dayjs(form.start_date).format('YYYY-MM-DDTHH:mm:ss'),
-      end_date: dayjs(form.end_date).format('YYYY-MM-DDTHH:mm:ss'),
+      strategy_id: form.strategy_id,
+      symbol: strategyConfig.value?.data?.symbol || '',
+      start_date: dayjs().subtract(10, 'year').format('YYYY-MM-DDTHH:mm:ss'),
+      end_date: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
+      initial_cash: strategyConfig.value?.backtest?.initial_cash ?? 100000,
+      commission: strategyConfig.value?.backtest?.commission ?? 0.001,
+      params: { ...dynamicParams },
     })
     
+    currentTaskId.value = response.task_id
     ElMessage.success('回测任务已提交')
     
-    // 轮询获取结果
-    await pollResult(response.task_id)
-  } finally {
+    // 尝试WebSocket连接，失败则回退轮询
+    connectWebSocket(response.task_id)
+  } catch {
     loading.value = false
   }
 }
 
+async function cancelBacktest() {
+  if (!currentTaskId.value) return
+  try {
+    await backtestApi.cancel(currentTaskId.value)
+    loading.value = false
+    closeWebSocket()
+    ElMessage.success('已取消回测任务')
+  } catch {
+    ElMessage.error('取消失败')
+  }
+}
+
 async function pollResult(taskId: string) {
-  const maxAttempts = 30
+  const maxAttempts = 60
   let attempts = 0
   
-  while (attempts < maxAttempts) {
+  while (attempts < maxAttempts && loading.value) {
     const result = await backtestStore.fetchResult(taskId)
     if (result && result.status === 'completed') {
       currentResult.value = result
       await backtestStore.fetchResults()
+      loading.value = false
       return
     }
     if (result && result.status === 'failed') {
       ElMessage.error('回测失败: ' + result.error_message)
+      loading.value = false
       return
     }
     await new Promise(resolve => setTimeout(resolve, 1000))
     attempts++
   }
   
-  ElMessage.warning('回测超时，请稍后查看结果')
+  if (loading.value) {
+    loading.value = false
+    ElMessage.warning('回测超时，请稍后查看结果')
+  }
 }
 
 function viewResult(result: BacktestResult) {
@@ -322,11 +427,19 @@ async function deleteBacktest(taskId: string) {
 onMounted(async () => {
   await Promise.all([
     strategyStore.fetchStrategies(),
+    strategyStore.fetchTemplates(),
     backtestStore.fetchResults(),
   ])
   
-  if (strategies.value.length > 0) {
-    form.strategy_id = strategies.value[0].id
+  // Support ?strategy= query param from strategy gallery
+  const route = useRoute()
+  const queryStrategy = route.query.strategy as string
+  if (queryStrategy) {
+    form.strategy_id = queryStrategy
+    await onStrategyChange(queryStrategy)
+  } else if (templates.value.length > 0) {
+    form.strategy_id = templates.value[0].id
+    await onStrategyChange(templates.value[0].id)
   }
 })
 </script>

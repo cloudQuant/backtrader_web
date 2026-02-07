@@ -1,0 +1,21 @@
+# 策略基本信息
+strategy:
+  name: "均值回归SMA策略"
+  description: "基于简单移动平均线的均值回归策略。价格跌破SMA一定幅度时买入，回归至SMA时卖出。"
+  author: "backtrader-strategies-compendium"
+
+# 策略参数
+params:
+  period: 20               # SMA周期
+  order_percentage: 0.95   # 每次使用资金的百分比
+  dip_size: 0.025          # 下跌阈值(2.5%)
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

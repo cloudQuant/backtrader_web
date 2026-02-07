@@ -1,0 +1,21 @@
+# Strategy basic information
+strategy:
+  name: "逢低买入策略"
+  description: "基于连续下跌后的均值回归交易策略，在连续下跌N天后买入，持有固定天数后卖出"
+  author: "Backtrader Strategies Compendium"
+
+# Strategy parameters
+params:
+  stake: 10  # Number of shares to buy/sell per trade
+  hold_days: 5  # Number of bars to hold position before selling
+  consecutive_down: 3  # Number of consecutive down bars to trigger buy signal
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -1,0 +1,21 @@
+# Strategy basic information
+strategy:
+  name: "抛物线SAR策略"
+  description: "基于抛物线转向指标的趋势跟踪策略，价格向上穿越SAR时买入，向下穿越SAR时卖出，SAR同时作为动态止损位"
+  author: "J. Welles Wilder Jr."
+
+# Strategy parameters
+params:
+  stake: 10
+  af: 0.02
+  afmax: 0.2
+
+# Data configuration
+data:
+  symbol: "ORCL"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -1,0 +1,24 @@
+# MACD+KDJ combined strategy configuration
+# 策略基本信息
+strategy:
+  name: "MACD KDJ组合策略"
+  description: "MACD用于趋势跟踪，KDJ用于入场时机。MACD金叉做多，KDJ死叉平多仓；KDJ死叉做空，MACD金叉平空仓。"
+  author: "backtrader-example"
+
+# 策略参数
+params:
+  macd_fast_period: 12      # MACD快线周期
+  macd_slow_period: 26      # MACD慢线周期
+  macd_signal_period: 9     # MACD信号线周期
+  kdj_fast_period: 9        # KDJ周期
+  kdj_slow_period: 3        # KDJ平滑周期
+
+# 数据配置
+data:
+  symbol: "sh600000"
+  data_type: "stock"  # stock
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001

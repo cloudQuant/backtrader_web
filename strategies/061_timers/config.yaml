@@ -1,0 +1,22 @@
+# Strategy basic information
+strategy:
+  name: "定时器双均线策略"
+  description: "基于双均线交叉信号，同时测试定时器功能的策略"
+  author: "backtrader"
+
+# Strategy parameters
+params:
+  when: "SESSION_START"  # Timer trigger time
+  timer: true  # Enable timer
+  fast_period: 10  # Fast MA period
+  slow_period: 30  # Slow MA period
+
+# Data configuration
+data:
+  symbol: "2005-2006-day-001"
+  data_type: "stock"
+
+# Backtest configuration
+backtest:
+  initial_cash: 100000
+  commission: 0.001

@@ -1,0 +1,25 @@
+# 策略基本信息
+strategy:
+  name: "ETF轮动策略"
+  description: "基于均线比率的ETF轮动策略，在上证50ETF和创业板ETF之间进行轮动"
+  author: "yunjinqi"
+
+# 策略参数
+params:
+  ma_period: 20  # 均线周期
+
+# 数据配置
+data:
+  symbols:
+    - "SSE50_ETF"   # 上证50ETF
+    - "ChiNext_ETF" # 创业板ETF
+  data_type: "etf"  # ETF数据
+
+# 回测配置
+backtest:
+  initial_cash: 50000     # 初始资金
+  commission: 0.0002      # 手续费率
+
+# 轮动配置
+rotation:
+  position_ratio: 0.95    # 仓位比例
