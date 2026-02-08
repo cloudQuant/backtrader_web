@@ -26,6 +26,12 @@ limiter = Limiter(key_func=get_remote_address)
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("Starting Backtrader Web API (v2.0 - Complete Edition)...")
+    # OPT-5: 检测是否使用了默认安全密钥
+    if "change-in-production" in settings.SECRET_KEY or "change-in-production" in settings.JWT_SECRET_KEY:
+        logger.warning("⚠️  正在使用默认安全密钥！请在生产环境中通过环境变量 SECRET_KEY / JWT_SECRET_KEY 设置安全的随机密钥。")
+    # OPT-6: 检测是否使用了默认管理员密码
+    if settings.ADMIN_PASSWORD == "admin123":
+        logger.warning("⚠️  默认管理员密码为 admin123，请在生产环境中通过环境变量 ADMIN_PASSWORD 修改。")
     await init_db()
     logger.info("Database initialized")
     yield
@@ -128,7 +134,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS 中间件
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],  # 生产环境应限制具体域名
+    allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -169,10 +175,19 @@ async def root():
 @app.get("/health", summary="健康检查")
 async def health_check():
     """健康检查"""
+    from sqlalchemy import text
+    from app.db.database import async_session_maker
+    db_status = "disconnected"
+    try:
+        async with async_session_maker() as session:
+            await session.execute(text("SELECT 1"))
+        db_status = "connected"
+    except Exception:
+        pass
     return {
-        "status": "healthy",
+        "status": "healthy" if db_status == "connected" else "degraded",
         "service": settings.APP_NAME,
-        "database": "connected",
+        "database": db_status,
         "backtrader": "available",
         "version": "2.0.0",
     }

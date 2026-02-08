@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 8000
     
+    # 回测子进程超时（秒）
+    BACKTEST_TIMEOUT: int = 300
+    
+    # CORS 允许的源（逗号分隔）
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    
+    # SQL 日志（独立于 DEBUG，避免过多噪音）
+    SQL_ECHO: bool = False
+    
     # 默认管理员账户
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "admin123"

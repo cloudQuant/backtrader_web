@@ -52,7 +52,7 @@
         </el-tab-pane>
         
         <el-tab-pane label="资金曲线" name="equity">
-          <el-card v-if="activeTab === 'equity'">
+          <el-card v-show="activeTab === 'equity'">
             <EquityCurve
               :data="detail.equity_curve"
               :height="350"
@@ -66,7 +66,7 @@
         </el-tab-pane>
         
         <el-tab-pane label="收益分析" name="analysis">
-          <div v-if="activeTab === 'analysis'" class="space-y-4">
+          <div v-show="activeTab === 'analysis'" class="space-y-4">
             <el-card>
               <ReturnHeatmap
                 :returns="monthlyReturns?.returns || []"

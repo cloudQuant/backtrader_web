@@ -306,7 +306,8 @@ class BacktestService:
             # 记录 PID 用于取消
             if task_id:
                 _running_processes[task_id] = proc
-            stdout, stderr = proc.communicate(timeout=300)
+            from app.config import get_settings
+            stdout, stderr = proc.communicate(timeout=get_settings().BACKTEST_TIMEOUT)
             return proc.returncode, stdout, stderr
 
         returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(None, _run)
@@ -317,338 +318,9 @@ class BacktestService:
 
         return {"stdout": stdout, "stderr": stderr}
     
-    def _get_stock_data(self, symbol: str, start_date: datetime, end_date: datetime):
-        """
-        使用akshare下载股票数据
-        
-        Args:
-            symbol: 股票代码，如 000001.SZ 或 600000.SH
-            start_date: 开始日期
-            end_date: 结束日期
-            
-        Returns:
-            pandas.DataFrame: 包含OHLCV数据的DataFrame
-        """
-        import akshare as ak
-        import pandas as pd
-        
-        # 解析股票代码，去掉后缀
-        code = symbol.split('.')[0]
-        
-        # 格式化日期
-        start_str = start_date.strftime("%Y%m%d")
-        end_str = end_date.strftime("%Y%m%d")
-        
-        try:
-            # 使用akshare获取A股日线数据
-            df = ak.stock_zh_a_hist(
-                symbol=code,
-                period="daily",
-                start_date=start_str,
-                end_date=end_str,
-                adjust="qfq"  # 前复权
-            )
-            
-            if df.empty:
-                raise ValueError(f"未获取到股票 {symbol} 的数据")
-            
-            # 重命名列以匹配backtrader格式
-            df = df.rename(columns={
-                '日期': 'date',
-                '开盘': 'open',
-                '最高': 'high',
-                '最低': 'low',
-                '收盘': 'close',
-                '成交量': 'volume',
-            })
-            
-            # 设置日期索引
-            df['date'] = pd.to_datetime(df['date'])
-            df = df.set_index('date')
-            
-            # 只保留需要的列
-            df = df[['open', 'high', 'low', 'close', 'volume']]
-            
-            logger.info(f"成功下载 {symbol} 数据，共 {len(df)} 条记录")
-            return df
-            
-        except Exception as e:
-            logger.error(f"下载股票数据失败: {symbol}, {e}")
-            raise ValueError(f"下载股票数据失败: {e}")
-    
-    def _get_strategy_class(self, strategy_id: str, params: Dict[str, Any] = None):
-        """
-        根据策略ID获取策略类（安全版本）
-        支持: 1) strategies/目录模板（受信任，直接执行）
-              2) 数据库中用户自定义策略（沙箱执行）
-        """
-        from app.services.strategy_service import get_template_by_id
-        from app.utils.sandbox import execute_strategy_safely
-
-        # 1) 先从文件系统策略模板查找（受信任代码，直接执行）
-        template = get_template_by_id(strategy_id)
-        if template:
-            try:
-                return self._load_strategy_from_code(template.code, params or {}, strategy_id)
-            except Exception as e:
-                logger.error(f"加载内置策略失败: {strategy_id}, {e}")
-                raise ValueError(f"加载内置策略失败: {e}")
-
-        # 2) 尝试从数据库查找用户策略（沙箱执行）
-        code = None
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    strategy = pool.submit(
-                        asyncio.run,
-                        self.strategy_repo.get_by_id(strategy_id)
-                    ).result(timeout=5)
-            else:
-                strategy = asyncio.run(self.strategy_repo.get_by_id(strategy_id))
-            if strategy and strategy.code:
-                code = strategy.code
-        except Exception as e:
-            logger.warning(f"从数据库查找策略失败: {strategy_id}, {e}")
-
-        if not code:
-            raise ValueError(f"未找到策略: {strategy_id}")
-
-        try:
-            strategy_class = execute_strategy_safely(code, params)
-            return strategy_class
-        except (ValueError, SyntaxError, NameError, AttributeError, ImportError, RuntimeError) as e:
-            logger.error(f"策略代码执行失败: {e}")
-            raise ValueError(f"策略代码执行失败: {e}")
-
-    def _load_strategy_from_code(self, code: str, params: Dict[str, Any], strategy_id: str = None):
-        """
-        从受信任的代码加载策略类（内置模板专用，不经过沙箱）
-        注入 __file__ 以便策略代码中 Path(__file__) / load_config() 正常工作
-        """
-        import sys
-        import builtins
-        import types as _types
-        import backtrader as bt
-        from app.services.strategy_service import STRATEGIES_DIR
-
-        module_name = f"strategy_{strategy_id or id(code)}"
-        module = _types.ModuleType(module_name)
-        module.__dict__['__builtins__'] = builtins
-
-        # 注册到 sys.modules，backtrader 元类需要通过 sys.modules[cls.__module__] 查找
-        sys.modules[module_name] = module
-
-        # 如果是文件系统策略，注入 __file__ 指向实际的 .py 文件
-        if strategy_id:
-            strategy_dir = STRATEGIES_DIR / strategy_id
-            code_files = list(strategy_dir.glob("strategy_*.py"))
-            if code_files:
-                real_file = str(code_files[0])
-                module.__dict__['__file__'] = real_file
-                # 把策略目录加入 sys.path 以便相对导入
-                str_dir = str(strategy_dir)
-                if str_dir not in sys.path:
-                    sys.path.insert(0, str_dir)
-
-        exec(compile(code, module.__dict__.get('__file__', '<strategy>'), 'exec'), module.__dict__)
-
-        # 查找 bt.Strategy 子类
-        for name, obj in module.__dict__.items():
-            if isinstance(obj, type) and issubclass(obj, bt.Strategy) and obj is not bt.Strategy:
-                return obj
-
-        raise ValueError("策略代码中未找到有效的 Strategy 类")
-    
-    def _parse_backtest_results(
-        self, 
-        cerebro, 
-        results, 
-        initial_cash: float,
-        start_date: datetime,
-        end_date: datetime
-    ) -> Dict[str, Any]:
-        """
-        解析backtrader回测结果
-        """
-        strat = results[0]
-        
-        # 获取最终资金
-        final_value = cerebro.broker.getvalue()
-        total_return = ((final_value - initial_cash) / initial_cash) * 100
-        
-        # 计算年化收益
-        total_days = (end_date - start_date).days
-        years = total_days / 365.0 if total_days > 0 else 1
-        annual_return = (((final_value / initial_cash) ** (1 / years)) - 1) * 100 if years > 0 else 0
-        
-        # 解析分析器结果
-        sharpe_ratio = 0.0
-        try:
-            sharpe_analysis = strat.analyzers.sharpe.get_analysis()
-            sharpe_ratio = sharpe_analysis.get('sharperatio') or 0.0
-            if sharpe_ratio is None:
-                sharpe_ratio = 0.0
-        except Exception:
-            pass
-        
-        max_drawdown = 0.0
-        try:
-            drawdown_analysis = strat.analyzers.drawdown.get_analysis()
-            max_drawdown = drawdown_analysis.get('max', {}).get('drawdown', 0.0) or 0.0
-        except Exception:
-            pass
-        
-        # 交易统计
-        total_trades = 0
-        profitable_trades = 0
-        losing_trades = 0
-        try:
-            trade_analysis = strat.analyzers.trades.get_analysis()
-            total_trades = trade_analysis.get('total', {}).get('total', 0) or 0
-            profitable_trades = trade_analysis.get('won', {}).get('total', 0) or 0
-            losing_trades = trade_analysis.get('lost', {}).get('total', 0) or 0
-        except Exception:
-            pass
-        
-        win_rate = (profitable_trades / total_trades * 100) if total_trades > 0 else 0
-        
-        # 获取资金曲线（使用 TimeReturn 分析器）
-        equity_curve = []
-        equity_dates = []
-        drawdown_curve = []
-        
-        try:
-            timereturn = strat.analyzers.timereturn.get_analysis()
-            current_value = initial_cash
-            peak = initial_cash
-            
-            for dt, ret in sorted(timereturn.items()):
-                current_value = current_value * (1 + (ret or 0))
-                date_str = dt.strftime("%Y-%m-%d") if isinstance(dt, datetime) else str(dt)
-                equity_curve.append(round(current_value, 2))
-                equity_dates.append(date_str)
-                
-                if current_value > peak:
-                    peak = current_value
-                dd = ((peak - current_value) / peak) * 100 if peak > 0 else 0
-                drawdown_curve.append(round(dd, 2))
-            
-            logger.info(f"资金曲线: {len(equity_curve)} 个数据点")
-        except Exception as e:
-            logger.warning(f"解析资金曲线失败: {e}")
-            equity_curve = [initial_cash, final_value]
-            equity_dates = [start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")]
-            drawdown_curve = [0, max_drawdown]
-        
-        # 提取交易记录
-        import backtrader as bt
-        trade_records = []
-        try:
-            for data_trades in strat._trades.values():
-                for tid, t_list in data_trades.items():
-                    for t in t_list:
-                        if t.isclosed:
-                            dt_close = ""
-                            try:
-                                dt_close = bt.num2date(t.dtclose).strftime("%Y-%m-%d %H:%M:%S")
-                            except Exception:
-                                pass
-                            trade_records.append({
-                                "datetime": dt_close,
-                                "direction": "buy" if t.long else "sell",
-                                "price": round(t.price, 4),
-                                "size": abs(t.size),
-                                "value": round(abs(t.value), 2) if t.value else 0,
-                                "commission": round(t.commission, 4),
-                                "pnl": round(t.pnl, 2),
-                                "pnlcomm": round(t.pnlcomm, 2),
-                                "barlen": t.barlen or 0,
-                            })
-        except Exception as e:
-            logger.warning(f"解析交易记录失败: {e}")
-        
-        logger.info(f"交易记录: {len(trade_records)} 条")
-        
-        return {
-            "total_return": round(total_return, 2),
-            "annual_return": round(annual_return, 2),
-            "sharpe_ratio": round(sharpe_ratio, 2) if sharpe_ratio else 0.0,
-            "max_drawdown": round(max_drawdown, 2),
-            "win_rate": round(win_rate, 1),
-            "total_trades": total_trades,
-            "profitable_trades": profitable_trades,
-            "losing_trades": losing_trades,
-            "equity_curve": equity_curve,
-            "equity_dates": equity_dates,
-            "drawdown_curve": drawdown_curve,
-            "trades": trade_records,
-        }
-
-    async def _run_backtrader(self, request: BacktestRequest) -> Dict[str, Any]:
-        """
-        运行Backtrader回测（使用akshare真实数据）
-        """
-        import backtrader as bt
-        import pandas as pd
-        
-        # 下载真实股票数据
-        logger.info(f"开始下载股票数据: {request.symbol}, {request.start_date} - {request.end_date}")
-        df = self._get_stock_data(request.symbol, request.start_date, request.end_date)
-        
-        # 创建Cerebro引擎
-        cerebro = bt.Cerebro()
-        
-        # 添加数据
-        data = bt.feeds.PandasData(dataname=df)
-        cerebro.adddata(data)
-        
-        # 获取并添加策略
-        strategy_class = self._get_strategy_class(request.strategy_id, request.params)
-        
-        # 设置策略参数
-        if request.params:
-            cerebro.addstrategy(strategy_class, **request.params)
-        else:
-            cerebro.addstrategy(strategy_class)
-        
-        # 设置初始资金和手续费
-        cerebro.broker.setcash(request.initial_cash)
-        cerebro.broker.setcommission(commission=request.commission)
-        
-        # 添加分析器
-        cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.02)
-        cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-        cerebro.addanalyzer(bt.analyzers.TimeReturn, _name='timereturn')
-        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
-        
-        # 运行回测
-        logger.info(f"开始运行回测: {request.strategy_id}")
-        results = cerebro.run()
-        
-        # 解析结果
-        result = self._parse_backtest_results(
-            cerebro, 
-            results, 
-            request.initial_cash,
-            request.start_date,
-            request.end_date
-        )
-        
-        logger.info(f"回测完成，总收益率: {result['total_return']}%")
-        return result
-    
     async def get_result(self, task_id: str, user_id: str = None) -> Optional[BacktestResult]:
         """获取回测结果（B002: 可选 user_id 鉴权）"""
-        # 先查缓存
-        cache_key = f"backtest:result:{task_id}"
-        cached = await self.cache.get(cache_key)
-        if cached:
-            return BacktestResult(**cached)
-        
-        # 查询任务
+        # 查询任务（先校验用户归属，再查缓存，防止越权）
         task = await self.task_repo.get_by_id(task_id)
         if not task:
             return None
@@ -656,6 +328,12 @@ class BacktestService:
         # B002: 校验用户归属
         if user_id and task.user_id != user_id:
             return None
+        
+        # 鉴权通过后查缓存
+        cache_key = f"backtest:result:{task_id}"
+        cached = await self.cache.get(cache_key)
+        if cached:
+            return BacktestResult(**cached)
         
         # 查询结果
         results = await self.result_repo.list(filters={"task_id": task_id}, limit=1)
@@ -758,6 +436,15 @@ class BacktestService:
         task = await self.task_repo.get_by_id(task_id)
         if not task or task.user_id != user_id:
             return False
+        
+        # 删除持久化的日志目录（OPT-14: 避免磁盘累积）
+        if getattr(task, 'log_dir', None):
+            log_path = Path(task.log_dir)
+            if log_path.is_dir():
+                try:
+                    shutil.rmtree(log_path, ignore_errors=True)
+                except Exception:
+                    pass
         
         # 删除结果
         results = await self.result_repo.list(filters={"task_id": task_id}, limit=1)

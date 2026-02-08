@@ -1,6 +1,7 @@
 """
 回测分析API路由
 """
+from functools import lru_cache
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from typing import Optional
@@ -28,10 +29,12 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 
+@lru_cache
 def get_analytics_service():
     return AnalyticsService()
 
 
+@lru_cache
 def get_backtest_service():
     return BacktestService()
 
@@ -103,6 +106,31 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
             'trough': round(value, 2),
         })
     
+    # [B009] 从任务专属日志目录获取真实K线数据（提前解析，供信号价格查找使用）
+    klines = []
+    log_indicators: dict = {}
+    kline_close_map: dict = {}  # date -> close price
+    try:
+        if task_log_dir:
+            kline_data = parse_data_log(task_log_dir)
+            kline_dates = kline_data.get('dates', [])
+            kline_ohlc = kline_data.get('ohlc', [])
+            kline_volumes = kline_data.get('volumes', [])
+            log_indicators = kline_data.get('indicators', {})
+            for j in range(len(kline_dates)):
+                ohlc = kline_ohlc[j] if j < len(kline_ohlc) else [0, 0, 0, 0]
+                klines.append({
+                    'date': kline_dates[j],
+                    'open': round(ohlc[0], 4),
+                    'high': round(ohlc[3], 4),
+                    'low': round(ohlc[2], 4),
+                    'close': round(ohlc[1], 4),
+                    'volume': kline_volumes[j] if j < len(kline_volumes) else 0,
+                })
+                kline_close_map[kline_dates[j]] = round(ohlc[1], 4)
+    except Exception:
+        pass
+
     # 转换交易记录
     trades = []
     signals = []
@@ -126,46 +154,26 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
         trades.append(trade)
         
         # 每笔已关闭的交易生成开仓和平仓两个信号
+        # 优先使用K线收盘价作为信号价格，回退到交易均价
         is_long = trade['direction'] == 'buy'
         dtopen = td.get('dtopen', '')
         dtclose = td.get('dtclose', '') or trade['datetime']
         if dtopen:
+            open_date = dtopen[:10]
             signals.append({
-                'date': dtopen[:10],
+                'date': open_date,
                 'type': 'buy' if is_long else 'sell',
-                'price': trade['price'],
+                'price': kline_close_map.get(open_date, trade['price']),
                 'size': trade['size'],
             })
         if dtclose:
+            close_date = dtclose[:10]
             signals.append({
-                'date': dtclose[:10],
+                'date': close_date,
                 'type': 'sell' if is_long else 'buy',
-                'price': trade['price'],
+                'price': kline_close_map.get(close_date, trade['price']),
                 'size': trade['size'],
             })
-    
-    # [B009] 从任务专属日志目录获取真实K线数据
-    klines = []
-    log_indicators: dict = {}
-    try:
-        if task_log_dir:
-            kline_data = parse_data_log(task_log_dir)
-            kline_dates = kline_data.get('dates', [])
-            kline_ohlc = kline_data.get('ohlc', [])
-            kline_volumes = kline_data.get('volumes', [])
-            log_indicators = kline_data.get('indicators', {})
-            for j in range(len(kline_dates)):
-                ohlc = kline_ohlc[j] if j < len(kline_ohlc) else [0, 0, 0, 0]
-                klines.append({
-                    'date': kline_dates[j],
-                    'open': round(ohlc[0], 4),
-                    'high': round(ohlc[3], 4),
-                    'low': round(ohlc[2], 4),
-                    'close': round(ohlc[1], 4),
-                    'volume': kline_volumes[j] if j < len(kline_volumes) else 0,
-                })
-    except Exception:
-        pass
     
     # 如果无法从日志获取，回退使用资金曲线反推
     if not klines:
@@ -200,7 +208,7 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
                         monthly_returns[current_month] = round(ret, 6)
                     month_start_value = value
                     current_month = month_key
-            except:
+            except Exception:
                 pass
         
         # 最后一个月

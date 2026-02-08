@@ -1,6 +1,7 @@
 """
 策略API路由
 """
+from functools import lru_cache
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 
@@ -16,6 +17,7 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 
+@lru_cache
 def get_strategy_service():
     return StrategyService()
 

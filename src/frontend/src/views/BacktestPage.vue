@@ -274,6 +274,7 @@ function getStatusType(status: string) {
     running: 'warning',
     pending: 'info',
     failed: 'danger',
+    cancelled: 'warning',
   }
   return types[status] || 'info'
 }
@@ -284,14 +285,14 @@ function getStatusText(status: string) {
     running: '运行中',
     pending: '等待中',
     failed: '失败',
+    cancelled: '已取消',
   }
   return texts[status] || status
 }
 
 function connectWebSocket(taskId: string) {
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsPort = window.location.port === '3000' ? '8000' : window.location.port || '8000'
-  const wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}/ws/backtest/${taskId}`
+  const wsUrl = `${wsProtocol}//${window.location.host}/ws/backtest/${taskId}`
   ws = new WebSocket(wsUrl)
   
   ws.onmessage = async (event) => {

@@ -162,6 +162,7 @@ function getStatusType(status: string) {
     running: 'warning',
     pending: 'info',
     failed: 'danger',
+    cancelled: 'warning',
   }
   return types[status] || 'info'
 }
@@ -172,6 +173,7 @@ function getStatusText(status: string) {
     running: '运行中',
     pending: '等待中',
     failed: '失败',
+    cancelled: '已取消',
   }
   return texts[status] || status
 }

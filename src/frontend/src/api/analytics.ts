@@ -5,7 +5,6 @@ import request from './index'
 import type {
   BacktestDetailResponse,
   KlineWithSignalsResponse,
-  OptimizationResponse,
   MonthlyReturnsResponse,
 } from '@/types/analytics'
 
@@ -39,24 +38,18 @@ export const analyticsApi = {
   },
 
   /**
-   * 获取参数优化结果
-   */
-  getOptimizationResults(
-    taskId: string,
-    sortBy = 'sharpe_ratio',
-    order = 'desc',
-    limit = 50
-  ): Promise<OptimizationResponse> {
-    return request.get(`/analytics/${taskId}/optimization`, {
-      params: { sort_by: sortBy, order, limit },
-    })
-  },
-
-  /**
    * 导出回测结果
    */
-  exportResults(taskId: string, format: 'csv' | 'json' = 'csv'): void {
-    const url = `/api/v1/analytics/${taskId}/export?format=${format}`
-    window.open(url, '_blank')
+  async exportResults(taskId: string, format: 'csv' | 'json' = 'csv'): Promise<void> {
+    const response = await request.get(`/analytics/${taskId}/export`, {
+      params: { format },
+      responseType: 'blob',
+    })
+    const blob = new Blob([response as any])
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `backtest_${taskId}.${format}`
+    link.click()
+    URL.revokeObjectURL(link.href)
   },
 }

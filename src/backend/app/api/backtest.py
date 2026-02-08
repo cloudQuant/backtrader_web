@@ -1,6 +1,7 @@
 """
 回测API路由
 """
+from functools import lru_cache
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 
@@ -17,6 +18,7 @@ from app.api.deps import get_current_user
 router = APIRouter()
 
 
+@lru_cache
 def get_backtest_service():
     return BacktestService()
 
@@ -65,13 +67,13 @@ async def get_backtest_status(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """获取回测任务状态"""
-    status = await service.get_task_status(task_id, user_id=current_user.sub)
-    if status is None:
+    task_status = await service.get_task_status(task_id, user_id=current_user.sub)
+    if task_status is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="任务不存在",
         )
-    return {"task_id": task_id, "status": status}
+    return {"task_id": task_id, "status": task_status}
 
 
 @router.get("/", response_model=BacktestListResponse, summary="列出回测历史")

@@ -16,6 +16,8 @@ import math
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+import numpy as np
+
 logger = logging.getLogger(__name__)
 
 
@@ -301,7 +303,6 @@ def parse_all_logs(strategy_dir: Path) -> Optional[Dict[str, Any]]:
 
     # 夏普比率 (简化计算)
     if len(equity) > 1:
-        import numpy as np
         returns = []
         for i in range(1, len(equity)):
             if equity[i - 1] > 0:
