@@ -5,7 +5,7 @@ import pytest
 from playwright.sync_api import Page, expect
 import uuid
 
-FRONTEND_URL = "http://localhost:3001"
+FRONTEND_URL = "http://localhost:3000"
 
 
 class TestStrategyPage:
@@ -20,14 +20,14 @@ class TestStrategyPage:
         # 检查创建策略按钮
         expect(page.locator('button:has-text("创建策略")')).to_be_visible()
     
-    def test_strategy_templates_section(self, authenticated_page: Page):
-        """测试策略模板区域"""
+    def test_strategy_gallery_section(self, authenticated_page: Page):
+        """测试策略库区域"""
         page = authenticated_page
         page.goto(f"{FRONTEND_URL}/strategy")
         page.wait_for_load_state("networkidle")
         
-        # 检查策略模板区域
-        expect(page.locator("text=策略模板")).to_be_visible()
+        # 检查策略库标签页
+        expect(page.locator("text=策略库").first).to_be_visible()
     
     def test_open_create_dialog(self, authenticated_page: Page):
         """测试打开创建策略对话框"""
@@ -85,9 +85,8 @@ class TestStrategyPage:
         page.goto(f"{FRONTEND_URL}/strategy")
         page.wait_for_load_state("networkidle")
         
-        # 检查分类选择器存在
-        select = page.locator(".el-select").first
-        expect(select).to_be_visible()
+        # 检查分类筛选按钮组存在（el-radio-group）
+        expect(page.locator(".el-radio-group").first).to_be_visible()
 
 
 class TestStrategyTemplates:

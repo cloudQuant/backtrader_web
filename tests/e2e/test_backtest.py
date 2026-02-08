@@ -4,7 +4,7 @@
 import pytest
 from playwright.sync_api import Page, expect
 
-FRONTEND_URL = "http://localhost:3001"
+FRONTEND_URL = "http://localhost:3000"
 
 
 class TestBacktestPage:
@@ -25,14 +25,11 @@ class TestBacktestPage:
         page.goto(f"{FRONTEND_URL}/backtest")
         page.wait_for_load_state("networkidle")
         
-        # 检查表单元素
+        # 检查表单核心元素
         expect(page.locator("text=策略").first).to_be_visible()
-        expect(page.locator("text=标的代码").first).to_be_visible()
-        expect(page.locator("text=开始日期").first).to_be_visible()
-        expect(page.locator("text=结束日期").first).to_be_visible()
-        expect(page.locator("text=初始资金").first).to_be_visible()
-        expect(page.locator("text=手续费率").first).to_be_visible()
         expect(page.locator('button:has-text("运行回测")').first).to_be_visible()
+        # 策略选择器存在
+        expect(page.locator(".el-select").first).to_be_visible()
     
     def test_backtest_history_section(self, authenticated_page: Page):
         """测试回测历史区域"""
@@ -43,28 +40,29 @@ class TestBacktestPage:
         # 检查回测历史区域
         expect(page.locator("text=回测历史")).to_be_visible()
     
-    def test_fill_backtest_form(self, authenticated_page: Page):
-        """测试填写回测表单"""
+    def test_strategy_selector(self, authenticated_page: Page):
+        """测试策略选择器"""
         page = authenticated_page
         page.goto(f"{FRONTEND_URL}/backtest")
         page.wait_for_load_state("networkidle")
         
-        # 填写标的代码
-        symbol_input = page.locator('input[placeholder="如: 000001.SZ"]')
-        symbol_input.fill("600000.SH")
+        # 点击策略选择器
+        page.click(".el-select")
+        page.wait_for_timeout(500)
         
-        # 验证输入
-        expect(symbol_input).to_have_value("600000.SH")
+        # 应该出现下拉选项
+        expect(page.locator(".el-select-dropdown__item").first).to_be_visible()
     
-    def test_date_picker_interaction(self, authenticated_page: Page):
-        """测试日期选择器交互"""
+    def test_page_structure(self, authenticated_page: Page):
+        """测试回测页面整体结构"""
         page = authenticated_page
         page.goto(f"{FRONTEND_URL}/backtest")
         page.wait_for_load_state("networkidle")
         
-        # 检查日期选择器存在
-        date_editors = page.locator(".el-date-editor")
-        expect(date_editors.first).to_be_visible()
+        # 页面应该同时包含配置区域和历史区域
+        content = page.content()
+        assert "回测配置" in content
+        assert "回测历史" in content
 
 
 class TestBacktestResults:

@@ -41,7 +41,7 @@ async def list_instances(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
-    instances = mgr.list_instances()
+    instances = mgr.list_instances(user_id=current_user.sub)
     return {"total": len(instances), "instances": instances}
 
 
@@ -52,7 +52,7 @@ async def add_instance(
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
     try:
-        return mgr.add_instance(req.strategy_id, req.params)
+        return mgr.add_instance(req.strategy_id, req.params, user_id=current_user.sub)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -63,7 +63,7 @@ async def remove_instance(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
-    if not mgr.remove_instance(instance_id):
+    if not mgr.remove_instance(instance_id, user_id=current_user.sub):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="实例不存在")
     return {"message": "已删除"}
 
@@ -74,7 +74,7 @@ async def get_instance(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
-    inst = mgr.get_instance(instance_id)
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
     if not inst:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="实例不存在")
     return inst
@@ -251,13 +251,31 @@ async def get_live_kline(
             "volume": volumes[j] if j < len(volumes) else 0,
         })
 
-    # 交易信号
+    # 构建K线收盘价映射，供信号价格查找
+    kline_close_map = {}
+    for k in klines:
+        kline_close_map[k["date"]] = k["close"]
+
+    # 交易信号（区分多空方向，优先使用K线收盘价）
     signals = []
     for t in trades_raw:
+        is_long = t.get("direction", "buy") == "buy" or t.get("long", True)
         if t.get("dtopen"):
-            signals.append({"date": t["dtopen"], "type": "buy", "price": t.get("price", 0), "reason": "开仓"})
+            open_date = t["dtopen"][:10]
+            signals.append({
+                "date": open_date,
+                "type": "buy" if is_long else "sell",
+                "price": kline_close_map.get(open_date, t.get("price", 0)),
+                "reason": "开仓",
+            })
         if t.get("dtclose"):
-            signals.append({"date": t["dtclose"], "type": "sell", "price": t.get("price", 0), "reason": "平仓"})
+            close_date = t["dtclose"][:10]
+            signals.append({
+                "date": close_date,
+                "type": "sell" if is_long else "buy",
+                "price": kline_close_map.get(close_date, t.get("price", 0)),
+                "reason": "平仓",
+            })
 
     indicators = log_indicators if log_indicators else {}
 

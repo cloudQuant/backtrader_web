@@ -83,7 +83,11 @@ function initChart() {
   const yAxes: any[] = [
     {
       type: 'value', name: '金额',
-      axisLabel: { formatter: (v: number) => `¥${(v / 1000).toFixed(0)}K` },
+      axisLabel: { formatter: (v: number) => {
+        if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(1) + '亿'
+        if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(1) + '万'
+        return v.toFixed(0)
+      }},
     },
   ]
   

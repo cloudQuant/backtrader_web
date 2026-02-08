@@ -4,7 +4,7 @@
 import pytest
 from playwright.sync_api import Page, expect
 
-FRONTEND_URL = "http://localhost:3001"
+FRONTEND_URL = "http://localhost:3000"
 
 
 class TestDashboard:

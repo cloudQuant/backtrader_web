@@ -47,6 +47,12 @@ class Token(BaseModel):
     expires_in: int = Field(..., description="过期时间(秒)")
 
 
+class ChangePassword(BaseModel):
+    """修改密码请求"""
+    old_password: str = Field(..., description="当前密码")
+    new_password: str = Field(..., min_length=8, description="新密码")
+
+
 class TokenPayload(BaseModel):
     """JWT令牌载荷"""
     sub: str = Field(..., description="用户ID")

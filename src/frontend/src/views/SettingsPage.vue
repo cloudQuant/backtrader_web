@@ -41,28 +41,6 @@
       </el-form>
     </el-card>
     
-    <!-- 系统设置 -->
-    <el-card>
-      <template #header>
-        <span class="font-bold">系统设置</span>
-      </template>
-      
-      <el-form label-width="100px">
-        <el-form-item label="主题">
-          <el-radio-group v-model="settings.theme">
-            <el-radio label="light">浅色</el-radio>
-            <el-radio label="dark">深色</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="语言">
-          <el-select v-model="settings.language" class="w-40">
-            <el-option label="中文" value="zh-CN" />
-            <el-option label="English" value="en-US" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-    </el-card>
-    
     <!-- 关于 -->
     <el-card>
       <template #header>
@@ -79,11 +57,13 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, computed, onMounted } from 'vue'
+import { reactive, computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import api from '@/api/index'
 
 const authStore = useAuthStore()
+const changingPassword = ref(false)
 
 const userForm = reactive({
   username: '',
@@ -97,14 +77,9 @@ const passwordForm = reactive({
   confirmPassword: '',
 })
 
-const settings = reactive({
-  theme: 'light',
-  language: 'zh-CN',
-})
-
 const user = computed(() => authStore.user)
 
-function changePassword() {
+async function changePassword() {
   if (!passwordForm.oldPassword || !passwordForm.newPassword) {
     ElMessage.warning('请填写密码')
     return
@@ -118,10 +93,21 @@ function changePassword() {
     return
   }
   
-  ElMessage.success('密码修改成功')
-  passwordForm.oldPassword = ''
-  passwordForm.newPassword = ''
-  passwordForm.confirmPassword = ''
+  changingPassword.value = true
+  try {
+    await api.put('/auth/change-password', {
+      old_password: passwordForm.oldPassword,
+      new_password: passwordForm.newPassword,
+    })
+    ElMessage.success('密码修改成功')
+    passwordForm.oldPassword = ''
+    passwordForm.newPassword = ''
+    passwordForm.confirmPassword = ''
+  } catch {
+    // error handled by interceptor
+  } finally {
+    changingPassword.value = false
+  }
 }
 
 onMounted(() => {

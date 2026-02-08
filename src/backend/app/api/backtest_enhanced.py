@@ -3,6 +3,7 @@
 
 集成了参数优化、报告导出、WebSocket 实时推送
 """
+from functools import lru_cache
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, WebSocket, WebSocketDisconnect
 
@@ -24,14 +25,17 @@ from app.websocket_manager import manager as ws_manager
 router = APIRouter()
 
 
+@lru_cache
 def get_backtest_service():
     return BacktestService()
 
 
+@lru_cache
 def get_optimization_service():
     return OptimizationService()
 
 
+@lru_cache
 def get_report_service():
     return ReportService()
 
@@ -68,7 +72,7 @@ async def get_backtest_result(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """获取回测结果"""
-    result = await service.get_result(task_id)
+    result = await service.get_result(task_id, user_id=current_user.sub)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -84,13 +88,13 @@ async def get_backtest_status(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """获取回测任务状态"""
-    status = await service.get_task_status(task_id)
-    if not status:
+    task_status = await service.get_task_status(task_id)
+    if not task_status:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="任务不存在",
         )
-    return {"task_id": task_id, "status": status.value}
+    return {"task_id": task_id, "status": task_status.value}
 
 
 @router.get("/", response_model=BacktestListResponse, summary="列出回测历史")
@@ -325,28 +329,27 @@ async def websocket_endpoint(
     await ws_manager.connect(websocket, task_id, client_id)
 
     try:
-        # 潮询任务状态并推送
-        from app.services.backtest_service import BacktestService
-        backtest_service = BacktestService()
+        # 轮询任务状态并推送
+        backtest_service = get_backtest_service()
+        import asyncio
 
         while True:
             # 检查任务状态
-            status = await backtest_service.get_task_status(task_id)
+            task_status = await backtest_service.get_task_status(task_id)
             result = await backtest_service.get_result(task_id)
 
             # 发送进度更新
-            if status == TaskStatus.RUNNING:
-                progress = await ws_manager.get_connection_count(task_id)  # 临时使用连接数作为进度
-                # TODO: 从回测任务中获取实际进度
+            if task_status == TaskStatus.RUNNING:
+                progress = await ws_manager.get_connection_count(task_id)
                 await ws_manager.send_to_task(task_id, {
                     "type": "progress",
                     "task_id": task_id,
-                    "progress": min(progress * 10, 100),  # 模拟进度
+                    "progress": min(progress * 10, 100),
                     "data": result.model_dump(mode='python') if result else {},
                 })
 
             # 发送完成消息
-            elif status == TaskStatus.COMPLETED and result:
+            elif task_status == TaskStatus.COMPLETED and result:
                 await ws_manager.send_to_task(task_id, {
                     "type": "completed",
                     "task_id": task_id,
@@ -355,7 +358,7 @@ async def websocket_endpoint(
                 break
 
             # 发送失败消息
-            elif status == TaskStatus.FAILED:
+            elif task_status == TaskStatus.FAILED:
                 await ws_manager.send_to_task(task_id, {
                     "type": "failed",
                     "task_id": task_id,
@@ -364,11 +367,10 @@ async def websocket_endpoint(
                 break
 
             # 如果任务已完成或失败，退出循环
-            if status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
+            if task_status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
                 break
 
             # 等待 1 秒后再检查
-            import asyncio
             await asyncio.sleep(1)
 
     except WebSocketDisconnect:

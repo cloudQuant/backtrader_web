@@ -137,15 +137,11 @@ async def list_comparisons(
     - offset: 偏移量
     - is_public: 是否只看公开的（可选）
     """
-    filters = {}
-    if is_public is not None:
-        filters["is_public"] = is_public
-
     comparisons, total = await service.list_comparisons(
         user_id=current_user.sub,
         limit=limit,
         offset=offset,
-        filters=filters,
+        is_public=is_public,
     )
 
     return ComparisonListResponse(total=total, items=comparisons)

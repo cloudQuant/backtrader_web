@@ -17,7 +17,7 @@ TEST_USER = {
 }
 
 # 服务配置
-FRONTEND_URL = "http://localhost:3001"
+FRONTEND_URL = "http://localhost:3000"
 BACKEND_URL = "http://localhost:8000"
 
 

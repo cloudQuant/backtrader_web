@@ -8,6 +8,7 @@ from app.schemas.auth import (
     UserLogin,
     UserResponse,
     Token,
+    ChangePassword,
 )
 from app.services.auth_service import AuthService
 from app.api.deps import get_current_user
@@ -61,6 +62,22 @@ async def login(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return result
+
+
+@router.put("/change-password", summary="修改密码")
+async def change_password(
+    req: ChangePassword,
+    current_user=Depends(get_current_user),
+    service: AuthService = Depends(get_auth_service),
+):
+    """修改当前用户密码"""
+    success = await service.change_password(current_user.sub, req.old_password, req.new_password)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前密码错误",
+        )
+    return {"message": "密码修改成功"}
 
 
 @router.get("/me", response_model=UserResponse, summary="获取当前用户信息")

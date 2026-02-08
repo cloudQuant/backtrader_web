@@ -318,6 +318,7 @@ const totalCombinations = computed(() => {
 // ---- Load templates ----
 
 onMounted(async () => {
+  window.addEventListener('resize', handleResize)
   try {
     const res = await strategyApi.getTemplates()
     templates.value = res.templates
@@ -587,9 +588,17 @@ watch(resultTab, (tab) => {
   })
 })
 
+// Resize handler
+function handleResize() {
+  heatmapChart?.resize()
+  boxplotChart?.resize()
+  scatter3dChart?.resize()
+}
+
 // Cleanup
 onBeforeUnmount(() => {
   stopPolling()
+  window.removeEventListener('resize', handleResize)
   heatmapChart?.dispose()
   boxplotChart?.dispose()
   scatter3dChart?.dispose()

@@ -86,6 +86,22 @@ class AuthService:
             expires_in=settings.JWT_EXPIRE_MINUTES * 60,
         )
     
+    async def change_password(self, user_id: str, old_password: str, new_password: str) -> bool:
+        """
+        修改密码
+        
+        Returns:
+            True: 修改成功
+            False: 旧密码错误或用户不存在
+        """
+        user = await self.user_repo.get_by_id(user_id)
+        if not user:
+            return False
+        if not verify_password(old_password, user.hashed_password):
+            return False
+        await self.user_repo.update(user.id, {"hashed_password": get_password_hash(new_password)})
+        return True
+
     async def get_user_by_id(self, user_id: str) -> Optional[UserResponse]:
         """根据ID获取用户"""
         user = await self.user_repo.get_by_id(user_id)

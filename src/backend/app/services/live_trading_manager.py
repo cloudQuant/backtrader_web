@@ -81,10 +81,13 @@ class LiveTradingManager:
 
     # ---- CRUD ----
 
-    def list_instances(self) -> List[dict]:
+    def list_instances(self, user_id: str = None) -> List[dict]:
         instances = _load_instances()
         result = []
         for iid, inst in instances.items():
+            # BUG-10: 按用户过滤
+            if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+                continue
             # 实时刷新 status
             if inst.get("status") == "running":
                 pid = inst.get("pid")
@@ -100,7 +103,7 @@ class LiveTradingManager:
         _save_instances({r["id"]: {k: v for k, v in r.items()} for r in result})
         return result
 
-    def add_instance(self, strategy_id: str, params: Optional[Dict[str, Any]] = None) -> dict:
+    def add_instance(self, strategy_id: str, params: Optional[Dict[str, Any]] = None, user_id: str = None) -> dict:
         strategy_dir = STRATEGIES_DIR / strategy_id
         if not (strategy_dir / "run.py").is_file():
             raise ValueError(f"策略 {strategy_id} 不存在或缺少 run.py")
@@ -114,6 +117,7 @@ class LiveTradingManager:
             "id": iid,
             "strategy_id": strategy_id,
             "strategy_name": name,
+            "user_id": user_id,
             "status": "stopped",
             "pid": None,
             "error": None,
@@ -129,11 +133,13 @@ class LiveTradingManager:
         _save_instances(instances)
         return inst
 
-    def remove_instance(self, instance_id: str) -> bool:
+    def remove_instance(self, instance_id: str, user_id: str = None) -> bool:
         instances = _load_instances()
         if instance_id not in instances:
             return False
         inst = instances[instance_id]
+        if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+            return False
         # 先停止
         if inst.get("status") == "running" and inst.get("pid"):
             self._kill_pid(inst["pid"])
@@ -142,10 +148,12 @@ class LiveTradingManager:
         self._processes.pop(instance_id, None)
         return True
 
-    def get_instance(self, instance_id: str) -> Optional[dict]:
+    def get_instance(self, instance_id: str, user_id: str = None) -> Optional[dict]:
         instances = _load_instances()
         inst = instances.get(instance_id)
         if inst:
+            if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+                return None
             inst["id"] = instance_id
             strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
             inst["log_dir"] = _find_latest_log_dir(strategy_dir)

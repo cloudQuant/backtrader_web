@@ -1,146 +1,147 @@
 """
-WebSocket 管理器测试
-
-测试 WebSocket 连接、消息发送、广播功能
+WebSocket 连接管理器测试
 """
 import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime
-
-from app.websocket_manager import WebSocketManager, MessageType
-
-
-@pytest.fixture
-def ws_manager():
-    """创建 WebSocket 管理器实例"""
-    return WebSocketManager()
+from unittest.mock import AsyncMock, MagicMock
+from app.websocket_manager import (
+    ConnectionManager,
+    MessageType,
+    ProgressMessage,
+    ResultMessage,
+    LogMessage,
+)
 
 
-@pytest.mark.asyncio
-class TestWebSocketManager:
-    """WebSocket 管理器测试"""
+class TestConnectionManager:
+    """连接管理器测试"""
 
-    async def test_connect(self, ws_manager):
-        """测试连接"""
-        # Mock WebSocket
-        mock_websocket = AsyncMock()
-        mock_websocket.accept.return_value = None
-        mock_websocket.client_id = "test-client-123"
-        mock_websocket.path = "/ws/test"
-        mock_websocket.query_params = {"id": "test-123"}
+    def test_init_empty(self):
+        mgr = ConnectionManager()
+        assert mgr.active_connections == {}
+        assert mgr.get_total_connections() == 0
 
-        # 连接
-        await ws_manager.connect(mock_websocket, "test:123", "test-client-123")
+    async def test_connect(self):
+        mgr = ConnectionManager()
+        ws = AsyncMock()
+        await mgr.connect(ws, "task-1", "client-1")
+        assert mgr.get_connection_count("task-1") == 1
+        ws.accept.assert_called_once()
 
-        # 验证连接
-        assert "test:123" in ws_manager._connections
-        assert "test-client-123" in ws_manager._connections["test:123"]
+    async def test_disconnect(self):
+        mgr = ConnectionManager()
+        ws = AsyncMock()
+        await mgr.connect(ws, "task-1", "client-1")
+        mgr.disconnect(ws, "task-1", "client-1")
+        assert mgr.get_connection_count("task-1") == 0
 
-    async def test_disconnect(self, ws_manager):
-        """测试断开连接"""
-        # Mock WebSocket
-        mock_websocket = AsyncMock()
-        mock_websocket.client_id = "test-client-123"
-        mock_websocket.path = "/ws/test"
+    async def test_disconnect_nonexistent(self):
+        mgr = ConnectionManager()
+        ws = AsyncMock()
+        mgr.disconnect(ws, "no-task", "no-client")  # should not raise
 
-        # 先连接
-        await ws_manager.connect(mock_websocket, "test:123", "test-client-123")
-        assert "test:123" in ws_manager._connections
+    async def test_send_to_task(self):
+        mgr = ConnectionManager()
+        ws = AsyncMock()
+        await mgr.connect(ws, "task-1", "client-1")
+        await mgr.send_to_task("task-1", {"type": "test", "data": "hello"})
+        assert ws.send_json.call_count >= 2  # connected + test msg
 
-        # 断开连接
-        await ws_manager.disconnect(mock_websocket, "test:123", "test-client-123")
+    async def test_send_to_task_no_connections(self):
+        mgr = ConnectionManager()
+        await mgr.send_to_task("no-task", {"type": "test"})  # should not raise
 
-        # 验证断开
-        assert "test:123" not in ws_manager._connections
+    async def test_send_removes_dead_connections(self):
+        mgr = ConnectionManager()
+        ws = AsyncMock()
+        ws.send_json.side_effect = Exception("connection closed")
+        await mgr.connect(ws, "task-1", "client-1")
+        # Reset to make send_json fail
+        ws.send_json.side_effect = Exception("connection closed")
+        await mgr.send_to_task("task-1", {"type": "test"})
+        assert mgr.get_connection_count("task-1") == 0
 
-    async def test_send_to_client(self, ws_manager):
-        """测试发送消息给客户端"""
-        # Mock WebSocket
-        mock_websocket = AsyncMock()
-        mock_websocket.client_id = "test-client-123"
-        mock_websocket.path = "/ws/test"
-        await ws_manager.connect(mock_websocket, "test:123", "test-client-123")
+    async def test_broadcast(self):
+        mgr = ConnectionManager()
+        ws1 = AsyncMock()
+        ws2 = AsyncMock()
+        await mgr.connect(ws1, "task-1", "client-1")
+        await mgr.connect(ws2, "task-2", "client-2")
+        await mgr.broadcast({"type": "global"})
+        # Both connections should receive the message
+        assert ws1.send_json.call_count >= 2
+        assert ws2.send_json.call_count >= 2
 
-        # 发送消息
-        message = {
-            "type": MessageType.PROGRESS,
-            "data": {"test": "data"},
-        }
-        await ws_manager.send_to_client(mock_websocket, message)
+    async def test_multiple_connections_per_task(self):
+        mgr = ConnectionManager()
+        ws1 = AsyncMock()
+        ws2 = AsyncMock()
+        await mgr.connect(ws1, "task-1", "client-1")
+        await mgr.connect(ws2, "task-1", "client-2")
+        assert mgr.get_connection_count("task-1") == 2
+        assert mgr.get_total_connections() == 2
 
-        # 验证发送
-        mock_websocket.send_json.assert_called_once_with(message)
-
-    async def test_send_to_task(self, ws_manager):
-        """测试发送消息给任务"""
-        # 发送消息
-        message = {
-            "type": MessageType.PROGRESS,
-            "task_id": "task-123",
-            "data": {"status": "processing"},
-        }
-        await ws_manager.send_to_task("task:123", message)
-
-        # 验证发送
-        # 应该有对应的 task_id 连接
-
-    async def test_broadcast(self, ws_manager):
-        """测试广播消息"""
-        # 模拟多个连接
-        for i in range(3):
-            mock_websocket = AsyncMock()
-            mock_websocket.client_id = f"client-{i}"
-            mock_websocket.path = "/ws/test"
-            await ws_manager.connect(mock_websocket, f"test:{i}", f"client-{i}")
-
-        # 广播消息
-        message = {
-            "type": MessageType.PROGRESS,
-            "data": {"broadcast": "test"},
-        }
-        await ws_manager.broadcast(f"test:global", message)
-
-        # 验证所有连接都收到消息
-        for i in range(3):
-            mock_websocket = ws_manager._connections[f"test:{i}"][f"client-{i}"]
-            # 模拟接收（实际测试中 WebSocket 会调用）
-            # 在测试中我们只能验证 send 方法被调用
+    def test_get_connection_count_no_task(self):
+        mgr = ConnectionManager()
+        assert mgr.get_connection_count("nonexistent") == 0
 
 
-@pytest.mark.asyncio
-class TestWebSocketIntegration:
-    """WebSocket 集成测试"""
+class TestMessageTypes:
+    """消息类型测试"""
 
-    async def test_send_to_task_message(self, ws_manager):
-        """测试发送任务消息"""
-        from app.schemas.backtest_enhanced import TaskProgressMessage
-
-        # 创建进度消息
-        message = TaskProgressMessage(
-            task_id="task-123",
-            stage="processing",
-            progress=50.0,
-            status="running",
-            message="测试消息",
-            data={"key": "value"},
-        )
-
-        await ws_manager.send_to_task("task:123", {
-            "type": MessageType.PROGRESS,
-            "data": message.model_dump(),
-        })
-
-    async def test_websocket_error_handling(self, ws_manager):
-        """测试 WebSocket 错误处理"""
-        mock_websocket = AsyncMock()
-        mock_websocket.send_json.side_effect = Exception("Connection error")
-
-        await ws_manager.connect(mock_websocket, "test:123", "test-client-123")
-
-        # 模拟发送消息（应该捕获错误）
-        await ws_manager.send_to_client(mock_websocket, {"test": "data"})
+    def test_message_type_constants(self):
+        assert MessageType.CONNECTED == "connected"
+        assert MessageType.PROGRESS == "progress"
+        assert MessageType.LOG == "log"
+        assert MessageType.COMPLETED == "completed"
+        assert MessageType.FAILED == "failed"
+        assert MessageType.CANCELLED == "cancelled"
 
 
-if __name__ == "__main__":
-    pytest.main(["-v", "--tb=short", "-x"])
+class TestProgressMessage:
+    """进度消息测试"""
+
+    def test_basic(self):
+        msg = ProgressMessage("task-1", 50, "半完成")
+        d = msg.to_dict()
+        assert d["type"] == "progress"
+        assert d["task_id"] == "task-1"
+        assert d["progress"] == 50
+        assert d["message"] == "半完成"
+        assert d["data"] == {}
+
+    def test_with_data(self):
+        msg = ProgressMessage("task-1", 100, "完成", {"key": "value"})
+        d = msg.to_dict()
+        assert d["data"] == {"key": "value"}
+
+
+class TestResultMessage:
+    """结果消息测试"""
+
+    def test_completed(self):
+        msg = ResultMessage("task-1", {"status": "completed", "return": 15.0})
+        d = msg.to_dict()
+        assert d["type"] == "completed"
+        assert d["task_id"] == "task-1"
+
+    def test_failed(self):
+        msg = ResultMessage("task-1", {"status": "failed", "error": "boom"})
+        d = msg.to_dict()
+        assert d["type"] == "failed"
+
+
+class TestLogMessage:
+    """日志消息测试"""
+
+    def test_basic(self):
+        msg = LogMessage("task-1", "info", "一切正常")
+        d = msg.to_dict()
+        assert d["type"] == "log"
+        assert d["level"] == "info"
+        assert d["message"] == "一切正常"
+        assert d["data"] == {}
+
+    def test_with_data(self):
+        msg = LogMessage("task-1", "error", "出错了", {"detail": "xxx"})
+        d = msg.to_dict()
+        assert d["data"] == {"detail": "xxx"}

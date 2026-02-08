@@ -38,7 +38,7 @@
       <!-- 图表区域 -->
       <el-tabs v-model="activeTab" class="mb-6">
         <el-tab-pane label="K线图" name="kline">
-          <el-card v-if="activeTab === 'kline'">
+          <el-card v-show="activeTab === 'kline'">
             <TradeSignalChart
               :klines="klineData?.klines || []"
               :signals="klineData?.signals || []"
@@ -49,7 +49,7 @@
         </el-tab-pane>
         
         <el-tab-pane label="资金曲线" name="equity">
-          <el-card v-if="activeTab === 'equity'">
+          <el-card v-show="activeTab === 'equity'">
             <EquityCurve
               :data="detail.equity_curve"
               :height="350"
@@ -63,7 +63,7 @@
         </el-tab-pane>
         
         <el-tab-pane label="收益分析" name="analysis">
-          <div v-if="activeTab === 'analysis'" class="space-y-4">
+          <div v-show="activeTab === 'analysis'" class="space-y-4">
             <el-card>
               <ReturnHeatmap
                 :returns="monthlyReturns?.returns || []"

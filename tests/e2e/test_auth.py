@@ -6,7 +6,7 @@ import pytest
 from playwright.sync_api import Page, expect
 import uuid
 
-FRONTEND_URL = "http://localhost:3001"
+FRONTEND_URL = "http://localhost:3000"
 
 
 class TestAuthPages:

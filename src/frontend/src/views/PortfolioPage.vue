@@ -213,25 +213,36 @@ function formatMoney(v: number) {
   return v.toFixed(2)
 }
 
+const loadedTabs = ref<Set<string>>(new Set(['strategies']))
+
 async function loadData() {
   loading.value = true
   try {
-    const [ov, pos, trd, eq, alloc] = await Promise.all([
-      portfolioApi.getOverview(),
-      portfolioApi.getPositions(),
-      portfolioApi.getTrades(),
-      portfolioApi.getEquity(),
-      portfolioApi.getAllocation(),
-    ])
-    overview.value = ov
-    positions.value = pos.positions
-    trades.value = trd.trades
-    equityData.value = eq
-    allocationItems.value = alloc.items
+    overview.value = await portfolioApi.getOverview()
   } catch (e: any) {
     ElMessage.error(e.message || '加载组合数据失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadTabData(tab: string) {
+  if (loadedTabs.value.has(tab)) return
+  try {
+    if (tab === 'positions') {
+      const pos = await portfolioApi.getPositions()
+      positions.value = pos.positions
+    } else if (tab === 'trades') {
+      const trd = await portfolioApi.getTrades()
+      trades.value = trd.trades
+    } else if (tab === 'equity') {
+      equityData.value = await portfolioApi.getEquity()
+    } else if (tab === 'allocation') {
+      allocationItems.value = (await portfolioApi.getAllocation()).items
+    }
+    loadedTabs.value.add(tab)
+  } catch (e: any) {
+    ElMessage.error(e.message || '加载数据失败')
   }
 }
 
@@ -333,7 +344,8 @@ function handleResize() {
   allocationChart?.resize()
 }
 
-watch(activeTab, (tab) => {
+watch(activeTab, async (tab) => {
+  await loadTabData(tab)
   if (tab === 'equity') {
     nextTick(() => { renderEquityChart(); renderDrawdownChart() })
   } else if (tab === 'allocation') {
