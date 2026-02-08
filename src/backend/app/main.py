@@ -11,18 +11,6 @@ from slowapi.util import get_remote_address
 
 from app.config import get_settings
 from app.api.router import api_router
-from app.api.auth import router as auth_router
-from app.api.strategy import router as strategy_router
-from app.api.backtest import router as backtest_router
-from app.api.backtest_enhanced import router as backtest_enhanced_router
-from app.api.analytics import router as analytics_router
-from app.api.paper_trading import router as paper_trading_router
-from app.api.comparison import router as comparison_router
-from app.api.strategy_version import router as strategy_version_router
-from app.api.live_trading import router as live_trading_router
-from app.api.realtime_data import router as realtime_data_router
-from app.api.monitoring import router as monitoring_router
-from app.api.data import router as data_router
 from app.db.database import init_db
 from app.utils.logger import setup_logger
 from app.websocket_manager import manager as ws_manager
@@ -146,30 +134,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 注册所有路由
+# [B016] 只通过 api_router 统一注册，避免重复注册导致 OpenAPI 文档混乱
 app.include_router(api_router, prefix="/api/v1")
-
-# 基础功能路由
-app.include_router(auth_router, prefix="/api/v1/auth", tags=["认证"])
-app.include_router(strategy_router, prefix="/api/v1/strategies", tags=["策略"])
-app.include_router(backtest_router, prefix="/api/v1/backtests", tags=["回测"])
-
-# 增强功能路由
-app.include_router(backtest_enhanced_router, prefix="/api/v1/backtests", tags=["回测增强"])
-app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["分析"])
-
-# 交易功能路由
-app.include_router(paper_trading_router, prefix="/api/v1/paper-trading", tags=["模拟交易"])
-
-# 实盘交易路由
-app.include_router(live_trading_router, prefix="/api/v1/live-trading", tags=["实盘交易"])
-
-# 高级功能路由
-app.include_router(comparison_router, prefix="/api/v1/comparisons", tags=["对比"])
-app.include_router(strategy_version_router, prefix="/api/v1/strategy-versions", tags=["策略版本"])
-app.include_router(realtime_data_router, prefix="/api/v1/realtime", tags=["实时行情"])
-app.include_router(monitoring_router, prefix="/api/v1/monitoring", tags=["监控告警"])
-app.include_router(data_router, prefix="/api/v1/data", tags=["行情数据"])
 
 
 @app.get("/", summary="根路由")

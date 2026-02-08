@@ -14,7 +14,6 @@ from pathlib import Path
 from app.schemas.analytics import (
     BacktestDetailResponse,
     KlineWithSignalsResponse,
-    OptimizationResponse,
     MonthlyReturnsResponse,
     PerformanceMetrics,
 )
@@ -22,6 +21,8 @@ from app.services.analytics_service import AnalyticsService
 from app.services.backtest_service import BacktestService
 from app.services.log_parser_service import parse_data_log, parse_value_log, find_latest_log_dir
 from app.services.strategy_service import STRATEGIES_DIR
+from app.db.sql_repository import SQLRepository
+from app.models.backtest import BacktestTask
 from app.api.deps import get_current_user
 
 router = APIRouter()
@@ -33,6 +34,22 @@ def get_analytics_service():
 
 def get_backtest_service():
     return BacktestService()
+
+
+async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
+    """[B009] 解析任务专属日志目录，优先使用 DB 中记录的 log_dir，回退到 latest"""
+    try:
+        task_repo = SQLRepository(BacktestTask)
+        task = await task_repo.get_by_id(task_id)
+        if task and getattr(task, 'log_dir', None):
+            p = Path(task.log_dir)
+            if p.is_dir():
+                return p
+    except Exception:
+        pass
+    # 回退: 兼容旧任务
+    strategy_dir = STRATEGIES_DIR / strategy_id
+    return find_latest_log_dir(strategy_dir)
 
 
 async def get_backtest_data(task_id: str, backtest_service: BacktestService):
@@ -50,13 +67,12 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
     equity_dates = result.equity_dates or []
     drawdown_values = result.drawdown_curve or []
     
-    # 尝试从策略日志目录获取真实现金数据
+    # [B009] 使用任务专属日志目录获取真实现金数据
     real_cash_map: dict = {}
+    task_log_dir = await _resolve_log_dir(task_id, result.strategy_id)
     try:
-        strategy_dir = STRATEGIES_DIR / result.strategy_id
-        log_dir = find_latest_log_dir(strategy_dir)
-        if log_dir:
-            value_data = parse_value_log(log_dir)
+        if task_log_dir:
+            value_data = parse_value_log(task_log_dir)
             for d, c in zip(value_data.get('dates', []), value_data.get('cash_curve', [])):
                 real_cash_map[d] = c
     except Exception:
@@ -109,21 +125,31 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
         }
         trades.append(trade)
         
-        signals.append({
-            'date': trade['datetime'][:10] if trade['datetime'] else '',
-            'type': trade['direction'],
-            'price': trade['price'],
-            'size': trade['size'],
-        })
+        # 每笔已关闭的交易生成开仓和平仓两个信号
+        is_long = trade['direction'] == 'buy'
+        dtopen = td.get('dtopen', '')
+        dtclose = td.get('dtclose', '') or trade['datetime']
+        if dtopen:
+            signals.append({
+                'date': dtopen[:10],
+                'type': 'buy' if is_long else 'sell',
+                'price': trade['price'],
+                'size': trade['size'],
+            })
+        if dtclose:
+            signals.append({
+                'date': dtclose[:10],
+                'type': 'sell' if is_long else 'buy',
+                'price': trade['price'],
+                'size': trade['size'],
+            })
     
-    # 从log目录获取真实K线数据
+    # [B009] 从任务专属日志目录获取真实K线数据
     klines = []
     log_indicators: dict = {}
     try:
-        strategy_dir = STRATEGIES_DIR / result.strategy_id
-        log_dir = find_latest_log_dir(strategy_dir)
-        if log_dir:
-            kline_data = parse_data_log(log_dir)
+        if task_log_dir:
+            kline_data = parse_data_log(task_log_dir)
             kline_dates = kline_data.get('dates', [])
             kline_ohlc = kline_data.get('ohlc', [])
             kline_volumes = kline_data.get('volumes', [])
@@ -314,60 +340,19 @@ async def get_monthly_returns(
     return service.process_monthly_returns(result['monthly_returns'])
 
 
-@router.get("/{task_id}/optimization", response_model=OptimizationResponse)
+@router.get("/{task_id}/optimization")
 async def get_optimization_results(
     task_id: str,
-    sort_by: str = "sharpe_ratio",
-    order: str = "desc",
-    limit: int = 50,
     current_user=Depends(get_current_user),
 ):
     """
     获取参数优化结果
-    
-    支持按不同指标排序
+
+    该回测任务未关联优化结果。请使用 /api/v1/optimization/ 模块进行参数优化。
     """
-    # 生成模拟优化结果
-    import random
-    
-    results = []
-    for i in range(20):
-        ma_short = random.choice([5, 10, 15, 20])
-        ma_long = random.choice([30, 40, 50, 60])
-        
-        results.append({
-            'params': {'ma_short': ma_short, 'ma_long': ma_long},
-            'total_return': random.uniform(-0.1, 0.5),
-            'max_drawdown': random.uniform(-0.3, -0.05),
-            'sharpe_ratio': random.uniform(0.5, 2.5),
-            'trade_count': random.randint(10, 50),
-        })
-    
-    # 排序
-    reverse = order == 'desc'
-    results.sort(key=lambda x: x.get(sort_by, 0) or 0, reverse=reverse)
-    
-    # 添加排名
-    for i, r in enumerate(results[:limit]):
-        r['rank'] = i + 1
-        r['is_best'] = i == 0
-    
-    return OptimizationResponse(
-        task_id=task_id,
-        parameters=['ma_short', 'ma_long'],
-        results=[
-            {
-                'params': r['params'],
-                'total_return': round(r['total_return'], 6),
-                'max_drawdown': round(r['max_drawdown'], 6),
-                'sharpe_ratio': round(r['sharpe_ratio'], 4) if r['sharpe_ratio'] else None,
-                'trade_count': r['trade_count'],
-                'rank': r['rank'],
-                'is_best': r['is_best'],
-            }
-            for r in results[:limit]
-        ],
-        best=results[0] if results else None,
+    raise HTTPException(
+        status_code=404,
+        detail="该回测任务没有关联的优化结果。请通过「参数优化」功能执行优化。",
     )
 
 

@@ -64,8 +64,16 @@ class SQLRepository(BaseRepository[T], Generic[T]):
         limit: int = 100,
         order_by: str = None,
         order_desc: bool = True,
+        sort_by: str = None,
+        sort_order: str = None,
     ) -> List[T]:
-        """列表查询，支持排序"""
+        """列表查询，支持排序（兼容 sort_by/sort_order 别名）"""
+        # B011: 别名兼容
+        if sort_by and not order_by:
+            order_by = sort_by
+        if sort_order is not None and sort_order != "":
+            order_desc = sort_order.lower() == "desc"
+
         async with async_session_maker() as session:
             query = select(self.model_class)
             

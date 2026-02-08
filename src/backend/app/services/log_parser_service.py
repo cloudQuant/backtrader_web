@@ -129,7 +129,7 @@ def parse_trade_log(log_dir: Path) -> List[Dict[str, Any]]:
             "dtopen": row.get("dtopen", "").split(" ")[0] if row.get("dtopen") else "",
             "dtclose": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
             "data_name": row.get("data_name", ""),
-            "direction": "long" if row.get("long") == "1" else "short",
+            "direction": "buy" if row.get("long") == "1" else "sell",
             "size": abs(_safe_float(row.get("size", "0"))),
             "price": round(_safe_float(row.get("price", "0")), 4),
             "value": round(abs(_safe_float(row.get("value", "0"))), 2),

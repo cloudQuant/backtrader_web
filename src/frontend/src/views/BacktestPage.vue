@@ -10,22 +10,12 @@
         <!-- 策略选择 -->
         <el-form-item label="策略">
           <el-select v-model="form.strategy_id" placeholder="选择策略" class="w-full" filterable @change="onStrategyChange">
-            <el-option-group label="策略库">
-              <el-option
-                v-for="t in templates"
-                :key="t.id"
-                :label="t.name"
-                :value="t.id"
-              />
-            </el-option-group>
-            <el-option-group label="我的策略" v-if="strategies.length">
-              <el-option
-                v-for="s in strategies"
-                :key="s.id"
-                :label="s.name"
-                :value="s.id"
-              />
-            </el-option-group>
+            <el-option
+              v-for="t in templates"
+              :key="t.id"
+              :label="t.name"
+              :value="t.id"
+            />
           </el-select>
         </el-form-item>
 
@@ -300,7 +290,8 @@ function getStatusText(status: string) {
 
 function connectWebSocket(taskId: string) {
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/ws/backtest/${taskId}`
+  const wsPort = window.location.port === '3000' ? '8000' : window.location.port || '8000'
+  const wsUrl = `${wsProtocol}//${window.location.hostname}:${wsPort}/ws/backtest/${taskId}`
   ws = new WebSocket(wsUrl)
   
   ws.onmessage = async (event) => {

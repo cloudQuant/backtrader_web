@@ -51,12 +51,10 @@ def require_permission(permission: Permission):
 
 def get_current_user():
     """
-    获取当前用户（占位，实际应从 JWT 解析）
-
-    TODO: 实现从 JWT Token 解析用户
+    获取当前用户 — 委托给 deps.py 中的真实实现
     """
-    # 临时实现，实际应从认证中间件获取
-    pass
+    from app.api.deps import get_current_user as _real_get_current_user
+    return _real_get_current_user()
 
 
 # 常用权限检查依赖项

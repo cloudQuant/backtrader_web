@@ -18,9 +18,10 @@ class BacktestTask(Base):
     strategy_id = Column(String(36), index=True)
     strategy_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=True, index=True)
     symbol = Column(String(20), index=True)
-    status = Column(String(20), default="pending")  # pending/running/completed/failed
+    status = Column(String(20), default="pending")  # pending/running/completed/failed/cancelled
     request_data = Column(JSON)  # 请求参数
     error_message = Column(Text, nullable=True)
+    log_dir = Column(Text, nullable=True)  # 任务专属日志目录路径
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

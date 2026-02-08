@@ -1,9 +1,15 @@
 """
 回测服务 - 封装Backtrader回测逻辑
 """
+import os
 import uuid
 import asyncio
+import shutil
+import subprocess
+import sys
+import tempfile
 from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 import logging
 
@@ -22,6 +28,10 @@ from app.websocket_manager import manager as ws_manager, MessageType
 
 logger = logging.getLogger(__name__)
 
+# ---- 进程级单例状态（B001 fix）----
+_running_tasks: Dict[str, asyncio.Task] = {}
+_running_processes: Dict[str, subprocess.Popen] = {}
+
 
 class BacktestService:
     """
@@ -37,7 +47,6 @@ class BacktestService:
         self.task_repo = SQLRepository(BacktestTask)
         self.result_repo = SQLRepository(BacktestResultModel)
         self.cache = get_cache()
-        self._running_tasks: Dict[str, asyncio.Task] = {}
     
     async def run_backtest(
         self,
@@ -66,7 +75,7 @@ class BacktestService:
         
         # 创建异步任务并保存引用（用于取消）
         async_task = asyncio.create_task(self._execute_backtest(task.id, user_id, request))
-        self._running_tasks[task.id] = async_task
+        _running_tasks[task.id] = async_task
         
         return BacktestResponse(
             task_id=task.id,
@@ -83,6 +92,8 @@ class BacktestService:
         """
         执行回测任务 - 调用策略目录中的 run.py
         """
+        task_work_dir = None
+        tmp_base = None
         try:
             # 更新状态为运行中
             await self.task_repo.update(task_id, {"status": TaskStatus.RUNNING})
@@ -99,45 +110,56 @@ class BacktestService:
             if not run_py.is_file():
                 raise ValueError(f"策略 {request.strategy_id} 的 run.py 不存在")
 
-            # 清空 logs 目录
-            import shutil
-            logs_dir = strategy_dir / "logs"
-            if logs_dir.is_dir():
-                shutil.rmtree(logs_dir)
+            # [B003/O001] 将策略目录复制到独立临时目录，避免并发冲突
+            # 创建 tmp_base/strategies/<strategy_id>/ 结构，使 BASE_DIR.parent.parent 能正确定位
+            tmp_base = Path(tempfile.mkdtemp(prefix=f"bt_{task_id}_"))
+            task_work_dir = tmp_base / "strategies" / request.strategy_id
+            task_work_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(strategy_dir, task_work_dir, dirs_exist_ok=True)
+
+            # 创建 datas 符号链接，使 resolve_data_path 能找到数据文件
+            project_root = STRATEGIES_DIR.parent
+            datas_src = project_root / "datas"
+            datas_link = tmp_base / "datas"
+            if datas_src.is_dir() and not datas_link.exists():
+                os.symlink(str(datas_src), str(datas_link))
+
+            # 清空临时目录的 logs
+            tmp_logs = task_work_dir / "logs"
+            if tmp_logs.is_dir():
+                shutil.rmtree(tmp_logs)
 
             await ws_manager.send_to_task(task_id, {
                 "type": MessageType.PROGRESS, "task_id": task_id,
                 "progress": 20, "message": "正在写入配置参数...",
             })
 
-            # 如果前端传入了自定义参数，临时写入 config.yaml
-            config_path = strategy_dir / "config.yaml"
-            original_config = None
+            # 如果前端传入了自定义参数，写入临时目录的 config.yaml
+            config_path = task_work_dir / "config.yaml"
             if self._has_custom_params(request):
-                original_config = config_path.read_text(encoding="utf-8") if config_path.is_file() else None
-                self._write_temp_config(config_path, request, original_config)
+                original_text = config_path.read_text(encoding="utf-8") if config_path.is_file() else None
+                self._write_temp_config(config_path, request, original_text)
+
+            # [B005] 移除 run.py 中的 assert 语句
+            tmp_run_py = task_work_dir / "run.py"
+            self._strip_asserts(tmp_run_py)
 
             await ws_manager.send_to_task(task_id, {
                 "type": MessageType.PROGRESS, "task_id": task_id,
                 "progress": 30, "message": "正在运行回测...",
             })
 
-            # 调用 run.py
-            try:
-                result = await self._run_strategy_subprocess(strategy_dir)
-            finally:
-                # 恢复原始 config.yaml
-                if original_config is not None:
-                    config_path.write_text(original_config, encoding="utf-8")
+            # 调用 run.py（在临时目录中运行）
+            result = await self._run_strategy_subprocess(task_work_dir, str(strategy_dir), task_id)
 
             await ws_manager.send_to_task(task_id, {
                 "type": MessageType.PROGRESS, "task_id": task_id,
                 "progress": 80, "message": "正在解析日志...",
             })
 
-            # 解析 logs 目录
+            # 解析临时目录中的 logs
             from app.services.log_parser_service import parse_all_logs
-            log_result = parse_all_logs(strategy_dir)
+            log_result = parse_all_logs(task_work_dir)
             if not log_result:
                 raise ValueError("回测完成但未找到日志文件")
 
@@ -159,8 +181,18 @@ class BacktestService:
             )
             await self.result_repo.create(result_model)
 
+            # [B009] 将日志目录路径保存到任务中，供后续分析使用
+            # 把临时logs复制回原策略目录（以 task_id 命名），确保持久化
+            persist_log_dir = strategy_dir / "logs" / f"task_{task_id}"
+            tmp_log_dir = log_result.get("log_dir")
+            if tmp_log_dir and Path(tmp_log_dir).is_dir():
+                shutil.copytree(tmp_log_dir, persist_log_dir, dirs_exist_ok=True)
+
             # 更新任务状态
-            await self.task_repo.update(task_id, {"status": TaskStatus.COMPLETED})
+            await self.task_repo.update(task_id, {
+                "status": TaskStatus.COMPLETED,
+                "log_dir": str(persist_log_dir),
+            })
 
             await ws_manager.send_to_task(task_id, {
                 "type": MessageType.COMPLETED, "task_id": task_id,
@@ -172,6 +204,10 @@ class BacktestService:
 
         except asyncio.CancelledError:
             logger.info(f"回测已取消: {task_id}")
+            await self.task_repo.update(task_id, {
+                "status": TaskStatus.CANCELLED,
+                "error_message": "用户取消任务",
+            })
             await ws_manager.send_to_task(task_id, {
                 "type": MessageType.CANCELLED, "task_id": task_id,
                 "message": "任务已取消",
@@ -187,7 +223,15 @@ class BacktestService:
                 "message": str(e),
             })
         finally:
-            self._running_tasks.pop(task_id, None)
+            _running_tasks.pop(task_id, None)
+            _running_processes.pop(task_id, None)
+            # 清理临时工作目录（清理整个 tmp_base）
+            cleanup_dir = tmp_base or task_work_dir
+            if cleanup_dir and cleanup_dir.is_dir():
+                try:
+                    shutil.rmtree(cleanup_dir, ignore_errors=True)
+                except Exception:
+                    pass
 
     def _has_custom_params(self, request: BacktestRequest) -> bool:
         """检查是否有自定义参数需要覆盖 config.yaml"""
@@ -221,30 +265,57 @@ class BacktestService:
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
 
-    async def _run_strategy_subprocess(self, strategy_dir) -> dict:
-        """通过子进程运行策略的 run.py"""
-        import subprocess
-        import sys
+    @staticmethod
+    def _strip_asserts(run_py: Path):
+        """[B005] 移除 run.py 中的 assert 语句，避免参数变化后断言失败"""
+        if not run_py.is_file():
+            return
+        code = run_py.read_text(encoding="utf-8")
+        lines = code.split("\n")
+        cleaned = []
+        for line in lines:
+            stripped = line.lstrip()
+            if stripped.startswith("assert ") or stripped.startswith("assert("):
+                cleaned.append(line.replace(stripped, "pass  # assert removed for web backtest"))
+            else:
+                cleaned.append(line)
+        run_py.write_text("\n".join(cleaned), encoding="utf-8")
 
+    async def _run_strategy_subprocess(self, work_dir, original_strategy_dir: str = None, task_id: str = None) -> dict:
+        """通过子进程运行策略的 run.py，支持 PID 跟踪用于取消"""
         python_exec = sys.executable
-        run_py = strategy_dir / "run.py"
+        run_py = work_dir / "run.py"
 
-        proc = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: subprocess.run(
+        # 准备环境变量
+        from app.services.strategy_service import STRATEGIES_DIR
+        project_root = STRATEGIES_DIR.parent
+        env = dict(os.environ)
+        env["BACKTRADER_DATA_DIR"] = str(project_root / "datas")
+        orig_dir = original_strategy_dir or str(work_dir)
+        env["PYTHONPATH"] = os.pathsep.join([orig_dir, str(work_dir), env.get("PYTHONPATH", "")])
+
+        def _run():
+            proc = subprocess.Popen(
                 [python_exec, str(run_py)],
-                cwd=str(strategy_dir),
-                capture_output=True,
+                cwd=str(work_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=300,
-            ),
-        )
+                env=env,
+            )
+            # 记录 PID 用于取消
+            if task_id:
+                _running_processes[task_id] = proc
+            stdout, stderr = proc.communicate(timeout=300)
+            return proc.returncode, stdout, stderr
 
-        if proc.returncode != 0:
-            err_msg = proc.stderr.strip().split("\n")[-1] if proc.stderr else "未知错误"
+        returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(None, _run)
+
+        if returncode != 0:
+            err_msg = stderr.strip().split("\n")[-1] if stderr else "未知错误"
             raise RuntimeError(f"run.py 执行失败: {err_msg}")
 
-        return {"stdout": proc.stdout, "stderr": proc.stderr}
+        return {"stdout": stdout, "stderr": stderr}
     
     def _get_stock_data(self, symbol: str, start_date: datetime, end_date: datetime):
         """
@@ -487,7 +558,7 @@ class BacktestService:
                                 pass
                             trade_records.append({
                                 "datetime": dt_close,
-                                "direction": "long" if t.long else "short",
+                                "direction": "buy" if t.long else "sell",
                                 "price": round(t.price, 4),
                                 "size": abs(t.size),
                                 "value": round(abs(t.value), 2) if t.value else 0,
@@ -569,8 +640,8 @@ class BacktestService:
         logger.info(f"回测完成，总收益率: {result['total_return']}%")
         return result
     
-    async def get_result(self, task_id: str) -> Optional[BacktestResult]:
-        """获取回测结果"""
+    async def get_result(self, task_id: str, user_id: str = None) -> Optional[BacktestResult]:
+        """获取回测结果（B002: 可选 user_id 鉴权）"""
         # 先查缓存
         cache_key = f"backtest:result:{task_id}"
         cached = await self.cache.get(cache_key)
@@ -580,6 +651,10 @@ class BacktestService:
         # 查询任务
         task = await self.task_repo.get_by_id(task_id)
         if not task:
+            return None
+        
+        # B002: 校验用户归属
+        if user_id and task.user_id != user_id:
             return None
         
         # 查询结果
@@ -616,7 +691,7 @@ class BacktestService:
         return result
     
     async def cancel_task(self, task_id: str, user_id: str) -> bool:
-        """取消运行中的回测任务"""
+        """取消运行中的回测任务（B001: 使用进程级单例 + PID 终止子进程）"""
         task = await self.task_repo.get_by_id(task_id)
         if not task or task.user_id != user_id:
             return False
@@ -624,22 +699,31 @@ class BacktestService:
         if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
             return False
         
-        # 取消asyncio任务（如果存在）
-        running = self._running_tasks.get(task_id)
+        # 终止子进程（B001 fix）
+        proc = _running_processes.pop(task_id, None)
+        if proc and proc.poll() is None:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+        # 取消 asyncio 任务
+        running = _running_tasks.pop(task_id, None)
         if running and not running.done():
             running.cancel()
-            del self._running_tasks[task_id]
         
         await self.task_repo.update(task_id, {
-            "status": TaskStatus.FAILED,
+            "status": TaskStatus.CANCELLED,
             "error_message": "用户取消任务",
         })
         return True
     
-    async def get_task_status(self, task_id: str) -> Optional[TaskStatus]:
-        """获取任务状态"""
+    async def get_task_status(self, task_id: str, user_id: str = None) -> Optional[TaskStatus]:
+        """获取任务状态（B002: 可选 user_id 鉴权）"""
         task = await self.task_repo.get_by_id(task_id)
         if not task:
+            return None
+        if user_id and task.user_id != user_id:
             return None
         return TaskStatus(task.status)
     

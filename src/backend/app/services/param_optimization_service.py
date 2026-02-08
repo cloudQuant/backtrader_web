@@ -332,13 +332,29 @@ def _run_optimization_thread(
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             futures = {}
             for i, params in enumerate(grid):
+                # [B010] 提交前检查取消标志
+                task = _get_task(task_id)
+                if task and task["status"] == "cancelled":
+                    break
                 fut = executor.submit(
                     _run_single_trial, strategy_dir, params, i, tmp_base
                 )
                 futures[fut] = i
 
             for fut in as_completed(futures):
-                trial_result = fut.result()
+                # [B010] 收集结果时检查取消标志
+                task = _get_task(task_id)
+                if task and task["status"] == "cancelled":
+                    # 尝试取消剩余 future
+                    for pending_fut in futures:
+                        pending_fut.cancel()
+                    break
+
+                try:
+                    trial_result = fut.result(timeout=5)
+                except Exception:
+                    trial_result = {"success": False, "error": "worker exception"}
+
                 if trial_result["success"]:
                     all_results.append(trial_result)
                     _update_task(task_id, completed=len(all_results))
@@ -347,13 +363,12 @@ def _run_optimization_thread(
                     if task:
                         _update_task(task_id, failed=task["failed"] + 1)
 
-                # 更新进度
-                task = _get_task(task_id)
-                if task:
-                    done_count = len(all_results) + task["failed"]
-                    _update_task(task_id, results=list(all_results))
+                _update_task(task_id, results=list(all_results))
 
-        _update_task(task_id, status="completed", results=all_results)
+        # [B010] 只在非取消状态下标记完成
+        task = _get_task(task_id)
+        if task and task["status"] != "cancelled":
+            _update_task(task_id, status="completed", results=all_results)
         logger.info(f"优化完成 {task_id}: {len(all_results)}/{len(grid)} 成功")
 
     except Exception as e:

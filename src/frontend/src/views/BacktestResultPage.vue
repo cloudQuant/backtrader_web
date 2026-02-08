@@ -100,15 +100,6 @@
           </el-card>
         </el-tab-pane>
         
-        <el-tab-pane label="参数优化" name="optimization" v-if="optimizationResults">
-          <el-card>
-            <OptimizationTable 
-              :results="optimizationResults.results"
-              :best="optimizationResults.best"
-              @sort-change="handleOptSortChange"
-            />
-          </el-card>
-        </el-tab-pane>
       </el-tabs>
     </template>
   </div>
@@ -125,12 +116,10 @@ import EquityCurve from '@/components/charts/EquityCurve.vue'
 import DrawdownChart from '@/components/charts/DrawdownChart.vue'
 import ReturnHeatmap from '@/components/charts/ReturnHeatmap.vue'
 import TradeRecordsTable from '@/components/charts/TradeRecordsTable.vue'
-import OptimizationTable from '@/components/charts/OptimizationTable.vue'
 import type {
   BacktestDetailResponse,
   KlineWithSignalsResponse,
   MonthlyReturnsResponse,
-  OptimizationResponse,
 } from '@/types/analytics'
 
 const route = useRoute()
@@ -145,7 +134,6 @@ const activeTab = ref('kline')
 const detail = ref<BacktestDetailResponse | null>(null)
 const klineData = ref<KlineWithSignalsResponse | null>(null)
 const monthlyReturns = ref<MonthlyReturnsResponse | null>(null)
-const optimizationResults = ref<OptimizationResponse | null>(null)
 
 onMounted(() => {
   loadData()
@@ -166,12 +154,6 @@ async function loadData() {
     klineData.value = klineRes
     monthlyReturns.value = returnsRes
     
-    // 尝试加载参数优化结果
-    try {
-      optimizationResults.value = await analyticsApi.getOptimizationResults(taskId.value)
-    } catch {
-      // 没有优化结果，忽略
-    }
   } catch (e: any) {
     error.value = e.message || '加载失败'
   } finally {
@@ -187,11 +169,4 @@ function handleBack() {
   router.push('/backtest')
 }
 
-async function handleOptSortChange(sortBy: string) {
-  try {
-    optimizationResults.value = await analyticsApi.getOptimizationResults(taskId.value, sortBy)
-  } catch (e) {
-    console.error('加载优化结果失败', e)
-  }
-}
 </script>

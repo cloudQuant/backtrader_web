@@ -49,7 +49,7 @@ async def get_backtest_result(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """获取回测结果"""
-    result = await service.get_result(task_id)
+    result = await service.get_result(task_id, user_id=current_user.sub)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -65,7 +65,7 @@ async def get_backtest_status(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """获取回测任务状态"""
-    status = await service.get_task_status(task_id)
+    status = await service.get_task_status(task_id, user_id=current_user.sub)
     if status is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
