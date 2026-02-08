@@ -66,7 +66,7 @@ def _scan_strategies_folder() -> List[StrategyTemplate]:
             code = code_files[0].read_text(encoding="utf-8")
 
             # 解析参数
-            raw_params = config.get("params", {})
+            raw_params = config.get("params") or {}
             params: Dict[str, ParamSpec] = {}
             for k, v in raw_params.items():
                 ptype = "float" if isinstance(v, float) else "int"

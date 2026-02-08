@@ -9,10 +9,14 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    setupFiles: ['./src/test/setup.ts'],
+    sequence: {
+      setupFiles: 'first',
+    },
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,vue}'],
-      exclude: ['src/main.ts', 'src/**/*.d.ts'],
+      exclude: ['src/main.ts', 'src/**/*.d.ts', 'src/test/**'],
     },
   },
   optimizeDeps: {
