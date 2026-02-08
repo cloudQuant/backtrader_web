@@ -51,6 +51,8 @@ class TradeRecord(BaseModel):
     """交易记录"""
     datetime: Optional[str] = None
     date: Optional[str] = None
+    dtopen: Optional[str] = None
+    dtclose: Optional[str] = None
     direction: Optional[str] = None
     type: Optional[str] = None
     price: float = 0

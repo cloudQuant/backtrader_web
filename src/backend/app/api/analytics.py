@@ -131,17 +131,27 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
     except Exception:
         pass
 
-    # 转换交易记录
+    # 转换交易记录 & 生成信号
+    # 优先从 trade.log 直接解析（始终包含 dtopen/dtclose），回退到 DB 存储的 trades
     trades = []
     signals = []
-    raw_trades = result.trades or []
     
-    for i, t in enumerate(raw_trades):
-        # t 可能是 TradeRecord pydantic 对象或 dict
+    log_trades = None
+    if task_log_dir:
+        try:
+            from app.services.log_parser_service import parse_trade_log
+            log_trades = parse_trade_log(task_log_dir)
+        except Exception:
+            log_trades = None
+    
+    # 使用 log_trades（完整字段）或 result.trades（可能缺少 dtopen/dtclose）
+    source_trades = log_trades if log_trades else (result.trades or [])
+    
+    for i, t in enumerate(source_trades):
         td = t.model_dump() if hasattr(t, 'model_dump') else (t if isinstance(t, dict) else {})
         trade = {
             'id': i + 1,
-            'datetime': td.get('datetime', ''),
+            'datetime': td.get('datetime', '') or td.get('dtclose', ''),
             'symbol': result.symbol,
             'direction': td.get('direction', 'buy'),
             'price': td.get('price', 0),
@@ -156,8 +166,8 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService):
         # 每笔已关闭的交易生成开仓和平仓两个信号
         # 优先使用K线收盘价作为信号价格，回退到交易均价
         is_long = trade['direction'] == 'buy'
-        dtopen = td.get('dtopen', '')
-        dtclose = td.get('dtclose', '') or trade['datetime']
+        dtopen = td.get('dtopen', '') or ''
+        dtclose = td.get('dtclose', '') or trade['datetime'] or ''
         if dtopen:
             open_date = dtopen[:10]
             signals.append({
