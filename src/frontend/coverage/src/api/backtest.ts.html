@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/33</span>
+                <span class='fraction'>33/33</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>6/6</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>6/6</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/33</span>
+                <span class='fraction'>33/33</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -96,72 +96,72 @@
 <a name='L31'></a><a href='#L31'>31</a>
 <a name='L32'></a><a href='#L32'>32</a>
 <a name='L33'></a><a href='#L33'>33</a>
-<a name='L34'></a><a href='#L34'>34</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js"><span class="cstat-no" title="statement not covered" >import api from './index'<span class="fstat-no" title="function not covered" ><span class="branch-0 cbranch-no" title="branch not covered" ></span></span></span>
-<span class="cstat-no" title="statement not covered" >import type {</span>
-<span class="cstat-no" title="statement not covered" >  BacktestRequest,</span>
-<span class="cstat-no" title="statement not covered" >  BacktestResponse,</span>
-<span class="cstat-no" title="statement not covered" >  BacktestResult,</span>
-<span class="cstat-no" title="statement not covered" >  BacktestListResponse,</span>
-<span class="cstat-no" title="statement not covered" >} from '@/types'</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >export const backtestApi = {</span>
-<span class="cstat-no" title="statement not covered" >  async run(data: BacktestRequest): Promise&lt;BacktestResponse&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.post('/backtest/run', data)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async getResult(taskId: string): Promise&lt;BacktestResult&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get(`/backtest/${taskId}`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async getStatus(taskId: string): Promise&lt;{ task_id: string; status: string }&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get(`/backtest/${taskId}/status`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async list(limit = 20, offset = 0): Promise&lt;BacktestListResponse&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get('/backtest/', { params: { limit, offset } })</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async cancel(taskId: string): Promise&lt;void&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.post(`/backtest/${taskId}/cancel`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async delete(taskId: string): Promise&lt;void&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.delete(`/backtest/${taskId}`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" >}</span>
+<a name='L34'></a><a href='#L34'>34</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import api from './index'
+import type {
+  BacktestRequest,
+  BacktestResponse,
+  BacktestResult,
+  BacktestListResponse,
+} from '@/types'
+&nbsp;
+export const backtestApi = {
+  async run(data: BacktestRequest): Promise&lt;BacktestResponse&gt; {
+    return api.post('/backtest/run', data)
+  },
+&nbsp;
+  async getResult(taskId: string): Promise&lt;BacktestResult&gt; {
+    return api.get(`/backtest/${taskId}`)
+  },
+&nbsp;
+  async getStatus(taskId: string): Promise&lt;{ task_id: string; status: string }&gt; {
+    return api.get(`/backtest/${taskId}/status`)
+  },
+&nbsp;
+  async list(limit = 20, offset = 0): Promise&lt;BacktestListResponse&gt; {
+    return api.get('/backtest/', { params: { limit, offset } })
+  },
+&nbsp;
+  async cancel(taskId: string): Promise&lt;void&gt; {
+    return api.post(`/backtest/${taskId}/cancel`)
+  },
+&nbsp;
+  async delete(taskId: string): Promise&lt;void&gt; {
+    return api.delete(`/backtest/${taskId}`)
+  },
+}
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -169,7 +169,7 @@
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-14T07:23:15.169Z
+                at 2026-02-14T07:59:31.533Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

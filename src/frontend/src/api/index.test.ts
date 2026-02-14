@@ -91,11 +91,92 @@ describe('API module', () => {
     })
   })
 
-  describe('错误处理', () => {
-    it('应该导入 ElMessage', async () => {
+  describe('请求拦截器逻辑', () => {
+    it('should add token to request headers when token exists', async () => {
+      const api = (await import('./index')).default
+      localStorageMock.setItem('token', 'my-jwt-token')
+      const handler = (api.interceptors.request as any).handlers[0]
+      const config = { headers: {} as any }
+      const result = handler.fulfilled(config)
+      expect(result.headers.Authorization).toBe('Bearer my-jwt-token')
+    })
+
+    it('should not add Authorization when no token', async () => {
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.request as any).handlers[0]
+      const config = { headers: {} as any }
+      const result = handler.fulfilled(config)
+      expect(result.headers.Authorization).toBeUndefined()
+    })
+
+    it('request error handler rejects', async () => {
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.request as any).handlers[0]
+      const err = new Error('req error')
+      await expect(handler.rejected(err)).rejects.toThrow('req error')
+    })
+  })
+
+  describe('响应拦截器逻辑', () => {
+    it('should return response.data on success', async () => {
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+      const result = handler.fulfilled({ data: { foo: 'bar' }, status: 200 })
+      expect(result).toEqual({ foo: 'bar' })
+    })
+
+    it('should handle 401 error', async () => {
       const { ElMessage } = await import('element-plus')
-      expect(ElMessage).toBeDefined()
-      expect(ElMessage.error).toBeDefined()
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+      const error = { response: { status: 401, data: {} } }
+      await expect(handler.rejected(error)).rejects.toBe(error)
+      expect(ElMessage.error).toHaveBeenCalledWith('登录已过期，请重新登录')
+    })
+
+    it('should handle 403 error', async () => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+      const error = { response: { status: 403, data: {} } }
+      await expect(handler.rejected(error)).rejects.toBe(error)
+      expect(ElMessage.error).toHaveBeenCalledWith('没有权限访问')
+    })
+
+    it('should handle 404 error', async () => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+      const error = { response: { status: 404, data: {} } }
+      await expect(handler.rejected(error)).rejects.toBe(error)
+      expect(ElMessage.error).toHaveBeenCalledWith('资源不存在')
+    })
+
+    it('should handle 500 error', async () => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+      const error = { response: { status: 500, data: {} } }
+      await expect(handler.rejected(error)).rejects.toBe(error)
+      expect(ElMessage.error).toHaveBeenCalledWith('服务器错误')
+    })
+
+    it('should handle generic error with detail', async () => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+      const error = { response: { status: 422, data: { detail: '验证错误' } } }
+      await expect(handler.rejected(error)).rejects.toBe(error)
+      expect(ElMessage.error).toHaveBeenCalledWith('验证错误')
+    })
+
+    it('should handle generic error without detail', async () => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('./index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+      const error = { response: { status: 422, data: {} } }
+      await expect(handler.rejected(error)).rejects.toBe(error)
+      expect(ElMessage.error).toHaveBeenCalledWith('请求失败')
     })
   })
 

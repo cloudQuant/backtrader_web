@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">47.27% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>26/55</span>
+                <span class='fraction'>55/55</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/0</span>
+                <span class='fraction'>18/18</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">47.27% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>26/55</span>
+                <span class='fraction'>55/55</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -134,42 +134,42 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">5x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">6x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">5x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -189,42 +189,42 @@ const api: AxiosInstance = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   (config) =&gt; {
-<span class="cstat-no" title="statement not covered" >    const token = localStorage.getItem('token')</span>
-<span class="cstat-no" title="statement not covered" >    if (token) {</span>
-<span class="cstat-no" title="statement not covered" >      config.headers.Authorization = `Bearer ${token}`</span>
-<span class="cstat-no" title="statement not covered" >    }</span>
-<span class="cstat-no" title="statement not covered" >    return config</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
+    const token = localStorage.getItem('token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
   (error) =&gt; {
-<span class="cstat-no" title="statement not covered" >    return Promise.reject(error)</span>
-<span class="cstat-no" title="statement not covered" >  }</span>
+    return Promise.reject(error)
+  }
 )
 &nbsp;
 // 响应拦截器
 api.interceptors.response.use(
-<span class="fstat-no" title="function not covered" >  (response) =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return response.data</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
+  (response) =&gt; {
+    return response.data
+  },
   (error: AxiosError) =&gt; {
-<span class="cstat-no" title="statement not covered" >    const status = error.response?.status</span>
-<span class="cstat-no" title="statement not covered" >    const data = error.response?.data as { detail?: string }</span>
-<span class="cstat-no" title="statement not covered" >    </span>
-<span class="cstat-no" title="statement not covered" >    if (status === 401) {</span>
-<span class="cstat-no" title="statement not covered" >      localStorage.removeItem('token')</span>
-<span class="cstat-no" title="statement not covered" >      window.location.href = '/login'</span>
-<span class="cstat-no" title="statement not covered" >      ElMessage.error('登录已过期，请重新登录')</span>
-<span class="cstat-no" title="statement not covered" >    } else if (status === 403) {</span>
-<span class="cstat-no" title="statement not covered" >      ElMessage.error('没有权限访问')</span>
-<span class="cstat-no" title="statement not covered" >    } else if (status === 404) {</span>
-<span class="cstat-no" title="statement not covered" >      ElMessage.error('资源不存在')</span>
-<span class="cstat-no" title="statement not covered" >    } else if (status === 500) {</span>
-<span class="cstat-no" title="statement not covered" >      ElMessage.error('服务器错误')</span>
-<span class="cstat-no" title="statement not covered" >    } else {</span>
-<span class="cstat-no" title="statement not covered" >      ElMessage.error(data?.detail || '请求失败')</span>
-<span class="cstat-no" title="statement not covered" >    }</span>
-<span class="cstat-no" title="statement not covered" >    </span>
-<span class="cstat-no" title="statement not covered" >    return Promise.reject(error)</span>
-<span class="cstat-no" title="statement not covered" >  }</span>
+    const status = error.response?.status
+    const data = error.response?.data as { detail?: string }
+    
+    if (status === 401) {
+      localStorage.removeItem('token')
+      window.location.href = '/login'
+      ElMessage.error('登录已过期，请重新登录')
+    } else if (status === 403) {
+      ElMessage.error('没有权限访问')
+    } else if (status === 404) {
+      ElMessage.error('资源不存在')
+    } else if (status === 500) {
+      ElMessage.error('服务器错误')
+    } else {
+      ElMessage.error(data?.detail || '请求失败')
+    }
+    
+    return Promise.reject(error)
+  }
 )
 &nbsp;
 export default api
@@ -235,7 +235,7 @@ export default api
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-14T07:23:15.169Z
+                at 2026-02-14T07:59:31.533Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

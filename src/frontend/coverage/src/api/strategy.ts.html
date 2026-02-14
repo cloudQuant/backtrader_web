@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/46</span>
+                <span class='fraction'>46/46</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>9/9</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>9/9</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/46</span>
+                <span class='fraction'>46/46</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -109,98 +109,98 @@
 <a name='L44'></a><a href='#L44'>44</a>
 <a name='L45'></a><a href='#L45'>45</a>
 <a name='L46'></a><a href='#L46'>46</a>
-<a name='L47'></a><a href='#L47'>47</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js"><span class="cstat-no" title="statement not covered" >import api from './index'<span class="fstat-no" title="function not covered" ><span class="branch-0 cbranch-no" title="branch not covered" ></span></span></span>
-<span class="cstat-no" title="statement not covered" >import type {</span>
-<span class="cstat-no" title="statement not covered" >  Strategy,</span>
-<span class="cstat-no" title="statement not covered" >  StrategyCreate,</span>
-<span class="cstat-no" title="statement not covered" >  StrategyListResponse,</span>
-<span class="cstat-no" title="statement not covered" >  StrategyTemplate,</span>
-<span class="cstat-no" title="statement not covered" >  StrategyConfig,</span>
-<span class="cstat-no" title="statement not covered" >} from '@/types'</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >export const strategyApi = {</span>
-<span class="cstat-no" title="statement not covered" >  async create(data: StrategyCreate): Promise&lt;Strategy&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.post('/strategy/', data)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async get(id: string): Promise&lt;Strategy&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get(`/strategy/${id}`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async update(id: string, data: Partial&lt;StrategyCreate&gt;): Promise&lt;Strategy&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.put(`/strategy/${id}`, data)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async delete(id: string): Promise&lt;void&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.delete(`/strategy/${id}`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async list(limit = 20, offset = 0, category?: string): Promise&lt;StrategyListResponse&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get('/strategy/', { params: { limit, offset, category } })</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async getTemplates(category?: string): Promise&lt;{ templates: StrategyTemplate[]; total: number }&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get('/strategy/templates', { params: { category } })</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async getTemplateDetail(id: string): Promise&lt;StrategyTemplate&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get(`/strategy/templates/${id}`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async getTemplateReadme(id: string): Promise&lt;{ template_id: string; content: string }&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get(`/strategy/templates/${id}/readme`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  async getTemplateConfig(id: string): Promise&lt;StrategyConfig&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    return api.get(`/strategy/templates/${id}/config`)</span>
-<span class="cstat-no" title="statement not covered" >  },</span>
-<span class="cstat-no" title="statement not covered" >}</span>
+<a name='L47'></a><a href='#L47'>47</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import api from './index'
+import type {
+  Strategy,
+  StrategyCreate,
+  StrategyListResponse,
+  StrategyTemplate,
+  StrategyConfig,
+} from '@/types'
+&nbsp;
+export const strategyApi = {
+  async create(data: StrategyCreate): Promise&lt;Strategy&gt; {
+    return api.post('/strategy/', data)
+  },
+&nbsp;
+  async get(id: string): Promise&lt;Strategy&gt; {
+    return api.get(`/strategy/${id}`)
+  },
+&nbsp;
+  async update(id: string, data: Partial&lt;StrategyCreate&gt;): Promise&lt;Strategy&gt; {
+    return api.put(`/strategy/${id}`, data)
+  },
+&nbsp;
+  async delete(id: string): Promise&lt;void&gt; {
+    return api.delete(`/strategy/${id}`)
+  },
+&nbsp;
+  async list(limit = 20, offset = 0, category?: string): Promise&lt;StrategyListResponse&gt; {
+    return api.get('/strategy/', { params: { limit, offset, category } })
+  },
+&nbsp;
+  async getTemplates(category?: string): Promise&lt;{ templates: StrategyTemplate[]; total: number }&gt; {
+    return api.get('/strategy/templates', { params: { category } })
+  },
+&nbsp;
+  async getTemplateDetail(id: string): Promise&lt;StrategyTemplate&gt; {
+    return api.get(`/strategy/templates/${id}`)
+  },
+&nbsp;
+  async getTemplateReadme(id: string): Promise&lt;{ template_id: string; content: string }&gt; {
+    return api.get(`/strategy/templates/${id}/readme`)
+  },
+&nbsp;
+  async getTemplateConfig(id: string): Promise&lt;StrategyConfig&gt; {
+    return api.get(`/strategy/templates/${id}/config`)
+  },
+}
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -208,7 +208,7 @@
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-14T07:23:15.169Z
+                at 2026-02-14T07:59:31.533Z
             </div>
         <script src="../../prettify.js"></script>
         <script>
