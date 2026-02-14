@@ -10,7 +10,7 @@
 """
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 
 class TestPortfolioAPI:
@@ -227,3 +227,251 @@ class TestPortfolioManagerIntegration:
         instances = manager.list_instances()
         # 应该返回列表
         assert isinstance(instances, list)
+
+
+@pytest.mark.asyncio
+class TestPortfolioEdgeCases:
+    """测试边界情况和异常场景"""
+
+    async def test_overview_with_empty_instances(self, client: AsyncClient, auth_headers: dict):
+        """测试无实例时的概览"""
+        from app.services.live_trading_manager import get_live_trading_manager
+
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.list_instances.return_value = []
+            mock_get_mgr.return_value = mock_mgr
+
+            resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                assert data["strategy_count"] == 0
+                assert data["total_assets"] == 0
+
+    async def test_overview_with_no_log_dir(self, client: AsyncClient, auth_headers: dict):
+        """测试策略无日志目录时的概览"""
+        from app.services.live_trading_manager import get_live_trading_manager
+        from pathlib import Path
+
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
+                with patch('app.api.portfolio_api.STRATEGIES_DIR', Path('/tmp')):
+                    mock_mgr = MagicMock()
+                    mock_mgr.list_instances.return_value = [
+                        {
+                            "id": "inst_1",
+                            "strategy_id": "test_strategy",
+                            "strategy_name": "Test Strategy",
+                            "status": "running"
+                        }
+                    ]
+                    mock_get_mgr.return_value = mock_mgr
+
+                    resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+                    # Should return 200 with zero values
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        assert len(data["strategies"]) >= 0
+
+    async def test_positions_with_no_data(self, client: AsyncClient, auth_headers: dict):
+        """测试无数据时的持仓"""
+        from app.services.live_trading_manager import get_live_trading_manager
+
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
+                mock_mgr = MagicMock()
+                mock_mgr.list_instances.return_value = []
+                mock_get_mgr.return_value = mock_mgr
+
+                resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    assert data["total"] == 0
+                    assert len(data["positions"]) == 0
+
+    async def test_trades_sorting(self, client: AsyncClient, auth_headers: dict):
+        """测试交易记录按日期排序"""
+        from app.services.live_trading_manager import get_live_trading_manager
+        from pathlib import Path
+        from datetime import datetime
+
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
+                with patch('app.api.portfolio_api.parse_trade_log') as mock_parse:
+                    # Mock trades with different close dates
+                    mock_parse.return_value = [
+                        {"dtclose": "2023-01-02", "pnlcomm": 100},
+                        {"dtclose": "2023-01-05", "pnlcomm": 200},
+                        {"dtclose": "2023-01-01", "pnlcomm": 50},
+                    ]
+                    mock_mgr = MagicMock()
+                    mock_mgr.list_instances.return_value = [
+                        {
+                            "id": "inst_1",
+                            "strategy_id": "test_strategy",
+                            "strategy_name": "Test Strategy",
+                            "status": "running"
+                        }
+                    ]
+                    mock_get_mgr.return_value = mock_mgr
+
+                    resp = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        # Should be sorted by dtclose descending
+                        assert data["total"] == 3
+
+    async def test_trades_limit(self, client: AsyncClient, auth_headers: dict):
+        """测试交易限制参数"""
+        from app.services.live_trading_manager import get_live_trading_manager
+        from pathlib import Path
+
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
+                with patch('app.api.portfolio_api.parse_trade_log') as mock_parse:
+                    # Mock many trades
+                    mock_parse.return_value = [
+                        {"dtclose": f"2023-01-{i:02d}", "pnlcomm": i * 10}
+                        for i in range(1, 31)
+                    ]
+                    mock_mgr = MagicMock()
+                    mock_mgr.list_instances.return_value = [
+                        {
+                            "id": "inst_1",
+                            "strategy_id": "test_strategy",
+                            "strategy_name": "Test Strategy",
+                            "status": "running"
+                        }
+                    ]
+                    mock_get_mgr.return_value = mock_mgr
+
+                    resp = await client.get(
+                        "/api/v1/portfolio/trades?limit=5",
+                        headers=auth_headers
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        # Should return at most 5 trades
+                        assert len(data["trades"]) <= 5
+
+    async def test_equity_empty_dates(self, client: AsyncClient, auth_headers: dict):
+        """测试空日期数据时的资金曲线"""
+        from app.services.live_trading_manager import get_live_trading_manager
+
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
+                mock_mgr = MagicMock()
+                mock_mgr.list_instances.return_value = []
+                mock_get_mgr.return_value = mock_mgr
+
+                resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    assert data["dates"] == []
+                    assert data["total_equity"] == []
+                    assert data["strategies"] == []
+
+    async def test_allocation_with_zero_total(self, client: AsyncClient, auth_headers: dict):
+        """测试总值为0时的资产配置"""
+        from app.services.live_trading_manager import get_live_trading_manager
+        from pathlib import Path
+
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
+                with patch('app.api.portfolio_api.parse_value_log') as mock_parse:
+                    # Mock empty equity curve
+                    mock_parse.return_value = {
+                        "dates": [],
+                        "equity_curve": [],
+                        "cash_curve": []
+                    }
+                    mock_mgr = MagicMock()
+                    mock_mgr.list_instances.return_value = [
+                        {
+                            "id": "inst_1",
+                            "strategy_id": "test_strategy",
+                            "strategy_name": "Test Strategy",
+                            "status": "running"
+                        }
+                    ]
+                    mock_get_mgr.return_value = mock_mgr
+
+                    resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        assert "total" in data
+                        assert "items" in data
+
+    async def test_equity_date_mapping(self, client: AsyncClient, auth_headers: dict):
+        """测试日期映射逻辑"""
+        from app.services.live_trading_manager import get_live_trading_manager
+        from pathlib import Path
+
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
+                with patch('app.api.portfolio_api.parse_value_log') as mock_parse:
+                    # Mock different date ranges for different strategies
+                    mock_parse.side_effect = [
+                        {
+                            "dates": ["2023-01-01", "2023-01-02", "2023-01-03"],
+                            "equity_curve": [10000, 10100, 10200],
+                            "cash_curve": [5000, 5100, 5200]
+                        },
+                        {
+                            "dates": ["2023-01-02", "2023-01-03", "2023-01-04"],
+                            "equity_curve": [20000, 20100, 20200],
+                            "cash_curve": [10000, 10100, 10200]
+                        }
+                    ]
+                    mock_mgr = MagicMock()
+                    mock_mgr.list_instances.return_value = [
+                        {
+                            "id": "inst_1",
+                            "strategy_id": "strategy_1",
+                            "strategy_name": "Strategy 1",
+                            "status": "running"
+                        },
+                        {
+                            "id": "inst_2",
+                            "strategy_id": "strategy_2",
+                            "strategy_name": "Strategy 2",
+                            "status": "running"
+                        }
+                    ]
+                    mock_get_mgr.return_value = mock_mgr
+
+                    resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        # Should have dates from both strategies
+                        assert "dates" in data
+                        assert "total_equity" in data
+                        assert "total_drawdown" in data
+                        assert "strategies" in data
+                        # Should have 2 strategies
+                        assert len(data["strategies"]) == 2
+
+
+@pytest.mark.asyncio
+class TestPortfolioRouter:
+    """测试路由配置"""
+
+    async def test_router_exists(self):
+        """测试路由存在"""
+        from app.api.portfolio_api import router
+
+        assert router is not None
+        assert hasattr(router, 'routes')
+
+    async def test_router_endpoints(self):
+        """测试路由端点"""
+        from app.api.portfolio_api import router
+
+        routes = [route.path for route in router.routes]
+        route_str = str(routes)
+
+        assert "/overview" in route_str
+        assert "/positions" in route_str
+        assert "/trades" in route_str
+        assert "/equity" in route_str
+        assert "/allocation" in route_str

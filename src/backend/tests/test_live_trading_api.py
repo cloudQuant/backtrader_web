@@ -162,6 +162,204 @@ class TestLiveTradingAnalytics:
         )
         assert response.status_code == 404
 
+    async def test_get_live_detail_with_valid_instance(self, client: AsyncClient, auth_headers):
+        """测试获取有效实例的分析详情"""
+        # Mock the manager and log parser
+        with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.get_instance.return_value = {
+                "instance_id": "inst1",
+                "strategy_id": "strategy1",
+                "strategy_name": "双均线",
+            }
+            mock_get_mgr.return_value = mock_mgr
+
+            with patch('app.api.live_trading_api.parse_all_logs') as mock_parse:
+                mock_parse.return_value = {
+                    "total_return": 0.15,
+                    "annual_return": 0.20,
+                    "sharpe_ratio": 1.5,
+                    "max_drawdown": -0.08,
+                    "win_rate": 0.60,
+                    "total_trades": 50,
+                    "equity_dates": ["2024-01-01", "2024-01-02"],
+                    "equity_curve": [100000, 101000],
+                    "cash_curve": [50000, 50500],
+                    "drawdown_curve": [0, -0.02],
+                    "initial_cash": 100000,
+                    "final_value": 115000,
+                    "trades": [],
+                }
+
+                response = await client.get(
+                    "/api/v1/live-trading/inst1/detail",
+                    headers=auth_headers
+                )
+                assert response.status_code == 200
+
+    async def test_get_live_detail_no_log_data(self, client: AsyncClient, auth_headers):
+        """测试获取详情时无日志数据"""
+        with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.get_instance.return_value = {
+                "instance_id": "inst1",
+                "strategy_id": "strategy1",
+            }
+            mock_get_mgr.return_value = mock_mgr
+
+            with patch('app.api.live_trading_api.parse_all_logs') as mock_parse:
+                mock_parse.return_value = None
+
+                response = await client.get(
+                    "/api/v1/live-trading/inst1/detail",
+                    headers=auth_headers
+                )
+                assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+class TestLiveTradingKline:
+    """实盘K线接口测试"""
+
+    async def test_get_kline_with_log_data(self, client: AsyncClient, auth_headers):
+        """测试获取有日志数据的K线"""
+        with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.get_instance.return_value = {
+                "instance_id": "inst1",
+                "strategy_id": "strategy1",
+            }
+            mock_get_mgr.return_value = mock_mgr
+
+            with patch('app.api.live_trading_api.find_latest_log_dir') as mock_find:
+                with patch('app.api.live_trading_api.parse_data_log') as mock_parse_data:
+                    with patch('app.api.live_trading_api.parse_trade_log') as mock_parse_trade:
+                        mock_find.return_value = Path("/tmp/logs")
+                        mock_parse_data.return_value = {
+                            "dates": ["2024-01-01"],
+                            "ohlc": [[10, 10.5, 9.5, 10.2]],
+                            "volumes": [1000],
+                            "indicators": {},
+                        }
+                        mock_parse_trade.return_value = []
+
+                        response = await client.get(
+                            "/api/v1/live-trading/inst1/kline",
+                            headers=auth_headers
+                        )
+                        assert response.status_code == 200
+
+    async def test_get_kline_no_log_dir(self, client: AsyncClient, auth_headers):
+        """测试获取K线时无日志目录"""
+        with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.get_instance.return_value = {
+                "instance_id": "inst1",
+                "strategy_id": "strategy1",
+            }
+            mock_get_mgr.return_value = mock_mgr
+
+            with patch('app.api.live_trading_api.find_latest_log_dir') as mock_find:
+                mock_find.return_value = None
+
+                response = await client.get(
+                    "/api/v1/live-trading/inst1/kline",
+                    headers=auth_headers
+                )
+                assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+class TestLiveTradingMonthlyReturns:
+    """实盘月度收益接口测试"""
+
+    async def test_get_monthly_returns_with_data(self, client: AsyncClient, auth_headers):
+        """测试获取有数据的月度收益"""
+        with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.get_instance.return_value = {
+                "instance_id": "inst1",
+                "strategy_id": "strategy1",
+            }
+            mock_get_mgr.return_value = mock_mgr
+
+            with patch('app.api.live_trading_api.find_latest_log_dir') as mock_find:
+                with patch('app.api.live_trading_api.parse_value_log') as mock_parse:
+                    mock_find.return_value = Path("/tmp/logs")
+                    mock_parse.return_value = {
+                        "dates": ["2024-01-01", "2024-01-31", "2024-02-01"],
+                        "equity_curve": [100000, 105000, 110000],
+                    }
+
+                    response = await client.get(
+                        "/api/v1/live-trading/inst1/monthly-returns",
+                        headers=auth_headers
+                    )
+                    assert response.status_code == 200
+
+    async def test_get_monthly_returns_empty_data(self, client: AsyncClient, auth_headers):
+        """测试获取空数据的月度收益"""
+        with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.get_instance.return_value = {
+                "instance_id": "inst1",
+                "strategy_id": "strategy1",
+            }
+            mock_get_mgr.return_value = mock_mgr
+
+            with patch('app.api.live_trading_api.find_latest_log_dir') as mock_find:
+                with patch('app.api.live_trading_api.parse_value_log') as mock_parse:
+                    mock_find.return_value = Path("/tmp/logs")
+                    mock_parse.return_value = {
+                        "dates": [],
+                        "equity_curve": [],
+                    }
+
+                    response = await client.get(
+                        "/api/v1/live-trading/inst1/monthly-returns",
+                        headers=auth_headers
+                    )
+                    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+class TestLiveTradingStartStop:
+    """启动/停止接口扩展测试"""
+
+    async def test_start_instance_success(self, client: AsyncClient, auth_headers):
+        """测试成功启动实例"""
+        with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.start_instance = AsyncMock(return_value={
+                "id": "inst1",
+                "strategy_id": "strategy1",
+                "status": "running",
+            })
+            mock_get_mgr.return_value = mock_mgr
+
+            response = await client.post(
+                "/api/v1/live-trading/inst1/start",
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+
+    async def test_stop_instance_success(self, client: AsyncClient, auth_headers):
+        """测试成功停止实例"""
+        with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.stop_instance = AsyncMock(return_value={
+                "id": "inst1",
+                "strategy_id": "strategy1",
+                "status": "stopped",
+            })
+            mock_get_mgr.return_value = mock_mgr
+
+            response = await client.post(
+                "/api/v1/live-trading/inst1/stop",
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+
 
 @pytest.mark.asyncio
 class TestLiveTradingManager:

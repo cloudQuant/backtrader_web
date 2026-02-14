@@ -6,6 +6,7 @@
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 import logging
+import asyncio
 
 from app.schemas.live_trading import (
     LiveTradingSubmitRequest,
@@ -40,7 +41,7 @@ async def submit_live_strategy(
 ):
     """
     提交实盘交易策略并运行
-    
+
     请求体：
     - strategy_name: 策略名称（内置策略：SMACross, etc.）
     - strategy_code: 策略代码
@@ -55,6 +56,8 @@ async def submit_live_strategy(
     - secret: Secret Key
     - sandbox: 是否测试环境
     """
+    from datetime import datetime
+
     task_id = await service.start_live_trading(
         user_id=current_user.sub,
         strategy_name=request.strategy_name,
@@ -79,11 +82,14 @@ async def submit_live_strategy(
         "data": request.model_dump(),
     })
 
-    return {
-        "task_id": task_id,
-        "status": "submitted",
-        "message": "实盘交易策略已提交",
-    }
+    # Return response matching LiveTradingTaskResponse schema
+    return LiveTradingTaskResponse(
+        task_id=task_id,
+        user_id=current_user.sub,
+        status="submitted",
+        config=request.model_dump(),
+        created_at=datetime.now(),
+    )
 
 
 # ==================== 实盘任务管理 API ====================
@@ -102,7 +108,7 @@ async def list_live_tasks(
         offset=offset,
     )
 
-    return LiveTradingTaskListResponse(total=total, items=tasks)
+    return LiveTradingTaskListResponse(total=total, tasks=tasks)
 
 
 @router.get("/live/tasks/{task_id}", response_model=LiveTradingTaskResponse, summary="获取实盘交易任务状态")
@@ -161,14 +167,24 @@ async def get_live_trading_data(
     """
     获取实盘交易数据（账户、持仓、订单、成交）
     """
-    status = await service.get_task_status(current_user.sub, task_id)
+    task_status = await service.get_task_status(current_user.sub, task_id)
+    if not task_status:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="实盘交易任务不存在"
+        )
+
     data = await service.get_task_data(task_id)
 
-    return {
-        "task_id": task_id,
-        "status": status.get("status", "stopped"),
-        "data": data,
-    }
+    # Return response matching LiveTradingDataResponse schema
+    return LiveTradingDataResponse(
+        task_id=task_id,
+        status=task_status.get("status", "stopped") if isinstance(task_status, dict) else getattr(task_status, "status", "stopped"),
+        cash=data.get("cash", 0.0) if isinstance(data, dict) else getattr(data, "cash", 0.0),
+        value=data.get("value", 0.0) if isinstance(data, dict) else getattr(data, "value", 0.0),
+        positions=data.get("positions", []) if isinstance(data, dict) else getattr(data, "positions", []),
+        orders=data.get("orders", []) if isinstance(data, dict) else getattr(data, "orders", []),
+    )
 
 
 # ==================== WebSocket 端点 ====================

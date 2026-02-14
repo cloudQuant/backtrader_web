@@ -6,6 +6,7 @@
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 import logging
+import asyncio
 import difflib
 from datetime import datetime
 
@@ -227,12 +228,12 @@ async def compare_strategy_versions(
     - to_version_id: 目标版本 ID
     - comparison_type: 对比类型（code, params, performance）
     """
+    # comparison_type 在请求中指定，但服务会进行完整对比
     comparison = await service.compare_versions(
         user_id=current_user.sub,
         strategy_id=request.strategy_id,
         from_version_id=request.from_version_id,
         to_version_id=request.to_version_id,
-        comparison_type=request.comparison_type,
     )
 
     # 推送对比完成通知

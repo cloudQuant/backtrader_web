@@ -9,6 +9,22 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
+import pandas as pd
+
+
+@pytest.fixture
+def mock_akshare_response():
+    """Mock akshare 响应数据"""
+    df = pd.DataFrame({
+        '日期': ['2024-01-01', '2024-01-02', '2024-01-03'],
+        '开盘': [10.0, 10.3, 10.5],
+        '最高': [10.5, 10.8, 11.0],
+        '最低': [9.8, 10.0, 10.2],
+        '收盘': [10.3, 10.6, 10.8],
+        '成交量': [1000000, 1200000, 1500000],
+        '涨跌幅': [2.5, 1.5, 2.0],
+    })
+    return df
 
 
 @pytest.mark.asyncio
@@ -181,3 +197,247 @@ class TestDataModels:
         assert "dates" in mock_response["kline"]
         assert "ohlc" in mock_response["kline"]
         assert "volumes" in mock_response["kline"]
+
+
+@pytest.mark.asyncio
+class TestKlineDataWithMock:
+    """K线数据测试 - 使用mock akshare"""
+
+    async def test_get_kline_success_with_mock(self, client: AsyncClient, auth_headers, mock_akshare_response):
+        """测试成功获取K线数据 - 使用mock"""
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = mock_akshare_response
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["symbol"] == "000001.SZ"
+            assert data["count"] == 3
+            assert "kline" in data
+            assert "records" in data
+            assert len(data["kline"]["dates"]) == 3
+            assert len(data["kline"]["ohlc"]) == 3
+            assert len(data["kline"]["volumes"]) == 3
+
+    async def test_get_kline_empty_dataframe(self, client: AsyncClient, auth_headers):
+        """测试空DataFrame情况"""
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            # 返回空DataFrame
+            mock_ak.return_value = pd.DataFrame()
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
+                headers=auth_headers
+            )
+            assert response.status_code == 404
+            assert "未获取到" in response.json()["detail"]
+
+    async def test_get_kline_exception_handling(self, client: AsyncClient, auth_headers):
+        """测试异常处理"""
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            # 模拟网络错误
+            mock_ak.side_effect = Exception("Network error")
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
+                headers=auth_headers
+            )
+            assert response.status_code == 500
+            assert "查询失败" in response.json()["detail"]
+
+    async def test_get_kline_data_transformation(self, client: AsyncClient, auth_headers, mock_akshare_response):
+        """测试数据转换逻辑"""
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = mock_akshare_response
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+            data = response.json()
+
+            # 验证数据格式转换
+            assert "dates" in data["kline"]
+            assert "ohlc" in data["kline"]
+            assert "volumes" in data["kline"]
+
+            # 验证OHLC格式 [open, close, low, high]
+            first_ohlc = data["kline"]["ohlc"][0]
+            assert len(first_ohlc) == 4
+            assert isinstance(first_ohlc[0], float)  # open
+            assert isinstance(first_ohlc[1], float)  # close
+            assert isinstance(first_ohlc[2], float)  # low
+            assert isinstance(first_ohlc[3], float)  # high
+
+            # 验证records格式
+            assert len(data["records"]) == 3
+            first_record = data["records"][0]
+            assert "date" in first_record
+            assert "open" in first_record
+            assert "high" in first_record
+            assert "low" in first_record
+            assert "close" in first_record
+            assert "volume" in first_record
+            assert "change" in first_record
+
+    async def test_get_kline_with_weekly_period(self, client: AsyncClient, auth_headers, mock_akshare_response):
+        """测试周线数据"""
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = mock_akshare_response
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                    "period": "weekly"
+                },
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+            # 验证akshare被正确调用
+            mock_ak.assert_called_once()
+
+    async def test_get_kline_with_monthly_period(self, client: AsyncClient, auth_headers, mock_akshare_response):
+        """测试月线数据"""
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = mock_akshare_response
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-12-31",
+                    "period": "monthly"
+                },
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+
+    async def test_get_kline_symbol_parsing(self, client: AsyncClient, auth_headers, mock_akshare_response):
+        """测试股票代码解析"""
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = mock_akshare_response
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "600000.SH", "start_date": "2024-01-01", "end_date": "2024-01-31"},
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+            # 验证akshare被调用时使用的是正确的代码（不含后缀）
+            call_args = mock_ak.call_args
+            assert call_args.kwargs['symbol'] == '600000'
+
+    async def test_get_kline_date_format_conversion(self, client: AsyncClient, auth_headers, mock_akshare_response):
+        """测试日期格式转换"""
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = mock_akshare_response
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+            # 验证日期格式被正确转换
+            call_args = mock_ak.call_args
+            assert call_args.kwargs['start_date'] == '20240101'
+            assert call_args.kwargs['end_date'] == '20240131'
+
+    async def test_get_kline_column_rename(self, client: AsyncClient, auth_headers):
+        """测试列名重命名"""
+        # 创建带有中文列名的DataFrame
+        df = pd.DataFrame({
+            '日期': ['2024-01-01'],
+            '开盘': [10.0],
+            '最高': [10.5],
+            '最低': [9.8],
+            '收盘': [10.3],
+            '成交量': [1000000],
+            '涨跌幅': [2.5],
+        })
+
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = df
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+            data = response.json()
+            # 验证英文列名在records中
+            assert "open" in data["records"][0]
+            assert "high" in data["records"][0]
+            assert "low" in data["records"][0]
+            assert "close" in data["records"][0]
+            assert "volume" in data["records"][0]
+            assert "change" in data["records"][0]
+
+
+@pytest.mark.asyncio
+class TestKlineDataEdgeCases:
+    """K线数据边界情况测试"""
+
+    async def test_get_kline_single_record(self, client: AsyncClient, auth_headers):
+        """测试只有一条记录的情况"""
+        df = pd.DataFrame({
+            '日期': ['2024-01-01'],
+            '开盘': [10.0],
+            '最高': [10.5],
+            '最低': [9.8],
+            '收盘': [10.3],
+            '成交量': [1000000],
+            '涨跌幅': [2.5],
+        })
+
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = df
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-01"},
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["count"] == 1
+            assert len(data["records"]) == 1
+
+    async def test_get_kline_missing_change_pct(self, client: AsyncClient, auth_headers):
+        """测试缺少涨跌幅列的情况"""
+        df = pd.DataFrame({
+            '日期': ['2024-01-01'],
+            '开盘': [10.0],
+            '最高': [10.5],
+            '最低': [9.8],
+            '收盘': [10.3],
+            '成交量': [1000000],
+            # 缺少涨跌幅列
+        })
+
+        with patch('akshare.stock_zh_a_hist') as mock_ak:
+            mock_ak.return_value = df
+
+            response = await client.get(
+                "/api/v1/data/kline",
+                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-01"},
+                headers=auth_headers
+            )
+            assert response.status_code == 200
+            data = response.json()
+            # change应该默认为0
+            assert data["records"][0]["change"] == 0
+

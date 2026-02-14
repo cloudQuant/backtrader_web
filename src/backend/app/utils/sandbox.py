@@ -16,6 +16,7 @@ class StrategySandbox:
 
     # 允许的内置函数和模块白名单
     _ALLOWED_BUILTINS = {
+        '__build_class__': __build_class__,
         'abs': abs,
         'all': all,
         'any': any,
@@ -55,8 +56,14 @@ class StrategySandbox:
 
         只包含白名单中的内置函数和模块
         """
+        # 使用现有模块名以避免 backtrader 查找 sys.modules 时出错
         safe_globals = {
             '__builtins__': cls._ALLOWED_BUILTINS.copy(),
+            '__name__': 'app.utils.sandbox',
+            '__doc__': None,
+            '__package__': 'app.utils',
+            '__loader__': None,
+            '__spec__': None,
             **cls._ALLOWED_MODULES,
         }
 
@@ -81,8 +88,12 @@ class StrategySandbox:
         if module_name not in allowed_base_names:
             raise ImportError(f"模块 '{name}' 不被允许导入。仅允许: {', '.join(allowed_base_names)}")
 
-        # 导入模块
-        imported_module = __import__(name, globals, locals, fromlist, level)
+        # 如果是白名单中的模块（已预先导入），直接返回
+        if module_name in StrategySandbox._ALLOWED_MODULES:
+            imported_module = StrategySandbox._ALLOWED_MODULES[module_name]
+        else:
+            # 通过 Python import 机制导入
+            imported_module = __import__(name, globals, locals, fromlist, level)
 
         # 如果是子模块，也检查
         if '.' in name:
