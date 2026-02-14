@@ -107,17 +107,16 @@ class TestOptimizationSubmit:
         )
 
         with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
-            with patch('app.services.strategy_service.get_template_by_id', return_value=mock_strategy_template):
-                with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}, {"fast": 10}, {"fast": 15}]):
-                    with patch('app.services.param_optimization_service.submit_optimization', return_value="task_123"):
-                        result = await submit_optimization_task(
-                            request=request,
-                            current_user=mock_current_user
-                        )
+            with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}, {"fast": 10}, {"fast": 15}]):
+                with patch('app.api.optimization_api.submit_optimization', return_value="task_123"):
+                    result = await submit_optimization_task(
+                        request=request,
+                        current_user=mock_current_user
+                    )
 
-                        assert result.task_id == "task_123"
-                        assert result.total_combinations == 3
-                        assert "已提交" in result.message
+                    assert result.task_id == "task_123"
+                    assert result.total_combinations == 3
+                    assert "已提交" in result.message
 
     async def test_submit_optimization_strategy_not_found(self, mock_current_user):
         """测试策略不存在"""
@@ -175,10 +174,9 @@ class TestOptimizationSubmit:
         )
 
         with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
-            with patch('app.services.strategy_service.get_template_by_id', return_value=mock_strategy_template):
-                with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}]):
-                    with patch('app.services.param_optimization_service.submit_optimization', side_effect=ValueError("Invalid parameters")):
-                        with pytest.raises(HTTPException) as exc_info:
+            with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}]):
+                with patch('app.api.optimization_api.submit_optimization', side_effect=ValueError("Invalid parameters")):
+                    with pytest.raises(HTTPException) as exc_info:
                         await submit_optimization_task(
                             request=request,
                             current_user=mock_current_user
@@ -200,9 +198,8 @@ class TestOptimizationSubmit:
         )
 
         with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
-            with patch('app.services.strategy_service.get_template_by_id', return_value=mock_strategy_template):
-                with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}]):
-                    with patch('app.services.param_optimization_service.submit_optimization', return_value="task_123") as mock_submit:
+            with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}]):
+                with patch('app.api.optimization_api.submit_optimization', return_value="task_123") as mock_submit:
                     await submit_optimization_task(
                         request=request,
                         current_user=mock_current_user
@@ -231,7 +228,7 @@ class TestOptimizationProgress:
             "progress": 50.0,
         }
 
-        with patch('app.services.param_optimization_service.get_optimization_progress', return_value=mock_progress):
+        with patch('app.api.optimization_api.get_optimization_progress', return_value=mock_progress):
             result = await get_progress(
                 task_id="task_123",
                 current_user=mock_current_user
@@ -274,7 +271,7 @@ class TestOptimizationResults:
             "all_results": [],
         }
 
-        with patch('app.services.param_optimization_service.get_optimization_results', return_value=mock_results):
+        with patch('app.api.optimization_api.get_optimization_results', return_value=mock_results):
             result = await get_results(
                 task_id="task_123",
                 current_user=mock_current_user
@@ -309,7 +306,7 @@ class TestOptimizationCancel:
         """测试成功取消任务"""
         from app.api.optimization_api import cancel_task
 
-        with patch('app.services.param_optimization_service.cancel_optimization', return_value=True):
+        with patch('app.api.optimization_api.cancel_optimization', return_value=True):
             result = await cancel_task(
                 task_id="task_123",
                 current_user=mock_current_user
