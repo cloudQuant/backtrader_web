@@ -14,8 +14,29 @@ class MemoryCache:
     
     适用于单机部署或开发环境
     """
-    _cache: Dict[str, Dict[str, Any]] = {}
+    # BUG-2: 最大缓存条目数，防止内存无限增长
+    MAX_ENTRIES = 10000
+    # BUG-2: 清理间隔（秒），避免每次写入都扫描
+    CLEANUP_INTERVAL = 300
+
+    def __init__(self):
+        # BUG-1: 使用实例变量而非类变量，避免跨实例共享
+        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._last_cleanup: datetime = datetime.now()
     
+    def _cleanup_expired(self):
+        """BUG-2: 清理过期条目"""
+        now = datetime.now()
+        if (now - self._last_cleanup).total_seconds() < self.CLEANUP_INTERVAL:
+            return
+        self._last_cleanup = now
+        expired_keys = [
+            k for k, v in self._cache.items()
+            if v.get("expire_at") and now > v["expire_at"]
+        ]
+        for k in expired_keys:
+            del self._cache[k]
+
     async def get(self, key: str) -> Optional[Any]:
         """获取缓存"""
         if key not in self._cache:
@@ -30,6 +51,12 @@ class MemoryCache:
     
     async def set(self, key: str, value: Any, ttl: int = 3600):
         """设置缓存"""
+        # BUG-2: 定期清理过期条目
+        self._cleanup_expired()
+        # BUG-2: 超过最大条目数时清理最旧的条目
+        if len(self._cache) >= self.MAX_ENTRIES:
+            oldest_key = next(iter(self._cache))
+            del self._cache[oldest_key]
         expire_at = datetime.now() + timedelta(seconds=ttl) if ttl > 0 else None
         self._cache[key] = {
             "value": value,

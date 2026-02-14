@@ -3,7 +3,7 @@
 
 增加了严格的输入验证和范围检查
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Literal
 from enum import Enum
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -84,7 +84,7 @@ class BacktestRequest(BaseModel):
             raise ValueError('回测时间范围不能超过 10 年')
         
         # 不能使用未来日期
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if v > now:
             raise ValueError('end_date 不能是未来日期')
         

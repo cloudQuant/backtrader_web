@@ -4,7 +4,7 @@
 支持虚拟账户、模拟订单、模拟持仓管理
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import Column, String, DateTime, Float, Integer, ForeignKey, JSON, Boolean
 from sqlalchemy.orm import relationship
@@ -51,8 +51,8 @@ class Account(Base):
     commission_rate = Column(Float, default=0.001, nullable=False)  # 手续费率
     slippage_rate = Column(Float, default=0.001, nullable=False)  # 滑点率
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关联
     user = relationship("User", back_populates="paper_trading_accounts")
@@ -75,7 +75,7 @@ class Position(Base):
     unrealized_pnl_pct = Column(Float, default=0.0, nullable=False)  # 浮盈百分比
     entry_price = Column(Float, default=0.0, nullable=False)  # 入场价格
     entry_time = Column(DateTime, nullable=True)  # 入场时间
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关联
     account = relationship("Account", back_populates="positions")
@@ -100,8 +100,8 @@ class Order(Base):
     rejected_reason = Column(String(255), nullable=True)  # 拒绝原因
     commission = Column(Float, default=0.0, nullable=False)  # 手续费
     slippage = Column(Float, default=0.0, nullable=False)  # 滑点
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     filled_at = Column(DateTime, nullable=True)  # 成交时间
 
     # 关联
@@ -123,7 +123,7 @@ class PaperTrade(Base):
     slippage = Column(Float, default=0.0, nullable=False)
     pnl = Column(Float, default=0.0, nullable=False)  # 盈亏
     pnl_pct = Column(Float, default=0.0, nullable=False)  # 盈亏百分比
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 关联
     account = relationship("Account", back_populates="trades")

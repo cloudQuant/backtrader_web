@@ -4,7 +4,7 @@
 支持账户监控、持仓监控、策略监控、系统监控
 """
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 import logging
 import asyncio
@@ -455,7 +455,7 @@ class MonitoringService:
         # 更新触发次数
         await self.alert_rule_repo.update(rule.id, {
             "triggered_count": rule.triggered_count + 1,
-            "last_triggered_at": datetime.utcnow(),
+            "last_triggered_at": datetime.now(timezone.utc),
         })
 
         # 创建告警
@@ -573,7 +573,7 @@ class MonitoringService:
 
         await self.alert_repo.update(alert_id, {
             "status": AlertStatus.RESOLVED,
-            "resolved_at": datetime.utcnow(),
+            "resolved_at": datetime.now(timezone.utc),
         })
 
         return True

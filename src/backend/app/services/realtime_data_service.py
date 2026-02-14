@@ -4,7 +4,7 @@
 支持多券商的实时行情订阅和推送
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -124,7 +124,7 @@ class RealTimeDataService:
         # 返回模拟数据
         return {
             "symbol": symbol,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "open": 0.0,
             "high": 0.0,
             "low": 0.0,

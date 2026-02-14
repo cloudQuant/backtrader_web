@@ -2,7 +2,7 @@
 回测结果对比数据模型
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import Column, String, DateTime, Float, Integer, ForeignKey, JSON, Boolean, Text, Table
 from sqlalchemy.orm import relationship
@@ -40,8 +40,8 @@ class Comparison(Base):
     is_public = Column(Boolean, default=False, nullable=False)  # 是否公开
 
     # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关联
     user = relationship("User", back_populates="comparisons")
@@ -57,7 +57,7 @@ class ComparisonShare(Base):
     comparison_id = Column(String(36), ForeignKey("backtest_comparisons.id"), nullable=False, index=True)
     shared_with_user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     can_edit = Column(Boolean, default=False, nullable=False)  # 是否允许编辑
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 关联
     comparison = relationship("Comparison", back_populates="shares")

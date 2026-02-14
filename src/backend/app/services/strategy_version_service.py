@@ -5,7 +5,7 @@
 """
 import uuid
 import difflib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import logging
 import json
@@ -172,7 +172,7 @@ class VersionControlService:
 
         # 更新字段
         update_dict = {
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
             "updated_by": user_id,
         }
 
@@ -236,7 +236,7 @@ class VersionControlService:
         # 设置为默认版本
         await self.version_repo.update(version_id, {
             "is_default": True,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         })
 
         return True
@@ -266,7 +266,7 @@ class VersionControlService:
         # 设置为活跃版本
         await self.version_repo.update(version_id, {
             "is_active": True,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         })
 
         return True
@@ -574,7 +574,7 @@ class VersionControlService:
         await self.branch_repo.update(branch.id, {
             "version_count": branch.version_count + 1,
             "last_version_id": version.id,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         })
 
     async def _get_latest_version(

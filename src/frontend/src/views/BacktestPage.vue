@@ -81,31 +81,31 @@
         <div class="p-4 bg-gray-50 rounded-lg">
           <div class="text-gray-500 text-sm">总收益率</div>
           <div class="text-2xl font-bold" :class="currentResult.total_return >= 0 ? 'text-green-500' : 'text-red-500'">
-            {{ currentResult.total_return.toFixed(2) }}%
+            {{ (currentResult.total_return ?? 0).toFixed(2) }}%
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
           <div class="text-gray-500 text-sm">年化收益</div>
           <div class="text-2xl font-bold" :class="currentResult.annual_return >= 0 ? 'text-green-500' : 'text-red-500'">
-            {{ currentResult.annual_return.toFixed(2) }}%
+            {{ (currentResult.annual_return ?? 0).toFixed(2) }}%
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
           <div class="text-gray-500 text-sm">夏普比率</div>
           <div class="text-2xl font-bold text-gray-800">
-            {{ currentResult.sharpe_ratio.toFixed(2) }}
+            {{ (currentResult.sharpe_ratio ?? 0).toFixed(2) }}
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
           <div class="text-gray-500 text-sm">最大回撤</div>
           <div class="text-2xl font-bold text-red-500">
-            {{ currentResult.max_drawdown.toFixed(2) }}%
+            {{ (currentResult.max_drawdown ?? 0).toFixed(2) }}%
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
           <div class="text-gray-500 text-sm">胜率</div>
           <div class="text-2xl font-bold text-gray-800">
-            {{ currentResult.win_rate.toFixed(1) }}%
+            {{ (currentResult.win_rate ?? 0).toFixed(1) }}%
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
@@ -167,16 +167,16 @@
         <el-table-column label="收益率" width="100">
           <template #default="{ row }">
             <span :class="row.total_return >= 0 ? 'text-green-500' : 'text-red-500'">
-              {{ row.total_return.toFixed(2) }}%
+              {{ (row.total_return ?? 0).toFixed(2) }}%
             </span>
           </template>
         </el-table-column>
         <el-table-column label="夏普" width="80">
-          <template #default="{ row }">{{ row.sharpe_ratio.toFixed(2) }}</template>
+          <template #default="{ row }">{{ (row.sharpe_ratio ?? 0).toFixed(2) }}</template>
         </el-table-column>
         <el-table-column label="回撤" width="80">
           <template #default="{ row }">
-            <span class="text-red-500">{{ row.max_drawdown.toFixed(2) }}%</span>
+            <span class="text-red-500">{{ (row.max_drawdown ?? 0).toFixed(2) }}%</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
@@ -226,6 +226,7 @@ const progressInfo = ref({ progress: 0, message: '' })
 const strategyConfig = ref<StrategyConfig | null>(null)
 const dynamicParams = reactive<Record<string, number | string>>({})
 let ws: WebSocket | null = null
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
 const form = reactive({
   strategy_id: '',
@@ -291,9 +292,17 @@ function getStatusText(status: string) {
 }
 
 function connectWebSocket(taskId: string) {
+  // BUG-4: 使用相对路径，通过 Vite 代理或 Nginx 转发，兼容开发和生产环境
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = `${wsProtocol}//${window.location.host}/ws/backtest/${taskId}`
   ws = new WebSocket(wsUrl)
+  
+  // OPT-17: WebSocket 心跳保活，防止中间代理断开空闲连接
+  heartbeatTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send('ping')
+    }
+  }, 30000)
   
   ws.onmessage = async (event) => {
     const data = JSON.parse(event.data)
@@ -328,6 +337,10 @@ function connectWebSocket(taskId: string) {
 }
 
 function closeWebSocket() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
   if (ws) {
     ws.close()
     ws = null

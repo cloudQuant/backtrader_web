@@ -3,7 +3,7 @@ import glob
 import logging
 from pathlib import Path
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 
 import yaml
 
@@ -182,7 +182,7 @@ class StrategyService:
             update_data["category"] = strategy_update.category
         
         if update_data:
-            update_data["updated_at"] = datetime.utcnow()
+            update_data["updated_at"] = datetime.now(timezone.utc)
             strategy = await self.strategy_repo.update(strategy_id, update_data)
         
         return self._to_response(strategy)

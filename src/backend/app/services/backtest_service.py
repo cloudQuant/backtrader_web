@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 _running_tasks: Dict[str, asyncio.Task] = {}
 _running_processes: Dict[str, subprocess.Popen] = {}
 
+# OPT-11: 并发限制
+MAX_GLOBAL_TASKS = 10   # 全局最大并发回测任务数
+MAX_USER_TASKS = 3      # 每用户最大并发回测任务数
+_user_task_count: Dict[str, int] = {}  # user_id -> 当前运行中的任务数
+
 
 class BacktestService:
     """
@@ -73,6 +78,15 @@ class BacktestService:
         )
         task = await self.task_repo.create(task)
         
+        # OPT-11: 检查并发限制
+        global_count = len(_running_tasks)
+        user_count = _user_task_count.get(user_id, 0)
+        if global_count >= MAX_GLOBAL_TASKS:
+            raise ValueError(f"系统回测任务已满（最大 {MAX_GLOBAL_TASKS} 个），请稍后再试")
+        if user_count >= MAX_USER_TASKS:
+            raise ValueError(f"您的并发回测任务已达上限（最大 {MAX_USER_TASKS} 个），请等待当前任务完成")
+        _user_task_count[user_id] = user_count + 1
+
         # 创建异步任务并保存引用（用于取消）
         async_task = asyncio.create_task(self._execute_backtest(task.id, user_id, request))
         _running_tasks[task.id] = async_task
@@ -225,6 +239,11 @@ class BacktestService:
         finally:
             _running_tasks.pop(task_id, None)
             _running_processes.pop(task_id, None)
+            # OPT-11: 释放用户并发计数
+            if user_id in _user_task_count:
+                _user_task_count[user_id] = max(0, _user_task_count[user_id] - 1)
+                if _user_task_count[user_id] == 0:
+                    del _user_task_count[user_id]
             # 清理临时工作目录（清理整个 tmp_base）
             cleanup_dir = tmp_base or task_work_dir
             if cleanup_dir and cleanup_dir.is_dir():

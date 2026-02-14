@@ -4,7 +4,7 @@
 支持多个回测结果的对比和分析
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import logging
 
@@ -375,7 +375,7 @@ class ComparisonService:
             )
 
         if update_dict:
-            update_dict["updated_at"] = datetime.utcnow()
+            update_dict["updated_at"] = datetime.now(timezone.utc)
             comparison = await self.comparison_repo.update(comparison_id, update_dict)
 
         return self._to_response(comparison)

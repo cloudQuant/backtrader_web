@@ -2,7 +2,7 @@
 回测ORM模型
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Text, DateTime, Float, Integer, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
@@ -22,8 +22,8 @@ class BacktestTask(Base):
     request_data = Column(JSON)  # 请求参数
     error_message = Column(Text, nullable=True)
     log_dir = Column(Text, nullable=True)  # 任务专属日志目录路径
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # 关联
     user = relationship("User", back_populates="backtest_tasks")
@@ -56,7 +56,7 @@ class BacktestResultModel(Base):
     drawdown_curve = Column(JSON, default=list)
     trades = Column(JSON, default=list)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     
     # 关联
     task = relationship("BacktestTask", back_populates="result")

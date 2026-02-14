@@ -5,7 +5,7 @@
 """
 import io
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
     from jinja2 import Template
@@ -319,7 +319,7 @@ class ReportService:
             profitable_trades=result.get('profitable_trades', 0),
             losing_trades=result.get('losing_trades', 0),
             params=result.get('params', {}),
-            created_at=datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+            created_at=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
             start_date=result.get('start_date', ''),
             end_date=result.get('end_date', ''),
         )

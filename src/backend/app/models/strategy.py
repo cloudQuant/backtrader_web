@@ -2,7 +2,7 @@
 策略ORM模型
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
@@ -20,8 +20,8 @@ class Strategy(Base):
     code = Column(Text, nullable=False)
     params = Column(JSON, default=dict)  # 参数定义
     category = Column(String(50), default="custom", index=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     # 关联
     user = relationship("User", back_populates="strategies")

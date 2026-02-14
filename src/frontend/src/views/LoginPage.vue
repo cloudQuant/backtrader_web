@@ -96,8 +96,10 @@ async function handleLogin() {
       await authStore.login(form)
       ElMessage.success('登录成功')
       
+      // BUG-11: 验证重定向路径安全性，防止 XSS
       const redirect = route.query.redirect as string
-      router.push(redirect || '/')
+      const safeRedirect = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/'
+      router.push(safeRedirect)
     } catch (error) {
       // 错误已在拦截器中处理
     } finally {

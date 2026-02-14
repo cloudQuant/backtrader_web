@@ -31,7 +31,7 @@
           <div>
             <div class="text-gray-500 text-sm">平均收益率</div>
             <div class="text-3xl font-bold mt-2" :class="stats.avgReturn >= 0 ? 'text-green-500' : 'text-red-500'">
-              {{ stats.avgReturn.toFixed(2) }}%
+              {{ (stats.avgReturn ?? 0).toFixed(2) }}%
             </div>
           </div>
           <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
@@ -44,7 +44,7 @@
         <div class="flex items-center justify-between">
           <div>
             <div class="text-gray-500 text-sm">最佳夏普比率</div>
-            <div class="text-3xl font-bold text-gray-800 mt-2">{{ stats.bestSharpe.toFixed(2) }}</div>
+            <div class="text-3xl font-bold text-gray-800 mt-2">{{ (stats.bestSharpe ?? 0).toFixed(2) }}</div>
           </div>
           <div class="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
             <el-icon class="text-orange-500 text-2xl"><Trophy /></el-icon>
@@ -110,18 +110,18 @@
         <el-table-column label="收益率" width="120">
           <template #default="{ row }">
             <span :class="row.total_return >= 0 ? 'text-green-500' : 'text-red-500'">
-              {{ row.total_return.toFixed(2) }}%
+              {{ (row.total_return ?? 0).toFixed(2) }}%
             </span>
           </template>
         </el-table-column>
         <el-table-column label="夏普比率" width="120">
           <template #default="{ row }">
-            {{ row.sharpe_ratio.toFixed(2) }}
+            {{ (row.sharpe_ratio ?? 0).toFixed(2) }}
           </template>
         </el-table-column>
         <el-table-column label="最大回撤" width="120">
           <template #default="{ row }">
-            <span class="text-red-500">{{ row.max_drawdown.toFixed(2) }}%</span>
+            <span class="text-red-500">{{ (row.max_drawdown ?? 0).toFixed(2) }}%</span>
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">

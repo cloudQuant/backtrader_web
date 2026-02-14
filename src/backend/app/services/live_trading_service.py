@@ -9,7 +9,7 @@ import threading
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 # 动态导入 backtrader 项目
 BACKTRADER_PATH = Path.home() / "Documents" / "backtrader"
@@ -84,7 +84,7 @@ class LiveTradingService:
             raise ImportError("backtrader not available")
 
         # 生成任务 ID
-        task_id = f"live-{user_id}-{datetime.utcnow().timestamp()}"
+        task_id = f"live-{user_id}-{datetime.now(timezone.utc).timestamp()}"
 
         # 在后台线程中运行实盘交易
         def _run_live_trading():
@@ -153,7 +153,7 @@ class LiveTradingService:
                 "initial_cash": initial_cash,
                 "sandbox": sandbox,
             },
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(timezone.utc),
         }
 
         return task_id
@@ -215,7 +215,7 @@ class LiveTradingService:
         # 更新任务状态
         if task_id in self.tasks:
             self.tasks[task_id]["status"] = "stopped"
-            self.tasks[task_id]["stopped_at"] = datetime.utcnow()
+            self.tasks[task_id]["stopped_at"] = datetime.now(timezone.utc)
 
         logger.info(f"Stopped live trading task: {task_id}")
 

@@ -4,7 +4,7 @@
 基于 Backtrader 的模拟交易环境
 """
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 import logging
 
@@ -213,7 +213,7 @@ class PaperTradingService:
         order.filled_size = order.size
         order.avg_fill_price = price
         order.commission = commission
-        order.filled_at = datetime.utcnow()
+        order.filled_at = datetime.now(timezone.utc)
 
         await self.order_repo.update(order.id, {
             "status": order.status,
@@ -306,7 +306,7 @@ class PaperTradingService:
                 unrealized_pnl=0.0,
                 unrealized_pnl_pct=0.0,
                 entry_price=price,
-                entry_time=datetime.utcnow(),
+                entry_time=datetime.now(timezone.utc),
             )
 
             await self.position_repo.create(position)
@@ -346,7 +346,7 @@ class PaperTradingService:
                 "market_value": new_market_value,
                 "unrealized_pnl": unrealized_pnl,
                 "unrealized_pnl_pct": unrealized_pnl_pct,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             })
 
             # 更新成交记录的盈亏（如果是平仓）
@@ -406,7 +406,7 @@ class PaperTradingService:
             "total_equity": account.total_equity,
             "profit_loss": account.profit_loss,
             "profit_loss_pct": account.profit_loss_pct,
-            "updated_at": datetime.utcnow(),
+            "updated_at": datetime.now(timezone.utc),
         })
 
         # 推送账户更新

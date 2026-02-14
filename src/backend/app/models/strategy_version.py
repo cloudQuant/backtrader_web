@@ -4,7 +4,7 @@
 支持策略的版本控制、回滚、分支管理
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import Column, String, DateTime, Text, Integer, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
@@ -59,9 +59,9 @@ class StrategyVersion(Base):
 
     # 审计
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_by = Column(String(36), ForeignKey("users.id"), nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关联
     strategy = relationship("Strategy", back_populates="versions")
@@ -82,7 +82,7 @@ class VersionComparison(Base):
     params_diff = Column(JSON, default=dict)  # 参数差异
     performance_diff = Column(JSON, default=dict)  # 性能差异（回测结果对比）
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
 
 
@@ -98,7 +98,7 @@ class VersionRollback(Base):
     reason = Column(Text, nullable=True)  # 回滚原因
     snapshot_data = Column(JSON, nullable=True)  # 回滚前的快照数据
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
 
 
@@ -116,5 +116,5 @@ class VersionBranch(Base):
     last_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=True)
     is_default = Column(Boolean, default=False, nullable=False)  # 是否为默认分支
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)

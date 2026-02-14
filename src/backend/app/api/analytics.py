@@ -55,9 +55,9 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
     return find_latest_log_dir(strategy_dir)
 
 
-async def get_backtest_data(task_id: str, backtest_service: BacktestService):
-    """从数据库获取真实回测结果"""
-    result = await backtest_service.get_result(task_id)
+async def get_backtest_data(task_id: str, backtest_service: BacktestService, user_id: str = None):
+    """从数据库获取真实回测结果（BUG-5: 增加 user_id 鉴权）"""
+    result = await backtest_service.get_result(task_id, user_id=user_id)
     
     if not result:
         return None
@@ -256,7 +256,7 @@ async def get_backtest_detail(
     包含绩效指标、资金曲线、回撤曲线、交易记录等
     """
     # 从数据库获取真实回测结果
-    result = await get_backtest_data(task_id, backtest_service)
+    result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
     
     if not result:
         raise HTTPException(status_code=404, detail="回测结果不存在")
@@ -297,7 +297,7 @@ async def get_kline_with_signals(
     
     用于绘制带买卖点标记的K线图
     """
-    result = await get_backtest_data(task_id, backtest_service)
+    result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
     
     if not result:
         raise HTTPException(status_code=404, detail="回测结果不存在")
@@ -350,7 +350,7 @@ async def get_monthly_returns(
     
     用于绘制收益热力图
     """
-    result = await get_backtest_data(task_id, backtest_service)
+    result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
     
     if not result:
         raise HTTPException(status_code=404, detail="回测结果不存在")
@@ -385,7 +385,7 @@ async def export_backtest_results(
     """
     导出回测结果
     """
-    result = await get_backtest_data(task_id, backtest_service)
+    result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
     
     if not result:
         raise HTTPException(status_code=404, detail="回测结果不存在")
@@ -394,7 +394,9 @@ async def export_backtest_results(
     
     if format == "csv":
         output = io.StringIO()
-        writer = csv.DictWriter(output, fieldnames=trades[0].keys() if trades else [])
+        # BUG-9: 处理交易记录为空的情况
+        fieldnames = trades[0].keys() if trades else ['id', 'datetime', 'symbol', 'direction', 'price', 'size', 'value', 'commission', 'pnl']
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(trades)
         

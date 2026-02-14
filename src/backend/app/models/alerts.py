@@ -4,7 +4,7 @@
 支持账户监控、策略监控、系统监控
 """
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import Column, String, DateTime, Text, Float, Integer, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
@@ -72,8 +72,8 @@ class Alert(Base):
     is_read = Column(Boolean, default=False, nullable=False)  # 是否已读
     is_notification_sent = Column(Boolean, default=False, nullable=False)  # 是否已发送通知
     resolved_at = Column(DateTime, nullable=True)  # 解决时间
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关联
     user = relationship("User", back_populates="alerts")
@@ -112,8 +112,8 @@ class AlertRule(Base):
     last_triggered_at = Column(DateTime, nullable=True)  # 上次触发时间
 
     # 元信息
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # 关联
     user = relationship("User", back_populates="alert_rules")
@@ -131,7 +131,7 @@ class AlertNotification(Base):
     message = Column(Text, nullable=True)  # 通知消息
     error = Column(Text, nullable=True)  # 错误信息
     sent_at = Column(DateTime, nullable=True)  # 发送时间
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # 关联
     alert = relationship("Alert", back_populates="notifications")

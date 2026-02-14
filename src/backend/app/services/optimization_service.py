@@ -235,6 +235,7 @@ class OptimizationService:
     ) -> BacktestResult:
         """
         运行单个回测（辅助方法）
+        BUG-7: 必须等待回测完成后再获取结果
 
         Args:
             user_id: 用户ID
@@ -244,7 +245,7 @@ class OptimizationService:
             BacktestResult: 回测结果
         """
         backtest_response = await self.backtest_service.run_backtest(user_id, request)
-        result = await self.backtest_service.get_result(backtest_response.task_id)
+        result = await self._wait_for_backtest(backtest_response.task_id)
         return result
 
     def _generate_param_combinations(
