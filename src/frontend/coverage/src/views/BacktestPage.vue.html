@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">76.88% </span>
+                <span class="strong">75.11% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>336/437</span>
+                <span class='fraction'>338/450</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">56.81% </span>
+                <span class="strong">55.55% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>25/44</span>
+                <span class='fraction'>25/45</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">76.88% </span>
+                <span class="strong">75.11% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>336/437</span>
+                <span class='fraction'>338/450</span>
             </div>
         
             
@@ -500,7 +500,20 @@
 <a name='L435'></a><a href='#L435'>435</a>
 <a name='L436'></a><a href='#L436'>436</a>
 <a name='L437'></a><a href='#L437'>437</a>
-<a name='L438'></a><a href='#L438'>438</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<a name='L438'></a><a href='#L438'>438</a>
+<a name='L439'></a><a href='#L439'>439</a>
+<a name='L440'></a><a href='#L440'>440</a>
+<a name='L441'></a><a href='#L441'>441</a>
+<a name='L442'></a><a href='#L442'>442</a>
+<a name='L443'></a><a href='#L443'>443</a>
+<a name='L444'></a><a href='#L444'>444</a>
+<a name='L445'></a><a href='#L445'>445</a>
+<a name='L446'></a><a href='#L446'>446</a>
+<a name='L447'></a><a href='#L447'>447</a>
+<a name='L448'></a><a href='#L448'>448</a>
+<a name='L449'></a><a href='#L449'>449</a>
+<a name='L450'></a><a href='#L450'>450</a>
+<a name='L451'></a><a href='#L451'>451</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -671,6 +684,7 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -828,8 +842,20 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -1020,31 +1046,31 @@
         &lt;div class="p-4 bg-gray-50 rounded-lg"&gt;
           &lt;div class="text-gray-500 text-sm"&gt;总收益率&lt;/div&gt;
           &lt;div class="text-2xl font-bold" :class="currentResult.total_return &gt;= 0 ? 'text-green-500' : 'text-red-500'"&gt;
-            {{ currentResult.total_return.toFixed(2) }}%
+            {{ (currentResult.total_return ?? 0).toFixed(2) }}%
           &lt;/div&gt;
         &lt;/div&gt;
         &lt;div class="p-4 bg-gray-50 rounded-lg"&gt;
           &lt;div class="text-gray-500 text-sm"&gt;年化收益&lt;/div&gt;
           &lt;div class="text-2xl font-bold" :class="currentResult.annual_return &gt;= 0 ? 'text-green-500' : 'text-red-500'"&gt;
-            {{ currentResult.annual_return.toFixed(2) }}%
+            {{ (currentResult.annual_return ?? 0).toFixed(2) }}%
           &lt;/div&gt;
         &lt;/div&gt;
         &lt;div class="p-4 bg-gray-50 rounded-lg"&gt;
           &lt;div class="text-gray-500 text-sm"&gt;夏普比率&lt;/div&gt;
           &lt;div class="text-2xl font-bold text-gray-800"&gt;
-            {{ currentResult.sharpe_ratio.toFixed(2) }}
+            {{ (currentResult.sharpe_ratio ?? 0).toFixed(2) }}
           &lt;/div&gt;
         &lt;/div&gt;
         &lt;div class="p-4 bg-gray-50 rounded-lg"&gt;
           &lt;div class="text-gray-500 text-sm"&gt;最大回撤&lt;/div&gt;
           &lt;div class="text-2xl font-bold text-red-500"&gt;
-            {{ currentResult.max_drawdown.toFixed(2) }}%
+            {{ (currentResult.max_drawdown ?? 0).toFixed(2) }}%
           &lt;/div&gt;
         &lt;/div&gt;
         &lt;div class="p-4 bg-gray-50 rounded-lg"&gt;
           &lt;div class="text-gray-500 text-sm"&gt;胜率&lt;/div&gt;
           &lt;div class="text-2xl font-bold text-gray-800"&gt;
-            {{ currentResult.win_rate.toFixed(1) }}%
+            {{ (currentResult.win_rate ?? 0).toFixed(1) }}%
           &lt;/div&gt;
         &lt;/div&gt;
         &lt;div class="p-4 bg-gray-50 rounded-lg"&gt;
@@ -1106,16 +1132,16 @@
         &lt;el-table-column label="收益率" width="100"&gt;
           &lt;template #default="{ row }"&gt;
             &lt;span :class="row.total_return &gt;= 0 ? 'text-green-500' : 'text-red-500'"&gt;
-<span class="cstat-no" title="statement not covered" >              {{ row.total_return.toFixed(2) }}%</span>
+<span class="cstat-no" title="statement not covered" >              {{ (row.total_return ?? 0).toFixed(2) }}%</span>
 <span class="cstat-no" title="statement not covered" >            &lt;/span&gt;</span>
           &lt;/template&gt;
         &lt;/el-table-column&gt;
         &lt;el-table-column label="夏普" width="80"&gt;
-          &lt;template #default="{ row }"&gt;{{ row.sharpe_ratio.toFixed(2) }}&lt;/template&gt;
+          &lt;template #default="{ row }"&gt;{{ (row.sharpe_ratio ?? 0).toFixed(2) }}&lt;/template&gt;
         &lt;/el-table-column&gt;
         &lt;el-table-column label="回撤" width="80"&gt;
           &lt;template #default="{ row }"&gt;
-            &lt;span class="text-red-500"&gt;{{ row.max_drawdown.toFixed(2) }}%&lt;/span&gt;
+            &lt;span class="text-red-500"&gt;{{ (row.max_drawdown ?? 0).toFixed(2) }}%&lt;/span&gt;
           &lt;/template&gt;
         &lt;/el-table-column&gt;
         &lt;el-table-column label="状态" width="100"&gt;
@@ -1165,6 +1191,7 @@ const progressInfo = ref({ progress: 0, message: '' })
 const strategyConfig = ref&lt;StrategyConfig | null&gt;(null)
 const dynamicParams = reactive&lt;Record&lt;string, number | string&gt;&gt;({})
 let ws: WebSocket | null = null
+let heartbeatTimer: ReturnType&lt;typeof setInterval&gt; | null = null
 &nbsp;
 const form = reactive({
   strategy_id: '',
@@ -1230,9 +1257,17 @@ function getStatusText(status: string) {
 }
 &nbsp;
 <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >function connectWebSocket(taskId: string) {</span></span>
+<span class="cstat-no" title="statement not covered" >  // BUG-4: 使用相对路径，通过 Vite 代理或 Nginx 转发，兼容开发和生产环境</span>
 <span class="cstat-no" title="statement not covered" >  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'</span>
 <span class="cstat-no" title="statement not covered" >  const wsUrl = `${wsProtocol}//${window.location.host}/ws/backtest/${taskId}`</span>
 <span class="cstat-no" title="statement not covered" >  ws = new WebSocket(wsUrl)</span>
+<span class="cstat-no" title="statement not covered" >  </span>
+<span class="cstat-no" title="statement not covered" >  // OPT-17: WebSocket 心跳保活，防止中间代理断开空闲连接</span>
+<span class="cstat-no" title="statement not covered" >  heartbeatTimer = setInterval(() =&gt; {</span>
+<span class="cstat-no" title="statement not covered" >    if (ws &amp;&amp; ws.readyState === WebSocket.OPEN) {</span>
+<span class="cstat-no" title="statement not covered" >      ws.send('ping')</span>
+<span class="cstat-no" title="statement not covered" >    }</span>
+<span class="cstat-no" title="statement not covered" >  }, 30000)</span>
 <span class="cstat-no" title="statement not covered" >  </span>
 <span class="cstat-no" title="statement not covered" >  ws.onmessage = async (event) =&gt; {</span>
 <span class="cstat-no" title="statement not covered" >    const data = JSON.parse(event.data)</span>
@@ -1267,6 +1302,10 @@ function getStatusText(status: string) {
 <span class="cstat-no" title="statement not covered" >}</span>
 &nbsp;
 function closeWebSocket() {
+  if (heartbeatTimer) <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
+<span class="cstat-no" title="statement not covered" >    clearInterval(heartbeatTimer)</span>
+<span class="cstat-no" title="statement not covered" >    heartbeatTimer = null</span>
+<span class="cstat-no" title="statement not covered" >  }</span>
   if (ws) <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
 <span class="cstat-no" title="statement not covered" >    ws.close()</span>
 <span class="cstat-no" title="statement not covered" >    ws = null</span>
@@ -1381,7 +1420,7 @@ onMounted(async () =&gt; {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-14T08:08:08.502Z
+                at 2026-02-16T16:31:55.278Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

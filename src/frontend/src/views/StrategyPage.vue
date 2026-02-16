@@ -328,7 +328,8 @@ function getCategoryType(category: string) {
   return types[category] || 'info'
 }
 
-function stripMeta(desc: string) {
+function stripMeta(desc?: string) {
+  if (!desc) return ''
   return desc.split(' | ')[0]
 }
 

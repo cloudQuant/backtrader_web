@@ -83,10 +83,11 @@ class LiveTradingManager:
     # ---- CRUD ----
 
     def list_instances(self, user_id: str = None) -> List[dict]:
+        """列出实盘交易实例，支持按用户过滤"""
         instances = _load_instances()
         result = []
         for iid, inst in instances.items():
-            # BUG-10: 按用户过滤
+            # 按用户过滤
             if user_id and inst.get("user_id") and inst["user_id"] != user_id:
                 continue
             # 实时刷新 status

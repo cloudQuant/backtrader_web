@@ -389,12 +389,12 @@ async def export_backtest_results(
     
     if not result:
         raise HTTPException(status_code=404, detail="回测结果不存在")
-    
+
     trades = result['trades']
-    
+
     if format == "csv":
         output = io.StringIO()
-        # BUG-9: 处理交易记录为空的情况
+        # 处理交易记录为空的情况
         fieldnames = trades[0].keys() if trades else ['id', 'datetime', 'symbol', 'direction', 'price', 'size', 'value', 'commission', 'pnl']
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()

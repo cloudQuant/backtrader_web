@@ -217,6 +217,23 @@ async def share_comparison(
 
 # ==================== 对比数据 API ====================
 
+async def _get_comparison_or_404(
+    comparison_id: str,
+    user_id: str,
+    service: ComparisonService,
+) -> Any:
+    """获取对比数据，不存在则返回 404"""
+    comparison = await service.get_comparison(comparison_id, user_id)
+
+    if not comparison:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="对比不存在"
+        )
+
+    return comparison
+
+
 @router.get("/{comparison_id}/metrics", summary="获取指标对比数据")
 async def get_metrics_comparison(
     comparison_id: str,
@@ -225,22 +242,14 @@ async def get_metrics_comparison(
 ):
     """
     获取指标对比数据
-    
+
     返回多个回测的指标对比（总收益率、年化收益率、夏普比率、最大回撤、胜率等）
     """
-    comparison = await service.get_comparison(comparison_id, current_user.sub)
-
-    if not comparison:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="对比不存在"
-        )
-
-    metrics_comparison = comparison.comparison_data.get("metrics_comparison", {})
+    comparison = await _get_comparison_or_404(comparison_id, current_user.sub, service)
 
     return {
         "comparison_id": comparison_id,
-        "metrics_comparison": metrics_comparison,
+        "metrics_comparison": comparison.comparison_data.get("metrics_comparison", {}),
     }
 
 
@@ -252,22 +261,14 @@ async def get_equity_comparison(
 ):
     """
     获取资金曲线对比数据
-    
+
     返回多个回测的资金曲线数据，用于绘图
     """
-    comparison = await service.get_comparison(comparison_id, current_user.sub)
-
-    if not comparison:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="对比不存在"
-        )
-
-    equity_comparison = comparison.comparison_data.get("equity_comparison", {})
+    comparison = await _get_comparison_or_404(comparison_id, current_user.sub, service)
 
     return {
         "comparison_id": comparison_id,
-        "equity_comparison": equity_comparison,
+        "equity_comparison": comparison.comparison_data.get("equity_comparison", {}),
     }
 
 
@@ -279,22 +280,14 @@ async def get_trades_comparison(
 ):
     """
     获取交易对比数据
-    
+
     返回多个回测的交易对比数据（交易次数、盈亏等）
     """
-    comparison = await service.get_comparison(comparison_id, current_user.sub)
-
-    if not comparison:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="对比不存在"
-        )
-
-    trades_comparison = comparison.comparison_data.get("trades_comparison", {})
+    comparison = await _get_comparison_or_404(comparison_id, current_user.sub, service)
 
     return {
         "comparison_id": comparison_id,
-        "trades_comparison": trades_comparison,
+        "trades_comparison": comparison.comparison_data.get("trades_comparison", {}),
     }
 
 
@@ -306,20 +299,12 @@ async def get_drawdown_comparison(
 ):
     """
     获取回撤对比数据
-    
+
     返回多个回测的回撤曲线数据
     """
-    comparison = await service.get_comparison(comparison_id, current_user.sub)
-
-    if not comparison:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="对比不存在"
-        )
-
-    drawdown_comparison = comparison.comparison_data.get("drawdown_comparison", {})
+    comparison = await _get_comparison_or_404(comparison_id, current_user.sub, service)
 
     return {
         "comparison_id": comparison_id,
-        "drawdown_comparison": drawdown_comparison,
+        "drawdown_comparison": comparison.comparison_data.get("drawdown_comparison", {}),
     }

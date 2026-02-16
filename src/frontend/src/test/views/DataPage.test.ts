@@ -51,15 +51,28 @@ describe('DataPage', () => {
     const vm = doMount().vm as any
     vm.tableData = [{ date: '2024-01-01', open: 10, high: 11, low: 9, close: 10.5, volume: 1000, change: 1.5 }]
 
-    const mockLink = { href: '', download: '', click: vi.fn() }
-    vi.spyOn(document, 'createElement').mockReturnValue(mockLink as any)
+    // Mock URL methods using globalThis
     globalThis.URL.createObjectURL = vi.fn().mockReturnValue('blob:url')
     globalThis.URL.revokeObjectURL = vi.fn()
 
+    // Track the click event without interfering with DOM creation
+    let clickedHref = ''
+    let clickedDownload = ''
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function(this: HTMLAnchorElement) {
+      clickedHref = this.href
+      clickedDownload = this.download
+    })
+
     vm.exportData()
+
+    expect(globalThis.URL.createObjectURL).toHaveBeenCalled()
+    expect(globalThis.URL.revokeObjectURL).toHaveBeenCalled()
+    expect(clickedHref).toContain('blob:url')
+    expect(clickedDownload).toBe('000001.SZ_2024-01-01.csv')
 
     const { ElMessage } = await import('element-plus')
     expect(ElMessage.success).toHaveBeenCalledWith('导出成功')
-    expect(mockLink.click).toHaveBeenCalled()
+
+    clickSpy.mockRestore()
   })
 })

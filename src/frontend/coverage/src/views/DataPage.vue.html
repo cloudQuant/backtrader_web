@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">83.07% </span>
+                <span class="strong">82.3% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>108/130</span>
+                <span class='fraction'>107/130</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>4/4</span>
+                <span class='fraction'>5/5</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">83.07% </span>
+                <span class="strong">82.3% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>108/130</span>
+                <span class='fraction'>107/130</span>
             </div>
         
             
@@ -232,29 +232,29 @@
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -362,8 +362,8 @@
         &lt;div class="flex justify-between items-center"&gt;
           &lt;span class="font-bold"&gt;历史数据&lt;/span&gt;
           &lt;el-button type="success" size="small" @click="exportData"&gt;
-<span class="cstat-no" title="statement not covered" >            导出CSV</span>
-<span class="cstat-no" title="statement not covered" >          &lt;/el-button&gt;</span>
+            导出CSV
+          &lt;/el-button&gt;
         &lt;/div&gt;
       &lt;/template&gt;
       
@@ -375,7 +375,7 @@
         &lt;el-table-column prop="close" label="收盘" width="100"&gt;
           &lt;template #default="{ row }"&gt;
             &lt;span :class="row.close &gt;= row.open ? 'text-red-500' : 'text-green-500'"&gt;
-              {{ row.close }}
+<span class="cstat-no" title="statement not covered" >              {{ row.close }}</span>
             &lt;/span&gt;
           &lt;/template&gt;
         &lt;/el-table-column&gt;
@@ -383,8 +383,8 @@
         &lt;el-table-column prop="change" label="涨跌幅" width="100"&gt;
           &lt;template #default="{ row }"&gt;
             &lt;span :class="row.change &gt;= 0 ? 'text-red-500' : 'text-green-500'"&gt;
-              {{ row.change?.toFixed(2) }}%
-            &lt;/span&gt;
+<span class="cstat-no" title="statement not covered" >              {{ row.change?.toFixed(2) }}%</span>
+<span class="cstat-no" title="statement not covered" >            &lt;/span&gt;</span>
           &lt;/template&gt;
         &lt;/el-table-column&gt;
       &lt;/el-table&gt;
@@ -460,7 +460,7 @@ function exportData() {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-02-14T08:08:08.502Z
+                at 2026-02-16T16:31:55.278Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

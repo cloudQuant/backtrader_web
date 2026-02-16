@@ -235,7 +235,8 @@ class OptimizationService:
     ) -> BacktestResult:
         """
         运行单个回测（辅助方法）
-        BUG-7: 必须等待回测完成后再获取结果
+
+        注意：必须等待回测完成后再获取结果
 
         Args:
             user_id: 用户ID
