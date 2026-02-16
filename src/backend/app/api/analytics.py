@@ -1,5 +1,5 @@
 """
-回测分析API路由
+Backtest analytics API routes.
 """
 from functools import lru_cache
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -40,7 +40,7 @@ def get_backtest_service():
 
 
 async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
-    """[B009] 解析任务专属日志目录，优先使用 DB 中记录的 log_dir，回退到 latest"""
+    """Resolve a task log directory (prefer DB `log_dir`, fallback to latest)."""
     try:
         task_repo = SQLRepository(BacktestTask)
         task = await task_repo.get_by_id(task_id)
@@ -56,7 +56,7 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
 
 
 async def get_backtest_data(task_id: str, backtest_service: BacktestService, user_id: str = None):
-    """从数据库获取真实回测结果（BUG-5: 增加 user_id 鉴权）"""
+    """Load a backtest result with optional user_id authorization."""
     result = await backtest_service.get_result(task_id, user_id=user_id)
     
     if not result:
@@ -409,8 +409,21 @@ async def export_backtest_results(
         )
     
     elif format == "json":
+        # Ensure the payload is JSON serializable (e.g. tuple keys in monthly_returns).
+        result_json = dict(result)
+        monthly_returns = result_json.get("monthly_returns")
+        if isinstance(monthly_returns, dict):
+            safe_monthly_returns = {}
+            for k, v in monthly_returns.items():
+                if isinstance(k, tuple) and len(k) == 2:
+                    y, m = k
+                    safe_monthly_returns[f"{int(y):04d}-{int(m):02d}"] = v
+                else:
+                    safe_monthly_returns[str(k)] = v
+            result_json["monthly_returns"] = safe_monthly_returns
+
         return StreamingResponse(
-            iter([json.dumps(result, ensure_ascii=False, indent=2)]),
+            iter([json.dumps(result_json, ensure_ascii=False, indent=2)]),
             media_type="application/json",
             headers={
                 "Content-Disposition": f"attachment; filename=backtest_{task_id}.json"

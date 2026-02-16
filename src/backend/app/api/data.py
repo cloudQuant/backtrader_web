@@ -1,5 +1,5 @@
 """
-行情数据查询API
+Market data API routes.
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
@@ -21,9 +21,10 @@ async def get_kline_data(
     current_user=Depends(get_current_user),
 ):
     """
-    使用akshare查询真实A股K线数据
+    Fetch A-share kline OHLCV data via AkShare.
 
-    返回OHLCV数据，可直接用于前端K线图和数据表格
+    Returns:
+        A payload containing `kline` arrays and a flat `records` list for UI display.
     """
     import akshare as ak
     import pandas as pd
@@ -39,6 +40,7 @@ async def get_kline_data(
             start_date=start_str,
             end_date=end_str,
             adjust="qfq",
+            timeout=10,
         )
 
         if df.empty:

@@ -1,7 +1,7 @@
 """
-策略版本管理数据模型
+Strategy versioning models.
 
-支持策略的版本控制、回滚、分支管理
+Supports versioning, rollback, and branch management.
 """
 import uuid
 from datetime import datetime, timezone

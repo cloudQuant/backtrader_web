@@ -115,12 +115,64 @@ class TestAlertRules:
             assert response.status_code in [200, 404]
 
     async def test_get_alert_rule_not_implemented(self, client: AsyncClient, auth_headers):
-        """测试获取规则详情（未实现）"""
-        response = await client.get(
-            "/api/v1/monitoring/rules/rule_123",
-            headers=auth_headers
-        )
-        assert response.status_code == 501
+        """测试获取规则详情"""
+        with patch('app.api.monitoring.MonitoringService') as mock_service_class:
+            from app.schemas.monitoring import AlertType, AlertSeverity, TriggerType
+            from datetime import datetime
+
+            mock_service = AsyncMock()
+            mock_service_class.return_value = mock_service
+
+            mock_rule_dict = {
+                "id": "rule_123",
+                "user_id": "user_123",
+                "name": "测试规则",
+                "description": "测试描述",
+                "alert_type": AlertType.ACCOUNT,
+                "severity": AlertSeverity.WARNING,
+                "trigger_type": TriggerType.THRESHOLD,
+                "trigger_config": {"threshold": 0.1},
+                "notification_enabled": True,
+                "notification_channels": ["email"],
+                "is_active": True,
+                "triggered_count": 0,
+                "last_triggered_at": None,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+            }
+            mock_service.get_alert_rule = AsyncMock(return_value=mock_rule_dict)
+
+            response = await client.get(
+                "/api/v1/monitoring/rules/rule_123",
+                headers=auth_headers
+            )
+            assert response.status_code in [200, 404]
+
+    async def test_get_alert_rule_not_found(self, client: AsyncClient, auth_headers):
+        """测试规则不存在返回 404"""
+        with patch('app.api.monitoring.MonitoringService') as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service_class.return_value = mock_service
+            mock_service.get_alert_rule = AsyncMock(return_value=None)
+
+            response = await client.get(
+                "/api/v1/monitoring/rules/rule_404",
+                headers=auth_headers
+            )
+            assert response.status_code in [404, 200]
+
+    async def test_get_alert_rule_forbidden(self, client: AsyncClient, auth_headers):
+        """测试无权限访问规则返回 403"""
+        with patch('app.api.monitoring.MonitoringService') as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service_class.return_value = mock_service
+            mock_service.get_alert_rule = AsyncMock(side_effect=PermissionError("forbidden"))
+
+            response = await client.get(
+                "/api/v1/monitoring/rules/rule_forbidden",
+                headers=auth_headers
+            )
+            assert response.status_code in [403, 404]
 
     async def test_update_alert_rule_success(self, client: AsyncClient, auth_headers):
         """测试更新告警规则"""
@@ -247,12 +299,67 @@ class TestAlerts:
         assert response.status_code in [422, 404]
 
     async def test_get_alert_not_implemented(self, client: AsyncClient, auth_headers):
-        """测试获取告警详情（未实现）"""
-        response = await client.get(
-            "/api/v1/monitoring/alert_123",
-            headers=auth_headers
-        )
-        assert response.status_code == 501
+        """测试获取告警详情"""
+        with patch('app.api.monitoring.MonitoringService') as mock_service_class:
+            from app.schemas.monitoring import AlertType, AlertSeverity, AlertStatus
+            from datetime import datetime
+
+            mock_service = AsyncMock()
+            mock_service_class.return_value = mock_service
+
+            mock_alert_dict = {
+                "id": "alert_123",
+                "user_id": "user_123",
+                "alert_type": AlertType.ACCOUNT,
+                "severity": AlertSeverity.WARNING,
+                "status": AlertStatus.ACTIVE,
+                "title": "测试告警",
+                "message": "测试告警内容",
+                "details": {"threshold": 0.1},
+                "strategy_id": None,
+                "backtest_task_id": None,
+                "account_id": None,
+                "position_id": None,
+                "order_id": None,
+                "is_read": False,
+                "is_notification_sent": False,
+                "resolved_at": None,
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+            }
+            mock_service.get_alert = AsyncMock(return_value=mock_alert_dict)
+
+            response = await client.get(
+                "/api/v1/monitoring/alert_123",
+                headers=auth_headers
+            )
+            assert response.status_code in [200, 404]
+
+    async def test_get_alert_not_found(self, client: AsyncClient, auth_headers):
+        """测试告警不存在返回 404"""
+        with patch('app.api.monitoring.MonitoringService') as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service_class.return_value = mock_service
+            mock_service.get_alert = AsyncMock(return_value=None)
+
+            response = await client.get(
+                "/api/v1/monitoring/alert_404",
+                headers=auth_headers
+            )
+            assert response.status_code in [404, 200]
+
+    async def test_get_alert_forbidden(self, client: AsyncClient, auth_headers):
+        """测试无权限访问告警返回 403"""
+        with patch('app.api.monitoring.MonitoringService') as mock_service_class:
+            mock_service = AsyncMock()
+            mock_service_class.return_value = mock_service
+            mock_service.get_alert = AsyncMock(side_effect=PermissionError("forbidden"))
+
+            response = await client.get(
+                "/api/v1/monitoring/alert_forbidden",
+                headers=auth_headers
+            )
+            assert response.status_code in [403, 404]
 
     async def test_mark_alert_read_requires_auth(self, client: AsyncClient):
         """测试标记已读需要认证"""

@@ -1,5 +1,5 @@
 """
-实时行情相关的 Pydantic 模型
+Realtime market data schemas.
 """
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -7,63 +7,70 @@ from pydantic import BaseModel, Field
 
 
 class RealtimeTickSubscribeRequest(BaseModel):
-    """订阅实时行情请求"""
-    symbols: List[str] = Field(..., min_items=1, description="标的代码列表（如 ['BTC/USDT', 'ETH/USDT']）")
-    broker_id: Optional[str] = Field(None, description="券商 ID（可选，默认使用所有券商）")
+    """Subscribe to realtime ticks."""
+    symbols: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Symbols to subscribe to (e.g. ['BTC/USDT', 'ETH/USDT']).",
+    )
+    broker_id: Optional[str] = Field(
+        None,
+        description="Broker id (optional). If omitted, the default broker is used.",
+    )
 
 
 class RealtimeTickUnsubscribeRequest(BaseModel):
-    """取消订阅实时行情请求"""
-    symbols: List[str] = Field(..., min_items=1, description="标的代码列表")
-    broker_id: Optional[str] = Field(None, description="券商 ID")
+    """Unsubscribe from realtime ticks."""
+    symbols: List[str] = Field(..., min_length=1, description="Symbols to unsubscribe from.")
+    broker_id: Optional[str] = Field(None, description="Broker id (optional).")
 
 
 class RealtimeHistoricalTickRequest(BaseModel):
-    """获取历史行情请求"""
-    broker_id: str = Field(..., description="券商 ID")
-    symbol: str = Field(..., description="标的代码（如 BTC/USDT）")
-    start_date: str = Field(..., description="开始日期（ISO 8601 格式）")
-    end_date: str = Field(..., description="结束日期（ISO 8601 格式）")
-    frequency: str = Field("1d", description="频率（1m, 5m, 15m, 30m, 1h, 1d, 1w, 1M）")
+    """Fetch historical tick/ohlcv-like data for a symbol."""
+    broker_id: str = Field(..., description="Broker id.")
+    symbol: str = Field(..., description="Symbol (e.g. BTC/USDT).")
+    start_date: str = Field(..., description="Start datetime in ISO 8601 format.")
+    end_date: str = Field(..., description="End datetime in ISO 8601 format.")
+    frequency: str = Field("1d", description="Bar frequency (e.g. 1m/5m/15m/1h/1d/1w/1M).")
 
 
 class RealtimeTick(BaseModel):
-    """实时行情数据"""
-    symbol: str = Field(..., description="标的代码")
-    timestamp: datetime = Field(..., description="时间戳")
-    open: float = Field(..., description="开盘价")
-    high: float = Field(..., description="最高价")
-    low: float = Field(..., description="最低价")
-    close: float = Field(..., description="收盘价")
-    volume: float = Field(..., description="成交量")
-    bid: Optional[float] = Field(None, description="买一价")
-    ask: Optional[float] = Field(None, description="卖一价")
-    bid_size: Optional[float] = Field(None, description="买一量")
-    ask_size: Optional[float] = Field(None, description="卖一量")
+    """A single tick (or bar) snapshot."""
+    symbol: str = Field(..., description="Symbol.")
+    timestamp: datetime = Field(..., description="Timestamp.")
+    open: float = Field(..., description="Open.")
+    high: float = Field(..., description="High.")
+    low: float = Field(..., description="Low.")
+    close: float = Field(..., description="Close.")
+    volume: float = Field(..., description="Volume.")
+    bid: Optional[float] = Field(None, description="Best bid price.")
+    ask: Optional[float] = Field(None, description="Best ask price.")
+    bid_size: Optional[float] = Field(None, description="Best bid size.")
+    ask_size: Optional[float] = Field(None, description="Best ask size.")
 
 
-# 别名，用于 API 响应
+# Alias used by the API for backwards compatibility.
 RealtimeTickResponse = RealtimeTick
 
 
 class RealtimeTickUpdate(BaseModel):
-    """实时行情更新"""
-    type: str = Field("tick_update", description="消息类型")
-    broker_id: str = Field(..., description="券商 ID")
-    symbol: str = Field(..., description="标的代码")
-    timestamp: str = Field(..., description="时间戳（ISO 8601 格式）")
-    data: RealtimeTick = Field(..., description="行情数据")
+    """Realtime tick update message (typically delivered via WebSocket)."""
+    type: str = Field("tick_update", description="Message type.")
+    broker_id: str = Field(..., description="Broker id.")
+    symbol: str = Field(..., description="Symbol.")
+    timestamp: str = Field(..., description="Timestamp in ISO 8601 format.")
+    data: RealtimeTick = Field(..., description="Tick payload.")
 
 
 class RealtimeTickBatchResponse(BaseModel):
-    """批量获取行情响应"""
-    symbol: str = Field(..., description="标的代码")
-    tick: Optional[RealtimeTick] = Field(None, description="最新行情")
-    ticks: Optional[List[RealtimeTick]] = Field(None, description="历史行情列表")
+    """Batch tick response for a single symbol."""
+    symbol: str = Field(..., description="Symbol.")
+    tick: Optional[RealtimeTick] = Field(None, description="Latest tick (if available).")
+    ticks: Optional[List[RealtimeTick]] = Field(None, description="Historical ticks (if requested).")
 
 
 class RealtimeTickListResponse(BaseModel):
-    """行情列表响应"""
-    total: int = Field(..., ge=0, description="总数量")
-    symbols: List[str] = Field(..., description="标的代码列表")
-    ticks: Dict[str, Any] = Field(..., description="行情数据字典")
+    """Tick list response."""
+    total: int = Field(..., ge=0, description="Total number of symbols.")
+    symbols: List[str] = Field(..., description="Symbol list.")
+    ticks: Dict[str, Any] = Field(..., description="Tick map keyed by symbol.")

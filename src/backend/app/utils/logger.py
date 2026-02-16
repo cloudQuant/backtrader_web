@@ -1,5 +1,5 @@
 """
-日志配置 - 使用loguru
+Logging configuration (loguru).
 """
 import sys
 from loguru import logger
@@ -7,7 +7,7 @@ from app.config import get_settings
 
 
 def setup_logger(name: str = None):
-    """配置日志"""
+    """Configure a logger instance."""
     settings = get_settings()
     
     # 移除默认处理器

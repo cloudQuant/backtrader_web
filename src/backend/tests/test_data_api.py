@@ -6,6 +6,7 @@
 - 数据格式验证
 - 错误处理
 """
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
@@ -46,27 +47,39 @@ class TestKlineData:
         # 验证错误 - 缺少必要参数或未认证
         assert response.status_code in [401, 403, 422]
 
-    async def test_get_kline_with_auth(self, client: AsyncClient, auth_headers):
+    async def test_get_kline_with_auth(self, client: AsyncClient, auth_headers, mock_akshare_response, monkeypatch):
         """测试带认证的K线查询"""
+        # Avoid network dependency: stub akshare import used by the endpoint.
+        class _DummyAk:
+            @staticmethod
+            def stock_zh_a_hist(**_kwargs):
+                return mock_akshare_response
+
+        monkeypatch.setitem(sys.modules, "akshare", _DummyAk)
         response = await client.get(
             "/api/v1/data/kline",
             params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
             headers=auth_headers
         )
-        # 可能返回200（成功）、404（无数据）或500（网络错误）
-        assert response.status_code in [200, 404, 500]
+        assert response.status_code == 200
 
-    async def test_get_kline_different_periods(self, client: AsyncClient, auth_headers):
+    async def test_get_kline_different_periods(self, client: AsyncClient, auth_headers, mock_akshare_response, monkeypatch):
         """测试不同周期"""
         periods = ["daily", "weekly", "monthly"]
+
+        class _DummyAk:
+            @staticmethod
+            def stock_zh_a_hist(**_kwargs):
+                return mock_akshare_response
+
+        monkeypatch.setitem(sys.modules, "akshare", _DummyAk)
 
         for period in periods:
             response = await client.get(
                 f"/api/v1/data/kline?symbol=000001.SZ&start_date=2024-01-01&end_date=2024-01-31&period={period}",
                 headers=auth_headers
             )
-            # 不应该返回 401（认证错误）
-            assert response.status_code != 401
+            assert response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -440,4 +453,3 @@ class TestKlineDataEdgeCases:
             data = response.json()
             # change应该默认为0
             assert data["records"][0]["change"] == 0
-

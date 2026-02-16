@@ -28,7 +28,6 @@ from app.models.paper_trading import (
 )
 
 
-@pytest.mark.asyncio
 class TestPaperTradingServiceInitialization:
     """测试服务初始化"""
 
@@ -773,7 +772,6 @@ class TestGetPosition:
         assert result is None
 
 
-@pytest.mark.asyncio
 class TestCalculateSlippage:
     """测试滑点计算"""
 

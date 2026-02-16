@@ -1,7 +1,7 @@
 """
-监控告警数据模型
+Monitoring and alerting models.
 
-支持账户监控、策略监控、系统监控
+Supports account monitoring, strategy monitoring, and system monitoring.
 """
 import uuid
 from datetime import datetime, timezone

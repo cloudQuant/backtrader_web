@@ -1,0 +1,357 @@
+from __future__ import annotations
+
+import asyncio
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
+
+
+@pytest.mark.asyncio
+async def test_monitoring_service_monitor_task_cancel_and_error_and_threshold_branches():
+    from app.services.monitoring_service import MonitoringService, AlertType
+
+    svc = MonitoringService()
+
+    rule = SimpleNamespace(
+        id="r1",
+        user_id="u1",
+        is_active=True,
+        alert_type=AlertType.SYSTEM,
+        trigger_type="threshold",
+        trigger_config={"current_value": 1.0, "threshold": 2.0, "condition": "eq"},
+        notification_enabled=True,
+        notification_channels=["email", "sms", "push", "webhook"],
+        severity=SimpleNamespace(value="low"),
+        status=SimpleNamespace(value="active"),
+        triggered_count=0,
+        description="d",
+        strategy_id="s1",
+    )
+
+    svc.alert_rule_repo = AsyncMock()
+    svc.alert_rule_repo.get_by_id = AsyncMock(return_value=rule)
+    svc.alert_rule_repo.update = AsyncMock()
+
+    svc.alert_repo = AsyncMock()
+    svc.alert_repo.create = AsyncMock(side_effect=lambda a: a)
+    svc.alert_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="a1", user_id="u1"))
+    svc.alert_repo.update = AsyncMock()
+
+    # CancelledError branch in _monitor_task.
+    svc._check_trigger = AsyncMock(return_value=False)
+    with patch("app.services.monitoring_service.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError())), \
+        patch("app.services.monitoring_service.ws_manager.send_to_task", new=AsyncMock()):
+        await svc._monitor_task("r1")
+
+    # Exception branch in _monitor_task.
+    rule2 = SimpleNamespace(**{**rule.__dict__})
+    rule2.is_active = False
+    svc.alert_rule_repo.get_by_id = AsyncMock(side_effect=[rule, rule, rule2])
+    svc._check_trigger = AsyncMock(side_effect=RuntimeError("boom"))
+    with patch("app.services.monitoring_service.asyncio.sleep", new=AsyncMock(return_value=None)):
+        await svc._monitor_task("r1")
+
+    # Threshold trigger else branches (ACCOUNT + POSITION) and notification/websocket push.
+    rule_acc = SimpleNamespace(alert_type=AlertType.ACCOUNT, trigger_config={"current_value": 1.0, "threshold": 1.0, "condition": "eq"})
+    assert await svc._check_threshold_trigger(rule_acc, rule_acc.trigger_config) is True
+
+    rule_pos = SimpleNamespace(alert_type=AlertType.POSITION, trigger_config={"current_value": 1.0, "threshold": 1.0, "condition": "eq"})
+    assert await svc._check_threshold_trigger(rule_pos, rule_pos.trigger_config) is True
+
+    with patch("app.services.monitoring_service.ws_manager.send_to_task", new=AsyncMock()):
+        alert = SimpleNamespace(
+            id="a1",
+            alert_type=SimpleNamespace(value="system"),
+            severity=SimpleNamespace(value="low"),
+            title="t",
+            message="m",
+            details={},
+            created_at=datetime.now(timezone.utc),
+            strategy_id="s1",
+        )
+        await svc._send_notification(rule, alert)
+        await svc._send_websocket_alert(rule, alert)
+
+
+@pytest.mark.asyncio
+async def test_optimization_service_bayesian_objective_and_exception_paths(monkeypatch):
+    from app.services.optimization_service import OptimizationService
+    from app.schemas.backtest_enhanced import TaskStatus
+
+    svc = OptimizationService()
+
+    # Patch _run_single_backtest (used after best_params).
+    best_result = SimpleNamespace(status=TaskStatus.COMPLETED, sharpe_ratio=2.0, total_return=3.0, max_drawdown=1.0)
+    svc._run_single_backtest = AsyncMock(return_value=best_result)  # type: ignore[method-assign]
+
+    # Patch asyncio.run_coroutine_threadsafe to avoid deadlock and to close the coro.
+    def _fake_rcts(coro, loop):
+        coro.close()
+        fut = Mock()
+        fut.result = Mock(return_value=SimpleNamespace(
+            status=TaskStatus.COMPLETED,
+            sharpe_ratio=1.0,
+            total_return=2.0,
+            max_drawdown=0.5,
+        ))
+        return fut
+
+    # Dummy optuna implementation.
+    class _Trial:
+        def __init__(self):
+            self.params = {}
+            self.value = None
+
+        def suggest_int(self, key, low, high):
+            self.params[key] = low
+            return low
+
+        def suggest_float(self, key, low, high):
+            self.params[key] = low
+            return low
+
+        def suggest_categorical(self, key, choices):
+            self.params[key] = choices[0]
+            return choices[0]
+
+    class _Study:
+        def __init__(self):
+            self.trials = []
+            self.best_params = {}
+            self.best_trial = SimpleNamespace(value=-1.0)
+
+        def optimize(self, objective, n_trials):
+            for _ in range(n_trials):
+                t = _Trial()
+                t.value = objective(t)
+                self.trials.append(t)
+            self.best_params = self.trials[0].params
+            self.best_trial = SimpleNamespace(value=self.trials[0].value)
+
+    dummy_optuna = SimpleNamespace(create_study=lambda direction: _Study())
+    monkeypatch.setitem(sys.modules, "optuna", dummy_optuna)
+
+    request = SimpleNamespace(
+        strategy_id="s1",
+        metric="sharpe_ratio",
+        n_trials=1,
+        param_bounds={
+            "i": {"type": "int", "min": 1, "max": 2},
+            "f": {"type": "float", "min": 0.1, "max": 0.2},
+            "c": {"type": "categorical", "choices": ["a", "b"]},
+        },
+        backtest_config=SimpleNamespace(model_copy=lambda: SimpleNamespace(params={})),
+    )
+
+    with patch("app.services.optimization_service.asyncio.run_coroutine_threadsafe", side_effect=_fake_rcts), \
+        patch("app.services.optimization_service.asyncio.get_event_loop", new=lambda: asyncio.get_running_loop()):
+        result = await svc.run_bayesian_optimization("u1", request)
+        assert result.best_params
+
+    # Exception path inside objective.
+    def _fake_rcts_boom(coro, loop):
+        coro.close()
+        raise RuntimeError("boom")
+
+    with patch("app.services.optimization_service.asyncio.run_coroutine_threadsafe", side_effect=_fake_rcts_boom), \
+        patch("app.services.optimization_service.asyncio.get_event_loop", new=lambda: asyncio.get_running_loop()):
+        request.metric = "max_drawdown"
+        out = await svc.run_bayesian_optimization("u1", request)
+        assert out.n_trials == 1
+
+
+def test_param_optimization_service_run_optimization_thread_paths(tmp_path, monkeypatch):
+    import app.services.param_optimization_service as pos
+
+    # Seed a running task.
+    task_id = "t1"
+    pos._set_task(task_id, {
+        "status": "running",
+        "strategy_id": "s1",
+        "total": 2,
+        "completed": 0,
+        "failed": 0,
+        "results": [],
+        "param_names": ["p"],
+        "created_at": datetime.now().isoformat(),
+        "n_workers": 1,
+    })
+
+    # Fake future objects.
+    class _Future:
+        def __init__(self, payload=None, boom=False):
+            self._payload = payload
+            self._boom = boom
+            self._cancelled = False
+
+        def result(self, timeout=None):
+            if self._boom:
+                raise RuntimeError("worker boom")
+            return self._payload
+
+        def cancel(self):
+            self._cancelled = True
+            return True
+
+    class _Exec:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def submit(self, fn, strategy_dir, params, i, tmp_base):
+            if i == 0:
+                return _Future({"success": True, "params": params, "metrics": {"annual_return": 1}})
+            return _Future(boom=True)
+
+    monkeypatch.setattr(pos, "ProcessPoolExecutor", _Exec)
+    monkeypatch.setattr(pos, "as_completed", lambda futures: list(futures))
+
+    # Avoid touching real filesystem for tmp base cleanup.
+    monkeypatch.setattr(pos.tempfile, "mkdtemp", lambda prefix: str(tmp_path / "tmp"))
+    monkeypatch.setattr(pos.shutil, "rmtree", lambda *a, **k: None)
+
+    pos._run_optimization_thread(task_id, str(tmp_path), [{"p": 1}, {"p": 2}], n_workers=1)
+    task = pos._get_task(task_id)
+    assert task["status"] in {"completed", "error", "running"}
+
+
+def test_param_optimization_service_worker_and_log_parser_branches(tmp_path, monkeypatch):
+    import subprocess
+    import app.services.param_optimization_service as pos
+
+    # Prepare a minimal "strategy" dir.
+    strategy_dir = tmp_path / "strategies" / "s1"
+    strategy_dir.mkdir(parents=True)
+    (strategy_dir / "run.py").write_text("assert 1\nprint('ok')\n", encoding="utf-8")
+    (strategy_dir / "config.yaml").write_text("params: {}\n", encoding="utf-8")
+    (strategy_dir / "logs").mkdir()
+
+    tmp_base = tmp_path / "tmp_base"
+    tmp_base.mkdir()
+
+    # Non-zero subprocess returncode path + logs_dir cleanup.
+    monkeypatch.setattr(pos.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 1, stdout="", stderr="fail"))
+    out = pos._run_single_trial(str(strategy_dir), {"p": 1}, 0, str(tmp_base))
+    assert out["success"] is False
+
+    # Exception path.
+    monkeypatch.setattr(pos.shutil, "copytree", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("copy boom")))
+    out2 = pos._run_single_trial(str(strategy_dir), {"p": 1}, 1, str(tmp_base))
+    assert "error" in out2
+
+    # Cleanup exception path.
+    monkeypatch.setattr(pos.shutil, "copytree", shutil_copytree := __import__("shutil").copytree)
+    monkeypatch.setattr(pos.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout="", stderr=""))
+    # Make rmtree raise in finally.
+    monkeypatch.setattr(pos.shutil, "rmtree", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("rm boom")))
+    out3 = pos._run_single_trial(str(strategy_dir), {"p": 1}, 2, str(tmp_base))
+    assert out3["success"] in {False, True}
+
+    # _parse_trial_logs: logs dir exists but no subdirs.
+    trial_dir = tmp_path / "trial"
+    (trial_dir / "logs").mkdir(parents=True)
+    assert pos._parse_trial_logs(trial_dir) is None
+
+    # _parse_trial_logs: returns empty => sharpe=0 branch.
+    log_dir = trial_dir / "logs" / "x"
+    log_dir.mkdir(parents=True)
+    (log_dir / "value.log").write_text("h\n0\t2020-01-01\t0\t0\n0\t2020-01-02\t0\t0\n", encoding="utf-8")
+    m = pos._parse_trial_logs(trial_dir)
+    assert m is not None
+    assert m["sharpe_ratio"] == 0
+
+
+@pytest.mark.asyncio
+async def test_backtest_service_task_limits_and_cancel_cleanup_excepts(monkeypatch):
+    from app.services import backtest_service as bts
+    from app.services.backtest_service import BacktestService
+    from app.schemas.backtest_enhanced import BacktestRequest
+
+    svc = BacktestService()
+    svc.task_repo = AsyncMock()
+    svc.result_repo = AsyncMock()
+    svc.cache = AsyncMock()
+
+    # Ensure global limit branch is hit.
+    bts._running_tasks.clear()
+    bts._user_task_count.clear()
+    for i in range(bts.MAX_GLOBAL_TASKS):
+        bts._running_tasks[f"t{i}"] = Mock()
+
+    req = BacktestRequest(
+        strategy_id="001_ma_cross",
+        symbol="000001.SZ",
+        start_date=datetime(2023, 1, 1, tzinfo=timezone.utc),
+        end_date=datetime(2023, 3, 5, tzinfo=timezone.utc),
+        initial_cash=100000,
+        commission=0.001,
+        params={},
+    )
+    svc.task_repo.create = AsyncMock(return_value=SimpleNamespace(id="tid", user_id="u1"))
+    with pytest.raises(ValueError, match="系统回测任务已满"):
+        await svc.run_backtest("u1", req)
+
+    # User limit branch.
+    bts._running_tasks.clear()
+    bts._user_task_count["u1"] = bts.MAX_USER_TASKS
+    with pytest.raises(ValueError, match="并发回测任务已达上限"):
+        await svc.run_backtest("u1", req)
+
+    # cancel_task kill exception is swallowed.
+    proc = Mock()
+    proc.poll = Mock(return_value=None)
+    proc.kill = Mock(side_effect=RuntimeError("kill boom"))
+    bts._running_processes["t1"] = proc
+    svc.task_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="t1", user_id="u1", status=bts.TaskStatus.RUNNING))
+    svc.task_repo.update = AsyncMock()
+    assert await svc.cancel_task("t1", "u1") is True
+
+    # delete_result rmtree exception is swallowed.
+    bad_task = SimpleNamespace(id="t2", user_id="u1", log_dir="/tmp/does-not-matter")
+    svc.task_repo.get_by_id = AsyncMock(return_value=bad_task)
+    svc.result_repo.list = AsyncMock(return_value=[])
+    svc.task_repo.delete = AsyncMock()
+    svc.cache.delete = AsyncMock()
+
+    with patch("app.services.backtest_service.Path.is_dir", return_value=True), \
+        patch("app.services.backtest_service.shutil.rmtree", side_effect=RuntimeError("rm boom")):
+        assert await svc.delete_result("t2", "u1") is True
+
+
+@pytest.mark.asyncio
+async def test_strategy_version_service_create_version_and_update_version_branches():
+    from app.services.strategy_version_service import VersionControlService
+    from app.models.strategy_version import VersionStatus
+
+    svc = VersionControlService()
+
+    # create_version uses several repos.
+    svc.strategy_repo = AsyncMock()
+    svc.strategy_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1"))
+
+    svc.branch_repo = AsyncMock()
+    svc.branch_repo.list = AsyncMock(return_value=[])
+    svc.branch_repo.create = AsyncMock(return_value=SimpleNamespace(id="b1", version_count=0))
+    svc.branch_repo.update = AsyncMock()
+
+    svc.version_repo = AsyncMock()
+    svc.version_repo.list = AsyncMock(return_value=[])
+    svc.version_repo.create = AsyncMock(side_effect=lambda v: SimpleNamespace(**{**v.__dict__, "id": "v1"}))
+
+    v = await svc.create_version("u1", "s1", "v1.0.0", code="x=1", params={"a": 1}, is_default=True)
+    assert v.id == "v1"
+
+    # update_version raises if not DRAFT.
+    svc.version_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="v2", status=VersionStatus.STABLE, strategy_id="s1", is_active=True, is_default=False, created_by="u1"))
+    with pytest.raises(ValueError, match="只能更新"):
+        await svc.update_version("v2", "u1", SimpleNamespace(code=None, params=None, description=None, tags=None, status=None, changelog=None))

@@ -1,7 +1,7 @@
 """
-模拟交易数据模型
+Paper trading models.
 
-支持虚拟账户、模拟订单、模拟持仓管理
+Supports accounts, orders, and position management.
 """
 import uuid
 from datetime import datetime, timezone

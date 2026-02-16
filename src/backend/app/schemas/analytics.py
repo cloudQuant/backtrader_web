@@ -1,5 +1,5 @@
 """
-回测分析数据模型
+Backtest analytics schemas.
 """
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any

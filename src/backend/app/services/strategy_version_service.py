@@ -1,7 +1,7 @@
 """
-策略版本管理服务
+Strategy version control service.
 
-支持策略的版本控制、分支管理、回滚、对比
+Supports versioning, branch management, rollback, and comparisons.
 """
 import uuid
 import difflib
@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 import logging
 import json
+
+from sqlalchemy import select, desc
 
 from app.models.strategy_version import (
     StrategyVersion,
@@ -18,6 +20,7 @@ from app.models.strategy_version import (
     VersionRollback,
     VersionBranch,
 )
+from app.models.backtest import BacktestTask, BacktestResultModel
 from app.schemas.strategy_version import (
     VersionCreate,
     VersionResponse,
@@ -31,6 +34,7 @@ from app.schemas.strategy_version import (
 )
 from app.models.strategy import Strategy
 from app.db.sql_repository import SQLRepository
+from app.db import database as db
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -55,6 +59,15 @@ class VersionControlService:
         self.comparison_repo = SQLRepository(VersionComparison)
         self.rollback_repo = SQLRepository(VersionRollback)
         self.strategy_repo = SQLRepository(Strategy)
+
+    async def _require_strategy_owner(self, strategy_id: str, user_id: str) -> Strategy:
+        """Load a strategy and enforce ownership."""
+        strategy = await self.strategy_repo.get_by_id(strategy_id)
+        if not strategy:
+            raise ValueError(f"策略不存在: {strategy_id}")
+        if getattr(strategy, "user_id", None) != user_id:
+            raise PermissionError("forbidden")
+        return strategy
 
     async def create_version(
         self,
@@ -85,10 +98,8 @@ class VersionControlService:
         Returns:
             StrategyVersion: 创建的版本
         """
-        # 获取策略
-        strategy = await self.strategy_repo.get_by_id(strategy_id)
-        if not strategy:
-            raise ValueError(f"策略不存在: {strategy_id}")
+        # Enforce strategy ownership.
+        await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
         # 获取或创建分支
         version_branch = await self._get_or_create_branch(
@@ -145,6 +156,38 @@ class VersionControlService:
         """
         return await self.version_repo.get_by_id(version_id)
 
+    async def list_versions(
+        self,
+        user_id: str,
+        strategy_id: str,
+        branch: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """List versions for a strategy.
+
+        Returns:
+            (items, total) where items are API-shaped dicts.
+        """
+        await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
+
+        filters: Dict[str, Any] = {"strategy_id": strategy_id}
+        if branch:
+            filters["branch"] = branch
+        if status:
+            filters["status"] = status
+
+        versions = await self.version_repo.list(
+            filters=filters,
+            skip=offset,
+            limit=limit,
+            sort_by="created_at",
+            sort_order="desc",
+        )
+        total = await self.version_repo.count(filters=filters)
+        return [self._to_response(v) for v in versions], total
+
     async def update_version(
         self,
         version_id: str,
@@ -164,6 +207,8 @@ class VersionControlService:
         """
         version = await self.version_repo.get_by_id(version_id)
         if not version:
+            return None
+        if getattr(version, "created_by", None) != user_id:
             return None
 
         # 只能更新 DRAFT 状态的版本
@@ -191,8 +236,9 @@ class VersionControlService:
         if update_data.status is not None:
             update_dict["status"] = update_data.status
 
-        # 如果更新为 STABLE，记录 changelog
-        if update_data.status == VersionStatus.STABLE and update_data.changelog:
+        # If updated to STABLE, optionally record changelog.
+        status_val = update_data.status.value if isinstance(update_data.status, VersionStatus) else update_data.status
+        if status_val == VersionStatus.STABLE.value and getattr(update_data, "changelog", None):
             if not version.changelog:
                 update_dict["changelog"] = update_data.changelog
 
@@ -229,6 +275,8 @@ class VersionControlService:
         version = await self.version_repo.get_by_id(version_id)
         if not version:
             return False
+        if getattr(version, "created_by", None) != user_id:
+            return False
 
         # 取消分支上的其他默认版本
         await self._unset_default_versions(version.strategy_id, version.branch)
@@ -258,6 +306,8 @@ class VersionControlService:
         """
         version = await self.version_repo.get_by_id(version_id)
         if not version:
+            return False
+        if getattr(version, "created_by", None) != user_id:
             return False
 
         # 取消分支上的其他活跃版本
@@ -296,6 +346,8 @@ class VersionControlService:
 
         if not from_version or not to_version:
             raise ValueError("版本不存在")
+        if getattr(from_version, "created_by", None) != user_id or getattr(to_version, "created_by", None) != user_id:
+            raise PermissionError("forbidden")
 
         # 计算代码差异
         code_diff = self._generate_code_diff(
@@ -356,9 +408,17 @@ class VersionControlService:
         target_version = await self.version_repo.get_by_id(target_version_id)
         if not target_version:
             raise ValueError(f"目标版本不存在: {target_version_id}")
+        if getattr(target_version, "created_by", None) != user_id:
+            raise PermissionError("forbidden")
+
+        await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
         # 获取当前活跃版本
         current_version = await self._get_current_version(strategy_id)
+        if not current_version:
+            raise ValueError(f"当前版本不存在: {strategy_id}")
+        if getattr(current_version, "created_by", None) != user_id:
+            raise PermissionError("forbidden")
 
         # 保存当前版本快照（用于回滚）
         snapshot_data = {
@@ -488,10 +548,47 @@ class VersionControlService:
         Returns:
             Dict: 性能差异
         """
-        # 获取两个版本的最新回测结果
-        # TODO: 从 BacktestTask 获取
-        # 这里暂时返回空
-        return {}
+        async def _latest(version_id: str) -> Optional[Dict[str, Any]]:
+            async with db.async_session_maker() as session:
+                stmt = (
+                    select(BacktestTask, BacktestResultModel)
+                    .join(BacktestResultModel, BacktestResultModel.task_id == BacktestTask.id)
+                    .where(BacktestTask.strategy_version_id == version_id)
+                    .where(BacktestTask.status == "completed")
+                    .order_by(desc(BacktestTask.created_at))
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                row = result.first()
+                if not row:
+                    return None
+                task, res = row
+                return {
+                    "task_id": task.id,
+                    "created_at": task.created_at.isoformat() if getattr(task, "created_at", None) else None,
+                    "metrics": {
+                        "total_return": float(getattr(res, "total_return", 0.0)),
+                        "annual_return": float(getattr(res, "annual_return", 0.0)),
+                        "sharpe_ratio": float(getattr(res, "sharpe_ratio", 0.0)),
+                        "max_drawdown": float(getattr(res, "max_drawdown", 0.0)),
+                        "win_rate": float(getattr(res, "win_rate", 0.0)),
+                        "total_trades": int(getattr(res, "total_trades", 0)),
+                        "profitable_trades": int(getattr(res, "profitable_trades", 0)),
+                        "losing_trades": int(getattr(res, "losing_trades", 0)),
+                    },
+                }
+
+        from_res = await _latest(from_version_id)
+        to_res = await _latest(to_version_id)
+        if not from_res or not to_res:
+            return {"available": False, "from": from_res, "to": to_res}
+
+        diff: Dict[str, Any] = {}
+        for k, v in to_res["metrics"].items():
+            if k in from_res["metrics"] and isinstance(v, (int, float)) and isinstance(from_res["metrics"][k], (int, float)):
+                diff[k] = v - from_res["metrics"][k]
+
+        return {"available": True, "from": from_res, "to": to_res, "diff": diff}
 
     def _to_response(self, version: StrategyVersion) -> Dict[str, Any]:
         """
@@ -574,8 +671,70 @@ class VersionControlService:
         await self.branch_repo.update(branch.id, {
             "version_count": branch.version_count + 1,
             "last_version_id": version.id,
-            "updated_at": datetime.now(timezone.utc),
         })
+
+    async def create_branch(
+        self,
+        user_id: str,
+        strategy_id: str,
+        branch_name: str,
+        parent_branch: Optional[str] = None,
+    ) -> VersionBranch:
+        """Create a strategy branch (idempotent if it already exists)."""
+        await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
+
+        existing = await self.branch_repo.list(
+            filters={"strategy_id": strategy_id, "branch_name": branch_name},
+            limit=1,
+        )
+        if existing:
+            return existing[0]
+
+        if parent_branch:
+            await self._get_or_create_branch(strategy_id=strategy_id, user_id=user_id, branch_name=parent_branch)
+
+        branch = VersionBranch(
+            strategy_id=strategy_id,
+            branch_name=branch_name,
+            parent_branch=parent_branch,
+            version_count=0,
+            is_default=(branch_name == "main"),
+            created_by=user_id,
+        )
+        return await self.branch_repo.create(branch)
+
+    async def list_branches(
+        self,
+        user_id: str,
+        strategy_id: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[List[VersionBranch], int]:
+        """List strategy branches with pagination."""
+        await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
+        branches = await self.branch_repo.list(
+            filters={"strategy_id": strategy_id},
+            skip=offset,
+            limit=limit,
+            sort_by="created_at",
+            sort_order="desc",
+        )
+        total = await self.branch_repo.count(filters={"strategy_id": strategy_id})
+        return branches, total
+
+    @staticmethod
+    def branch_to_response(branch: VersionBranch) -> Dict[str, Any]:
+        """Convert a branch ORM object to the API response dict."""
+        return {
+            "branch_id": branch.id,
+            "strategy_id": branch.strategy_id,
+            "branch_name": branch.branch_name,
+            "parent_branch": getattr(branch, "parent_branch", None),
+            "version_count": int(getattr(branch, "version_count", 0) or 0),
+            "last_version_id": getattr(branch, "last_version_id", None),
+            "is_default": bool(getattr(branch, "is_default", False)),
+            "created_at": branch.created_at,
+        }
 
     async def _get_latest_version(
         self,

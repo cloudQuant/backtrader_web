@@ -1,5 +1,5 @@
 """
-回测分析服务
+Backtest analytics service.
 """
 from typing import List, Dict, Optional, Any
 from datetime import datetime

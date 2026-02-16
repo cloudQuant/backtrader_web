@@ -1,5 +1,5 @@
 """
-实盘交易相关的 Pydantic 模型
+Live trading schemas.
 """
 from datetime import datetime
 from typing import List, Optional, Dict, Any
@@ -11,7 +11,7 @@ class LiveTradingSubmitRequest(BaseModel):
     strategy_name: Optional[str] = Field(None, description="策略名称（内置策略）")
     strategy_code: Optional[str] = Field(None, description="策略代码")
     exchange: str = Field(..., description="交易所（binance, okex, huobi 等）")
-    symbols: List[str] = Field(..., min_items=1, description="标的列表（如 ['BTC/USDT', 'ETH/USDT']）")
+    symbols: List[str] = Field(..., min_length=1, description="标的列表（如 ['BTC/USDT', 'ETH/USDT']）")
     initial_cash: float = Field(100000.0, gt=0, le=10000000, description="初始资金（USDT）")
     strategy_params: Optional[Dict[str, Any]] = Field(None, description="策略参数")
     timeframe: str = Field("1d", description="时间周期（1m, 5m, 15m, 30m, 1h, 1d, 1w, 1M）")

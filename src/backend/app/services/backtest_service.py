@@ -1,5 +1,7 @@
 """
-回测服务 - 封装Backtrader回测逻辑
+Backtest service.
+
+Encapsulates Backtrader backtest execution and persistence.
 """
 import os
 import uuid

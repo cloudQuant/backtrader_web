@@ -1,7 +1,7 @@
 """
-策略代码安全执行沙箱
+Strategy execution sandbox.
 
-使用受限 Python 环境安全执行用户策略代码
+Safely executes user strategy code in a restricted environment.
 """
 import sys
 import types
@@ -83,17 +83,13 @@ class StrategySandbox:
         # 获取基础模块名（不带子模块）
         module_name = name.split('.')[0]
 
-        # 检查是否在白名单中
+        # Check whether the base module is explicitly allowed.
         allowed_base_names = StrategySandbox._ALLOWED_MODULES.keys()
         if module_name not in allowed_base_names:
             raise ImportError(f"模块 '{name}' 不被允许导入。仅允许: {', '.join(allowed_base_names)}")
 
-        # 如果是白名单中的模块（已预先导入），直接返回
-        if module_name in StrategySandbox._ALLOWED_MODULES:
-            imported_module = StrategySandbox._ALLOWED_MODULES[module_name]
-        else:
-            # 通过 Python import 机制导入
-            imported_module = __import__(name, globals, locals, fromlist, level)
+        # Only allow modules that are pre-imported and explicitly whitelisted.
+        imported_module = StrategySandbox._ALLOWED_MODULES[module_name]
 
         # 如果是子模块，也检查
         if '.' in name:

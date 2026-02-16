@@ -1,5 +1,5 @@
 """
-认证API路由
+Authentication API routes.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -26,11 +26,17 @@ async def register(
     service: AuthService = Depends(get_auth_service),
 ):
     """
-    用户注册
-    
-    - **username**: 用户名 (3-50字符)
-    - **email**: 邮箱地址
-    - **password**: 密码 (至少8位)
+    Register a new user.
+
+    Args:
+        user_create: Registration payload.
+        service: Auth service dependency.
+
+    Returns:
+        The created user.
+
+    Raises:
+        HTTPException: If the username or email already exists.
     """
     user = await service.register(user_create)
     if user is None:
@@ -47,12 +53,17 @@ async def login(
     service: AuthService = Depends(get_auth_service),
 ):
     """
-    用户登录
-    
-    - **username**: 用户名
-    - **password**: 密码
-    
-    返回JWT访问令牌
+    Login and return a JWT access token.
+
+    Args:
+        user_login: Login payload.
+        service: Auth service dependency.
+
+    Returns:
+        A token response.
+
+    Raises:
+        HTTPException: If credentials are invalid.
     """
     result = await service.login(user_login)
     if result is None:

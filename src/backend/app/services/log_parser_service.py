@@ -1,14 +1,16 @@
 """
-日志解析服务 - 解析策略 logs/ 目录中的回测日志文件
+Log parsing service.
 
-支持的日志文件:
-- value.log: 每日资金曲线 (dt, value, cash)
-- trade.log: 交易记录
-- order.log: 订单记录
-- data.log: OHLCV + 指标数据
-- position.log: 持仓记录
-- run_info.json: 运行元信息
-- current_position.json: 最终持仓
+Parses backtest logs under a strategy `logs/` directory.
+
+Supported log files:
+- value.log: daily equity/cash curve (dt, value, cash)
+- trade.log: trade records
+- order.log: order records
+- data.log: OHLCV + indicators
+- position.log: position records
+- run_info.json: run metadata
+- current_position.json: final positions
 """
 import json
 import logging

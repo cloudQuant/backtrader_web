@@ -1,7 +1,10 @@
 """
-监控告警 API 路由
+Monitoring and alerts API routes.
 
-提供完整的告警管理、规则配置、实时通知功能
+Provides:
+- Alert rule management (CRUD)
+- Alert listing and status updates
+- Real-time notifications via WebSocket
 """
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -45,17 +48,12 @@ async def create_alert_rule(
     service: MonitoringService = Depends(get_monitoring_service),
 ):
     """
-    创建告警规则
-    
-    请求体：
-    - name: 规则名称
-    - description: 规则描述
-    - alert_type: 告警类型
-    - severity: 告警级别
-    - trigger_type: 触发类型
-    - trigger_config: 触发配置
-    - notification_enabled: 是否启用通知
-    - notification_channels: 通知渠道
+    Create an alert rule.
+
+    Args:
+        request: Rule payload.
+        current_user: Authenticated user.
+        service: Monitoring service.
     """
     rule = await service.create_alert_rule(
         user_id=current_user.sub,
@@ -97,12 +95,15 @@ async def get_alert_rule(
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """获取告警规则详情"""
-    # TODO: 实现获取规则详情
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="暂未实现"
-    )
+    """Get an alert rule by id."""
+    try:
+        rule = await service.get_alert_rule(rule_id=rule_id, user_id=current_user.sub)
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该规则")
+
+    if not rule:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="告警规则不存在")
+    return rule
 
 
 @router.put("/rules/{rule_id}", response_model=AlertRuleResponse, summary="更新告警规则")
@@ -113,16 +114,7 @@ async def update_alert_rule(
     service: MonitoringService = Depends(get_monitoring_service),
 ):
     """更新告警规则"""
-    rule = await service.update_alert_rule(
-        rule_id=rule_id,
-        user_id=current_user.sub,
-        name=request.name,
-        description=request.description,
-        severity=request.severity,
-        notification_enabled=request.notification_enabled,
-        notification_channels=request.notification_channels,
-        is_active=request.is_active,
-    )
+    rule = await service.update_alert_rule(rule_id=rule_id, user_id=current_user.sub, update_data=request.model_dump(exclude_none=True))
 
     return rule
 
@@ -178,12 +170,15 @@ async def get_alert(
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """获取告警详情"""
-    # TODO: 实现获取告警详情
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="暂未实现"
-    )
+    """Get an alert by id."""
+    try:
+        alert = await service.get_alert(alert_id=alert_id, user_id=current_user.sub)
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该告警")
+
+    if not alert:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="告警不存在")
+    return alert
 
 
 @router.put("/{alert_id}/read", summary="标记告警为已读")
@@ -248,15 +243,7 @@ async def get_alert_summary(
     service: MonitoringService = Depends(get_monitoring_service),
 ):
     """获取告警统计摘要"""
-    # TODO: 实现告警统计
-    summary = {
-        "total_alerts": 0,
-        "by_type": {},
-        "by_severity": {},
-        "recent": [],
-    }
-
-    return summary
+    return await service.get_alert_summary(user_id=current_user.sub)
 
 
 @router.get("/statistics/by-type", summary="按类型获取告警统计")
@@ -267,7 +254,6 @@ async def get_alerts_by_type(
     end_date: str = Query(..., description="结束日期"),
 ):
     """按类型获取告警统计"""
-    # TODO: 实现按类型统计
     from datetime import datetime
     try:
         start_dt = datetime.fromisoformat(start_date)
@@ -278,13 +264,8 @@ async def get_alerts_by_type(
             detail=f"日期格式错误: {e}"
         )
 
-    stats = {
-        "start_date": start_date,
-        "end_date": end_date,
-        "by_type": {},
-    }
-
-    return stats
+    stats = await service.get_alerts_by_type(user_id=current_user.sub, start_dt=start_dt, end_dt=end_dt)
+    return {"start_date": start_date, "end_date": end_date, **stats}
 
 
 # ==================== WebSocket 端点 ====================

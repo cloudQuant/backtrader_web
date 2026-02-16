@@ -1,17 +1,18 @@
 """
 回测服务单元测试
 """
-import pytest
 import asyncio
-import tempfile
 import shutil
-from pathlib import Path
-from unittest.mock import patch, AsyncMock, MagicMock, Mock
+import tempfile
 from datetime import datetime
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.backtest_service import BacktestService, _running_tasks, _running_processes
+import pytest
+
+from app.models.backtest import BacktestResultModel, BacktestTask
 from app.schemas.backtest import BacktestRequest, TaskStatus
-from app.models.backtest import BacktestTask, BacktestResultModel
+from app.services.backtest_service import BacktestService, _running_processes, _running_tasks
 
 
 class TestBacktestServiceHelpers:
@@ -119,6 +120,12 @@ class TestRunBacktest:
 
         with patch.object(svc.task_repo, 'create', return_value=mock_task) as mock_create:
             with patch('app.services.backtest_service.asyncio.create_task') as mock_create_task:
+                # Avoid "coroutine was never awaited" warnings: the coroutine is normally scheduled by create_task.
+                def _create_task(coro):
+                    coro.close()
+                    return AsyncMock()
+
+                mock_create_task.side_effect = _create_task
                 response = await svc.run_backtest("user1", req)
 
                 assert response.task_id == "task123"
@@ -148,7 +155,12 @@ class TestRunBacktest:
         )
 
         with patch.object(svc.task_repo, 'create', return_value=mock_task):
-            with patch('app.services.backtest_service.asyncio.create_task', return_value=AsyncMock()) as mock_create_task:
+            with patch('app.services.backtest_service.asyncio.create_task') as mock_create_task:
+                def _create_task(coro):
+                    coro.close()
+                    return AsyncMock()
+
+                mock_create_task.side_effect = _create_task
                 await svc.run_backtest("user1", req)
 
                 # Check that task was stored in _running_tasks
@@ -524,7 +536,7 @@ class TestGetResult:
             with patch.object(svc.cache, 'get', return_value=None):
                 with patch.object(svc.result_repo, 'list', return_value=[mock_result]):
                     with patch.object(svc.cache, 'set') as mock_set:
-                        result = await svc.get_result("task123", "user1")
+                        _ = await svc.get_result("task123", "user1")
 
                         # Should cache the result
                         mock_set.assert_called_once()

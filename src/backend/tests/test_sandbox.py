@@ -270,6 +270,36 @@ class TestStrategy(bt.Strategy):
         assert result is not None
         assert issubclass(result, bt.Strategy)
 
+    def test_execute_name_error_at_top_level(self):
+        """NameError should be re-raised with a helpful message."""
+        code = "x = not_defined_name\n"
+        with pytest.raises(NameError, match="未定义"):
+            StrategySandbox.execute_strategy_code(code)
+
+    def test_execute_attribute_error_at_top_level(self):
+        """AttributeError should be re-raised with a helpful message."""
+        code = "x = (1).not_allowed_attr\n"
+        with pytest.raises(AttributeError, match="不允许的属性"):
+            StrategySandbox.execute_strategy_code(code)
+
+    def test_execute_import_error_from_safe_import(self):
+        """ImportError from safe import should be re-raised with a helpful message."""
+        code = """
+import datetime.nonexistent
+
+class TestStrategy(bt.Strategy):
+    pass
+"""
+        with pytest.raises(ImportError, match="不允许的模块"):
+            StrategySandbox.execute_strategy_code(code)
+
+    def test_execute_issubclass_type_error_is_ignored(self):
+        """If issubclass raises TypeError, the sandbox should continue scanning."""
+        code = "class Foo: pass\n"
+        with patch("app.utils.sandbox.bt.Strategy", 1):
+            with pytest.raises(RuntimeError, match="策略代码执行失败"):
+                StrategySandbox.execute_strategy_code(code)
+
     def test_execute_with_dangerous_import_runtime(self):
         """测试危险导入在代码检查阶段被拦截"""
         code = """
@@ -392,6 +422,11 @@ class TestExecuteStrategySafely:
         with pytest.raises((NotImplementedError, RuntimeError)):
             execute_strategy_safely("x=1", params={}, use_docker=True)
 
+    def test_execute_safely_docker_reaches_not_implemented(self):
+        with patch.object(DockerSandbox, "execute_in_container", return_value={"ok": True}):
+            with pytest.raises(NotImplementedError):
+                execute_strategy_safely("x=1", params={}, use_docker=True)
+
     def test_execute_safely_without_docker(self):
         """测试不使用 Docker"""
         result = execute_strategy_safely(VALID_STRATEGY, use_docker=False)
@@ -409,19 +444,49 @@ class TestDockerSandbox:
     """Docker 沙箱测试"""
 
     def test_docker_not_available(self):
-        """测试 Docker 不可用 - 需要实际测试环境"""
-        # 由于 subprocess 在函数内部导入，mock 较为复杂
-        # 这个测试需要 Docker 环境，跳过
-        pytest.skip("Docker 测试需要实际环境，跳过单元测试")
+        """Docker binary missing should raise a RuntimeError."""
+        with patch("subprocess.run", side_effect=FileNotFoundError()):
+            with pytest.raises(RuntimeError, match="Docker 不可用"):
+                DockerSandbox.execute_in_container("print('x')", {}, timeout=1)
 
     def test_docker_check_fails(self):
-        """测试 Docker 检查失败 - 需要实际测试环境"""
-        pytest.skip("Docker 测试需要实际环境，跳过单元测试")
+        """Docker version check failure should raise a RuntimeError."""
+        import subprocess
+
+        def _fake_run(args, **kwargs):
+            if args[:2] == ["docker", "--version"]:
+                raise subprocess.CalledProcessError(1, args, output="", stderr="nope")
+            raise AssertionError("unexpected subprocess.run call")
+
+        with patch("subprocess.run", side_effect=_fake_run):
+            with pytest.raises(RuntimeError, match="Docker 不可用"):
+                DockerSandbox.execute_in_container("print('x')", {}, timeout=1)
 
     def test_docker_execution_fails(self):
-        """测试 Docker 执行失败 - 需要实际测试环境"""
-        pytest.skip("Docker 测试需要实际环境，跳过单元测试")
+        """Non-zero returncode should raise a RuntimeError."""
+        import subprocess
+
+        calls = []
+
+        def _fake_run(args, **kwargs):
+            calls.append(args)
+            if args[:2] == ["docker", "--version"]:
+                return subprocess.CompletedProcess(args, 0, stdout="Docker 0.0", stderr="")
+            return subprocess.CompletedProcess(args, 1, stdout="", stderr="boom")
+
+        with patch("subprocess.run", side_effect=_fake_run):
+            with pytest.raises(RuntimeError, match="策略执行失败"):
+                DockerSandbox.execute_in_container("print('x')", {}, timeout=1)
 
     def test_docker_json_parse_fails(self):
-        """测试 JSON 解析失败 - 需要实际测试环境"""
-        pytest.skip("Docker 测试需要实际环境，跳过单元测试")
+        """Bad stdout should raise a RuntimeError."""
+        import subprocess
+
+        def _fake_run(args, **kwargs):
+            if args[:2] == ["docker", "--version"]:
+                return subprocess.CompletedProcess(args, 0, stdout="Docker 0.0", stderr="")
+            return subprocess.CompletedProcess(args, 0, stdout="not-json", stderr="")
+
+        with patch("subprocess.run", side_effect=_fake_run):
+            with pytest.raises(RuntimeError, match="无法解析执行结果"):
+                DockerSandbox.execute_in_container("print('x')", {}, timeout=1)

@@ -1,7 +1,7 @@
 """
-实盘交易服务（正确版本 - 基于 backtrader 的完整架构）
+Live trading service (Backtrader architecture).
 
-使用 Cerebro + Store + Broker 的标准 backtrader 架构
+Uses the standard Backtrader architecture: Cerebro + Store + Broker.
 """
 import sys
 import asyncio

@@ -1,9 +1,9 @@
 """
-策略相关Pydantic模型
+Strategy schemas.
 """
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ParamSpec(BaseModel):
@@ -24,8 +24,8 @@ class StrategyCreate(BaseModel):
     params: Dict[str, ParamSpec] = Field(default_factory=dict, description="参数定义")
     category: str = Field("custom", description="策略分类")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "name": "双均线策略",
                 "description": "基于快慢均线交叉的趋势策略",
@@ -36,19 +36,20 @@ class StrategyCreate(BaseModel):
                         "default": 5,
                         "min": 2,
                         "max": 50,
-                        "description": "快线周期"
+                        "description": "快线周期",
                     },
                     "slow_period": {
-                        "type": "int", 
+                        "type": "int",
                         "default": 20,
                         "min": 10,
                         "max": 200,
-                        "description": "慢线周期"
-                    }
+                        "description": "慢线周期",
+                    },
                 },
-                "category": "trend"
+                "category": "trend",
             }
         }
+    )
 
 
 class StrategyUpdate(BaseModel):
@@ -72,8 +73,7 @@ class StrategyResponse(BaseModel):
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class StrategyListResponse(BaseModel):

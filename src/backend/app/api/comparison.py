@@ -1,7 +1,7 @@
 """
-回测结果对比 API 路由
+Backtest comparison API routes.
 
-支持多个回测结果的对比和分析
+Supports comparing and analyzing multiple backtest results.
 """
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -35,13 +35,7 @@ async def create_comparison(
     service: ComparisonService = Depends(get_comparison_service),
 ):
     """
-    创建回测对比
-    
-    请求体：
-    - name: 对比名称
-    - description: 对比描述
-    - type: 对比类型
-    - backtest_task_ids: 回测任务 ID 列表
+    Create a backtest comparison.
     """
     comparison = await service.create_comparison(
         user_id=current_user.sub,
@@ -61,7 +55,7 @@ async def get_comparison_detail(
     current_user=Depends(get_current_user),
     service: ComparisonService = Depends(get_comparison_service),
 ):
-    """获取回测对比详情"""
+    """Get comparison detail by id."""
     comparison = await service.get_comparison(comparison_id, current_user.sub)
 
     if not comparison:

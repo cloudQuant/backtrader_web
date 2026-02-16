@@ -1,5 +1,5 @@
 """
-回测API路由
+Backtest API routes.
 """
 from functools import lru_cache
 from typing import List, Optional
@@ -30,15 +30,15 @@ async def run_backtest(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """
-    提交回测任务
-    
-    - **strategy_id**: 策略ID
-    - **symbol**: 股票代码
-    - **start_date**: 开始日期
-    - **end_date**: 结束日期
-    - **initial_cash**: 初始资金
-    - **commission**: 手续费率
-    - **params**: 策略参数
+    Submit a backtest task.
+
+    Args:
+        request: Backtest request payload.
+        current_user: Authenticated user.
+        service: Backtest service dependency.
+
+    Returns:
+        A task response containing task_id and initial status.
     """
     result = await service.run_backtest(current_user.sub, request)
     return result
@@ -50,7 +50,7 @@ async def get_backtest_result(
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """获取回测结果"""
+    """Get a backtest result by task id."""
     result = await service.get_result(task_id, user_id=current_user.sub)
     if result is None:
         raise HTTPException(
@@ -66,7 +66,7 @@ async def get_backtest_status(
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """获取回测任务状态"""
+    """Get a backtest task status by task id."""
     task_status = await service.get_task_status(task_id, user_id=current_user.sub)
     if task_status is None:
         raise HTTPException(
@@ -85,7 +85,7 @@ async def list_backtests(
     sort_by: str = Query("created_at", description="排序字段: created_at/strategy_id/symbol"),
     sort_order: str = Query("desc", description="排序方向: asc/desc"),
 ):
-    """列出用户的回测历史，支持排序"""
+    """List backtest history for the current user (supports sorting)."""
     results = await service.list_results(
         current_user.sub, limit, offset,
         sort_by=sort_by, sort_desc=(sort_order == "desc"),
@@ -99,7 +99,7 @@ async def cancel_backtest(
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """取消运行中的回测任务"""
+    """Cancel a running backtest task."""
     success = await service.cancel_task(task_id, current_user.sub)
     if not success:
         raise HTTPException(
@@ -115,7 +115,7 @@ async def delete_backtest(
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """删除回测结果"""
+    """Delete a backtest result."""
     success = await service.delete_result(task_id, current_user.sub)
     if not success:
         raise HTTPException(

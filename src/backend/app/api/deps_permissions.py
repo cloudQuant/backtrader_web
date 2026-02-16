@@ -1,7 +1,7 @@
 """
-权限控制依赖项
+Permission dependencies.
 
-实现基于角色的权限检查中间件
+Implements role-based permission checks.
 """
 from typing import List
 from fastapi import Depends, HTTPException, status
@@ -11,7 +11,7 @@ from app.models.user import User
 
 def has_permission(user: User, permission: Permission) -> bool:
     """
-    检查用户是否有特定权限
+    Check whether a user has a specific permission.
 
     Args:
         user: 用户对象
@@ -20,7 +20,7 @@ def has_permission(user: User, permission: Permission) -> bool:
     Returns:
         bool: 是否有权限
     """
-    # 收集用户所有角色的权限
+    # Aggregate permissions from all user roles.
     user_permissions = []
     for role in user.roles:
         user_permissions.extend(ROLE_PERMISSIONS.get(role.role, []))
@@ -30,7 +30,7 @@ def has_permission(user: User, permission: Permission) -> bool:
 
 def require_permission(permission: Permission):
     """
-    权限检查装饰器
+    Create a dependency that enforces a permission.
 
     Args:
         permission: 需要的权限
@@ -51,13 +51,13 @@ def require_permission(permission: Permission):
 
 def get_current_user():
     """
-    获取当前用户 — 委托给 deps.py 中的真实实现
+    Return current user (delegates to the implementation in deps.py).
     """
     from app.api.deps import get_current_user as _real_get_current_user
     return _real_get_current_user()
 
 
-# 常用权限检查依赖项
+# Common permission dependencies
 RequireCreateStrategy = Depends(require_permission(Permission.CREATE_STRATEGY))
 RequireUpdateStrategy = Depends(require_permission(Permission.UPDATE_STRATEGY))
 RequireDeleteStrategy = Depends(require_permission(Permission.DELETE_STRATEGY))
@@ -69,7 +69,7 @@ RequireManageUsers = Depends(require_permission(Permission.MANAGE_USERS))
 # 批量权限检查
 def require_any_permission(*permissions: Permission):
     """
-    需要任意一个权限
+    Require any one of the given permissions.
 
     Args:
         *permissions: 权限列表

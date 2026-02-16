@@ -1,6 +1,7 @@
 """
-Backtrader 分析器增强
-提供详细的回测数据采集
+Backtrader analyzer extensions.
+
+Collects detailed backtest data for analytics and reporting.
 """
 import backtrader as bt
 from collections import OrderedDict

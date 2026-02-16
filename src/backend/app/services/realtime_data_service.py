@@ -1,7 +1,7 @@
 """
-实时行情数据服务
+Realtime market data service.
 
-支持多券商的实时行情订阅和推送
+Supports tick subscription and streaming across brokers.
 """
 import logging
 from datetime import datetime, timezone

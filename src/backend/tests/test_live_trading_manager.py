@@ -386,7 +386,17 @@ class TestStartInstance:
                         mock_proc.returncode = None
 
                         with patch('asyncio.create_subprocess_exec', return_value=mock_proc):
-                            with patch('asyncio.create_task'):
+                            # start_instance schedules _wait_process via asyncio.create_task; when patched,
+                            # close the coroutine to avoid "coroutine was never awaited" warnings.
+                            with patch('asyncio.create_task') as mock_create_task:
+                                def _create_task(coro):
+                                    try:
+                                        coro.close()
+                                    except Exception:
+                                        pass
+                                    return Mock()
+
+                                mock_create_task.side_effect = _create_task
                                 result = await manager.start_instance("inst1")
 
                                 assert result["status"] == "running"
@@ -482,8 +492,12 @@ class TestStopInstance:
 
                     with patch('app.services.live_trading_manager._is_pid_alive', return_value=True):
                         # Add a mock process to the manager's process dict
-                        mock_proc = AsyncMock()
+                        # proc.terminate()/kill() are sync; proc.wait() is async.
+                        mock_proc = MagicMock()
                         mock_proc.returncode = None
+                        mock_proc.wait = AsyncMock()
+                        mock_proc.terminate = Mock()
+                        mock_proc.kill = Mock()
                         manager._processes["inst1"] = mock_proc
 
                         result = await manager.stop_instance("inst1")

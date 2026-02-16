@@ -1,12 +1,12 @@
 """
-参数优化 API 路由
+Parameter optimization API routes.
 
-提供:
-- POST /submit  提交优化任务
-- GET  /progress/{task_id}  查询优化进度
-- GET  /results/{task_id}   获取优化结果
-- POST /cancel/{task_id}    取消优化任务
-- GET  /strategy-params/{strategy_id}  获取策略默认参数
+Provides:
+- POST /submit: submit an optimization task
+- GET  /progress/{task_id}: query progress
+- GET  /results/{task_id}: fetch results
+- POST /cancel/{task_id}: cancel a task
+- GET  /strategy-params/{strategy_id}: fetch default params
 """
 import logging
 from typing import Dict, Any, List, Optional
@@ -55,7 +55,7 @@ async def get_strategy_params(
     strategy_id: str,
     current_user=Depends(get_current_user),
 ):
-    """返回策略的参数列表（名称、类型、默认值）"""
+    """Return strategy parameter specs (name/type/default/description)."""
     tpl = get_template_by_id(strategy_id)
     if not tpl:
         raise HTTPException(status_code=404, detail=f"策略 {strategy_id} 不存在")
@@ -77,7 +77,7 @@ async def submit_optimization_task(
     request: OptimizationSubmitRequest,
     current_user=Depends(get_current_user),
 ):
-    """提交参数优化任务，返回 task_id"""
+    """Submit an optimization task and return a task id."""
     from app.services.param_optimization_service import generate_param_grid
 
     # 验证策略
@@ -121,7 +121,7 @@ async def get_progress(
     task_id: str,
     current_user=Depends(get_current_user),
 ):
-    """返回优化任务的当前进度"""
+    """Return current progress of an optimization task."""
     progress = get_optimization_progress(task_id)
     if not progress:
         raise HTTPException(status_code=404, detail="优化任务不存在")
@@ -133,7 +133,7 @@ async def get_results(
     task_id: str,
     current_user=Depends(get_current_user),
 ):
-    """返回优化任务的完整结果"""
+    """Return full results of an optimization task."""
     results = get_optimization_results(task_id)
     if not results:
         raise HTTPException(status_code=404, detail="优化任务不存在")
@@ -145,7 +145,7 @@ async def cancel_task(
     task_id: str,
     current_user=Depends(get_current_user),
 ):
-    """取消正在运行的优化任务"""
+    """Cancel a running optimization task."""
     ok = cancel_optimization(task_id)
     if not ok:
         raise HTTPException(status_code=404, detail="优化任务不存在")

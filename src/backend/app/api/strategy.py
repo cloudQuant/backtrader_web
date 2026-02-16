@@ -1,5 +1,5 @@
 """
-策略API路由
+Strategy API routes.
 """
 from functools import lru_cache
 from typing import List
@@ -29,13 +29,12 @@ async def create_strategy(
     service: StrategyService = Depends(get_strategy_service),
 ):
     """
-    创建新策略
-    
-    - **name**: 策略名称
-    - **description**: 策略描述
-    - **code**: 策略代码
-    - **params**: 默认参数
-    - **category**: 策略分类
+    Create a new strategy.
+
+    Args:
+        strategy: Strategy payload.
+        current_user: Authenticated user.
+        service: Strategy service dependency.
     """
     result = await service.create_strategy(current_user.sub, strategy)
     return result
@@ -49,7 +48,7 @@ async def list_strategies(
     offset: int = Query(0, ge=0),
     category: str = Query(None, description="按分类筛选"),
 ):
-    """列出用户的策略"""
+    """List strategies for the current user."""
     results = await service.list_strategies(
         current_user.sub, limit, offset, category
     )
@@ -61,7 +60,7 @@ async def get_templates(
     category: str = Query(None, description="按分类筛选"),
     service: StrategyService = Depends(get_strategy_service),
 ):
-    """获取内置策略模板，支持按分类筛选"""
+    """Get built-in strategy templates (optionally filtered by category)."""
     templates = await service.get_templates()
     if category:
         templates = [t for t in templates if t.category == category]
@@ -70,7 +69,7 @@ async def get_templates(
 
 @router.get("/templates/{template_id}", summary="获取策略模板详情")
 async def get_template_detail(template_id: str):
-    """获取单个策略模板的详细信息，包含代码和参数"""
+    """Get a single strategy template (includes code and params)."""
     template = get_template_by_id(template_id)
     if not template:
         raise HTTPException(status_code=404, detail="策略模板不存在")
@@ -79,7 +78,7 @@ async def get_template_detail(template_id: str):
 
 @router.get("/templates/{template_id}/readme", summary="获取策略README文档")
 async def get_template_readme(template_id: str):
-    """获取策略的README.md文档内容（Markdown格式）"""
+    """Get the template README.md content (Markdown)."""
     readme = get_strategy_readme(template_id)
     if readme is None:
         raise HTTPException(status_code=404, detail="README不存在")
@@ -89,11 +88,14 @@ async def get_template_readme(template_id: str):
 @router.get("/templates/{template_id}/config", summary="获取策略配置")
 async def get_template_config(template_id: str):
     """
-    读取策略的config.yaml，返回完整配置：
-    - strategy: 名称、描述、作者
-    - params: 策略参数（含默认值）
-    - data: 数据配置（标的代码、数据类型）
-    - backtest: 回测配置（初始资金、手续费）
+    Read `config.yaml` for a strategy template.
+
+    Returns:
+        A dict containing:
+        - strategy: name/description/author
+        - params: parameter specs (including defaults)
+        - data: data settings (symbol, data type)
+        - backtest: backtest settings (initial cash, commission)
     """
     from app.services.strategy_service import STRATEGIES_DIR
     import yaml as _yaml
@@ -120,7 +122,7 @@ async def get_strategy(
     current_user=Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
 ):
-    """获取策略详情"""
+    """Get a strategy detail by id."""
     strategy = await service.get_strategy(strategy_id)
     if strategy is None:
         raise HTTPException(
@@ -137,7 +139,7 @@ async def update_strategy(
     current_user=Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
 ):
-    """更新策略"""
+    """Update a strategy."""
     result = await service.update_strategy(
         strategy_id, current_user.sub, strategy_update
     )
@@ -155,7 +157,7 @@ async def delete_strategy(
     current_user=Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
 ):
-    """删除策略"""
+    """Delete a strategy."""
     success = await service.delete_strategy(strategy_id, current_user.sub)
     if not success:
         raise HTTPException(

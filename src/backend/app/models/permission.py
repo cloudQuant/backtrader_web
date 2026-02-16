@@ -1,7 +1,7 @@
 """
-权限控制模型
+Permission models.
 
-实现基于角色的访问控制（RBAC）
+Implements role-based access control (RBAC).
 """
 import enum
 from sqlalchemy import Column, String, DateTime, Table, ForeignKey

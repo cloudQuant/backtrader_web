@@ -1,16 +1,19 @@
 """
-FastAPI 应用入口（最终完整版）
+FastAPI application entrypoint (full edition).
 
-集成了所有功能：安全性、参数优化、报告导出、模拟交易、实盘交易对接、对比、版本管理、实时行情、监控告警、WebSocket 等
+Includes security, optimization, report export, paper trading, live trading, comparisons, versioning,
+realtime data, monitoring/alerts, and WebSocket streaming.
 """
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from app.config import get_settings
 from app.api.router import api_router
+from app.config import get_settings
 from app.db.database import init_db
 from app.utils.logger import setup_logger
 from app.websocket_manager import manager as ws_manager
@@ -128,7 +131,6 @@ app = FastAPI(
 app.state.limiter = limiter
 
 # 添加速率限制异常处理器
-from slowapi.errors import RateLimitExceeded
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS 中间件
@@ -176,7 +178,9 @@ async def root():
 async def health_check():
     """健康检查"""
     from sqlalchemy import text
+
     from app.db.database import async_session_maker
+
     db_status = "disconnected"
     try:
         async with async_session_maker() as session:
@@ -232,7 +236,7 @@ async def websocket_backtest_progress(websocket: WebSocket, task_id: str):
         ws_manager.disconnect(websocket, task_id, client_id)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     import uvicorn
     uvicorn.run(
         "app.main:app",

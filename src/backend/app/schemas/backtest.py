@@ -1,10 +1,10 @@
 """
-回测相关Pydantic模型
+Backtest schemas.
 """
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskStatus(str, Enum):
@@ -26,8 +26,8 @@ class BacktestRequest(BaseModel):
     commission: float = Field(0.001, description="手续费率")
     params: Dict[str, Any] = Field(default_factory=dict, description="策略参数")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "strategy_id": "ma_cross",
                 "symbol": "000001.SZ",
@@ -35,9 +35,10 @@ class BacktestRequest(BaseModel):
                 "end_date": "2024-01-01T00:00:00",
                 "initial_cash": 100000,
                 "commission": 0.001,
-                "params": {"fast_period": 5, "slow_period": 20}
+                "params": {"fast_period": 5, "slow_period": 20},
             }
         }
+    )
 
 
 class BacktestResponse(BaseModel):
@@ -97,8 +98,7 @@ class BacktestResult(BaseModel):
     created_at: datetime
     error_message: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class BacktestListResponse(BaseModel):

@@ -1,9 +1,9 @@
 """
-认证相关Pydantic模型
+Authentication schemas.
 """
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserCreate(BaseModel):
@@ -11,15 +11,16 @@ class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50, description="用户名")
     email: EmailStr = Field(..., description="邮箱地址")
     password: str = Field(..., min_length=8, description="密码")
-    
-    class Config:
-        json_schema_extra = {
+
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "username": "trader",
                 "email": "trader@example.com",
-                "password": "password123"
+                "password": "password123",
             }
         }
+    )
 
 
 class UserLogin(BaseModel):
@@ -35,9 +36,8 @@ class UserResponse(BaseModel):
     email: str = Field(..., description="邮箱")
     is_active: bool = Field(True, description="是否激活")
     created_at: datetime = Field(..., description="创建时间")
-    
-    class Config:
-        from_attributes = True
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):

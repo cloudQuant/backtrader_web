@@ -1,7 +1,7 @@
 """
-实时行情 API 路由
+Realtime market data API routes.
 
-支持多券商的实时行情推送
+Supports realtime tick subscription and WebSocket streaming across brokers.
 """
 import asyncio
 from typing import List, Optional, Dict, Any
@@ -39,11 +39,7 @@ async def subscribe_realtime_ticks(
     service: RealTimeDataService = Depends(get_realtime_data_service),
 ):
     """
-    订阅实时行情
-    
-    请求体：
-    - symbols: 标的代码列表
-    - broker_id: 券商 ID（可选，默认使用所有券商）
+    Subscribe to realtime ticks.
     """
     await service.subscribe_ticks(
         user_id=current_user.sub,
@@ -66,11 +62,7 @@ async def unsubscribe_realtime_ticks(
     service: RealTimeDataService = Depends(get_realtime_data_service),
 ):
     """
-    取消订阅实时行情
-    
-    请求体：
-    - symbols: 标的代码列表
-    - broker_id: 券商 ID（可选）
+    Unsubscribe from realtime ticks.
     """
     await service.unsubscribe_ticks(
         user_id=current_user.sub,
@@ -96,11 +88,7 @@ async def get_realtime_ticks(
     symbol: Optional[str] = Query(None, description="标的代码"),
 ):
     """
-    获取最新实时行情
-    
-    参数：
-    - broker_id: 券商 ID（可选）
-    - symbol: 标的代码（可选）
+    Get the latest ticks (single symbol or all subscribed symbols).
     """
     if symbol:
         # 获取单个标的行情
@@ -121,11 +109,7 @@ async def get_realtime_ticks_batch(
     symbols: str = Query(..., description="标的代码列表（逗号分隔）"),
 ):
     """
-    批量获取实时行情
-    
-    参数：
-    - broker_id: 券商 ID
-    - symbols: 标的代码列表（逗号分隔）
+    Batch fetch ticks for a broker and a comma-separated symbol list.
     """
     symbol_list = symbols.split(',')
     ticks = await service.get_ticks(current_user.sub, broker_id, symbol_list)
@@ -149,14 +133,7 @@ async def get_historical_ticks(
     service: RealTimeDataService = Depends(get_realtime_data_service),
 ):
     """
-    获取历史行情
-    
-    参数：
-    - broker_id: 券商 ID
-    - symbol: 标的代码（如 BTC/USDT）
-    - start_date: 开始日期（ISO 8601 格式）
-    - end_date: 结束日期（ISO 8601 格式）
-    - frequency: 频率（1m, 5m, 15m, 30m, 1h, 1d, 1w, 1M）
+    Get historical ticks for a symbol.
     """
     from datetime import datetime
 
@@ -195,33 +172,10 @@ async def realtime_tick_websocket(
     broker_id: str,
 ):
     """
-    WebSocket 端点 - 实时行情推送
-    
-    推送内容：
-    - 最新行情更新
-    
-    连接 URL: ws://host/api/v1/realtime/ws/ticks/{broker_id}
-    
-    消息类型：
-    - connected: 连接成功
-    - tick_update: 行情更新
-    
-    示例消息：
-    {
-        "type": "tick_update",
-        "broker_id": "binance",
-        "symbol": "BTC/USDT",
-        "timestamp": "2024-01-01T00:00:00Z",
-        "data": {
-            "open": 50000.0,
-            "high": 50500.0,
-            "low": 49500.0,
-            "close": 50250.0,
-            "volume": 123.45,
-            "bid": 50240.0,
-            "ask": 50260.0,
-        }
-    }
+    WebSocket endpoint for realtime tick streaming.
+
+    URL:
+        ws://host/api/v1/realtime/ws/ticks/{broker_id}
     """
     client_id = f"ws-realtime-client-{id(websocket)}"
 

@@ -1,5 +1,5 @@
 """
-实盘交易实例 Pydantic 模型
+Live trading instance schemas.
 """
 from datetime import datetime
 from typing import List, Optional, Dict, Any

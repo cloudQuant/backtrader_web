@@ -1,5 +1,5 @@
 """
-回测结果对比数据模型
+Backtest comparison models.
 """
 import uuid
 from datetime import datetime, timezone

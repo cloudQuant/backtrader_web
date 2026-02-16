@@ -1,7 +1,7 @@
 """
-策略版本管理 API 路由（完整版）
+Strategy version control API routes (full version).
 
-支持策略的版本控制、分支管理、回滚、对比
+Supports versioning, branch management, rollback, and comparisons.
 """
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -56,17 +56,20 @@ async def create_strategy_version(
     - changelog: 更新日志
     - is_default: 是否设为默认版本
     """
-    version = await service.create_version(
-        user_id=current_user.sub,
-        strategy_id=request.strategy_id,
-        version_name=request.version_name,
-        code=request.code,
-        params=request.params,
-        branch=request.branch,
-        tags=request.tags,
-        changelog=request.changelog,
-        is_default=request.is_default,
-    )
+    try:
+        version = await service.create_version(
+            user_id=current_user.sub,
+            strategy_id=request.strategy_id,
+            version_name=request.version_name,
+            code=request.code,
+            params=request.params,
+            branch=request.branch,
+            tags=request.tags,
+            changelog=request.changelog,
+            is_default=request.is_default,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该策略")
 
     # 推送版本创建通知
     await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
@@ -76,7 +79,7 @@ async def create_strategy_version(
         "message": "策略版本已创建",
     })
 
-    return version
+    return service._to_response(version)
 
 
 @router.get("/strategies/{strategy_id}/versions", response_model=VersionListResponse, summary="获取策略版本列表")
@@ -125,14 +128,14 @@ async def get_strategy_version(
             detail="策略版本不存在"
         )
 
-    # 检查权限
-    if version.strategy_id != current_user.sub:
+    # Permission check: versions are owned by the strategy owner (created_by).
+    if getattr(version, "created_by", None) != current_user.sub:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权访问该版本"
         )
 
-    return version
+    return service._to_response(version)
 
 
 @router.put("/versions/{version_id}", response_model=VersionResponse, summary="更新策略版本")
@@ -152,11 +155,7 @@ async def update_strategy_version(
     - tags: 版本标签（可选）
     - status: 版本状态（可选）
     """
-    version = await service.update_version(
-        version_id=version_id,
-        user_id=current_user.sub,
-        update_data=request.model_dump(exclude_none=True),
-    )
+    version = await service.update_version(version_id=version_id, user_id=current_user.sub, update_data=request)
 
     if not version:
         raise HTTPException(
@@ -164,7 +163,7 @@ async def update_strategy_version(
             detail="策略版本不存在或无权更新"
         )
 
-    return version
+    return service._to_response(version)
 
 
 @router.post("/versions/{version_id}/set-default", summary="设置为默认版本")
@@ -229,12 +228,15 @@ async def compare_strategy_versions(
     - comparison_type: 对比类型（code, params, performance）
     """
     # comparison_type 在请求中指定，但服务会进行完整对比
-    comparison = await service.compare_versions(
-        user_id=current_user.sub,
-        strategy_id=request.strategy_id,
-        from_version_id=request.from_version_id,
-        to_version_id=request.to_version_id,
-    )
+    try:
+        comparison = await service.compare_versions(
+            user_id=current_user.sub,
+            strategy_id=request.strategy_id,
+            from_version_id=request.from_version_id,
+            to_version_id=request.to_version_id,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该版本")
 
     # 推送对比完成通知
     await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
@@ -244,7 +246,16 @@ async def compare_strategy_versions(
         "message": "策略版本对比完成",
     })
 
-    return comparison
+    return {
+        "comparison_id": comparison.id,
+        "strategy_id": comparison.strategy_id,
+        "from_version_id": comparison.from_version_id,
+        "to_version_id": comparison.to_version_id,
+        "code_diff": comparison.code_diff,
+        "params_diff": comparison.params_diff,
+        "performance_diff": comparison.performance_diff,
+        "created_at": comparison.created_at,
+    }
 
 
 # ==================== 版本回滚 API ====================
@@ -265,12 +276,15 @@ async def rollback_strategy_version(
     - target_version_id: 目标版本 ID
     - reason: 回滚原因
     """
-    new_version = await service.rollback_version(
-        user_id=current_user.sub,
-        strategy_id=request.strategy_id,
-        target_version_id=request.target_version_id,
-        reason=request.reason,
-    )
+    try:
+        new_version = await service.rollback_version(
+            user_id=current_user.sub,
+            strategy_id=request.strategy_id,
+            target_version_id=request.target_version_id,
+            reason=request.reason,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该版本")
 
     # 推送回滚通知
     await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
@@ -280,12 +294,7 @@ async def rollback_strategy_version(
         "message": "策略版本已回滚",
     })
 
-    return {
-        "version_id": new_version.id,
-        "version_name": new_version.version_name,
-        "status": "rolled_back",
-        "message": "策略版本已回滚",
-    }
+    return service._to_response(new_version)
 
 
 # ==================== 策略分支 API ====================
@@ -311,19 +320,19 @@ async def create_strategy_branch(
     - bugfix/*: 修复分支
     - release/*: 发布分支
     """
-    # TODO: 实现创建分支
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="分支功能暂未实现"
-    )
+    try:
+        branch = await service.create_branch(
+            user_id=current_user.sub,
+            strategy_id=request.strategy_id,
+            branch_name=request.branch_name,
+            parent_branch=request.parent_branch,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该策略")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
-    # return BranchResponse(
-    #     branch_id="branch-123",
-    #     strategy_id=request.strategy_id,
-    #     branch_name=request.branch_name,
-    #     version_count=0,
-    #     is_default=False,
-    # )
+    return service.branch_to_response(branch)
 
 
 @router.get("/strategies/{strategy_id}/branches", response_model=BranchListResponse, summary="获取策略分支列表")
@@ -341,18 +350,21 @@ async def list_strategy_branches(
     - limit: 每页数量
     - offset: 偏移量
     """
-    # TODO: 实现列出分支
-    # branches, total = await service.list_branches(
-    #     user_id=current_user.sub,
-    #     strategy_id=strategy_id,
-    #     limit=limit,
-    #     offset=offset,
-    # )
-    # return BranchListResponse(total=0, items=[])
+    try:
+        branches, total = await service.list_branches(
+            user_id=current_user.sub,
+            strategy_id=strategy_id,
+            limit=limit,
+            offset=offset,
+        )
+    except PermissionError:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该策略")
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="分支功能暂未实现"
+    return BranchListResponse(
+        total=total,
+        items=[service.branch_to_response(b) for b in branches],
     )
 
 

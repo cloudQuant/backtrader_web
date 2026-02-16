@@ -1,7 +1,7 @@
 """
-模拟交易服务
+Paper trading service.
 
-基于 Backtrader 的模拟交易环境
+Provides a Backtrader-based paper trading environment.
 """
 import asyncio
 from datetime import datetime, timezone

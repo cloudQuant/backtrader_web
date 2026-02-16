@@ -1,11 +1,11 @@
 """
-组合管理 API 路由
+Portfolio management API routes.
 
-聚合所有实盘交易策略实例的数据：
-- 组合概览（总资产、总盈亏、策略分布）
-- 汇总持仓（各策略当前持仓）
-- 汇总交易（各策略历史交易记录）
-- 组合资金曲线（各策略资金曲线叠加）
+Aggregates data across live trading strategy instances:
+- Portfolio overview (total assets, PnL, strategy distribution)
+- Aggregated positions (current positions per strategy)
+- Aggregated trades (historical trades per strategy)
+- Portfolio equity curve (stacked equity across strategies)
 """
 import math
 import logging
@@ -48,16 +48,7 @@ async def get_portfolio_overview(
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
     """
-    返回组合级别的汇总数据:
-    - total_assets: 组合总资产
-    - total_cash: 总可用现金
-    - total_position_value: 总持仓市值
-    - total_pnl: 组合总盈亏
-    - total_pnl_pct: 组合总收益率
-    - total_initial_capital: 组合总初始资金
-    - strategy_count: 策略实例数
-    - running_count: 运行中实例数
-    - strategies: 各策略的概要信息
+    Return portfolio-level aggregated metrics.
     """
     instances = mgr.list_instances()
 
@@ -140,7 +131,7 @@ async def get_portfolio_positions(
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
     """
-    返回各策略的当前持仓（来自 current_position.json）。
+    Return current positions across strategies (from current_position.json).
     """
     instances = mgr.list_instances()
     positions = []
@@ -176,8 +167,7 @@ async def get_portfolio_trades(
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
     """
-    返回各策略的历史交易记录（来自 trade.log，仅已关闭交易），
-    按平仓时间降序排列。
+    Return historical trades across strategies (from trade.log), sorted by close time.
     """
     instances = mgr.list_instances()
     all_trades = []

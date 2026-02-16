@@ -1,7 +1,8 @@
 """
-实盘交易管理服务
+Live trading instance manager.
 
-管理策略实例的增删、启停，使用 JSON 文件持久化配置，子进程运行策略。
+Manages strategy instances (CRUD/start/stop). Uses a JSON file for persistence and runs strategies
+in subprocesses.
 """
 import json
 import uuid

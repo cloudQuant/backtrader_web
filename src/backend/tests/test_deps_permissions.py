@@ -26,7 +26,6 @@ from app.models.permission import Permission, Role, ROLE_PERMISSIONS
 from app.models.user import User
 
 
-@pytest.mark.asyncio
 class TestHasPermission:
     """测试 has_permission 函数"""
 
@@ -160,7 +159,6 @@ class TestRequireAnyPermission:
             assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
 
-@pytest.mark.asyncio
 class TestPermissionDependencies:
     """测试预定义的权限依赖项"""
 
@@ -195,7 +193,6 @@ class TestPermissionDependencies:
         assert hasattr(RequireManageUsers, 'dependency')
 
 
-@pytest.mark.asyncio
 class TestRolePermissionsIntegration:
     """测试角色权限集成"""
 

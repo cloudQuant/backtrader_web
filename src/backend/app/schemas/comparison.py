@@ -1,5 +1,5 @@
 """
-回测结果对比相关的 Pydantic 模型
+Backtest comparison schemas.
 """
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -11,7 +11,7 @@ class ComparisonCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200, description="对比名称")
     description: Optional[str] = Field(None, description="对比描述")
     type: str = Field("metrics", description="对比类型：metrics, equity, trades, drawdown")
-    backtest_task_ids: List[str] = Field(..., min_items=2, description="回测任务 ID 列表（至少2个）")
+    backtest_task_ids: List[str] = Field(..., min_length=2, description="回测任务 ID 列表（至少2个）")
 
 
 class ComparisonUpdate(BaseModel):

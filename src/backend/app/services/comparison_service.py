@@ -1,7 +1,7 @@
 """
-回测结果对比服务
+Backtest comparison service.
 
-支持多个回测结果的对比和分析
+Supports comparing and analyzing multiple backtest results.
 """
 import uuid
 from datetime import datetime, timezone

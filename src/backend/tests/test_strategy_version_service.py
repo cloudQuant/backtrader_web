@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime
 
 
-@pytest.mark.asyncio
 class TestVersionControlServiceInitialization:
     """测试服务初始化"""
 
@@ -32,7 +31,6 @@ class TestVersionControlServiceInitialization:
         assert service.strategy_repo is not None
 
 
-@pytest.mark.asyncio
 class TestGenerateCodeDiff:
     """测试代码差异生成"""
 
@@ -75,7 +73,6 @@ class TestGenerateCodeDiff:
         assert isinstance(diff, str)
 
 
-@pytest.mark.asyncio
 class TestGenerateParamsDiff:
     """测试参数差异生成"""
 
@@ -158,7 +155,6 @@ class TestGenerateParamsDiff:
         assert len(diff["unchanged"]) == 1  # a
 
 
-@pytest.mark.asyncio
 class TestToResponse:
     """测试响应转换"""
 
@@ -252,6 +248,7 @@ class TestSetVersionDefault:
         mock_version.id = "ver_123"
         mock_version.strategy_id = "strat_123"
         mock_version.branch = "main"
+        mock_version.created_by = "user_123"
 
         service.version_repo = AsyncMock()
         service.version_repo.get_by_id = AsyncMock(return_value=mock_version)
@@ -290,6 +287,7 @@ class TestActivateVersion:
         mock_version.id = "ver_123"
         mock_version.strategy_id = "strat_123"
         mock_version.branch = "main"
+        mock_version.created_by = "user_123"
 
         service.version_repo = AsyncMock()
         service.version_repo.get_by_id = AsyncMock(return_value=mock_version)
@@ -328,6 +326,7 @@ class TestUpdateVersion:
         mock_version = Mock()
         mock_version.id = "ver_123"
         mock_version.status = "draft"
+        mock_version.created_by = "user_123"
 
         service.version_repo = AsyncMock()
         service.version_repo.get_by_id = AsyncMock(return_value=mock_version)
@@ -385,12 +384,14 @@ class TestCompareVersions:
         mock_version1.code = "code1"
         mock_version1.params = {"a": 1}
         mock_version1.version_name = "v1.0.0"
+        mock_version1.created_by = "user_123"
 
         mock_version2 = Mock()
         mock_version2.id = "ver_2"
         mock_version2.code = "code2"
         mock_version2.params = {"a": 2}
         mock_version2.version_name = "v2.0.0"
+        mock_version2.created_by = "user_123"
 
         service.version_repo = AsyncMock()
         service.version_repo.get_by_id = AsyncMock(side_effect=[mock_version1, mock_version2])
@@ -510,12 +511,16 @@ class TestRollbackVersion:
         mock_target_version.params = {"a": 1}
         mock_target_version.description = "old version"
         mock_target_version.version_name = "v1.0.0"
+        mock_target_version.created_by = "user_123"
+        mock_target_version.strategy_id = "strat_123"
 
         mock_current_version = Mock()
         mock_current_version.id = "current_ver"
         mock_current_version.code = "new code"
         mock_current_version.params = {"a": 2}
         mock_current_version.description = "new version"
+        mock_current_version.created_by = "user_123"
+        mock_current_version.strategy_id = "strat_123"
 
         mock_new_version = Mock()
         mock_new_version.id = "new_rollback_ver"
@@ -527,6 +532,13 @@ class TestRollbackVersion:
 
         service.rollback_repo = AsyncMock()
         service.rollback_repo.create = AsyncMock()
+
+        # Strategy ownership check used by rollback_version.
+        mock_strategy = Mock()
+        mock_strategy.id = "strat_123"
+        mock_strategy.user_id = "user_123"
+        service.strategy_repo = AsyncMock()
+        service.strategy_repo.get_by_id = AsyncMock(return_value=mock_strategy)
 
         with patch.object(service, '_get_current_version', return_value=mock_current_version):
             with patch.object(service, '_get_next_version_number', return_value=3):

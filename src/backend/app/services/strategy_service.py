@@ -1,4 +1,4 @@
-"""策略服务 - 策略CRUD和配置加载"""
+"""Strategy service (CRUD + template/config loading)."""
 import glob
 import logging
 from pathlib import Path
@@ -227,10 +227,21 @@ class StrategyService:
         params = {}
         if strategy.params:
             for k, v in strategy.params.items():
-                if isinstance(v, dict):
+                if isinstance(v, ParamSpec):
+                    params[k] = v
+                elif isinstance(v, dict):
                     params[k] = ParamSpec(**v)
                 else:
-                    params[k] = v
+                    # Be tolerant: some rows may store plain defaults instead of full ParamSpec dicts.
+                    if isinstance(v, bool):
+                        ptype = "bool"
+                    elif isinstance(v, int):
+                        ptype = "int"
+                    elif isinstance(v, float):
+                        ptype = "float"
+                    else:
+                        ptype = "string"
+                    params[k] = ParamSpec(type=ptype, default=v, description=k)
         
         return StrategyResponse(
             id=strategy.id,

@@ -1,5 +1,5 @@
 """
-用户ORM模型
+User ORM model.
 """
 import uuid
 from datetime import datetime, timezone

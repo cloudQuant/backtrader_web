@@ -1,17 +1,31 @@
 """
-回测 API 路由（优化版）
+Enhanced backtest API routes.
 
-集成了参数优化、报告导出、WebSocket 实时推送
+Includes:
+- Strict request validation
+- Task status/result APIs
+- Report export
+- WebSocket progress streaming
 """
 from functools import lru_cache
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, WebSocket, WebSocketDisconnect
 
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+
+from app.api.deps import get_current_user
 from app.schemas.backtest_enhanced import (
+    BacktestListResponse,
     BacktestRequest,
     BacktestResponse,
     BacktestResult,
-    BacktestListResponse,
     OptimizationRequest,
     OptimizationResult,
     TaskStatus,
@@ -19,7 +33,6 @@ from app.schemas.backtest_enhanced import (
 from app.services.backtest_service import BacktestService
 from app.services.optimization_service import OptimizationService
 from app.services.report_service import ReportService
-from app.api.deps import get_current_user
 from app.websocket_manager import manager as ws_manager
 
 router = APIRouter()
@@ -49,14 +62,12 @@ async def run_backtest(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """
-    提交回测任务（增强版）
-    
-    使用了增强的输入验证和权限控制
+    Submit a backtest task (enhanced).
     """
     result = await service.run_backtest(current_user.sub, request)
 
     # 通知 WebSocket 客户端（如果有连接）
-    await ws_manager.send_to_task(request.strategy_id, {
+    await ws_manager.send_to_task(result.task_id, {
         "type": "task_created",
         "task_id": result.task_id,
         "status": "pending",
@@ -88,7 +99,7 @@ async def get_backtest_status(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """获取回测任务状态"""
-    task_status = await service.get_task_status(task_id)
+    task_status = await service.get_task_status(task_id, user_id=current_user.sub)
     if not task_status:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -107,8 +118,13 @@ async def list_backtests(
     sort_order: str = Query("desc", description="排序方向：asc/desc"),
 ):
     """列出用户的回测历史（增强版，支持排序）"""
+    sort_desc = str(sort_order).lower() != "asc"
     results = await service.list_results(
-        current_user.sub, limit, offset, sort_by, sort_order
+        current_user.sub,
+        limit,
+        offset,
+        sort_by,
+        sort_desc,
     )
     return results
 
@@ -185,7 +201,7 @@ async def get_html_report(
     """
     导出 HTML 格式的回测报告
     """
-    result = await backtest_service.get_result(task_id)
+    result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -222,7 +238,7 @@ async def get_pdf_report(
     """
     导出 PDF 格式的回测报告
     """
-    result = await backtest_service.get_result(task_id)
+    result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -264,7 +280,7 @@ async def get_excel_report(
     """
     导出 Excel 格式的回测报告
     """
-    result = await backtest_service.get_result(task_id)
+    result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -320,7 +336,6 @@ async def websocket_endpoint(
             - completed: 回测完成（包含完整结果）
             - failed: 回测失败（包含错误信息）
     """
-    import json
 
     # 生成唯一的客户端 ID
     client_id = f"client_{id(websocket)}"

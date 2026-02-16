@@ -1,5 +1,5 @@
 """
-API依赖注入
+API dependencies.
 """
 from typing import Optional
 from fastapi import Depends, HTTPException, status
@@ -15,7 +15,7 @@ security = HTTPBearer()
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> TokenPayload:
-    """获取当前用户"""
+    """Return the current authenticated user."""
     token = credentials.credentials
     payload = decode_access_token(token)
     
@@ -34,7 +34,7 @@ async def get_current_user_optional(
         HTTPBearer(auto_error=False)
     )
 ) -> Optional[TokenPayload]:
-    """可选的用户认证"""
+    """Optionally return the current user (None if not authenticated)."""
     if credentials is None:
         return None
     

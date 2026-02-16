@@ -1,7 +1,7 @@
 """
-回测报告生成服务
+Backtest report generation service.
 
-支持导出 HTML、PDF、Excel 格式的专业回测报告
+Supports exporting professional reports in HTML/PDF/Excel formats.
 """
 import io
 from typing import Dict, Any, Optional

@@ -1,5 +1,5 @@
 """
-认证服务
+Authentication service.
 """
 from typing import Optional
 from datetime import timedelta

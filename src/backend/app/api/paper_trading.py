@@ -1,7 +1,7 @@
 """
-模拟交易 API 路由
+Paper trading API routes.
 
-提供完整的模拟交易功能
+Provides a full paper trading workflow: accounts, orders, positions, trades, and WebSocket updates.
 """
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -37,7 +37,7 @@ async def create_paper_account(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """创建模拟交易账户"""
+    """Create a paper trading account."""
     account = await service.create_account(
         user_id=current_user.sub,
         name=request.name,
@@ -55,7 +55,7 @@ async def list_paper_accounts(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """获取用户的模拟账户列表"""
+    """List paper trading accounts for the current user."""
     accounts, total = await service.list_accounts(
         user_id=current_user.sub,
         limit=limit,
@@ -70,7 +70,7 @@ async def get_paper_account(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """获取模拟账户详情"""
+    """Get a paper trading account by id."""
     account = await service.get_account(account_id)
     if not account:
         raise HTTPException(
@@ -94,7 +94,7 @@ async def delete_paper_account(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """删除模拟账户"""
+    """Delete a paper trading account."""
     success = await service.delete_account(account_id, current_user.sub)
     if not success:
         raise HTTPException(
@@ -113,17 +113,7 @@ async def submit_paper_order(
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
     """
-    提交模拟交易订单
-    
-    订单类型：
-    - market: 市价单
-    - limit: 限价单
-    - stop: 止损单
-    - stop_limit: 止损限价单
-    
-    买卖方向：
-    - buy: 买入（做多）
-    - sell: 卖出（平多或做空）
+    Submit a paper trading order.
     """
     order = await service.submit_order(
         user_id=current_user.sub,
@@ -142,7 +132,7 @@ async def list_paper_orders(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """获取模拟订单列表"""
+    """List paper trading orders."""
     filters = {"user_id": current_user.sub}
     if account_id:
         filters["account_id"] = account_id
@@ -165,7 +155,7 @@ async def get_paper_order(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """获取模拟订单详情"""
+    """Get a paper trading order by id."""
     order = await service.get_order(order_id)
     if not order:
         raise HTTPException(
@@ -190,7 +180,7 @@ async def cancel_paper_order(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """撤销待成交的模拟订单"""
+    """Cancel a pending paper trading order."""
     success = await service.cancel_order(order_id, current_user.sub)
     if not success:
         raise HTTPException(

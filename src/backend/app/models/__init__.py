@@ -1,4 +1,4 @@
-"""ORM模型"""
+"""ORM models."""
 from app.models.user import User
 from app.models.backtest import BacktestTask, BacktestResultModel
 from app.models.strategy import Strategy

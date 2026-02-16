@@ -1,10 +1,10 @@
 """
 增强回测 API 测试
 """
-import pytest
-from httpx import AsyncClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from httpx import AsyncClient
 
 # 有效的回测请求配置
 VALID_BACKTEST_REQUEST = {
@@ -384,9 +384,10 @@ class TestWebSocketEndpoint:
 
     async def test_websocket_connection(self):
         """测试 WebSocket 连接"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from app.api.backtest_enhanced import websocket_endpoint
         from app.schemas.backtest_enhanced import TaskStatus
-        from unittest.mock import AsyncMock, MagicMock, patch
 
         # 创建 mock WebSocket 对象
         mock_ws = MagicMock()
@@ -413,9 +414,10 @@ class TestWebSocketEndpoint:
 
     async def test_websocket_sends_progress(self):
         """测试 WebSocket 发送进度"""
-        from app.api.backtest_enhanced import websocket_endpoint
-        from app.schemas.backtest_enhanced import TaskStatus, BacktestResult
         from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.api.backtest_enhanced import websocket_endpoint
+        from app.schemas.backtest_enhanced import BacktestResult, TaskStatus
 
         # 创建 mock WebSocket 对象
         mock_ws = MagicMock()
@@ -447,9 +449,10 @@ class TestWebSocketEndpoint:
 
     async def test_websocket_handles_failure(self):
         """测试 WebSocket 处理失败状态"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
         from app.api.backtest_enhanced import websocket_endpoint
         from app.schemas.backtest_enhanced import TaskStatus
-        from unittest.mock import AsyncMock, MagicMock, patch
 
         # 创建 mock WebSocket 对象
         mock_ws = MagicMock()
@@ -584,6 +587,36 @@ class TestReportGenerationWithMocks:
                 # 可能返回 200（成功）或 404（因为mock在正确位置之前被调用）
                 assert resp.status_code in [200, 404]
 
+    async def test_html_report_passes_user_id(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        clear_lru_cache,
+    ):
+        """Ensure report endpoints enforce ownership checks via user_id."""
+        from app.schemas.backtest_enhanced import BacktestResult
+
+        me = await client.get("/api/v1/auth/me", headers=auth_headers)
+        assert me.status_code == 200
+        user_id = me.json()["id"]
+
+        mock_result = MagicMock(spec=BacktestResult)
+        mock_result.strategy_id = "strat1"
+        mock_result.task_id = "task123"
+        mock_result.model_dump = MagicMock(return_value={"task_id": "task123"})
+
+        mock_backtest_service = AsyncMock()
+        mock_backtest_service.get_result = AsyncMock(return_value=mock_result)
+
+        mock_report_service = AsyncMock()
+        mock_report_service.generate_html_report = AsyncMock(return_value="<html>Report</html>")
+
+        with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_backtest_service):
+            with patch("app.api.backtest_enhanced.ReportService", return_value=mock_report_service):
+                resp = await client.get("/api/v1/backtests/task123/report/html", headers=auth_headers)
+                assert resp.status_code == 200
+                mock_backtest_service.get_result.assert_awaited_with("task123", user_id=user_id)
+
     async def test_pdf_report_with_import_error(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
         """测试PDF报告生成 - ImportError处理"""
         from app.schemas.backtest_enhanced import BacktestResult
@@ -635,9 +668,10 @@ class TestWebSocketDisconnectHandling:
 
     async def test_websocket_disconnect_gracefully(self, clear_lru_cache):
         """测试WebSocket正常断开"""
+        from starlette.websockets import WebSocketDisconnect
+
         from app.api.backtest_enhanced import websocket_endpoint
         from app.schemas.backtest_enhanced import TaskStatus
-        from starlette.websockets import WebSocketDisconnect
 
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
@@ -705,5 +739,25 @@ class TestBacktestGetResultWithUserCheck:
             resp = await client.get("/api/v1/backtest/task123", headers=auth_headers)
             # 验证服务被调用
             assert resp.status_code in [200, 404]
+
+
+@pytest.mark.asyncio
+class TestEnhancedBacktestListSortOrder:
+    """测试增强回测列表 sort_order 映射为 bool"""
+
+    async def test_list_sort_order_asc_maps_to_false(
+        self,
+        client: AsyncClient,
+        auth_headers: dict,
+        clear_lru_cache,
+    ):
+        mock_service = AsyncMock()
+        mock_service.list_results = AsyncMock(return_value=MagicMock(items=[], total=0))
+
+        with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_service):
+            resp = await client.get("/api/v1/backtests/?sort_order=asc", headers=auth_headers)
+            assert resp.status_code == 200
+            # args: (user_id, limit, offset, sort_by, sort_desc)
+            assert mock_service.list_results.await_args.args[-1] is False
 
 

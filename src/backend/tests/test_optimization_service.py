@@ -16,7 +16,6 @@ from datetime import datetime
 from app.services.optimization_service import OptimizationService
 
 
-@pytest.mark.asyncio
 class TestOptimizationService:
     """测试OptimizationService类"""
 

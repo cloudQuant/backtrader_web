@@ -1,7 +1,7 @@
 """
-实盘交易 API 路由（完整版）
+Live trading API routes (full version).
 
-基于 backtrader 的完整架构，使用 Cerebro + Store + Broker
+Based on Backtrader's Cerebro + Store + Broker architecture.
 """
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks

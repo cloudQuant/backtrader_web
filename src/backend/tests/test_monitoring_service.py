@@ -336,6 +336,77 @@ class TestListAlerts:
 
 
 @pytest.mark.asyncio
+class TestGetAlertRuleAndAlert:
+    """测试获取单条规则/告警"""
+
+    async def test_get_alert_rule_success(self):
+        service = MonitoringService()
+
+        mock_rule = Mock()
+        mock_rule.user_id = "user_123"
+
+        service.alert_rule_repo = AsyncMock()
+        service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
+
+        rule = await service.get_alert_rule(rule_id="rule_123", user_id="user_123")
+        assert rule is mock_rule
+
+    async def test_get_alert_rule_not_found(self):
+        service = MonitoringService()
+
+        service.alert_rule_repo = AsyncMock()
+        service.alert_rule_repo.get_by_id = AsyncMock(return_value=None)
+
+        rule = await service.get_alert_rule(rule_id="rule_404", user_id="user_123")
+        assert rule is None
+
+    async def test_get_alert_rule_forbidden(self):
+        service = MonitoringService()
+
+        mock_rule = Mock()
+        mock_rule.user_id = "user_other"
+
+        service.alert_rule_repo = AsyncMock()
+        service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
+
+        with pytest.raises(PermissionError):
+            await service.get_alert_rule(rule_id="rule_123", user_id="user_123")
+
+    async def test_get_alert_success(self):
+        service = MonitoringService()
+
+        mock_alert = Mock()
+        mock_alert.user_id = "user_123"
+
+        service.alert_repo = AsyncMock()
+        service.alert_repo.get_by_id = AsyncMock(return_value=mock_alert)
+
+        alert = await service.get_alert(alert_id="alert_123", user_id="user_123")
+        assert alert is mock_alert
+
+    async def test_get_alert_not_found(self):
+        service = MonitoringService()
+
+        service.alert_repo = AsyncMock()
+        service.alert_repo.get_by_id = AsyncMock(return_value=None)
+
+        alert = await service.get_alert(alert_id="alert_404", user_id="user_123")
+        assert alert is None
+
+    async def test_get_alert_forbidden(self):
+        service = MonitoringService()
+
+        mock_alert = Mock()
+        mock_alert.user_id = "user_other"
+
+        service.alert_repo = AsyncMock()
+        service.alert_repo.get_by_id = AsyncMock(return_value=mock_alert)
+
+        with pytest.raises(PermissionError):
+            await service.get_alert(alert_id="alert_123", user_id="user_123")
+
+
+@pytest.mark.asyncio
 class TestMarkAlertRead:
     """测试标记告警已读"""
 
@@ -725,7 +796,16 @@ class TestStartStopMonitoring:
 
         with patch('asyncio.create_task') as mock_create_task:
             mock_task = Mock()
-            mock_create_task.return_value = mock_task
+            # _start_monitoring schedules _monitor_task via asyncio.create_task; when patched,
+            # close the coroutine to avoid "coroutine was never awaited" warnings.
+            def _create_task(coro):
+                try:
+                    coro.close()
+                except Exception:
+                    pass
+                return mock_task
+
+            mock_create_task.side_effect = _create_task
 
             await service._start_monitoring("rule_123")
 

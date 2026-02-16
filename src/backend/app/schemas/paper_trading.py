@@ -1,5 +1,5 @@
 """
-模拟交易相关的 Pydantic 模型
+Paper trading schemas.
 """
 from datetime import datetime
 from typing import Optional, List

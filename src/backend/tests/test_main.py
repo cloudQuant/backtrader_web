@@ -229,7 +229,6 @@ class TestWebSocketEndpoint:
         assert len(ws_backtest_routes) > 0
 
 
-@pytest.mark.asyncio
 class TestMainEntry:
     """主入口测试"""
 
@@ -280,7 +279,6 @@ class TestAppIntegration:
         assert resp.status_code == 200
 
 
-@pytest.mark.asyncio
 class TestLoggerSetup:
     """日志配置测试"""
 
@@ -295,7 +293,6 @@ class TestLoggerSetup:
         assert hasattr(logger, 'error')
 
 
-@pytest.mark.asyncio
 class TestWebSocketManager:
     """WebSocket 管理器测试"""
 

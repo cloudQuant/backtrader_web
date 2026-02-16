@@ -1,10 +1,10 @@
 """
-App 包初始化
+App package initialization.
 
-提供所有模块的统一导入接口
+Provides a single import surface for submodules.
 """
 
-# 后端模块
+# Backend modules
 from . import config
 from . import db
 from . import services

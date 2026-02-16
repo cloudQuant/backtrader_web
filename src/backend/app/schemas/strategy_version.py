@@ -1,5 +1,5 @@
 """
-策略版本管理相关的 Pydantic 模型
+Strategy versioning schemas.
 """
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -25,6 +25,7 @@ class VersionUpdate(BaseModel):
     description: Optional[str] = Field(None, description="版本描述")
     tags: Optional[List[str]] = Field(None, description="版本标签")
     status: Optional[str] = Field(None, description="版本状态：draft, stable, deprecated, archived")
+    changelog: Optional[str] = Field(None, description="变更日志（可选，通常在发布 stable 时填写）")
 
 
 class VersionResponse(BaseModel):

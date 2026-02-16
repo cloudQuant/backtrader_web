@@ -1,5 +1,5 @@
 """
-策略ORM模型
+Strategy ORM models.
 """
 import uuid
 from datetime import datetime, timezone

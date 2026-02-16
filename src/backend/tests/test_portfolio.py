@@ -171,7 +171,6 @@ class TestPortfolioAllocationDetailed:
                 assert "strategy_id" in item or "strategy_name" in item
 
 
-@pytest.mark.asyncio
 class TestPortfolioHelperFunctions:
     """测试辅助函数"""
 

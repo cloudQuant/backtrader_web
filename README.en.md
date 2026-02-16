@@ -1,36 +1,50 @@
-# backtrader_web
+# Backtrader Web
 
-#### Description
-backtrader的web前端
+A modern web backtesting platform built around Backtrader.
 
-#### Software Architecture
-Software architecture description
+## Tech Stack
 
-#### Installation
+- Frontend: Vue 3 + TypeScript + Vite + Element Plus + ECharts
+- Backend: FastAPI + Uvicorn + Pydantic + SQLAlchemy 2.0
+- Database: SQLite (default), PostgreSQL/MySQL (optional)
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+## Quick Start
 
-#### Instructions
+### Requirements
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+- Python 3.10+
+- Node.js 18+
 
-#### Contribution
+### Backend
 
-1.  Fork the repository
-2.  Create Feat_xxx branch
-3.  Commit your code
-4.  Create Pull Request
+```bash
+cd src/backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn app.main:app --reload --port 8000
+```
 
+Open API docs: `http://localhost:8000/docs`
 
-#### Gitee Feature
+### Frontend
 
-1.  You can use Readme\_XXX.md to support different languages, such as Readme\_en.md, Readme\_zh.md
-2.  Gitee blog [blog.gitee.com](https://blog.gitee.com)
-3.  Explore open source project [https://gitee.com/explore](https://gitee.com/explore)
-4.  The most valuable open source project [GVP](https://gitee.com/gvp)
-5.  The manual of Gitee [https://gitee.com/help](https://gitee.com/help)
-6.  The most popular members  [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+```bash
+cd src/frontend
+npm install
+npm run dev
+```
+
+Open: `http://localhost:5173`
+
+## Documentation
+
+- User guide: `docs/USER_GUIDE.md`
+- Development guide: `docs/DEVELOPMENT.md`
+- API guide: `docs/API.md`
+
+## Examples
+
+- Backend API quickstart: `examples/backend_api_quickstart.py`
+

@@ -1,7 +1,7 @@
 """
-参数优化服务
+Optimization service.
 
-支持网格搜索和贝叶斯优化
+Supports grid search and Bayesian optimization.
 """
 import uuid
 import asyncio

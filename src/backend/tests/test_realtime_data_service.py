@@ -14,7 +14,6 @@ from datetime import datetime
 from app.services.realtime_data_service import RealTimeDataService
 
 
-@pytest.mark.asyncio
 class TestRealTimeDataServiceInitialization:
     """测试服务初始化"""
 
@@ -323,7 +322,6 @@ class TestGetHistoricalData:
         assert result_1h == []
 
 
-@pytest.mark.asyncio
 class TestUpdateTick:
     """测试更新行情缓存"""
 

@@ -1,11 +1,11 @@
 """
-参数优化服务 — 基于多进程的网格搜索
+Parameter optimization service (multiprocess grid search).
 
-设计思路:
-- 根据用户指定的参数范围 (start, end, step) 生成笛卡尔积参数网格
-- 使用 concurrent.futures.ProcessPoolExecutor 并行执行各参数组合
-- 每个 worker: 写临时 config.yaml → 运行 run.py 子进程 → 解析 logs → 返回指标
-- 主线程汇总结果，提供进度查询接口
+Design:
+- Build a Cartesian product grid from (start, end, step) parameter ranges.
+- Evaluate combinations in parallel via concurrent.futures.ProcessPoolExecutor.
+- Each worker: write a temporary config.yaml -> run a run.py subprocess -> parse logs -> return metrics.
+- The main process aggregates results and exposes progress queries.
 """
 import copy
 import itertools

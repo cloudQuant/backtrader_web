@@ -1,5 +1,7 @@
 """
-API路由汇总 — 所有子路由统一在此注册（B016: 避免 main.py 重复注册）
+API router registry.
+
+All sub-routers are registered here (B016: avoid duplicate registration in main.py).
 """
 from fastapi import APIRouter
 
@@ -13,7 +15,7 @@ from app.api.optimization_api import router as optimization_router
 
 api_router = APIRouter()
 
-# 核心模块路由
+# Core routers
 api_router.include_router(auth_router, prefix="/auth", tags=["认证"])
 api_router.include_router(backtest_router, prefix="/backtest", tags=["回测"])
 api_router.include_router(strategy_router, prefix="/strategy", tags=["策略"])
@@ -22,7 +24,7 @@ api_router.include_router(live_trading_router, prefix="/live-trading", tags=["�
 api_router.include_router(portfolio_router, prefix="/portfolio", tags=["组合管理"])
 api_router.include_router(optimization_router, prefix="/optimization", tags=["参数优化"])
 
-# 扩展模块路由（原在 main.py 中重复注册，现统一到此处）
+# Optional/extended routers (previously duplicated in main.py)
 try:
     from app.api.backtest_enhanced import router as backtest_enhanced_router
     api_router.include_router(backtest_enhanced_router, prefix="/backtests", tags=["回测增强"])

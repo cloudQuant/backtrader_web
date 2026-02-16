@@ -1,5 +1,5 @@
 """
-安全工具 - JWT和密码处理
+Security utilities for JWT and password handling.
 """
 from datetime import datetime, timedelta, timezone
 from typing import Optional
