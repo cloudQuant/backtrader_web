@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""EMA双均线交叉策略回测运行脚本
+"""EMA Dual Moving Average Crossover Strategy backtest runner script.
 
-从config.yaml加载配置，运行回测并验证结果与预期值一致。
+Loads configuration from config.yaml, runs backtest, and verifies results match expected values.
 """
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
@@ -14,14 +14,14 @@ from pathlib import Path
 import backtrader as bt
 import yaml
 
-# 导入策略类
+# Import strategy class
 from strategy_ema_cross import EmaCrossStrategy
 
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_config():
-    """从config.yaml加载配置"""
+    """Load configuration from config.yaml."""
     config_path = BASE_DIR / "config.yaml"
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
@@ -29,7 +29,7 @@ def load_config():
 
 
 def resolve_data_path(filename: str) -> Path:
-    """通过搜索多个目录路径来定位数据文件"""
+    """Locate data files by searching multiple directory paths."""
     search_paths = [
         BASE_DIR / filename,
         BASE_DIR.parent / filename,
@@ -38,22 +38,22 @@ def resolve_data_path(filename: str) -> Path:
         BASE_DIR.parent.parent / "tests" / "datas" / filename,
     ]
 
-    # 检查环境变量中的额外数据目录
+    # Check additional data directory from environment variable
     data_dir = os.environ.get("BACKTRADER_DATA_DIR")
     if data_dir:
         search_paths.append(Path(data_dir) / filename)
 
-    # 返回第一个存在的路径
+    # Return first existing path
     for candidate in search_paths:
         if candidate.exists():
             return candidate
 
-    # 文件未找到
+    # File not found
     raise FileNotFoundError(f"Data file not found: {filename}")
 
 
 def load_minute_data():
-    """加载5分钟数据"""
+    """Load 5-minute data."""
     minute_data_path = resolve_data_path("2006-min-005.txt")
     minute_data = bt.feeds.GenericCSVData(
         dataname=str(minute_data_path),
@@ -70,13 +70,13 @@ def load_minute_data():
         volume=6,
         openinterest=7,
         timeframe=bt.TimeFrame.Minutes,
-        compression=5,  # 5分钟bar
+        compression=5,  # 5-minute bar
     )
     return minute_data
 
 
 def load_daily_data():
-    """加载日线数据"""
+    """Load daily data."""
     daily_data_path = resolve_data_path("2006-day-001.txt")
     daily_data = bt.feeds.GenericCSVData(
         dataname=str(daily_data_path),
@@ -96,35 +96,32 @@ def load_daily_data():
 
 
 def run():
-    """运行回测"""
-    # 加载配置
+    """Run backtest."""
+    # Load configuration
     config = load_config()
     params = config['params']
     backtest_config = config['backtest']
 
-    # 创建cerebro引擎
+    # Create cerebro engine
     cerebro = bt.Cerebro(stdstats=True)
 
-    # 设置初始资金和手续费设置
+    # Set initial capital and commission settings
     cerebro.broker.setcash(backtest_config['initial_cash'])
     if backtest_config.get('coc', False):
-        cerebro.broker.set_coc(True)  # Cheat On Close - 收盘价执行
+        cerebro.broker.set_coc(True)  # Cheat On Close - execute at close price
 
-    # 加载5分钟数据 (datas[0])
+    # Load 5-minute data (datas[0])
     print("Loading minute data...")
     minute_data = load_minute_data()
     cerebro.adddata(minute_data, name="minute")
 
-    # 加载日线数据 (datas[1])
+    # Load daily data (datas[1])
     print("Loading daily data...")
     daily_data = load_daily_data()
     cerebro.adddata(daily_data, name="daily")
 
-    # 添加策略及参数
+    # Add strategy with parameters
     cerebro.addstrategy(
-
-
-
         EmaCrossStrategy,
         fast_period=params['fast_period'],
         slow_period=params['slow_period'],
@@ -132,9 +129,9 @@ def run():
         long_size=params['long_size'],
     )
 
-    # 添加性能分析器
+    # Add performance analyzers
     cerebro.addanalyzer(bt.analyzers.TotalValue, _name="my_value")
-    # 使用日线时间框架计算Sharpe比率，避免分钟数据的RATEFACTORS问题
+    # Use daily timeframe for Sharpe ratio to avoid RATEFACTORS issues with minute data
     cerebro.addanalyzer(
         bt.analyzers.SharpeRatio,
         _name="my_sharpe",
@@ -145,7 +142,7 @@ def run():
     cerebro.addanalyzer(bt.analyzers.Returns, _name="my_returns")
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="my_drawdown")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="my_trade_analyzer")
-    # 日志配置
+    # Log configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -153,10 +150,10 @@ def run():
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data logs
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), also supports 'csv'
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',
@@ -167,11 +164,11 @@ def run():
         # mysql_table_prefix='bt',
     )
 
-    # 运行回测
+    # Run backtest
     print("Starting backtest...")
     results = cerebro.run()
 
-    # 提取结果
+    # Extract results
     strat = results[0]
     sharpe_ratio = strat.analyzers.my_sharpe.get_analysis().get("sharperatio")
     annual_return = strat.analyzers.my_returns.get_analysis().get("rnorm")
@@ -185,7 +182,7 @@ def run():
     total_trades = trade_analysis.get("total", {}).get("total", 0)
     final_value = cerebro.broker.getvalue()
 
-    # 打印结果
+    # Print results
     print("\n" + "=" * 50)
     print("EMA Dual Moving Average Crossover Strategy Backtest Results:")
     print(f"  bar_num: {strat.bar_num}")
@@ -201,7 +198,7 @@ def run():
     print(f"  final_value: {final_value:.2f}")
     print("=" * 50)
 
-    # 验证结果与预期值一致
+    # Verify results match expected values
     assert strat.bar_num == 1780, f"Expected bar_num=1780, got {strat.bar_num}"
     assert abs(final_value - 99981.71) < 0.01, f"Expected final_value=99981.71, got {final_value}"
     assert total_trades == 2, f"Expected total_trades=2, got {total_trades}"

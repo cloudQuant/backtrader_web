@@ -1,13 +1,13 @@
 """
-实盘交易 API (加密货币交易) 测试
+Live Trading API (Cryptocurrency Trading) Tests.
 
-测试 /api/v1/live-trading-crypto 路由：
-- POST /live/submit - 提交实盘策略
-- GET /live/tasks - 获取任务列表
-- GET /live/tasks/{task_id} - 获取任务状态
-- POST /live/tasks/{task_id}/stop - 停止任务
-- GET /live/tasks/{task_id}/data - 获取交易数据
-- WebSocket /ws/live/{task_id} - 实时推送
+Tests /api/v1/live-trading-crypto routes:
+    - POST /live/submit - Submit live trading strategy
+    - GET /live/tasks - Get task list
+    - GET /live/tasks/{task_id} - Get task status
+    - POST /live/tasks/{task_id}/stop - Stop task
+    - GET /live/tasks/{task_id}/data - Get trading data
+    - WebSocket /ws/live/{task_id} - Real-time updates
 """
 import pytest
 from httpx import AsyncClient
@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
 
-# 有效的实盘交易请求
+# Valid live trading request
 VALID_LIVE_TRADING_REQUEST = {
     "strategy_name": "SMACross",
     "exchange": "binance",
@@ -29,7 +29,11 @@ VALID_LIVE_TRADING_REQUEST = {
 
 @pytest.fixture
 def mock_live_trading_service():
-    """Mock LiveTradingService fixture"""
+    """Mock LiveTradingService fixture.
+
+    Returns:
+        A mocked LiveTradingService instance.
+    """
     with patch('app.services.live_trading_service.LiveTradingService') as mock:
         service = AsyncMock()
         mock.return_value = service
@@ -38,7 +42,11 @@ def mock_live_trading_service():
 
 @pytest.fixture
 def mock_task_response():
-    """Mock task response fixture"""
+    """Mock task response fixture.
+
+    Returns:
+        A LiveTradingTaskResponse with test data.
+    """
     from app.schemas.live_trading import LiveTradingTaskResponse
     return LiveTradingTaskResponse(
         task_id="task_123",
@@ -51,10 +59,14 @@ def mock_task_response():
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoSubmitAPI:
-    """测试实盘策略提交API"""
+    """Tests for live trading strategy submission API."""
 
     async def test_submit_live_strategy_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required for submission.
+
+        Args:
+            client: Async HTTP client fixture.
+        """
         response = await client.post(
             "/api/v1/live-trading-crypto/live/submit",
             json=VALID_LIVE_TRADING_REQUEST
@@ -62,7 +74,12 @@ class TestLiveTradingCryptoSubmitAPI:
         assert response.status_code in [401, 403]
 
     async def test_submit_live_strategy_success(self, client: AsyncClient, auth_headers):
-        """测试成功提交策略"""
+        """Test successful strategy submission.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -85,7 +102,12 @@ class TestLiveTradingCryptoSubmitAPI:
             assert "created_at" in data
 
     async def test_submit_live_strategy_with_full_params(self, client: AsyncClient, auth_headers):
-        """测试完整参数提交"""
+        """Test submission with full parameters.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         full_request = {
             "strategy_name": "SMACross",
             "strategy_code": "class MyStrategy(bt.Strategy): pass",
@@ -117,7 +139,12 @@ class TestLiveTradingCryptoSubmitAPI:
             assert data["status"] == "submitted"
 
     async def test_submit_live_strategy_missing_required_fields(self, client: AsyncClient, auth_headers):
-        """测试缺少必填字段"""
+        """Test submission with missing required fields.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         invalid_request = {
             "strategy_name": "SMACross",
             "exchange": "binance",
@@ -134,15 +161,24 @@ class TestLiveTradingCryptoSubmitAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoTasksAPI:
-    """测试实盘任务管理API"""
+    """Tests for live trading task management API."""
 
     async def test_list_live_tasks_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required for listing tasks.
+
+        Args:
+            client: Async HTTP client fixture.
+        """
         response = await client.get("/api/v1/live-trading-crypto/live/tasks")
         assert response.status_code in [401, 403]
 
     async def test_list_live_tasks_with_auth(self, client: AsyncClient, auth_headers):
-        """测试获取任务列表"""
+        """Test getting task list with authentication.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -160,7 +196,12 @@ class TestLiveTradingCryptoTasksAPI:
             assert data["total"] == 0
 
     async def test_list_live_tasks_with_pagination(self, client: AsyncClient, auth_headers):
-        """测试分页参数"""
+        """Test pagination parameters.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         from app.schemas.live_trading import LiveTradingTaskResponse
 
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
@@ -197,7 +238,12 @@ class TestLiveTradingCryptoTasksAPI:
             assert data["total"] == 2
 
     async def test_list_live_tasks_invalid_limit(self, client: AsyncClient, auth_headers):
-        """测试无效的limit参数"""
+        """Test invalid limit parameter.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.get(
             "/api/v1/live-trading-crypto/live/tasks",
             headers=auth_headers,
@@ -208,15 +254,24 @@ class TestLiveTradingCryptoTasksAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoTaskStatusAPI:
-    """测试实盘任务状态API"""
+    """Tests for live trading task status API."""
 
     async def test_get_live_task_status_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required for status.
+
+        Args:
+            client: Async HTTP client fixture.
+        """
         response = await client.get("/api/v1/live-trading-crypto/live/tasks/task_123")
         assert response.status_code in [401, 403]
 
     async def test_get_live_task_status_not_found(self, client: AsyncClient, auth_headers):
-        """测试任务不存在"""
+        """Test getting status for non-existent task.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -229,7 +284,12 @@ class TestLiveTradingCryptoTaskStatusAPI:
             assert response.status_code == 404
 
     async def test_get_live_task_status_success(self, client: AsyncClient, auth_headers):
-        """测试成功获取任务状态"""
+        """Test successful task status retrieval.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         from app.schemas.live_trading import LiveTradingTaskResponse
 
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
@@ -257,15 +317,24 @@ class TestLiveTradingCryptoTaskStatusAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoControlAPI:
-    """测试实盘任务控制API"""
+    """Tests for live trading task control API."""
 
     async def test_stop_live_strategy_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required for stopping.
+
+        Args:
+            client: Async HTTP client fixture.
+        """
         response = await client.post("/api/v1/live-trading-crypto/live/tasks/task_123/stop")
         assert response.status_code in [401, 403]
 
     async def test_stop_live_strategy_not_found(self, client: AsyncClient, auth_headers):
-        """测试停止不存在的任务"""
+        """Test stopping non-existent task.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -278,7 +347,12 @@ class TestLiveTradingCryptoControlAPI:
             assert response.status_code == 404
 
     async def test_stop_live_strategy_success(self, client: AsyncClient, auth_headers):
-        """测试成功停止实盘策略"""
+        """Test successfully stopping live trading strategy.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -295,15 +369,24 @@ class TestLiveTradingCryptoControlAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoDataAPI:
-    """测试实盘交易数据API"""
+    """Tests for live trading data API."""
 
     async def test_get_live_data_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required for data.
+
+        Args:
+            client: Async HTTP client fixture.
+        """
         response = await client.get("/api/v1/live-trading-crypto/live/tasks/task_123/data")
         assert response.status_code in [401, 403]
 
     async def test_get_live_data_with_auth(self, client: AsyncClient, auth_headers):
-        """测试获取实盘数据"""
+        """Test getting live trading data.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -337,7 +420,12 @@ class TestLiveTradingCryptoDataAPI:
             assert "orders" in data
 
     async def test_get_live_data_task_not_found(self, client: AsyncClient, auth_headers):
-        """测试任务不存在"""
+        """Test getting data for non-existent task.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -352,24 +440,36 @@ class TestLiveTradingCryptoDataAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoWebSocket:
-    """测试WebSocket端点"""
+    """Tests for WebSocket endpoints."""
 
     async def test_websocket_endpoint_exists(self):
-        """测试WebSocket端点存在"""
+        """Test that WebSocket endpoint exists.
+
+        Verifies the router contains a WebSocket route
+        for live trading updates.
+        """
         from app.api.live_trading import router
 
         routes = [route.path for route in router.routes]
         assert any("/ws/live/" in str(r) for r in routes)
 
     async def test_websocket_handler_defined(self):
-        """测试WebSocket处理函数已定义"""
+        """Test that WebSocket handler is defined.
+
+        Verifies the live_trading_websocket function
+        exists and is callable.
+        """
         from app.api.live_trading import live_trading_websocket
 
         assert live_trading_websocket is not None
         assert callable(live_trading_websocket)
 
     async def test_websocket_connection(self):
-        """测试WebSocket连接基本功能"""
+        """Test WebSocket connection basic functionality.
+
+        Verifies that a WebSocket connection can be
+        established and closed properly.
+        """
         from app.api.live_trading import live_trading_websocket
 
         mock_ws = MagicMock()
@@ -391,17 +491,25 @@ class TestLiveTradingCryptoWebSocket:
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoRouter:
-    """测试实盘交易路由"""
+    """Tests for live trading router."""
 
     async def test_router_exists(self):
-        """测试路由存在"""
+        """Test that router exists.
+
+        Verifies the live trading router is properly
+        defined and initialized.
+        """
         from app.api.live_trading import router
 
         assert router is not None
         assert hasattr(router, 'routes')
 
     async def test_router_has_endpoints(self):
-        """测试路由有必要的端点"""
+        """Test that router has required endpoints.
+
+        Verifies the router contains the necessary
+        HTTP endpoints for live trading.
+        """
         from app.api.live_trading import router
 
         routes = [route.path for route in router.routes]
@@ -413,17 +521,25 @@ class TestLiveTradingCryptoRouter:
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoService:
-    """测试服务集成"""
+    """Tests for service integration."""
 
     async def test_service_dependency_exists(self):
-        """测试服务依赖函数存在"""
+        """Test that service dependency function exists.
+
+        Verifies the get_live_trading_service dependency
+        injection function is defined.
+        """
         from app.api.live_trading import get_live_trading_service
 
         assert get_live_trading_service is not None
         assert callable(get_live_trading_service)
 
     async def test_service_class_exists(self):
-        """测试服务类存在"""
+        """Test that service class exists.
+
+        Verifies the LiveTradingService class is properly
+        defined in the services module.
+        """
         from app.services.live_trading_service import LiveTradingService
 
         assert LiveTradingService is not None
@@ -431,10 +547,14 @@ class TestLiveTradingCryptoService:
 
 @pytest.mark.asyncio
 class TestLiveTradingCryptoSchemas:
-    """测试Schema"""
+    """Tests for schemas."""
 
     async def test_schemas_exist(self):
-        """测试Schema存在"""
+        """Test that required schemas exist.
+
+        Verifies all necessary Pydantic schemas for
+        live trading are defined.
+        """
         from app.schemas.live_trading import (
             LiveTradingSubmitRequest,
             LiveTradingTaskResponse,

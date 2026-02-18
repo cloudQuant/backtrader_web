@@ -1,5 +1,5 @@
 """
-安全工具测试 - JWT 和密码处理
+Security utilities tests - JWT and password handling.
 """
 from datetime import timedelta
 
@@ -12,7 +12,7 @@ from app.utils.security import (
 
 
 class TestPasswordHash:
-    """密码哈希测试"""
+    """Password hashing tests."""
 
     def test_hash_and_verify(self):
         password = "TestPassword123"
@@ -31,7 +31,7 @@ class TestPasswordHash:
 
 
 class TestJWT:
-    """JWT 令牌测试"""
+    """JWT token tests."""
 
     def test_create_and_decode(self):
         data = {"sub": "user-123", "username": "testuser"}

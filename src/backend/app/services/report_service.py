@@ -34,13 +34,12 @@ except ImportError:
 
 
 class ReportService:
-    """
-    回测报告生成服务
+    """Service for generating backtest reports in multiple formats.
 
-    支持以下格式：
-    1. HTML - 交互式网页报告
-    2. PDF - 专业 PDF 报告
-    3. Excel - 可编辑的 Excel 文件
+    Supported formats:
+    1. HTML - Interactive web-based reports
+    2. PDF - Professional PDF reports
+    3. Excel - Editable Excel spreadsheets
     """
 
     async def generate_html_report(
@@ -48,34 +47,38 @@ class ReportService:
         result: Dict[str, Any],
         strategy: Dict[str, Any],
     ) -> str:
-        """
-        生成 HTML 报告
+        """Generate an HTML report from backtest results.
 
         Args:
-            result: 回测结果
-            strategy: 策略信息
+            result: Dictionary containing backtest results with metrics such as
+                total_return, annual_return, sharpe_ratio, max_drawdown, etc.
+            strategy: Dictionary containing strategy information including name,
+                parameters, and configuration.
 
         Returns:
-            str: HTML 内容
+            String containing the complete HTML report.
+
+        Raises:
+            ImportError: If jinja2 is not installed.
         """
         if not JINJA2_AVAILABLE:
-            raise ImportError("请安装 jinja2: pip install jinja2")
+            raise ImportError("Please install jinja2: pip install jinja2")
 
-        # HTML 模板
+        # HTML template
         template_str = '''
         <!DOCTYPE html>
         <html lang="zh-CN">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>{{ strategy.name }} - 回测报告</title>
+            <title>{{ strategy.name }} - Backtest Report</title>
             <style>
                 * {
                     margin: 0;
                     padding: 0;
                     box-sizing: border-box;
                 }
-                
+
                 body {
                     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
                     line-height: 1.6;
@@ -83,7 +86,7 @@ class ReportService:
                     background: #f5f5f5;
                     padding: 20px;
                 }
-                
+
                 .container {
                     max-width: 1200px;
                     margin: 0 auto;
@@ -92,97 +95,97 @@ class ReportService:
                     box-shadow: 0 2px 10px rgba(0,0,0,0.1);
                     overflow: hidden;
                 }
-                
+
                 .header {
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     color: white;
                     padding: 30px;
                 }
-                
+
                 .header h1 {
                     margin: 0;
                     font-size: 28px;
                     font-weight: bold;
                 }
-                
+
                 .header p {
                     margin: 10px 0 0 0;
                     opacity: 0.9;
                 }
-                
+
                 .content {
                     padding: 30px;
                 }
-                
+
                 .section {
                     margin-bottom: 40px;
                 }
-                
+
                 .section h2 {
                     color: #2c3e50;
                     border-bottom: 3px solid #667eea;
                     padding-bottom: 10px;
                     margin-bottom: 20px;
                 }
-                
+
                 .metrics {
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
                     gap: 20px;
                 }
-                
+
                 .metric-card {
                     background: #f8f9fa;
                     padding: 20px;
                     border-radius: 8px;
                     border-left: 4px solid #667eea;
                 }
-                
+
                 .metric-label {
                     color: #6c757d;
                     font-size: 14px;
                     margin-bottom: 10px;
                 }
-                
+
                 .metric-value {
                     font-size: 24px;
                     font-weight: bold;
                     color: #2c3e50;
                 }
-                
+
                 .metric-value.positive {
                     color: #28a745;
                 }
-                
+
                 .metric-value.negative {
                     color: #dc3545;
                 }
-                
+
                 .table {
                     width: 100%;
                     border-collapse: collapse;
                     margin-top: 20px;
                 }
-                
+
                 .table th, .table td {
                     border: 1px solid #dee2e6;
                     padding: 12px;
                     text-align: left;
                 }
-                
+
                 .table th {
                     background: #f8f9fa;
                     font-weight: bold;
                 }
-                
+
                 .table tr:nth-child(even) {
                     background: #f8f9fa;
                 }
-                
+
                 .table tr:hover {
                     background: #e9ecef;
                 }
-                
+
                 .footer {
                     background: #f8f9fa;
                     padding: 20px;
@@ -190,7 +193,7 @@ class ReportService:
                     color: #6c757d;
                     font-size: 14px;
                 }
-                
+
                 .chart-container {
                     height: 400px;
                     margin: 20px 0;
@@ -202,82 +205,82 @@ class ReportService:
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>{{ strategy.name }} - 回测报告</h1>
-                    <p>生成时间: {{ created_at }}</p>
-                    <p>回测时间范围: {{ start_date }} 至 {{ end_date }}</p>
+                    <h1>{{ strategy.name }} - Backtest Report</h1>
+                    <p>Generated: {{ created_at }}</p>
+                    <p>Backtest Period: {{ start_date }} to {{ end_date }}</p>
                 </div>
-                
+
                 <div class="content">
                     <div class="section">
-                        <h2>回测概览</h2>
+                        <h2>Backtest Overview</h2>
                         <div class="metrics">
                             <div class="metric-card">
-                                <div class="metric-label">总收益率</div>
+                                <div class="metric-label">Total Return</div>
                                 <div class="metric-value {{ 'positive' if total_return >= 0 else 'negative' }}">
                                     {{ total_return }}%
                                 </div>
                             </div>
                             <div class="metric-card">
-                                <div class="metric-label">年化收益率</div>
+                                <div class="metric-label">Annual Return</div>
                                 <div class="metric-value {{ 'positive' if annual_return >= 0 else 'negative' }}">
                                     {{ annual_return }}%
                                 </div>
                             </div>
                             <div class="metric-card">
-                                <div class="metric-label">夏普比率</div>
+                                <div class="metric-label">Sharpe Ratio</div>
                                 <div class="metric-value">{{ sharpe_ratio }}</div>
                             </div>
                             <div class="metric-card">
-                                <div class="metric-label">最大回撤</div>
+                                <div class="metric-label">Max Drawdown</div>
                                 <div class="metric-value negative">{{ max_drawdown }}%</div>
                             </div>
                             <div class="metric-card">
-                                <div class="metric-label">胜率</div>
+                                <div class="metric-label">Win Rate</div>
                                 <div class="metric-value">{{ win_rate }}%</div>
                             </div>
                             <div class="metric-card">
-                                <div class="metric-label">总交易次数</div>
+                                <div class="metric-label">Total Trades</div>
                                 <div class="metric-value">{{ total_trades }}</div>
                             </div>
                             <div class="metric-card">
-                                <div class="metric-label">盈利交易</div>
+                                <div class="metric-label">Profitable Trades</div>
                                 <div class="metric-value positive">{{ profitable_trades }}</div>
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="section">
-                        <h2>交易统计</h2>
+                        <h2>Trade Statistics</h2>
                         <table class="table">
                             <tr>
-                                <th>统计项</th>
-                                <th>数值</th>
+                                <th>Metric</th>
+                                <th>Value</th>
                             </tr>
                             <tr>
-                                <td>总交易次数</td>
+                                <td>Total Trades</td>
                                 <td>{{ total_trades }}</td>
                             </tr>
                             <tr>
-                                <td>盈利交易</td>
+                                <td>Profitable Trades</td>
                                 <td class="positive">{{ profitable_trades }}</td>
                             </tr>
                             <tr>
-                                <td>亏损交易</td>
+                                <td>Losing Trades</td>
                                 <td class="negative">{{ losing_trades }}</td>
                             </tr>
                             <tr>
-                                <td>胜率</td>
+                                <td>Win Rate</td>
                                 <td>{{ win_rate }}%</td>
                             </tr>
                         </table>
                     </div>
-                    
+
                     <div class="section">
-                        <h2>策略参数</h2>
+                        <h2>Strategy Parameters</h2>
                         <table class="table">
                             <tr>
-                                <th>参数名</th>
-                                <th>参数值</th>
+                                <th>Parameter</th>
+                                <th>Value</th>
                             </tr>
                             {% for key, value in params.items() %}
                             <tr>
@@ -287,18 +290,19 @@ class ReportService:
                             {% endfor %}
                         </table>
                     </div>
-                    
+
                     <div class="section">
-                        <h2>风险提示</h2>
+                        <h2>Risk Disclaimer</h2>
                         <p style="color: #dc3545; background: #f8d7da; padding: 15px; border-radius: 4px;">
-                            ⚠️ 本报告基于历史数据回测，历史表现不代表未来收益。实际交易可能因市场波动、手续费、滑点等因素产生与回测不同的结果。
-                            请谨慎投资，控制风险。
+                            This report is based on historical backtesting data. Past performance does not guarantee future results.
+                            Actual trading may differ from backtest results due to market volatility, commissions, slippage, and other factors.
+                            Please invest cautiously and manage your risk appropriately.
                         </p>
                     </div>
                 </div>
-                
+
                 <div class="footer">
-                    <p>由 Backtrader Web 生成</p>
+                    <p>Generated by Backtrader Web</p>
                 </div>
             </div>
         </body>
@@ -307,7 +311,7 @@ class ReportService:
 
         template = Template(template_str)
 
-        # 渲染模板
+        # Render template
         html_content = template.render(
             strategy=strategy,
             total_return=result.get('total_return', 0),
@@ -331,23 +335,25 @@ class ReportService:
         result: Dict[str, Any],
         strategy: Dict[str, Any],
     ) -> bytes:
-        """
-        生成 PDF 报告
+        """Generate a PDF report from backtest results.
 
         Args:
-            result: 回测结果
-            strategy: 策略信息
+            result: Dictionary containing backtest results with metrics.
+            strategy: Dictionary containing strategy information.
 
         Returns:
-            bytes: PDF 文件内容
+            Bytes containing the PDF file content.
+
+        Raises:
+            ImportError: If weasyprint is not installed.
         """
         if not WEASYPRINT_AVAILABLE:
-            raise ImportError("请安装 weasyprint: pip install weasyprint")
+            raise ImportError("Please install weasyprint: pip install weasyprint")
 
-        # 先生成 HTML
+        # First generate HTML
         html_content = await self.generate_html_report(result, strategy)
 
-        # 转换为 PDF
+        # Convert to PDF
         pdf_bytes = WeasyPrintHTML(string=html_content).write_pdf()
 
         return pdf_bytes
@@ -357,28 +363,32 @@ class ReportService:
         result: Dict[str, Any],
         strategy: Dict[str, Any],
     ) -> bytes:
-        """
-        生成 Excel 报告
+        """Generate an Excel report from backtest results.
 
         Args:
-            result: 回测结果
-            strategy: 策略信息
+            result: Dictionary containing backtest results with metrics,
+                trades data, and equity curve information.
+            strategy: Dictionary containing strategy information.
 
         Returns:
-            bytes: Excel 文件内容
+            Bytes containing the Excel file content.
+
+        Raises:
+            ImportError: If pandas or openpyxl is not installed.
         """
         if not PANDAS_AVAILABLE or not OPENPYXL_AVAILABLE:
-            raise ImportError("请安装 pandas 和 openpyxl: pip install pandas openpyxl")
+            raise ImportError("Please install pandas and openpyxl: pip install pandas openpyxl")
 
-        # 创建 Excel 文件
+        # Create Excel file
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            # 概览 sheet
+            # Overview sheet
             overview_df = pd.DataFrame({
-                '指标': ['策略名称', '标的', '开始日期', '结束日期', '总收益率', '年化收益率',
-                         '夏普比率', '最大回撤', '胜率', '总交易次数', '盈利交易', '亏损交易'],
-                '值': [
+                'Metric': ['Strategy Name', 'Symbol', 'Start Date', 'End Date', 'Total Return',
+                         'Annual Return', 'Sharpe Ratio', 'Max Drawdown', 'Win Rate',
+                         'Total Trades', 'Profitable Trades', 'Losing Trades'],
+                'Value': [
                     strategy.get('name', ''),
                     result.get('symbol', ''),
                     str(result.get('start_date', '')),
@@ -393,23 +403,23 @@ class ReportService:
                     result.get('losing_trades', 0),
                 ]
             })
-            overview_df.to_excel(writer, sheet_name='概览', index=False)
+            overview_df.to_excel(writer, sheet_name='Overview', index=False)
 
-            # 交易记录 sheet
+            # Trade records sheet
             trades_data = result.get('trades', [])
             if trades_data:
                 trades_df = pd.DataFrame(trades_data)
-                trades_df.to_excel(writer, sheet_name='交易记录', index=False)
+                trades_df.to_excel(writer, sheet_name='Trades', index=False)
 
-            # 资金曲线 sheet
+            # Equity curve sheet
             equity_dates = result.get('equity_dates', [])
             equity_curve = result.get('equity_curve', [])
             if equity_dates and equity_curve:
                 equity_df = pd.DataFrame({
-                    '日期': equity_dates,
-                    '资金': equity_curve,
+                    'Date': equity_dates,
+                    'Equity': equity_curve,
                 })
-                equity_df.to_excel(writer, sheet_name='资金曲线', index=False)
+                equity_df.to_excel(writer, sheet_name='Equity Curve', index=False)
 
         output.seek(0)
         return output.getvalue()

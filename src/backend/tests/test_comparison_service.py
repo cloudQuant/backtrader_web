@@ -1,20 +1,20 @@
 """
-回测结果对比服务测试
+Backtest result comparison service tests
 
-测试：
-- ComparisonService 类
-- create_comparison 方法
-- _generate_comparison_data 方法
-- _compare_metrics 方法
-- _find_best_metrics 方法
-- _compare_equity 方法
-- _compare_trades 方法
-- _compare_drawdown 方法
-- update_comparison 方法
-- delete_comparison 方法
-- get_comparison 方法
-- list_comparisons 方法
-- _to_response 方法
+Tests:
+- ComparisonService class
+- create_comparison method
+- _generate_comparison_data method
+- _compare_metrics method
+- _find_best_metrics method
+- _compare_equity method
+- _compare_trades method
+- _compare_drawdown method
+- update_comparison method
+- delete_comparison method
+- get_comparison method
+- list_comparisons method
+- _to_response method
 """
 import pytest
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
@@ -25,10 +25,10 @@ from app.models.comparison import Comparison, ComparisonType
 
 
 class TestComparisonServiceInitialization:
-    """测试ComparisonService初始化"""
+    """Test ComparisonService initialization"""
 
     def test_initialization(self):
-        """测试服务初始化"""
+        """Test service initialization"""
         service = ComparisonService()
 
         assert service.comparison_repo is not None
@@ -37,10 +37,10 @@ class TestComparisonServiceInitialization:
 
 @pytest.mark.asyncio
 class TestCreateComparison:
-    """测试创建对比"""
+    """Test creating comparison"""
 
     async def test_create_comparison_basic(self):
-        """测试基础创建"""
+        """Test basic creation"""
         service = ComparisonService()
 
         mock_result = Mock()
@@ -63,7 +63,7 @@ class TestCreateComparison:
         mock_comparison = Mock()
         mock_comparison.id = "comp_123"
         mock_comparison.user_id = "user_123"
-        mock_comparison.name = "测试对比"
+        mock_comparison.name = "Test Comparison"
         mock_comparison.description = None
         mock_comparison.type = ComparisonType.METRICS
         mock_comparison.backtest_task_ids = ["task1", "task2"]
@@ -78,14 +78,14 @@ class TestCreateComparison:
 
         result = await service.create_comparison(
             user_id="user_123",
-            name="测试对比",
+            name="Test Comparison",
             backtest_task_ids=["task1", "task2"]
         )
 
         assert result is not None
 
     async def test_create_comparison_with_invalid_task(self):
-        """测试包含无效任务ID"""
+        """Test with invalid task ID"""
         service = ComparisonService()
 
         service.backtest_service = AsyncMock()
@@ -94,19 +94,19 @@ class TestCreateComparison:
         with pytest.raises(ValueError) as exc_info:
             await service.create_comparison(
                 user_id="user_123",
-                name="测试对比",
+                name="Test Comparison",
                 backtest_task_ids=["invalid_task"]
             )
 
-        assert "不存在" in str(exc_info.value)
+        assert "not found" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
 class TestGenerateComparisonData:
-    """测试生成对比数据"""
+    """Test generating comparison data"""
 
     async def test_generate_metrics_comparison(self):
-        """测试生成指标对比"""
+        """Test generating metrics comparison"""
         service = ComparisonService()
 
         backtest_results = {
@@ -149,7 +149,7 @@ class TestGenerateComparisonData:
         assert result["type"] == ComparisonType.METRICS
 
     async def test_generate_equity_comparison(self):
-        """测试生成资金曲线对比"""
+        """Test generating equity curve comparison"""
         service = ComparisonService()
 
         backtest_results = {
@@ -168,7 +168,7 @@ class TestGenerateComparisonData:
         assert "curves" in result["equity_comparison"]
 
     async def test_generate_trades_comparison(self):
-        """测试生成交易对比"""
+        """Test generating trades comparison"""
         service = ComparisonService()
 
         backtest_results = {
@@ -189,7 +189,7 @@ class TestGenerateComparisonData:
         assert "win_rates" in result["trades_comparison"]
 
     async def test_generate_drawdown_comparison(self):
-        """测试生成回撤对比"""
+        """Test generating drawdown comparison"""
         service = ComparisonService()
 
         backtest_results = {
@@ -209,10 +209,10 @@ class TestGenerateComparisonData:
 
 
 class TestCompareMetrics:
-    """测试指标对比"""
+    """Test metrics comparison"""
 
     def test_compare_metrics(self):
-        """测试指标对比计算"""
+        """Test metrics comparison calculation"""
         service = ComparisonService()
 
         backtest_results = {
@@ -244,10 +244,10 @@ class TestCompareMetrics:
 
 
 class TestFindBestMetrics:
-    """测试查找最优指标"""
+    """Test finding best metrics"""
 
     def test_find_best_metrics(self):
-        """测试查找最优指标"""
+        """Test finding best metrics"""
         service = ComparisonService()
 
         backtest_results = {
@@ -270,13 +270,13 @@ class TestFindBestMetrics:
         result = service._find_best_metrics(backtest_results)
 
         assert result["total_return"]["task_id"] == "task2"  # 0.18 > 0.15
-        # max_drawdown: 实现找最小的值（最负的），所以是task1(-0.10)
+        # max_drawdown: look for smallest (most negative) value, so task1(-0.10)
         assert result["max_drawdown"]["task_id"] == "task1"
         assert result["max_drawdown"]["value"] == -0.10
         assert result["win_rate"]["task_id"] == "task2"  # 0.65 > 0.60
 
     def test_find_best_metrics_single_task(self):
-        """测试单个任务的最优指标"""
+        """Test finding best metrics for single task"""
         service = ComparisonService()
 
         backtest_results = {
@@ -296,10 +296,10 @@ class TestFindBestMetrics:
 
 
 class TestCompareEquity:
-    """测试资金曲线对比"""
+    """Test equity curve comparison"""
 
     def test_compare_equity(self):
-        """测试资金曲线对比"""
+        """Test equity curve comparison"""
         service = ComparisonService()
 
         backtest_results = {
@@ -322,7 +322,7 @@ class TestCompareEquity:
         assert "task2" in result["curves"]
 
     def test_compare_equity_date_alignment(self):
-        """测试日期对齐"""
+        """Test date alignment"""
         service = ComparisonService()
 
         backtest_results = {
@@ -338,17 +338,17 @@ class TestCompareEquity:
 
         result = service._compare_equity(backtest_results)
 
-        # 应该包含所有唯一日期
+        # Should include all unique dates
         assert "2024-01-01" in result["dates"]
         assert "2024-01-02" in result["dates"]
         assert "2024-01-03" in result["dates"]
 
 
 class TestCompareTrades:
-    """测试交易对比"""
+    """Test trades comparison"""
 
     def test_compare_trades(self):
-        """测试交易对比"""
+        """Test trades comparison"""
         service = ComparisonService()
 
         backtest_results = {
@@ -377,10 +377,10 @@ class TestCompareTrades:
 
 
 class TestCompareDrawdown:
-    """测试回撤对比"""
+    """Test drawdown comparison"""
 
     def test_compare_drawdown(self):
-        """测试回撤对比"""
+        """Test drawdown comparison"""
         service = ComparisonService()
 
         backtest_results = {
@@ -404,31 +404,31 @@ class TestCompareDrawdown:
 
 @pytest.mark.asyncio
 class TestUpdateComparison:
-    """测试更新对比"""
+    """Test updating comparison"""
 
     async def test_update_comparison_name(self):
-        """测试更新名称"""
+        """Test updating name"""
         service = ComparisonService()
 
         mock_comparison = Mock()
         mock_comparison.id = "comp_123"
         mock_comparison.user_id = "user_123"
-        mock_comparison.name = "旧名称"
+        mock_comparison.name = "Old Name"
         mock_comparison.description = None
         mock_comparison.is_public = False
-        mock_comparison.is_favorite = False  # 添加布尔值
+        mock_comparison.is_favorite = False  # Add boolean value
         mock_comparison.type = ComparisonType.METRICS
         mock_comparison.backtest_task_ids = ["task1"]
         mock_comparison.comparison_data = {}
         mock_comparison.created_at = datetime.now()
         mock_comparison.updated_at = datetime.now()
 
-        # 模拟repo
+        # Mock repo
         async def mock_get(rid):
             return mock_comparison
 
         async def mock_up(rid, data):
-            # 更新mock对象
+            # Update mock object
             for k, v in data.items():
                 setattr(mock_comparison, k, v)
             return mock_comparison
@@ -438,18 +438,18 @@ class TestUpdateComparison:
         service.comparison_repo.update = mock_up
 
         mock_update_data = Mock()
-        mock_update_data.name = "新名称"
+        mock_update_data.name = "New Name"
         mock_update_data.description = None
-        mock_update_data.is_public = False  # 使用布尔值而不是None
+        mock_update_data.is_public = False  # Use boolean instead of None
         mock_update_data.backtest_task_ids = None
-        mock_update_data.exclude_fields = []  # 添加exclude_fields属性
+        mock_update_data.exclude_fields = []  # Add exclude_fields attribute
 
         result = await service.update_comparison("comp_123", "user_123", mock_update_data)
 
         assert result is not None
 
     async def test_update_comparison_not_owner(self):
-        """测试非所有者更新"""
+        """Test updating by non-owner"""
         service = ComparisonService()
 
         mock_comparison = Mock()
@@ -459,7 +459,7 @@ class TestUpdateComparison:
         service.comparison_repo.get_by_id = AsyncMock(return_value=mock_comparison)
 
         mock_update_data = Mock()
-        mock_update_data.name = "新名称"
+        mock_update_data.name = "New Name"
         mock_update_data.description = None
         mock_update_data.is_public = None
         mock_update_data.backtest_task_ids = None
@@ -469,14 +469,14 @@ class TestUpdateComparison:
         assert result is None
 
     async def test_update_comparison_not_found(self):
-        """测试更新不存在的对比"""
+        """Test updating non-existent comparison"""
         service = ComparisonService()
 
         service.comparison_repo = AsyncMock()
         service.comparison_repo.get_by_id = AsyncMock(return_value=None)
 
         mock_update_data = Mock()
-        mock_update_data.name = "新名称"
+        mock_update_data.name = "New Name"
         mock_update_data.description = None
         mock_update_data.is_public = None
         mock_update_data.backtest_task_ids = None
@@ -488,10 +488,10 @@ class TestUpdateComparison:
 
 @pytest.mark.asyncio
 class TestDeleteComparison:
-    """测试删除对比"""
+    """Test deleting comparison"""
 
     async def test_delete_comparison_success(self):
-        """测试成功删除"""
+        """Test successful deletion"""
         service = ComparisonService()
 
         mock_comparison = Mock()
@@ -506,7 +506,7 @@ class TestDeleteComparison:
         assert result is True
 
     async def test_delete_comparison_not_owner(self):
-        """测试非所有者删除"""
+        """Test deletion by non-owner"""
         service = ComparisonService()
 
         mock_comparison = Mock()
@@ -520,7 +520,7 @@ class TestDeleteComparison:
         assert result is False
 
     async def test_delete_comparison_not_found(self):
-        """测试删除不存在的对比"""
+        """Test deleting non-existent comparison"""
         service = ComparisonService()
 
         service.comparison_repo = AsyncMock()
@@ -533,16 +533,16 @@ class TestDeleteComparison:
 
 @pytest.mark.asyncio
 class TestGetComparison:
-    """测试获取对比"""
+    """Test getting comparison"""
 
     async def test_get_comparison_success(self):
-        """测试成功获取"""
+        """Test successful retrieval"""
         service = ComparisonService()
 
         mock_comparison = Mock()
         mock_comparison.id = "comp_123"
         mock_comparison.user_id = "user_123"
-        mock_comparison.name = "测试对比"
+        mock_comparison.name = "Test Comparison"
         mock_comparison.description = None
         mock_comparison.type = ComparisonType.METRICS
         mock_comparison.backtest_task_ids = []
@@ -560,7 +560,7 @@ class TestGetComparison:
         assert result is not None
 
     async def test_get_comparison_not_found(self):
-        """测试获取不存在的对比"""
+        """Test getting non-existent comparison"""
         service = ComparisonService()
 
         service.comparison_repo = AsyncMock()
@@ -571,7 +571,7 @@ class TestGetComparison:
         assert result is None
 
     async def test_get_comparison_private_not_owner(self):
-        """测试获取私有对比但非所有者"""
+        """Test getting private comparison by non-owner"""
         service = ComparisonService()
 
         mock_comparison = Mock()
@@ -586,14 +586,14 @@ class TestGetComparison:
         assert result is None
 
     async def test_get_comparison_public_accessible(self):
-        """测试公开对比可被其他用户访问"""
+        """Test public comparison accessible by other users"""
         service = ComparisonService()
 
         mock_comparison = Mock()
         mock_comparison.user_id = "other_user"
         mock_comparison.is_public = True
         mock_comparison.id = "comp_123"
-        mock_comparison.name = "公开对比"
+        mock_comparison.name = "Public Comparison"
         mock_comparison.description = None
         mock_comparison.type = ComparisonType.METRICS
         mock_comparison.backtest_task_ids = []
@@ -612,10 +612,10 @@ class TestGetComparison:
 
 @pytest.mark.asyncio
 class TestListComparisons:
-    """测试列出对比"""
+    """Test listing comparisons"""
 
     async def test_list_comparisons_default(self):
-        """测试默认列出用户对比"""
+        """Test default user comparison listing"""
         service = ComparisonService()
 
         mock_comparisons = []
@@ -629,7 +629,7 @@ class TestListComparisons:
         assert total == 0
 
     async def test_list_comparisons_public_only(self):
-        """测试只列出公开对比"""
+        """Test listing public comparisons only"""
         service = ComparisonService()
 
         mock_comparisons = []
@@ -643,7 +643,7 @@ class TestListComparisons:
         assert total == 0
 
     async def test_list_comparisons_private_only(self):
-        """测试只列出私有对比"""
+        """Test listing private comparisons only"""
         service = ComparisonService()
 
         mock_comparisons = []
@@ -657,7 +657,7 @@ class TestListComparisons:
         assert total == 0
 
     async def test_list_comparisons_with_pagination(self):
-        """测试分页"""
+        """Test pagination"""
         service = ComparisonService()
 
         mock_comparisons = []
@@ -672,17 +672,17 @@ class TestListComparisons:
 
 
 class TestToResponse:
-    """测试转换为响应模型"""
+    """Test conversion to response model"""
 
     def test_to_response(self):
-        """测试转换"""
+        """Test conversion"""
         service = ComparisonService()
 
         mock_comparison = Mock()
         mock_comparison.id = "comp_123"
         mock_comparison.user_id = "user_123"
-        mock_comparison.name = "测试对比"
-        mock_comparison.description = "测试描述"
+        mock_comparison.name = "Test Comparison"
+        mock_comparison.description = "Test Description"
         mock_comparison.type = ComparisonType.METRICS
         mock_comparison.backtest_task_ids = ["task1", "task2"]
         mock_comparison.comparison_data = {"metrics": {}}
@@ -695,8 +695,8 @@ class TestToResponse:
 
         assert result.id == "comp_123"
         assert result.user_id == "user_123"
-        assert result.name == "测试对比"
-        assert result.description == "测试描述"
+        assert result.name == "Test Comparison"
+        assert result.description == "Test Description"
         assert result.type == ComparisonType.METRICS
         assert result.backtest_task_ids == ["task1", "task2"]
         assert result.is_favorite is True

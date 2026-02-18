@@ -1,12 +1,11 @@
-"""
-分析服务 API 测试
+"""Analytics service API tests.
 
-测试：
-- GET /api/v1/analytics/{task_id}/detail - 获取回测详情
-- GET /api/v1/analytics/{task_id}/kline - 获取K线数据
-- GET /api/v1/analytics/{task_id}/monthly-returns - 获取月度收益
-- GET /api/v1/analytics/{task_id}/export - 导出回测结果
-- GET /api/v1/analytics/{task_id}/optimization - 获取优化结果
+Tests:
+- GET /api/v1/analytics/{task_id}/detail - Get backtest details
+- GET /api/v1/analytics/{task_id}/kline - Get K-line data
+- GET /api/v1/analytics/{task_id}/monthly-returns - Get monthly returns
+- GET /api/v1/analytics/{task_id}/export - Export backtest results
+- GET /api/v1/analytics/{task_id}/optimization - Get optimization results
 """
 import pytest
 from httpx import AsyncClient
@@ -17,39 +16,77 @@ from datetime import datetime
 
 @pytest.mark.asyncio
 class TestAnalyticsDetailEndpoint:
-    """测试回测详情端点"""
+    """Tests for backtest detail endpoint."""
 
     async def test_get_backtest_detail_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required.
+
+        Args:
+            client: Async HTTP client.
+
+        Returns:
+            None
+        """
         resp = await client.get("/api/v1/analytics/task-123/detail")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert resp.status_code in [401, 403]
 
     async def test_get_backtest_detail_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试不存在的任务"""
+        """Test getting a non-existent task.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get("/api/v1/analytics/nonexistent-task-id/detail", headers=auth_headers)
-        assert resp.status_code in [404, 500]  # 可能404或500（数据库错误）
+        assert resp.status_code in [404, 500]  # May be 404 or 500 (database error)
 
     async def test_get_backtest_detail_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功获取回测详情"""
-        # 这个测试只验证端点可访问，实际数据取决于DB
+        """Test successfully getting backtest details.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
+        # This test only verifies the endpoint is accessible, actual data depends on DB
         resp = await client.get("/api/v1/analytics/task-123/detail", headers=auth_headers)
-        # 可能返回404（无数据）或200
+        # May return 404 (no data) or 200
         assert resp.status_code in [200, 404, 500]
 
 
 @pytest.mark.asyncio
 class TestAnalyticsKlineEndpoint:
-    """测试K线数据端点"""
+    """Tests for K-line data endpoint."""
 
     async def test_get_kline_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required.
+
+        Args:
+            client: Async HTTP client.
+
+        Returns:
+            None
+        """
         resp = await client.get("/api/v1/analytics/task-123/kline")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert resp.status_code in [401, 403]
 
     async def test_get_kline_with_date_filters(self, client: AsyncClient, auth_headers: dict):
-        """测试日期筛选"""
+        """Test K-line endpoint with date filters.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers,
@@ -58,7 +95,15 @@ class TestAnalyticsKlineEndpoint:
         assert resp.status_code in [200, 404, 500]
 
     async def test_get_kline_with_only_start_date(self, client: AsyncClient, auth_headers: dict):
-        """测试只有开始日期"""
+        """Test K-line endpoint with only start date.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers,
@@ -67,7 +112,15 @@ class TestAnalyticsKlineEndpoint:
         assert resp.status_code in [200, 404, 500]
 
     async def test_get_kline_with_only_end_date(self, client: AsyncClient, auth_headers: dict):
-        """测试只有结束日期"""
+        """Test K-line endpoint with only end date.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers,
@@ -78,32 +131,62 @@ class TestAnalyticsKlineEndpoint:
 
 @pytest.mark.asyncio
 class TestAnalyticsMonthlyReturnsEndpoint:
-    """测试月度收益端点"""
+    """Tests for monthly returns endpoint."""
 
     async def test_get_monthly_returns_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required.
+
+        Args:
+            client: Async HTTP client.
+
+        Returns:
+            None
+        """
         resp = await client.get("/api/v1/analytics/task-123/monthly-returns")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert resp.status_code in [401, 403]
 
     async def test_get_monthly_returns_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试不存在的任务"""
+        """Test getting monthly returns for non-existent task.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get("/api/v1/analytics/nonexistent/monthly-returns", headers=auth_headers)
         assert resp.status_code in [200, 404, 500]
 
 
 @pytest.mark.asyncio
 class TestAnalyticsExportEndpoint:
-    """测试导出端点"""
+    """Tests for export endpoint."""
 
     async def test_export_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required.
+
+        Args:
+            client: Async HTTP client.
+
+        Returns:
+            None
+        """
         resp = await client.get("/api/v1/analytics/task-123/export")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert resp.status_code in [401, 403]
 
     async def test_export_default_format(self, client: AsyncClient, auth_headers: dict):
-        """测试默认导出格式"""
+        """Test export with default format.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get(
             "/api/v1/analytics/task-123/export",
             headers=auth_headers
@@ -111,7 +194,15 @@ class TestAnalyticsExportEndpoint:
         assert resp.status_code in [200, 404, 500]
 
     async def test_export_csv_format(self, client: AsyncClient, auth_headers: dict):
-        """测试导出CSV格式"""
+        """Test export with CSV format.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get(
             "/api/v1/analytics/task-123/export",
             headers=auth_headers,
@@ -120,7 +211,15 @@ class TestAnalyticsExportEndpoint:
         assert resp.status_code in [200, 404, 500]
 
     async def test_export_json_format(self, client: AsyncClient, auth_headers: dict):
-        """测试导出JSON格式"""
+        """Test export with JSON format.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get(
             "/api/v1/analytics/task-123/export",
             headers=auth_headers,
@@ -129,39 +228,66 @@ class TestAnalyticsExportEndpoint:
         assert resp.status_code in [200, 404, 500]
 
     async def test_export_unsupported_format(self, client: AsyncClient, auth_headers: dict):
-        """测试不支持的导出格式"""
+        """Test export with unsupported format.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get(
             "/api/v1/analytics/task-123/export",
             headers=auth_headers,
             params={"format": "xml"}
         )
-        # 如果找到数据应该返回400，否则404或500
+        # Should return 400 if data found, otherwise 404 or 500
         assert resp.status_code in [400, 404, 500]
 
 
 @pytest.mark.asyncio
 class TestAnalyticsOptimizationEndpoint:
-    """测试优化结果端点"""
+    """Tests for optimization result endpoint."""
 
     async def test_get_optimization_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required.
+
+        Args:
+            client: Async HTTP client.
+
+        Returns:
+            None
+        """
         resp = await client.get("/api/v1/analytics/task-123/optimization")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert resp.status_code in [401, 403]
 
     async def test_get_optimization_not_available(self, client: AsyncClient, auth_headers: dict):
-        """测试优化结果不可用"""
+        """Test when optimization results are not available.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get("/api/v1/analytics/task-123/optimization", headers=auth_headers)
-        # 该端点总是返回404
+        # This endpoint always returns 404
         assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
 class TestAnalyticsHelperFunctions:
-    """测试辅助函数"""
+    """Tests for helper functions."""
 
     async def test_resolve_log_dir_from_db(self):
-        """测试从数据库解析日志目录"""
+        """Test resolving log directory from database.
+
+        Returns:
+            None
+        """
         from app.api.analytics import _resolve_log_dir
         from unittest.mock import AsyncMock, Mock, patch
 
@@ -174,11 +300,15 @@ class TestAnalyticsHelperFunctions:
             MockRepo.return_value = mock_repo_instance
 
             result = await _resolve_log_dir("task-123", "test_strategy")
-            # 验证函数可调用
-            assert result is not None or result is None  # 可能成功或失败
+            # Verify function is callable
+            assert result is not None or result is None  # May succeed or fail
 
     async def test_resolve_log_dir_fallback(self):
-        """测试回退到latest目录"""
+        """Test fallback to latest directory.
+
+        Returns:
+            None
+        """
         from app.api.analytics import _resolve_log_dir
         from unittest.mock import AsyncMock, patch
 
@@ -188,19 +318,23 @@ class TestAnalyticsHelperFunctions:
             MockRepo.return_value = mock_repo_instance
 
             with patch('app.api.analytics.find_latest_log_dir') as mock_find:
-                mock_find.return_value = None  # 返回None表示无目录
+                mock_find.return_value = None  # None means no directory
 
                 result = await _resolve_log_dir("task-123", "test_strategy")
-                # 函数应该不抛出异常
+                # Function should not raise exception
                 assert True
 
 
 @pytest.mark.asyncio
 class TestGetBacktestData:
-    """测试获取回测数据函数"""
+    """Tests for get_backtest_data function."""
 
     async def test_get_backtest_data_with_empty_result(self):
-        """测试空结果"""
+        """Test with empty result.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_backtest_data
         from unittest.mock import AsyncMock
 
@@ -211,7 +345,11 @@ class TestGetBacktestData:
         assert result is None
 
     async def test_get_backtest_data_structure(self):
-        """测试返回数据结构"""
+        """Test return data structure.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_backtest_data
         from unittest.mock import AsyncMock, Mock, patch
 
@@ -241,7 +379,11 @@ class TestGetBacktestData:
             assert result['symbol'] == "BTC/USDT"
 
     async def test_get_backtest_data_with_cash_curve(self):
-        """测试从日志获取资金曲线"""
+        """Test getting cash curve from logs.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_backtest_data
         from unittest.mock import AsyncMock, Mock, patch
 
@@ -276,7 +418,11 @@ class TestGetBacktestData:
                 assert len(result['equity_curve']) == 2
 
     async def test_get_backtest_data_with_trades(self):
-        """测试带交易记录的数据"""
+        """Test data with trade records.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_backtest_data
         from unittest.mock import AsyncMock, Mock, patch
 
@@ -320,10 +466,14 @@ class TestGetBacktestData:
 
 @pytest.mark.asyncio
 class TestAnalyticsServiceSingletons:
-    """测试服务单例"""
+    """Tests for service singletons."""
 
     async def test_analytics_service_singleton(self):
-        """测试AnalyticsService单例"""
+        """Test AnalyticsService singleton.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_analytics_service
 
         svc1 = get_analytics_service()
@@ -331,7 +481,11 @@ class TestAnalyticsServiceSingletons:
         assert svc1 is svc2  # lru_cache should return same instance
 
     async def test_backtest_service_singleton(self):
-        """测试BacktestService单例"""
+        """Test BacktestService singleton.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_backtest_service
 
         svc1 = get_backtest_service()
@@ -341,10 +495,14 @@ class TestAnalyticsServiceSingletons:
 
 @pytest.mark.asyncio
 class TestGetBacktestDataExtended:
-    """测试获取回测数据函数 - 扩展测试"""
+    """Extended tests for get_backtest_data function."""
 
     async def test_resolve_log_dir_success_from_db(self):
-        """测试从数据库成功解析日志目录"""
+        """Test successfully resolving log directory from database.
+
+        Returns:
+            None
+        """
         from app.api.analytics import _resolve_log_dir
         from unittest.mock import AsyncMock, patch, MagicMock
         from pathlib import Path
@@ -362,7 +520,11 @@ class TestGetBacktestDataExtended:
                 assert result == Path("/tmp/test_logs")
 
     async def test_get_backtest_data_with_klines_from_log(self):
-        """测试从日志获取K线数据"""
+        """Test getting K-line data from logs.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_backtest_data
         from unittest.mock import AsyncMock, Mock, patch
         from pathlib import Path
@@ -408,7 +570,11 @@ class TestGetBacktestDataExtended:
                     assert 'log_indicators' in result
 
     async def test_get_backtest_data_with_parse_exception(self):
-        """测试K线数据解析异常处理"""
+        """Test K-line data parsing exception handling.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_backtest_data
         from unittest.mock import AsyncMock, Mock, patch
 
@@ -443,21 +609,37 @@ class TestGetBacktestDataExtended:
 
 @pytest.mark.asyncio
 class TestAnalyticsKlineWithFilters:
-    """测试K线数据带筛选和指标"""
+    """Tests for K-line data with filters and indicators."""
 
     async def test_get_kline_with_date_filters_and_signals(self, client: AsyncClient, auth_headers: dict):
-        """测试日期筛选和信号过滤"""
+        """Test date filtering and signal filtering.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers,
             params={"start_date": "2024-01-01", "end_date": "2024-12-31"}
         )
-        # 可能返回404（无数据）或500
+        # May return 404 (no data) or 500
         assert resp.status_code in [200, 404, 500]
 
     async def test_get_kline_returns_indicators_from_log(self, client: AsyncClient, auth_headers: dict):
-        """测试返回日志中的指标"""
-        # 测试端点优先使用日志中的指标
+        """Test returning indicators from logs.
+
+        Args:
+            client: Async HTTP client.
+            auth_headers: Authentication headers.
+
+        Returns:
+            None
+        """
+        # Test endpoint prioritizes indicators from logs
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers
@@ -467,10 +649,14 @@ class TestAnalyticsKlineWithFilters:
 
 @pytest.mark.asyncio
 class TestAnalyticsExportWithData:
-    """测试导出功能带数据"""
+    """Tests for export functionality with data."""
 
     async def test_export_with_trades_data(self):
-        """测试带交易数据的CSV导出"""
+        """Test CSV export with trade data.
+
+        Returns:
+            None
+        """
         from app.api.analytics import export_backtest_results
         from unittest.mock import AsyncMock, Mock, patch
         from fastapi import Request
@@ -513,7 +699,11 @@ class TestAnalyticsExportWithData:
                     assert hasattr(result, 'body_iterator')
 
     async def test_export_json_format_with_data(self):
-        """测试JSON格式导出带数据"""
+        """Test JSON format export with data.
+
+        Returns:
+            None
+        """
         from app.api.analytics import export_backtest_results
         from unittest.mock import AsyncMock, Mock, patch
 
@@ -552,10 +742,14 @@ class TestAnalyticsExportWithData:
 
 @pytest.mark.asyncio
 class TestAnalyticsMonthlyReturnsWithData:
-    """测试月度收益处理"""
+    """Tests for monthly returns handling."""
 
     async def test_monthly_returns_exception_in_calculation(self):
-        """测试月度收益计算中的异常处理"""
+        """Test exception handling in monthly returns calculation.
+
+        Returns:
+            None
+        """
         from app.api.analytics import get_backtest_data
         from unittest.mock import AsyncMock, Mock, patch
 

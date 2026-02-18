@@ -1,13 +1,13 @@
 """
-实盘交易服务测试
+Live Trading Service Tests.
 
-测试：
-- 提交实盘策略
-- 从代码加载策略
-- 停止实盘策略
-- 获取任务状态
-- 列出任务
-- 错误处理（backtrader不可用）
+Tests:
+    - Submit live trading strategies
+    - Load strategies from code
+    - Stop live trading strategies
+    - Get task status
+    - List tasks
+    - Error handling (backtrader unavailable)
 """
 import pytest
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
@@ -17,21 +17,29 @@ from app.services.live_trading_service import LiveTradingService, BACKTRADER_AVA
 
 
 class TestLiveTradingServiceInitialization:
-    """测试服务初始化"""
+    """Tests for service initialization."""
 
     def test_initialization(self):
-        """测试初始化"""
+        """Test basic service initialization.
+
+        Verifies that a new LiveTradingService instance
+        initializes with empty tasks and cerebro_instances.
+        """
         service = LiveTradingService()
         assert service.tasks == {}
         assert service.cerebro_instances == {}
 
 
 class TestSubmitLiveStrategy:
-    """测试提交实盘策略"""
+    """Tests for submitting live trading strategies."""
 
     @pytest.mark.asyncio
     async def test_submit_without_backtrader(self):
-        """测试backtrader不可用时提交"""
+        """Test submission when backtrader is unavailable.
+
+        Verifies that an ImportError is raised when trying
+        to submit a strategy without backtrader available.
+        """
         service = LiveTradingService()
 
         with patch("app.services.live_trading_service.BACKTRADER_AVAILABLE", False):
@@ -47,7 +55,11 @@ class TestSubmitLiveStrategy:
 
     @pytest.mark.asyncio
     async def test_submit_success_creates_task(self, monkeypatch):
-        """测试成功提交创建任务"""
+        """Test successful submission creates a task.
+
+        Verifies that submitting a valid strategy creates
+        a task with running status.
+        """
         service = LiveTradingService()
 
         # Mock backtrader components
@@ -89,7 +101,11 @@ class TestSubmitLiveStrategy:
 
     @pytest.mark.asyncio
     async def test_submit_with_custom_params(self):
-        """测试使用自定义参数提交"""
+        """Test submission with custom parameters.
+
+        Verifies that custom parameters like initial_cash,
+        sandbox, and timeframe are properly stored.
+        """
         service = LiveTradingService()
 
         mock_cerebro = MagicMock()
@@ -132,10 +148,14 @@ class TestSubmitLiveStrategy:
 
 
 class TestLoadStrategyFromCode:
-    """测试从代码加载策略"""
+    """Tests for loading strategies from code."""
 
     def test_load_strategy_valid_code(self):
-        """测试加载有效策略代码"""
+        """Test loading valid strategy code.
+
+        Verifies that valid strategy code can be loaded
+        and returns a strategy class.
+        """
         service = LiveTradingService()
 
         # Mock backtrader Strategy
@@ -158,7 +178,11 @@ class TestStrategy(bt.Strategy):
                 assert result is not None
 
     def test_load_strategy_with_params(self):
-        """测试加载带参数的策略"""
+        """Test loading strategy with parameters.
+
+        Verifies that strategies can be loaded with
+        custom parameters.
+        """
         service = LiveTradingService()
 
         mock_strategy_base = type('Strategy', (), {})
@@ -179,7 +203,11 @@ class TestStrategy(bt.Strategy):
                 assert result is not None
 
     def test_load_strategy_no_strategy_found(self):
-        """测试代码中没有策略类"""
+        """Test loading code without strategy class.
+
+        Verifies that a ValueError is raised when the code
+        doesn't contain a valid Strategy class.
+        """
         service = LiveTradingService()
 
         mock_strategy_base = type('Strategy', (), {})
@@ -190,16 +218,20 @@ class TestStrategy(bt.Strategy):
             with patch.object(live_service_module, "bt", mock_backtrader, create=True):
                 code = "print('hello world')"
 
-                with pytest.raises(ValueError, match="未找到有效的 Strategy 类"):
+                with pytest.raises(ValueError, match="No valid Strategy class found"):
                     service._load_strategy_from_code(code, {})
 
 
 class TestStopLiveStrategy:
-    """测试停止实盘策略"""
+    """Tests for stopping live trading strategies."""
 
     @pytest.mark.asyncio
     async def test_stop_existing_task(self):
-        """测试停止现有任务"""
+        """Test stopping an existing task.
+
+        Verifies that an existing running task can be
+        stopped and its status is updated.
+        """
         service = LiveTradingService()
 
         # Setup mock task
@@ -221,7 +253,11 @@ class TestStopLiveStrategy:
 
     @pytest.mark.asyncio
     async def test_stop_nonexistent_task(self):
-        """测试停止不存在的任务"""
+        """Test stopping a non-existent task.
+
+        Verifies that stopping a non-existent task
+        returns False.
+        """
         service = LiveTradingService()
 
         result = await service.stop_live_strategy("user123", "nonexistent_task")
@@ -230,11 +266,15 @@ class TestStopLiveStrategy:
 
 
 class TestGetTaskStatus:
-    """测试获取任务状态"""
+    """Tests for getting task status."""
 
     @pytest.mark.asyncio
     async def test_get_status_nonexistent_task(self):
-        """测试获取不存在任务的状态"""
+        """Test getting status of non-existent task.
+
+        Verifies that requesting status for a non-existent
+        task returns None.
+        """
         service = LiveTradingService()
 
         result = await service.get_task_status("user123", "nonexistent")
@@ -243,7 +283,11 @@ class TestGetTaskStatus:
 
     @pytest.mark.asyncio
     async def test_get_status_without_cerebro(self):
-        """测试获取没有Cerebro实例的任务状态"""
+        """Test getting task status without Cerebro instance.
+
+        Verifies that status can be retrieved for a stopped
+        task that has no Cerebro instance.
+        """
         service = LiveTradingService()
 
         task_id = "test_task"
@@ -259,7 +303,11 @@ class TestGetTaskStatus:
 
     @pytest.mark.asyncio
     async def test_get_status_with_cerebro(self):
-        """测试获取有Cerebro实例的任务状态"""
+        """Test getting task status with Cerebro instance.
+
+        Verifies that status including cash, value, positions,
+        and orders is retrieved for a running task.
+        """
         service = LiveTradingService()
 
         task_id = "test_task"
@@ -292,7 +340,11 @@ class TestGetTaskStatus:
 
     @pytest.mark.asyncio
     async def test_get_status_with_positions(self):
-        """测试获取有持仓的任务状态"""
+        """Test getting task status with positions.
+
+        Verifies that position data is correctly included
+        in the task status.
+        """
         service = LiveTradingService()
 
         task_id = "test_task"
@@ -329,7 +381,11 @@ class TestGetTaskStatus:
 
     @pytest.mark.asyncio
     async def test_get_status_with_orders(self):
-        """测试获取有订单的任务状态"""
+        """Test getting task status with orders.
+
+        Verifies that order data is correctly included
+        in the task status.
+        """
         service = LiveTradingService()
 
         task_id = "test_task"
@@ -369,11 +425,15 @@ class TestGetTaskStatus:
 
 
 class TestListTasks:
-    """测试列出任务"""
+    """Tests for listing tasks."""
 
     @pytest.mark.asyncio
     async def test_list_all_tasks(self):
-        """测试列出所有任务"""
+        """Test listing all tasks for a user.
+
+        Verifies that all tasks belonging to a user
+        are returned.
+        """
         service = LiveTradingService()
 
         # Create multiple tasks
@@ -390,7 +450,11 @@ class TestListTasks:
 
     @pytest.mark.asyncio
     async def test_list_tasks_filter_by_status(self):
-        """测试按状态筛选任务"""
+        """Test filtering tasks by status.
+
+        Verifies that tasks can be filtered by their
+        current status.
+        """
         service = LiveTradingService()
 
         # Create tasks with different statuses
@@ -404,7 +468,11 @@ class TestListTasks:
 
     @pytest.mark.asyncio
     async def test_list_tasks_only_returns_user_tasks(self):
-        """测试只返回当前用户的任务"""
+        """Test that only user's tasks are returned.
+
+        Verifies that list_tasks only returns tasks
+        belonging to the specified user.
+        """
         service = LiveTradingService()
 
         service.tasks["task_1"] = {"user_id": "user123", "status": "running"}
@@ -417,7 +485,11 @@ class TestListTasks:
 
     @pytest.mark.asyncio
     async def test_list_empty_tasks(self):
-        """测试列出空任务列表"""
+        """Test listing tasks when user has none.
+
+        Verifies that an empty list is returned when
+        the user has no tasks.
+        """
         service = LiveTradingService()
 
         result = await service.list_tasks("user123")
@@ -426,11 +498,15 @@ class TestListTasks:
 
 
 class TestErrorHandling:
-    """测试错误处理"""
+    """Tests for error handling."""
 
     @pytest.mark.asyncio
     async def test_task_error_handling(self):
-        """测试任务执行错误处理"""
+        """Test task execution error handling.
+
+        Verifies that errors in the background thread
+        are properly caught and the task is still created.
+        """
         service = LiveTradingService()
 
         # This test verifies that errors in the background thread
@@ -463,11 +539,15 @@ class TestErrorHandling:
 
 
 class TestIntegration:
-    """集成测试"""
+    """Integration tests."""
 
     @pytest.mark.asyncio
     async def test_full_workflow(self):
-        """测试完整工作流"""
+        """Test complete workflow from submission to stopping.
+
+        Verifies the full lifecycle of a live trading task:
+        submit, get status, list tasks, and stop.
+        """
         service = LiveTradingService()
 
         task_id = "workflow_test"

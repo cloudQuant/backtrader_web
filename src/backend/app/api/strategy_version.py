@@ -32,29 +32,42 @@ router = APIRouter()
 
 
 def get_version_control_service():
+    """Dependency injection for VersionControlService.
+
+    Returns:
+        VersionControlService: An instance of the version control service.
+    """
     return VersionControlService()
 
 
-# ==================== 策略版本 API ====================
+# ==================== Strategy Version API ====================
 
-@router.post("/versions", response_model=VersionResponse, summary="创建策略版本")
+@router.post("/versions", response_model=VersionResponse, summary="Create strategy version")
 async def create_strategy_version(
     request: VersionCreate,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
 ):
-    """
-    创建策略新版本
-    
-    请求体：
-    - strategy_id: 策略 ID
-    - version_name: 版本名称（如 v1.0.0）
-    - code: 策略代码
-    - params: 默认参数
-    - branch: 分支名称（默认 main）
-    - tags: 版本标签（如 latest, stable）
-    - changelog: 更新日志
-    - is_default: 是否设为默认版本
+    """Create a new strategy version.
+
+    Args:
+        request: The version creation request containing:
+            - strategy_id: Strategy ID
+            - version_name: Version name (e.g., v1.0.0)
+            - code: Strategy code
+            - params: Default parameters
+            - branch: Branch name (default: main)
+            - tags: Version tags (e.g., latest, stable)
+            - changelog: Version changelog
+            - is_default: Whether to set as default version
+        current_user: The authenticated user.
+        service: The version control service.
+
+    Returns:
+        VersionResponse: The created version details.
+
+    Raises:
+        HTTPException: If user lacks permission to access the strategy (403).
     """
     try:
         version = await service.create_version(
@@ -69,37 +82,42 @@ async def create_strategy_version(
             is_default=request.is_default,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该策略")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy")
 
-    # 推送版本创建通知
+    # Push version creation notification
     await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
         "type": MessageType.PROGRESS,
         "strategy_id": request.strategy_id,
         "version_id": version.id,
-        "message": "策略版本已创建",
+        "message": "Strategy version has been created",
     })
 
     return service._to_response(version)
 
 
-@router.get("/strategies/{strategy_id}/versions", response_model=VersionListResponse, summary="获取策略版本列表")
+@router.get("/strategies/{strategy_id}/versions", response_model=VersionListResponse, summary="List strategy versions")
 async def list_strategy_versions(
     strategy_id: str,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-    branch: Optional[str] = Query(None, description="分支名称"),
-    status: Optional[str] = Query(None, description="版本状态"),
+    branch: Optional[str] = Query(None, description="Branch name"),
+    status: Optional[str] = Query(None, description="Version status"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """获取策略的所有版本
-    
-    参数：
-    - strategy_id: 策略 ID
-    - branch: 分支筛选
-    - status: 状态筛选
-    - limit: 每页数量
-    - offset: 偏移量
+    """Get all versions of a strategy.
+
+    Args:
+        strategy_id: The unique identifier of the strategy.
+        current_user: The authenticated user.
+        service: The version control service.
+        branch: Filter by branch name.
+        status: Filter by version status.
+        limit: Maximum number of versions to return (1-100).
+        offset: Number of versions to skip.
+
+    Returns:
+        VersionListResponse: Response containing total count and version list.
     """
     versions, total = await service.list_versions(
         user_id=current_user.sub,
@@ -113,121 +131,172 @@ async def list_strategy_versions(
     return VersionListResponse(total=total, items=versions)
 
 
-@router.get("/versions/{version_id}", response_model=VersionResponse, summary="获取策略版本详情")
+@router.get("/versions/{version_id}", response_model=VersionResponse, summary="Get strategy version details")
 async def get_strategy_version(
     version_id: str,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
 ):
-    """获取策略版本详情"""
+    """Get strategy version details by ID.
+
+    Args:
+        version_id: The unique identifier of the version.
+        current_user: The authenticated user.
+        service: The version control service.
+
+    Returns:
+        VersionResponse: The version details.
+
+    Raises:
+        HTTPException: If the version does not exist (404) or user lacks
+            permission to access it (403).
+    """
     version = await service.get_version(version_id)
 
     if not version:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="策略版本不存在"
+            detail="Strategy version not found"
         )
 
     # Permission check: versions are owned by the strategy owner (created_by).
     if getattr(version, "created_by", None) != current_user.sub:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问该版本"
+            detail="No permission to access this version"
         )
 
     return service._to_response(version)
 
 
-@router.put("/versions/{version_id}", response_model=VersionResponse, summary="更新策略版本")
+@router.put("/versions/{version_id}", response_model=VersionResponse, summary="Update strategy version")
 async def update_strategy_version(
     version_id: str,
     request: VersionUpdate,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
 ):
-    """
-    更新策略版本
-    
-    请求体：
-    - code: 策略代码（可选）
-    - params: 默认参数（可选）
-    - description: 版本描述
-    - tags: 版本标签（可选）
-    - status: 版本状态（可选）
+    """Update a strategy version.
+
+    Args:
+        version_id: The unique identifier of the version to update.
+        request: The update request containing:
+            - code: Strategy code (optional)
+            - params: Default parameters (optional)
+            - description: Version description
+            - tags: Version tags (optional)
+            - status: Version status (optional)
+        current_user: The authenticated user.
+        service: The version control service.
+
+    Returns:
+        VersionResponse: The updated version details.
+
+    Raises:
+        HTTPException: If the version does not exist or user lacks permission (404).
     """
     version = await service.update_version(version_id=version_id, user_id=current_user.sub, update_data=request)
 
     if not version:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="策略版本不存在或无权更新"
+            detail="Strategy version not found or no permission to update"
         )
 
     return service._to_response(version)
 
 
-@router.post("/versions/{version_id}/set-default", summary="设置为默认版本")
+@router.post("/versions/{version_id}/set-default", summary="Set as default version")
 async def set_version_default(
     version_id: str,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
 ):
-    """
-    设置策略版本为默认版本
-    
-    每个分支只能有一个默认版本
+    """Set a strategy version as the default version for its branch.
+
+    Each branch can have only one default version.
+
+    Args:
+        version_id: The unique identifier of the version.
+        current_user: The authenticated user.
+        service: The version control service.
+
+    Returns:
+        A message confirming the version has been set as default.
+
+    Raises:
+        HTTPException: If the version does not exist or user lacks permission (404).
     """
     success = await service.set_version_default(version_id, current_user.sub)
 
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="策略版本不存在或无权设置"
+            detail="Strategy version not found or no permission to set"
         )
 
-    return {"message": "已设置为默认版本"}
+    return {"message": "Version has been set as default"}
 
 
-@router.post("/versions/{version_id}/activate", summary="激活策略版本")
+@router.post("/versions/{version_id}/activate", summary="Activate strategy version")
 async def activate_strategy_version(
     version_id: str,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
 ):
-    """
-    激活策略版本
-    
-    每个分支只能有一个活跃版本（当前使用）
+    """Activate a strategy version.
+
+    Each branch can have only one active version (currently in use).
+
+    Args:
+        version_id: The unique identifier of the version.
+        current_user: The authenticated user.
+        service: The version control service.
+
+    Returns:
+        A message confirming the version has been activated.
+
+    Raises:
+        HTTPException: If the version does not exist or user lacks permission (404).
     """
     success = await service.activate_version(version_id, current_user.sub)
 
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="策略版本不存在或无权激活"
+            detail="Strategy version not found or no permission to activate"
         )
 
-    return {"message": "版本已激活"}
+    return {"message": "Version has been activated"}
 
 
-# ==================== 版本对比 API ====================
+# ==================== Version Comparison API ====================
 
-@router.post("/versions/compare", response_model=VersionComparisonResponse, summary="对比策略版本")
+@router.post("/versions/compare", response_model=VersionComparisonResponse, summary="Compare strategy versions")
 async def compare_strategy_versions(
     request: VersionComparisonRequest,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
 ):
+    """Compare two strategy versions.
+
+    Args:
+        request: The comparison request containing:
+            - strategy_id: Strategy ID
+            - from_version_id: Source version ID
+            - to_version_id: Target version ID
+            - comparison_type: Comparison type (code, params, performance)
+        current_user: The authenticated user.
+        service: The version control service.
+
+    Returns:
+        VersionComparisonResponse: The comparison results including code_diff,
+            params_diff, performance_diff, and created_at timestamp.
+
+    Raises:
+        HTTPException: If user lacks permission to access the versions (403).
     """
-    对比两个策略版本
-    
-    请求体：
-    - strategy_id: 策略 ID
-    - from_version_id: 源版本 ID
-    - to_version_id: 目标版本 ID
-    - comparison_type: 对比类型（code, params, performance）
-    """
-    # comparison_type 在请求中指定，但服务会进行完整对比
+    # comparison_type is specified in the request, but the service performs full comparison
     try:
         comparison = await service.compare_versions(
             user_id=current_user.sub,
@@ -236,14 +305,14 @@ async def compare_strategy_versions(
             to_version_id=request.to_version_id,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该版本")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access these versions")
 
-    # 推送对比完成通知
+    # Push comparison completion notification
     await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
         "type": MessageType.PROGRESS,
         "strategy_id": request.strategy_id,
         "comparison_id": comparison.id,
-        "message": "策略版本对比完成",
+        "message": "Strategy version comparison completed",
     })
 
     return {
@@ -258,23 +327,31 @@ async def compare_strategy_versions(
     }
 
 
-# ==================== 版本回滚 API ====================
+# ==================== Version Rollback API ====================
 
-@router.post("/versions/rollback", response_model=VersionResponse, summary="回滚策略版本")
+@router.post("/versions/rollback", response_model=VersionResponse, summary="Rollback strategy version")
 async def rollback_strategy_version(
     request: VersionRollbackRequest,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
 ):
-    """
-    回滚策略版本
-    
-    创建一个新的版本，包含目标版本的代码和参数
-    
-    请求体：
-    - strategy_id: 策略 ID
-    - target_version_id: 目标版本 ID
-    - reason: 回滚原因
+    """Rollback a strategy to a previous version.
+
+    Creates a new version containing the target version's code and parameters.
+
+    Args:
+        request: The rollback request containing:
+            - strategy_id: Strategy ID
+            - target_version_id: Target version ID to rollback to
+            - reason: Reason for rollback
+        current_user: The authenticated user.
+        service: The version control service.
+
+    Returns:
+        VersionResponse: The newly created version from the rollback.
+
+    Raises:
+        HTTPException: If user lacks permission to access the versions (403).
     """
     try:
         new_version = await service.rollback_version(
@@ -284,41 +361,49 @@ async def rollback_strategy_version(
             reason=request.reason,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该版本")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this version")
 
-    # 推送回滚通知
+    # Push rollback notification
     await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
         "type": MessageType.PROGRESS,
         "strategy_id": request.strategy_id,
         "version_id": new_version.id,
-        "message": "策略版本已回滚",
+        "message": "Strategy version has been rolled back",
     })
 
     return service._to_response(new_version)
 
 
-# ==================== 策略分支 API ====================
+# ==================== Strategy Branch API ====================
 
-@router.post("/branches", response_model=BranchResponse, summary="创建策略分支")
+@router.post("/branches", response_model=BranchResponse, summary="Create strategy branch")
 async def create_strategy_branch(
     request: BranchCreate,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
 ):
-    """
-    创建策略分支
-    
-    请求体：
-    - strategy_id: 策略 ID
-    - branch_name: 分支名称（如 feature/new-indicator）
-    - parent_branch: 父分支名称（如 main）
-    
-    分支类型：
-    - main: 主分支
-    - dev: 开发分支
-    - feature/*: 功能分支
-    - bugfix/*: 修复分支
-    - release/*: 发布分支
+    """Create a new strategy branch.
+
+    Args:
+        request: The branch creation request containing:
+            - strategy_id: Strategy ID
+            - branch_name: Branch name (e.g., feature/new-indicator)
+            - parent_branch: Parent branch name (e.g., main)
+        current_user: The authenticated user.
+        service: The version control service.
+
+    Returns:
+        BranchResponse: The created branch details.
+
+    Branch types:
+        - main: Main branch
+        - dev: Development branch
+        - feature/*: Feature branch
+        - bugfix/*: Bug fix branch
+        - release/*: Release branch
+
+    Raises:
+        HTTPException: If user lacks permission (403) or strategy not found (404).
     """
     try:
         branch = await service.create_branch(
@@ -328,14 +413,14 @@ async def create_strategy_branch(
             parent_branch=request.parent_branch,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该策略")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
     return service.branch_to_response(branch)
 
 
-@router.get("/strategies/{strategy_id}/branches", response_model=BranchListResponse, summary="获取策略分支列表")
+@router.get("/strategies/{strategy_id}/branches", response_model=BranchListResponse, summary="List strategy branches")
 async def list_strategy_branches(
     strategy_id: str,
     current_user=Depends(get_current_user),
@@ -343,12 +428,20 @@ async def list_strategy_branches(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """获取策略的所有分支
-    
-    参数：
-    - strategy_id: 策略 ID
-    - limit: 每页数量
-    - offset: 偏移量
+    """Get all branches of a strategy.
+
+    Args:
+        strategy_id: The unique identifier of the strategy.
+        current_user: The authenticated user.
+        service: The version control service.
+        limit: Maximum number of branches to return (1-100).
+        offset: Number of branches to skip.
+
+    Returns:
+        BranchListResponse: Response containing total count and branch list.
+
+    Raises:
+        HTTPException: If user lacks permission (403) or strategy not found (404).
     """
     try:
         branches, total = await service.list_branches(
@@ -358,7 +451,7 @@ async def list_strategy_branches(
             offset=offset,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该策略")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -368,66 +461,69 @@ async def list_strategy_branches(
     )
 
 
-# ==================== WebSocket 端点 ====================
+# ==================== WebSocket Endpoint ====================
 
 @router.websocket("/ws/strategies/{strategy_id}")
 async def strategy_version_websocket(
     websocket,
     strategy_id: str,
 ):
-    """
-    WebSocket 端点 - 策略版本实时推送
-    
-    推送内容：
-    - 版本创建
-    - 版本更新
-    - 版本对比完成
-    - 版本回滚
-    - 分支更新
-    
-    连接 URL: ws://host/api/v1/strategy-versions/ws/strategies/{strategy_id}
-    
-    消息类型：
-    - connected: 连接成功
-    - version_created: 版本创建
-    - version_updated: 版本更新
-    - version_compared: 版本对比完成
-    - version_rolled_back: 版本回滚
-    - branch_created: 分支创建
-    - branch_updated: 分支更新
-    
-    示例消息：
-    {
-        "type": "version_created",
-        "strategy_id": "strategy-123",
-        "version_id": "version-456",
-        "data": {
-            "version_name": "v1.0.0",
-            "branch": "main",
-            "created_at": "2024-01-01T00:00:00Z",
+    """WebSocket endpoint for strategy version real-time updates.
+
+    Pushes:
+        - Version creation
+        - Version updates
+        - Version comparison completion
+        - Version rollback
+        - Branch updates
+
+    Connection URL: ws://host/api/v1/strategy-versions/ws/strategies/{strategy_id}
+
+    Message types:
+        - connected: Connection successful
+        - version_created: New version created
+        - version_updated: Version updated
+        - version_compared: Version comparison completed
+        - version_rolled_back: Version rolled back
+        - branch_created: New branch created
+        - branch_updated: Branch updated
+
+    Example message:
+        {
+            "type": "version_created",
+            "strategy_id": "strategy-123",
+            "version_id": "version-456",
+            "data": {
+                "version_name": "v1.0.0",
+                "branch": "main",
+                "created_at": "2024-01-01T00:00:00Z",
+            }
         }
-    }
+
+    Args:
+        websocket: The WebSocket connection instance.
+        strategy_id: The unique identifier of the strategy.
     """
     client_id = f"ws-version-client-{id(websocket)}"
 
-    # 建立连接
+    # Establish connection
     await ws_manager.connect(websocket, f"strategy:{strategy_id}", client_id)
 
     try:
-        # 发送初始信息
+        # Send initial message
         await ws_manager.send_to_task(f"strategy:{strategy_id}", {
             "type": MessageType.CONNECTED,
             "strategy_id": strategy_id,
-            "message": "策略版本控制 WebSocket 连接成功",
+            "message": "Strategy version control WebSocket connection successful",
         })
 
-        # 保持连接
+        # Keep connection alive
         while True:
             await asyncio.sleep(1)
 
-            # 这里应该从版本控制服务获取最新数据
-            # 并通过 WebSocket 推送
-            # 暂时使用轮询方式，实际应用中应该使用事件驱动
+            # Latest data should be fetched from version control service
+            # and pushed via WebSocket
+            # Temporarily using polling; should use event-driven in production
 
     except Exception as e:
         logger.error(f"Strategy version WebSocket error: {e}")

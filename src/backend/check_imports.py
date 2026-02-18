@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-检查后端代码导入
+Check backend code imports.
 """
 import sys
 import importlib.util
 from pathlib import Path
 
-# 添加项目路径
+# Add project path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-# 检查核心模块
+# Check core modules
 modules_to_check = [
     'app.models.user',
     'app.models.permission',
@@ -65,6 +65,6 @@ else:
 
 print()
 print("Python Path:")
-for path in sys.path[:10]:  # 只显示前10个
+for path in sys.path[:10]:  # Show only first 10
     print(f"  {path}")
 print(f"  ... ({len(sys.path) - 10} more)")

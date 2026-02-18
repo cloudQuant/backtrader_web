@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""策略运行脚本 - 数据重放EMA双均线策略"""
+"""Strategy Runner - DataReplayEMADual Moving AverageStrategy"""
 
 import os
 import yaml
@@ -8,21 +8,21 @@ from pathlib import Path
 
 import backtrader as bt
 
-# 导入策略类
+# Import strategy class
 from strategy_data_replay_ema import ReplayEMAStrategy
 
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_config():
-    """从config.yaml加载配置"""
+    """Load configuration from config.yaml"""
     config_path = BASE_DIR / "config.yaml"
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 
 def resolve_data_path(filename: str) -> Path:
-    """查找数据文件路径"""
+    """Locate data file path"""
     search_paths = [
         BASE_DIR / filename,
         BASE_DIR.parent / filename,
@@ -43,49 +43,49 @@ def resolve_data_path(filename: str) -> Path:
 
 
 def run():
-    """运行策略回测"""
+    """Run strategy backtest"""
     config = load_config()
 
-    # 创建cerebro
+    # Create cerebro
     cerebro = bt.Cerebro(stdstats=True)
 
-    # 添加策略（从config加载参数）
+    # Add strategy (load parameters from config)
     params = config.get('params', {})
     cerebro.addstrategy(ReplayEMAStrategy, **params)
-    # 加载数据
+    # Load data
     data_config = config.get('data', {})
     symbol = data_config.get('symbol', '2005-2006-day-001')
     print(f"Loading data: {symbol}.txt...")
     data_path = resolve_data_path(f"{symbol}.txt")
     data = bt.feeds.BacktraderCSVData(dataname=str(data_path))
 
-    # 使用replay功能将日线数据重放为周线数据
+    # UsereplayFunction to replay daily data as weekly data
     cerebro.replaydata(
         data,
         timeframe=bt.TimeFrame.Weeks,
         compression=1
     )
 
-    # 回测配置
+    # Backtest configuration
     bt_config = config.get('backtest', {})
     cerebro.broker.setcash(bt_config.get('initial_cash', 100000))
     cerebro.addsizer(bt.sizers.FixedSize, stake=bt_config.get('stake', 10))
 
-    # 添加分析器
+    # Add analyzers
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name="sharpe",
                         timeframe=bt.TimeFrame.Weeks, annualize=True, riskfreerate=0.0)
     cerebro.addanalyzer(bt.analyzers.Returns, _name="returns")
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
 
-    # 运行回测
+    # Run backtest
     print(f"\nRunning {config['strategy']['name']}...")
     results = cerebro.run(preload=False)
     strat = results[0]
 
-    # 获取结果
+    # Get results
     sharpe = strat.analyzers.sharpe.get_analysis()
     ret = strat.analyzers.returns.get_analysis()
     drawdown = strat.analyzers.drawdown.get_analysis()
@@ -97,7 +97,7 @@ def run():
     total_trades = trades.get('total', {}).get('total', 0)
     final_value = cerebro.broker.getvalue()
 
-    # 打印结果
+    # Print results
     print("\n" + "=" * 60)
     print("Data Replay EMA Strategy Backtest Results (Weekly):")
     print(f"  bar_num: {strat.bar_num}")
@@ -110,7 +110,7 @@ def run():
     print(f"  final_value: {final_value:.2f}")
     print("=" * 60)
 
-    # **关键**：与原test文件完全相同的断言
+    # **Critical**: Identical assertions from original test file
     assert strat.bar_num == 384, f"Expected bar_num=384, got {strat.bar_num}"
     assert abs(final_value - 104553.50) < 0.01, f"Expected final_value=104553.50, got {final_value}"
     assert abs(sharpe_ratio - 0.8871126960270267) < 1e-6, f"Expected sharpe_ratio=0.8871126960270267, got {sharpe_ratio}"

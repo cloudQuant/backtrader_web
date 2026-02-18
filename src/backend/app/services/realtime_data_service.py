@@ -11,19 +11,25 @@ logger = logging.getLogger(__name__)
 
 
 class RealTimeDataService:
-    """
-    实时行情数据服务
-    
-    功能：
-    1. 订阅/取消订阅实时行情
-    2. 获取最新行情
-    3. 获取历史行情
+    """Service for managing real-time market data subscriptions and tick data.
+
+    This service provides functionality for:
+    1. Subscribing to and unsubscribing from real-time market data
+    2. Retrieving the latest market quotes
+    3. Fetching historical market data
+
+    Attributes:
+        _subscriptions: Dictionary mapping user IDs to their subscribed symbols
+            per broker. Format: {user_id: {broker_id: [symbols]}}
+        _tick_cache: Dictionary caching the latest tick data per broker and symbol.
+            Format: {broker_id: {symbol: tick_data}}
     """
 
     def __init__(self):
-        # 用户订阅的标的 {user_id: {broker_id: [symbols]}}
+        """Initialize the RealTimeDataService with empty subscriptions and cache."""
+        # User-subscribed symbols {user_id: {broker_id: [symbols]}}
         self._subscriptions: Dict[str, Dict[str, List[str]]] = {}
-        # 最新行情缓存 {broker_id: {symbol: tick_data}}
+        # Latest tick cache {broker_id: {symbol: tick_data}}
         self._tick_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
 
     async def subscribe_ticks(
@@ -32,27 +38,26 @@ class RealTimeDataService:
         broker_id: Optional[str],
         symbols: List[str],
     ) -> None:
-        """
-        订阅实时行情
-        
+        """Subscribe to real-time market data for the specified symbols.
+
         Args:
-            user_id: 用户 ID
-            broker_id: 券商 ID
-            symbols: 标的代码列表
+            user_id: The unique identifier of the user.
+            broker_id: The broker identifier. Uses "default" if None.
+            symbols: List of symbol codes to subscribe to.
         """
         if user_id not in self._subscriptions:
             self._subscriptions[user_id] = {}
-        
+
         broker_key = broker_id or "default"
         if broker_key not in self._subscriptions[user_id]:
             self._subscriptions[user_id][broker_key] = []
-        
-        # 添加新订阅
+
+        # Add new subscriptions
         for symbol in symbols:
             if symbol not in self._subscriptions[user_id][broker_key]:
                 self._subscriptions[user_id][broker_key].append(symbol)
-        
-        logger.info(f"用户 {user_id} 订阅了 {len(symbols)} 个标的: {symbols}")
+
+        logger.info(f"User {user_id} subscribed to {len(symbols)} symbols: {symbols}")
 
     async def unsubscribe_ticks(
         self,
@@ -60,43 +65,41 @@ class RealTimeDataService:
         broker_id: Optional[str],
         symbols: List[str],
     ) -> None:
-        """
-        取消订阅实时行情
-        
+        """Unsubscribe from real-time market data for the specified symbols.
+
         Args:
-            user_id: 用户 ID
-            broker_id: 券商 ID
-            symbols: 标的代码列表
+            user_id: The unique identifier of the user.
+            broker_id: The broker identifier. Uses "default" if None.
+            symbols: List of symbol codes to unsubscribe from.
         """
         broker_key = broker_id or "default"
-        
+
         if user_id in self._subscriptions and broker_key in self._subscriptions[user_id]:
             for symbol in symbols:
                 if symbol in self._subscriptions[user_id][broker_key]:
                     self._subscriptions[user_id][broker_key].remove(symbol)
-        
-        logger.info(f"用户 {user_id} 取消订阅了 {len(symbols)} 个标的: {symbols}")
+
+        logger.info(f"User {user_id} unsubscribed from {len(symbols)} symbols: {symbols}")
 
     async def get_subscribed_symbols(
         self,
         user_id: str,
         broker_id: Optional[str],
     ) -> List[str]:
-        """
-        获取用户订阅的标的列表
-        
+        """Get the list of symbols subscribed by a user.
+
         Args:
-            user_id: 用户 ID
-            broker_id: 券商 ID
-            
+            user_id: The unique identifier of the user.
+            broker_id: The broker identifier. Uses "default" if None.
+
         Returns:
-            标的代码列表
+            List of symbol codes that the user is subscribed to.
         """
         broker_key = broker_id or "default"
-        
+
         if user_id in self._subscriptions and broker_key in self._subscriptions[user_id]:
             return self._subscriptions[user_id][broker_key]
-        
+
         return []
 
     async def get_tick(
@@ -105,23 +108,34 @@ class RealTimeDataService:
         broker_id: Optional[str],
         symbol: str,
     ) -> Optional[Dict[str, Any]]:
-        """
-        获取单个标的的最新行情
-        
+        """Get the latest market data for a single symbol.
+
         Args:
-            user_id: 用户 ID
-            broker_id: 券商 ID
-            symbol: 标的代码
-            
+            user_id: The unique identifier of the user.
+            broker_id: The broker identifier. Uses "default" if None.
+            symbol: The symbol code to retrieve data for.
+
         Returns:
-            行情数据
+            Dictionary containing tick data with fields:
+                - symbol: The symbol code
+                - timestamp: ISO format timestamp
+                - open: Opening price
+                - high: Highest price
+                - low: Lowest price
+                - close: Closing price
+                - volume: Trading volume
+                - bid: Bid price
+                - ask: Ask price
+                - bid_size: Bid size
+                - ask_size: Ask size
+            Returns mock data with zero values if symbol not found in cache.
         """
         broker_key = broker_id or "default"
-        
+
         if broker_key in self._tick_cache and symbol in self._tick_cache[broker_key]:
             return self._tick_cache[broker_key][symbol]
-        
-        # 返回模拟数据
+
+        # Return mock data
         return {
             "symbol": symbol,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -142,16 +156,15 @@ class RealTimeDataService:
         broker_id: Optional[str],
         symbols: List[str],
     ) -> Dict[str, Any]:
-        """
-        批量获取标的的最新行情
-        
+        """Get the latest market data for multiple symbols in batch.
+
         Args:
-            user_id: 用户 ID
-            broker_id: 券商 ID
-            symbols: 标的代码列表
-            
+            user_id: The unique identifier of the user.
+            broker_id: The broker identifier. Uses "default" if None.
+            symbols: List of symbol codes to retrieve data for.
+
         Returns:
-            行情数据字典 {symbol: tick_data}
+            Dictionary mapping symbol codes to their tick data.
         """
         result = {}
         for symbol in symbols:
@@ -167,24 +180,24 @@ class RealTimeDataService:
         end_date: datetime,
         frequency: str = "1d",
     ) -> List[Dict[str, Any]]:
-        """
-        获取历史行情数据
-        
+        """Get historical market data for a symbol.
+
         Args:
-            user_id: 用户 ID
-            broker_id: 券商 ID
-            symbol: 标的代码
-            start_date: 开始日期
-            end_date: 结束日期
-            frequency: 频率
-            
+            user_id: The unique identifier of the user.
+            broker_id: The broker identifier.
+            symbol: The symbol code to retrieve data for.
+            start_date: Start date of the historical data range.
+            end_date: End date of the historical data range.
+            frequency: Data frequency (e.g., "1d" for daily, "1h" for hourly).
+
         Returns:
-            历史行情列表
+            List of historical data points. Currently returns an empty list
+            as the actual data fetching logic is not yet implemented.
         """
-        logger.info(f"获取历史行情: {symbol} from {start_date} to {end_date}, freq={frequency}")
-        
-        # TODO: 实现实际的历史数据获取逻辑
-        # 目前返回空列表
+        logger.info(f"Fetching historical data: {symbol} from {start_date} to {end_date}, freq={frequency}")
+
+        # TODO: Implement actual historical data fetching logic
+        # Currently returns empty list
         return []
 
     def update_tick(
@@ -193,15 +206,14 @@ class RealTimeDataService:
         symbol: str,
         tick_data: Dict[str, Any],
     ) -> None:
-        """
-        更新行情缓存（内部方法，供数据源调用）
-        
+        """Update the tick data cache (internal method for data sources).
+
         Args:
-            broker_id: 券商 ID
-            symbol: 标的代码
-            tick_data: 行情数据
+            broker_id: The broker identifier.
+            symbol: The symbol code to update.
+            tick_data: The tick data dictionary to cache.
         """
         if broker_id not in self._tick_cache:
             self._tick_cache[broker_id] = {}
-        
+
         self._tick_cache[broker_id][symbol] = tick_data

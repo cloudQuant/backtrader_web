@@ -26,15 +26,20 @@ logger = logging.getLogger(__name__)
 
 
 class OptimizationService:
-    """
-    参数优化服务
-    
-    支持：
-    1. 网格搜索：遍历所有参数组合
-    2. 贝叶斯优化：使用 Optuna 进行智能优化
+    """Service for parameter optimization.
+
+    Supports:
+        1. Grid search: Iterate through all parameter combinations.
+        2. Bayesian optimization: Use Optuna for intelligent optimization.
+
+    Attributes:
+        backtest_service: Service for running backtests.
+        task_repo: Repository for backtest tasks.
+        cache: Cache instance for storing results.
     """
 
     def __init__(self):
+        """Initialize the OptimizationService."""
         self.backtest_service = BacktestService()
         self.task_repo = SQLRepository(BacktestTask)
         self.cache = get_cache()
@@ -44,45 +49,45 @@ class OptimizationService:
         user_id: str,
         request: OptimizationRequest
     ) -> OptimizationResult:
-        """
-        网格搜索优化
+        """Run grid search optimization.
 
         Args:
-            user_id: 用户ID
-            request: 优化请求
+            user_id: The user ID.
+            request: The optimization request.
 
         Returns:
-            OptimizationResult: 优化结果
+            OptimizationResult: The optimization results containing best parameters
+                and metrics.
         """
-        logger.info(f"开始网格搜索优化: {request.strategy_id}")
+        logger.info(f"Starting grid search optimization: {request.strategy_id}")
 
-        # 生成所有参数组合
+        # Generate all parameter combinations
         param_combinations = self._generate_param_combinations(request.param_grid)
 
-        logger.info(f"参数组合总数: {len(param_combinations)}")
+        logger.info(f"Total parameter combinations: {len(param_combinations)}")
 
         results = []
         completed_count = 0
 
-        # 遍历所有参数组合
+        # Iterate through all parameter combinations
         for i, params in enumerate(param_combinations):
-            logger.info(f"优化进度: {i+1}/{len(param_combinations)}")
+            logger.info(f"Optimization progress: {i+1}/{len(param_combinations)}")
 
-            # 创建回测请求
+            # Create backtest request
             backtest_request = request.backtest_config.model_copy()
             backtest_request.params = params
 
-            # 运行回测
+            # Run backtest
             try:
                 backtest_response = await self.backtest_service.run_backtest(
                     user_id, backtest_request
                 )
 
-                # 等待回测完成
+                # Wait for backtest to complete
                 result = await self._wait_for_backtest(backtest_response.task_id)
 
                 if result.status == TaskStatus.COMPLETED:
-                    # 记录结果
+                    # Record result
                     results.append({
                         'params': params,
                         'metrics': {
@@ -95,21 +100,21 @@ class OptimizationService:
                     })
                     completed_count += 1
                 else:
-                    logger.warning(f"回测失败: {backtest_response.task_id}")
+                    logger.warning(f"Backtest failed: {backtest_response.task_id}")
 
             except Exception as e:
-                logger.error(f"参数组合执行失败: {params}, {e}")
+                logger.error(f"Parameter combination execution failed: {params}, {e}")
                 continue
 
-        logger.info(f"网格搜索完成: {completed_count}/{len(param_combinations)}")
+        logger.info(f"Grid search completed: {completed_count}/{len(param_combinations)}")
 
-        # 根据优化目标排序
+        # Sort by optimization metric
         results.sort(
             key=lambda x: self._get_optimization_metric(x, request.metric),
-            reverse=True  # 最大化指标
+            reverse=True  # Maximize metric
         )
 
-        # 返回最优结果
+        # Return best result
         best_result = results[0] if results else None
 
         return OptimizationResult(
@@ -124,29 +129,39 @@ class OptimizationService:
         user_id: str,
         request: OptimizationRequest
     ) -> OptimizationResult:
-        """
-        贝叶斯优化
+        """Run Bayesian optimization.
 
-        使用 Optuna 进行智能参数优化
+        Uses Optuna for intelligent parameter optimization.
 
         Args:
-            user_id: 用户ID
-            request: 优化请求
+            user_id: The user ID.
+            request: The optimization request.
 
         Returns:
-            OptimizationResult: 优化结果
+            OptimizationResult: The optimization results containing best parameters
+                and metrics.
+
+        Raises:
+            ImportError: If Optuna is not installed.
         """
-        logger.info(f"开始贝叶斯优化: {request.strategy_id}")
+        logger.info(f"Starting Bayesian optimization: {request.strategy_id}")
 
         try:
             import optuna
         except ImportError:
-            raise ImportError("请安装 Optuna: pip install optuna")
+            raise ImportError("Please install Optuna: pip install optuna")
 
-        # 定义目标函数
+        # Define objective function
         def objective(trial):
-            """Optuna 目标函数"""
-            # 从试验中获取参数
+            """Optuna objective function.
+
+            Args:
+                trial: An Optuna trial object.
+
+            Returns:
+                float: The optimization metric value.
+            """
+            # Get parameters from trial
             params = {}
             for key, bounds in request.param_bounds.items():
                 if bounds.get('type') == 'int':
@@ -156,12 +171,12 @@ class OptimizationService:
                 elif bounds.get('type') == 'categorical':
                     params[key] = trial.suggest_categorical(key, bounds['choices'])
 
-            # 创建回测请求
+            # Create backtest request
             backtest_request = request.backtest_config.model_copy()
             backtest_request.params = params
 
-            # 运行回测（同步方式，因为 Optuna 需要在主进程中）
-            # 这里需要使用同步的方式，或者通过 asyncio 事件循环
+            # Run backtest (synchronous mode as Optuna requires main process)
+            # Use synchronous mode or asyncio event loop
             try:
                 result = asyncio.run_coroutine_threadsafe(
                     self._run_single_backtest(user_id, backtest_request),
@@ -169,45 +184,45 @@ class OptimizationService:
                 ).result()
 
                 if result.status == TaskStatus.COMPLETED:
-                    # 根据优化目标返回指标
+                    # Return metric based on optimization target
                     if request.metric == 'sharpe_ratio':
-                        return -result.sharpe_ratio  # 最大化夏普比率
+                        return -result.sharpe_ratio  # Maximize Sharpe ratio
                     elif request.metric == 'max_drawdown':
-                        return result.max_drawdown  # 最小化最大回撤
+                        return result.max_drawdown  # Minimize max drawdown
                     elif request.metric == 'total_return':
-                        return -result.total_return  # 最大化收益率
+                        return -result.total_return  # Maximize total return
                     else:
                         return -result.sharpe_ratio
                 else:
-                    # 如果回测失败，返回最差值
+                    # If backtest fails, return worst value
                     return float('-inf') if request.metric in ['sharpe_ratio', 'total_return'] else float('inf')
 
             except Exception as e:
-                logger.error(f"试验失败: {params}, {e}")
-                # 返回最差值
+                logger.error(f"Trial failed: {params}, {e}")
+                # Return worst value
                 return float('-inf') if request.metric in ['sharpe_ratio', 'total_return'] else float('inf')
 
-        # 创建 Study
+        # Create Study
         study = optuna.create_study(direction='minimize')
 
-        # 运行优化
-        logger.info(f"开始 {request.n_trials} 次试验")
+        # Run optimization
+        logger.info(f"Starting {request.n_trials} trials")
         study.optimize(objective, n_trials=request.n_trials)
 
-        # 获取最优参数
+        # Get best parameters
         best_params = study.best_params
         best_value = study.best_trial.value
 
-        # 将负值转回正值
+        # Convert negative values back to positive
         if request.metric in ['sharpe_ratio', 'total_return']:
             best_value = -best_value
 
-        # 运行最优参数的回测获取完整结果
+        # Run backtest with best parameters to get complete results
         backtest_request = request.backtest_config.model_copy()
         backtest_request.params = best_params
         backtest_result = await self._run_single_backtest(user_id, backtest_request)
 
-        # 收集所有试验结果
+        # Collect all trial results
         all_results = []
         for trial in study.trials:
             params = trial.params
@@ -219,7 +234,7 @@ class OptimizationService:
                 }
             })
 
-        logger.info(f"贝叶斯优化完成: 最佳指标 = {best_value}")
+        logger.info(f"Bayesian optimization completed: Best metric = {best_value}")
 
         return OptimizationResult(
             best_params=best_params,
@@ -233,17 +248,16 @@ class OptimizationService:
         user_id: str,
         request: BacktestRequest
     ) -> BacktestResult:
-        """
-        运行单个回测（辅助方法）
+        """Run a single backtest (helper method).
 
-        注意：必须等待回测完成后再获取结果
+        Note: Must wait for backtest to complete before retrieving results.
 
         Args:
-            user_id: 用户ID
-            request: 回测请求
+            user_id: The user ID.
+            request: The backtest request.
 
         Returns:
-            BacktestResult: 回测结果
+            BacktestResult: The backtest result.
         """
         backtest_response = await self.backtest_service.run_backtest(user_id, request)
         result = await self._wait_for_backtest(backtest_response.task_id)
@@ -253,22 +267,21 @@ class OptimizationService:
         self,
         param_grid: Dict[str, List[Any]]
     ) -> List[Dict[str, Any]]:
-        """
-        生成参数组合（笛卡尔积）
+        """Generate parameter combinations (Cartesian product).
 
         Args:
-            param_grid: 参数网格
+            param_grid: The parameter grid with keys mapping to lists of values.
 
         Returns:
-            参数组合列表
+            List[Dict[str, Any]]: A list of parameter combination dictionaries.
         """
         keys = list(param_grid.keys())
         values = list(param_grid.values())
 
-        # 使用 itertools.product 生成笛卡尔积
+        # Use itertools.product to generate Cartesian product
         combinations = list(itertools.product(*values))
 
-        # 转换为字典列表
+        # Convert to list of dictionaries
         return [dict(zip(keys, combo)) for combo in combinations]
 
     def _get_optimization_metric(
@@ -276,22 +289,21 @@ class OptimizationService:
         result: Dict[str, Any],
         metric: str
     ) -> float:
-        """
-        获取优化指标的值
+        """Get the value of the optimization metric.
 
         Args:
-            result: 回测结果
-            metric: 优化目标
+            result: The backtest result containing metrics.
+            metric: The optimization target metric name.
 
         Returns:
-            指标值
+            float: The metric value, adjusted for maximization.
         """
         metrics = result.get('metrics', {})
 
         if metric == 'sharpe_ratio':
             return metrics.get('sharpe_ratio', float('-inf'))
         elif metric == 'max_drawdown':
-            return -metrics.get('max_drawdown', float('inf'))  # 最小化最大回撤
+            return -metrics.get('max_drawdown', float('inf'))  # Minimize max drawdown
         elif metric == 'total_return':
             return metrics.get('total_return', float('-inf'))
         else:
@@ -302,24 +314,26 @@ class OptimizationService:
         task_id: str,
         timeout: int = 600
     ) -> BacktestResult:
-        """
-        等待回测完成
+        """Wait for backtest to complete.
 
         Args:
-            task_id: 任务ID
-            timeout: 超时时间（秒）
+            task_id: The task ID.
+            timeout: The timeout in seconds.
 
         Returns:
-            BacktestResult: 回测结果
+            BacktestResult: The backtest result.
+
+        Raises:
+            RuntimeError: If the backtest fails, is cancelled, or times out.
         """
-        # 检查任务状态
+        # Check task status
         status = await self.backtest_service.get_task_status(task_id)
-        
+
         if status != TaskStatus.PENDING and status != TaskStatus.RUNNING:
-            # 任务已完成或失败，直接返回结果
+            # Task completed or failed, return result directly
             return await self.backtest_service.get_result(task_id)
 
-        # 轮询任务状态
+        # Poll task status
         waited = 0
         while waited < timeout:
             await asyncio.sleep(1)
@@ -331,8 +345,8 @@ class OptimizationService:
                 return await self.backtest_service.get_result(task_id)
             elif status == TaskStatus.FAILED:
                 result = await self.backtest_service.get_result(task_id)
-                raise RuntimeError(f"回测失败: {result.error_message}")
+                raise RuntimeError(f"Backtest failed: {result.error_message}")
             elif status == TaskStatus.CANCELLED:
-                raise RuntimeError("回测任务已取消")
+                raise RuntimeError("Backtest task cancelled")
 
-        raise RuntimeError(f"回测任务超时（{timeout} 秒）")
+        raise RuntimeError(f"Backtest task timeout ({timeout} seconds)")

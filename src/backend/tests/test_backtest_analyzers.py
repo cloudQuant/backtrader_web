@@ -1,12 +1,12 @@
 """
-回测分析器测试
+Backtest Analyzer Tests.
 
-测试自定义的 Backtrader 分析器：
-- DetailedTradeAnalyzer
-- EquityCurveAnalyzer
-- TradeSignalAnalyzer
-- MonthlyReturnsAnalyzer
-- DrawdownAnalyzer
+Tests custom Backtrader analyzers:
+- DetailedTradeAnalyzer: Records detailed trade information
+- EquityCurveAnalyzer: Tracks equity curve over time
+- TradeSignalAnalyzer: Records buy/sell signals
+- MonthlyReturnsAnalyzer: Calculates monthly returns
+- DrawdownAnalyzer: Tracks drawdown curve
 """
 import pytest
 from unittest.mock import Mock, MagicMock, patch
@@ -23,19 +23,19 @@ from app.services.backtest_analyzers import (
 
 
 class TestDetailedTradeAnalyzer:
-    """测试详细交易分析器"""
+    """Tests for detailed trade analyzer."""
 
     def test_initialization(self):
-        """测试初始化"""
+        """Test analyzer initialization."""
         analyzer = DetailedTradeAnalyzer()
         assert analyzer.trades == []
         assert analyzer.trade_count == 0
 
     def test_notify_trade_buy(self):
-        """测试记录买入交易"""
+        """Test recording buy trades."""
         analyzer = DetailedTradeAnalyzer()
 
-        # 创建模拟交易对象
+        # Create mock trade object
         trade = Mock()
         trade.isclosed = True
         trade.ref = 1
@@ -47,22 +47,22 @@ class TestDetailedTradeAnalyzer:
         trade.pnlcomm = 45.0
         trade.barlen = 5
 
-        # 创建模拟历史记录 - history[0].event.size 决定买卖方向
+        # Create mock history - history[0].event.size determines buy/sell direction
         history_event = Mock()
         history_event.event = Mock()
-        history_event.event.size = 100  # 正数表示买入
+        history_event.event.size = 100  # Positive means buy
         trade.history = [history_event]
 
-        # 创建 trade.data._name (实际代码使用 trade.data._name)
+        # Create trade.data._name (actual code uses trade.data._name)
         trade_data = Mock()
         trade_data._name = 'AAPL'
         trade.data = trade_data
 
-        # 创建模拟数据源用于 datetime
+        # Create mock data source for datetime
         data = Mock()
         dt = datetime(2024, 1, 1, 10, 30, 0)
 
-        # 正确设置datetime mock的链式调用
+        # Correctly set datetime mock chain
         # self.datas[0].datetime.datetime(0).strftime(...)
         dt_mock = Mock()
         dt_mock.strftime = Mock(return_value='2024-01-01 10:30:00')
@@ -73,17 +73,17 @@ class TestDetailedTradeAnalyzer:
         data.datetime = datetime_mock
         analyzer.datas = [data]
 
-        # 调用notify_trade
+        # Call notify_trade
         analyzer.notify_trade(trade)
 
-        # 验证
+        # Verify
         assert analyzer.trade_count == 1
         assert len(analyzer.trades) == 1
         assert analyzer.trades[0]['symbol'] == 'AAPL'
         assert analyzer.trades[0]['direction'] == 'buy'
 
     def test_notify_trade_sell(self):
-        """测试记录卖出交易"""
+        """Test recording sell trades."""
         analyzer = DetailedTradeAnalyzer()
 
         trade = Mock()
@@ -96,15 +96,15 @@ class TestDetailedTradeAnalyzer:
         trade.pnl = 25.0
         trade.pnlcomm = 22.0
         trade.barlen = 3
-        # history[0].event.size 为负数表示卖出
+        # history[0].event.size negative means sell
         trade.history = [Mock(event=Mock(size=-50))]
 
-        # 创建 trade.data._name
+        # Create trade.data._name
         trade_data = Mock()
         trade_data._name = 'MSFT'
         trade.data = trade_data
 
-        # 创建模拟数据源用于 datetime
+        # Create mock data source for datetime
         dt_mock = Mock()
         dt_mock.strftime = Mock(return_value='2024-01-02 14:00:00')
         datetime_mock = Mock()
@@ -119,7 +119,7 @@ class TestDetailedTradeAnalyzer:
         assert analyzer.trades[0]['size'] == 50
 
     def test_notify_trade_not_closed(self):
-        """测试未完成的交易不记录"""
+        """Test that unclosed trades are not recorded."""
         analyzer = DetailedTradeAnalyzer()
 
         trade = Mock()
@@ -131,7 +131,7 @@ class TestDetailedTradeAnalyzer:
         assert len(analyzer.trades) == 0
 
     def test_get_analysis(self):
-        """测试获取分析结果"""
+        """Test getting analysis results."""
         analyzer = DetailedTradeAnalyzer()
         analyzer.trades = [{'test': 'trade'}]
 
@@ -141,19 +141,19 @@ class TestDetailedTradeAnalyzer:
 
 
 class TestEquityCurveAnalyzer:
-    """测试资金曲线分析器"""
+    """Tests for equity curve analyzer."""
 
     def test_initialization(self):
-        """测试初始化"""
+        """Test analyzer initialization."""
         analyzer = EquityCurveAnalyzer()
         assert analyzer.equity_curve == []
         assert analyzer._last_value is None
 
     def test_start(self):
-        """测试start方法"""
+        """Test start method."""
         analyzer = EquityCurveAnalyzer()
 
-        # 模拟strategy和broker
+        # Mock strategy and broker
         strategy = Mock()
         broker = Mock()
         broker.getvalue.return_value = 100000
@@ -165,10 +165,10 @@ class TestEquityCurveAnalyzer:
         assert analyzer._last_value == 100000
 
     def test_next(self):
-        """测试next方法"""
+        """Test next method."""
         analyzer = EquityCurveAnalyzer()
 
-        # 模拟数据
+        # Mock data
         strategy = Mock()
         broker = Mock()
         broker.getvalue.return_value = 100500
@@ -190,7 +190,7 @@ class TestEquityCurveAnalyzer:
         assert analyzer.equity_curve[0]['position_value'] == 50500
 
     def test_get_analysis(self):
-        """测试获取分析结果"""
+        """Test getting analysis results."""
         analyzer = EquityCurveAnalyzer()
         analyzer.equity_curve = [{'date': '2024-01-01', 'total_assets': 100000}]
 
@@ -200,15 +200,15 @@ class TestEquityCurveAnalyzer:
 
 
 class TestTradeSignalAnalyzer:
-    """测试交易信号分析器"""
+    """Tests for trade signal analyzer."""
 
     def test_initialization(self):
-        """测试初始化"""
+        """Test analyzer initialization."""
         analyzer = TradeSignalAnalyzer()
         assert analyzer.signals == []
 
     def test_notify_order_buy(self):
-        """测试记录买入信号"""
+        """Test recording buy signals."""
         analyzer = TradeSignalAnalyzer()
 
         order = Mock()
@@ -230,7 +230,7 @@ class TestTradeSignalAnalyzer:
         assert analyzer.signals[0]['price'] == 100.5
 
     def test_notify_order_sell(self):
-        """测试记录卖出信号"""
+        """Test recording sell signals."""
         analyzer = TradeSignalAnalyzer()
 
         order = Mock()
@@ -250,7 +250,7 @@ class TestTradeSignalAnalyzer:
         assert analyzer.signals[0]['type'] == 'sell'
 
     def test_notify_order_not_completed(self):
-        """测试未完成的订单不记录"""
+        """Test that incomplete orders are not recorded."""
         analyzer = TradeSignalAnalyzer()
 
         order = Mock()
@@ -261,7 +261,7 @@ class TestTradeSignalAnalyzer:
         assert len(analyzer.signals) == 0
 
     def test_get_analysis(self):
-        """测试获取分析结果"""
+        """Test getting analysis results."""
         analyzer = TradeSignalAnalyzer()
         analyzer.signals = [{'type': 'buy'}]
 
@@ -271,17 +271,17 @@ class TestTradeSignalAnalyzer:
 
 
 class TestMonthlyReturnsAnalyzer:
-    """测试月度收益分析器"""
+    """Tests for monthly returns analyzer."""
 
     def test_initialization(self):
-        """测试初始化"""
+        """Test analyzer initialization."""
         analyzer = MonthlyReturnsAnalyzer()
         assert analyzer.monthly_returns == {}
         assert analyzer.month_start_value is None
         assert analyzer.current_month is None
 
     def test_start(self):
-        """测试start方法"""
+        """Test start method."""
         analyzer = MonthlyReturnsAnalyzer()
 
         strategy = Mock()
@@ -295,7 +295,7 @@ class TestMonthlyReturnsAnalyzer:
         assert analyzer.month_start_value == 100000
 
     def test_next_same_month(self):
-        """测试同一个月不记录"""
+        """Test that same month is not recorded."""
         analyzer = MonthlyReturnsAnalyzer()
 
         strategy = Mock()
@@ -317,7 +317,7 @@ class TestMonthlyReturnsAnalyzer:
         assert len(analyzer.monthly_returns) == 0
 
     def test_next_month_change(self):
-        """测试月份变化时记录收益"""
+        """Test recording returns when month changes."""
         analyzer = MonthlyReturnsAnalyzer()
 
         strategy = Mock()
@@ -333,13 +333,13 @@ class TestMonthlyReturnsAnalyzer:
         analyzer.datas = [data]
         analyzer.strategy = strategy
 
-        # 第一个月
+        # First month
         data.datetime.datetime = Mock(return_value=dt_jan)
         broker.getvalue.return_value = 100000
         analyzer.start()
         analyzer.next()
 
-        # 第二个月
+        # Second month
         data.datetime.datetime = Mock(return_value=dt_feb)
         broker.getvalue.return_value = 102000
         analyzer.next()
@@ -348,7 +348,7 @@ class TestMonthlyReturnsAnalyzer:
         assert analyzer.monthly_returns[(2024, 1)] == pytest.approx(0.02)
 
     def test_stop(self):
-        """测试stop方法记录最后收益"""
+        """Test stop method records final returns."""
         analyzer = MonthlyReturnsAnalyzer()
 
         strategy = Mock()
@@ -365,7 +365,7 @@ class TestMonthlyReturnsAnalyzer:
         assert analyzer.monthly_returns[(2024, 1)] == 0.02
 
     def test_get_analysis(self):
-        """测试获取分析结果"""
+        """Test getting analysis results."""
         analyzer = MonthlyReturnsAnalyzer()
         analyzer.monthly_returns = {(2024, 1): 0.05}
 
@@ -375,16 +375,16 @@ class TestMonthlyReturnsAnalyzer:
 
 
 class TestDrawdownAnalyzer:
-    """测试回撤分析器"""
+    """Tests for drawdown analyzer."""
 
     def test_initialization(self):
-        """测试初始化"""
+        """Test analyzer initialization."""
         analyzer = DrawdownAnalyzer()
         assert analyzer.drawdown_curve == []
         assert analyzer.peak == 0
 
     def test_start(self):
-        """测试start方法"""
+        """Test start method."""
         analyzer = DrawdownAnalyzer()
 
         strategy = Mock()
@@ -398,7 +398,7 @@ class TestDrawdownAnalyzer:
         assert analyzer.peak == 100000
 
     def test_next_increasing_peak(self):
-        """测试创新高"""
+        """Test new peak is recorded."""
         analyzer = DrawdownAnalyzer()
 
         strategy = Mock()
@@ -420,7 +420,7 @@ class TestDrawdownAnalyzer:
         assert analyzer.drawdown_curve[0]['drawdown'] == 0
 
     def test_next_drawdown(self):
-        """测试回撤"""
+        """Test drawdown is recorded."""
         analyzer = DrawdownAnalyzer()
 
         strategy = Mock()
@@ -436,7 +436,7 @@ class TestDrawdownAnalyzer:
         analyzer.datas = [data]
         analyzer.strategy = strategy
         analyzer.start()
-        # 先设置peak为100000
+        # Set peak to 100000 first
         analyzer.peak = 100000
         analyzer.next()
 
@@ -444,7 +444,7 @@ class TestDrawdownAnalyzer:
         assert analyzer.drawdown_curve[0]['drawdown'] == pytest.approx(-0.01)
 
     def test_get_analysis(self):
-        """测试获取分析结果"""
+        """Test getting analysis results."""
         analyzer = DrawdownAnalyzer()
         analyzer.drawdown_curve = [{'date': '2024-01-01', 'drawdown': -0.05}]
 
@@ -454,10 +454,10 @@ class TestDrawdownAnalyzer:
 
 
 class TestGetAllAnalyzers:
-    """测试获取所有分析器"""
+    """Tests for getting all analyzers."""
 
     def test_returns_all_analyzers(self):
-        """测试返回所有分析器"""
+        """Test that all analyzers are returned."""
         analyzers = get_all_analyzers()
 
         assert 'detailed_trades' in analyzers
@@ -467,7 +467,7 @@ class TestGetAllAnalyzers:
         assert 'drawdown' in analyzers
 
     def test_analyzer_classes(self):
-        """测试分析器类正确"""
+        """Test that correct analyzer classes are returned."""
         analyzers = get_all_analyzers()
 
         assert analyzers['detailed_trades'] == DetailedTradeAnalyzer

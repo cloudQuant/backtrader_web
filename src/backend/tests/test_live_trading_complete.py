@@ -1,13 +1,13 @@
 """
-实盘交易完整版 API 测试
+Complete live trading API tests.
 
-测试：
-- 实盘策略提交
-- 实盘任务列表
-- 实盘任务状态
-- 停止实盘任务
-- 实盘交易数据获取
-- WebSocket端点
+Tests:
+    - Live trading strategy submission
+    - Live trading task list
+    - Live trading task status
+    - Stop live trading task
+    - Live trading data retrieval
+    - WebSocket endpoints
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -15,7 +15,7 @@ from datetime import datetime
 from fastapi import status
 
 
-# 有效的实盘交易请求
+# Valid live trading request
 VALID_LIVE_TRADING_REQUEST = {
     "strategy_name": "SMACross",
     "exchange": "binance",
@@ -29,7 +29,11 @@ VALID_LIVE_TRADING_REQUEST = {
 
 @pytest.fixture
 def mock_current_user():
-    """Mock current user"""
+    """Mock current user.
+
+    Returns:
+        A mock user object with sub attribute.
+    """
     user = MagicMock()
     user.sub = "test_user_123"
     return user
@@ -37,7 +41,11 @@ def mock_current_user():
 
 @pytest.fixture
 def mock_live_trading_service():
-    """Mock LiveTradingService"""
+    """Mock LiveTradingService.
+
+    Returns:
+        An AsyncMock of LiveTradingService with common methods mocked.
+    """
     service = AsyncMock()
     service.start_live_trading = AsyncMock(return_value="task_123")
     service.list_tasks = AsyncMock(return_value=([], 0))
@@ -54,10 +62,15 @@ def mock_live_trading_service():
 
 @pytest.mark.asyncio
 class TestLiveTradingSubmitAPI:
-    """测试实盘策略提交API"""
+    """Tests for live trading strategy submission API."""
 
     async def test_submit_live_strategy_success(self, mock_current_user, mock_live_trading_service):
-        """测试成功提交策略"""
+        """Test successful strategy submission.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import submit_live_strategy
         from app.schemas.live_trading import LiveTradingSubmitRequest
 
@@ -100,7 +113,12 @@ class TestLiveTradingSubmitAPI:
             )
 
     async def test_submit_live_strategy_with_full_params(self, mock_current_user, mock_live_trading_service):
-        """测试完整参数提交"""
+        """Test submission with full parameters.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import submit_live_strategy
         from app.schemas.live_trading import LiveTradingSubmitRequest
 
@@ -134,7 +152,12 @@ class TestLiveTradingSubmitAPI:
             assert result.task_id == "task_full_123"
 
     async def test_submit_live_strategy_sends_websocket_notification(self, mock_current_user, mock_live_trading_service):
-        """测试提交后发送WebSocket通知"""
+        """Test WebSocket notification sent after submission.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import submit_live_strategy, ws_manager, MessageType
         from app.schemas.live_trading import LiveTradingSubmitRequest
 
@@ -153,7 +176,7 @@ class TestLiveTradingSubmitAPI:
                 {
                     "type": MessageType.PROGRESS,
                     "task_id": "task_123",
-                    "message": "实盘交易策略已提交",
+                    "message": "Live trading strategy has been submitted",
                     "data": request.model_dump(),
                 }
             )
@@ -161,10 +184,15 @@ class TestLiveTradingSubmitAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingTasksAPI:
-    """测试实盘任务管理API"""
+    """Tests for live trading task management API."""
 
     async def test_list_live_tasks_empty(self, mock_current_user, mock_live_trading_service):
-        """测试空任务列表"""
+        """Test empty task list.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import list_live_tasks
 
         mock_live_trading_service.list_tasks = AsyncMock(return_value=([], 0))
@@ -180,7 +208,12 @@ class TestLiveTradingTasksAPI:
         assert result.tasks == []
 
     async def test_list_live_tasks_with_data(self, mock_current_user, mock_live_trading_service):
-        """测试获取任务列表"""
+        """Test getting task list.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import list_live_tasks
         from app.schemas.live_trading import LiveTradingTaskResponse
 
@@ -215,7 +248,12 @@ class TestLiveTradingTasksAPI:
         assert result.tasks[1].task_id == "task_2"
 
     async def test_list_live_tasks_with_pagination(self, mock_current_user, mock_live_trading_service):
-        """测试分页"""
+        """Test pagination.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import list_live_tasks
 
         mock_live_trading_service.list_tasks = AsyncMock(return_value=([], 0))
@@ -237,10 +275,15 @@ class TestLiveTradingTasksAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingTaskStatusAPI:
-    """测试实盘任务状态API"""
+    """Tests for live trading task status API."""
 
     async def test_get_live_task_status_not_found(self, mock_current_user, mock_live_trading_service):
-        """测试任务不存在"""
+        """Test task not found.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import get_live_task_status
         from fastapi import HTTPException
 
@@ -254,10 +297,15 @@ class TestLiveTradingTaskStatusAPI:
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
-        assert "不存在" in exc_info.value.detail
+        assert "not found" in exc_info.value.detail
 
     async def test_get_live_task_status_success(self, mock_current_user, mock_live_trading_service):
-        """测试成功获取任务状态"""
+        """Test successful task status retrieval.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import get_live_task_status
         from app.schemas.live_trading import LiveTradingTaskResponse
 
@@ -282,10 +330,15 @@ class TestLiveTradingTaskStatusAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingControlAPI:
-    """测试实盘任务控制API"""
+    """Tests for live trading task control API."""
 
     async def test_stop_live_strategy_not_found(self, mock_current_user, mock_live_trading_service):
-        """测试停止不存在的任务"""
+        """Test stopping non-existent task.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import stop_live_strategy
         from fastapi import HTTPException
 
@@ -301,7 +354,12 @@ class TestLiveTradingControlAPI:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
     async def test_stop_live_strategy_success(self, mock_current_user, mock_live_trading_service):
-        """测试成功停止实盘策略"""
+        """Test successfully stopping live trading strategy.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import stop_live_strategy
 
         mock_live_trading_service.stop_live_trading = AsyncMock(return_value=True)
@@ -315,10 +373,15 @@ class TestLiveTradingControlAPI:
                 service=mock_live_trading_service
             )
 
-            assert result == {"message": "实盘交易任务已停止"}
+            assert result == {"message": "Live trading task has been stopped"}
 
     async def test_stop_live_strategy_sends_websocket_notification(self, mock_current_user, mock_live_trading_service):
-        """测试停止后发送WebSocket通知"""
+        """Test WebSocket notification sent after stopping.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import stop_live_strategy, ws_manager, MessageType
 
         mock_live_trading_service.stop_live_trading = AsyncMock(return_value=True)
@@ -336,17 +399,22 @@ class TestLiveTradingControlAPI:
                 {
                     "type": MessageType.PROGRESS,
                     "task_id": "task_123",
-                    "message": "实盘交易任务已停止",
+                    "message": "Live trading task has been stopped",
                 }
             )
 
 
 @pytest.mark.asyncio
 class TestLiveTradingDataAPI:
-    """测试实盘交易数据API"""
+    """Tests for live trading data API."""
 
     async def test_get_live_data_task_not_found(self, mock_current_user, mock_live_trading_service):
-        """测试任务不存在"""
+        """Test task not found.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import get_live_trading_data
         from fastapi import HTTPException
 
@@ -362,7 +430,12 @@ class TestLiveTradingDataAPI:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
     async def test_get_live_data_success(self, mock_current_user, mock_live_trading_service):
-        """测试成功获取实盘数据"""
+        """Test successful live trading data retrieval.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import get_live_trading_data
 
         mock_live_trading_service.get_task_status = AsyncMock(return_value={"status": "running"})
@@ -387,7 +460,12 @@ class TestLiveTradingDataAPI:
         assert len(result.orders) == 1
 
     async def test_get_live_data_with_object_status(self, mock_current_user, mock_live_trading_service):
-        """测试状态为对象时的情况"""
+        """Test when status is an object.
+
+        Args:
+            mock_current_user: Mock current user fixture.
+            mock_live_trading_service: Mock live trading service fixture.
+        """
         from app.api.live_trading_complete import get_live_trading_data
 
         # Mock task status as an object with status attribute
@@ -413,10 +491,14 @@ class TestLiveTradingDataAPI:
 
 @pytest.mark.asyncio
 class TestLiveTradingWebSocket:
-    """测试WebSocket端点"""
+    """Tests for WebSocket endpoints."""
 
     async def test_websocket_connection_flow(self):
-        """测试WebSocket连接流程"""
+        """Test WebSocket connection flow.
+
+        Verifies that a WebSocket connection is properly
+        established with initial messages sent.
+        """
         from app.api.live_trading_complete import live_trading_websocket, MessageType
 
         mock_ws = MagicMock()
@@ -444,7 +526,11 @@ class TestLiveTradingWebSocket:
                 assert first_call[0][1]["type"] == MessageType.CONNECTED
 
     async def test_websocket_client_id_generation(self):
-        """测试客户端ID生成"""
+        """Test client ID generation.
+
+        Verifies that unique client IDs are generated
+        for WebSocket connections.
+        """
         from app.api.live_trading_complete import live_trading_websocket
 
         mock_ws = MagicMock()
@@ -467,7 +553,11 @@ class TestLiveTradingWebSocket:
                 assert call_args is not None
 
     async def test_websocket_disconnect_on_error(self):
-        """测试错误时断开连接"""
+        """Test disconnect on error.
+
+        Verifies that WebSocket connections are properly
+        closed when errors occur.
+        """
         from app.api.live_trading_complete import live_trading_websocket
 
         mock_ws = MagicMock()
@@ -486,10 +576,14 @@ class TestLiveTradingWebSocket:
 
 @pytest.mark.asyncio
 class TestLiveTradingServiceIntegration:
-    """测试LiveTradingService集成"""
+    """Tests for LiveTradingService integration."""
 
     async def test_service_dependency_function(self):
-        """测试服务依赖函数"""
+        """Test service dependency function.
+
+        Verifies that get_live_trading_service returns
+        a valid LiveTradingService instance.
+        """
         from app.api.live_trading_complete import get_live_trading_service
         from app.services.live_trading_service import LiveTradingService
 
@@ -497,7 +591,11 @@ class TestLiveTradingServiceIntegration:
         assert isinstance(service, LiveTradingService)
 
     async def test_service_callable(self):
-        """测试服务可调用"""
+        """Test service is callable.
+
+        Verifies that the service dependency function
+        is callable.
+        """
         from app.api.live_trading_complete import get_live_trading_service
 
         assert callable(get_live_trading_service)
@@ -505,10 +603,14 @@ class TestLiveTradingServiceIntegration:
 
 @pytest.mark.asyncio
 class TestLiveTradingSchemas:
-    """测试实盘交易Schema"""
+    """Tests for live trading schemas."""
 
     async def test_submit_request_schema_validation(self):
-        """测试提交请求Schema验证"""
+        """Test submit request schema validation.
+
+        Verifies that validation errors are raised for
+        invalid requests.
+        """
         from app.schemas.live_trading import LiveTradingSubmitRequest
         from pydantic import ValidationError
 
@@ -520,7 +622,11 @@ class TestLiveTradingSchemas:
             )
 
     async def test_submit_request_schema_success(self):
-        """测试提交请求Schema成功"""
+        """Test submit request schema success.
+
+        Verifies that valid requests are properly
+        parsed.
+        """
         from app.schemas.live_trading import LiveTradingSubmitRequest
 
         request = LiveTradingSubmitRequest(**VALID_LIVE_TRADING_REQUEST)
@@ -529,7 +635,11 @@ class TestLiveTradingSchemas:
         assert len(request.symbols) == 2
 
     async def test_task_response_schema(self):
-        """测试任务响应Schema"""
+        """Test task response schema.
+
+        Verifies that LiveTradingTaskResponse properly
+        validates task data.
+        """
         from app.schemas.live_trading import LiveTradingTaskResponse
 
         response = LiveTradingTaskResponse(
@@ -543,7 +653,11 @@ class TestLiveTradingSchemas:
         assert response.status == "running"
 
     async def test_data_response_schema(self):
-        """测试数据响应Schema"""
+        """Test data response schema.
+
+        Verifies that LiveTradingDataResponse properly
+        validates trading data.
+        """
         from app.schemas.live_trading import LiveTradingDataResponse
 
         response = LiveTradingDataResponse(
@@ -560,17 +674,25 @@ class TestLiveTradingSchemas:
 
 @pytest.mark.asyncio
 class TestLiveTradingRouter:
-    """测试实盘交易路由"""
+    """Tests for live trading router."""
 
     async def test_router_exists(self):
-        """测试路由存在"""
+        """Test router exists.
+
+        Verifies the live trading router is properly
+        initialized.
+        """
         from app.api.live_trading_complete import router
 
         assert router is not None
         assert hasattr(router, 'routes')
 
     async def test_router_endpoint_count(self):
-        """测试路由端点数量"""
+        """Test router endpoint count.
+
+        Verifies the router has the expected number
+        of routes.
+        """
         from app.api.live_trading_complete import router
 
         routes = list(router.routes)
@@ -578,7 +700,11 @@ class TestLiveTradingRouter:
         assert len(routes) >= 6
 
     async def test_router_has_submit_endpoint(self):
-        """测试有提交端点"""
+        """Test router has submit endpoint.
+
+        Verifies the router contains the strategy
+        submission endpoint.
+        """
         from app.api.live_trading_complete import router
 
         routes = [route for route in router.routes if hasattr(route, 'path')]
@@ -586,7 +712,11 @@ class TestLiveTradingRouter:
         assert len(submit_routes) > 0
 
     async def test_router_has_websocket_endpoint(self):
-        """测试有WebSocket端点"""
+        """Test router has WebSocket endpoint.
+
+        Verifies the router contains the WebSocket
+        endpoint for live updates.
+        """
         from app.api.live_trading_complete import router
 
         routes = [route for route in router.routes if hasattr(route, 'path')]

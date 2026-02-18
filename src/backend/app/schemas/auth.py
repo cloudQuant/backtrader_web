@@ -7,10 +7,10 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserCreate(BaseModel):
-    """用户注册请求"""
-    username: str = Field(..., min_length=3, max_length=50, description="用户名")
-    email: EmailStr = Field(..., description="邮箱地址")
-    password: str = Field(..., min_length=8, description="密码")
+    """User registration request schema."""
+    username: str = Field(..., min_length=3, max_length=50, description="Username")
+    email: EmailStr = Field(..., description="Email address")
+    password: str = Field(..., min_length=8, description="Password")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -24,37 +24,37 @@ class UserCreate(BaseModel):
 
 
 class UserLogin(BaseModel):
-    """用户登录请求"""
-    username: str = Field(..., description="用户名")
-    password: str = Field(..., description="密码")
+    """User login request schema."""
+    username: str = Field(..., description="Username")
+    password: str = Field(..., description="Password")
 
 
 class UserResponse(BaseModel):
-    """用户响应"""
-    id: str = Field(..., description="用户ID")
-    username: str = Field(..., description="用户名")
-    email: str = Field(..., description="邮箱")
-    is_active: bool = Field(True, description="是否激活")
-    created_at: datetime = Field(..., description="创建时间")
+    """User response schema."""
+    id: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    email: str = Field(..., description="Email")
+    is_active: bool = Field(True, description="Whether active")
+    created_at: datetime = Field(..., description="Creation time")
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):
-    """JWT令牌响应"""
-    access_token: str = Field(..., description="访问令牌")
-    token_type: str = Field("bearer", description="令牌类型")
-    expires_in: int = Field(..., description="过期时间(秒)")
+    """JWT token response schema."""
+    access_token: str = Field(..., description="Access token")
+    token_type: str = Field("bearer", description="Token type")
+    expires_in: int = Field(..., description="Expiration time (seconds)")
 
 
 class ChangePassword(BaseModel):
-    """修改密码请求"""
-    old_password: str = Field(..., description="当前密码")
-    new_password: str = Field(..., min_length=8, description="新密码")
+    """Change password request schema."""
+    old_password: str = Field(..., description="Current password")
+    new_password: str = Field(..., min_length=8, description="New password")
 
 
 class TokenPayload(BaseModel):
-    """JWT令牌载荷"""
-    sub: str = Field(..., description="用户ID")
-    username: str = Field(..., description="用户名")
-    exp: Optional[int] = Field(None, description="过期时间戳")
+    """JWT token payload schema."""
+    sub: str = Field(..., description="User ID")
+    username: str = Field(..., description="Username")
+    exp: Optional[int] = Field(None, description="Expiration timestamp")

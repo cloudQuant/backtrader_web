@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""恐惧贪婪情绪指标策略回测运行脚本
+"""Fear and Greed IndexStrategyBacktestRunscript
 
-从config.yaml加载配置，运行回测并验证结果与预期值一致。
+Load configuration from config.yaml，RunBacktestand verify resultsandmatch expected values。
 """
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
@@ -14,14 +14,14 @@ from pathlib import Path
 import backtrader as bt
 import yaml
 
-# 导入策略类和数据类
+# Import strategy classand data class
 from strategy_fear_greed import FearGreedStrategy, SPYFearGreedData
 
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_config():
-    """从config.yaml加载配置"""
+    """Load configuration from config.yaml"""
     config_path = BASE_DIR / "config.yaml"
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
@@ -29,7 +29,7 @@ def load_config():
 
 
 def resolve_data_path(filename: str) -> Path:
-    """通过搜索多个可能的目录路径来定位数据文件"""
+    """locate by searching multiple possible directory pathsDatafile"""
     search_paths = [
         BASE_DIR / filename,
         BASE_DIR.parent / filename,
@@ -50,7 +50,7 @@ def resolve_data_path(filename: str) -> Path:
 
 
 def load_data():
-    """加载SPY + Fear & Greed数据"""
+    """LoadSPY + Fear & GreedData"""
     data_path = resolve_data_path("spy-put-call-fear-greed-vix.csv")
     data_feed = SPYFearGreedData(
         dataname=str(data_path),
@@ -61,25 +61,25 @@ def load_data():
 
 
 def run():
-    """运行回测"""
-    # 加载配置
+    """RunBacktest"""
+    # Load configuration
     config = load_config()
     params = config['params']
     data_config = config['data']
     backtest_config = config['backtest']
 
-    # 创建cerebro
+    # Create cerebro
     cerebro = bt.Cerebro(stdstats=True)
 
-    # 设置初始资金
+    # Set initial capital
     cerebro.broker.setcash(backtest_config['initial_cash'])
 
-    # 加载数据 (datas[0])
+    # Load data (datas[0])
     print("Loading SPY + Fear & Greed data...")
     data_feed = load_data()
     cerebro.adddata(data_feed, name="SPY")
 
-    # 添加策略
+    # AddStrategy
     cerebro.addstrategy(
 
 
@@ -89,13 +89,13 @@ def run():
         greed_threshold=params['greed_threshold'],
     )
 
-    # 添加分析器
+    # Add analyzers
     cerebro.addanalyzer(bt.analyzers.TotalValue, _name="my_value")
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name="my_sharpe")
     cerebro.addanalyzer(bt.analyzers.Returns, _name="my_returns")
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="my_drawdown")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="my_trade_analyzer")
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -103,10 +103,10 @@ def run():
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data log
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), 'csv' also available
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',
@@ -117,11 +117,11 @@ def run():
         # mysql_table_prefix='bt',
     )
 
-    # 运行回测
+    # Run backtest
     print("Starting backtest...")
     results = cerebro.run()
 
-    # 获取结果
+    # Get results
     strat = results[0]
     sharpe_ratio = strat.analyzers.my_sharpe.get_analysis().get("sharperatio")
     annual_return = strat.analyzers.my_returns.get_analysis().get("rnorm")
@@ -131,7 +131,7 @@ def run():
     total_trades = trade_analysis.get("total", {}).get("total", 0)
     final_value = cerebro.broker.getvalue()
 
-    # 打印结果
+    # Print results
     print("\n" + "=" * 50)
     print("Fear & Greed Strategy Backtest Results:")
     print(f"  bar_num: {strat.bar_num}")
@@ -147,7 +147,7 @@ def run():
     print(f"  final_value: {final_value:.2f}")
     print("=" * 50)
 
-    # 断言 - 确保策略正确运行
+    # Assert - EnsureStrategyRun correctly
     assert strat.bar_num == 2445, f"Expected bar_num=2445, got {strat.bar_num}"
     assert strat.buy_count == 6, f"Expected buy_count=6, got {strat.buy_count}"
     assert strat.sell_count == 2, f"Expected sell_count=2, got {strat.sell_count}"

@@ -1,10 +1,12 @@
-"""分时均线策略 (TimeLine MA Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Time-Line Moving Average Strategy.
 
-基于时间均价线和均线过滤的日内交易策略:
-- MA向上且价格>MA且价格突破时间均价线 -> 做多
-- MA向下且价格<MA且价格跌破时间均价线 -> 做空
-- 使用追踪止损
-- 收盘前(14:55)平掉所有持仓
+An intraday trading strategy based on time-average price line and moving average filter:
+- MA rising AND price > MA AND price breaks above time-average price line -> Go long
+- MA falling AND price < MA AND price breaks below time-average price line -> Go short
+- Uses trailing stop loss
+- Close all positions before market close (14:55)
 
 Author: yunjinqi
 """
@@ -16,18 +18,18 @@ from backtrader.comminfo import ComminfoFuturesPercent
 
 
 class TimeLine(bt.Indicator):
-    """时间均价线指标
+    """Time-average price line indicator.
 
-    计算当日收盘价的累积平均值作为时间均价线"""
+    Calculates the cumulative average of daily close prices as the time-average price line."""
     lines = ('day_avg_price',)
     params = (("day_end_time", (15, 0, 0)),)
 
     def __init__(self):
-        """初始化时间均价线指标"""
+        """Initialize the time-average price line indicator."""
         self.day_close_price_list = []
 
     def next(self):
-        """计算当前bar的时间均价"""
+        """Calculate current bar's time-average price."""
         self.day_close_price_list.append(self.data.close[0])
         self.lines.day_avg_price[0] = sum(self.day_close_price_list) / len(self.day_close_price_list)
 
@@ -40,13 +42,13 @@ class TimeLine(bt.Indicator):
 
 
 class TimeLineMaStrategy(bt.Strategy):
-    """分时均线策略
+    """Time-Line Moving Average Strategy.
 
-    使用时间均价线结合均线进行交易:
-    - MA向上 + 价格>MA + 价格突破时间均价线 -> 做多
-    - MA向下 + 价格<MA + 价格跌破时间均价线 -> 做空
-    - 使用追踪止损
-    - 收盘前平仓
+    Uses time-average price line combined with moving average for trading:
+    - MA rising + price > MA + price breaks above time-average price line -> Go long
+    - MA falling + price < MA + price breaks below time-average price line -> Go short
+    - Uses trailing stop loss
+    - Close positions before market close
     """
     author = 'yunjinqi'
     params = (
@@ -55,35 +57,35 @@ class TimeLineMaStrategy(bt.Strategy):
     )
 
     def log(self, txt, dt=None):
-        """记录日志"""
+        """Log strategy information."""
         dt = dt or bt.num2date(self.datas[0].datetime[0])
         print('{}, {}'.format(dt.isoformat(), txt))
 
     def __init__(self):
-        """初始化策略"""
+        """Initialize the strategy."""
         self.bar_num = 0
         self.day_bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
-        # 时间均价线指标
+        # Time-average price line indicator
         self.day_avg_price = TimeLine(self.datas[0])
         self.ma_value = bt.indicators.SMA(self.datas[0].close, period=self.p.ma_period)
-        # 交易状态
+        # Trading status
         self.marketposition = 0
-        # 当前交易日的最高价、最低价、收盘价
+        # Current trading day's high, low, and close prices
         self.now_high = 0
         self.now_low = 999999999
         self.now_close = None
         self.now_open = None
-        # 追踪止损订单
+        # Trailing stop loss order
         self.stop_order = None
 
     def prenext(self):
-        """在指标最小周期到达前调用"""
+        """Called before minimum period is reached."""
         pass
 
     def next(self):
-        """主策略逻辑，每个bar调用一次"""
+        """Main strategy logic, called for each bar."""
         self.current_datetime = bt.num2date(self.datas[0].datetime[0])
         self.current_hour = self.current_datetime.hour
         self.current_minute = self.current_datetime.minute
@@ -91,7 +93,7 @@ class TimeLineMaStrategy(bt.Strategy):
         self.bar_num += 1
         data = self.datas[0]
 
-        # 更新最高价、最低价、收盘价
+        # Update high, low, and close prices
         self.now_high = max(self.now_high, data.high[0])
         self.now_low = min(self.now_low, data.low[0])
         if self.now_close is None:
@@ -103,7 +105,7 @@ class TimeLineMaStrategy(bt.Strategy):
             self.now_close = None
             self.day_bar_num = 0
 
-        # 初始化持仓状态
+        # Initialize position status
         size = self.getposition(data).size
         if size == 0:
             self.marketposition = 0
@@ -111,14 +113,14 @@ class TimeLineMaStrategy(bt.Strategy):
                 self.broker.cancel(self.stop_order)
                 self.stop_order = None
 
-        # 分时均线策略
+        # Time-line MA strategy
         if len(data.close) > self.p.ma_period:
-            # 开始交易
+            # Start trading
             open_time_1 = self.current_hour >= 21 and self.current_hour <= 23
             open_time_2 = self.current_hour >= 9 and self.current_hour <= 11
-            # 开仓
+            # Open positions
             if open_time_1 or open_time_2:
-                # 做多
+                # Go long
                 if self.marketposition == 0 and self.day_bar_num >= 3 and self.ma_value[0] > self.ma_value[-1] and data.close[0] > self.ma_value[0] and data.close[0] > self.day_avg_price[0] and data.close[-1] < self.day_avg_price[-1]:
                     info = self.broker.getcommissioninfo(data)
                     symbol_multi = info.p.mult
@@ -129,7 +131,7 @@ class TimeLineMaStrategy(bt.Strategy):
                     self.buy_count += 1
                     self.marketposition = 1
                     self.stop_order = self.sell(data, size=lots, exectype=bt.Order.StopTrail, trailpercent=self.p.stop_mult / 100)
-                # 做空
+                # Go short
                 if self.marketposition == 0 and self.day_bar_num >= 3 and self.ma_value[0] < self.ma_value[-1] and data.close[0] < self.ma_value[0] and data.close[0] < self.day_avg_price[0] and data.close[-1] > self.day_avg_price[-1]:
                     info = self.broker.getcommissioninfo(data)
                     symbol_multi = info.p.mult
@@ -141,15 +143,15 @@ class TimeLineMaStrategy(bt.Strategy):
                     self.marketposition = -1
                     self.stop_order = self.buy(data, size=lots, exectype=bt.Order.StopTrail, trailpercent=self.p.stop_mult / 100)
 
-            # 基于信号的平仓
-            # 平多仓
+            # Signal-based position closing
+            # Close long position
             if self.marketposition > 0 and data.close[0] < self.day_avg_price[0] and data.close[0] < self.now_low:
                 self.close(data)
                 self.marketposition = 0
                 if self.stop_order is not None:
                     self.broker.cancel(self.stop_order)
                 self.stop_order = None
-            # 平空仓
+            # Close short position
             if self.marketposition < 0 and data.close[0] > self.day_avg_price[0] and data.close[0] > self.now_high:
                 self.close(data)
                 self.marketposition = 0
@@ -157,7 +159,7 @@ class TimeLineMaStrategy(bt.Strategy):
                     self.broker.cancel(self.stop_order)
                 self.stop_order = None
 
-            # 收盘前平仓
+            # Close positions before market close
             if self.marketposition != 0 and self.current_hour == 14 and self.current_minute == 55:
                 self.close(data)
                 self.marketposition = 0
@@ -166,7 +168,7 @@ class TimeLineMaStrategy(bt.Strategy):
                 self.stop_order = None
 
     def notify_order(self, order):
-        """订单状态变化时调用"""
+        """Called when order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
         if order.status == order.Completed:
@@ -176,17 +178,17 @@ class TimeLineMaStrategy(bt.Strategy):
                 self.log(f"SELL: price={order.executed.price:.2f}")
 
     def notify_trade(self, trade):
-        """交易完成时调用"""
+        """Called when a trade is completed."""
         if trade.isclosed:
             self.log(f"Trade completed: pnl={trade.pnl:.2f}, pnlcomm={trade.pnlcomm:.2f}")
 
     def stop(self):
-        """回测结束时调用"""
+        """Called when backtesting ends."""
         self.log(f"bar_num={self.bar_num}, buy_count={self.buy_count}, sell_count={self.sell_count}")
 
 
 class RbPandasFeed(bt.feeds.PandasData):
-    """螺纹钢期货Pandas数据源"""
+    """Pandas data feed for rebar futures data."""
     params = (
         ('datetime', None),
         ('open', 0),

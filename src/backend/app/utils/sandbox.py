@@ -12,9 +12,14 @@ import math
 
 
 class StrategySandbox:
-    """策略代码安全执行沙箱"""
+    """Strategy code secure execution sandbox.
 
-    # 允许的内置函数和模块白名单
+    Attributes:
+        _ALLOWED_BUILTINS: Whitelist of allowed built-in functions.
+        _ALLOWED_MODULES: Whitelist of allowed modules.
+    """
+
+    # Whitelist of allowed built-in functions and modules
     _ALLOWED_BUILTINS = {
         '__build_class__': __build_class__,
         'abs': abs,
@@ -42,7 +47,7 @@ class StrategySandbox:
         'type': type,
     }
 
-    # 允许的模块白名单
+    # Whitelist of allowed modules
     _ALLOWED_MODULES = {
         'bt': bt,
         'datetime': datetime,
@@ -51,12 +56,14 @@ class StrategySandbox:
 
     @classmethod
     def _create_safe_globals(cls) -> Dict[str, Any]:
-        """
-        创建安全的全局命名空间
+        """Create a safe global namespace.
 
-        只包含白名单中的内置函数和模块
+        Only includes whitelisted built-in functions and modules.
+
+        Returns:
+            A dictionary of safe global variables.
         """
-        # 使用现有模块名以避免 backtrader 查找 sys.modules 时出错
+        # Use existing module names to avoid errors when backtrader searches sys.modules
         safe_globals = {
             '__builtins__': cls._ALLOWED_BUILTINS.copy(),
             '__name__': 'app.utils.sandbox',
@@ -67,7 +74,7 @@ class StrategySandbox:
             **cls._ALLOWED_MODULES,
         }
 
-        # 添加安全限制
+        # Add security restrictions
         safe_globals['__import__'] = cls._safe_import
         safe_globals['__print__'] = cls._safe_print
 
@@ -75,23 +82,35 @@ class StrategySandbox:
 
     @staticmethod
     def _safe_import(name: str, globals: Dict = None, locals: Dict = None, fromlist: list = None, level: int = 0):
-        """
-        安全的 import 函数
+        """Safe import function.
 
-        只允许导入白名单中的模块
+        Only allows importing whitelisted modules.
+
+        Args:
+            name: Module name to import.
+            globals: Global namespace (unused).
+            locals: Local namespace (unused).
+            fromlist: List of names to import (unused).
+            level: Import level (unused).
+
+        Returns:
+            The imported module.
+
+        Raises:
+            ImportError: If the module is not whitelisted.
         """
-        # 获取基础模块名（不带子模块）
+        # Get base module name (without submodules)
         module_name = name.split('.')[0]
 
         # Check whether the base module is explicitly allowed.
         allowed_base_names = StrategySandbox._ALLOWED_MODULES.keys()
         if module_name not in allowed_base_names:
-            raise ImportError(f"模块 '{name}' 不被允许导入。仅允许: {', '.join(allowed_base_names)}")
+            raise ImportError(f"Module '{name}' is not allowed. Only: {', '.join(allowed_base_names)}")
 
         # Only allow modules that are pre-imported and explicitly whitelisted.
         imported_module = StrategySandbox._ALLOWED_MODULES[module_name]
 
-        # 如果是子模块，也检查
+        # If it's a submodule, also check
         if '.' in name:
             parts = name.split('.')
             current = imported_module
@@ -99,101 +118,112 @@ class StrategySandbox:
                 try:
                     current = getattr(current, part)
                 except AttributeError:
-                    raise ImportError(f"无法导入 {name}")
+                    raise ImportError(f"Cannot import {name}")
 
         return imported_module
 
     @staticmethod
     def _safe_print(*args, **kwargs):
-        """
-        安全的 print 函数
+        """Safe print function.
 
-        禁用 print 防止用户策略输出信息
+        Disables print to prevent user strategy output.
+
+        Args:
+            *args: Variable length argument list.
+            **kwargs: Arbitrary keyword arguments.
         """
         pass
 
     @classmethod
     def execute_strategy_code(cls, code: str, params: Optional[Dict] = None) -> type:
-        """
-        安全执行策略代码
+        """Safely execute strategy code.
 
         Args:
-            code: 策略代码字符串
-            params: 策略参数字典
+            code: Strategy code string.
+            params: Strategy parameter dictionary.
 
         Returns:
-            策略类（继承自 bt.Strategy）
+            Strategy class (inherits from bt.Strategy).
 
         Raises:
-            ValueError: 如果代码无效或包含不安全内容
-            SyntaxError: 如果代码有语法错误
-            RuntimeError: 如果代码执行出错
+            ValueError: If the code is invalid or contains unsafe content.
+            SyntaxError: If the code has syntax errors.
+            RuntimeError: If the code execution fails.
         """
-        # 预先检查代码，防止危险操作
+        # Pre-check code to prevent dangerous operations
         cls._check_code_safety(code)
 
-        # 创建安全的命名空间
+        # Create safe namespace
         safe_globals = cls._create_safe_globals()
 
-        # 如果有参数，添加到命名空间
+        # Add parameters to namespace if provided
         if params:
             safe_globals.update(params)
 
         try:
-            # 编译代码
+            # Compile code
             compiled_code = compile(code, '<strategy>', 'exec')
 
-            # 执行代码
+            # Execute code
             exec(compiled_code, safe_globals)
 
-            # 查找策略类
+            # Find strategy class
             strategy_class = None
             for name, obj in safe_globals.items():
-                # 跳过内置模块和内置函数
+                # Skip built-in modules and functions
                 if name.startswith('_'):
                     continue
                 if name in cls._ALLOWED_MODULES:
                     continue
 
-                # 查找继承自 bt.Strategy 的类
+                # Find class that inherits from bt.Strategy
                 if isinstance(obj, type):
                     try:
-                        # 检查是否是 bt.Strategy 的子类
+                        # Check if it's a subclass of bt.Strategy
                         if issubclass(obj, bt.Strategy) and obj != bt.Strategy:
                             strategy_class = obj
                             break
                     except TypeError:
-                        # issubclass 在某些情况下会失败
+                        # issubclass may fail in some cases
                         continue
 
-            if not strategy_class:
-                raise ValueError("策略代码中未找到有效的 Strategy 类（必须继承自 bt.Strategy）")
-
-            return strategy_class
-
         except SyntaxError as e:
-            raise SyntaxError(f"策略代码语法错误: {e}")
+            raise SyntaxError(f"Strategy code syntax error: {e}")
         except NameError as e:
-            raise NameError(f"策略代码中使用了未定义的名称: {e}")
+            raise NameError(f"Undefined name in strategy code: {e}")
         except AttributeError as e:
-            raise AttributeError(f"策略代码中使用了不允许的属性: {e}")
+            raise AttributeError(f"Disallowed attribute in strategy code: {e}")
         except ImportError as e:
-            raise ImportError(f"策略代码中导入了不允许的模块: {e}")
+            raise ImportError(f"Disallowed module import in strategy code: {e}")
+        except ValueError:
+            # Re-raise ValueError directly (for "no strategy class found")
+            raise
         except Exception as e:
-            raise RuntimeError(f"策略代码执行失败: {type(e).__name__}: {e}")
+            raise RuntimeError(f"Strategy code execution failed: {type(e).__name__}: {e}")
+
+        # Check for strategy class after exception handling
+        if not strategy_class:
+            raise ValueError("No valid Strategy class found in strategy code (must inherit from bt.Strategy)")
+
+        return strategy_class
 
     @classmethod
     def _check_code_safety(cls, code: str) -> None:
-        """
-        检查代码安全性
+        """Check code safety.
 
-        防止危险操作，如：
-        - 导入危险模块
-        - 执行系统命令
-        - 文件操作
-        - 网络操作
+        Prevents dangerous operations such as:
+        - Importing dangerous modules
+        - Executing system commands
+        - File operations
+        - Network operations
+
+        Args:
+            code: The code to check.
+
+        Raises:
+            ValueError: If the code contains dangerous operations.
         """
-        # 危险模块列表
+        # List of dangerous modules
         dangerous_modules = [
             'os', 'sys', 'subprocess', 'shutil', 'pickle',
             'socket', 'urllib', 'requests', 'http',
@@ -202,39 +232,38 @@ class StrategySandbox:
             'globals', 'locals', 'vars', 'dir',
         ]
 
-        # 危险函数列表
+        # List of dangerous functions
         dangerous_functions = [
             'eval', 'exec', 'compile',
             'open', 'file', 'input', 'raw_input',
         ]
 
-        # 检查危险模块导入
+        # Check for dangerous module imports
         for module in dangerous_modules:
             if f'import {module}' in code or f'from {module}' in code:
-                raise ValueError(f"不允许导入危险模块: {module}")
+                raise ValueError(f"Importing dangerous module is not allowed: {module}")
 
-        # 检查危险函数调用
+        # Check for dangerous function calls
         for func in dangerous_functions:
             if f'{func}(' in code:
-                raise ValueError(f"不允许使用危险函数: {func}")
+                raise ValueError(f"Using dangerous function is not allowed: {func}")
 
-        # 检查双下划线属性访问（可能绕过限制）
+        # Check for double underscore attribute access (may bypass restrictions)
         if '__' in code:
-            # 检查是否访问 __builtins__
+            # Check if accessing __builtins__
             if '__builtins__' in code:
-                raise ValueError("不允许访问 __builtins__")
+                raise ValueError("Accessing __builtins__ is not allowed")
 
-        # 检查是否尝试修改全局命名空间
+        # Check if trying to modify global namespace
         if 'globals()[' in code or 'locals()[' in code:
-            raise ValueError("不允许使用 globals() 或 locals()")
+            raise ValueError("Using globals() or locals() is not allowed")
 
 
 class DockerSandbox:
-    """
-    Docker 容器沙箱（可选实现）
+    """Docker container sandbox (optional implementation).
 
-    使用 Docker 容器完全隔离策略执行环境
-    提供最高级别的安全性，但需要 Docker 支持
+    Uses Docker containers to completely isolate the strategy execution environment.
+    Provides the highest level of security but requires Docker support.
     """
 
     @staticmethod
@@ -244,93 +273,91 @@ class DockerSandbox:
         docker_image: str = "backtrader-sandbox:latest",
         timeout: int = 300
     ) -> Dict[str, Any]:
-        """
-        在 Docker 容器中执行策略代码
+        """Execute strategy code in a Docker container.
 
         Args:
-            code: 策略代码
-            params: 策略参数
-            docker_image: Docker 镜像名称
-            timeout: 超时时间（秒）
+            code: Strategy code.
+            params: Strategy parameters.
+            docker_image: Docker image name.
+            timeout: Timeout in seconds.
 
         Returns:
-            执行结果字典
+            Execution result dictionary.
 
         Raises:
-            RuntimeError: 如果 Docker 不可用或执行失败
+            RuntimeError: If Docker is not available or execution fails.
         """
         import subprocess
         import json
         import tempfile
         import os
 
-        # 检查 Docker 是否可用
+        # Check if Docker is available
         try:
             subprocess.run(['docker', '--version'], check=True, capture_output=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            raise RuntimeError("Docker 不可用，请先安装 Docker")
+            raise RuntimeError("Docker is not available, please install Docker first")
 
-        # 创建临时目录
+        # Create temporary directory
         with tempfile.TemporaryDirectory() as tmpdir:
-            # 写入策略代码
+            # Write strategy code
             strategy_file = os.path.join(tmpdir, 'strategy.py')
             with open(strategy_file, 'w', encoding='utf-8') as f:
                 f.write(code)
 
-            # 写入参数
+            # Write parameters
             params_file = os.path.join(tmpdir, 'params.json')
             with open(params_file, 'w', encoding='utf-8') as f:
                 json.dump(params, f)
 
-            # 在 Docker 容器中执行
+            # Execute in Docker container
             result = subprocess.run([
                 'docker', 'run',
-                '--rm',  # 执行后删除容器
-                '--network=none',  # 无网络访问
-                '--cpus=1.0',  # 限制 CPU
-                '--memory=512m',  # 限制内存
-                '--read-only',  # 只读根文件系统（除了 /tmp）
-                '--tmpfs', '/tmp:rw,noexec,nosuid,size=100m',  # 临时文件系统
-                '-v', f'{tmpdir}:/data:ro',  # 只读挂载策略和参数
-                '-e', f'PYTHONUNBUFFERED=1',  # 不缓冲输出
+                '--rm',  # Remove container after execution
+                '--network=none',  # No network access
+                '--cpus=1.0',  # Limit CPU
+                '--memory=512m',  # Limit memory
+                '--read-only',  # Read-only root filesystem (except /tmp)
+                '--tmpfs', '/tmp:rw,noexec,nosuid,size=100m',  # Temporary filesystem
+                '-v', f'{tmpdir}:/data:ro',  # Read-only mount for strategy and params
+                '-e', f'PYTHONUNBUFFERED=1',  # Unbuffered output
                 docker_image,
                 'python', '/data/strategy.py'
             ], capture_output=True, timeout=timeout, text=True)
 
             if result.returncode != 0:
                 error_msg = result.stderr.strip()
-                raise RuntimeError(f"策略执行失败: {error_msg}")
+                raise RuntimeError(f"Strategy execution failed: {error_msg}")
 
-            # 解析返回结果
+            # Parse return result
             try:
                 return json.loads(result.stdout.strip())
             except json.JSONDecodeError as e:
-                raise RuntimeError(f"无法解析执行结果: {e}")
+                raise RuntimeError(f"Cannot parse execution result: {e}")
 
 
-# 便捷函数
+# Convenience function
 def execute_strategy_safely(
     code: str,
     params: Optional[Dict] = None,
     use_docker: bool = False
 ) -> type:
-    """
-    安全执行策略代码
+    """Safely execute strategy code.
 
     Args:
-        code: 策略代码
-        params: 策略参数
-        use_docker: 是否使用 Docker 容器隔离（更安全但需要 Docker）
+        code: Strategy code.
+        params: Strategy parameters.
+        use_docker: Whether to use Docker container isolation (more secure but requires Docker).
 
     Returns:
-        策略类
+        Strategy class.
     """
     if use_docker:
-        # 使用 Docker 容器隔离
+        # Use Docker container isolation
         result = DockerSandbox.execute_in_container(code, params or {})
-        # 假设 Docker 容器返回序列化的策略类
-        # 实际实现需要更复杂
-        raise NotImplementedError("Docker 沙箱模式需要额外配置")
+        # Assume Docker container returns serialized strategy class
+        # Actual implementation requires more complexity
+        raise NotImplementedError("Docker sandbox mode requires additional configuration")
     else:
-        # 使用受限 Python 环境
+        # Use restricted Python environment
         return StrategySandbox.execute_strategy_code(code, params)

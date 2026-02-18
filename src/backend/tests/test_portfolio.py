@@ -1,12 +1,12 @@
 """
-组合管理 API 测试
+Portfolio Management API Tests.
 
-测试：
-- GET /api/v1/portfolio/overview - 组合概览
-- GET /api/v1/portfolio/positions - 汇总持仓
-- GET /api/v1/portfolio/trades - 汇总交易记录
-- GET /api/v1/portfolio/equity - 组合资金曲线
-- GET /api/v1/portfolio/allocation - 策略资产配置
+Tests:
+- GET /api/v1/portfolio/overview - Portfolio overview
+- GET /api/v1/portfolio/positions - Aggregated positions
+- GET /api/v1/portfolio/trades - Aggregated trade records
+- GET /api/v1/portfolio/equity - Portfolio equity curve
+- GET /api/v1/portfolio/allocation - Strategy asset allocation
 """
 import pytest
 from httpx import AsyncClient
@@ -14,9 +14,10 @@ from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 
 class TestPortfolioAPI:
-    """组合管理接口测试"""
+    """Tests for portfolio management endpoints."""
 
     async def test_get_overview(self, client: AsyncClient, auth_headers: dict):
+        """Test getting portfolio overview."""
         resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
@@ -24,38 +25,43 @@ class TestPortfolioAPI:
         assert "strategies" in data
 
     async def test_get_positions(self, client: AsyncClient, auth_headers: dict):
+        """Test getting portfolio positions."""
         resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "positions" in data
 
     async def test_get_trades(self, client: AsyncClient, auth_headers: dict):
+        """Test getting portfolio trades."""
         resp = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "trades" in data
 
     async def test_get_equity(self, client: AsyncClient, auth_headers: dict):
+        """Test getting portfolio equity curve."""
         resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
         assert resp.status_code == 200
 
     async def test_get_allocation(self, client: AsyncClient, auth_headers: dict):
+        """Test getting portfolio allocation."""
         resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data
 
     async def test_no_auth(self, client: AsyncClient):
+        """Test accessing endpoints without authentication."""
         resp = await client.get("/api/v1/portfolio/overview")
         assert resp.status_code == 403
 
 
 @pytest.mark.asyncio
 class TestPortfolioOverviewDetailed:
-    """测试组合概览详细功能"""
+    """Tests for portfolio overview detailed functionality."""
 
     async def test_overview_contains_total_pnl(self, client: AsyncClient, auth_headers: dict):
-        """测试概览包含总盈亏"""
+        """Test that overview contains total PnL."""
         resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
@@ -63,7 +69,7 @@ class TestPortfolioOverviewDetailed:
             assert "total_pnl_pct" in data
 
     async def test_overview_contains_strategy_count(self, client: AsyncClient, auth_headers: dict):
-        """测试概览包含策略数量"""
+        """Test that overview contains strategy count."""
         resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
@@ -74,10 +80,10 @@ class TestPortfolioOverviewDetailed:
 
 @pytest.mark.asyncio
 class TestPortfolioPositionsDetailed:
-    """测试持仓详细功能"""
+    """Tests for positions detailed functionality."""
 
     async def test_positions_contains_total(self, client: AsyncClient, auth_headers: dict):
-        """测试持仓包含总数"""
+        """Test that positions contain total count."""
         resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
@@ -85,7 +91,7 @@ class TestPortfolioPositionsDetailed:
             assert isinstance(data["total"], int)
 
     async def test_positions_list_structure(self, client: AsyncClient, auth_headers: dict):
-        """测试持仓列表结构"""
+        """Test positions list structure."""
         resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
@@ -94,10 +100,10 @@ class TestPortfolioPositionsDetailed:
 
 @pytest.mark.asyncio
 class TestPortfolioTradesDetailed:
-    """测试交易记录详细功能"""
+    """Tests for trade records detailed functionality."""
 
     async def test_trades_limit_parameter(self, client: AsyncClient, auth_headers: dict):
-        """测试交易限制参数"""
+        """Test trades limit parameter."""
         resp = await client.get(
             "/api/v1/portfolio/trades",
             headers=auth_headers,
@@ -106,25 +112,25 @@ class TestPortfolioTradesDetailed:
         if resp.status_code == 200:
             data = resp.json()
             assert "trades" in data
-            # 交易数应该不超过限制
+            # Trade count should not exceed limit
             assert len(data["trades"]) <= 10
 
     async def test_trades_default_limit(self, client: AsyncClient, auth_headers: dict):
-        """测试默认限制参数"""
+        """Test default limit parameter."""
         resp = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
             assert "trades" in data
-            # 默认限制200
+            # Default limit is 200
             assert len(data["trades"]) <= 200
 
 
 @pytest.mark.asyncio
 class TestPortfolioEquityDetailed:
-    """测试资金曲线详细功能"""
+    """Tests for equity curve detailed functionality."""
 
     async def test_equity_contains_dates(self, client: AsyncClient, auth_headers: dict):
-        """测试资金曲线包含日期"""
+        """Test that equity curve contains dates."""
         resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
@@ -132,7 +138,7 @@ class TestPortfolioEquityDetailed:
             assert isinstance(data["dates"], list)
 
     async def test_equity_contains_total_equity(self, client: AsyncClient, auth_headers: dict):
-        """测试资金曲线包含总权益"""
+        """Test that equity curve contains total equity."""
         resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
@@ -140,7 +146,7 @@ class TestPortfolioEquityDetailed:
             assert isinstance(data["total_equity"], list)
 
     async def test_equity_contains_drawdown(self, client: AsyncClient, auth_headers: dict):
-        """测试资金曲线包含回撤"""
+        """Test that equity curve contains drawdown."""
         resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
@@ -150,57 +156,57 @@ class TestPortfolioEquityDetailed:
 
 @pytest.mark.asyncio
 class TestPortfolioAllocationDetailed:
-    """测试资产配置详细功能"""
+    """Tests for asset allocation detailed functionality."""
 
     async def test_allocation_contains_total(self, client: AsyncClient, auth_headers: dict):
-        """测试资产配置包含总值"""
+        """Test that allocation contains total value."""
         resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
             assert "total" in data
 
     async def test_allocation_items_structure(self, client: AsyncClient, auth_headers: dict):
-        """测试资产配置项结构"""
+        """Test allocation items structure."""
         resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
         if resp.status_code == 200:
             data = resp.json()
             assert "items" in data
             assert isinstance(data["items"], list)
-            # 每个项应该包含策略信息和权重
+            # Each item should contain strategy info and weight
             for item in data["items"]:
                 assert "strategy_id" in item or "strategy_name" in item
 
 
 class TestPortfolioHelperFunctions:
-    """测试辅助函数"""
+    """Tests for helper functions."""
 
     def test_safe_round_normal_value(self):
-        """测试正常值舍入"""
+        """Test rounding normal values."""
         from app.api.portfolio_api import _safe_round
         result = _safe_round(123.456, 2)
         assert result == 123.46
 
     def test_safe_round_nan_value(self):
-        """测试NaN值处理"""
+        """Test NaN value handling."""
         from app.api.portfolio_api import _safe_round
         import math
         result = _safe_round(float('nan'), 2)
         assert result == 0.0
 
     def test_safe_round_inf_value(self):
-        """测试无穷值处理"""
+        """Test infinity value handling."""
         from app.api.portfolio_api import _safe_round
         result = _safe_round(float('inf'), 2)
         assert result == 0.0
 
     def test_safe_round_negative_inf_value(self):
-        """测试负无穷值处理"""
+        """Test negative infinity value handling."""
         from app.api.portfolio_api import _safe_round
         result = _safe_round(float('-inf'), 2)
         assert result == 0.0
 
     def test_safe_round_negative_value(self):
-        """测试负值舍入"""
+        """Test rounding negative values."""
         from app.api.portfolio_api import _safe_round
         result = _safe_round(-123.456, 2)
         assert result == -123.46
@@ -208,10 +214,10 @@ class TestPortfolioHelperFunctions:
 
 @pytest.mark.asyncio
 class TestPortfolioManagerIntegration:
-    """测试组合管理器集成"""
+    """Tests for portfolio manager integration."""
 
     async def test_get_manager_function(self):
-        """测试获取管理器函数"""
+        """Test getting manager function."""
         from app.api.portfolio_api import _get_manager
 
         manager = _get_manager()
@@ -219,21 +225,21 @@ class TestPortfolioManagerIntegration:
         assert hasattr(manager, 'list_instances')
 
     async def test_manager_list_instances(self):
-        """测试管理器列出实例"""
+        """Test manager listing instances."""
         from app.api.portfolio_api import _get_manager
 
         manager = _get_manager()
         instances = manager.list_instances()
-        # 应该返回列表
+        # Should return a list
         assert isinstance(instances, list)
 
 
 @pytest.mark.asyncio
 class TestPortfolioEdgeCases:
-    """测试边界情况和异常场景"""
+    """Tests for edge cases and exceptional scenarios."""
 
     async def test_overview_with_empty_instances(self, client: AsyncClient, auth_headers: dict):
-        """测试无实例时的概览"""
+        """Test overview with no instances."""
         from app.services.live_trading_manager import get_live_trading_manager
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
@@ -248,7 +254,7 @@ class TestPortfolioEdgeCases:
                 assert data["total_assets"] == 0
 
     async def test_overview_with_no_log_dir(self, client: AsyncClient, auth_headers: dict):
-        """测试策略无日志目录时的概览"""
+        """Test overview when strategy has no log directory."""
         from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
 
@@ -273,7 +279,7 @@ class TestPortfolioEdgeCases:
                         assert len(data["strategies"]) >= 0
 
     async def test_positions_with_no_data(self, client: AsyncClient, auth_headers: dict):
-        """测试无数据时的持仓"""
+        """Test positions with no data."""
         from app.services.live_trading_manager import get_live_trading_manager
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
@@ -289,7 +295,7 @@ class TestPortfolioEdgeCases:
                     assert len(data["positions"]) == 0
 
     async def test_trades_sorting(self, client: AsyncClient, auth_headers: dict):
-        """测试交易记录按日期排序"""
+        """Test trade records sorted by date."""
         from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
         from datetime import datetime
@@ -321,7 +327,7 @@ class TestPortfolioEdgeCases:
                         assert data["total"] == 3
 
     async def test_trades_limit(self, client: AsyncClient, auth_headers: dict):
-        """测试交易限制参数"""
+        """Test trades limit parameter."""
         from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
 
@@ -354,7 +360,7 @@ class TestPortfolioEdgeCases:
                         assert len(data["trades"]) <= 5
 
     async def test_equity_empty_dates(self, client: AsyncClient, auth_headers: dict):
-        """测试空日期数据时的资金曲线"""
+        """Test equity curve with empty date data."""
         from app.services.live_trading_manager import get_live_trading_manager
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
@@ -371,7 +377,7 @@ class TestPortfolioEdgeCases:
                     assert data["strategies"] == []
 
     async def test_allocation_with_zero_total(self, client: AsyncClient, auth_headers: dict):
-        """测试总值为0时的资产配置"""
+        """Test allocation when total value is zero."""
         from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
 
@@ -402,7 +408,7 @@ class TestPortfolioEdgeCases:
                         assert "items" in data
 
     async def test_equity_date_mapping(self, client: AsyncClient, auth_headers: dict):
-        """测试日期映射逻辑"""
+        """Test date mapping logic."""
         from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
 
@@ -453,17 +459,17 @@ class TestPortfolioEdgeCases:
 
 @pytest.mark.asyncio
 class TestPortfolioRouter:
-    """测试路由配置"""
+    """Tests for router configuration."""
 
     async def test_router_exists(self):
-        """测试路由存在"""
+        """Test that router exists."""
         from app.api.portfolio_api import router
 
         assert router is not None
         assert hasattr(router, 'routes')
 
     async def test_router_endpoints(self):
-        """测试路由端点"""
+        """Test router endpoints."""
         from app.api.portfolio_api import router
 
         routes = [route.path for route in router.routes]

@@ -1,5 +1,5 @@
 """
-数据库工厂测试
+Database factory tests
 """
 import pytest
 from unittest.mock import patch
@@ -22,5 +22,5 @@ class TestGetRepository:
     def test_unknown_raises(self):
         with patch("app.db.factory.get_settings") as mock_settings:
             mock_settings.return_value.DATABASE_TYPE = "unknown_db"
-            with pytest.raises(ValueError, match="不支持的数据库类型"):
+            with pytest.raises(ValueError, match="Unsupported database type"):
                 get_repository(User)

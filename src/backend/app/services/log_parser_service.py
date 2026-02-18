@@ -24,7 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 def find_latest_log_dir(strategy_dir: Path) -> Optional[Path]:
-    """找到策略目录下最新的日志目录"""
+    """Find the latest log directory under the strategy directory.
+
+    Args:
+        strategy_dir: The strategy directory path.
+
+    Returns:
+        The path to the latest log directory, or None if no logs directory exists.
+    """
     logs_dir = strategy_dir / "logs"
     if not logs_dir.is_dir():
         return None
@@ -38,7 +45,15 @@ def find_latest_log_dir(strategy_dir: Path) -> Optional[Path]:
 
 
 def _parse_tsv(filepath: Path) -> List[Dict[str, str]]:
-    """解析 tab 分隔的日志文件，返回字典列表"""
+    """Parse a tab-separated log file and return a list of dictionaries.
+
+    Args:
+        filepath: Path to the TSV file.
+
+    Returns:
+        A list of dictionaries where each dictionary represents a row
+        with column headers as keys.
+    """
     if not filepath.is_file():
         return []
 
@@ -63,7 +78,16 @@ def _parse_tsv(filepath: Path) -> List[Dict[str, str]]:
 
 
 def _safe_float(val: str, default: float = 0.0) -> float:
-    """安全转换浮点数"""
+    """Safely convert a string to a float.
+
+    Args:
+        val: The string value to convert.
+        default: The default value to return if conversion fails.
+
+    Returns:
+        The converted float value, or the default if conversion fails
+        or the value is NaN/Infinity.
+    """
     try:
         v = float(val)
         if math.isnan(v) or math.isinf(v):
@@ -74,16 +98,17 @@ def _safe_float(val: str, default: float = 0.0) -> float:
 
 
 def parse_value_log(log_dir: Path) -> Dict[str, Any]:
-    """
-    解析 value.log，返回资金曲线数据。
+    """Parse value.log and return equity curve data.
+
+    Args:
+        log_dir: The log directory path.
 
     Returns:
-        {
-            "dates": ["2017-07-24", ...],
-            "equity_curve": [100000.0, ...],
-            "cash_curve": [100000.0, ...],
-            "drawdown_curve": [0.0, ...],
-        }
+        A dictionary containing:
+        - dates: List of date strings.
+        - equity_curve: List of equity values.
+        - cash_curve: List of cash values.
+        - drawdown_curve: List of drawdown percentages.
     """
     rows = _parse_tsv(log_dir / "value.log")
     dates = []
@@ -98,7 +123,7 @@ def parse_value_log(log_dir: Path) -> Dict[str, Any]:
         equity.append(_safe_float(row.get("value", "0")))
         cash.append(_safe_float(row.get("cash", "0")))
 
-    # 计算回撤曲线
+    # Calculate drawdown curve
     drawdown = []
     peak = 0.0
     for v in equity:
@@ -116,9 +141,15 @@ def parse_value_log(log_dir: Path) -> Dict[str, Any]:
 
 
 def parse_trade_log(log_dir: Path) -> List[Dict[str, Any]]:
-    """
-    解析 trade.log，返回交易记录列表。
-    只返回已关闭的交易 (isclosed=1)。
+    """Parse trade.log and return a list of trade records.
+
+    Only returns closed trades (isclosed=1).
+
+    Args:
+        log_dir: The log directory path.
+
+    Returns:
+        A list of trade record dictionaries.
     """
     rows = _parse_tsv(log_dir / "trade.log")
     trades = []
@@ -147,7 +178,14 @@ def parse_trade_log(log_dir: Path) -> List[Dict[str, Any]]:
 
 
 def parse_order_log(log_dir: Path) -> List[Dict[str, Any]]:
-    """解析 order.log，返回已完成订单列表"""
+    """Parse order.log and return a list of completed orders.
+
+    Args:
+        log_dir: The log directory path.
+
+    Returns:
+        A list of completed order dictionaries.
+    """
     rows = _parse_tsv(log_dir / "order.log")
     orders = []
 
@@ -169,15 +207,25 @@ def parse_order_log(log_dir: Path) -> List[Dict[str, Any]]:
 
 
 def parse_data_log(log_dir: Path) -> Dict[str, Any]:
-    """
-    解析 data.log，返回 OHLCV + 指标数据。
-    返回 kline 格式的数据用于前端图表。
+    """Parse data.log and return OHLCV + indicator data.
+
+    Returns kline format data for frontend charts.
+
+    Args:
+        log_dir: The log directory path.
+
+    Returns:
+        A dictionary containing:
+        - dates: List of date strings.
+        - ohlc: List of [open, close, low, high] arrays.
+        - volumes: List of volume values.
+        - indicators: Dictionary of indicator values by column name.
     """
     rows = _parse_tsv(log_dir / "data.log")
     if not rows:
         return {"dates": [], "ohlc": [], "volumes": [], "indicators": {}}
 
-    # 找出指标列（非标准列）
+    # Find indicator columns (non-standard columns)
     standard_cols = {"log_time", "dt", "data_name", "open", "high", "low", "close", "volume", "openinterest"}
     all_cols = set(rows[0].keys()) if rows else set()
     indicator_cols = [c for c in all_cols - standard_cols if c]
@@ -212,9 +260,15 @@ def parse_data_log(log_dir: Path) -> Dict[str, Any]:
 
 
 def parse_position_log(log_dir: Path) -> List[Dict[str, Any]]:
-    """
-    解析 position.log，返回每日持仓快照列表。
-    每条记录: {dt, data_name, size, price}
+    """Parse position.log and return a list of daily position snapshots.
+
+    Each record contains: {dt, data_name, size, price}.
+
+    Args:
+        log_dir: The log directory path.
+
+    Returns:
+        A list of position snapshot dictionaries.
     """
     rows = _parse_tsv(log_dir / "position.log")
     positions = []
@@ -235,7 +289,14 @@ def parse_position_log(log_dir: Path) -> List[Dict[str, Any]]:
 
 
 def parse_current_position(log_dir: Path) -> List[Dict[str, Any]]:
-    """解析 current_position.json，返回最终持仓列表"""
+    """Parse current_position.json and return the final position list.
+
+    Args:
+        log_dir: The log directory path.
+
+    Returns:
+        A list of final position dictionaries.
+    """
     fp = log_dir / "current_position.json"
     if not fp.is_file():
         return []
@@ -258,7 +319,14 @@ def parse_current_position(log_dir: Path) -> List[Dict[str, Any]]:
 
 
 def parse_run_info(log_dir: Path) -> Dict[str, Any]:
-    """解析 run_info.json"""
+    """Parse run_info.json.
+
+    Args:
+        log_dir: The log directory path.
+
+    Returns:
+        The parsed run info dictionary, or an empty dict if parsing fails.
+    """
     info_path = log_dir / "run_info.json"
     if not info_path.is_file():
         return {}
@@ -270,40 +338,43 @@ def parse_run_info(log_dir: Path) -> Dict[str, Any]:
 
 
 def parse_all_logs(strategy_dir: Path) -> Optional[Dict[str, Any]]:
-    """
-    解析策略目录下最新日志，返回完整回测结果。
+    """Parse the latest logs under the strategy directory and return complete backtest results.
+
+    Args:
+        strategy_dir: The strategy directory path.
 
     Returns:
-        完整的回测结果字典，包含资金曲线、交易记录、订单、K线数据等。
-        如果没有日志目录则返回 None。
+        A complete backtest result dictionary containing equity curves,
+        trade records, orders, K-line data, etc. Returns None if no
+        log directory exists.
     """
     log_dir = find_latest_log_dir(strategy_dir)
     if not log_dir:
         return None
 
-    # 解析各个日志
+    # Parse various logs
     value_data = parse_value_log(log_dir)
     trades = parse_trade_log(log_dir)
     orders = parse_order_log(log_dir)
     kline_data = parse_data_log(log_dir)
     run_info = parse_run_info(log_dir)
 
-    # 计算统计指标
+    # Calculate statistics
     equity = value_data.get("equity_curve", [])
     initial_cash = equity[0] if equity else 100000.0
     final_value = equity[-1] if equity else initial_cash
 
     total_return = ((final_value - initial_cash) / initial_cash * 100) if initial_cash > 0 else 0.0
 
-    # 年化收益率
+    # Annualized return
     n_days = len(equity)
     n_years = n_days / 252.0 if n_days > 0 else 1.0
     annual_return = ((final_value / initial_cash) ** (1.0 / n_years) - 1) * 100 if n_years > 0 and initial_cash > 0 else 0.0
 
-    # 最大回撤
+    # Maximum drawdown
     max_drawdown = max(value_data.get("drawdown_curve", [0.0])) if value_data.get("drawdown_curve") else 0.0
 
-    # 夏普比率 (简化计算)
+    # Sharpe ratio (simplified calculation)
     if len(equity) > 1:
         returns = []
         for i in range(1, len(equity)):
@@ -318,7 +389,7 @@ def parse_all_logs(strategy_dir: Path) -> Optional[Dict[str, Any]]:
     else:
         sharpe_ratio = 0.0
 
-    # 交易统计
+    # Trade statistics
     total_trades = len(trades)
     profitable_trades = len([t for t in trades if t.get("pnlcomm", 0) > 0])
     losing_trades = len([t for t in trades if t.get("pnlcomm", 0) <= 0])
@@ -327,7 +398,7 @@ def parse_all_logs(strategy_dir: Path) -> Optional[Dict[str, Any]]:
     return {
         "run_info": run_info,
         "log_dir": str(log_dir),
-        # 指标
+        # Metrics
         "total_return": round(total_return, 4),
         "annual_return": round(annual_return, 4),
         "sharpe_ratio": round(sharpe_ratio, 4),
@@ -338,14 +409,14 @@ def parse_all_logs(strategy_dir: Path) -> Optional[Dict[str, Any]]:
         "losing_trades": losing_trades,
         "initial_cash": initial_cash,
         "final_value": round(final_value, 2),
-        # 曲线数据
+        # Curve data
         "equity_curve": equity,
         "equity_dates": value_data.get("dates", []),
         "cash_curve": value_data.get("cash_curve", []),
         "drawdown_curve": value_data.get("drawdown_curve", []),
-        # 交易和订单
+        # Trades and orders
         "trades": trades,
         "orders": orders,
-        # K线数据
+        # K-line data
         "kline": kline_data,
     }

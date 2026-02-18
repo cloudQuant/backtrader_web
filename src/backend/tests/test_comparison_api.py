@@ -1,15 +1,15 @@
 """
-回测结果对比 API 测试
+Backtest Result Comparison API Tests.
 
-测试：
-- 创建对比
-- 获取对比详情
-- 更新对比
-- 删除对比
-- 对比列表
-- 切换收藏
-- 分享对比
-- 获取对比数据（指标、资金曲线、交易、回撤）
+Tests:
+- Creating comparisons
+- Getting comparison details
+- Updating comparisons
+- Deleting comparisons
+- Listing comparisons
+- Toggling favorites
+- Sharing comparisons
+- Getting comparison data (metrics, equity curves, trades, drawdowns)
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -18,49 +18,49 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 class TestComparisonCreate:
-    """创建对比测试"""
+    """Tests for creating comparisons."""
 
     async def test_create_comparison_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.post(
             "/api/v1/comparisons/",
             json={
-                "name": "测试对比",
+                "name": "Test Comparison",
                 "backtest_task_ids": ["task1", "task2"]
             }
         )
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_create_comparison_invalid_params(self, client: AsyncClient, auth_headers):
-        """测试无效参数"""
-        # 测试参数验证 - 任务ID少于2个
+        """Test validation with invalid parameters."""
+        # Test parameter validation - fewer than 2 task IDs
         response = await client.post(
             "/api/v1/comparisons/",
             headers=auth_headers,
             json={
-                "name": "测试对比",
-                "backtest_task_ids": ["task1"]  # 少于2个
+                "name": "Test Comparison",
+                "backtest_task_ids": ["task1"]  # Fewer than 2
             }
         )
-        # 应该返回验证错误 422
+        # Should return validation error 422
         assert response.status_code in [400, 422]
 
 
 @pytest.mark.asyncio
 class TestComparisonGetDetail:
-    """获取对比详情测试"""
+    """Tests for getting comparison details."""
 
     async def test_get_comparison_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.get(
             "/api/v1/comparisons/comp_123"
         )
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_get_comparison_not_found(self, client: AsyncClient, auth_headers):
-        """测试获取不存在的对比"""
+        """Test getting a non-existent comparison."""
         response = await client.get(
             "/api/v1/comparisons/non_existent",
             headers=auth_headers
@@ -70,86 +70,86 @@ class TestComparisonGetDetail:
 
 @pytest.mark.asyncio
 class TestComparisonUpdate:
-    """更新对比测试"""
+    """Tests for updating comparisons."""
 
     async def test_update_comparison_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.put(
             "/api/v1/comparisons/comp_123",
-            json={"name": "更新后的名称"}
+            json={"name": "Updated Name"}
         )
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
 
 @pytest.mark.asyncio
 class TestComparisonDelete:
-    """删除对比测试"""
+    """Tests for deleting comparisons."""
 
     async def test_delete_comparison_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.delete(
             "/api/v1/comparisons/comp_123"
         )
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
 
 @pytest.mark.asyncio
 class TestComparisonList:
-    """对比列表测试"""
+    """Tests for listing comparisons."""
 
     async def test_list_comparisons_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_list_comparisons_with_auth(self, client: AsyncClient, auth_headers):
-        """测试带认证的列表请求"""
+        """Test list request with authentication."""
         response = await client.get(
             "/api/v1/comparisons/",
             headers=auth_headers
         )
-        # 200或空列表
+        # 200 or empty list
         assert response.status_code in [200, 404]
 
 
 @pytest.mark.asyncio
 class TestComparisonDataEndpoints:
-    """对比数据接口测试"""
+    """Tests for comparison data endpoints."""
 
     async def test_get_comparison_metrics_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123/metrics")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_get_comparison_equity_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123/equity")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_get_comparison_trades_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123/trades")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_get_comparison_drawdown_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123/drawdown")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
 
 @pytest.mark.asyncio
 class TestComparisonService:
-    """对比服务单元测试"""
+    """Unit tests for comparison service."""
 
     async def test_service_exists(self):
-        """测试服务类存在"""
+        """Test that service class exists."""
         from app.services.comparison_service import ComparisonService
 
         service = ComparisonService()
@@ -158,7 +158,7 @@ class TestComparisonService:
         assert hasattr(service, 'backtest_service')
 
     async def test_compare_metrics_helper(self):
-        """测试指标对比计算辅助函数"""
+        """Test metrics comparison calculation helper function."""
         backtest_results = {
             "task1": {
                 "total_return": 10.5,
@@ -176,7 +176,7 @@ class TestComparisonService:
             }
         }
 
-        # 简单验证数据结构
+        # Simple data structure validation
         assert "total_return" in backtest_results["task1"]
         assert backtest_results["task1"]["total_return"] == 10.5
         assert "sharpe_ratio" in backtest_results["task2"]
@@ -185,20 +185,20 @@ class TestComparisonService:
 
 @pytest.mark.asyncio
 class TestComparisonModels:
-    """对比模型测试"""
+    """Tests for comparison models."""
 
     async def test_comparison_model_exists(self):
-        """测试对比模型存在"""
+        """Test that comparison model exists."""
         from app.models.comparison import Comparison, ComparisonType
 
         assert Comparison is not None
         assert ComparisonType is not None
 
     async def test_comparison_type_values(self):
-        """测试对比类型枚举"""
+        """Test comparison type enum."""
         from app.models.comparison import ComparisonType
 
-        # 检查枚举值
+        # Check enum values
         assert hasattr(ComparisonType, 'METRICS')
         assert hasattr(ComparisonType, 'EQUITY')
         assert hasattr(ComparisonType, 'TRADES')
@@ -206,10 +206,10 @@ class TestComparisonModels:
 
 @pytest.mark.asyncio
 class TestComparisonSchemas:
-    """对比Schema测试"""
+    """Tests for comparison schemas."""
 
     async def test_schemas_exist(self):
-        """测试Schema存在"""
+        """Test that schemas exist."""
         from app.schemas.comparison import (
             ComparisonCreate,
             ComparisonResponse,

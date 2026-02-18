@@ -42,7 +42,7 @@ def resolve_data_path(filename: str) -> Path:
     search_paths = [
         BASE_DIR / "datas" / filename,
         BASE_DIR.parent / "datas" / filename,
-        BASE_DIR.parent.parent / "datas" / filename,  # 项目根目录datas
+        BASE_DIR.parent.parent / "datas" / filename,  # Project root datas directory
         BASE_DIR.parent.parent / "tests" / "datas" / filename,
         BASE_DIR / filename,
         BASE_DIR.parent / filename,
@@ -154,7 +154,7 @@ def run():
     cerebro.addanalyzer(bt.analyzers.Returns, _name="my_returns")
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="my_drawdown")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="my_trade_analyzer")
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -162,10 +162,10 @@ def run():
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data log
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), 'csv' also available
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',

@@ -1,9 +1,11 @@
-"""菲阿里四价改进版策略
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Fei's Four Price Improved Strategy.
 
-基于布林带过滤的菲阿里四价突破策略:
-- 当价格突破布林带上轨且中轨向上且突破前一日最高价时做多
-- 当价格突破布林带下轨且中轨向下且突破前一日最低价时做空
-- 收盘前(14:55)平掉所有持仓
+An intraday breakout strategy based on Fei's four-price method with Bollinger Band filter:
+- Go long when price breaks above Bollinger upper band, middle band is rising, and price breaks previous day's high
+- Go short when price breaks below Bollinger lower band, middle band is falling, and price breaks previous day's low
+- Close all positions before market close (14:55)
 
 Author: yunjinqi
 """
@@ -15,12 +17,12 @@ from backtrader.comminfo import ComminfoFuturesPercent
 
 
 class FeiStrategy(bt.Strategy):
-    """菲阿里四价改进版策略
+    """Fei's Four Price Improved Strategy.
 
-    使用布林带进行过滤:
-    - 当价格突破布林带上轨、中轨向上且价格突破前一日最高价时做多
-    - 当价格突破布林带下轨、中轨向下且价格突破前一日最低价时做空
-    - 收盘前平仓
+    Uses Bollinger Bands as filter:
+    - Go long when price breaks above Bollinger upper band, middle band is rising, and price breaks previous day's high
+    - Go short when price breaks below Bollinger lower band, middle band is falling, and price breaks previous day's low
+    - Close all positions before market close
     """
     author = 'yunjinqi'
     params = (
@@ -29,38 +31,38 @@ class FeiStrategy(bt.Strategy):
     )
 
     def log(self, txt, dt=None):
-        """记录日志"""
+        """Log strategy information."""
         dt = dt or bt.num2date(self.datas[0].datetime[0])
         print('{}, {}'.format(dt.isoformat(), txt))
 
     def __init__(self):
-        """初始化策略"""
+        """Initialize the strategy."""
         self.bar_num = 0
         self.day_bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
-        # 计算布林带指标
+        # Calculate Bollinger Band indicator
         self.boll_indicator = bt.indicators.BollingerBands(
             self.datas[0], period=self.p.boll_period, devfactor=self.p.boll_mult
         )
-        # 保存交易状态
+        # Save trading status
         self.marketposition = 0
-        # 保存当前交易日的最高价、最低价、收盘价
+        # Save current trading day's high, low, and close prices
         self.now_high = 0
         self.now_low = 999999999
         self.now_close = None
         self.now_open = None
-        # 保存历史日最高价、最低价、收盘价列表
+        # Save historical daily high, low, and close price lists
         self.day_high_list = []
         self.day_low_list = []
         self.day_close_list = []
 
     def prenext(self):
-        """在指标最小周期到达前调用"""
+        """Called before minimum period is reached."""
         pass
 
     def next(self):
-        """主策略逻辑，每个bar调用一次"""
+        """Main strategy logic, called for each bar."""
         self.current_datetime = bt.num2date(self.datas[0].datetime[0])
         self.current_hour = self.current_datetime.hour
         self.current_minute = self.current_datetime.minute
@@ -68,14 +70,14 @@ class FeiStrategy(bt.Strategy):
         self.bar_num += 1
         data = self.datas[0]
 
-        # 更新最高价、最低价、收盘价
+        # Update high, low, and close prices
         self.now_high = max(self.now_high, data.high[0])
         self.now_low = min(self.now_low, data.low[0])
         if self.now_close is None:
             self.now_open = data.open[0]
         self.now_close = data.close[0]
 
-        # 如果是新交易日的最后一分钟
+        # If it's the last minute of a new trading day
         if self.current_hour == 15:
             self.day_high_list.append(self.now_high)
             self.day_low_list.append(self.now_low)
@@ -85,7 +87,7 @@ class FeiStrategy(bt.Strategy):
             self.now_close = None
             self.day_bar_num = 0
 
-        # 菲阿里四价改进版: 使用布林带过滤
+        # Fei's four-price improved version: Use Bollinger Bands as filter
         if len(self.day_high_list) > 1:
             top = self.boll_indicator.top
             bot = self.boll_indicator.bot
@@ -93,14 +95,14 @@ class FeiStrategy(bt.Strategy):
             pre_high = self.day_high_list[-1]
             pre_low = self.day_low_list[-1]
 
-            # 开始交易
+            # Start trading
             open_time_1 = self.current_hour >= 21 and self.current_hour <= 23
             open_time_2 = self.current_hour >= 9 and self.current_hour <= 11
-            # 开仓
+            # Open positions
             if open_time_1 or open_time_2:
-                # 开多仓
+                # Open long position
                 if self.marketposition == 0 and data.close[0] > top[0] and mid[0] > mid[-1] and data.close[0] > pre_high:
-                    # 获取1倍杠杆的订单数量
+                    # Get order size for 1x leverage
                     info = self.broker.getcommissioninfo(data)
                     symbol_multi = info.p.mult
                     close = data.close[0]
@@ -109,9 +111,9 @@ class FeiStrategy(bt.Strategy):
                     self.buy(data, size=lots)
                     self.buy_count += 1
                     self.marketposition = 1
-                # 开空仓
+                # Open short position
                 if self.marketposition == 0 and mid[0] < mid[-1] and data.close[0] < bot[0] and data.close[0] < pre_low:
-                    # 获取1倍杠杆的订单数量
+                    # Get order size for 1x leverage
                     info = self.broker.getcommissioninfo(data)
                     symbol_multi = info.p.mult
                     close = data.close[0]
@@ -126,7 +128,7 @@ class FeiStrategy(bt.Strategy):
                 self.marketposition = 0
 
     def notify_order(self, order):
-        """订单状态变化时调用"""
+        """Called when order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
         if order.status == order.Completed:
@@ -136,17 +138,17 @@ class FeiStrategy(bt.Strategy):
                 self.log(f"SELL: price={order.executed.price:.2f}")
 
     def notify_trade(self, trade):
-        """交易完成时调用"""
+        """Called when a trade is completed."""
         if trade.isclosed:
             self.log(f"Trade completed: pnl={trade.pnl:.2f}, pnlcomm={trade.pnlcomm:.2f}")
 
     def stop(self):
-        """回测结束时调用"""
+        """Called when backtesting ends."""
         self.log(f"bar_num={self.bar_num}, buy_count={self.buy_count}, sell_count={self.sell_count}")
 
 
 class RbPandasFeed(bt.feeds.PandasData):
-    """螺纹钢期货Pandas数据源"""
+    """Pandas data feed for rebar futures data."""
     params = (
         ('datetime', None),
         ('open', 0),

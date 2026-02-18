@@ -1,19 +1,19 @@
 """
-策略版本管理 API 测试
+Strategy Version Management API Tests.
 
-测试：
-- 创建/获取/更新策略版本
-- 版本列表、激活、设为默认
-- 版本对比、回滚
-- 分支管理
-- WebSocket 端点
+Tests:
+- Create/get/update strategy versions
+- Version list, activate, set default
+- Version comparison, rollback
+- Branch management
+- WebSocket endpoints
 """
 import pytest
 from httpx import AsyncClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
 
-# 有效的版本创建请求
+# Valid version creation request
 VALID_VERSION_CREATE = {
     "strategy_id": "test_strategy",
     "version_name": "v1.0.0",
@@ -21,11 +21,11 @@ VALID_VERSION_CREATE = {
     "params": {"period": 20},
     "branch": "main",
     "tags": ["latest"],
-    "changelog": "初始版本",
+    "changelog": "Initial version",
     "is_default": True,
 }
 
-# 有效的版本对比请求
+# Valid version comparison request
 VALID_VERSION_COMPARE = {
     "strategy_id": "test_strategy",
     "from_version_id": "ver1",
@@ -33,56 +33,56 @@ VALID_VERSION_COMPARE = {
     "comparison_type": "code",
 }
 
-# 有效的版本回滚请求
+# Valid version rollback request
 VALID_VERSION_ROLLBACK = {
     "strategy_id": "test_strategy",
     "target_version_id": "ver1",
-    "reason": "回滚到稳定版本",
+    "reason": "Rollback to stable version",
 }
 
 
 @pytest.mark.asyncio
 class TestCreateStrategyVersion:
-    """创建策略版本测试"""
+    """Test strategy version creation."""
 
     async def test_create_version_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required."""
         resp = await client.post("/api/v1/strategy-versions/versions", json=VALID_VERSION_CREATE)
         assert resp.status_code in [401, 403]
 
     async def test_create_version_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功创建版本 - 由于依赖注入和lru_cache复杂性，接受各种响应"""
-        # 由于依赖注入和lru_cache的复杂性，完整mock难以实现
-        # 接受实际响应，测试主要验证不会崩溃
-        # 可能返回 500（服务未正确mock）、400（策略不存在）、422（验证失败），
-        # 或者由于策略不存在抛出ValueError
+        """Test successful version creation - accept various responses due to dependency injection complexity."""
+        # Due to dependency injection and lru_cache complexity, full mocking is difficult
+        # Accept actual response, test mainly verifies no crash
+        # May return 500 (service not properly mocked), 400 (strategy not found), 422 (validation error),
+        # or ValueError if strategy doesn't exist
         try:
             resp = await client.post("/api/v1/strategy-versions/versions", headers=auth_headers, json=VALID_VERSION_CREATE)
-            # 只要不是 401/403 就说明通过了认证
+            # As long as not 401/403, authentication passed
             assert resp.status_code in [200, 400, 422, 500]
         except ValueError:
-            # ValueError "策略不存在" 也是有效的业务逻辑错误
+            # ValueError "Strategy not found" is also valid business logic error
             pass
 
     async def test_create_version_invalid_data(self, client: AsyncClient, auth_headers: dict):
-        """测试无效数据"""
+        """Test invalid data."""
         resp = await client.post("/api/v1/strategy-versions/versions", headers=auth_headers, json={
-            "strategy_id": "",  # 无效
+            "strategy_id": "",  # Invalid
         })
         assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 class TestListStrategyVersions:
-    """策略版本列表测试"""
+    """Test strategy version list."""
 
     async def test_list_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required."""
         resp = await client.get("/api/v1/strategy-versions/strategies/test_strategy/versions")
         assert resp.status_code in [401, 403]
 
     async def test_list_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功列出"""
+        """Test successful list."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_versions = AsyncMock(return_value=([], 0))
@@ -92,7 +92,7 @@ class TestListStrategyVersions:
             assert resp.status_code == 200
 
     async def test_list_with_branch_filter(self, client: AsyncClient, auth_headers: dict):
-        """测试分支筛选"""
+        """Test branch filter."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_versions = AsyncMock(return_value=([], 0))
@@ -102,7 +102,7 @@ class TestListStrategyVersions:
             assert resp.status_code == 200
 
     async def test_list_with_status_filter(self, client: AsyncClient, auth_headers: dict):
-        """测试状态筛选"""
+        """Test status filter."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_versions = AsyncMock(return_value=([], 0))
@@ -112,7 +112,7 @@ class TestListStrategyVersions:
             assert resp.status_code == 200
 
     async def test_list_with_pagination(self, client: AsyncClient, auth_headers: dict):
-        """测试分页"""
+        """Test pagination."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_versions = AsyncMock(return_value=([], 0))
@@ -122,22 +122,22 @@ class TestListStrategyVersions:
             assert resp.status_code == 200
 
     async def test_list_invalid_limit(self, client: AsyncClient, auth_headers: dict):
-        """测试无效limit"""
+        """Test invalid limit."""
         resp = await client.get("/api/v1/strategy-versions/strategies/test_strategy/versions?limit=200", headers=auth_headers)
         assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 class TestGetStrategyVersion:
-    """获取策略版本详情测试"""
+    """Test get strategy version details."""
 
     async def test_get_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required."""
         resp = await client.get("/api/v1/strategy-versions/versions/ver123")
         assert resp.status_code in [401, 403]
 
     async def test_get_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试版本不存在"""
+        """Test version not found."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_version = AsyncMock(return_value=None)
@@ -147,11 +147,11 @@ class TestGetStrategyVersion:
             assert resp.status_code == 404
 
     async def test_get_forbidden(self, client: AsyncClient, auth_headers: dict):
-        """测试无权访问"""
+        """Test forbidden access."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_version = MagicMock()
-            mock_version.strategy_id = "other_user_id"  # 不同的用户
+            mock_version.strategy_id = "other_user_id"  # Different user
             mock_service.get_version = AsyncMock(return_value=mock_version)
             mock_service_class.return_value = mock_service
 
@@ -159,23 +159,23 @@ class TestGetStrategyVersion:
             assert resp.status_code == 403
 
     async def test_get_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功获取 - 由于mock复杂，接受多种状态码"""
+        """Test successful get - accept multiple status codes due to mock complexity."""
         resp = await client.get("/api/v1/strategy-versions/versions/ver123", headers=auth_headers)
-        # 404 因为版本不存在，200 如果有数据
+        # 404 because version doesn't exist, 200 if has data
         assert resp.status_code in [200, 404, 500]
 
 
 @pytest.mark.asyncio
 class TestUpdateStrategyVersion:
-    """更新策略版本测试"""
+    """Test strategy version update."""
 
     async def test_update_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required."""
         resp = await client.put("/api/v1/strategy-versions/versions/ver123", json={"code": "new code"})
         assert resp.status_code in [401, 403]
 
     async def test_update_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试版本不存在"""
+        """Test version not found."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.update_version = AsyncMock(return_value=None)
@@ -187,7 +187,7 @@ class TestUpdateStrategyVersion:
             assert resp.status_code == 404
 
     async def test_update_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功更新 - 由于mock复杂，接受多种状态码"""
+        """Test successful update - accept multiple status codes due to mock complexity."""
         resp = await client.put("/api/v1/strategy-versions/versions/ver123", headers=auth_headers, json={
             "description": "Updated description",
             "tags": ["updated"],
@@ -197,15 +197,15 @@ class TestUpdateStrategyVersion:
 
 @pytest.mark.asyncio
 class TestSetVersionDefault:
-    """设置默认版本测试"""
+    """Test set default version."""
 
     async def test_set_default_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required."""
         resp = await client.post("/api/v1/strategy-versions/versions/ver123/set-default")
         assert resp.status_code in [401, 403]
 
     async def test_set_default_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试版本不存在"""
+        """Test version not found."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.set_version_default = AsyncMock(return_value=False)
@@ -215,7 +215,7 @@ class TestSetVersionDefault:
             assert resp.status_code == 404
 
     async def test_set_default_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功设置"""
+        """Test successful set default."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.set_version_default = AsyncMock(return_value=True)
@@ -227,15 +227,15 @@ class TestSetVersionDefault:
 
 @pytest.mark.asyncio
 class TestActivateVersion:
-    """激活版本测试"""
+    """Test activate version."""
 
     async def test_activate_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required."""
         resp = await client.post("/api/v1/strategy-versions/versions/ver123/activate")
         assert resp.status_code in [401, 403]
 
     async def test_activate_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试版本不存在"""
+        """Test version not found."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.activate_version = AsyncMock(return_value=False)
@@ -245,7 +245,7 @@ class TestActivateVersion:
             assert resp.status_code == 404
 
     async def test_activate_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功激活"""
+        """Test successful activation."""
         with patch('app.api.strategy_version.VersionControlService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.activate_version = AsyncMock(return_value=True)
@@ -257,62 +257,62 @@ class TestActivateVersion:
 
 @pytest.mark.asyncio
 class TestCompareVersions:
-    """版本对比测试"""
+    """Test version comparison."""
 
     async def test_compare_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required."""
         resp = await client.post("/api/v1/strategy-versions/versions/compare", json=VALID_VERSION_COMPARE)
         assert resp.status_code in [401, 403]
 
     async def test_compare_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功对比 - 由于mock复杂，接受多种响应"""
+        """Test successful comparison - accept various responses due to mock complexity."""
         try:
             resp = await client.post("/api/v1/strategy-versions/versions/compare", headers=auth_headers, json=VALID_VERSION_COMPARE)
             assert resp.status_code in [200, 400, 404, 500]
         except ValueError:
-            # ValueError "版本不存在" 也是有效的业务逻辑错误
+            # ValueError "Version not found" is also valid business logic error
             pass
 
     async def test_compare_invalid_data(self, client: AsyncClient, auth_headers: dict):
-        """测试无效数据"""
+        """Test invalid data."""
         resp = await client.post("/api/v1/strategy-versions/versions/compare", headers=auth_headers, json={
-            "strategy_id": "",  # 无效
+            "strategy_id": "",  # Invalid
         })
         assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 class TestRollbackVersion:
-    """版本回滚测试"""
+    """Test version rollback."""
 
     async def test_rollback_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required."""
         resp = await client.post("/api/v1/strategy-versions/versions/rollback", json=VALID_VERSION_ROLLBACK)
         assert resp.status_code in [401, 403]
 
     async def test_rollback_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功回滚 - 由于mock复杂，接受多种响应"""
+        """Test successful rollback - accept various responses due to mock complexity."""
         try:
             resp = await client.post("/api/v1/strategy-versions/versions/rollback", headers=auth_headers, json=VALID_VERSION_ROLLBACK)
             assert resp.status_code in [200, 400, 404, 500]
         except ValueError:
-            # ValueError "版本不存在" 也是有效的业务逻辑错误
+            # ValueError "Version not found" is also valid business logic error
             pass
 
     async def test_rollback_invalid_data(self, client: AsyncClient, auth_headers: dict):
-        """测试无效数据"""
+        """Test invalid data."""
         resp = await client.post("/api/v1/strategy-versions/versions/rollback", headers=auth_headers, json={
-            "strategy_id": "",  # 无效
+            "strategy_id": "",  # Invalid
         })
         assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
 class TestBranchOperations:
-    """分支操作测试"""
+    """Test branch operations."""
 
     async def test_create_branch_success(self, client: AsyncClient, auth_headers: dict):
-        """测试创建分支"""
+        """Test create branch."""
         strat = await client.post(
             "/api/v1/strategy/",
             headers=auth_headers,
@@ -332,7 +332,7 @@ class TestBranchOperations:
         assert body["branch_name"] == "feature/test"
 
     async def test_list_branches_success(self, client: AsyncClient, auth_headers: dict):
-        """测试列出分支"""
+        """Test list branches."""
         strat = await client.post(
             "/api/v1/strategy/",
             headers=auth_headers,
@@ -360,15 +360,15 @@ class TestBranchOperations:
 
 @pytest.mark.asyncio
 class TestStrategyVersionWebSocket:
-    """WebSocket 端点测试"""
+    """Test WebSocket endpoints."""
 
     async def test_websocket_connection(self):
-        """测试 WebSocket 连接 - 基本测试"""
+        """Test WebSocket connection - basic test."""
         from app.api.strategy_version import strategy_version_websocket
         from unittest.mock import AsyncMock, MagicMock, patch
         import asyncio
 
-        # 创建 mock WebSocket 对象
+        # Create mock WebSocket object
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
 
@@ -378,14 +378,14 @@ class TestStrategyVersionWebSocket:
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
 
-            # Mock asyncio.sleep 以避免无限循环 - 在 builtin asyncio 上patch
+            # Mock asyncio.sleep to avoid infinite loop - patch on builtin asyncio
             with patch('asyncio.sleep') as mock_sleep:
                 mock_sleep.return_value = None
-                # 第一次正常返回，第二次抛出异常
+                # First return normally, second throw exception
                 mock_sleep.side_effect = [None, Exception("Exit loop")]
 
                 try:
-                    # 由于 asyncio 未在模块中导入，需要注入它
+                    # Since asyncio is not imported in module, need to inject it
                     import sys
                     old_asyncio = sys.modules.get('asyncio')
                     sys.modules['asyncio'] = sys.modules.get('asyncio', asyncio)
@@ -394,20 +394,20 @@ class TestStrategyVersionWebSocket:
                 except Exception:
                     pass
                 finally:
-                    # 恢复
+                    # Restore
                     if old_asyncio:
                         sys.modules['asyncio'] = old_asyncio
 
-                # 验证没有崩溃
+                # Verify no crash
                 assert True
 
     async def test_websocket_sends_connected_message(self):
-        """测试 WebSocket 发送连接消息"""
+        """Test WebSocket sends connected message."""
         from app.api.strategy_version import strategy_version_websocket
         from unittest.mock import AsyncMock, MagicMock, patch
         import asyncio
 
-        # 创建 mock WebSocket 对象
+        # Create mock WebSocket object
         mock_ws = MagicMock()
 
         # Mock WebSocket manager
@@ -419,7 +419,7 @@ class TestStrategyVersionWebSocket:
             # Mock asyncio.sleep
             with patch('asyncio.sleep', side_effect=Exception("Exit loop")):
                 try:
-                    # 由于 asyncio 未在模块中导入，需要注入它
+                    # Since asyncio is not imported in module, need to inject it
                     import sys
                     old_asyncio = sys.modules.get('asyncio')
                     sys.modules['asyncio'] = sys.modules.get('asyncio', asyncio)
@@ -431,15 +431,15 @@ class TestStrategyVersionWebSocket:
                     if old_asyncio:
                         sys.modules['asyncio'] = old_asyncio
 
-                # 验证没有崩溃
+                # Verify no crash
                 assert True
 
 
 class TestServiceDependency:
-    """服务依赖测试"""
+    """Test service dependency."""
 
     def test_get_version_control_service(self):
-        """测试获取版本控制服务"""
+        """Test get version control service."""
         from app.api.strategy_version import get_version_control_service
 
         svc1 = get_version_control_service()

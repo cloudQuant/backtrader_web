@@ -1,9 +1,11 @@
-"""国债期货MACD策略 (Treasury Futures MACD Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Treasury Futures MACD Strategy.
 
-基于MACD指标的国债期货交易策略:
-- 快线上穿慢线且MACD>0 -> 做多
-- 快线下穿慢线且MACD<0 -> 做空
-- 支持合约换月
+A treasury futures trading strategy based on MACD indicator:
+- Fast line crosses above slow line AND MACD > 0 -> Go long
+- Fast line crosses below slow line AND MACD < 0 -> Go short
+- Supports contract rollover
 
 Author: yunjinqi
 """
@@ -15,17 +17,17 @@ from backtrader.comminfo import ComminfoFuturesPercent
 
 
 class TreasuryFuturesMacdStrategy(bt.Strategy):
-    """基于MACD的国债期货交易策略，支持换月
+    """Treasury Futures MACD Trading Strategy with rollover support.
 
-    该策略使用MACD指标进行交易，并自动处理合约换月:
-    - 当短期EMA上穿长期EMA且MACD>0时开多仓
-    - 当短期EMA下穿长期EMA且MACD<0时开空仓
-    - 当价格反向穿过短期EMA时平仓
-    - 自动换月到主力合约
+    This strategy uses MACD indicator for trading and automatically handles contract rollover:
+    - Open long position when short-term EMA crosses above long-term EMA and MACD > 0
+    - Open short position when short-term EMA crosses below long-term EMA and MACD < 0
+    - Close position when price crosses back through short-term EMA
+    - Automatically rollover to dominant contract
     """
-    # 策略作者
+    # Strategy author
     author = 'yunjinqi'
-    # 策略参数
+    # Strategy parameters
     params = (("period_me1", 10),
               ("period_me2", 20),
               ("period_dif", 9),
@@ -33,51 +35,51 @@ class TreasuryFuturesMacdStrategy(bt.Strategy):
               )
 
     def log(self, txt, dt=None):
-        """记录日志"""
+        """Log strategy information."""
         dt = dt or bt.num2date(self.datas[0].datetime[0])
         print('{}, {}'.format(dt.isoformat(), txt))
 
     def __init__(self):
-        """初始化策略并设置指标"""
-        # 通用属性变量
-        self.bar_num = 0  # next运行的bar数
+        """Initialize the strategy and set up indicators."""
+        # Common attribute variables
+        self.bar_num = 0  # Number of bars run in next()
         self.buy_count = 0
         self.sell_count = 0
-        self.current_date = None  # 当前交易日
-        # 计算MACD指标
+        self.current_date = None  # Current trading day
+        # Calculate MACD indicator
         self.ema_1 = bt.indicators.ExponentialMovingAverage(self.datas[0].close, period=self.p.period_me1)
         self.ema_2 = bt.indicators.ExponentialMovingAverage(self.datas[0].close, period=self.p.period_me2)
         self.dif = self.ema_1 - self.ema_2
         self.dea = bt.indicators.ExponentialMovingAverage(self.dif, period=self.p.period_dif)
         self.macd = (self.dif - self.dea) * 2
-        # 保存当前持有的合约
+        # Save currently held contract
         self.holding_contract_name = None
 
     def prenext(self):
-        """在最小周期到达前调用"""
+        """Called before minimum period is reached."""
         self.next()
 
     def next(self):
-        """执行主要策略逻辑"""
-        # 每次运行bar_num加1并更新交易日
+        """Execute main strategy logic."""
+        # Increment bar_num and update trading day each run
         self.current_date = bt.num2date(self.datas[0].datetime[0])
         self.bar_num += 1
         data = self.datas[0]
-        # 开仓，先平后开
-        # 平多仓
+        # Open positions, close existing first
+        # Close long position
         if self.holding_contract_name is not None and self.getpositionbyname(self.holding_contract_name).size > 0 and \
                 data.close[0] < self.ema_1[0]:
             data = self.getdatabyname(self.holding_contract_name)
             self.close(data)
             self.holding_contract_name = None
-        # 平空仓
+        # Close short position
         if self.holding_contract_name is not None and self.getpositionbyname(self.holding_contract_name).size < 0 and \
                 data.close[0] > self.ema_1[0]:
             data = self.getdatabyname(self.holding_contract_name)
             self.close(data)
             self.holding_contract_name = None
 
-        # 开多仓
+        # Open long position
         if self.holding_contract_name is None and self.ema_1[-1] < self.ema_2[-1] and self.ema_1[0] > self.ema_2[0] and \
                 self.macd[0] > 0:
             dominant_contract = self.get_dominant_contract()
@@ -86,7 +88,7 @@ class TreasuryFuturesMacdStrategy(bt.Strategy):
             self.buy_count += 1
             self.holding_contract_name = dominant_contract
 
-        # 开空仓
+        # Open short position
         if self.holding_contract_name is None and self.ema_1[-1] > self.ema_2[-1] and self.ema_1[0] < self.ema_2[0] and \
                 self.macd[0] < 0:
             dominant_contract = self.get_dominant_contract()
@@ -95,19 +97,19 @@ class TreasuryFuturesMacdStrategy(bt.Strategy):
             self.sell_count += 1
             self.holding_contract_name = dominant_contract
 
-        # 换月到下一个合约
+        # Rollover to next contract
         if self.holding_contract_name is not None:
             dominant_contract = self.get_dominant_contract()
-            # 如果出现新的主力合约，开始换月
+            # If a new dominant contract appears, start rollover
             if dominant_contract != self.holding_contract_name:
-                # 下一个主力合约
+                # Next dominant contract
                 next_data = self.getdatabyname(dominant_contract)
-                # 当前合约持仓规模和数据
-                size = self.getpositionbyname(self.holding_contract_name).size  # 持仓规模
+                # Current contract position size and data
+                size = self.getpositionbyname(self.holding_contract_name).size  # Position size
                 data = self.getdatabyname(self.holding_contract_name)
-                # 平掉旧的
+                # Close old position
                 self.close(data)
-                # 开新的
+                # Open new position
                 if size > 0:
                     self.buy(next_data, size=abs(size))
                 if size < 0:
@@ -115,11 +117,11 @@ class TreasuryFuturesMacdStrategy(bt.Strategy):
                 self.holding_contract_name = dominant_contract
 
     def get_dominant_contract(self):
-        """确定主力合约（基于持仓量）"""
-        # 使用持仓量最大的合约作为主力合约，返回数据名称
-        # 可以根据需要自定义如何计算主力合约
+        """Determine dominant contract (based on open interest)."""
+        # Use contract with highest open interest as dominant contract, return data name
+        # Can customize how to calculate dominant contract as needed
 
-        # 获取当前交易的品种
+        # Get currently trading instruments
         target_datas = []
         for data in self.datas[1:]:
             try:
@@ -134,7 +136,7 @@ class TreasuryFuturesMacdStrategy(bt.Strategy):
         return target_datas[-1][0]
 
     def notify_order(self, order):
-        """订单状态变化时调用"""
+        """Called when order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
 
@@ -160,8 +162,8 @@ class TreasuryFuturesMacdStrategy(bt.Strategy):
                     f" SELL : data_name:{order.p.data._name} price : {order.executed.price} , cost : {order.executed.value} , commission : {order.executed.comm}")
 
     def notify_trade(self, trade):
-        """交易生命周期事件处理"""
-        # 输出交易结束时的信息
+        """Handle trade lifecycle events."""
+        # Output information when trade ends
         if trade.isclosed:
             self.log('closed symbol is : {} , total_profit : {} , net_profit : {}'.format(
                 trade.getdataname(), trade.pnl, trade.pnlcomm))
@@ -171,5 +173,5 @@ class TreasuryFuturesMacdStrategy(bt.Strategy):
                 trade.getdataname(), trade.price))
 
     def stop(self):
-        """回测结束时调用"""
+        """Called when backtesting ends."""
         self.log(f"bar_num={self.bar_num}, buy_count={self.buy_count}, sell_count={self.sell_count}")

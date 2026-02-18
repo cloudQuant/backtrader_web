@@ -90,7 +90,7 @@ def run():
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.0)
     cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -98,10 +98,10 @@ def run():
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data log
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), 'csv' also available
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',

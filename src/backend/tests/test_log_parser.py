@@ -1,6 +1,4 @@
-"""
-日志解析服务测试
-"""
+"""Log parser service tests."""
 import tempfile
 from pathlib import Path
 
@@ -13,9 +11,17 @@ from app.services.log_parser_service import (
 
 
 class TestParseValueLog:
-    """value.log 解析测试"""
+    """Tests for value.log parsing."""
 
     def test_parse_valid_log(self, tmp_path: Path):
+        """Test parsing a valid value log file.
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
         log_dir = tmp_path / "log_20240101"
         log_dir.mkdir()
         (log_dir / "value.log").write_text(
@@ -29,18 +35,42 @@ class TestParseValueLog:
         assert len(result["dates"]) == 2
 
     def test_parse_empty_dir(self, tmp_path: Path):
+        """Test parsing an empty directory.
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
         result = parse_value_log(tmp_path)
         assert result == {} or result.get("dates") == []
 
     def test_parse_nonexistent_dir(self, tmp_path: Path):
+        """Test parsing a non-existent directory.
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
         result = parse_value_log(tmp_path / "nonexistent")
         assert result == {} or result.get("dates") == []
 
 
 class TestParseTradeLog:
-    """trade.log 解析测试"""
+    """Tests for trade.log parsing."""
 
     def test_parse_valid_trade_log(self, tmp_path: Path):
+        """Test parsing a valid trade log file.
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
         log_dir = tmp_path / "log_20240101"
         log_dir.mkdir()
         (log_dir / "trade.log").write_text(
@@ -54,14 +84,30 @@ class TestParseTradeLog:
         assert trades[0]["size"] == 100.0
 
     def test_parse_empty_dir(self, tmp_path: Path):
+        """Test parsing trade log from empty directory.
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
         trades = parse_trade_log(tmp_path)
         assert trades == [] or trades is not None
 
 
 class TestFindLatestLogDir:
-    """查找最新日志目录测试"""
+    """Tests for finding latest log directory."""
 
     def test_find_latest(self, tmp_path: Path):
+        """Test finding the latest log directory.
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
         logs_dir = tmp_path / "logs"
         logs_dir.mkdir()
         (logs_dir / "log_20240101").mkdir()
@@ -71,10 +117,26 @@ class TestFindLatestLogDir:
         assert "20240102" in str(result)
 
     def test_no_log_dirs(self, tmp_path: Path):
+        """Test when no log directories exist.
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
         result = find_latest_log_dir(tmp_path)
         assert result is None
 
     def test_empty_logs_dir(self, tmp_path: Path):
+        """Test with an empty logs directory.
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
         (tmp_path / "logs").mkdir()
         result = find_latest_log_dir(tmp_path)
         assert result is None

@@ -36,24 +36,33 @@ router = APIRouter()
 
 
 def get_monitoring_service():
+    """Dependency injection for MonitoringService.
+
+    Returns:
+        MonitoringService: An instance of the monitoring service.
+    """
     return MonitoringService()
 
 
-# ==================== 告警规则 API ====================
+# ==================== Alert Rule API ====================
 
-@router.post("/rules", response_model=AlertRuleResponse, summary="创建告警规则")
+@router.post("/rules", response_model=AlertRuleResponse, summary="Create alert rule")
 async def create_alert_rule(
     request: AlertRuleCreate,
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """
-    Create an alert rule.
+    """Create a new alert rule.
 
     Args:
-        request: Rule payload.
-        current_user: Authenticated user.
-        service: Monitoring service.
+        request: The alert rule creation request containing name, description,
+            alert_type, severity, trigger_type, trigger_config, and
+            notification settings.
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        AlertRuleResponse: The created alert rule details.
     """
     rule = await service.create_alert_rule(
         user_id=current_user.sub,
@@ -70,15 +79,26 @@ async def create_alert_rule(
     return rule
 
 
-@router.get("/rules", response_model=AlertRuleListResponse, summary="获取告警规则列表")
+@router.get("/rules", response_model=AlertRuleListResponse, summary="List alert rules")
 async def list_alert_rules(
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-    alert_type: Optional[str] = Query(None, description="告警类型"),
-    severity: Optional[str] = Query(None, description="告警级别"),
-    is_active: Optional[bool] = Query(None, description="是否活跃"),
+    alert_type: Optional[str] = Query(None, description="Alert type filter"),
+    severity: Optional[str] = Query(None, description="Alert severity filter"),
+    is_active: Optional[bool] = Query(None, description="Active status filter"),
 ):
-    """获取用户的告警规则列表"""
+    """Get the current user's alert rule list.
+
+    Args:
+        current_user: The authenticated user.
+        service: The monitoring service.
+        alert_type: Filter by alert type.
+        severity: Filter by severity level.
+        is_active: Filter by active status.
+
+    Returns:
+        AlertRuleListResponse: Response containing total count and rule list.
+    """
     rules, total = await service.list_alert_rules(
         user_id=current_user.sub,
         alert_type=alert_type,
@@ -89,68 +109,116 @@ async def list_alert_rules(
     return AlertRuleListResponse(total=total, items=rules)
 
 
-@router.get("/rules/{rule_id}", response_model=AlertRuleResponse, summary="获取告警规则详情")
+@router.get("/rules/{rule_id}", response_model=AlertRuleResponse, summary="Get alert rule details")
 async def get_alert_rule(
     rule_id: str,
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """Get an alert rule by id."""
+    """Get an alert rule by ID.
+
+    Args:
+        rule_id: The unique identifier of the alert rule.
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        AlertRuleResponse: The alert rule details.
+
+    Raises:
+        HTTPException: If user lacks permission (403) or rule not found (404).
+    """
     try:
         rule = await service.get_alert_rule(rule_id=rule_id, user_id=current_user.sub)
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该规则")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this rule")
 
     if not rule:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="告警规则不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert rule not found")
     return rule
 
 
-@router.put("/rules/{rule_id}", response_model=AlertRuleResponse, summary="更新告警规则")
+@router.put("/rules/{rule_id}", response_model=AlertRuleResponse, summary="Update alert rule")
 async def update_alert_rule(
     rule_id: str,
     request: AlertRuleUpdate,
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """更新告警规则"""
+    """Update an alert rule.
+
+    Args:
+        rule_id: The unique identifier of the alert rule.
+        request: The update request containing fields to modify.
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        AlertRuleResponse: The updated alert rule details.
+    """
     rule = await service.update_alert_rule(rule_id=rule_id, user_id=current_user.sub, update_data=request.model_dump(exclude_none=True))
 
     return rule
 
 
-@router.delete("/rules/{rule_id}", summary="删除告警规则")
+@router.delete("/rules/{rule_id}", summary="Delete alert rule")
 async def delete_alert_rule(
     rule_id: str,
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """删除告警规则"""
+    """Delete an alert rule.
+
+    Args:
+        rule_id: The unique identifier of the alert rule.
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        A message confirming deletion.
+
+    Raises:
+        HTTPException: If the rule does not exist or user lacks permission (404).
+    """
     success = await service.delete_alert_rule(rule_id, current_user.sub)
 
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="告警规则不存在或无权删除"
+            detail="Alert rule not found or no permission to delete"
         )
 
-    return {"message": "告警规则已删除"}
+    return {"message": "Alert rule has been deleted"}
 
 
-# ==================== 告警 API ====================
+# ==================== Alert API ====================
 
-@router.get("/", response_model=AlertListResponse, summary="获取告警列表")
+@router.get("/", response_model=AlertListResponse, summary="List alerts")
 async def list_alerts(
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-    alert_type: Optional[str] = Query(None, description="告警类型"),
-    severity: Optional[str] = Query(None, description="告警级别"),
-    status: Optional[str] = Query(None, description="告警状态"),
-    is_read: Optional[bool] = Query(None, description="是否已读"),
+    alert_type: Optional[str] = Query(None, description="Alert type filter"),
+    severity: Optional[str] = Query(None, description="Alert severity filter"),
+    status: Optional[str] = Query(None, description="Alert status filter"),
+    is_read: Optional[bool] = Query(None, description="Read status filter"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """获取告警列表"""
+    """Get the list of alerts for the current user.
+
+    Args:
+        current_user: The authenticated user.
+        service: The monitoring service.
+        alert_type: Filter by alert type.
+        severity: Filter by severity level.
+        status: Filter by alert status.
+        is_read: Filter by read status.
+        limit: Maximum number of alerts to return (1-100).
+        offset: Number of alerts to skip.
+
+    Returns:
+        AlertListResponse: Response containing total count and alert list.
+    """
     alerts, total = await service.list_alerts(
         user_id=current_user.sub,
         alert_type=alert_type,
@@ -164,96 +232,165 @@ async def list_alerts(
     return AlertListResponse(total=total, items=alerts)
 
 
-@router.get("/{alert_id}", response_model=AlertResponse, summary="获取告警详情")
+@router.get("/{alert_id}", response_model=AlertResponse, summary="Get alert details")
 async def get_alert(
     alert_id: str,
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """Get an alert by id."""
+    """Get an alert by ID.
+
+    Args:
+        alert_id: The unique identifier of the alert.
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        AlertResponse: The alert details.
+
+    Raises:
+        HTTPException: If user lacks permission (403) or alert not found (404).
+    """
     try:
         alert = await service.get_alert(alert_id=alert_id, user_id=current_user.sub)
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该告警")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this alert")
 
     if not alert:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="告警不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
     return alert
 
 
-@router.put("/{alert_id}/read", summary="标记告警为已读")
+@router.put("/{alert_id}/read", summary="Mark alert as read")
 async def mark_alert_read(
     alert_id: str,
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """标记告警为已读"""
+    """Mark an alert as read.
+
+    Args:
+        alert_id: The unique identifier of the alert.
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        A message confirming the alert has been marked as read.
+
+    Raises:
+        HTTPException: If the alert does not exist or user lacks permission (404).
+    """
     success = await service.mark_alert_read(alert_id, current_user.sub)
 
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="告警不存在或无权标记"
+            detail="Alert not found or no permission to mark"
         )
 
-    return {"message": "告警已标记为已读"}
+    return {"message": "Alert has been marked as read"}
 
 
-@router.put("/{alert_id}/resolve", summary="解决告警")
+@router.put("/{alert_id}/resolve", summary="Resolve alert")
 async def resolve_alert(
     alert_id: str,
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """解决告警"""
+    """Resolve an alert.
+
+    Args:
+        alert_id: The unique identifier of the alert.
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        A message confirming the alert has been resolved.
+
+    Raises:
+        HTTPException: If the alert does not exist or user lacks permission (404).
+    """
     success = await service.resolve_alert(alert_id, current_user.sub)
 
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="告警不存在或无权解决"
+            detail="Alert not found or no permission to resolve"
         )
 
-    return {"message": "告警已解决"}
+    return {"message": "Alert has been resolved"}
 
 
-@router.put("/{alert_id}/acknowledge", summary="确认告警")
+@router.put("/{alert_id}/acknowledge", summary="Acknowledge alert")
 async def acknowledge_alert(
     alert_id: str,
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """确认告警"""
+    """Acknowledge an alert.
+
+    Args:
+        alert_id: The unique identifier of the alert.
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        A message confirming the alert has been acknowledged.
+
+    Raises:
+        HTTPException: If the alert does not exist or user lacks permission (404).
+    """
     success = await service.acknowledge_alert(alert_id, current_user.sub)
 
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="告警不存在或无权确认"
+            detail="Alert not found or no permission to acknowledge"
         )
 
-    return {"message": "告警已确认"}
+    return {"message": "Alert has been acknowledged"}
 
 
-# ==================== 告警统计 API ====================
+# ==================== Alert Statistics API ====================
 
-@router.get("/statistics/summary", summary="获取告警统计摘要")
+@router.get("/statistics/summary", summary="Get alert statistics summary")
 async def get_alert_summary(
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
 ):
-    """获取告警统计摘要"""
+    """Get the alert statistics summary for the current user.
+
+    Args:
+        current_user: The authenticated user.
+        service: The monitoring service.
+
+    Returns:
+        A dictionary containing alert statistics summary.
+    """
     return await service.get_alert_summary(user_id=current_user.sub)
 
 
-@router.get("/statistics/by-type", summary="按类型获取告警统计")
+@router.get("/statistics/by-type", summary="Get alert statistics by type")
 async def get_alerts_by_type(
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-    start_date: str = Query(..., description="开始日期"),
-    end_date: str = Query(..., description="结束日期"),
+    start_date: str = Query(..., description="Start date"),
+    end_date: str = Query(..., description="End date"),
 ):
-    """按类型获取告警统计"""
+    """Get alert statistics grouped by type for a date range.
+
+    Args:
+        current_user: The authenticated user.
+        service: The monitoring service.
+        start_date: Start date in ISO 8601 format.
+        end_date: End date in ISO 8601 format.
+
+    Returns:
+        A dictionary containing start_date, end_date, and statistics by type.
+
+    Raises:
+        HTTPException: If date format is invalid (400).
+    """
     from datetime import datetime
     try:
         start_dt = datetime.fromisoformat(start_date)
@@ -261,57 +398,59 @@ async def get_alerts_by_type(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"日期格式错误: {e}"
+            detail=f"Invalid date format: {e}"
         )
 
     stats = await service.get_alerts_by_type(user_id=current_user.sub, start_dt=start_dt, end_dt=end_dt)
     return {"start_date": start_date, "end_date": end_date, **stats}
 
 
-# ==================== WebSocket 端点 ====================
+# ==================== WebSocket Endpoint ====================
 
 @router.websocket("/ws/alerts")
 async def alerts_websocket(
     websocket,
 ):
-    """
-    WebSocket 端点 - 告警实时推送
-    
-    推送内容：
-    - 新告警创建
-    - 告警状态更新
-    - 告警解决通知
-    - 告警统计更新
-    
-    连接 URL: ws://host/api/v1/monitoring/ws/alerts
-    
-    消息类型：
-    - connected: 连接成功
-    - alert_created: 新告警
-    - alert_updated: 告警更新
-    - alert_resolved: 告警解决
-    - alert_acknowledged: 告警确认
-    - stats_update: 统计更新
+    """WebSocket endpoint for alert real-time updates.
+
+    Pushes:
+        - New alert creation
+        - Alert status updates
+        - Alert resolution notifications
+        - Alert statistics updates
+
+    Connection URL: ws://host/api/v1/monitoring/ws/alerts
+
+    Message types:
+        - connected: Connection successful
+        - alert_created: New alert
+        - alert_updated: Alert updated
+        - alert_resolved: Alert resolved
+        - alert_acknowledged: Alert acknowledged
+        - stats_update: Statistics update
+
+    Args:
+        websocket: The WebSocket connection instance.
     """
     client_id = f"ws-alerts-client-{id(websocket)}"
 
-    # 建立连接
+    # Establish connection
     await ws_manager.connect(websocket, "alerts:global", client_id)
 
     try:
-        # 发送初始信息
+        # Send initial message
         await ws_manager.send_to_task("alerts:global", {
             "type": MessageType.CONNECTED,
-            "message": "告警监控 WebSocket 连接成功",
+            "message": "Alert monitoring WebSocket connection successful",
         })
 
-        # 保持连接
+        # Keep connection alive
         while True:
             await asyncio.sleep(1)
 
-            # 这里应该从监控服务获取最新告警
-            # 并通过 WebSocket 推送
-            # 暂时使用轮询方式，实际应用中应该使用事件驱动
+            # Latest alerts should be fetched from monitoring service
+            # and pushed via WebSocket
+            # Temporarily using polling; should use event-driven in production
 
     except Exception as e:
         logger.error(f"Alerts WebSocket error: {e}")

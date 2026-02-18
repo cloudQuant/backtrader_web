@@ -1,6 +1,7 @@
 """
-并行运行 strategies/ 下所有策略的 run.py，使用 8 个进程。
-每个策略运行前先清空其 logs/ 目录。
+Run all strategies in strategies/ directory in parallel using 8 processes.
+
+Clears the logs/ directory for each strategy before running.
 """
 import subprocess
 import glob
@@ -16,14 +17,21 @@ WORKERS = 8
 
 
 def run_strategy(strategy_dir: str) -> dict:
-    """运行单个策略的 run.py，运行前清空 logs 目录。"""
+    """Run a single strategy's run.py, clearing logs directory first.
+
+    Args:
+        strategy_dir: Path to the strategy directory.
+
+    Returns:
+        Dictionary with execution results including status, message, and elapsed time.
+    """
     name = os.path.basename(strategy_dir)
     run_py = os.path.join(strategy_dir, 'run.py')
 
     if not os.path.isfile(run_py):
         return {'name': name, 'status': 'skip', 'msg': 'no run.py', 'elapsed': 0}
 
-    # 清空 logs 目录
+    # Clear logs directory
     logs_dir = os.path.join(strategy_dir, 'logs')
     if os.path.isdir(logs_dir):
         shutil.rmtree(logs_dir)
@@ -52,6 +60,7 @@ def run_strategy(strategy_dir: str) -> dict:
 
 
 def main():
+    """Main entry point for running all strategies."""
     strategy_dirs = sorted(glob.glob(os.path.join(STRATEGIES_DIR, '*')))
     strategy_dirs = [d for d in strategy_dirs if os.path.isdir(d)]
 
@@ -65,7 +74,7 @@ def main():
 
     elapsed_all = time.time() - start_all
 
-    # 汇总结果
+    # Summarize results
     ok = [r for r in results if r['status'] == 'ok']
     skip = [r for r in results if r['status'] == 'skip']
     fail = [r for r in results if r['status'] == 'fail']

@@ -26,18 +26,33 @@ router = APIRouter()
 
 
 def get_paper_trading_service():
+    """Dependency injection for PaperTradingService.
+
+    Returns:
+        PaperTradingService: An instance of the paper trading service.
+    """
     return PaperTradingService()
 
 
-# ==================== 模拟账户 API ====================
+# ==================== Paper Account API ====================
 
-@router.post("/accounts", response_model=AccountResponse, summary="创建模拟账户")
+@router.post("/accounts", response_model=AccountResponse, summary="Create paper trading account")
 async def create_paper_account(
     request: AccountCreate,
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """Create a paper trading account."""
+    """Create a new paper trading account.
+
+    Args:
+        request: The account creation request containing name, initial_cash,
+            commission_rate, and slippage_rate.
+        current_user: The authenticated user.
+        service: The paper trading service.
+
+    Returns:
+        AccountResponse: The created account details.
+    """
     account = await service.create_account(
         user_id=current_user.sub,
         name=request.name,
@@ -48,14 +63,24 @@ async def create_paper_account(
     return account
 
 
-@router.get("/accounts", response_model=AccountListResponse, summary="获取模拟账户列表")
+@router.get("/accounts", response_model=AccountListResponse, summary="List paper trading accounts")
 async def list_paper_accounts(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """List paper trading accounts for the current user."""
+    """List paper trading accounts for the current user.
+
+    Args:
+        current_user: The authenticated user.
+        service: The paper trading service.
+        limit: Maximum number of accounts to return (1-100).
+        offset: Number of accounts to skip.
+
+    Returns:
+        AccountListResponse: Response containing total count and account list.
+    """
     accounts, total = await service.list_accounts(
         user_id=current_user.sub,
         limit=limit,
@@ -64,56 +89,89 @@ async def list_paper_accounts(
     return AccountListResponse(total=total, items=accounts)
 
 
-@router.get("/accounts/{account_id}", response_model=AccountResponse, summary="获取模拟账户详情")
+@router.get("/accounts/{account_id}", response_model=AccountResponse, summary="Get paper trading account details")
 async def get_paper_account(
     account_id: str,
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """Get a paper trading account by id."""
+    """Get a paper trading account by ID.
+
+    Args:
+        account_id: The unique identifier of the account.
+        current_user: The authenticated user.
+        service: The paper trading service.
+
+    Returns:
+        AccountResponse: The account details.
+
+    Raises:
+        HTTPException: If the account does not exist (404) or user lacks
+            permission to access it (403).
+    """
     account = await service.get_account(account_id)
     if not account:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="模拟账户不存在"
+            detail="Paper trading account not found"
         )
 
-    # 检查权限
+    # Check permissions
     if account.user_id != current_user.sub:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问该账户"
+            detail="No permission to access this account"
         )
 
     return account
 
 
-@router.delete("/accounts/{account_id}", summary="删除模拟账户")
+@router.delete("/accounts/{account_id}", summary="Delete paper trading account")
 async def delete_paper_account(
     account_id: str,
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """Delete a paper trading account."""
+    """Delete a paper trading account.
+
+    Args:
+        account_id: The unique identifier of the account to delete.
+        current_user: The authenticated user.
+        service: The paper trading service.
+
+    Returns:
+        A message confirming deletion.
+
+    Raises:
+        HTTPException: If the account does not exist or user lacks permission (404).
+    """
     success = await service.delete_account(account_id, current_user.sub)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="模拟账户不存在或无权删除"
+            detail="Paper trading account not found or no permission to delete"
         )
-    return {"message": "删除成功"}
+    return {"message": "Account deleted successfully"}
 
 
-# ==================== 模拟订单 API ====================
+# ==================== Paper Order API ====================
 
-@router.post("/orders", response_model=OrderResponse, summary="提交模拟订单")
+@router.post("/orders", response_model=OrderResponse, summary="Submit paper trading order")
 async def submit_paper_order(
     request: OrderRequest,
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """
-    Submit a paper trading order.
+    """Submit a paper trading order.
+
+    Args:
+        request: The order request containing account_id, symbol, side,
+            order_type, quantity, price, etc.
+        current_user: The authenticated user.
+        service: The paper trading service.
+
+    Returns:
+        OrderResponse: The created order details.
     """
     order = await service.submit_order(
         user_id=current_user.sub,
@@ -122,17 +180,30 @@ async def submit_paper_order(
     return order
 
 
-@router.get("/orders", response_model=OrderListResponse, summary="获取模拟订单列表")
+@router.get("/orders", response_model=OrderListResponse, summary="List paper trading orders")
 async def list_paper_orders(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-    account_id: Optional[str] = Query(None, description="账户 ID"),
-    symbol: Optional[str] = Query(None, description="标的代码"),
-    status: Optional[str] = Query(None, description="订单状态"),
+    account_id: Optional[str] = Query(None, description="Account ID"),
+    symbol: Optional[str] = Query(None, description="Trading symbol"),
+    status: Optional[str] = Query(None, description="Order status"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """List paper trading orders."""
+    """List paper trading orders with optional filters.
+
+    Args:
+        current_user: The authenticated user.
+        service: The paper trading service.
+        account_id: Filter by account ID.
+        symbol: Filter by trading symbol.
+        status: Filter by order status.
+        limit: Maximum number of orders to return (1-100).
+        offset: Number of orders to skip.
+
+    Returns:
+        OrderListResponse: Response containing total count and order list.
+    """
     filters = {"user_id": current_user.sub}
     if account_id:
         filters["account_id"] = account_id
@@ -149,59 +220,97 @@ async def list_paper_orders(
     return OrderListResponse(total=total, items=orders)
 
 
-@router.get("/orders/{order_id}", response_model=OrderResponse, summary="获取模拟订单详情")
+@router.get("/orders/{order_id}", response_model=OrderResponse, summary="Get paper trading order details")
 async def get_paper_order(
     order_id: str,
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """Get a paper trading order by id."""
+    """Get a paper trading order by ID.
+
+    Args:
+        order_id: The unique identifier of the order.
+        current_user: The authenticated user.
+        service: The paper trading service.
+
+    Returns:
+        OrderResponse: The order details.
+
+    Raises:
+        HTTPException: If the order does not exist (404) or user lacks
+            permission to access it (403).
+    """
     order = await service.get_order(order_id)
     if not order:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="模拟订单不存在"
+            detail="Paper trading order not found"
         )
 
-    # 检查权限
+    # Check permissions
     account = await service.get_account(order.account_id)
     if not account or account.user_id != current_user.sub:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问该订单"
+            detail="No permission to access this order"
         )
 
     return order
 
 
-@router.delete("/orders/{order_id}", summary="撤销模拟订单")
+@router.delete("/orders/{order_id}", summary="Cancel paper trading order")
 async def cancel_paper_order(
     order_id: str,
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """Cancel a pending paper trading order."""
+    """Cancel a pending paper trading order.
+
+    Args:
+        order_id: The unique identifier of the order to cancel.
+        current_user: The authenticated user.
+        service: The paper trading service.
+
+    Returns:
+        A message confirming cancellation.
+
+    Raises:
+        HTTPException: If the order does not exist, is already filled,
+            or user lacks permission (404).
+    """
     success = await service.cancel_order(order_id, current_user.sub)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="模拟订单不存在、已成交或无权撤销"
+            detail="Paper trading order not found, already filled, or no permission to cancel"
         )
-    return {"message": "订单已撤销"}
+    return {"message": "Order has been cancelled"}
 
 
-# ==================== 模拟持仓 API ====================
+# ==================== Paper Position API ====================
 
-@router.get("/positions", response_model=PositionListResponse, summary="获取模拟持仓列表")
+@router.get("/positions", response_model=PositionListResponse, summary="List paper trading positions")
 async def list_paper_positions(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-    account_id: Optional[str] = Query(None, description="账户 ID"),
-    symbol: Optional[str] = Query(None, description="标的代码"),
+    account_id: Optional[str] = Query(None, description="Account ID"),
+    symbol: Optional[str] = Query(None, description="Trading symbol"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """获取模拟持仓列表"""
+    """List paper trading positions with optional filters.
+
+    Args:
+        current_user: The authenticated user.
+        service: The paper trading service.
+        account_id: Filter by account ID.
+        symbol: Filter by trading symbol.
+        limit: Maximum number of positions to return (1-100).
+        offset: Number of positions to skip.
+
+    Returns:
+        PositionListResponse: Response containing total count and position list.
+    """
     filters = {"user_id": current_user.sub}
     if account_id:
         filters["account_id"] = account_id
@@ -216,44 +325,70 @@ async def list_paper_positions(
     return PositionListResponse(total=total, items=positions)
 
 
-@router.get("/positions/{position_id}", response_model=PositionResponse, summary="获取模拟持仓详情")
+@router.get("/positions/{position_id}", response_model=PositionResponse, summary="Get paper trading position details")
 async def get_paper_position(
     position_id: str,
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
 ):
-    """获取模拟持仓详情"""
+    """Get a paper trading position by ID.
+
+    Args:
+        position_id: The unique identifier of the position.
+        current_user: The authenticated user.
+        service: The paper trading service.
+
+    Returns:
+        PositionResponse: The position details.
+
+    Raises:
+        HTTPException: If the position does not exist (404) or user lacks
+            permission to access it (403).
+    """
     position = await service.get_position(position_id)
     if not position:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="模拟持仓不存在"
+            detail="Paper trading position not found"
         )
 
-    # 检查权限
+    # Check permissions
     account = await service.get_account(position.account_id)
     if not account or account.user_id != current_user.sub:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问该持仓"
+            detail="No permission to access this position"
         )
 
     return position
 
 
-# ==================== 模拟成交 API ====================
+# ==================== Paper Trade API ====================
 
-@router.get("/trades", response_model=TradeListResponse, summary="获取模拟成交列表")
+@router.get("/trades", response_model=TradeListResponse, summary="List paper trading trades")
 async def list_paper_trades(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-    account_id: Optional[str] = Query(None, description="账户 ID"),
-    symbol: Optional[str] = Query(None, description="标的代码"),
-    side: Optional[str] = Query(None, description="买卖方向"),
+    account_id: Optional[str] = Query(None, description="Account ID"),
+    symbol: Optional[str] = Query(None, description="Trading symbol"),
+    side: Optional[str] = Query(None, description="Trade side (buy/sell)"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """获取模拟成交列表"""
+    """List paper trading trades with optional filters.
+
+    Args:
+        current_user: The authenticated user.
+        service: The paper trading service.
+        account_id: Filter by account ID.
+        symbol: Filter by trading symbol.
+        side: Filter by trade side.
+        limit: Maximum number of trades to return (1-100).
+        offset: Number of trades to skip.
+
+    Returns:
+        TradeListResponse: Response containing total count and trade list.
+    """
     filters = {"user_id": current_user.sub}
     if account_id:
         filters["account_id"] = account_id
@@ -270,32 +405,35 @@ async def list_paper_trades(
     return TradeListResponse(total=total, items=trades)
 
 
-# ==================== WebSocket 端点 ====================
+# ==================== WebSocket Endpoint ====================
 
 @router.websocket("/ws/account/{account_id}")
 async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
-    """
-    WebSocket 端点 - 模拟交易实时推送
+    """WebSocket endpoint for paper trading real-time updates.
 
-    推送内容：
-    - 账户更新（资金、权益、盈亏）
-    - 订单更新（状态、成交）
-    - 持仓更新（数量、市值、未实现盈亏）
-    - 成交更新（新成交）
+    Pushes:
+        - Account updates (cash, equity, profit/loss)
+        - Order updates (status, fills)
+        - Position updates (quantity, market value, unrealized PnL)
+        - Trade updates (new trades)
 
-    连接 URL: ws://host/api/v1/paper-trading/ws/account/{account_id}
+    Connection URL: ws://host/api/v1/paper-trading/ws/account/{account_id}
 
-    消息类型：
-    - connected: 连接成功
-    - account_update: 账户更新
-    - order_update: 订单更新
-    - position_update: 持仓更新
-    - trade_update: 成交更新
+    Message types:
+        - connected: Connection successful
+        - account_update: Account data update
+        - order_update: Order status update
+        - position_update: Position data update
+        - trade_update: New trade notification
+
+    Args:
+        websocket: The WebSocket connection instance.
+        account_id: The unique identifier of the paper trading account.
     """
     from app.websocket_manager import manager as ws_manager, MessageType
     import asyncio
 
-    # 验证账户存在
+    # Verify account exists
     service = PaperTradingService()
     account = await service.get_account(account_id)
     if not account:
@@ -304,15 +442,15 @@ async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
 
     client_id = f"ws-client-{id(websocket)}"
 
-    # 建立连接
+    # Establish connection
     await ws_manager.connect(websocket, f"account:{account_id}", client_id)
 
     try:
-        # 发送初始账户信息
+        # Send initial account information
         await ws_manager.send_to_task(f"account:{account_id}", {
             "type": MessageType.CONNECTED,
             "account_id": account_id,
-            "message": "模拟交易 WebSocket 连接成功",
+            "message": "Paper trading WebSocket connection successful",
             "data": {
                 "current_cash": account.current_cash,
                 "total_equity": account.total_equity,
@@ -321,13 +459,13 @@ async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
             },
         })
 
-        # 保持连接并推送更新
+        # Keep connection alive and push updates
         while True:
             await asyncio.sleep(1)
 
-            # 这里应该从服务获取最新的账户、订单、持仓信息
-            # 并通过 WebSocket 推送
-            # 暂时使用轮询方式，实际应用中应该使用事件驱动
+            # Latest account, order, and position information should be
+            # fetched from the service and pushed via WebSocket
+            # Temporarily using polling; should use event-driven in production
 
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, f"account:{account_id}", client_id)

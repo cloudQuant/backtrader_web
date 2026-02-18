@@ -1,5 +1,5 @@
 """
-认证 API 测试
+Authentication API tests.
 """
 import uuid
 import pytest
@@ -7,7 +7,7 @@ from httpx import AsyncClient
 
 
 class TestRegister:
-    """注册接口测试"""
+    """Registration endpoint tests."""
 
     async def test_register_success(self, client: AsyncClient):
         resp = await client.post("/api/v1/auth/register", json={
@@ -51,7 +51,7 @@ class TestRegister:
 
 
 class TestLogin:
-    """登录接口测试"""
+    """Login endpoint tests."""
 
     async def test_login_success(self, client: AsyncClient):
         await client.post("/api/v1/auth/register", json={
@@ -83,7 +83,7 @@ class TestLogin:
 
 
 class TestMe:
-    """获取当前用户信息测试"""
+    """Get current user info tests."""
 
     async def test_get_me_success(self, client: AsyncClient, auth_user):
         user_data, headers = auth_user
@@ -105,7 +105,7 @@ class TestMe:
 
 
 class TestChangePassword:
-    """修改密码测试"""
+    """Change password tests."""
 
     async def test_change_password_success(self, client: AsyncClient):
         username = f"chgpw_{uuid.uuid4().hex[:6]}"
@@ -122,7 +122,7 @@ class TestChangePassword:
             "new_password": "NewPass12345",
         })
         assert resp.status_code == 200
-        # 验证用新密码能登录
+        # Verify can login with new password
         login_resp = await client.post("/api/v1/auth/login", json={
             "username": username,
             "password": "NewPass12345",

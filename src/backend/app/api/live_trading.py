@@ -28,33 +28,44 @@ router = APIRouter()
 
 
 def get_live_trading_service():
+    """Dependency injection for LiveTradingService.
+
+    Returns:
+        LiveTradingService: An instance of the live trading service.
+    """
     return LiveTradingService()
 
 
-# ==================== 实盘策略提交 API ====================
+# ==================== Live Trading Strategy Submission API ====================
 
-@router.post("/live/submit", response_model=LiveTradingTaskResponse, summary="提交实盘交易策略")
+@router.post("/live/submit", response_model=LiveTradingTaskResponse, summary="Submit live trading strategy")
 async def submit_live_strategy(
     request: LiveTradingSubmitRequest,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
 ):
-    """
-    提交实盘交易策略并运行
+    """Submit a live trading strategy and start execution.
 
-    请求体：
-    - strategy_name: 策略名称（内置策略：SMACross, etc.）
-    - strategy_code: 策略代码
-    - exchange: 交易所（binance, okex, huobi 等）
-    - symbols: 交易对列表
-    - initial_cash: 初始资金
-    - strategy_params: 策略参数
-    - timeframe: 时间周期
-    - start_date: 开始时间
-    - end_date: 结束时间
-    - api_key: API Key
-    - secret: Secret Key
-    - sandbox: 是否测试环境
+    Args:
+        request: The live trading submission request containing:
+            - strategy_name: Strategy name (built-in strategies: SMACross, etc.)
+            - strategy_code: Strategy code
+            - exchange: Exchange (binance, okex, huobi, etc.)
+            - symbols: Trading pair list
+            - initial_cash: Initial capital
+            - strategy_params: Strategy parameters
+            - timeframe: Time period
+            - start_date: Start time
+            - end_date: End time
+            - api_key: API Key
+            - secret: Secret Key
+            - sandbox: Whether to use test environment
+        current_user: The authenticated user.
+        service: The live trading service.
+
+    Returns:
+        LiveTradingTaskResponse: The created task response with task_id,
+            user_id, status, config, and created_at timestamp.
     """
     from datetime import datetime
 
@@ -84,16 +95,26 @@ async def submit_live_strategy(
     )
 
 
-# ==================== 实盘任务管理 API ====================
+# ==================== Live Task Management API ====================
 
-@router.get("/live/tasks", response_model=LiveTradingTaskListResponse, summary="获取实盘交易任务列表")
+@router.get("/live/tasks", response_model=LiveTradingTaskListResponse, summary="List live trading tasks")
 async def list_live_tasks(
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
-    """获取用户的实盘交易任务列表"""
+    """Get the current user's live trading task list.
+
+    Args:
+        current_user: The authenticated user.
+        service: The live trading service.
+        limit: Maximum number of tasks to return (1-100).
+        offset: Number of tasks to skip.
+
+    Returns:
+        A dictionary containing the list of tasks and total count.
+    """
     tasks = await service.list_tasks(current_user.sub)
 
     return {
@@ -102,67 +123,102 @@ async def list_live_tasks(
     }
 
 
-@router.get("/live/tasks/{task_id}", response_model=LiveTradingTaskResponse, summary="获取实盘交易任务状态")
+@router.get("/live/tasks/{task_id}", response_model=LiveTradingTaskResponse, summary="Get live trading task status")
 async def get_live_task_status(
     task_id: str,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
 ):
-    """获取实盘交易任务状态"""
+    """Get the status of a live trading task.
+
+    Args:
+        task_id: The unique identifier of the task.
+        current_user: The authenticated user.
+        service: The live trading service.
+
+    Returns:
+        LiveTradingTaskResponse: The task status details.
+
+    Raises:
+        HTTPException: If the task does not exist (404).
+    """
     task = await service.get_task_status(task_id, current_user.sub)
 
     if not task:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="实盘交易任务不存在"
+            detail="Live trading task not found"
         )
 
     return task
 
 
-# ==================== 实盘任务控制 API ====================
+# ==================== Live Task Control API ====================
 
-@router.post("/live/tasks/{task_id}/stop", summary="停止实盘交易任务")
+@router.post("/live/tasks/{task_id}/stop", summary="Stop live trading task")
 async def stop_live_strategy(
     task_id: str,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
 ):
-    """停止实盘交易策略"""
+    """Stop a running live trading strategy.
+
+    Args:
+        task_id: The unique identifier of the task to stop.
+        current_user: The authenticated user.
+        service: The live trading service.
+
+    Returns:
+        A message confirming the task has been stopped.
+
+    Raises:
+        HTTPException: If the task does not exist or user lacks permission (404).
+    """
     success = await service.stop_live_trading(task_id, current_user.sub)
 
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="实盘交易任务不存在或无权停止"
+            detail="Live trading task not found or no permission to stop"
         )
 
-    # 推送停止通知
+    # Push stop notification
     await ws_manager.send_to_task(f"live:{task_id}", {
         "type": MessageType.PROGRESS,
         "task_id": task_id,
-        "message": "实盘交易任务已停止",
+        "message": "Live trading task has been stopped",
     })
 
-    return {"message": "实盘交易任务已停止"}
+    return {"message": "Live trading task has been stopped"}
 
 
-# ==================== 实盘交易数据 API ====================
+# ==================== Live Trading Data API ====================
 
-@router.get("/live/tasks/{task_id}/data", response_model=LiveTradingDataResponse, summary="获取实盘交易数据")
+@router.get("/live/tasks/{task_id}/data", response_model=LiveTradingDataResponse, summary="Get live trading data")
 async def get_live_trading_data(
     task_id: str,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
 ):
-    """
-    获取实盘交易数据（账户、持仓、订单、成交）
+    """Get live trading data including account, positions, orders, and trades.
+
+    Args:
+        task_id: The unique identifier of the task.
+        current_user: The authenticated user.
+        service: The live trading service.
+
+    Returns:
+        LiveTradingDataResponse: The task data containing status, cash,
+            value, positions, and orders.
+
+    Raises:
+        HTTPException: If the task does not exist (404).
     """
     task_status = await service.get_task_status(task_id, current_user.sub)
     if not task_status:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="实盘交易任务不存在"
+            detail="Live trading task not found"
         )
 
     data = await service.get_task_data(task_id)
@@ -179,55 +235,58 @@ async def get_live_trading_data(
     )
 
 
-# ==================== WebSocket 实时推送 ====================
+# ==================== WebSocket Real-time Push ====================
 
 @router.websocket("/ws/live/{task_id}")
 async def live_trading_websocket(
     websocket,
     task_id: str,
 ):
-    """
-    WebSocket 端点 - 实盘交易实时推送
-    
-    推送内容：
-    - 账户更新（现金、权益）
-    - 持仓更新（数量、市值、盈亏）
-    - 订单更新（状态、成交）
-    - 成交更新
-    - 策略信号（买入、卖出）
-    - 行情更新
-    
-    连接 URL: ws://host/api/v1/live-trading/ws/live/{task_id}
-    
-    消息类型：
-    - connected: 连接成功
-    - account_update: 账户更新
-    - position_update: 持仓更新
-    - order_update: 订单更新
-    - trade_update: 成交更新
-    - signal_update: 策略信号
-    - tick_update: 行情更新
+    """WebSocket endpoint for live trading real-time updates.
+
+    Pushes:
+        - Account updates (cash, equity)
+        - Position updates (quantity, market value, PnL)
+        - Order updates (status, fills)
+        - Trade updates
+        - Strategy signals (buy, sell)
+        - Market data updates
+
+    Connection URL: ws://host/api/v1/live-trading/ws/live/{task_id}
+
+    Message types:
+        - connected: Connection successful
+        - account_update: Account data update
+        - position_update: Position data update
+        - order_update: Order status update
+        - trade_update: New trade notification
+        - signal_update: Strategy signal
+        - tick_update: Market data update
+
+    Args:
+        websocket: The WebSocket connection instance.
+        task_id: The unique identifier of the live trading task.
     """
     client_id = f"ws-live-client-{id(websocket)}"
 
-    # 建立连接
+    # Establish connection
     await ws_manager.connect(websocket, f"live:{task_id}", client_id)
 
     try:
-        # 发送初始信息
+        # Send initial message
         await ws_manager.send_to_task(f"live:{task_id}", {
             "type": MessageType.CONNECTED,
             "task_id": task_id,
-            "message": "实盘交易 WebSocket 连接成功",
+            "message": "Live trading WebSocket connection successful",
         })
 
-        # 保持连接并推送更新
+        # Keep connection alive and push updates
         while True:
             await asyncio.sleep(1)
 
-            # 这里应该从 backtrader 实盘模块获取最新数据
-            # 并通过 WebSocket 推送
-            # 暂时使用轮询方式，实际应用中应该使用事件驱动
+            # Latest data should be fetched from backtrader live module
+            # and pushed via WebSocket
+            # Temporarily using polling; should use event-driven in production
 
     except Exception as e:
         logger.error(f"Live trading WebSocket error: {e}")

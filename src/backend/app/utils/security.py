@@ -12,7 +12,15 @@ settings = get_settings()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """验证密码"""
+    """Verify a password against its hash.
+
+    Args:
+        plain_password: The plain text password.
+        hashed_password: The bcrypt hashed password.
+
+    Returns:
+        True if the password matches, False otherwise.
+    """
     return bcrypt.checkpw(
         plain_password.encode('utf-8'),
         hashed_password.encode('utf-8')
@@ -20,14 +28,29 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
-    """生成密码哈希"""
+    """Generate a password hash.
+
+    Args:
+        password: The plain text password.
+
+    Returns:
+        The bcrypt hashed password as a string.
+    """
     salt = bcrypt.gensalt()
     hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed.decode('utf-8')
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    """创建JWT访问令牌"""
+    """Create a JWT access token.
+
+    Args:
+        data: The payload data to encode.
+        expires_delta: Optional expiration time delta.
+
+    Returns:
+        The encoded JWT token.
+    """
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -43,7 +66,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 
 
 def decode_access_token(token: str) -> Optional[dict]:
-    """解码JWT令牌"""
+    """Decode a JWT token.
+
+    Args:
+        token: The JWT token to decode.
+
+    Returns:
+        The decoded payload, or None if decoding fails.
+    """
     try:
         payload = jwt.decode(
             token,

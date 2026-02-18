@@ -1,12 +1,15 @@
 """
-主应用路由测试 - 覆盖 main.py 中的 root, health, info 路由
+Main application route tests - Cover root, health, info routes in main.py.
 """
 import pytest
 from httpx import AsyncClient
 
 
 class TestMainRoutes:
+    """Main route tests."""
+
     async def test_root(self, client: AsyncClient):
+        """Test root endpoint."""
         resp = await client.get("/")
         assert resp.status_code == 200
         data = resp.json()
@@ -15,6 +18,7 @@ class TestMainRoutes:
         assert "features" in data
 
     async def test_health(self, client: AsyncClient):
+        """Test health check endpoint."""
         resp = await client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
@@ -22,6 +26,7 @@ class TestMainRoutes:
         assert "database" in data
 
     async def test_info(self, client: AsyncClient):
+        """Test API info endpoint."""
         resp = await client.get("/info")
         assert resp.status_code == 200
         data = resp.json()

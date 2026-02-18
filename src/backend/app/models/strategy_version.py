@@ -14,7 +14,7 @@ from app.db.database import Base
 
 
 class VersionStatus(str, Enum):
-    """版本状态"""
+    """Version status enum."""
     DRAFT = "draft"
     STABLE = "stable"
     DEPRECATED = "deprecated"
@@ -22,7 +22,7 @@ class VersionStatus(str, Enum):
 
 
 class VersionTag(str, Enum):
-    """版本标签"""
+    """Version tag enum."""
     LATEST = "latest"
     STABLE = "stable"
     ALPHA = "alpha"
@@ -31,45 +31,78 @@ class VersionTag(str, Enum):
 
 
 class StrategyVersion(Base):
-    """策略版本表"""
+    """Strategy version table.
+
+    Attributes:
+        id: Unique version identifier (UUID).
+        strategy_id: Associated strategy ID.
+        version_number: Version number (1, 2, 3, ...).
+        version_name: Version name (e.g., v1.0.0).
+        branch: Branch name (e.g., main, dev, feature/xxx).
+        status: Version status.
+        tags: Version tag list.
+        code: Strategy code.
+        params: Default parameters (JSON).
+        description: Version description.
+        changelog: Change log.
+        is_active: Whether the version is active.
+        is_default: Whether this is the default version.
+        is_current: Whether this is the current version (branch head).
+        parent_version_id: Parent version ID.
+        created_by: User ID who created the version.
+        created_at: Creation timestamp.
+        updated_by: User ID who last updated the version.
+        updated_at: Last update timestamp.
+    """
     __tablename__ = "strategy_versions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     strategy_id = Column(String(36), ForeignKey("strategies.id"), nullable=False, index=True)
-    version_number = Column(Integer, nullable=False)  # 版本号（1, 2, 3, ...）
-    version_name = Column(String(50), nullable=False)  # 版本名称（如 v1.0.0）
-    branch = Column(String(50), default="main")  # 分支名称（如 main, dev, feature/xxx）
+    version_number = Column(Integer, nullable=False)  # Version number (1, 2, 3, ...)
+    version_name = Column(String(50), nullable=False)  # Version name (e.g., v1.0.0)
+    branch = Column(String(50), default="main")  # Branch name (e.g., main, dev, feature/xxx)
     status = Column(String(20), default=VersionStatus.DRAFT, nullable=False)
-    tags = Column(JSON, default=list)  # 版本标签列表
+    tags = Column(JSON, default=list)  # Version tag list
 
-    # 版本内容
-    code = Column(Text, nullable=False)  # 策略代码
-    params = Column(JSON, default=dict)  # 默认参数
-    description = Column(Text, nullable=True)  # 版本描述
-    changelog = Column(Text, nullable=True)  # 变更日志
+    # Version content
+    code = Column(Text, nullable=False)  # Strategy code
+    params = Column(JSON, default=dict)  # Default parameters
+    description = Column(Text, nullable=True)  # Version description
+    changelog = Column(Text, nullable=True)  # Change log
 
-    # 元信息
-    is_active = Column(Boolean, default=True, nullable=False)  # 是否为活跃版本
-    is_default = Column(Boolean, default=False, nullable=False)  # 是否为默认版本
-    is_current = Column(Boolean, default=False, nullable=False)  # 是否为当前版本（每个分支的头部）
+    # Meta info
+    is_active = Column(Boolean, default=True, nullable=False)  # Whether version is active
+    is_default = Column(Boolean, default=False, nullable=False)  # Whether version is default
+    is_current = Column(Boolean, default=False, nullable=False)  # Whether version is current (branch head)
 
-    # 关联
+    # Relationships
     parent_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=True)
     parent_version = relationship("StrategyVersion", remote_side=[id], backref="child_versions")
 
-    # 审计
+    # Audit
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_by = Column(String(36), ForeignKey("users.id"), nullable=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    # 关联
+    # Relationships
     strategy = relationship("Strategy", back_populates="versions")
     backtest_tasks = relationship("BacktestTask", back_populates="strategy_version")
 
 
 class VersionComparison(Base):
-    """版本对比记录"""
+    """Version comparison record table.
+
+    Attributes:
+        id: Unique comparison identifier (UUID).
+        strategy_id: Associated strategy ID.
+        from_version_id: Source version ID.
+        to_version_id: Target version ID.
+        code_diff: Code difference (Unified diff).
+        params_diff: Parameter difference (JSON).
+        performance_diff: Performance difference (JSON).
+        created_at: Creation timestamp.
+    """
     __tablename__ = "version_comparisons"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -77,17 +110,28 @@ class VersionComparison(Base):
     from_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=False)
     to_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=False)
 
-    # 对比结果
-    code_diff = Column(Text, nullable=True)  # 代码差异（Unified diff）
-    params_diff = Column(JSON, default=dict)  # 参数差异
-    performance_diff = Column(JSON, default=dict)  # 性能差异（回测结果对比）
+    # Comparison results
+    code_diff = Column(Text, nullable=True)  # Code difference (Unified diff)
+    params_diff = Column(JSON, default=dict)  # Parameter difference
+    performance_diff = Column(JSON, default=dict)  # Performance difference (backtest results)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
 
 
 class VersionRollback(Base):
-    """版本回滚记录"""
+    """Version rollback record table.
+
+    Attributes:
+        id: Unique rollback identifier (UUID).
+        strategy_id: Associated strategy ID.
+        from_version_id: Source version ID.
+        to_version_id: Target version ID.
+        reason: Rollback reason.
+        snapshot_data: Snapshot data before rollback (JSON).
+        created_at: Creation timestamp.
+        created_by: User ID who initiated the rollback.
+    """
     __tablename__ = "version_rollbacks"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -95,26 +139,38 @@ class VersionRollback(Base):
     from_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=False)
     to_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=False)
 
-    reason = Column(Text, nullable=True)  # 回滚原因
-    snapshot_data = Column(JSON, nullable=True)  # 回滚前的快照数据
+    reason = Column(Text, nullable=True)  # Rollback reason
+    snapshot_data = Column(JSON, nullable=True)  # Snapshot data before rollback
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
 
 
 class VersionBranch(Base):
-    """策略分支表"""
+    """Strategy branch table.
+
+    Attributes:
+        id: Unique branch identifier (UUID).
+        strategy_id: Associated strategy ID.
+        branch_name: Branch name (main, dev, feature/xxx).
+        parent_branch: Parent branch name.
+        version_count: Number of versions on the branch.
+        last_version_id: Latest version ID on the branch.
+        is_default: Whether this is the default branch.
+        created_at: Creation timestamp.
+        created_by: User ID who created the branch.
+    """
     __tablename__ = "strategy_branches"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     strategy_id = Column(String(36), ForeignKey("strategies.id"), nullable=False, index=True)
-    branch_name = Column(String(50), nullable=False, index=True)  # 分支名称（main, dev, feature/xxx）
-    parent_branch = Column(String(50), nullable=True)  # 父分支名称
+    branch_name = Column(String(50), nullable=False, index=True)  # Branch name (main, dev, feature/xxx)
+    parent_branch = Column(String(50), nullable=True)  # Parent branch name
 
-    # 分支信息
-    version_count = Column(Integer, default=0, nullable=False)  # 分支上的版本数量
+    # Branch info
+    version_count = Column(Integer, default=0, nullable=False)  # Version count on branch
     last_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=True)
-    is_default = Column(Boolean, default=False, nullable=False)  # 是否为默认分支
+    is_default = Column(Boolean, default=False, nullable=False)  # Whether default branch
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)

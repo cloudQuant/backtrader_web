@@ -16,59 +16,59 @@ from app.api.optimization_api import router as optimization_router
 api_router = APIRouter()
 
 # Core routers
-api_router.include_router(auth_router, prefix="/auth", tags=["认证"])
-api_router.include_router(backtest_router, prefix="/backtest", tags=["回测"])
-api_router.include_router(strategy_router, prefix="/strategy", tags=["策略"])
-api_router.include_router(analytics_router, prefix="/analytics", tags=["分析"])
-api_router.include_router(live_trading_router, prefix="/live-trading", tags=["实盘交易"])
-api_router.include_router(portfolio_router, prefix="/portfolio", tags=["组合管理"])
-api_router.include_router(optimization_router, prefix="/optimization", tags=["参数优化"])
+api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+api_router.include_router(backtest_router, prefix="/backtest", tags=["Backtest"])
+api_router.include_router(strategy_router, prefix="/strategy", tags=["Strategy"])
+api_router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
+api_router.include_router(live_trading_router, prefix="/live-trading", tags=["Live Trading"])
+api_router.include_router(portfolio_router, prefix="/portfolio", tags=["Portfolio"])
+api_router.include_router(optimization_router, prefix="/optimization", tags=["Optimization"])
 
 # Optional/extended routers (previously duplicated in main.py)
 try:
     from app.api.backtest_enhanced import router as backtest_enhanced_router
-    api_router.include_router(backtest_enhanced_router, prefix="/backtests", tags=["回测增强"])
+    api_router.include_router(backtest_enhanced_router, prefix="/backtests", tags=["Enhanced Backtest"])
 except ImportError:
     pass
 
 try:
     from app.api.paper_trading import router as paper_trading_router
-    api_router.include_router(paper_trading_router, prefix="/paper-trading", tags=["模拟交易"])
+    api_router.include_router(paper_trading_router, prefix="/paper-trading", tags=["Paper Trading"])
 except ImportError:
     pass
 
 try:
     from app.api.comparison import router as comparison_router
-    api_router.include_router(comparison_router, prefix="/comparisons", tags=["对比"])
+    api_router.include_router(comparison_router, prefix="/comparisons", tags=["Comparison"])
 except ImportError:
     pass
 
 try:
     from app.api.strategy_version import router as strategy_version_router
-    api_router.include_router(strategy_version_router, prefix="/strategy-versions", tags=["策略版本"])
+    api_router.include_router(strategy_version_router, prefix="/strategy-versions", tags=["Strategy Version"])
 except ImportError:
     pass
 
 try:
     from app.api.realtime_data import router as realtime_data_router
-    api_router.include_router(realtime_data_router, prefix="/realtime", tags=["实时行情"])
+    api_router.include_router(realtime_data_router, prefix="/realtime", tags=["Realtime Data"])
 except ImportError:
     pass
 
 try:
     from app.api.monitoring import router as monitoring_router
-    api_router.include_router(monitoring_router, prefix="/monitoring", tags=["监控告警"])
+    api_router.include_router(monitoring_router, prefix="/monitoring", tags=["Monitoring"])
 except ImportError:
     pass
 
 try:
     from app.api.data import router as data_router
-    api_router.include_router(data_router, prefix="/data", tags=["行情数据"])
+    api_router.include_router(data_router, prefix="/data", tags=["Market Data"])
 except ImportError:
     pass
 
 try:
     from app.api.live_trading import router as live_trading_old_router
-    api_router.include_router(live_trading_old_router, prefix="/live-trading-crypto", tags=["加密货币交易"])
+    api_router.include_router(live_trading_old_router, prefix="/live-trading-crypto", tags=["Crypto Trading"])
 except ImportError:
     pass

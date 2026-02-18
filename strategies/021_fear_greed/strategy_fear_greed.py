@@ -1,8 +1,10 @@
-"""恐惧贪婪情绪指标策略 (Fear & Greed Sentiment Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Fear & Greed Sentiment Strategy.
 
-基于Fear & Greed情绪指数的逆向投资策略:
-- Fear & Greed < 10 (极端恐惧) -> 买入
-- Fear & Greed > 94 (极端贪婪) -> 卖出
+A contrarian investment strategy based on the Fear & Greed Index:
+- Fear & Greed < 10 (extreme fear) -> Buy
+- Fear & Greed > 94 (extreme greed) -> Sell
 
 Author: yunjinqi
 """
@@ -13,15 +15,15 @@ import backtrader as bt
 
 
 class SPYFearGreedData(bt.feeds.GenericCSVData):
-    """加载SPY价格数据和Fear & Greed情绪指标的自定义数据源
+    """Custom data feed for loading SPY price data and Fear & Greed sentiment indicator.
 
-    该数据源扩展了GenericCSVData，用于加载SPY（标普500ETF）历史价格数据
-    以及三个额外的情绪指标:
-    - Put/Call Ratio: 期权市场情绪指标
-    - Fear & Greed Index: 市场情绪指标（0-100刻度）
-    - VIX: CBOE波动率指数
+    This data feed extends GenericCSVData to load SPY (S&P 500 ETF) historical price data
+    along with three additional sentiment indicators:
+    - Put/Call Ratio: Options market sentiment indicator
+    - Fear & Greed Index: Market sentiment indicator (0-100 scale)
+    - VIX: CBOE Volatility Index
 
-    CSV文件必须包含以下列（顺序）:
+    CSV file must contain the following columns (in order):
     Date, Open, High, Low, Close, Adj Close, Volume, Put Call, Fear Greed, VIX
     """
     lines = ('put_call', 'fear_greed', 'vix')
@@ -42,32 +44,32 @@ class SPYFearGreedData(bt.feeds.GenericCSVData):
 
 
 class FearGreedStrategy(bt.Strategy):
-    """基于Fear & Greed情绪指数的逆向投资策略
+    """Contrarian investment strategy based on Fear & Greed Index.
 
-    该策略采用均值回归方法，基于极端市场情绪进行交易:
-    - 当Fear & Greed指数显示极端恐惧时买入SPY（< 10）
-    - 当Fear & Greed指数显示极端贪婪时卖出SPY（> 94）
+    This strategy uses a mean-reversion approach, trading based on extreme market sentiment:
+    - Buy SPY when Fear & Greed Index shows extreme fear (< 10)
+    - Sell SPY when Fear & Greed Index shows extreme greed (> 94)
 
-    基本假设是极端情绪时期往往先于市场反转，
-    因此在过度恐惧时买入（市场超卖），
-    在过度贪婪时卖出（市场超买）。
+    The underlying assumption is that extreme sentiment periods often precede market reversals,
+    therefore buying during excessive fear (market oversold) and
+    selling during excessive greed (market overbought).
     """
 
     params = (
-        ("fear_threshold", 10),   # 恐惧阈值，低于此值买入
-        ("greed_threshold", 94),  # 贪婪阈值，高于此值卖出
+        ("fear_threshold", 10),   # Fear threshold, buy when below this
+        ("greed_threshold", 94),  # Greed threshold, sell when above this
     )
 
     def log(self, txt, dt=None, force=False):
-        """记录日志"""
+        """Log strategy information."""
         if not force:
             return
         dt = dt or self.datas[0].datetime.datetime(0)
         print(f"{dt.isoformat()}, {txt}")
 
     def __init__(self):
-        """初始化策略"""
-        # 记录统计
+        """Initialize the strategy."""
+        # Record statistics
         self.bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
@@ -75,13 +77,13 @@ class FearGreedStrategy(bt.Strategy):
         self.win_count = 0
         self.loss_count = 0
 
-        # 获取数据引用
+        # Get data references
         self.data0 = self.datas[0]
         self.fear_greed = self.data0.fear_greed
         self.close = self.data0.close
 
     def notify_trade(self, trade):
-        """处理交易完成通知"""
+        """Handle trade completion notifications."""
         if not trade.isclosed:
             return
         if trade.pnl > 0:
@@ -92,7 +94,7 @@ class FearGreedStrategy(bt.Strategy):
         self.log(f"Trade completed: Gross profit={trade.pnl:.2f}, Net profit={trade.pnlcomm:.2f}, Cumulative={self.sum_profit:.2f}")
 
     def notify_order(self, order):
-        """处理订单状态变化"""
+        """Handle order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
 
@@ -105,25 +107,25 @@ class FearGreedStrategy(bt.Strategy):
             self.log(f"Order status: {order.Status[order.status]}")
 
     def next(self):
-        """每个bar执行交易逻辑"""
+        """Execute trading logic for each bar."""
         self.bar_num += 1
 
-        # 计算可买入数量
+        # Calculate buyable quantity
         size = int(self.broker.getcash() / self.close[0])
 
-        # 极度恐惧时买入
+        # Buy during extreme fear
         if self.fear_greed[0] < self.p.fear_threshold and not self.position:
             if size > 0:
                 self.buy(size=size)
                 self.buy_count += 1
 
-        # 极度贪婪时卖出
+        # Sell during extreme greed
         if self.fear_greed[0] > self.p.greed_threshold and self.position.size > 0:
             self.sell(size=self.position.size)
             self.sell_count += 1
 
     def stop(self):
-        """策略执行完成时输出最终统计"""
+        """Output final statistics when strategy completes."""
         total_trades = self.win_count + self.loss_count
         win_rate = (self.win_count / total_trades * 100) if total_trades > 0 else 0
         self.log(

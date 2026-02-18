@@ -1,11 +1,13 @@
-"""可转债多因子日内策略 (Convertible Bond Intraday Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Convertible Bond Intraday Strategy.
 
-基于多因子筛选的可转债日内交易策略:
-- 价格>20周期均线
-- 价格>时间均价线
-- 价格涨跌幅在-1%到1%之间
-- 成交量<30周期均量的4倍
-- 均线上升但增速放缓
+An intraday trading strategy for convertible bonds based on multi-factor screening:
+- Price > 20-period MA
+- Price > time-average price line
+- Price change between -1% and 1%
+- Volume < 4x 30-period average volume
+- MA rising but with slowing growth rate
 
 Author: yunjinqi
 """
@@ -17,7 +19,7 @@ from backtrader.comminfo import ComminfoFuturesPercent
 
 
 class ExtendPandasFeed(bt.feeds.PandasData):
-    """扩展的可转债Pandas数据源"""
+    """Extended Pandas data feed for convertible bonds."""
     params = (
         ('datetime', None),
         ('open', 0),
@@ -30,14 +32,14 @@ class ExtendPandasFeed(bt.feeds.PandasData):
 
 
 class ConvertibleBondIntradayStrategy(bt.Strategy):
-    """可转债多因子日内策略
+    """Convertible Bond Multi-Factor Intraday Strategy.
 
-    使用多个因子进行筛选和交易:
-    - 价格>20周期均线
-    - 价格>时间均价线
-    - 价格涨跌幅在-1%到1%之间
-    - 成交量<30周期均量的4倍
-    - 均线上升但增速放缓
+    Uses multiple factors for screening and trading:
+    - Price > 20-period MA
+    - Price > time-average price line
+    - Price change between -1% and 1%
+    - Volume < 4x 30-period average volume
+    - MA rising but with slowing growth rate
     """
     author = 'yunjinqi'
     params = (
@@ -46,36 +48,36 @@ class ConvertibleBondIntradayStrategy(bt.Strategy):
     )
 
     def log(self, txt, dt=None):
-        """记录日志"""
+        """Log strategy information."""
         dt = dt or bt.num2date(self.datas[0].datetime[0])
         print('{}, {}'.format(dt.isoformat(), txt))
 
     def __init__(self):
-        """初始化策略"""
+        """Initialize the strategy."""
         self.bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
-        # 最大可同时持有的可转债数量
+        # Maximum number of convertible bonds that can be held simultaneously
         self.can_trade_num = self.p.can_trade_num
-        # 为每个可转债计算20周期均线
+        # Calculate 20-period MA for each convertible bond
         self.cb_ma_dict = {data._name: bt.indicators.SMA(data.close, period=self.p.ma_period) for data in self.datas[1:]}
-        # 计算最近30周期的平均成交量
+        # Calculate 30-period average volume
         self.cb_avg_volume_dict = {data._name: bt.indicators.SMA(data.volume, period=30) for data in self.datas[1:]}
-        # 记录前一日的收盘价
+        # Record previous day's close price
         self.cb_pre_close_dict = {data._name: None for data in self.datas[1:]}
-        # 记录开仓时的bar数
+        # Record bar number when opening position
         self.cb_bar_num_dict = {data._name: None for data in self.datas[1:]}
-        # 记录开仓价格
+        # Record opening position price
         self.cb_open_position_price_dict = {data._name: None for data in self.datas[1:]}
-        # 使用最近20周期的最低点作为前期低点
+        # Use lowest point of last 20 periods as previous low
         self.cb_low_point_dict = {data._name: bt.indicators.Lowest(data.low, period=20) for data in self.datas[1:]}
 
     def prenext(self):
-        """在最小周期到达前调用"""
+        """Called before minimum period is reached."""
         self.next()
 
     def next(self):
-        """主策略逻辑，每个bar调用一次"""
+        """Main strategy logic, called for each bar."""
         self.bar_num += 1
         self.current_datetime = bt.num2date(self.datas[0].datetime[0])
 
@@ -85,16 +87,16 @@ class ConvertibleBondIntradayStrategy(bt.Strategy):
                 data_name = data._name
                 close_price = data.close[0]
 
-                # 检查前一日的收盘价是否存在
+                # Check if previous day's close price exists
                 pre_close = self.cb_pre_close_dict[data_name]
                 if pre_close is None:
                     pre_close = data.open[0]
                     self.cb_pre_close_dict[data_name] = pre_close
 
-                # 更新收盘价(日线数据直接更新)
+                # Update close price (directly update for daily data)
                 self.cb_pre_close_dict[data_name] = close_price
 
-                # 到期平仓逻辑
+                # Expiration closing logic
                 position_size = self.getposition(data).size
                 if position_size > 0:
                     try:
@@ -104,10 +106,10 @@ class ConvertibleBondIntradayStrategy(bt.Strategy):
                         self.cb_bar_num_dict[data_name] = None
                         self.can_trade_num += 1
 
-                # 准备平仓
+                # Prepare to close position
                 open_bar_num = self.cb_bar_num_dict[data_name]
                 if open_bar_num is not None:
-                    # 持仓超过10根bar就平仓
+                    # Close position after holding for 10 bars
                     if open_bar_num < self.bar_num - 10:
                         self.close(data)
                         self.sell_count += 1
@@ -116,7 +118,7 @@ class ConvertibleBondIntradayStrategy(bt.Strategy):
 
                 open_bar_num = self.cb_bar_num_dict[data_name]
                 if open_bar_num is not None:
-                    # 价格低于前期低点就平仓
+                    # Close position if price falls below previous low point
                     low_point = self.cb_low_point_dict[data_name][0]
                     if close_price < low_point:
                         self.close(data)
@@ -126,7 +128,7 @@ class ConvertibleBondIntradayStrategy(bt.Strategy):
 
                 open_bar_num = self.cb_bar_num_dict[data_name]
                 if open_bar_num is not None:
-                    # 收益超过3%就止盈
+                    # Take profit if return exceeds 3%
                     open_position_price = self.cb_open_position_price_dict[data_name]
                     if open_position_price and close_price / open_position_price > 1.03:
                         self.close(data)
@@ -134,18 +136,18 @@ class ConvertibleBondIntradayStrategy(bt.Strategy):
                         self.cb_bar_num_dict[data_name] = None
                         self.can_trade_num += 1
 
-                # 准备开仓
+                # Prepare to open position
                 ma_line = self.cb_ma_dict[data_name]
                 ma_price = ma_line[0]
                 if close_price > ma_price:
-                    # 检查价格涨跌幅是否在-1%到1%之间
+                    # Check if price change is between -1% and 1%
                     up_percent = close_price / pre_close
                     if up_percent > 0.99 and up_percent < 1.01:
-                        # 检查成交量是否小于平均成交量的4倍
+                        # Check if volume is less than 4x average volume
                         volume = data.volume[0]
                         avg_volume = self.cb_avg_volume_dict[data_name][0]
                         if avg_volume > 0 and volume < avg_volume * 4:
-                            # 均线上升但增速放缓
+                            # MA rising but with slowing growth rate
                             if ma_line[0] > ma_line[-1] and ma_line[0] - ma_line[-1] < ma_line[-1] - ma_line[-2]:
                                 open_bar_num = self.cb_bar_num_dict[data_name]
                                 if self.can_trade_num > 0 and open_bar_num is None:
@@ -163,7 +165,7 @@ class ConvertibleBondIntradayStrategy(bt.Strategy):
                                             self.cb_open_position_price_dict[data_name] = close_price
 
     def notify_order(self, order):
-        """订单状态变化时调用"""
+        """Called when order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
         if order.status == order.Completed:
@@ -173,10 +175,10 @@ class ConvertibleBondIntradayStrategy(bt.Strategy):
                 self.log(f"SELL: {order.p.data._name} price={order.executed.price:.2f}")
 
     def notify_trade(self, trade):
-        """交易完成时调用"""
+        """Called when a trade is completed."""
         if trade.isclosed:
             self.log(f"Trade completed: {trade.getdataname()} pnl={trade.pnl:.2f}")
 
     def stop(self):
-        """回测结束时调用"""
+        """Called when backtesting ends."""
         self.log(f"bar_num={self.bar_num}, buy_count={self.buy_count}, sell_count={self.sell_count}")

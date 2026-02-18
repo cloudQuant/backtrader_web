@@ -97,7 +97,7 @@ async def test_comparison_api_happy_and_error_branches():
     assert e.value.status_code == 404
 
     # delete: success
-    assert (await comparison_api.delete_comparison("c1", current_user=user, service=svc))["message"] == "删除成功"
+    assert (await comparison_api.delete_comparison("c1", current_user=user, service=svc))["message"] == "Comparison deleted successfully"
 
     # list
     out = await comparison_api.list_comparisons(current_user=user, service=svc, limit=20, offset=0, is_public=None)
@@ -115,7 +115,7 @@ async def test_comparison_api_happy_and_error_branches():
 
     # share: ok
     resp = await comparison_api.share_comparison("c1", {"shared_with_user_ids": ["u3"]}, current_user=user, service=svc)
-    assert resp["message"] == "分享成功"
+    assert resp["message"] == "Comparison shared successfully"
 
     # data endpoints
     assert (await comparison_api.get_metrics_comparison("c1", current_user=user, service=svc))["metrics_comparison"] == {"a": 1}
@@ -290,7 +290,6 @@ async def test_analytics_get_backtest_data_internal_exception_and_monthly_branch
     assert (2023, 1) in data["monthly_returns"]
 
 
-
 @pytest.mark.asyncio
 async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconnect():
     from app.api import backtest_enhanced as bt_api
@@ -368,7 +367,7 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
     assert ok_status["status"] == TaskStatus.COMPLETED.value
 
     ok_del = await bt_api.delete_backtest("t1", current_user=user, service=svc)
-    assert ok_del["message"] == "删除成功"
+    assert ok_del["message"] == "Deleted successfully"
 
     with pytest.raises(HTTPException) as e:
         await bt_api.get_backtest_result("missing", current_user=user, service=svc)

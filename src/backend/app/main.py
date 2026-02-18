@@ -21,20 +21,24 @@ from app.websocket_manager import manager as ws_manager
 settings = get_settings()
 logger = setup_logger(__name__)
 
-# 设置速率限制器
+# Set up rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期管理"""
+    """Application lifespan manager.
+
+    Yields:
+        None
+    """
     logger.info("Starting Backtrader Web API (v2.0 - Complete Edition)...")
-    # OPT-5: 检测是否使用了默认安全密钥
+    # Check if default security key is being used
     if "change-in-production" in settings.SECRET_KEY or "change-in-production" in settings.JWT_SECRET_KEY:
-        logger.warning("⚠️  正在使用默认安全密钥！请在生产环境中通过环境变量 SECRET_KEY / JWT_SECRET_KEY 设置安全的随机密钥。")
-    # OPT-6: 检测是否使用了默认管理员密码
+        logger.warning("Using default security key! Please set a secure random key via SECRET_KEY / JWT_SECRET_KEY environment variables in production.")
+    # Check if default admin password is being used
     if settings.ADMIN_PASSWORD == "admin123":
-        logger.warning("⚠️  默认管理员密码为 admin123，请在生产环境中通过环境变量 ADMIN_PASSWORD 修改。")
+        logger.warning("Default admin password is admin123, please change it via ADMIN_PASSWORD environment variable in production.")
     await init_db()
     logger.info("Database initialized")
     yield
@@ -44,82 +48,82 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Backtrader Web API",
     description="""
-# 🚀 Backtrader 量化交易平台 Web 服务（v2.0 - 完整版）
+# Backtrader Quantitative Trading Platform Web Service (v2.0 - Complete Edition)
 
-## 📋 功能概览
+## Feature Overview
 
-### 核心功能
-- 策略管理（CRUD + 版本控制）
-- 回测分析（历史数据 + 实时行情）
+### Core Features
+- Strategy Management (CRUD + Version Control)
+- Backtesting Analysis (Historical Data + Real-time Market Data)
 
-### 增强功能
-- 参数优化（网格搜索 + 贝叶斯优化）
-- 报告导出（HTML/PDF/Excel）
-- WebSocket 实时推送
+### Enhanced Features
+- Parameter Optimization (Grid Search + Bayesian Optimization)
+- Report Export (HTML/PDF/Excel)
+- WebSocket Real-time Push
 
-### 交易功能
-- 模拟交易环境（账户、订单、持仓）
-- 实盘交易对接（多券商支持，基于 backtrader 架构）
+### Trading Features
+- Paper Trading Environment (Accounts, Orders, Positions)
+- Live Trading Integration (Multi-broker Support, Based on Backtrader Architecture)
 
-### 高级功能
-- 回测结果对比
-- 策略版本控制（分支、回滚）
-- 实时行情 WebSocket
-- 监控告警系统
+### Advanced Features
+- Backtest Result Comparison
+- Strategy Version Control (Branching, Rollback)
+- Real-time Market Data WebSocket
+- Monitoring and Alert System
 
-### 安全性
-- API 速率限制
-- 增强的输入验证
-- RBAC 权限控制
-- 安全沙箱执行
+### Security
+- API Rate Limiting
+- Enhanced Input Validation
+- RBAC Permission Control
+- Secure Sandbox Execution
 
-## 🔗 系统架构
+## System Architecture
 
-### 后端
-- FastAPI Web 框架
+### Backend
+- FastAPI Web Framework
 - SQLAlchemy ORM
-- Pytest 测试
-- 异步任务队列
+- Pytest Testing
+- Async Task Queue
 
-### 前端
+### Frontend
 - React TypeScript
 - Ant Design UI
 
-### 实盘集成
-- Backtrader 项目：交易引擎
-- Cerebro + Store + Broker 架构
-- 多券商支持（Binance, OKEx, Huobi 等）
-- CCXT 加密货币支持
-- CTP 期货支持（国内市场）
+### Live Trading Integration
+- Backtrader Project: Trading Engine
+- Cerebro + Store + Broker Architecture
+- Multi-broker Support (Binance, OKEx, Huobi, etc.)
+- CCXT Cryptocurrency Support
+- CTP Futures Support (Domestic Market)
 
-## 📚 API 文档
+## API Documentation
 - Swagger UI: `/docs`
 - ReDoc UI: `/redoc`
 - OpenAPI Spec: `/openapi.json`
 
-## 🎯 技术栈
+## Tech Stack
 - Python 3.9+
 - FastAPI 0.100+
 - SQLAlchemy 1.4+
-- PostgreSQL 14+ / SQLite（开发）
+- PostgreSQL 14+ / SQLite (Development)
 - Backtrader
 - React 18+
 
-## 📈 开发状态
-- ✅ 后端架构：100% 完成
-- ✅ API 路由：100% 完成
-- ✅ 数据模型：100% 完成
-- ✅ 服务层：100% 完成
-- ✅ Schema：100% 完成
-- ✅ 模拟交易：100% 完成
-- ✅ 实盘对接：100% 完成
-- ✅ 监控告警：100% 完成
+## Development Status
+- Backend Architecture: 100% Complete
+- API Routes: 100% Complete
+- Data Models: 100% Complete
+- Service Layer: 100% Complete
+- Schema: 100% Complete
+- Paper Trading: 100% Complete
+- Live Trading: 100% Complete
+- Monitoring/Alerts: 100% Complete
 
-## 🚀 下一步
-1. 运行所有测试确保通过
-2. 前端集成和部署
-3. 生产环境配置
-4. 性能优化和监控
+## Next Steps
+1. Run all tests to ensure they pass
+2. Frontend integration and deployment
+3. Production environment configuration
+4. Performance optimization and monitoring
     """,
     version="2.0.0",
     docs_url="/docs",
@@ -127,13 +131,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# 设置 limiter 到 app.state
+# Set limiter to app.state
 app.state.limiter = limiter
 
-# 添加速率限制异常处理器
+# Add rate limit exception handler
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS 中间件
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
@@ -142,41 +146,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# [B016] 只通过 api_router 统一注册，避免重复注册导致 OpenAPI 文档混乱
+# Register only through api_router to avoid duplicate registration causing OpenAPI documentation confusion
 app.include_router(api_router, prefix="/api/v1")
 
 
-@app.get("/", summary="根路由")
+@app.get("/", summary="Root route")
 async def root():
-    """根路由"""
+    """Root route."""
     return {
         "service": "Backtrader Web API",
         "version": "2.0.0",
         "status": "running",
         "docs": "/docs",
         "features": [
-            "策略管理（CRUD + 版本控制）",
-            "回测分析（历史数据 + 实时行情）",
-            "参数优化（网格搜索 + 贝叶斯优化）",
-            "报告导出（HTML/PDF/Excel）",
-            "WebSocket 实时推送",
-            "模拟交易环境（账户、订单、持仓）",
-            "实盘交易对接（多券商支持）",
-            "回测结果对比",
-            "策略版本控制（分支、回滚）",
-            "实时行情 WebSocket",
-            "监控告警系统",
-            "API 速率限制",
-            "增强的输入验证",
-            "RBAC 权限控制",
-            "安全沙箱执行",
+            "Strategy Management (CRUD + Version Control)",
+            "Backtesting Analysis (Historical Data + Real-time Market Data)",
+            "Parameter Optimization (Grid Search + Bayesian Optimization)",
+            "Report Export (HTML/PDF/Excel)",
+            "WebSocket Real-time Push",
+            "Paper Trading Environment (Accounts, Orders, Positions)",
+            "Live Trading Integration (Multi-broker Support)",
+            "Backtest Result Comparison",
+            "Strategy Version Control (Branching, Rollback)",
+            "Real-time Market Data WebSocket",
+            "Monitoring and Alert System",
+            "API Rate Limiting",
+            "Enhanced Input Validation",
+            "RBAC Permission Control",
+            "Secure Sandbox Execution",
         ]
     }
 
 
-@app.get("/health", summary="健康检查")
+@app.get("/health", summary="Health check")
 async def health_check():
-    """健康检查"""
+    """Health check endpoint."""
     from sqlalchemy import text
 
     from app.db.database import async_session_maker
@@ -197,9 +201,9 @@ async def health_check():
     }
 
 
-@app.get("/info", summary="系统信息")
+@app.get("/info", summary="System information")
 async def system_info():
-    """系统信息"""
+    """System information endpoint."""
     return {
         "version": "2.0.0",
         "database_type": settings.DATABASE_TYPE,
@@ -222,13 +226,13 @@ async def system_info():
 
 @app.websocket("/ws/backtest/{task_id}")
 async def websocket_backtest_progress(websocket: WebSocket, task_id: str):
-    """WebSocket端点：接收回测任务的实时进度推送"""
+    """WebSocket endpoint for real-time backtest task progress updates."""
     import uuid
     client_id = str(uuid.uuid4())[:8]
     await ws_manager.connect(websocket, task_id, client_id)
     try:
         while True:
-            # 保持连接，等待客户端消息（如心跳）
+            # Keep connection alive, wait for client messages (e.g., heartbeat)
             data = await websocket.receive_text()
             if data == "ping":
                 await websocket.send_json({"type": "pong"})

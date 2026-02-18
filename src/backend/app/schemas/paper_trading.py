@@ -7,114 +7,114 @@ from pydantic import BaseModel, Field
 
 
 class AccountCreate(BaseModel):
-    """创建模拟账户请求"""
-    name: str = Field(..., min_length=1, max_length=100, description="账户名称")
-    initial_cash: float = Field(100000.0, gt=0, le=10000000, description="初始资金")
-    commission_rate: float = Field(0.001, ge=0, le=0.01, description="手续费率（默认 0.1%），例如 0.001 表示 0.1%，0.003 表示 0.3%")
-    slippage_rate: float = Field(0.001, ge=0, le=0.01, description="滑点率（默认 0.1%），例如 0.001 表示 0.1%，即每笔交易产生 0.1% 的价格滑点")
+    """Paper trading account creation request schema."""
+    name: str = Field(..., min_length=1, max_length=100, description="Account name")
+    initial_cash: float = Field(100000.0, gt=0, le=10000000, description="Initial cash")
+    commission_rate: float = Field(0.001, ge=0, le=0.01, description="Commission rate (default 0.1%), e.g., 0.001 means 0.1%, 0.003 means 0.3%")
+    slippage_rate: float = Field(0.001, ge=0, le=0.01, description="Slippage rate (default 0.1%), e.g., 0.001 means 0.1% slippage per trade")
 
 
 class AccountResponse(BaseModel):
-    """模拟账户响应"""
-    id: str = Field(..., description="账户 ID")
-    user_id: str = Field(..., description="用户 ID")
-    name: str = Field(..., description="账户名称")
-    initial_cash: float = Field(..., description="初始资金")
-    current_cash: float = Field(..., description="当前现金")
-    total_equity: float = Field(..., description="总权益（现金 + 持仓价值）")
-    profit_loss: float = Field(..., description="盈亏")
-    profit_loss_pct: float = Field(..., description="盈亏百分比（%），例如 10.0 表示 10% 收益，-5.0 表示 5% 亏损")
-    commission_rate: float = Field(..., description="手续费率")
-    slippage_rate: float = Field(..., description="滑点率")
-    is_active: bool = Field(..., description="是否激活")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
+    """Paper trading account response schema."""
+    id: str = Field(..., description="Account ID")
+    user_id: str = Field(..., description="User ID")
+    name: str = Field(..., description="Account name")
+    initial_cash: float = Field(..., description="Initial cash")
+    current_cash: float = Field(..., description="Current cash")
+    total_equity: float = Field(..., description="Total equity (cash + position value)")
+    profit_loss: float = Field(..., description="Profit/loss")
+    profit_loss_pct: float = Field(..., description="Profit/loss percentage (%), e.g., 10.0 means 10% return, -5.0 means 5% loss")
+    commission_rate: float = Field(..., description="Commission rate")
+    slippage_rate: float = Field(..., description="Slippage rate")
+    is_active: bool = Field(..., description="Whether active")
+    created_at: datetime = Field(..., description="Creation time")
+    updated_at: datetime = Field(..., description="Update time")
 
 
 class AccountListResponse(BaseModel):
-    """账户列表响应"""
-    total: int = Field(..., ge=0, description="总数量")
+    """Account list response schema."""
+    total: int = Field(..., ge=0, description="Total count")
     items: List[AccountResponse]
 
 
 class OrderRequest(BaseModel):
-    """提交模拟订单请求"""
-    account_id: str = Field(..., description="账户 ID")
-    symbol: str = Field(..., pattern=r'^\d{6}\.(SH|SZ)$', description="股票代码，例如 000001.SZ 或 600000.SH，必须是 A 股代码格式：6位数字.SH 或 .SZ")
-    order_type: str = Field(..., description="订单类型：market（市价单）、limit（限价单）、stop（止损单）、stop_limit（止损限价单）")
-    side: str = Field(..., description="买卖方向：buy（做多）或 sell（平多或做空）")
-    size: int = Field(..., gt=0, description="订单数量，必须是正整数")
-    price: Optional[float] = Field(None, gt=0, description="限价单价格（市价单不需要）")
-    stop_price: Optional[float] = Field(None, gt=0, description="止损价格（止损单需要）")
-    limit_price: Optional[float] = Field(None, gt=0, description="止盈价格（止损限价单需要）")
+    """Paper trading order request schema."""
+    account_id: str = Field(..., description="Account ID")
+    symbol: str = Field(..., pattern=r'^\d{6}\.(SH|SZ)$', description="Stock code, e.g., 000001.SZ or 600000.SH, must be A-share format: 6 digits.SH or .SZ")
+    order_type: str = Field(..., description="Order type: market (market order), limit (limit order), stop (stop loss), stop_limit (stop limit)")
+    side: str = Field(..., description="Order side: buy (long) or sell (close long or short)")
+    size: int = Field(..., gt=0, description="Order size, must be positive integer")
+    price: Optional[float] = Field(None, gt=0, description="Limit order price (not required for market orders)")
+    stop_price: Optional[float] = Field(None, gt=0, description="Stop price (required for stop orders)")
+    limit_price: Optional[float] = Field(None, gt=0, description="Take profit price (required for stop limit orders)")
 
 
 class OrderResponse(BaseModel):
-    """模拟订单响应"""
-    id: str = Field(..., description="订单 ID")
-    account_id: str = Field(..., description="账户 ID")
-    symbol: str = Field(..., description="股票代码")
-    order_type: str = Field(..., description="订单类型")
-    side: str = Field(..., description="买卖方向")
-    size: int = Field(..., description="订单数量")
-    price: Optional[float] = Field(None, description="限价单价格")
-    stop_price: Optional[float] = Field(None, description="止损价格")
-    limit_price: Optional[float] = Field(None, description="止盈价格")
-    filled_size: int = Field(default=0, description="已成交数量")
-    avg_fill_price: float = Field(default=0, description="平均成交价格")
-    status: str = Field(..., description="订单状态：pending（等待）、partial_filled（部分成交）、filled（已成交）、cancelled（已撤销）、rejected（已拒绝）")
-    rejected_reason: Optional[str] = Field(None, description="拒绝原因")
-    commission: float = Field(default=0, description="手续费")
-    slippage: float = Field(default=0, description="滑点")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
-    filled_at: Optional[datetime] = Field(None, description="成交时间")
+    """Paper trading order response schema."""
+    id: str = Field(..., description="Order ID")
+    account_id: str = Field(..., description="Account ID")
+    symbol: str = Field(..., description="Stock code")
+    order_type: str = Field(..., description="Order type")
+    side: str = Field(..., description="Order side")
+    size: int = Field(..., description="Order size")
+    price: Optional[float] = Field(None, description="Limit order price")
+    stop_price: Optional[float] = Field(None, description="Stop price")
+    limit_price: Optional[float] = Field(None, description="Take profit price")
+    filled_size: int = Field(default=0, description="Filled size")
+    avg_fill_price: float = Field(default=0, description="Average fill price")
+    status: str = Field(..., description="Order status: pending (waiting), partial_filled (partially filled), filled (completed), cancelled (cancelled), rejected (rejected)")
+    rejected_reason: Optional[str] = Field(None, description="Rejection reason")
+    commission: float = Field(default=0, description="Commission")
+    slippage: float = Field(default=0, description="Slippage")
+    created_at: datetime = Field(..., description="Creation time")
+    updated_at: datetime = Field(..., description="Update time")
+    filled_at: Optional[datetime] = Field(None, description="Fill time")
 
 
 class OrderListResponse(BaseModel):
-    """订单列表响应"""
-    total: int = Field(..., ge=0, description="总数量")
+    """Order list response schema."""
+    total: int = Field(..., ge=0, description="Total count")
     items: List[OrderResponse]
 
 
 class PositionResponse(BaseModel):
-    """模拟持仓响应"""
-    id: str = Field(..., description="持仓 ID")
-    account_id: str = Field(..., description="账户 ID")
-    symbol: str = Field(..., description="股票代码")
-    size: int = Field(..., description="持仓数量（正数表示多头头寸，负数表示空头头寸，例如 100 表示持有多头 100 股，-50 表示持有空头 50 股）")
-    avg_price: float = Field(default=0, description="平均成本价")
-    market_value: float = Field(default=0, description="市值（持仓数量 * 当前市价），例如 size=100, market_price=105.5，则 market_value=10550")
-    unrealized_pnl: float = Field(default=0, description="未实现盈亏（持仓按当前市价计算的盈亏，正数表示盈利，负数表示亏损）")
-    unrealized_pnl_pct: float = Field(default=0, description="未实现盈亏百分比，例如 15.5 表示 15.5% 的盈利，-8.2 表示 8.2% 的亏损")
-    entry_price: float = Field(default=0, description="入场价格")
-    entry_time: Optional[datetime] = Field(None, description="入场时间")
-    updated_at: datetime = Field(..., description="更新时间")
+    """Paper trading position response schema."""
+    id: str = Field(..., description="Position ID")
+    account_id: str = Field(..., description="Account ID")
+    symbol: str = Field(..., description="Stock code")
+    size: int = Field(..., description="Position size (positive for long, negative for short, e.g., 100 means long 100 shares, -50 means short 50 shares)")
+    avg_price: float = Field(default=0, description="Average cost price")
+    market_value: float = Field(default=0, description="Market value (size * market price), e.g., size=100, market_price=105.5, then market_value=10550")
+    unrealized_pnl: float = Field(default=0, description="Unrealized profit/loss (calculated at current market price, positive for profit, negative for loss)")
+    unrealized_pnl_pct: float = Field(default=0, description="Unrealized profit/loss percentage, e.g., 15.5 means 15.5% profit, -8.2 means 8.2% loss")
+    entry_price: float = Field(default=0, description="Entry price")
+    entry_time: Optional[datetime] = Field(None, description="Entry time")
+    updated_at: datetime = Field(..., description="Update time")
 
 
 class PositionListResponse(BaseModel):
-    """持仓列表响应"""
-    total: int = Field(..., ge=0, description="总数量")
+    """Position list response schema."""
+    total: int = Field(..., ge=0, description="Total count")
     items: List[PositionResponse]
 
 
 class TradeResponse(BaseModel):
-    """模拟成交响应"""
-    id: str = Field(..., description="成交 ID")
-    account_id: str = Field(..., description="账户 ID")
-    order_id: Optional[str] = Field(None, description="订单 ID")
-    symbol: str = Field(..., description="股票代码")
-    side: str = Field(..., description="买卖方向：buy（买入）或 sell（卖出）")
-    size: int = Field(..., description="成交数量")
-    price: float = Field(..., description="成交价格")
-    commission: float = Field(default=0, description="手续费")
-    slippage: float = Field(default=0, description="滑点")
-    pnl: float = Field(default=0, description="盈亏（已实现盈亏）")
-    pnl_pct: float = Field(default=0, description="盈亏百分比")
-    created_at: datetime = Field(..., description="成交时间")
+    """Paper trading trade response schema."""
+    id: str = Field(..., description="Trade ID")
+    account_id: str = Field(..., description="Account ID")
+    order_id: Optional[str] = Field(None, description="Order ID")
+    symbol: str = Field(..., description="Stock code")
+    side: str = Field(..., description="Trade side: buy (buy) or sell (sell)")
+    size: int = Field(..., description="Trade size")
+    price: float = Field(..., description="Trade price")
+    commission: float = Field(default=0, description="Commission")
+    slippage: float = Field(default=0, description="Slippage")
+    pnl: float = Field(default=0, description="Profit/loss (realized P&L)")
+    pnl_pct: float = Field(default=0, description="Profit/loss percentage")
+    created_at: datetime = Field(..., description="Trade time")
 
 
 class TradeListResponse(BaseModel):
-    """成交列表响应"""
-    total: int = Field(..., ge=0, description="总数量")
+    """Trade list response schema."""
+    total: int = Field(..., ge=0, description="Total count")
     items: List[TradeResponse]

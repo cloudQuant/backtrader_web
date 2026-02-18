@@ -10,9 +10,19 @@ from app.db.database import Base
 
 
 class User(Base):
-    """用户表"""
+    """User account table.
+
+    Attributes:
+        id: Unique user identifier (UUID).
+        username: Unique username for login.
+        email: Unique email address.
+        hashed_password: Bcrypt hashed password.
+        is_active: Whether the account is active.
+        created_at: Account creation timestamp.
+        updated_at: Last update timestamp.
+    """
     __tablename__ = "users"
-    
+
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     username = Column(String(50), unique=True, nullable=False, index=True)
     email = Column(String(100), unique=True, nullable=False, index=True)
@@ -20,8 +30,8 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
-    
-    # 关联
+
+    # Relationships
     strategies = relationship("Strategy", back_populates="user")
     backtest_tasks = relationship("BacktestTask", back_populates="user")
     comparisons = relationship("Comparison", back_populates="user")

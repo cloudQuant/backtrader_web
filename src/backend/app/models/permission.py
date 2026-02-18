@@ -12,40 +12,40 @@ from app.db.database import Base
 
 
 class Permission(str, enum.Enum):
-    """权限枚举"""
-    
-    # 策略权限
+    """Permission enum."""
+
+    # Strategy permissions
     CREATE_STRATEGY = "strategy:create"
     READ_STRATEGY = "strategy:read"
     UPDATE_STRATEGY = "strategy:update"
     DELETE_STRATEGY = "strategy:delete"
     SHARE_STRATEGY = "strategy:share"
-    
-    # 回测权限
+
+    # Backtest permissions
     RUN_BACKTEST = "backtest:run"
     READ_BACKTEST = "backtest:read"
     DELETE_BACKTEST = "backtest:delete"
     EXPORT_BACKTEST = "backtest:export"
-    
-    # 数据权限
+
+    # Data permissions
     UPLOAD_DATA = "data:upload"
     READ_DATA = "data:read"
     DELETE_DATA = "data:delete"
-    
-    # 管理权限
+
+    # Admin permissions
     MANAGE_USERS = "admin:users"
     MANAGE_ROLES = "admin:roles"
 
 
 class Role(str, enum.Enum):
-    """角色枚举"""
+    """Role enum."""
     GUEST = "guest"
     USER = "user"
     PREMIUM = "premium"
     ADMIN = "admin"
 
 
-# 权限映射
+# Permission mapping
 ROLE_PERMISSIONS = {
     Role.GUEST: [
         Permission.READ_STRATEGY,
@@ -93,7 +93,7 @@ ROLE_PERMISSIONS = {
 }
 
 
-# 用户角色关联表
+# User role association table
 user_roles = Table(
     'user_roles',
     Base.metadata,

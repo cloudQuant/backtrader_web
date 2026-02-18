@@ -1,9 +1,11 @@
-"""Hans123日内突破策略
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Hans123 Intraday Breakout Strategy.
 
-基于开盘后N根K线的高低点进行突破交易:
-- MA向上且价格>MA且价格突破上轨 -> 做多
-- MA向下且价格<MA且价格突破下轨 -> 做空
-- 收盘前(14:55)平掉所有持仓
+Based on breakout of high/low prices from N bars after market open:
+- MA rising AND price > MA AND price breaks upper band -> Go long
+- MA falling AND price < MA AND price breaks lower band -> Go short
+- Close all positions before market close (14:55)
 
 Author: yunjinqi
 """
@@ -15,12 +17,12 @@ from backtrader.comminfo import ComminfoFuturesPercent
 
 
 class Hans123Strategy(bt.Strategy):
-    """Hans123日内突破策略（带均线过滤）
+    """Hans123 Intraday Breakout Strategy (with MA filter).
 
-    使用开盘后N根K线的高低点作为突破区间:
-    - MA向上 + 价格>MA + 价格突破上轨 -> 做多
-    - MA向下 + 价格<MA + 价格突破下轨 -> 做空
-    - 收盘前平仓
+    Uses high/low prices from N bars after market open as breakout range:
+    - MA rising + price > MA + price breaks upper band -> Go long
+    - MA falling + price < MA + price breaks lower band -> Go short
+    - Close positions before market close
     """
     author = 'yunjinqi'
     params = (
@@ -29,35 +31,35 @@ class Hans123Strategy(bt.Strategy):
     )
 
     def log(self, txt, dt=None):
-        """记录日志"""
+        """Log strategy information."""
         dt = dt or bt.num2date(self.datas[0].datetime[0])
         print('{}, {}'.format(dt.isoformat(), txt))
 
     def __init__(self):
-        """初始化策略"""
+        """Initialize the strategy."""
         self.bar_num = 0
         self.day_bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
-        # 计算均线指标
+        # Calculate MA indicator
         self.ma_value = bt.indicators.SMA(self.datas[0].close, period=self.p.ma_period)
-        # 保存交易状态
+        # Save trading status
         self.marketposition = 0
-        # 保存当前交易日的最高价、最低价、收盘价
+        # Save current trading day's high, low, and close prices
         self.now_high = 0
         self.now_low = 999999999
         self.now_close = None
         self.now_open = None
-        # 上下轨
+        # Upper and lower bands
         self.upper_line = None
         self.lower_line = None
 
     def prenext(self):
-        """在指标最小周期到达前调用"""
+        """Called before minimum period is reached."""
         pass
 
     def next(self):
-        """主策略逻辑，每个bar调用一次"""
+        """Main strategy logic, called for each bar."""
         self.current_datetime = bt.num2date(self.datas[0].datetime[0])
         self.current_hour = self.current_datetime.hour
         self.current_minute = self.current_datetime.minute
@@ -65,33 +67,33 @@ class Hans123Strategy(bt.Strategy):
         self.bar_num += 1
         data = self.datas[0]
 
-        # 更新最高价、最低价、收盘价
+        # Update high, low, and close prices
         self.now_high = max(self.now_high, data.high[0])
         self.now_low = min(self.now_low, data.low[0])
         if self.now_close is None:
             self.now_open = data.open[0]
         self.now_close = data.close[0]
 
-        # 如果当前bar数量等于计算高低点的时间周期，计算上下轨价格
+        # If current bar count equals the period for calculating high/low, calculate upper/lower bands
         if self.day_bar_num == self.p.bar_num:
             self.upper_line = self.now_high
             self.lower_line = self.now_low
 
-        # 如果是当前交易日的最后一分钟
+        # If it's the last minute of current trading day
         if self.current_hour == 15:
             self.now_high = 0
             self.now_low = 999999999
             self.now_close = None
             self.day_bar_num = 0
 
-        # Hans123改进版: 使用均线过滤交易
+        # Hans123 improved version: Use MA to filter trades
         if len(data.close) > self.p.ma_period and self.day_bar_num >= self.p.bar_num:
-            # 开始交易
+            # Start trading
             open_time_1 = self.current_hour >= 21 and self.current_hour <= 23
             open_time_2 = self.current_hour >= 9 and self.current_hour <= 11
-            # 开仓
+            # Open positions
             if open_time_1 or open_time_2:
-                # 开多仓
+                # Open long position
                 if self.marketposition == 0 and self.ma_value[0] > self.ma_value[-1] and data.close[0] > self.ma_value[0] and data.close[0] > self.upper_line:
                     info = self.broker.getcommissioninfo(data)
                     symbol_multi = info.p.mult
@@ -101,7 +103,7 @@ class Hans123Strategy(bt.Strategy):
                     self.buy(data, size=lots)
                     self.buy_count += 1
                     self.marketposition = 1
-                # 开空仓
+                # Open short position
                 if self.marketposition == 0 and self.ma_value[0] < self.ma_value[-1] and data.close[0] < self.ma_value[0] and data.close[0] < self.lower_line:
                     info = self.broker.getcommissioninfo(data)
                     symbol_multi = info.p.mult
@@ -111,13 +113,13 @@ class Hans123Strategy(bt.Strategy):
                     self.sell(data, size=lots)
                     self.sell_count += 1
                     self.marketposition = -1
-            # 平仓
+            # Close positions
             if self.marketposition != 0 and self.current_hour == 14 and self.current_minute == 55:
                 self.close(data)
                 self.marketposition = 0
 
     def notify_order(self, order):
-        """订单状态变化时调用"""
+        """Called when order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
         if order.status == order.Completed:
@@ -127,17 +129,17 @@ class Hans123Strategy(bt.Strategy):
                 self.log(f"SELL: price={order.executed.price:.2f}")
 
     def notify_trade(self, trade):
-        """交易完成时调用"""
+        """Called when a trade is completed."""
         if trade.isclosed:
             self.log(f"Trade completed: pnl={trade.pnl:.2f}, pnlcomm={trade.pnlcomm:.2f}")
 
     def stop(self):
-        """回测结束时调用"""
+        """Called when backtesting ends."""
         self.log(f"bar_num={self.bar_num}, buy_count={self.buy_count}, sell_count={self.sell_count}")
 
 
 class RbPandasFeed(bt.feeds.PandasData):
-    """螺纹钢期货Pandas数据源"""
+    """Pandas data feed for rebar futures data."""
     params = (
         ('datetime', None),
         ('open', 0),

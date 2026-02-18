@@ -1,5 +1,5 @@
 """
-缓存层 - Redis可选，不配置则使用内存缓存
+Cache layer - Redis is optional, falls back to memory cache if not configured.
 """
 import json
 from typing import Optional, Dict, Any
@@ -9,15 +9,14 @@ from app.config import get_settings
 
 
 class MemoryCache:
-    """
-    内存缓存 - 默认实现，无需Redis
+    """In-memory cache - Default implementation, no Redis required.
 
-    适用于单机部署或开发环境
+    Suitable for single-machine deployment or development environments.
 
-    特性：
-    - 最大缓存条目数限制，防止内存无限增长
-    - 定期清理过期条目，避免每次写入都扫描
-    - 使用实例变量而非类变量，避免跨实例共享
+    Features:
+    - Maximum cache entries limit to prevent unbounded memory growth
+    - Periodic cleanup of expired entries to avoid scanning on every write
+    - Uses instance variables instead of class variables to avoid sharing across instances
     """
     MAX_ENTRIES = 10000
     CLEANUP_INTERVAL = 300
@@ -27,7 +26,7 @@ class MemoryCache:
         self._last_cleanup: datetime = datetime.now()
 
     def _cleanup_expired(self):
-        """清理过期条目"""
+        """Clean up expired entries."""
         now = datetime.now()
         if (now - self._last_cleanup).total_seconds() < self.CLEANUP_INTERVAL:
             return
@@ -40,7 +39,14 @@ class MemoryCache:
             del self._cache[k]
 
     async def get(self, key: str) -> Optional[Any]:
-        """获取缓存"""
+        """Get cached value.
+
+        Args:
+            key: Cache key.
+
+        Returns:
+            The cached value, or None if not found or expired.
+        """
         if key not in self._cache:
             return None
 
@@ -52,10 +58,16 @@ class MemoryCache:
         return entry["value"]
 
     async def set(self, key: str, value: Any, ttl: int = 3600):
-        """设置缓存"""
-        # 定期清理过期条目
+        """Set cached value.
+
+        Args:
+            key: Cache key.
+            value: Value to cache.
+            ttl: Time-to-live in seconds (0 for no expiration).
+        """
+        # Periodically cleanup expired entries
         self._cleanup_expired()
-        # 超过最大条目数时清理最旧的条目
+        # Remove oldest entry if max entries exceeded
         if len(self._cache) >= self.MAX_ENTRIES:
             oldest_key = next(iter(self._cache))
             del self._cache[oldest_key]
@@ -64,70 +76,114 @@ class MemoryCache:
             "value": value,
             "expire_at": expire_at,
         }
-    
+
     async def delete(self, key: str) -> bool:
-        """删除缓存"""
+        """Delete cached value.
+
+        Args:
+            key: Cache key.
+
+        Returns:
+            True if the key was deleted, False otherwise.
+        """
         if key in self._cache:
             del self._cache[key]
             return True
         return False
-    
+
     async def exists(self, key: str) -> bool:
-        """检查键是否存在"""
+        """Check if key exists.
+
+        Args:
+            key: Cache key.
+
+        Returns:
+            True if key exists and is not expired.
+        """
         return await self.get(key) is not None
-    
+
     async def clear(self):
-        """清空缓存"""
+        """Clear all cached values."""
         self._cache.clear()
 
 
 class RedisCache:
-    """
-    Redis缓存 - 可选，配置REDIS_URL后启用
-    
-    适用于分布式部署
+    """Redis cache - Optional, enabled when REDIS_URL is configured.
+
+    Suitable for distributed deployment.
     """
     def __init__(self, url: str):
         import redis.asyncio as redis
         self.redis = redis.from_url(url, decode_responses=True)
-    
+
     async def get(self, key: str) -> Optional[Any]:
-        """获取缓存"""
+        """Get cached value.
+
+        Args:
+            key: Cache key.
+
+        Returns:
+            The cached value, or None if not found.
+        """
         data = await self.redis.get(key)
         if data:
             return json.loads(data)
         return None
-    
+
     async def set(self, key: str, value: Any, ttl: int = 3600):
-        """设置缓存"""
+        """Set cached value.
+
+        Args:
+            key: Cache key.
+            value: Value to cache.
+            ttl: Time-to-live in seconds (0 for no expiration).
+        """
         data = json.dumps(value, default=str)
         if ttl > 0:
             await self.redis.setex(key, ttl, data)
         else:
             await self.redis.set(key, data)
-    
+
     async def delete(self, key: str) -> bool:
-        """删除缓存"""
+        """Delete cached value.
+
+        Args:
+            key: Cache key.
+
+        Returns:
+            True if the key was deleted, False otherwise.
+        """
         return await self.redis.delete(key) > 0
-    
+
     async def exists(self, key: str) -> bool:
-        """检查键是否存在"""
+        """Check if key exists.
+
+        Args:
+            key: Cache key.
+
+        Returns:
+            True if key exists.
+        """
         return await self.redis.exists(key) > 0
 
 
-# 缓存单例
+# Cache singleton
 _cache_instance = None
 
 
 def get_cache():
-    """获取缓存实例 - 有Redis用Redis，否则用内存"""
+    """Get cache instance - Uses Redis if available, otherwise memory cache.
+
+    Returns:
+        The cache instance (RedisCache or MemoryCache).
+    """
     global _cache_instance
-    
+
     if _cache_instance is None:
         settings = get_settings()
         if settings.REDIS_URL:
             _cache_instance = RedisCache(settings.REDIS_URL)
         else:
             _cache_instance = MemoryCache()
-    
+
     return _cache_instance

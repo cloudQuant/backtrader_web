@@ -1,9 +1,9 @@
 """
-Pytest 配置和 Fixtures
+Pytest Configuration and Fixtures.
 
-为所有测试提供共享的 fixtures 和配置。
-使用 httpx.AsyncClient + ASGITransport 直接测试 FastAPI 应用。
-每个测试使用独立的内存 SQLite 数据库（通过 StaticPool 共享连接）。
+Provides shared fixtures and configuration for all tests.
+Uses httpx.AsyncClient + ASGITransport for direct FastAPI app testing.
+Each test uses an independent in-memory SQLite database (shared connection via StaticPool).
 """
 import os
 import uuid
@@ -15,14 +15,14 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.pool import StaticPool
 
-# 确保测试环境配置（在任何 app 导入之前）
+# Ensure test environment configuration (before any app imports)
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 os.environ.setdefault("SQL_ECHO", "false")
 
 from app.db import database as db_module  # noqa: E402
 from app.db.database import Base  # noqa: E402
 
-# 覆盖数据库引擎和会话工厂：使用 StaticPool 让内存 SQLite 在整个测试期间共享一个连接
+# Override database engine and session factory: use StaticPool to share one connection for in-memory SQLite during tests
 _test_engine = create_async_engine(
     "sqlite+aiosqlite://",
     connect_args={"check_same_thread": False},
@@ -33,22 +33,22 @@ _test_session_maker = async_sessionmaker(
     _test_engine, class_=AsyncSession, expire_on_commit=False
 )
 
-# 猴子补丁：让所有服务都使用测试数据库
+# Monkey patch: make all services use test database
 db_module.engine = _test_engine
 db_module.async_session_maker = _test_session_maker
 
-# 同时补丁所有已导入 async_session_maker 的模块
+# Also patch all modules that have already imported async_session_maker
 from app.db import sql_repository as _sql_repo_module  # noqa: E402
 _sql_repo_module.async_session_maker = _test_session_maker
 
 from app.main import app  # noqa: E402
 
 
-# ==================== 数据库 Fixtures ====================
+# ==================== Database Fixtures ====================
 
 @pytest.fixture(autouse=True)
 async def setup_db():
-    """每个测试前重建所有表，测试后清理"""
+    """Rebuild all tables before each test, cleanup after."""
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
@@ -56,24 +56,24 @@ async def setup_db():
         await conn.run_sync(Base.metadata.drop_all)
 
 
-# ==================== HTTP 客户端 Fixture ====================
+# ==================== HTTP Client Fixture ====================
 
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
-    """创建 httpx 异步测试客户端"""
+    """Create httpx async test client."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
 
-# ==================== 认证 Helper ====================
+# ==================== Authentication Helper ====================
 
 async def register_and_login(
     client: AsyncClient,
     username: str = None,
     password: str = "Test12345678",
 ):
-    """注册一个用户并返回 (user_data, auth_headers)"""
+    """Register a user and return (user_data, auth_headers)."""
     username = username or f"user_{uuid.uuid4().hex[:8]}"
     email = f"{username}@test.com"
 
@@ -96,12 +96,12 @@ async def register_and_login(
 
 @pytest_asyncio.fixture
 async def auth_user(client: AsyncClient):
-    """注册并登录一个测试用户，返回 (user_data, auth_headers)"""
+    """Register and login a test user, return (user_data, auth_headers)."""
     return await register_and_login(client)
 
 
 @pytest_asyncio.fixture
 async def auth_headers(auth_user) -> dict:
-    """只返回认证头"""
+    """Return only authentication headers."""
     _, headers = auth_user
     return headers

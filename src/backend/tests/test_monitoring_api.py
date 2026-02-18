@@ -1,22 +1,22 @@
 """
-监控告警 API 测试
+Monitoring and Alert API Tests.
 
-测试：
-- 告警规则 CRUD
-- 告警管理
-- 告警状态更新
-- 告警统计
-- WebSocket端点
+Tests:
+- Alert rules CRUD
+- Alert management
+- Alert status updates
+- Alert statistics
+- WebSocket endpoints
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
 
 
-# 有效的告警规则创建请求
+# Valid alert rule creation request
 VALID_ALERT_RULE_REQUEST = {
-    "name": "测试告警规则",
-    "description": "测试描述",
+    "name": "Test Alert Rule",
+    "description": "Test description",
     "alert_type": "account",
     "severity": "warning",
     "trigger_type": "threshold",
@@ -28,10 +28,10 @@ VALID_ALERT_RULE_REQUEST = {
 
 @pytest.mark.asyncio
 class TestAlertRules:
-    """告警规则测试"""
+    """Test alert rule management endpoints."""
 
     async def test_create_alert_rule_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required for creating alert rules."""
         response = await client.post(
             "/api/v1/monitoring/rules",
             json=VALID_ALERT_RULE_REQUEST
@@ -39,7 +39,7 @@ class TestAlertRules:
         assert response.status_code in [401, 403]
 
     async def test_create_alert_rule_success(self, client: AsyncClient, auth_headers):
-        """测试成功创建告警规则"""
+        """Test successful alert rule creation."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             from app.schemas.monitoring import AlertType, AlertSeverity, TriggerType
             from datetime import datetime
@@ -51,8 +51,8 @@ class TestAlertRules:
             mock_rule_dict = {
                 "id": "rule_123",
                 "user_id": "user_123",
-                "name": "测试规则",
-                "description": "测试描述",
+                "name": "Test Rule",
+                "description": "Test description",
                 "alert_type": AlertType.ACCOUNT,
                 "severity": AlertSeverity.WARNING,
                 "trigger_type": TriggerType.THRESHOLD,
@@ -75,21 +75,21 @@ class TestAlertRules:
             assert response.status_code in [200, 404]
 
     async def test_create_alert_rule_invalid_data(self, client: AsyncClient, auth_headers):
-        """测试无效数据"""
+        """Test alert rule creation with invalid data."""
         response = await client.post(
             "/api/v1/monitoring/rules",
             headers=auth_headers,
-            json={"name": ""}  # 缺少必填字段
+            json={"name": ""}  # Missing required fields
         )
         assert response.status_code == 422
 
     async def test_list_alert_rules_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required for listing alert rules."""
         response = await client.get("/api/v1/monitoring/rules")
         assert response.status_code in [401, 403]
 
     async def test_list_alert_rules_with_auth(self, client: AsyncClient, auth_headers):
-        """测试带认证的列表请求"""
+        """Test alert rules list with authentication."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -102,7 +102,7 @@ class TestAlertRules:
             assert response.status_code in [200, 404]
 
     async def test_list_alert_rules_with_filters(self, client: AsyncClient, auth_headers):
-        """测试带过滤参数的列表请求"""
+        """Test alert rules list with filter parameters."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -115,7 +115,7 @@ class TestAlertRules:
             assert response.status_code in [200, 404]
 
     async def test_get_alert_rule_not_implemented(self, client: AsyncClient, auth_headers):
-        """测试获取规则详情"""
+        """Test getting rule details."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             from app.schemas.monitoring import AlertType, AlertSeverity, TriggerType
             from datetime import datetime
@@ -126,8 +126,8 @@ class TestAlertRules:
             mock_rule_dict = {
                 "id": "rule_123",
                 "user_id": "user_123",
-                "name": "测试规则",
-                "description": "测试描述",
+                "name": "Test Rule",
+                "description": "Test description",
                 "alert_type": AlertType.ACCOUNT,
                 "severity": AlertSeverity.WARNING,
                 "trigger_type": TriggerType.THRESHOLD,
@@ -149,7 +149,7 @@ class TestAlertRules:
             assert response.status_code in [200, 404]
 
     async def test_get_alert_rule_not_found(self, client: AsyncClient, auth_headers):
-        """测试规则不存在返回 404"""
+        """Test getting non-existent rule returns 404."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -162,7 +162,7 @@ class TestAlertRules:
             assert response.status_code in [404, 200]
 
     async def test_get_alert_rule_forbidden(self, client: AsyncClient, auth_headers):
-        """测试无权限访问规则返回 403"""
+        """Test forbidden access to rule returns 403."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -175,7 +175,7 @@ class TestAlertRules:
             assert response.status_code in [403, 404]
 
     async def test_update_alert_rule_success(self, client: AsyncClient, auth_headers):
-        """测试更新告警规则"""
+        """Test updating alert rule."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             from app.schemas.monitoring import AlertType, AlertSeverity, TriggerType
             from datetime import datetime
@@ -187,8 +187,8 @@ class TestAlertRules:
             mock_rule_dict = {
                 "id": "rule_123",
                 "user_id": "user_123",
-                "name": "更新后的规则",
-                "description": "测试描述",
+                "name": "Updated Rule",
+                "description": "Test description",
                 "alert_type": AlertType.ACCOUNT,
                 "severity": AlertSeverity.WARNING,
                 "trigger_type": TriggerType.THRESHOLD,
@@ -206,17 +206,17 @@ class TestAlertRules:
             response = await client.put(
                 "/api/v1/monitoring/rules/rule_123",
                 headers=auth_headers,
-                json={"name": "更新后的规则"}
+                json={"name": "Updated Rule"}
             )
             assert response.status_code in [200, 404]
 
     async def test_delete_alert_rule_requires_auth(self, client: AsyncClient):
-        """测试删除需要认证"""
+        """Test authentication required for deleting alert rules."""
         response = await client.delete("/api/v1/monitoring/rules/rule_123")
         assert response.status_code in [401, 403]
 
     async def test_delete_alert_rule_not_found(self, client: AsyncClient, auth_headers):
-        """测试删除不存在的规则"""
+        """Test deleting non-existent rule."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -229,7 +229,7 @@ class TestAlertRules:
             assert response.status_code in [200, 404]
 
     async def test_delete_alert_rule_success(self, client: AsyncClient, auth_headers):
-        """测试成功删除规则"""
+        """Test successful rule deletion."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -244,15 +244,15 @@ class TestAlertRules:
 
 @pytest.mark.asyncio
 class TestAlerts:
-    """告警管理测试"""
+    """Test alert management endpoints."""
 
     async def test_list_alerts_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required for listing alerts."""
         response = await client.get("/api/v1/monitoring/")
         assert response.status_code in [401, 403]
 
     async def test_list_alerts_with_auth(self, client: AsyncClient, auth_headers):
-        """测试带认证的告警列表"""
+        """Test alert list with authentication."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -265,7 +265,7 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_list_alerts_with_filters(self, client: AsyncClient, auth_headers):
-        """测试带过滤参数的告警列表"""
+        """Test alert list with filter parameters."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -278,7 +278,7 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_list_alerts_with_pagination(self, client: AsyncClient, auth_headers):
-        """测试分页参数"""
+        """Test pagination parameters."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -291,7 +291,7 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_list_alerts_invalid_limit(self, client: AsyncClient, auth_headers):
-        """测试无效的limit参数"""
+        """Test invalid limit parameter."""
         response = await client.get(
             "/api/v1/monitoring/?limit=200",
             headers=auth_headers
@@ -299,7 +299,7 @@ class TestAlerts:
         assert response.status_code in [422, 404]
 
     async def test_get_alert_not_implemented(self, client: AsyncClient, auth_headers):
-        """测试获取告警详情"""
+        """Test getting alert details."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             from app.schemas.monitoring import AlertType, AlertSeverity, AlertStatus
             from datetime import datetime
@@ -313,8 +313,8 @@ class TestAlerts:
                 "alert_type": AlertType.ACCOUNT,
                 "severity": AlertSeverity.WARNING,
                 "status": AlertStatus.ACTIVE,
-                "title": "测试告警",
-                "message": "测试告警内容",
+                "title": "Test Alert",
+                "message": "Test alert content",
                 "details": {"threshold": 0.1},
                 "strategy_id": None,
                 "backtest_task_id": None,
@@ -336,7 +336,7 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_get_alert_not_found(self, client: AsyncClient, auth_headers):
-        """测试告警不存在返回 404"""
+        """Test getting non-existent alert returns 404."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -349,7 +349,7 @@ class TestAlerts:
             assert response.status_code in [404, 200]
 
     async def test_get_alert_forbidden(self, client: AsyncClient, auth_headers):
-        """测试无权限访问告警返回 403"""
+        """Test forbidden access to alert returns 403."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -362,12 +362,12 @@ class TestAlerts:
             assert response.status_code in [403, 404]
 
     async def test_mark_alert_read_requires_auth(self, client: AsyncClient):
-        """测试标记已读需要认证"""
+        """Test authentication required for marking alerts as read."""
         response = await client.put("/api/v1/monitoring/alert_123/read")
         assert response.status_code in [401, 403]
 
     async def test_mark_alert_read_not_found(self, client: AsyncClient, auth_headers):
-        """测试标记不存在的告警"""
+        """Test marking non-existent alert as read."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -380,7 +380,7 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_mark_alert_read_success(self, client: AsyncClient, auth_headers):
-        """测试成功标记已读"""
+        """Test successful mark as read."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -393,12 +393,12 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_resolve_alert_requires_auth(self, client: AsyncClient):
-        """测试解决告警需要认证"""
+        """Test authentication required for resolving alerts."""
         response = await client.put("/api/v1/monitoring/alert_123/resolve")
         assert response.status_code in [401, 403]
 
     async def test_resolve_alert_not_found(self, client: AsyncClient, auth_headers):
-        """测试解决不存在的告警"""
+        """Test resolving non-existent alert."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -411,7 +411,7 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_resolve_alert_success(self, client: AsyncClient, auth_headers):
-        """测试成功解决告警"""
+        """Test successful resolve alert."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -424,12 +424,12 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_acknowledge_alert_requires_auth(self, client: AsyncClient):
-        """测试确认告警需要认证"""
+        """Test authentication required for acknowledging alerts."""
         response = await client.put("/api/v1/monitoring/alert_123/acknowledge")
         assert response.status_code in [401, 403]
 
     async def test_acknowledge_alert_not_found(self, client: AsyncClient, auth_headers):
-        """测试确认不存在的告警"""
+        """Test acknowledging non-existent alert."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -442,7 +442,7 @@ class TestAlerts:
             assert response.status_code in [200, 404]
 
     async def test_acknowledge_alert_success(self, client: AsyncClient, auth_headers):
-        """测试成功确认告警"""
+        """Test successful acknowledge alert."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -457,15 +457,15 @@ class TestAlerts:
 
 @pytest.mark.asyncio
 class TestAlertStatistics:
-    """告警统计测试"""
+    """Test alert statistics endpoints."""
 
     async def test_get_alert_summary_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required for alert summary."""
         response = await client.get("/api/v1/monitoring/statistics/summary")
         assert response.status_code in [401, 403]
 
     async def test_get_alert_summary_with_auth(self, client: AsyncClient, auth_headers):
-        """测试带认证的统计摘要"""
+        """Test summary with authentication."""
         response = await client.get(
             "/api/v1/monitoring/statistics/summary",
             headers=auth_headers
@@ -473,14 +473,14 @@ class TestAlertStatistics:
         assert response.status_code in [200, 404]
 
     async def test_get_alerts_by_type_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required for alerts by type."""
         response = await client.get(
             "/api/v1/monitoring/statistics/by-type?start_date=2024-01-01&end_date=2024-01-31"
         )
         assert response.status_code in [401, 403]
 
     async def test_get_alerts_by_type_missing_params(self, client: AsyncClient, auth_headers):
-        """测试缺少必要参数"""
+        """Test missing required parameters."""
         response = await client.get(
             "/api/v1/monitoring/statistics/by-type",
             headers=auth_headers
@@ -488,7 +488,7 @@ class TestAlertStatistics:
         assert response.status_code in [422, 404]
 
     async def test_get_alerts_by_type_invalid_date(self, client: AsyncClient, auth_headers):
-        """测试无效的日期格式"""
+        """Test invalid date format."""
         response = await client.get(
             "/api/v1/monitoring/statistics/by-type?start_date=invalid&end_date=2024-01-31",
             headers=auth_headers
@@ -496,7 +496,7 @@ class TestAlertStatistics:
         assert response.status_code in [400, 404]
 
     async def test_get_alerts_by_type_success(self, client: AsyncClient, auth_headers):
-        """测试成功获取按类型统计"""
+        """Test successful get statistics by type."""
         response = await client.get(
             "/api/v1/monitoring/statistics/by-type?start_date=2024-01-01&end_date=2024-01-31",
             headers=auth_headers
@@ -506,24 +506,24 @@ class TestAlertStatistics:
 
 @pytest.mark.asyncio
 class TestMonitoringWebSocket:
-    """WebSocket端点测试"""
+    """Test WebSocket endpoints."""
 
     async def test_websocket_endpoint_exists(self):
-        """测试WebSocket端点存在"""
+        """Test WebSocket endpoint exists."""
         from app.api.monitoring import router
 
         routes = [route.path for route in router.routes]
         assert any("/ws/alerts" in str(r) for r in routes)
 
     async def test_websocket_handler_defined(self):
-        """测试WebSocket处理函数已定义"""
+        """Test WebSocket handler defined."""
         from app.api.monitoring import alerts_websocket
 
         assert alerts_websocket is not None
         assert callable(alerts_websocket)
 
     async def test_websocket_connection(self):
-        """测试WebSocket连接基本功能"""
+        """Test WebSocket connection basic functionality."""
         from app.api.monitoring import alerts_websocket
         from unittest.mock import AsyncMock, MagicMock, patch
         import asyncio
@@ -554,17 +554,17 @@ class TestMonitoringWebSocket:
 
 @pytest.mark.asyncio
 class TestMonitoringService:
-    """监控服务单元测试"""
+    """Test monitoring service unit tests."""
 
     async def test_service_exists(self):
-        """测试服务类存在"""
+        """Test service class exists."""
         from app.services.monitoring_service import MonitoringService
 
         service = MonitoringService()
         assert service is not None
 
     async def test_service_attributes(self):
-        """测试服务属性"""
+        """Test service attributes."""
         from app.services.monitoring_service import MonitoringService
 
         service = MonitoringService()
@@ -574,17 +574,17 @@ class TestMonitoringService:
 
 @pytest.mark.asyncio
 class TestAlertModels:
-    """告警模型测试"""
+    """Test alert models."""
 
     async def test_alert_model_exists(self):
-        """测试告警模型存在"""
+        """Test alert model exists."""
         from app.models.alerts import Alert, AlertRule
 
         assert Alert is not None
         assert AlertRule is not None
 
     async def test_alert_enums_exist(self):
-        """测试告警枚举存在"""
+        """Test alert enums exist."""
         from app.models.alerts import AlertType, AlertSeverity, AlertStatus
 
         assert AlertType is not None
@@ -592,7 +592,7 @@ class TestAlertModels:
         assert AlertStatus is not None
 
     async def test_alert_type_values(self):
-        """测试告警类型枚举值"""
+        """Test alert type enum values."""
         from app.models.alerts import AlertType
 
         assert hasattr(AlertType, 'ACCOUNT')
@@ -601,7 +601,7 @@ class TestAlertModels:
         assert hasattr(AlertType, 'SYSTEM')
 
     async def test_alert_severity_values(self):
-        """测试告警级别枚举值"""
+        """Test alert severity enum values."""
         from app.models.alerts import AlertSeverity
 
         assert hasattr(AlertSeverity, 'INFO')
@@ -610,7 +610,7 @@ class TestAlertModels:
         assert hasattr(AlertSeverity, 'CRITICAL')
 
     async def test_alert_status_values(self):
-        """测试告警状态枚举值"""
+        """Test alert status enum values."""
         from app.models.alerts import AlertStatus
 
         assert hasattr(AlertStatus, 'ACTIVE')
@@ -621,17 +621,17 @@ class TestAlertModels:
 
 @pytest.mark.asyncio
 class TestMonitoringAPIRoutes:
-    """监控API路由测试"""
+    """Test monitoring API routes."""
 
     async def test_monitoring_routes_registered(self):
-        """测试监控路由已注册"""
+        """Test monitoring routes registered."""
         from app.api.monitoring import router as monitoring_router
 
         assert monitoring_router is not None
         assert hasattr(monitoring_router, 'routes')
 
     async def test_monitoring_endpoints_exist(self):
-        """测试监控端点存在"""
+        """Test monitoring endpoints exist."""
         from app.api.monitoring import router
 
         routes = [route.path for route in router.routes]

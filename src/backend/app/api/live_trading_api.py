@@ -1,5 +1,8 @@
 """
 Live trading instance management API routes.
+
+This module provides endpoints for managing live trading strategy instances,
+including starting, stopping, and monitoring live trading operations.
 """
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -33,123 +36,244 @@ router = APIRouter()
 
 
 def _get_manager() -> LiveTradingManager:
+    """Get the live trading manager instance.
+
+    Returns:
+        The global LiveTradingManager instance.
+    """
     return get_live_trading_manager()
 
 
-@router.get("/", response_model=LiveInstanceListResponse, summary="获取实盘策略列表")
+@router.get("/", response_model=LiveInstanceListResponse, summary="List live trading instances")
 async def list_instances(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """List all live trading instances for the current user.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        A list of live trading instances belonging to the user.
+    """
     instances = mgr.list_instances(user_id=current_user.sub)
     return {"total": len(instances), "instances": instances}
 
 
-@router.post("/", response_model=LiveInstanceInfo, summary="添加实盘策略")
+@router.post("/", response_model=LiveInstanceInfo, summary="Add live trading instance")
 async def add_instance(
     req: LiveInstanceCreate,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Add a new live trading instance.
+
+    Args:
+        req: The instance creation request.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        The created instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be created.
+    """
     try:
         return mgr.add_instance(req.strategy_id, req.params, user_id=current_user.sub)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.delete("/{instance_id}", summary="删除实盘策略")
+@router.delete("/{instance_id}", summary="Delete live trading instance")
 async def remove_instance(
     instance_id: str,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Delete a live trading instance.
+
+    Args:
+        instance_id: The ID of the instance to delete.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        A success message.
+
+    Raises:
+        HTTPException: If the instance is not found.
+    """
     if not mgr.remove_instance(instance_id, user_id=current_user.sub):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="实例不存在")
-    return {"message": "已删除"}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
+    return {"message": "Deleted successfully"}
 
 
-@router.get("/{instance_id}", response_model=LiveInstanceInfo, summary="获取实盘策略详情")
+@router.get("/{instance_id}", response_model=LiveInstanceInfo, summary="Get live trading instance details")
 async def get_instance(
     instance_id: str,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Get details of a specific live trading instance.
+
+    Args:
+        instance_id: The ID of the instance.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        The instance information.
+
+    Raises:
+        HTTPException: If the instance is not found.
+    """
     inst = mgr.get_instance(instance_id, user_id=current_user.sub)
     if not inst:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="实例不存在")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
     return inst
 
 
-@router.post("/{instance_id}/start", response_model=LiveInstanceInfo, summary="启动实盘策略")
+@router.post("/{instance_id}/start", response_model=LiveInstanceInfo, summary="Start live trading instance")
 async def start_instance(
     instance_id: str,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Start a live trading instance.
+
+    Args:
+        instance_id: The ID of the instance to start.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        The updated instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be started.
+    """
     try:
         return await mgr.start_instance(instance_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/{instance_id}/stop", response_model=LiveInstanceInfo, summary="停止实盘策略")
+@router.post("/{instance_id}/stop", response_model=LiveInstanceInfo, summary="Stop live trading instance")
 async def stop_instance(
     instance_id: str,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Stop a live trading instance.
+
+    Args:
+        instance_id: The ID of the instance to stop.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        The updated instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be stopped.
+    """
     try:
         return await mgr.stop_instance(instance_id)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/start-all", response_model=LiveBatchResponse, summary="一键启动所有策略")
+@router.post("/start-all", response_model=LiveBatchResponse, summary="Start all live trading instances")
 async def start_all(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Start all live trading instances.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        A summary of the batch start operation.
+    """
     return await mgr.start_all()
 
 
-@router.post("/stop-all", response_model=LiveBatchResponse, summary="一键停止所有策略")
+@router.post("/stop-all", response_model=LiveBatchResponse, summary="Stop all live trading instances")
 async def stop_all(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Stop all live trading instances.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        A summary of the batch stop operation.
+    """
     return await mgr.stop_all()
 
 
-# ==================== 分析接口 ====================
+# ==================== Analytics Endpoints ====================
 
 def _get_strategy_log_dir(mgr: LiveTradingManager, instance_id: str) -> Path:
-    """获取实例对应的策略最新日志目录"""
+    """Get the latest log directory for a strategy instance.
+
+    Args:
+        mgr: The live trading manager instance.
+        instance_id: The ID of the live trading instance.
+
+    Returns:
+        The path to the log directory.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
     inst = mgr.get_instance(instance_id)
     if not inst:
-        raise HTTPException(status_code=404, detail="实例不存在")
+        raise HTTPException(status_code=404, detail="Instance not found")
     strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
     log_dir = find_latest_log_dir(strategy_dir)
     if not log_dir:
-        raise HTTPException(status_code=404, detail="暂无日志数据，请先运行策略")
+        raise HTTPException(status_code=404, detail="No log data available, please run the strategy first")
     return log_dir
 
 
-@router.get("/{instance_id}/detail", response_model=BacktestDetailResponse, summary="获取实盘策略分析详情")
+@router.get("/{instance_id}/detail", response_model=BacktestDetailResponse, summary="Get live trading analysis details")
 async def get_live_detail(
     instance_id: str,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Get detailed analysis for a live trading instance.
+
+    Args:
+        instance_id: The ID of the live trading instance.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        Detailed backtest analysis response including metrics, equity curve, and trades.
+
+    Raises:
+        HTTPException: If the instance or log data is not found.
+    """
     inst = mgr.get_instance(instance_id)
     if not inst:
-        raise HTTPException(status_code=404, detail="实例不存在")
+        raise HTTPException(status_code=404, detail="Instance not found")
 
     strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
     log_result = parse_all_logs(strategy_dir)
     if not log_result:
-        raise HTTPException(status_code=404, detail="暂无日志数据")
+        raise HTTPException(status_code=404, detail="No log data available")
 
-    # 构造与回测分析相同格式的响应
+    # Construct response in the same format as backtest analysis
     equity_dates = log_result.get("equity_dates", [])
     equity_values = log_result.get("equity_curve", [])
     cash_values = log_result.get("cash_curve", [])
@@ -220,12 +344,25 @@ async def get_live_detail(
     )
 
 
-@router.get("/{instance_id}/kline", response_model=KlineWithSignalsResponse, summary="获取实盘策略K线数据")
+@router.get("/{instance_id}/kline", response_model=KlineWithSignalsResponse, summary="Get live trading K-line data")
 async def get_live_kline(
     instance_id: str,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Get K-line data with trading signals for a live trading instance.
+
+    Args:
+        instance_id: The ID of the live trading instance.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        K-line data with buy/sell signals and indicators.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
     log_dir = _get_strategy_log_dir(mgr, instance_id)
     inst = mgr.get_instance(instance_id)
 
@@ -251,12 +388,12 @@ async def get_live_kline(
             "volume": volumes[j] if j < len(volumes) else 0,
         })
 
-    # 构建K线收盘价映射，供信号价格查找
+    # Build K-line close price mapping for signal price lookup
     kline_close_map = {}
     for k in klines:
         kline_close_map[k["date"]] = k["close"]
 
-    # 交易信号（区分多空方向，优先使用K线收盘价）
+    # Trading signals (distinguish long/short direction, prefer K-line close price)
     signals = []
     for t in trades_raw:
         is_long = t.get("direction", "buy") == "buy" or t.get("long", True)
@@ -266,7 +403,7 @@ async def get_live_kline(
                 "date": open_date,
                 "type": "buy" if is_long else "sell",
                 "price": kline_close_map.get(open_date, t.get("price", 0)),
-                "reason": "开仓",
+                "reason": "open",
             })
         if t.get("dtclose"):
             close_date = t["dtclose"][:10]
@@ -274,7 +411,7 @@ async def get_live_kline(
                 "date": close_date,
                 "type": "sell" if is_long else "buy",
                 "price": kline_close_map.get(close_date, t.get("price", 0)),
-                "reason": "平仓",
+                "reason": "close",
             })
 
     indicators = log_indicators if log_indicators else {}
@@ -287,19 +424,32 @@ async def get_live_kline(
     )
 
 
-@router.get("/{instance_id}/monthly-returns", response_model=MonthlyReturnsResponse, summary="获取实盘策略月度收益")
+@router.get("/{instance_id}/monthly-returns", response_model=MonthlyReturnsResponse, summary="Get live trading monthly returns")
 async def get_live_monthly_returns(
     instance_id: str,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
+    """Get monthly returns for a live trading instance.
+
+    Args:
+        instance_id: The ID of the live trading instance.
+        current_user: The authenticated user.
+        mgr: The live trading manager instance.
+
+    Returns:
+        Monthly returns data with yearly summaries.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
     log_dir = _get_strategy_log_dir(mgr, instance_id)
     value_data = parse_value_log(log_dir)
 
     equity_dates = value_data.get("dates", [])
     equity_values = value_data.get("equity_curve", [])
 
-    # 计算月度收益
+    # Calculate monthly returns
     monthly_returns = {}
     current_month = None
     month_start_value = 0.0
@@ -321,7 +471,7 @@ async def get_live_monthly_returns(
         ret = (equity_values[-1] - month_start_value) / month_start_value
         monthly_returns[current_month] = round(ret, 6)
 
-    # 格式化
+    # Format returns
     returns = []
     years_set = set()
     for ym, ret in monthly_returns.items():
@@ -332,7 +482,7 @@ async def get_live_monthly_returns(
 
     years = sorted(years_set)
 
-    # 年度汇总
+    # Yearly summary
     summary = {}
     for y in years:
         year_rets = [r["return_pct"] for r in returns if r["year"] == y]

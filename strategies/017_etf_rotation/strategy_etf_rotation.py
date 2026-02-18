@@ -1,9 +1,11 @@
-"""ETF轮动策略 (ETF Rotation Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""ETF Rotation Strategy.
 
-基于均线比率的ETF轮动策略:
-- 计算两个ETF的价格与均线比率
-- 当两个ETF都低于均线时清仓
-- 当至少一个ETF高于均线时，持有比率较高的那个
+An ETF rotation strategy based on moving average ratio:
+- Calculate price/MA ratio for two ETFs
+- Clear positions when both ETFs are below their MAs
+- Hold the ETF with the higher ratio when at least one is above its MA
 
 Author: yunjinqi
 """
@@ -14,119 +16,119 @@ import backtrader as bt
 
 
 class EtfRotationStrategy(bt.Strategy):
-    """基于均线比率的ETF轮动策略
+    """ETF Rotation Strategy based on MA ratio.
 
-    该策略在两个ETF（上证50ETF和创业板ETF）之间进行轮动:
-    1. 计算两个ETF的价格/均线比率
-    2. 如果两个ETF都低于均线，清仓
-    3. 如果至少一个ETF高于均线，持有比率较高的那个
+    This strategy rotates between two ETFs (SSE 50 ETF and ChiNext ETF):
+    1. Calculate price/MA ratio for both ETFs
+    2. If both ETFs are below their MAs, clear positions
+    3. If at least one ETF is above its MA, hold the one with higher ratio
     """
-    # 策略作者
+    # Strategy author
     author = 'yunjinqi'
-    # 策略参数
+    # Strategy parameters
     params = (("ma_period", 20),)
 
     def log(self, txt, dt=None):
-        """记录日志"""
+        """Log strategy information."""
         dt = dt or bt.num2date(self.datas[0].datetime[0])
         print('{}, {}'.format(dt.isoformat(), txt))
 
     def __init__(self):
-        """初始化ETF轮动策略"""
+        """Initialize the ETF rotation strategy."""
         self.bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
-        # 为两个ETF计算均线
+        # Calculate MA for both ETFs
         self.sz_ma = bt.indicators.SMA(self.datas[0].close, period=self.p.ma_period)
         self.cy_ma = bt.indicators.SMA(self.datas[1].close, period=self.p.ma_period)
 
     def prenext(self):
-        """在最小周期到达前调用"""
+        """Called before minimum period is reached."""
         self.next()
 
     def next(self):
-        """执行核心ETF轮动策略逻辑"""
+        """Execute core ETF rotation strategy logic."""
         self.bar_num += 1
-        # 两个ETF的数据
+        # Data for both ETFs
         sz_data = self.datas[0]
         cy_data = self.datas[1]
-        # 计算当前持仓
+        # Calculate current positions
         self.sz_pos = self.getposition(sz_data).size
         self.cy_pos = self.getposition(cy_data).size
-        # 获取两个ETF的当前价格
+        # Get current prices for both ETFs
         sz_close = sz_data.close[0]
         cy_close = cy_data.close[0]
 
-        # 如果两个ETF都低于均线，清仓
+        # If both ETFs are below their MAs, clear positions
         if sz_close < self.sz_ma[0] and cy_close < self.cy_ma[0]:
             if self.sz_pos > 0:
                 self.close(sz_data)
             if self.cy_pos > 0:
                 self.close(cy_data)
 
-        # 如果至少一个ETF高于均线
+        # If at least one ETF is above its MA
         if sz_close > self.sz_ma[0] or cy_close > self.cy_ma[0]:
-            # 如果上证50动量指标更大
+            # If SSE 50 momentum indicator is higher
             if sz_close / self.sz_ma[0] > cy_close / self.cy_ma[0]:
 
-                # 如果当前没有持仓，直接买入上证50ETF
+                # If no current position, buy SSE 50 ETF directly
                 if self.sz_pos == 0 and self.cy_pos == 0:
-                    # 获取账户价值
+                    # Get account value
                     total_value = self.broker.get_value()
-                    # 计算买入数量
+                    # Calculate buy quantity
                     lots = int(0.95 * total_value / sz_close)
-                    # 买入
+                    # Buy
                     self.buy(sz_data, size=lots)
                     self.buy_count += 1
 
-                # 如果当前不持有sz但持有cy，平掉创业板ETF并买入sz
+                # If not holding sz but holding cy, close ChiNext ETF and buy sz
                 if self.sz_pos == 0 and self.cy_pos > 0:
-                    # 平掉创业板ETF
+                    # Close ChiNext ETF
                     self.close(cy_data)
                     self.sell_count += 1
-                    # 获取账户价值
+                    # Get account value
                     total_value = self.broker.get_value()
-                    # 计算买入数量
+                    # Calculate buy quantity
                     lots = int(0.95 * total_value / sz_close)
-                    # 买入
+                    # Buy
                     self.buy(sz_data, size=lots)
                     self.buy_count += 1
 
-                # 如果已经持有sz，忽略
+                # If already holding sz, ignore
                 if self.sz_pos > 0:
                     pass
 
-            # 如果创业板动量指标更大
+            # If ChiNext momentum indicator is higher
             if sz_close / self.sz_ma[0] < cy_close / self.cy_ma[0]:
-                # 如果当前没有持仓，直接买入创业板ETF
+                # If no current position, buy ChiNext ETF directly
                 if self.sz_pos == 0 and self.cy_pos == 0:
-                    # 获取账户价值
+                    # Get account value
                     total_value = self.broker.get_value()
-                    # 计算买入数量
+                    # Calculate buy quantity
                     lots = int(0.95 * total_value / cy_close)
-                    # 买入
+                    # Buy
                     self.buy(cy_data, size=lots)
                     self.buy_count += 1
 
-                # 如果当前不持有cy但持有sz，平掉上证50ETF并买入cy
+                # If not holding cy but holding sz, close SSE 50 ETF and buy cy
                 if self.sz_pos > 0 and self.cy_pos == 0:
-                    # 平掉上证50ETF
+                    # Close SSE 50 ETF
                     self.close(sz_data)
                     self.sell_count += 1
-                    # 获取账户价值
+                    # Get account value
                     total_value = self.broker.get_value()
-                    # 计算买入数量
+                    # Calculate buy quantity
                     lots = int(0.95 * total_value / cy_close)
-                    # 买入
+                    # Buy
                     self.buy(cy_data, size=lots)
                     self.buy_count += 1
 
-                # 如果已经持有cy，忽略
+                # If already holding cy, ignore
                 if self.cy_pos > 0:
                     pass
 
     def notify_order(self, order):
-        """订单状态变化时调用"""
+        """Called when order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
 
@@ -150,8 +152,8 @@ class EtfRotationStrategy(bt.Strategy):
                 self.log(f" SELL : data_name:{order.p.data._name} price : {order.executed.price} , cost : {order.executed.value} , commission : {order.executed.comm}")
 
     def notify_trade(self, trade):
-        """交易生命周期事件处理"""
-        # 输出交易结束时的信息
+        """Handle trade lifecycle events."""
+        # Output information when trade ends
         if trade.isclosed:
             self.log('closed symbol is : {} , total_profit : {} , net_profit : {}' .format(
                             trade.getdataname(), trade.pnl, trade.pnlcomm))
@@ -161,5 +163,5 @@ class EtfRotationStrategy(bt.Strategy):
                             trade.getdataname(), trade.price))
 
     def stop(self):
-        """回测结束时调用"""
+        """Called when backtesting ends."""
         self.log(f"bar_num={self.bar_num}, buy_count={self.buy_count}, sell_count={self.sell_count}")

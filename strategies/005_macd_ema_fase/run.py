@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""策略运行脚本 - MACD+EMA期货趋势策略"""
+"""MACD+EMA Futures Trend Strategy Runner."""
 
 import os
 import datetime
@@ -11,21 +11,21 @@ import backtrader as bt
 import pandas as pd
 from backtrader.comminfo import ComminfoFuturesPercent
 
-# 导入策略类
+# Import strategy class
 from strategy_macd_ema_fase import MacdEmaStrategy, RbPandasFeed
 
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_config():
-    """从config.yaml加载配置"""
+    """Load configuration from config.yaml"""
     config_path = BASE_DIR / "config.yaml"
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 
 def resolve_data_path(filename: str) -> Path:
-    """查找数据文件路径"""
+    """Locate data file path"""
     search_paths = [
         BASE_DIR / filename,
         BASE_DIR.parent / filename,
@@ -46,16 +46,16 @@ def resolve_data_path(filename: str) -> Path:
 
 
 def load_rb_data(filename: str = "rb/RB99.csv") -> pd.DataFrame:
-    """加载螺纹钢期货数据"""
+    """Loadrebar futuresData"""
     data_kwargs = dict(
         fromdate=datetime.datetime(2010, 1, 1),
         todate=datetime.datetime(2020, 12, 31),
     )
 
     df = pd.read_csv(resolve_data_path(filename))
-    # 只保留这些列
+    # Only keep these columns
     df = df[['datetime', 'open', 'high', 'low', 'close', 'volume', 'openinterest']]
-    # 设置datetime为索引
+    # Set datetime as index
     df.index = pd.to_datetime(df['datetime'])
     df = df[['open', 'high', 'low', 'close', 'volume', 'openinterest']]
     df = df[(df.index <= data_kwargs['todate']) & (df.index >= data_kwargs['fromdate'])]
@@ -63,32 +63,32 @@ def load_rb_data(filename: str = "rb/RB99.csv") -> pd.DataFrame:
 
 
 def run():
-    """运行策略回测"""
+    """Run strategy backtest"""
     config = load_config()
 
-    # 创建cerebro
+    # Create cerebro
     cerebro = bt.Cerebro(stdstats=True)
 
-    # 添加策略（从config加载参数）
+    # Add strategy (load parameters from config)
     params = config.get('params', {})
     cerebro.addstrategy(MacdEmaStrategy, **params)
 
 
 
 
-    # 加载数据
+    # Load data
     data_config = config.get('data', {})
     symbol = data_config.get('symbol', 'RB99')
     print(f"Loading rebar futures data: {symbol}.csv...")
     df = load_rb_data(f"rb/{symbol}.csv")
     print(f"Data range: {df.index[0]} to {df.index[-1]}, total {len(df)} records")
 
-    # 使用RbPandasFeed加载数据
+    # Use RbPandasFeed to load data
     name = symbol
     feed = RbPandasFeed(dataname=df)
     cerebro.adddata(feed, name=name)
 
-    # 设置合约交易信息
+    # Set contract trading information
     bt_config = config.get('backtest', {})
     comm = ComminfoFuturesPercent(
         commission=bt_config.get('commission', 0.0002),
@@ -98,13 +98,13 @@ def run():
     cerebro.broker.addcommissioninfo(comm, name=name)
     cerebro.broker.setcash(bt_config.get('initial_cash', 50000.0))
 
-    # 添加分析器
+    # Add analyzers
     cerebro.addanalyzer(bt.analyzers.TotalValue, _name="my_value")
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name="my_sharpe")
     cerebro.addanalyzer(bt.analyzers.Returns, _name="my_returns")
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="my_drawdown")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="my_trade_analyzer")
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -112,10 +112,10 @@ def run():
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data log
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), 'csv' also available
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',
@@ -126,12 +126,12 @@ def run():
         # mysql_table_prefix='bt',
     )
 
-    # 运行回测
+    # Run backtest
     print("Starting backtest...")
     results = cerebro.run()
     strat = results[0]
 
-    # 获取结果
+    # Get results
     sharpe_ratio = strat.analyzers.my_sharpe.get_analysis().get("sharperatio")
     annual_return = strat.analyzers.my_returns.get_analysis().get("rnorm")
     max_drawdown = strat.analyzers.my_drawdown.get_analysis()["max"]["drawdown"] / 100
@@ -139,7 +139,7 @@ def run():
     total_trades = trade_analysis.get("total", {}).get("total", 0)
     final_value = cerebro.broker.getvalue()
 
-    # 打印结果
+    # Print results
     print("\n" + "=" * 60)
     print("Backtest Results:")
     print(f"  bar_num: {strat.bar_num}")
@@ -152,7 +152,7 @@ def run():
     print(f"  final_value: {final_value}")
     print("=" * 60)
 
-    # **关键**：与原test文件完全相同的断言
+    # **Critical**: Identical assertions from original test file
     assert strat.bar_num == 28069, f"Expected bar_num=28069, got {strat.bar_num}"
     assert strat.buy_count == 1008, f"Expected buy_count=1008, got {strat.buy_count}"
     assert strat.sell_count == 1008, f"Expected sell_count=1008, got {strat.sell_count}"

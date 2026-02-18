@@ -1,8 +1,10 @@
-"""VIX波动率指数策略 (VIX Volatility Index Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""VIX Volatility Index Strategy.
 
-基于VIX波动率指数的逆向投资策略:
-- VIX > 35（市场恐慌） -> 买入
-- VIX < 10（市场平静） -> 卖出
+A contrarian investment strategy based on VIX Volatility Index:
+- VIX > 35 (market panic) -> Buy
+- VIX < 10 (market calm) -> Sell
 
 Author: yunjinqi
 """
@@ -13,12 +15,12 @@ import backtrader as bt
 
 
 class SPYVixData(bt.feeds.GenericCSVData):
-    """加载SPY价格数据和VIX及情绪指标的自定义数据源
+    """Custom data feed for loading SPY price data and VIX & sentiment indicators.
 
-    该数据源扩展了GenericCSVData，用于加载SPY（标普500ETF）历史价格数据
-    以及额外的情绪指标，包括Put/Call比率、Fear & Greed指数和CBOE波动率指数（VIX）。
+    This data feed extends GenericCSVData to load SPY (S&P 500 ETF) historical price data
+    as well as additional sentiment indicators, including Put/Call Ratio, Fear & Greed Index, and CBOE Volatility Index (VIX).
 
-    CSV文件必须包含以下列（顺序）:
+    CSV file must contain the following columns (in order):
     Date, Open, High, Low, Close, Adj Close, Volume, Put Call, Fear Greed, VIX
     """
     lines = ('put_call', 'fear_greed', 'vix')
@@ -39,35 +41,35 @@ class SPYVixData(bt.feeds.GenericCSVData):
 
 
 class VIXStrategy(bt.Strategy):
-    """基于VIX波动率指数的交易策略
+    """Trading strategy based on VIX Volatility Index.
 
-    该策略采用均值回归方法，基于VIX（CBOE波动率指数）进行交易。
-    VIX是衡量预期市场波动率的恐惧指标。
+    This strategy uses a mean-reversion approach, trading based on VIX (CBOE Volatility Index).
+    VIX is a fear gauge measuring expected market volatility.
 
-    策略逻辑:
-        - 入场: 当VIX飙升（> 35）时建立多头仓位（极端恐惧表示超卖）
-        - 出场: 当VIX降至低水平（< 10）时退出仓位（极端平静表示超买）
+    Strategy Logic:
+        - Entry: Establish long position when VIX spikes (> 35) (extreme fear indicates oversold)
+        - Exit: Exit position when VIX drops to low levels (< 10) (extreme calm indicates overbought)
 
-    这是一个基于以下原理的均值回归策略:
-    极度恐惧时期通常先于市场复苏，
-    而极度自满时期可能先于市场回调。
+    This is a mean-reversion strategy based on the principle that
+    extreme fear periods often precede market recovery,
+    while extreme complacency may precede market pullbacks.
     """
 
     params = (
-        ("high_threshold", 35),  # 高阈值: 高于此水平买入（恐惧）
-        ("low_threshold", 10),   # 低阈值: 低于此水平卖出（平静）
+        ("high_threshold", 35),  # High threshold: buy when above this level (fear)
+        ("low_threshold", 10),   # Low threshold: sell when below this level (calm)
     )
 
     def log(self, txt, dt=None, force=False):
-        """记录日志"""
+        """Log strategy information."""
         if not force:
             return
         dt = dt or self.datas[0].datetime.datetime(0)
         print(f"{dt.isoformat()}, {txt}")
 
     def __init__(self):
-        """初始化VIX策略"""
-        # 记录统计
+        """Initialize the VIX strategy."""
+        # Record statistics
         self.bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
@@ -75,13 +77,13 @@ class VIXStrategy(bt.Strategy):
         self.win_count = 0
         self.loss_count = 0
 
-        # 获取数据引用 - 通过datas列表遵循最佳实践
+        # Get data references - follow best practices through datas list
         self.data0 = self.datas[0]
         self.vix = self.data0.vix
         self.close = self.data0.close
 
     def notify_trade(self, trade):
-        """处理交易完成事件"""
+        """Handle trade completion events."""
         if not trade.isclosed:
             return
         if trade.pnl > 0:
@@ -92,7 +94,7 @@ class VIXStrategy(bt.Strategy):
         self.log(f"Trade completed: gross_profit={trade.pnl:.2f}, net_profit={trade.pnlcomm:.2f}, cumulative={self.sum_profit:.2f}")
 
     def notify_order(self, order):
-        """处理订单状态变化事件"""
+        """Handle order status change events."""
         if order.status in [order.Submitted, order.Accepted]:
             return
 
@@ -105,25 +107,25 @@ class VIXStrategy(bt.Strategy):
             self.log(f"ORDER STATUS: {order.Status[order.status]}")
 
     def next(self):
-        """每个bar执行交易逻辑"""
+        """Execute trading logic for each bar."""
         self.bar_num += 1
 
-        # 计算可买入数量
+        # Calculate buyable quantity
         size = int(self.broker.getcash() / self.close[0])
 
-        # VIX高时买入（市场恐惧）
+        # Buy when VIX is high (market fear)
         if self.vix[0] > self.p.high_threshold and not self.position:
             if size > 0:
                 self.buy(size=size)
                 self.buy_count += 1
 
-        # VIX低时卖出（市场平静）
+        # Sell when VIX is low (market calm)
         if self.vix[0] < self.p.low_threshold and self.position.size > 0:
             self.sell(size=self.position.size)
             self.sell_count += 1
 
     def stop(self):
-        """策略执行完成时输出统计"""
+        """Output statistics when strategy execution completes."""
         total_trades = self.win_count + self.loss_count
         win_rate = (self.win_count / total_trades * 100) if total_trades > 0 else 0
         self.log(

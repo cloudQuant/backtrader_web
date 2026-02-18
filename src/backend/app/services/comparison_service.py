@@ -23,17 +23,20 @@ logger = logging.getLogger(__name__)
 
 
 class ComparisonService:
-    """
-    回测结果对比服务
+    """Service for comparing and analyzing backtest results.
 
-    功能：
-    1. 创建对比
-    2. 添加/移除回测任务
-    3. 生成对比分析
-    4. 分享对比
+    This service provides functionality for:
+    1. Creating comparisons between multiple backtest results
+    2. Adding/removing backtest tasks from comparisons
+    3. Generating comparative analysis data
+    4. Sharing comparisons with other users
     """
 
     def __init__(self):
+        """Initialize the ComparisonService.
+
+        Creates instances of the comparison repository and backtest service.
+        """
         self.comparison_repo = SQLRepository(Comparison)
         self.backtest_service = BacktestService()
 
@@ -46,27 +49,31 @@ class ComparisonService:
         comparison_type: str = ComparisonType.METRICS,
         is_public: bool = False,
     ) -> ComparisonResponse:
-        """
-        创建对比
+        """Create a new comparison between backtest results.
 
         Args:
-            user_id: 用户 ID
-            name: 对比名称
-            description: 对比描述
-            backtest_task_ids: 回测任务 ID 列表
-            comparison_type: 对比类型
-            is_public: 是否公开
+            user_id: The ID of the user creating the comparison.
+            name: The name of the comparison.
+            backtest_task_ids: List of backtest task IDs to compare.
+            description: Optional description of the comparison.
+            comparison_type: The type of comparison to perform.
+                Defaults to ComparisonType.METRICS.
+            is_public: Whether the comparison is publicly accessible.
+                Defaults to False.
 
         Returns:
-            ComparisonResponse: 创建的对比
+            ComparisonResponse: The created comparison object.
+
+        Raises:
+            ValueError: If any of the specified backtest tasks do not exist.
         """
-        # 验证回测任务存在
+        # Verify that all backtest tasks exist
         for task_id in backtest_task_ids:
             result = await self.backtest_service.get_result(task_id)
             if not result:
-                raise ValueError(f"回测任务不存在: {task_id}")
+                raise ValueError(f"Backtest task not found: {task_id}")
 
-        # 获取所有回测结果
+        # Retrieve all backtest results
         backtest_results = {}
         for task_id in backtest_task_ids:
             result = await self.backtest_service.get_result(task_id)
@@ -85,12 +92,12 @@ class ComparisonService:
                 "trades": result.trades,
             }
 
-        # 生成对比数据
+        # Generate comparison data
         comparison_data = await self._generate_comparison_data(
             backtest_results, comparison_type
         )
 
-        # 创建对比
+        # Create the comparison
         comparison = Comparison(
             user_id=user_id,
             name=name,
@@ -112,15 +119,14 @@ class ComparisonService:
         backtest_results: Dict[str, Dict[str, Any]],
         comparison_type: str,
     ) -> Dict[str, Any]:
-        """
-        生成对比数据
+        """Generate comparison data based on the specified comparison type.
 
         Args:
-            backtest_results: 回测结果字典
-            comparison_type: 对比类型
+            backtest_results: Dictionary of backtest results keyed by task ID.
+            comparison_type: The type of comparison to generate.
 
         Returns:
-            Dict: 对比数据
+            Dict containing the comparison data for the specified type.
         """
         comparison_data = {
             "backtest_tasks": backtest_results,
@@ -128,20 +134,20 @@ class ComparisonService:
         }
 
         if comparison_type == ComparisonType.METRICS:
-            # 指标对比
+            # Performance metrics comparison
             comparison_data["metrics_comparison"] = self._compare_metrics(backtest_results)
             comparison_data["best_metrics"] = self._find_best_metrics(backtest_results)
 
         elif comparison_type == ComparisonType.EQUITY:
-            # 资金曲线对比
+            # Equity curve comparison
             comparison_data["equity_comparison"] = self._compare_equity(backtest_results)
 
         elif comparison_type == ComparisonType.TRADES:
-            # 交易对比
+            # Trade comparison
             comparison_data["trades_comparison"] = self._compare_trades(backtest_results)
 
         elif comparison_type == ComparisonType.DRAWDOWN:
-            # 回撤对比
+            # Drawdown comparison
             comparison_data["drawdown_comparison"] = self._compare_drawdown(backtest_results)
 
         return comparison_data
@@ -150,14 +156,14 @@ class ComparisonService:
         self,
         backtest_results: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """
-        对比性能指标
+        """Compare performance metrics across multiple backtest results.
 
         Args:
-            backtest_results: 回测结果字典
+            backtest_results: Dictionary of backtest results keyed by task ID.
 
         Returns:
-            Dict: 指标对比
+            Dictionary containing metric comparisons for total return,
+            annual return, Sharpe ratio, maximum drawdown, and win rate.
         """
         metrics_comparison = {
             "total_return": {},
@@ -180,14 +186,16 @@ class ComparisonService:
         self,
         backtest_results: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """
-        找到最优指标
+        """Identify the best performing metrics across all backtest results.
 
         Args:
-            backtest_results: 回测结果字典
+            backtest_results: Dictionary of backtest results keyed by task ID.
 
         Returns:
-            Dict: 最优指标
+            Dictionary containing the task ID and value for each best metric.
+            For return-based metrics (total return, annual return, Sharpe ratio,
+            win rate), the maximum value is selected. For maximum drawdown,
+            the minimum value is selected.
         """
         best_metrics = {
             "total_return": {"task_id": None, "value": float('-inf')},
@@ -198,23 +206,23 @@ class ComparisonService:
         }
 
         for task_id, result in backtest_results.items():
-            # 总收益率（最大化）
+            # Total return (maximize)
             if result["total_return"] > best_metrics["total_return"]["value"]:
                 best_metrics["total_return"] = {"task_id": task_id, "value": result["total_return"]}
 
-            # 年化收益率（最大化）
+            # Annual return (maximize)
             if result["annual_return"] > best_metrics["annual_return"]["value"]:
                 best_metrics["annual_return"] = {"task_id": task_id, "value": result["annual_return"]}
 
-            # 夏普比率（最大化）
+            # Sharpe ratio (maximize)
             if result["sharpe_ratio"] > best_metrics["sharpe_ratio"]["value"]:
                 best_metrics["sharpe_ratio"] = {"task_id": task_id, "value": result["sharpe_ratio"]}
 
-            # 最大回撤（最小化）
+            # Maximum drawdown (minimize)
             if result["max_drawdown"] < best_metrics["max_drawdown"]["value"]:
                 best_metrics["max_drawdown"] = {"task_id": task_id, "value": result["max_drawdown"]}
 
-            # 胜率（最大化）
+            # Win rate (maximize)
             if result["win_rate"] > best_metrics["win_rate"]["value"]:
                 best_metrics["win_rate"] = {"task_id": task_id, "value": result["win_rate"]}
 
@@ -224,29 +232,29 @@ class ComparisonService:
         self,
         backtest_results: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """
-        对比资金曲线
+        """Compare equity curves across multiple backtest results.
 
         Args:
-            backtest_results: 回测结果字典
+            backtest_results: Dictionary of backtest results keyed by task ID.
 
         Returns:
-            Dict: 资金曲线对比
+            Dictionary containing aligned dates and equity curves for comparison.
+            The curves are aligned to a common date timeline for proper comparison.
         """
         equity_comparison = {
             "dates": [],
             "curves": {},
         }
 
-        # 收集所有日期
+        # Collect all dates from all backtest results
         all_dates = set()
         for task_id, result in backtest_results.items():
             all_dates.update(result["equity_dates"])
         equity_comparison["dates"] = sorted(list(all_dates))
 
-        # 收集资金曲线数据
+        # Collect equity curve data
         for task_id, result in backtest_results.items():
-            # 对齐日期
+            # Align dates
             aligned_curve = []
             result_dates = result["equity_dates"]
             result_curve = result["equity_curve"]
@@ -256,11 +264,11 @@ class ComparisonService:
                     index = result_dates.index(date)
                     aligned_curve.append(result_curve[index])
                 else:
-                    # 使用前一个值或初始资金
+                    # Use previous value or initial capital
                     if aligned_curve:
                         aligned_curve.append(aligned_curve[-1])
                     else:
-                        aligned_curve.append(100000.0)  # 默认初始资金
+                        aligned_curve.append(100000.0)  # Default initial capital
 
             equity_comparison["curves"][task_id] = aligned_curve
 
@@ -270,14 +278,13 @@ class ComparisonService:
         self,
         backtest_results: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """
-        对比交易记录
+        """Compare trade statistics across multiple backtest results.
 
         Args:
-            backtest_results: 回测结果字典
+            backtest_results: Dictionary of backtest results keyed by task ID.
 
         Returns:
-            Dict: 交易对比
+            Dictionary containing trade counts and win rates for each backtest.
         """
         trades_comparison = {
             "trade_counts": {},
@@ -303,21 +310,21 @@ class ComparisonService:
         self,
         backtest_results: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """
-        对比最大回撤
+        """Compare drawdown metrics across multiple backtest results.
 
         Args:
-            backtest_results: 回测结果字典
+            backtest_results: Dictionary of backtest results keyed by task ID.
 
         Returns:
-            Dict: 回撤对比
+            Dictionary containing maximum drawdown values and drawdown curves
+            for each backtest result.
         """
         drawdown_comparison = {
             "max_drawdowns": {},
             "drawdown_curves": {},
         }
 
-        # 收集最大回撤
+        # Collect maximum drawdown values and curves
         for task_id, result in backtest_results.items():
             drawdown_comparison["max_drawdowns"][task_id] = result["max_drawdown"]
             drawdown_comparison["drawdown_curves"][task_id] = result["drawdown_curve"]
@@ -330,16 +337,16 @@ class ComparisonService:
         user_id: str,
         update_data: ComparisonUpdate,
     ) -> Optional[ComparisonResponse]:
-        """
-        更新对比
+        """Update an existing comparison.
 
         Args:
-            comparison_id: 对比 ID
-            user_id: 用户 ID
-            update_data: 更新数据
+            comparison_id: The ID of the comparison to update.
+            user_id: The ID of the user attempting the update.
+            update_data: The data to update in the comparison.
 
         Returns:
-            ComparisonResponse or None
+            ComparisonResponse if the update was successful, None if the
+            comparison was not found or the user does not have permission.
         """
         comparison = await self.comparison_repo.get_by_id(comparison_id)
         if not comparison or comparison.user_id != user_id:
@@ -354,7 +361,7 @@ class ComparisonService:
             update_dict["is_public"] = update_data.is_public
         if update_data.backtest_task_ids is not None:
             update_dict["backtest_task_ids"] = update_data.backtest_task_ids
-            # 重新生成对比数据
+            # Regenerate comparison data
             backtest_results = {}
             for task_id in update_data.backtest_task_ids:
                 result = await self.backtest_service.get_result(task_id)
@@ -385,15 +392,15 @@ class ComparisonService:
         comparison_id: str,
         user_id: str,
     ) -> bool:
-        """
-        删除对比
+        """Delete a comparison.
 
         Args:
-            comparison_id: 对比 ID
-            user_id: 用户 ID
+            comparison_id: The ID of the comparison to delete.
+            user_id: The ID of the user attempting the deletion.
 
         Returns:
-            bool: 是否删除成功
+            True if the deletion was successful, False if the comparison
+            was not found or the user does not have permission.
         """
         comparison = await self.comparison_repo.get_by_id(comparison_id)
         if not comparison or comparison.user_id != user_id:
@@ -407,23 +414,23 @@ class ComparisonService:
         comparison_id: str,
         user_id: str,
     ) -> Optional[ComparisonResponse]:
-        """
-        获取对比
+        """Retrieve a comparison by ID.
 
         Args:
-            comparison_id: 对比 ID
-            user_id: 用户 ID
+            comparison_id: The ID of the comparison to retrieve.
+            user_id: The ID of the user requesting the comparison.
 
         Returns:
-            ComparisonResponse or None
+            ComparisonResponse if found and accessible, None otherwise.
+            Users can only access their own comparisons or public comparisons.
         """
         comparison = await self.comparison_repo.get_by_id(comparison_id)
 
-        # 检查权限
+        # Check permissions
         if not comparison:
             return None
 
-        # 只能访问公开的或自己的对比
+        # Only allow access to public comparisons or own comparisons
         if not comparison.is_public and comparison.user_id != user_id:
             return None
 
@@ -436,21 +443,22 @@ class ComparisonService:
         offset: int = 0,
         is_public: Optional[bool] = None,
     ) -> tuple[List[Comparison], int]:
-        """
-        列出对比
+        """List comparisons with filtering and pagination.
 
         Args:
-            user_id: 用户 ID
-            limit: 每页数量
-            offset: 偏移量
-            is_public: 是否只公开的
+            user_id: The ID of the user requesting the list.
+            limit: Maximum number of results to return. Defaults to 20.
+            offset: Number of results to skip for pagination. Defaults to 0.
+            is_public: Filter for public comparisons only. If True, returns
+                all public comparisons. If False, returns user's private
+                comparisons. If None, returns user's all comparisons.
 
         Returns:
-            (comparisons, total)
+            A tuple containing (list of comparisons, total count).
         """
         filters = {"user_id": user_id}
 
-        # 如果只看公开的，则不限制用户（或者限制为公开的）
+        # If filtering by public status, adjust filters accordingly
         if is_public is not None:
             if is_public:
                 filters = {"is_public": True}
@@ -470,14 +478,13 @@ class ComparisonService:
         return comparisons, total
 
     def _to_response(self, comparison: Comparison) -> ComparisonResponse:
-        """
-        转换为响应模型
+        """Convert a Comparison model to a ComparisonResponse schema.
 
         Args:
-            comparison: 对比模型
+            comparison: The Comparison model instance.
 
         Returns:
-            ComparisonResponse
+            ComparisonResponse: The response schema representation.
         """
         return ComparisonResponse(
             id=comparison.id,

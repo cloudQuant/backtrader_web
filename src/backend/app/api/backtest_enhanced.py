@@ -53,20 +53,18 @@ def get_report_service():
     return ReportService()
 
 
-# ==================== 回测 API ====================
+# ==================== Backtest API ====================
 
-@router.post("/run", response_model=BacktestResponse, summary="运行回测")
+@router.post("/run", response_model=BacktestResponse, summary="Run backtest")
 async def run_backtest(
     request: BacktestRequest,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """
-    Submit a backtest task (enhanced).
-    """
+    """Submit a backtest task (enhanced)."""
     result = await service.run_backtest(current_user.sub, request)
 
-    # 通知 WebSocket 客户端（如果有连接）
+    # Notify WebSocket clients (if connected)
     await ws_manager.send_to_task(result.task_id, {
         "type": "task_created",
         "task_id": result.task_id,
@@ -76,48 +74,48 @@ async def run_backtest(
     return result
 
 
-@router.get("/{task_id}", response_model=BacktestResult, summary="获取回测结果")
+@router.get("/{task_id}", response_model=BacktestResult, summary="Get backtest result")
 async def get_backtest_result(
     task_id: str,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """获取回测结果"""
+    """Get backtest result."""
     result = await service.get_result(task_id, user_id=current_user.sub)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="回测结果不存在",
+            detail="Backtest result not found",
         )
     return result
 
 
-@router.get("/{task_id}/status", summary="获取回测任务状态")
+@router.get("/{task_id}/status", summary="Get backtest task status")
 async def get_backtest_status(
     task_id: str,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """获取回测任务状态"""
+    """Get backtest task status."""
     task_status = await service.get_task_status(task_id, user_id=current_user.sub)
     if not task_status:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在",
+            detail="Task not found",
         )
     return {"task_id": task_id, "status": task_status.value}
 
 
-@router.get("/", response_model=BacktestListResponse, summary="列出回测历史")
+@router.get("/", response_model=BacktestListResponse, summary="List backtest history")
 async def list_backtests(
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-    limit: int = Query(20, ge=1, le=100, description="每页数量"),
-    offset: int = Query(0, ge=0, description="偏移量"),
-    sort_by: str = Query("created_at", description="排序字段：created_at/sharpe_ratio/total_return"),
-    sort_order: str = Query("desc", description="排序方向：asc/desc"),
+    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    offset: int = Query(0, ge=0, description="Offset"),
+    sort_by: str = Query("created_at", description="Sort field: created_at/sharpe_ratio/total_return"),
+    sort_order: str = Query("desc", description="Sort direction: asc/desc"),
 ):
-    """列出用户的回测历史（增强版，支持排序）"""
+    """List user's backtest history (enhanced, supports sorting)."""
     sort_desc = str(sort_order).lower() != "asc"
     results = await service.list_results(
         current_user.sub,
@@ -129,93 +127,89 @@ async def list_backtests(
     return results
 
 
-@router.delete("/{task_id}", summary="删除回测结果")
+@router.delete("/{task_id}", summary="Delete backtest result")
 async def delete_backtest(
     task_id: str,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """删除回测结果"""
+    """Delete backtest result."""
     success = await service.delete_result(task_id, current_user.sub)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="回测结果不存在或无权删除",
+            detail="Backtest result not found or no permission to delete",
         )
-    return {"message": "删除成功"}
+    return {"message": "Deleted successfully"}
 
 
-# ==================== 参数优化 API ====================
+# ==================== Parameter Optimization API ====================
 
-@router.post("/optimization/grid", response_model=OptimizationResult, summary="网格搜索优化")
+@router.post("/optimization/grid", response_model=OptimizationResult, summary="Grid search optimization")
 async def grid_search_optimization(
     request: OptimizationRequest,
     current_user=Depends(get_current_user),
     service: OptimizationService = Depends(get_optimization_service),
 ):
-    """
-    网格搜索优化
+    """Grid search optimization.
 
-    遍历所有参数组合，找到最优参数
+    Iterates through all parameter combinations to find optimal parameters.
     """
     if request.method != "grid":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="网格搜索需要 method=grid",
+            detail="Grid search requires method=grid",
         )
 
     result = await service.run_grid_search(current_user.sub, request)
     return result
 
 
-@router.post("/optimization/bayesian", response_model=OptimizationResult, summary="贝叶斯优化")
+@router.post("/optimization/bayesian", response_model=OptimizationResult, summary="Bayesian optimization")
 async def bayesian_optimization(
     request: OptimizationRequest,
     current_user=Depends(get_current_user),
     service: OptimizationService = Depends(get_optimization_service),
 ):
-    """
-    贝叶斯优化（智能优化）
+    """Bayesian optimization (intelligent optimization).
 
-    使用 Optuna 进行贝叶斯优化，找到最优参数
+    Uses Optuna for Bayesian optimization to find optimal parameters.
     """
     if request.method != "bayesian":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="贝叶斯优化需要 method=bayesian",
+            detail="Bayesian optimization requires method=bayesian",
         )
 
     result = await service.run_bayesian_optimization(current_user.sub, request)
     return result
 
 
-# ==================== 回测报告导出 API ====================
+# ==================== Backtest Report Export API ====================
 
-@router.get("/{task_id}/report/html", summary="导出 HTML 报告")
+@router.get("/{task_id}/report/html", summary="Export HTML report")
 async def get_html_report(
     task_id: str,
     current_user=Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
 ):
-    """
-    导出 HTML 格式的回测报告
-    """
+    """Export backtest report in HTML format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="回测结果不存在",
+            detail="Backtest result not found",
         )
 
-    # 获取策略信息
-    # TODO: 从策略表获取
+    # Get strategy info
+    # TODO: Get from strategy table
     strategy = {
-        'name': f"策略 {result.strategy_id}",
-        'description': '自定义策略',
+        'name': f"Strategy {result.strategy_id}",
+        'description': 'Custom strategy',
     }
 
-    # 生成 HTML 报告
+    # Generate HTML report
     html_content = await report_service.generate_html_report(
         result.model_dump(mode='python'),
         strategy
@@ -228,30 +222,28 @@ async def get_html_report(
     )
 
 
-@router.get("/{task_id}/report/pdf", summary="导出 PDF 报告")
+@router.get("/{task_id}/report/pdf", summary="Export PDF report")
 async def get_pdf_report(
     task_id: str,
     current_user=Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
 ):
-    """
-    导出 PDF 格式的回测报告
-    """
+    """Export backtest report in PDF format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="回测结果不存在",
+            detail="Backtest result not found",
         )
 
-    # 获取策略信息
+    # Get strategy info
     strategy = {
-        'name': f"策略 {result.strategy_id}",
-        'description': '自定义策略',
+        'name': f"Strategy {result.strategy_id}",
+        'description': 'Custom strategy',
     }
 
-    # 生成 PDF 报告
+    # Generate PDF report
     try:
         pdf_bytes = await report_service.generate_pdf_report(
             result.model_dump(mode='python'),
@@ -266,34 +258,32 @@ async def get_pdf_report(
     except ImportError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PDF 生成功能未启用，需要安装 weasyprint: {e}"
+            detail=f"PDF generation not enabled, need to install weasyprint: {e}"
         )
 
 
-@router.get("/{task_id}/report/excel", summary="导出 Excel 报告")
+@router.get("/{task_id}/report/excel", summary="Export Excel report")
 async def get_excel_report(
     task_id: str,
     current_user=Depends(get_current_user),
     backtest_service: BacktestService = Depends(get_backtest_service),
     report_service: ReportService = Depends(get_report_service),
 ):
-    """
-    导出 Excel 格式的回测报告
-    """
+    """Export backtest report in Excel format."""
     result = await backtest_service.get_result(task_id, user_id=current_user.sub)
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="回测结果不存在",
+            detail="Backtest result not found",
         )
 
-    # 获取策略信息
+    # Get strategy info
     strategy = {
-        'name': f"策略 {result.strategy_id}",
-        'description': '自定义策略',
+        'name': f"Strategy {result.strategy_id}",
+        'description': 'Custom strategy',
     }
 
-    # 生成 Excel 报告
+    # Generate Excel report
     try:
         excel_bytes = await report_service.generate_excel_report(
             result.model_dump(mode='python'),
@@ -308,52 +298,51 @@ async def get_excel_report(
     except ImportError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Excel 导出功能未启用，需要安装 pandas 和 openpyxl: {e}"
+            detail=f"Excel export not enabled, need to install pandas and openpyxl: {e}"
         )
 
 
-# ==================== WebSocket 端点 ====================
+# ==================== WebSocket Endpoint ====================
 
 @router.websocket("/ws/backtest/{task_id}")
 async def websocket_endpoint(
     websocket: WebSocket,
     task_id: str,
 ):
-    """
-    WebSocket 端点 - 实时推送回测进度和日志
+    """WebSocket endpoint - Real-time backtest progress and log streaming.
 
     Args:
-        websocket: WebSocket 连接对象
-        task_id: 回测任务 ID
+        websocket: WebSocket connection object.
+        task_id: Backtest task ID.
 
-    使用方式：
-        - 客户端连接：ws://host/api/v1/backtest/ws/backtest/{task_id}
-        - 接收消息：JSON 格式，包含 type, task_id, message, data
-        - 消息类型：
-            - connected: 连接成功
-            - progress: 进度更新（包含进度百分比、当前结果）
-            - log: 日志消息
-            - completed: 回测完成（包含完整结果）
-            - failed: 回测失败（包含错误信息）
+    Usage:
+        - Client connection: ws://host/api/v1/backtest/ws/backtest/{task_id}
+        - Receive messages: JSON format, containing type, task_id, message, data
+        - Message types:
+            - connected: Connection successful
+            - progress: Progress update (includes progress percentage, current result)
+            - log: Log message
+            - completed: Backtest complete (includes full result)
+            - failed: Backtest failed (includes error information)
     """
 
-    # 生成唯一的客户端 ID
+    # Generate unique client ID
     client_id = f"client_{id(websocket)}"
 
-    # 建立连接
+    # Establish connection
     await ws_manager.connect(websocket, task_id, client_id)
 
     try:
-        # 轮询任务状态并推送
+        # Poll task status and push updates
         backtest_service = get_backtest_service()
         import asyncio
 
         while True:
-            # 检查任务状态
+            # Check task status
             task_status = await backtest_service.get_task_status(task_id)
             result = await backtest_service.get_result(task_id)
 
-            # 发送进度更新
+            # Send progress update
             if task_status == TaskStatus.RUNNING:
                 progress = await ws_manager.get_connection_count(task_id)
                 await ws_manager.send_to_task(task_id, {
@@ -363,7 +352,7 @@ async def websocket_endpoint(
                     "data": result.model_dump(mode='python') if result else {},
                 })
 
-            # 发送完成消息
+            # Send completion message
             elif task_status == TaskStatus.COMPLETED and result:
                 await ws_manager.send_to_task(task_id, {
                     "type": "completed",
@@ -372,7 +361,7 @@ async def websocket_endpoint(
                 })
                 break
 
-            # 发送失败消息
+            # Send failure message
             elif task_status == TaskStatus.FAILED:
                 await ws_manager.send_to_task(task_id, {
                     "type": "failed",
@@ -381,18 +370,18 @@ async def websocket_endpoint(
                 })
                 break
 
-            # 如果任务已完成或失败，退出循环
+            # Exit loop if task is completed or failed
             if task_status in [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED]:
                 break
 
-            # 等待 1 秒后再检查
+            # Wait 1 second before checking again
             await asyncio.sleep(1)
 
     except WebSocketDisconnect:
-        # 正常断开
+        # Normal disconnect
         ws_manager.disconnect(websocket, task_id, client_id)
     except Exception as e:
-        # 异常断开
+        # Exception disconnect
         import logging
         logging.error(f"WebSocket error: {e}")
         ws_manager.disconnect(websocket, task_id, client_id)

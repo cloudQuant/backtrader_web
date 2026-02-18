@@ -1,12 +1,12 @@
 """
-实盘交易管理 API 测试
+Live Trading Management API Tests.
 
-测试：
-- 实盘策略列表
-- 添加/删除实盘策略
-- 启动/停止策略
-- 批量启动/停止
-- 实盘分析接口
+Tests:
+    - Live trading strategy list
+    - Add/remove live trading strategies
+    - Start/stop strategies
+    - Batch start/stop
+    - Live trading analytics endpoints
 """
 import json
 from pathlib import Path
@@ -17,10 +17,15 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 class TestLiveTradingList:
-    """实盘策略列表测试"""
+    """Tests for live trading strategy list endpoint."""
 
     async def test_list_instances_empty(self, client: AsyncClient, auth_headers):
-        """测试空列表"""
+        """Test empty list response.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.get("/api/v1/live-trading/", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
@@ -30,22 +35,31 @@ class TestLiveTradingList:
         assert len(data["instances"]) == 0
 
     async def test_list_instances_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test that authentication is required.
+
+        Args:
+            client: Async HTTP client fixture.
+        """
         response = await client.get("/api/v1/live-trading/")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
 
 @pytest.mark.asyncio
 class TestLiveTradingCreate:
-    """创建实盘策略测试"""
+    """Tests for creating live trading strategies."""
 
     async def test_add_instance_success(self, client: AsyncClient, auth_headers):
-        """测试成功添加策略"""
-        # 模拟策略目录存在
+        """Test successful strategy addition.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
+        # Mock strategy directory exists
         with patch('app.services.live_trading_manager.STRATEGIES_DIR', Path("/tmp/strategies")):
             with patch('app.services.live_trading_manager.get_template_by_id') as mock_tpl:
-                mock_tpl.return_value = MagicMock(name="测试策略", params={})
+                mock_tpl.return_value = MagicMock(name="Test Strategy", params={})
 
                 with patch('app.services.live_trading_manager._save_instances'):
                     response = await client.post(
@@ -54,11 +68,16 @@ class TestLiveTradingCreate:
                         json={"strategy_id": "test_strategy", "params": {"fast": 10, "slow": 20}}
                     )
 
-        # 可能返回 400 如果策略不存在，这是预期的
+        # May return 400 if strategy doesn't exist, which is expected
         assert response.status_code in [200, 400]
 
     async def test_add_instance_invalid_strategy(self, client: AsyncClient, auth_headers):
-        """测试添加不存在的策略"""
+        """Test adding non-existent strategy.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.post(
             "/api/v1/live-trading/",
             headers=auth_headers,
@@ -69,10 +88,15 @@ class TestLiveTradingCreate:
 
 @pytest.mark.asyncio
 class TestLiveTradingDelete:
-    """删除实盘策略测试"""
+    """Tests for deleting live trading strategies."""
 
     async def test_remove_instance_not_found(self, client: AsyncClient, auth_headers):
-        """测试删除不存在的实例"""
+        """Test removing non-existent instance.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.delete(
             "/api/v1/live-trading/non_existent_id",
             headers=auth_headers
@@ -82,10 +106,15 @@ class TestLiveTradingDelete:
 
 @pytest.mark.asyncio
 class TestLiveTradingGetDetail:
-    """获取实盘策略详情测试"""
+    """Tests for getting live trading strategy details."""
 
     async def test_get_instance_not_found(self, client: AsyncClient, auth_headers):
-        """测试获取不存在的实例"""
+        """Test getting non-existent instance.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.get(
             "/api/v1/live-trading/non_existent_id",
             headers=auth_headers
@@ -95,10 +124,15 @@ class TestLiveTradingGetDetail:
 
 @pytest.mark.asyncio
 class TestLiveTradingControl:
-    """实盘策略控制测试"""
+    """Tests for live trading strategy control."""
 
     async def test_start_instance_not_found(self, client: AsyncClient, auth_headers):
-        """测试启动不存在的实例"""
+        """Test starting non-existent instance.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.post(
             "/api/v1/live-trading/non_existent_id/start",
             headers=auth_headers
@@ -106,7 +140,12 @@ class TestLiveTradingControl:
         assert response.status_code == 400
 
     async def test_stop_instance_not_found(self, client: AsyncClient, auth_headers):
-        """测试停止不存在的实例"""
+        """Test stopping non-existent instance.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.post(
             "/api/v1/live-trading/non_existent_id/stop",
             headers=auth_headers
@@ -114,7 +153,12 @@ class TestLiveTradingControl:
         assert response.status_code == 400
 
     async def test_start_all(self, client: AsyncClient, auth_headers):
-        """测试批量启动"""
+        """Test batch start all instances.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.services.live_trading_manager.LiveTradingManager.start_all', new_callable=AsyncMock) as mock_start:
             mock_start.return_value = {"started": 0, "failed": 0, "errors": []}
             response = await client.post(
@@ -124,7 +168,12 @@ class TestLiveTradingControl:
             assert response.status_code == 200
 
     async def test_stop_all(self, client: AsyncClient, auth_headers):
-        """测试批量停止"""
+        """Test batch stop all instances.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.services.live_trading_manager.LiveTradingManager.stop_all', new_callable=AsyncMock) as mock_stop:
             mock_stop.return_value = {"stopped": 0, "failed": 0, "errors": []}
             response = await client.post(
@@ -136,10 +185,15 @@ class TestLiveTradingControl:
 
 @pytest.mark.asyncio
 class TestLiveTradingAnalytics:
-    """实盘分析接口测试"""
+    """Tests for live trading analytics endpoints."""
 
     async def test_get_live_detail_not_found(self, client: AsyncClient, auth_headers):
-        """测试获取不存在实例的分析详情"""
+        """Test getting analytics for non-existent instance.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.get(
             "/api/v1/live-trading/non_existent_id/detail",
             headers=auth_headers
@@ -147,7 +201,12 @@ class TestLiveTradingAnalytics:
         assert response.status_code == 404
 
     async def test_get_live_kline_not_found(self, client: AsyncClient, auth_headers):
-        """测试获取不存在实例的K线数据"""
+        """Test getting K-line data for non-existent instance.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.get(
             "/api/v1/live-trading/non_existent_id/kline",
             headers=auth_headers
@@ -155,7 +214,12 @@ class TestLiveTradingAnalytics:
         assert response.status_code == 404
 
     async def test_get_live_monthly_returns_not_found(self, client: AsyncClient, auth_headers):
-        """测试获取不存在实例的月度收益"""
+        """Test getting monthly returns for non-existent instance.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         response = await client.get(
             "/api/v1/live-trading/non_existent_id/monthly-returns",
             headers=auth_headers
@@ -163,14 +227,19 @@ class TestLiveTradingAnalytics:
         assert response.status_code == 404
 
     async def test_get_live_detail_with_valid_instance(self, client: AsyncClient, auth_headers):
-        """测试获取有效实例的分析详情"""
+        """Test getting analytics details for valid instance.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         # Mock the manager and log parser
         with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.get_instance.return_value = {
                 "instance_id": "inst1",
                 "strategy_id": "strategy1",
-                "strategy_name": "双均线",
+                "strategy_name": "Dual MA",
             }
             mock_get_mgr.return_value = mock_mgr
 
@@ -198,7 +267,12 @@ class TestLiveTradingAnalytics:
                 assert response.status_code == 200
 
     async def test_get_live_detail_no_log_data(self, client: AsyncClient, auth_headers):
-        """测试获取详情时无日志数据"""
+        """Test getting details when no log data exists.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.get_instance.return_value = {
@@ -219,10 +293,15 @@ class TestLiveTradingAnalytics:
 
 @pytest.mark.asyncio
 class TestLiveTradingKline:
-    """实盘K线接口测试"""
+    """Tests for live trading K-line endpoints."""
 
     async def test_get_kline_with_log_data(self, client: AsyncClient, auth_headers):
-        """测试获取有日志数据的K线"""
+        """Test getting K-line with log data.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.get_instance.return_value = {
@@ -250,7 +329,12 @@ class TestLiveTradingKline:
                         assert response.status_code == 200
 
     async def test_get_kline_no_log_dir(self, client: AsyncClient, auth_headers):
-        """测试获取K线时无日志目录"""
+        """Test getting K-line when no log directory exists.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.get_instance.return_value = {
@@ -271,10 +355,15 @@ class TestLiveTradingKline:
 
 @pytest.mark.asyncio
 class TestLiveTradingMonthlyReturns:
-    """实盘月度收益接口测试"""
+    """Tests for live trading monthly returns endpoints."""
 
     async def test_get_monthly_returns_with_data(self, client: AsyncClient, auth_headers):
-        """测试获取有数据的月度收益"""
+        """Test getting monthly returns with data.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.get_instance.return_value = {
@@ -298,7 +387,12 @@ class TestLiveTradingMonthlyReturns:
                     assert response.status_code == 200
 
     async def test_get_monthly_returns_empty_data(self, client: AsyncClient, auth_headers):
-        """测试获取空数据的月度收益"""
+        """Test getting monthly returns with empty data.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.get_instance.return_value = {
@@ -324,10 +418,15 @@ class TestLiveTradingMonthlyReturns:
 
 @pytest.mark.asyncio
 class TestLiveTradingStartStop:
-    """启动/停止接口扩展测试"""
+    """Extended tests for start/stop endpoints."""
 
     async def test_start_instance_success(self, client: AsyncClient, auth_headers):
-        """测试成功启动实例"""
+        """Test successful instance start.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.start_instance = AsyncMock(return_value={
@@ -344,7 +443,12 @@ class TestLiveTradingStartStop:
             assert response.status_code == 200
 
     async def test_stop_instance_success(self, client: AsyncClient, auth_headers):
-        """测试成功停止实例"""
+        """Test successful instance stop.
+
+        Args:
+            client: Async HTTP client fixture.
+            auth_headers: Authentication headers fixture.
+        """
         with patch('app.api.live_trading_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.stop_instance = AsyncMock(return_value={
@@ -363,10 +467,14 @@ class TestLiveTradingStartStop:
 
 @pytest.mark.asyncio
 class TestLiveTradingManager:
-    """LiveTradingManager 服务测试"""
+    """Tests for LiveTradingManager service."""
 
     async def test_manager_singleton(self):
-        """测试管理器单例"""
+        """Test manager singleton pattern.
+
+        Verifies that get_live_trading_manager returns
+        the same instance each time.
+        """
         from app.services.live_trading_manager import get_live_trading_manager, LiveTradingManager
 
         mgr1 = get_live_trading_manager()
@@ -375,7 +483,11 @@ class TestLiveTradingManager:
         assert mgr1 is mgr2
 
     async def test_list_instances_filters_by_user(self):
-        """测试按用户过滤实例"""
+        """Test listing instances filtered by user.
+
+        Verifies that list_instances returns only
+        instances belonging to the specified user.
+        """
         from app.services.live_trading_manager import LiveTradingManager
 
         with patch('app.services.live_trading_manager._load_instances', return_value={

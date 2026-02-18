@@ -1,15 +1,15 @@
 """
-回测结果对比 API 测试
+Backtest result comparison API tests
 
-测试：
-- 创建对比
-- 获取对比详情
-- 更新对比
-- 删除对比
-- 列出对比
-- 切换收藏状态
-- 分享对比
-- 获取各类对比数据（指标、资金曲线、交易、回撤）
+Tests:
+- Create comparison
+- Get comparison details
+- Update comparison
+- Delete comparison
+- List comparisons
+- Toggle favorite status
+- Share comparison
+- Get comparison data (metrics, equity curve, trades, drawdown)
 """
 import pytest
 from httpx import AsyncClient
@@ -18,10 +18,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 @pytest.mark.asyncio
 class TestComparisonCreate:
-    """测试创建对比"""
+    """Test creating comparison"""
 
     async def test_create_comparison_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.post("/api/v1/comparisons/", json={
             "name": "Test Comparison",
             "backtest_task_ids": ["task1", "task2"]
@@ -29,7 +29,7 @@ class TestComparisonCreate:
         assert resp.status_code in [401, 403]
 
     async def test_create_comparison_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功创建对比"""
+        """Test successful comparison creation"""
         # Note: This test may return 500 because the ComparisonService validates
         # that backtest tasks exist in the database. Without real tasks, it fails.
         # The ValueError might propagate through ASGITransport.
@@ -44,10 +44,10 @@ class TestComparisonCreate:
             assert resp.status_code in [200, 201, 422, 500]
         except ValueError as e:
             # ValueError propagates when tasks don't exist - this is expected behavior
-            assert "回测任务不存在" in str(e)
+            assert "Backtest task not found" in str(e)
 
     async def test_create_comparison_invalid_data(self, client: AsyncClient, auth_headers: dict):
-        """测试创建对比时数据无效"""
+        """Test creating comparison with invalid data"""
         resp = await client.post("/api/v1/comparisons/", headers=auth_headers, json={
             "name": "",
             "backtest_task_ids": []
@@ -57,15 +57,15 @@ class TestComparisonCreate:
 
 @pytest.mark.asyncio
 class TestComparisonDetail:
-    """测试获取对比详情"""
+    """Test getting comparison details"""
 
     async def test_get_comparison_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.get("/api/v1/comparisons/comp123")
         assert resp.status_code in [401, 403]
 
     async def test_get_comparison_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试不存在的对比"""
+        """Test comparison not found"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
@@ -75,7 +75,7 @@ class TestComparisonDetail:
             assert resp.status_code == 404
 
     async def test_get_comparison_unauthorized(self, client: AsyncClient, auth_headers: dict):
-        """测试无权访问"""
+        """Test unauthorized access"""
         # Note: This test checks the 403 (forbidden) response
         # If the comparison doesn't exist or user_id check fails differently, we accept 404
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
@@ -92,7 +92,7 @@ class TestComparisonDetail:
             assert resp.status_code in [403, 404]
 
     async def test_get_comparison_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功获取对比"""
+        """Test successful comparison retrieval"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
@@ -110,15 +110,15 @@ class TestComparisonDetail:
 
 @pytest.mark.asyncio
 class TestComparisonUpdate:
-    """测试更新对比"""
+    """Test updating comparison"""
 
     async def test_update_comparison_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.put("/api/v1/comparisons/comp123", json={"name": "Updated"})
         assert resp.status_code in [401, 403]
 
     async def test_update_comparison_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试更新不存在的对比"""
+        """Test updating non-existent comparison"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.update_comparison = AsyncMock(return_value=None)
@@ -130,7 +130,7 @@ class TestComparisonUpdate:
             assert resp.status_code == 404
 
     async def test_update_comparison_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功更新对比"""
+        """Test successful comparison update"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
@@ -149,15 +149,15 @@ class TestComparisonUpdate:
 
 @pytest.mark.asyncio
 class TestComparisonDelete:
-    """测试删除对比"""
+    """Test deleting comparison"""
 
     async def test_delete_comparison_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.delete("/api/v1/comparisons/comp123")
         assert resp.status_code in [401, 403]
 
     async def test_delete_comparison_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试删除不存在的对比"""
+        """Test deleting non-existent comparison"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.delete_comparison = AsyncMock(return_value=False)
@@ -167,7 +167,7 @@ class TestComparisonDelete:
             assert resp.status_code == 404
 
     async def test_delete_comparison_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功删除对比"""
+        """Test successful comparison deletion"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.delete_comparison = AsyncMock(return_value=True)
@@ -179,15 +179,15 @@ class TestComparisonDelete:
 
 @pytest.mark.asyncio
 class TestComparisonList:
-    """测试列出对比"""
+    """Test listing comparisons"""
 
     async def test_list_comparisons_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.get("/api/v1/comparisons/")
         assert resp.status_code in [401, 403]
 
     async def test_list_comparisons_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功列出对比"""
+        """Test successful comparison listing"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_comparisons = AsyncMock(return_value=([], 0))
@@ -197,7 +197,7 @@ class TestComparisonList:
             assert resp.status_code in [200, 404]
 
     async def test_list_comparisons_with_pagination(self, client: AsyncClient, auth_headers: dict):
-        """测试分页参数"""
+        """Test pagination parameters"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_comparisons = AsyncMock(return_value=([], 0))
@@ -207,7 +207,7 @@ class TestComparisonList:
             assert resp.status_code in [200, 404]
 
     async def test_list_comparisons_public_filter(self, client: AsyncClient, auth_headers: dict):
-        """测试公开筛选参数"""
+        """Test public filter parameter"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_comparisons = AsyncMock(return_value=([], 0))
@@ -219,15 +219,15 @@ class TestComparisonList:
 
 @pytest.mark.asyncio
 class TestComparisonToggleFavorite:
-    """测试切换收藏状态"""
+    """Test toggling favorite status"""
 
     async def test_toggle_favorite_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.post("/api/v1/comparisons/comp123/toggle-favorite")
         assert resp.status_code in [401, 403]
 
     async def test_toggle_favorite_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试切换不存在的对比"""
+        """Test toggling non-existent comparison"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
@@ -237,7 +237,7 @@ class TestComparisonToggleFavorite:
             assert resp.status_code == 404
 
     async def test_toggle_favorite_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功切换收藏状态"""
+        """Test successful favorite toggle"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
@@ -261,15 +261,15 @@ class TestComparisonToggleFavorite:
 
 @pytest.mark.asyncio
 class TestComparisonShare:
-    """测试分享对比"""
+    """Test sharing comparison"""
 
     async def test_share_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.post("/api/v1/comparisons/comp123/share", json={})
         assert resp.status_code in [401, 403]
 
     async def test_share_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试分享不存在的对比"""
+        """Test sharing non-existent comparison"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
@@ -281,7 +281,7 @@ class TestComparisonShare:
             assert resp.status_code == 404
 
     async def test_share_unauthorized(self, client: AsyncClient, auth_headers: dict):
-        """测试无权分享"""
+        """Test unauthorized sharing"""
         # Note: This test checks the 403 (forbidden) response
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
@@ -298,7 +298,7 @@ class TestComparisonShare:
             assert resp.status_code in [403, 404]
 
     async def test_share_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功分享"""
+        """Test successful sharing"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
@@ -316,15 +316,15 @@ class TestComparisonShare:
 
 @pytest.mark.asyncio
 class TestComparisonMetrics:
-    """测试获取指标对比数据"""
+    """Test getting metrics comparison data"""
 
     async def test_get_metrics_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.get("/api/v1/comparisons/comp123/metrics")
         assert resp.status_code in [401, 403]
 
     async def test_get_metrics_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试不存在的对比"""
+        """Test comparison not found"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
@@ -334,7 +334,7 @@ class TestComparisonMetrics:
             assert resp.status_code == 404
 
     async def test_get_metrics_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功获取指标对比"""
+        """Test successful metrics retrieval"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
@@ -351,15 +351,15 @@ class TestComparisonMetrics:
 
 @pytest.mark.asyncio
 class TestComparisonEquity:
-    """测试获取资金曲线对比数据"""
+    """Test getting equity curve comparison data"""
 
     async def test_get_equity_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.get("/api/v1/comparisons/comp123/equity")
         assert resp.status_code in [401, 403]
 
     async def test_get_equity_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试不存在的对比"""
+        """Test comparison not found"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
@@ -369,7 +369,7 @@ class TestComparisonEquity:
             assert resp.status_code == 404
 
     async def test_get_equity_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功获取资金曲线对比"""
+        """Test successful equity curve retrieval"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
@@ -386,15 +386,15 @@ class TestComparisonEquity:
 
 @pytest.mark.asyncio
 class TestComparisonTrades:
-    """测试获取交易对比数据"""
+    """Test getting trades comparison data"""
 
     async def test_get_trades_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.get("/api/v1/comparisons/comp123/trades")
         assert resp.status_code in [401, 403]
 
     async def test_get_trades_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试不存在的对比"""
+        """Test comparison not found"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
@@ -404,7 +404,7 @@ class TestComparisonTrades:
             assert resp.status_code == 404
 
     async def test_get_trades_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功获取交易对比"""
+        """Test successful trades retrieval"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
@@ -421,15 +421,15 @@ class TestComparisonTrades:
 
 @pytest.mark.asyncio
 class TestComparisonDrawdown:
-    """测试获取回撤对比数据"""
+    """Test getting drawdown comparison data"""
 
     async def test_get_drawdown_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         resp = await client.get("/api/v1/comparisons/comp123/drawdown")
         assert resp.status_code in [401, 403]
 
     async def test_get_drawdown_not_found(self, client: AsyncClient, auth_headers: dict):
-        """测试不存在的对比"""
+        """Test comparison not found"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
@@ -439,7 +439,7 @@ class TestComparisonDrawdown:
             assert resp.status_code == 404
 
     async def test_get_drawdown_success(self, client: AsyncClient, auth_headers: dict):
-        """测试成功获取回撤对比"""
+        """Test successful drawdown retrieval"""
         with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
@@ -456,10 +456,10 @@ class TestComparisonDrawdown:
 
 @pytest.mark.asyncio
 class TestComparisonServiceSingleton:
-    """测试服务单例"""
+    """Test service singleton"""
 
     async def test_comparison_service_singleton(self):
-        """测试ComparisonService单例"""
+        """Test ComparisonService singleton"""
         from app.api.comparison import get_comparison_service
 
         svc1 = get_comparison_service()

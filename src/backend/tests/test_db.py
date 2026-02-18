@@ -1,5 +1,5 @@
 """
-数据库模块测试
+Database module tests.
 """
 import pytest
 from sqlalchemy import select, text
@@ -11,45 +11,45 @@ from app.config import get_settings
 
 
 class TestBase:
-    """ORM基类测试"""
+    """ORM base class tests."""
 
     def test_base_is_declarative(self):
-        """测试Base是DeclarativeBase"""
+        """Test that Base is DeclarativeBase."""
         from sqlalchemy.orm import DeclarativeBase
         assert isinstance(Base, type)
-        # Base 应该是 DeclarativeBase 的子类
+        # Base should be a subclass of DeclarativeBase
         assert hasattr(Base, 'metadata')
 
     def test_base_metadata_exists(self):
-        """测试Base metadata存在"""
+        """Test that Base metadata exists."""
         assert Base.metadata is not None
 
 
 class TestEngineAndSessionMaker:
-    """引擎和会话工厂测试"""
+    """Engine and session factory tests."""
 
     def test_engine_exists(self):
-        """测试引擎已创建"""
+        """Test that the engine is created."""
         assert engine is not None
 
     def test_async_session_maker_exists(self):
-        """测试会话工厂已创建"""
+        """Test that the session factory is created."""
         assert async_session_maker is not None
 
 
 class TestInitDb:
-    """初始化数据库测试"""
+    """Database initialization tests."""
 
     async def test_init_db_creates_tables(self):
-        """测试init_db创建表"""
-        # 先删除所有表
+        """Test that init_db creates tables."""
+        # Drop all tables first
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
 
-        # 调用 init_db
+        # Call init_db
         await init_db()
 
-        # 验证表已创建（通过查询user表）
+        # Verify tables are created (by querying user table)
         async with engine.begin() as conn:
             result = await conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -58,34 +58,34 @@ class TestInitDb:
             assert len(tables) >= 1
 
     async def test_init_db_idempotent(self):
-        """测试init_db可以多次调用"""
-        # 第一次调用
+        """Test that init_db can be called multiple times."""
+        # First call
         await init_db()
-        # 第二次调用不应报错
+        # Second call should not error
         await init_db()
 
 
 class TestCreateDefaultAdmin:
-    """创建默认管理员测试"""
+    """Default admin creation tests."""
 
     async def test_create_default_admin_when_not_exists(self):
-        """测试管理员不存在时创建"""
+        """Test admin creation when it does not exist."""
         from sqlalchemy import delete
         from app.utils.security import get_password_hash
 
         settings = get_settings()
 
-        # 删除可能存在的管理员
+        # Delete admin if it exists
         async with async_session_maker() as session:
             await session.execute(
                 delete(User).where(User.username == settings.ADMIN_USERNAME)
             )
             await session.commit()
 
-        # 创建默认管理员
+        # Create default admin
         await create_default_admin()
 
-        # 验证管理员已创建
+        # Verify admin is created
         async with async_session_maker() as session:
             result = await session.execute(
                 select(User).where(User.username == settings.ADMIN_USERNAME)
@@ -98,23 +98,23 @@ class TestCreateDefaultAdmin:
         assert admin.is_active is True
 
     async def test_create_default_admin_when_exists(self):
-        """测试管理员已存在时不重复创建"""
+        """Test that admin is not recreated when it already exists."""
         from app.utils.security import get_password_hash
         from sqlalchemy import delete
 
         settings = get_settings()
 
-        # 先创建一个管理员
+        # Create an admin first
         async with async_session_maker() as session:
             await session.execute(
                 delete(User).where(User.username == settings.ADMIN_USERNAME)
             )
             await session.commit()
 
-        # 第一次创建
+        # First creation
         await create_default_admin()
 
-        # 获取第一次创建的管理员ID
+        # Get the first created admin ID
         async with async_session_maker() as session:
             result = await session.execute(
                 select(User).where(User.username == settings.ADMIN_USERNAME)
@@ -122,10 +122,10 @@ class TestCreateDefaultAdmin:
             admin_first = result.scalar_one_or_none()
             first_id = admin_first.id if admin_first else None
 
-        # 第二次创建（不应创建新的）
+        # Second creation (should not create new one)
         await create_default_admin()
 
-        # 验证没有重复创建
+        # Verify no duplicate creation
         async with async_session_maker() as session:
             result = await session.execute(
                 select(User).where(User.username == settings.ADMIN_USERNAME)
@@ -138,7 +138,7 @@ class TestCreateDefaultAdmin:
 
 
 class TestGetDb:
-    """数据库会话测试"""
+    """Database session tests."""
 
     async def test_get_db_yields_session(self):
         async for session in get_db():
@@ -153,7 +153,7 @@ class TestGetDb:
 
 
 class TestSQLRepository:
-    """SQL 仓库测试"""
+    """SQL repository tests."""
 
     async def test_create_and_get(self):
         repo = SQLRepository(User)
@@ -238,41 +238,41 @@ class TestSQLRepository:
         assert c >= 1
 
     async def test_list_pagination(self):
-        """测试分页功能"""
+        """Test pagination functionality."""
         repo = SQLRepository(User)
 
-        # 创建多个用户
+        # Create multiple users
         for i in range(5):
             await repo.create(User(username=f"page_{i}", email=f"page_{i}@t.com", hashed_password="x"))
 
-        # 测试limit和skip
+        # Test limit and skip
         page1 = await repo.list(limit=2, skip=0)
         page2 = await repo.list(limit=2, skip=2)
 
         assert len(page1) == 2
         assert len(page2) == 2
-        # 确保分页结果不同
+        # Ensure pagination results are different
         if page1 and page2:
             assert page1[0].id != page2[0].id
 
     async def test_update_nonexistent(self):
-        """测试更新不存在的记录"""
+        """Test updating a nonexistent record."""
         repo = SQLRepository(User)
         result = await repo.update("nonexistent-id-xyz", {"email": "test@test.com"})
         assert result is None
 
     async def test_list_with_ordering(self):
-        """测试排序功能"""
+        """Test ordering functionality."""
         repo = SQLRepository(User)
 
-        # 创建多个用户
+        # Create multiple users
         await repo.create(User(username="order_a", email="order_a@t.com", hashed_password="x"))
         await repo.create(User(username="order_b", email="order_b@t.com", hashed_password="x"))
         await repo.create(User(username="order_c", email="order_c@t.com", hashed_password="x"))
 
-        # 测试升序
+        # Test ascending order
         items_asc = await repo.list(order_by="username", order_desc=False, limit=10)
-        # 测试降序
+        # Test descending order
         items_desc = await repo.list(order_by="username", order_desc=True, limit=10)
 
         assert len(items_asc) >= 3

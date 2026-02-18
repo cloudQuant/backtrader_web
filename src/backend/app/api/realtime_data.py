@@ -27,19 +27,31 @@ router = APIRouter()
 
 
 def get_realtime_data_service():
+    """Dependency injection for RealTimeDataService.
+
+    Returns:
+        RealTimeDataService: An instance of the realtime data service.
+    """
     return RealTimeDataService()
 
 
-# ==================== 实时行情订阅 API ====================
+# ==================== Realtime Quote Subscription API ====================
 
-@router.post("/ticks/subscribe", summary="订阅实时行情")
+@router.post("/ticks/subscribe", summary="Subscribe to realtime quotes")
 async def subscribe_realtime_ticks(
     request: RealtimeTickSubscribeRequest,
     current_user=Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
 ):
-    """
-    Subscribe to realtime ticks.
+    """Subscribe to realtime tick data for specified symbols.
+
+    Args:
+        request: The subscription request containing broker_id and symbols list.
+        current_user: The authenticated user.
+        service: The realtime data service.
+
+    Returns:
+        A dictionary confirming subscription with symbols, broker_id, and status.
     """
     await service.subscribe_ticks(
         user_id=current_user.sub,
@@ -51,18 +63,25 @@ async def subscribe_realtime_ticks(
         "symbols": request.symbols,
         "broker_id": request.broker_id,
         "status": "subscribed",
-        "message": f"已订阅 {len(request.symbols)} 个标的的实时行情",
+        "message": f"Subscribed to {len(request.symbols)} symbols for realtime quotes",
     }
 
 
-@router.post("/ticks/unsubscribe", summary="取消订阅实时行情")
+@router.post("/ticks/unsubscribe", summary="Unsubscribe from realtime quotes")
 async def unsubscribe_realtime_ticks(
     request: RealtimeTickUnsubscribeRequest,
     current_user=Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
 ):
-    """
-    Unsubscribe from realtime ticks.
+    """Unsubscribe from realtime tick data for specified symbols.
+
+    Args:
+        request: The unsubscription request containing broker_id and symbols list.
+        current_user: The authenticated user.
+        service: The realtime data service.
+
+    Returns:
+        A dictionary confirming unsubscription with symbols, broker_id, and status.
     """
     await service.unsubscribe_ticks(
         user_id=current_user.sub,
@@ -74,42 +93,58 @@ async def unsubscribe_realtime_ticks(
         "symbols": request.symbols,
         "broker_id": request.broker_id,
         "status": "unsubscribed",
-        "message": f"已取消订阅 {len(request.symbols)} 个标的的实时行情",
+        "message": f"Unsubscribed from {len(request.symbols)} symbols",
     }
 
 
-# ==================== 实时行情数据 API ====================
+# ==================== Realtime Quote Data API ====================
 
-@router.get("/ticks", summary="获取实时行情")
+@router.get("/ticks", summary="Get realtime quotes")
 async def get_realtime_ticks(
     current_user=Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
-    broker_id: Optional[str] = Query(None, description="券商 ID"),
-    symbol: Optional[str] = Query(None, description="标的代码"),
+    broker_id: Optional[str] = Query(None, description="Broker ID"),
+    symbol: Optional[str] = Query(None, description="Trading symbol"),
 ):
-    """
-    Get the latest ticks (single symbol or all subscribed symbols).
+    """Get the latest tick data (single symbol or all subscribed symbols).
+
+    Args:
+        current_user: The authenticated user.
+        service: The realtime data service.
+        broker_id: Filter by broker ID.
+        symbol: Get specific symbol data if provided.
+
+    Returns:
+        A dictionary containing tick data for the requested symbols.
     """
     if symbol:
-        # 获取单个标的行情
+        # Get single symbol quote
         tick_data = await service.get_tick(current_user.sub, broker_id, symbol)
         return {"tick": tick_data}
     else:
-        # 获取所有订阅标的行情
+        # Get all subscribed symbols quotes
         symbols = await service.get_subscribed_symbols(current_user.sub, broker_id)
         ticks_data = await service.get_ticks(current_user.sub, broker_id, symbols)
         return {"ticks": ticks_data}
 
 
-@router.get("/ticks/batch", summary="批量获取实时行情")
+@router.get("/ticks/batch", summary="Batch get realtime quotes")
 async def get_realtime_ticks_batch(
     current_user=Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
-    broker_id: str = Query(..., description="券商 ID"),
-    symbols: str = Query(..., description="标的代码列表（逗号分隔）"),
+    broker_id: str = Query(..., description="Broker ID"),
+    symbols: str = Query(..., description="Comma-separated symbol list"),
 ):
-    """
-    Batch fetch ticks for a broker and a comma-separated symbol list.
+    """Batch fetch tick data for a broker and comma-separated symbol list.
+
+    Args:
+        current_user: The authenticated user.
+        service: The realtime data service.
+        broker_id: The broker ID to fetch data from.
+        symbols: Comma-separated list of symbols to fetch.
+
+    Returns:
+        A dictionary containing broker_id and list of tick data.
     """
     symbol_list = symbols.split(',')
     ticks = await service.get_ticks(current_user.sub, broker_id, symbol_list)
@@ -120,31 +155,45 @@ async def get_realtime_ticks_batch(
     }
 
 
-# ==================== 历史行情 API ====================
+# ==================== Historical Quote API ====================
 
-@router.get("/ticks/historical", summary="获取历史行情")
+@router.get("/ticks/historical", summary="Get historical quotes")
 async def get_historical_ticks(
-    broker_id: str = Query(..., description="券商 ID"),
-    symbol: str = Query(..., description="标的代码（如 BTC/USDT）"),
-    start_date: str = Query(..., description="开始日期（ISO 8601 格式）"),
-    end_date: str = Query(..., description="结束日期（ISO 8601 格式）"),
-    frequency: str = Query("1d", description="频率"),
+    broker_id: str = Query(..., description="Broker ID"),
+    symbol: str = Query(..., description="Trading symbol (e.g., BTC/USDT)"),
+    start_date: str = Query(..., description="Start date (ISO 8601 format)"),
+    end_date: str = Query(..., description="End date (ISO 8601 format)"),
+    frequency: str = Query("1d", description="Data frequency"),
     current_user=Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
 ):
-    """
-    Get historical ticks for a symbol.
+    """Get historical tick data for a symbol.
+
+    Args:
+        broker_id: The broker ID to fetch data from.
+        symbol: The trading symbol (e.g., BTC/USDT).
+        start_date: Start date in ISO 8601 format.
+        end_date: End date in ISO 8601 format.
+        frequency: Data frequency (e.g., 1m, 5m, 1h, 1d).
+        current_user: The authenticated user.
+        service: The realtime data service.
+
+    Returns:
+        A dictionary containing symbol, frequency, ticks list, and total count.
+
+    Raises:
+        HTTPException: If date format is invalid (400).
     """
     from datetime import datetime
 
-    # 验证日期格式
+    # Validate date format
     try:
         start_dt = datetime.fromisoformat(start_date)
         end_dt = datetime.fromisoformat(end_date)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"日期格式错误: {e}"
+            detail=f"Invalid date format: {e}"
         )
 
     ticks = await service.get_historical_data(
@@ -164,42 +213,45 @@ async def get_historical_ticks(
     }
 
 
-# ==================== WebSocket 实时推送 ====================
+# ==================== WebSocket Real-time Push ====================
 
 @router.websocket("/ws/ticks/{broker_id}")
 async def realtime_tick_websocket(
     websocket,
     broker_id: str,
 ):
-    """
-    WebSocket endpoint for realtime tick streaming.
+    """WebSocket endpoint for realtime tick streaming.
 
     URL:
         ws://host/api/v1/realtime/ws/ticks/{broker_id}
+
+    Args:
+        websocket: The WebSocket connection instance.
+        broker_id: The broker ID for which to stream tick data.
     """
     client_id = f"ws-realtime-client-{id(websocket)}"
 
-    # 建立连接
+    # Establish connection
     await ws_manager.connect(websocket, f"ticks:{broker_id}", client_id)
 
     try:
-        # 发送初始信息
+        # Send initial message
         await ws_manager.send_to_task(f"ticks:{broker_id}", {
             "type": MessageType.CONNECTED,
             "broker_id": broker_id,
-            "message": "实时行情 WebSocket 连接成功",
+            "message": "Realtime quote WebSocket connection successful",
         })
 
-        # 保持连接
+        # Keep connection alive
         while True:
             await asyncio.sleep(1)
 
-            # 这里应该从实时数据服务获取最新行情
-            # 并通过 WebSocket 推送
-            # 暂时使用轮询方式，实际应用中应该使用事件驱动
+            # Latest quotes should be fetched from realtime data service
+            # and pushed via WebSocket
+            # Temporarily using polling; should use event-driven in production
 
-            # 模拟推送（实际应用中应该实时推送）
-            # TODO: 集成 RealTimeDataService 的实时推送功能
+            # Simulate push (should use actual real-time push in production)
+            # TODO: Integrate RealTimeDataService real-time push functionality
 
     except Exception as e:
         logger.error(f"Realtime tick WebSocket error: {e}")

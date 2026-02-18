@@ -1,9 +1,11 @@
-"""可转债周五高溢价轮动策略 (Convertible Bond Friday Rotation Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Convertible Bond Friday Rotation Strategy.
 
-每周五买入溢价率最高的3只可转债:
-- 每周五平掉现有持仓
-- 选择溢价率最高的3只可转债买入
-- 持有到下周五重新轮动
+Every Friday, buy the 3 convertible bonds with the highest premium rates:
+- Close existing positions every Friday
+- Select the 3 convertible bonds with the highest premium rates to buy
+- Hold until next Friday for rebalancing
 
 Author: yunjinqi
 """
@@ -15,7 +17,7 @@ from backtrader.comminfo import ComminfoFuturesPercent
 
 
 class ExtendPandasFeed(bt.feeds.PandasData):
-    """扩展的可转债Pandas数据源（带溢价率）"""
+    """Extended Pandas data feed for convertible bonds (with premium rate)."""
     params = (
         ('datetime', None),
         ('open', 0),
@@ -30,12 +32,12 @@ class ExtendPandasFeed(bt.feeds.PandasData):
 
 
 class ConvertibleBondFridayRotationStrategy(bt.Strategy):
-    """可转债周五高溢价轮动策略
+    """Convertible Bond Friday High Premium Rotation Strategy.
 
-    每周五:
-    - 平掉现有持仓
-    - 买入溢价率最高的3只可转债
-    - 持有到下周五
+    Every Friday:
+    - Close existing positions
+    - Buy the 3 convertible bonds with the highest premium rates
+    - Hold until next Friday
     """
     author = 'yunjinqi'
     params = (
@@ -43,12 +45,12 @@ class ConvertibleBondFridayRotationStrategy(bt.Strategy):
     )
 
     def log(self, txt, dt=None):
-        """记录日志"""
+        """Log strategy information."""
         dt = dt or bt.num2date(self.datas[0].datetime[0])
         print('{}, {}'.format(dt.isoformat(), txt))
 
     def __init__(self):
-        """初始化策略"""
+        """Initialize the strategy."""
         self.bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
@@ -56,21 +58,21 @@ class ConvertibleBondFridayRotationStrategy(bt.Strategy):
         self.order_list = []
 
     def prenext(self):
-        """在最小周期到达前调用"""
+        """Called before minimum period is reached."""
         self.next()
 
     def next(self):
-        """主策略逻辑，每个bar调用一次"""
+        """Main strategy logic, called for each bar."""
         self.bar_num += 1
         self.current_datetime = bt.num2date(self.datas[0].datetime[0])
         total_value = self.broker.get_value()
         available_cash = self.broker.get_cash()
 
-        # 如果今天是周五，开始下单平掉现有持仓并准备新订单
+        # If today is Friday, start closing existing positions and prepare new orders
         today = self.current_datetime.weekday() + 1
 
         if today == 5:
-            # 平掉现有持仓
+            # Close existing positions
             for data, order in self.order_list:
                 size = self.getposition(data).size
                 if size > 0:
@@ -80,7 +82,7 @@ class ConvertibleBondFridayRotationStrategy(bt.Strategy):
                     self.cancel(order)
             self.order_list = []
 
-            # 收集当前可交易的可转债
+            # Collect currently tradable convertible bonds
             result = []
             for data in self.datas[1:]:
                 data_datetime = bt.num2date(data.datetime[0])
@@ -89,10 +91,10 @@ class ConvertibleBondFridayRotationStrategy(bt.Strategy):
                     premium_rate = data.premium_rate[0]
                     result.append([data, premium_rate])
 
-            # 按溢价率排序
+            # Sort by premium rate
             sorted_result = sorted(result, key=lambda x: x[1])
 
-            # 买入溢价率最高的
+            # Buy the ones with highest premium rates
             for data, _ in sorted_result[-self.p.hold_num:]:
                 close_price = data.close[0]
                 total_value = self.broker.getvalue()
@@ -104,7 +106,7 @@ class ConvertibleBondFridayRotationStrategy(bt.Strategy):
                     self.order_list.append([data, order])
 
     def notify_order(self, order):
-        """订单状态变化时调用"""
+        """Called when order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
         if order.status == order.Completed:
@@ -114,10 +116,10 @@ class ConvertibleBondFridayRotationStrategy(bt.Strategy):
                 self.log(f"SELL: {order.p.data._name} price={order.executed.price:.2f}")
 
     def notify_trade(self, trade):
-        """交易完成时调用"""
+        """Called when a trade is completed."""
         if trade.isclosed:
             self.log(f"Trade completed: {trade.getdataname()} pnl={trade.pnl:.2f}")
 
     def stop(self):
-        """回测结束时调用"""
+        """Called when backtesting ends."""
         self.log(f"bar_num={self.bar_num}, buy_count={self.buy_count}, sell_count={self.sell_count}")

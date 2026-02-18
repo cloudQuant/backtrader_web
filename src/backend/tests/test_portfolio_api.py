@@ -1,12 +1,12 @@
 """
-投资组合管理 API 测试
+Portfolio Management API Tests.
 
-测试：
-- 组合概览
-- 汇总持仓
-- 汇总交易记录
-- 组合资金曲线
-- 策略资产配置
+Tests:
+- Portfolio overview
+- Aggregated positions
+- Aggregated trade records
+- Portfolio equity curve
+- Strategy asset allocation
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -15,10 +15,10 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 class TestPortfolioOverview:
-    """组合概览测试"""
+    """Test portfolio overview endpoints."""
 
     async def test_get_portfolio_overview_empty(self, client: AsyncClient, auth_headers):
-        """测试空组合概览"""
+        """Test getting portfolio overview when empty."""
         with patch('app.services.live_trading_manager.get_live_trading_manager') as mock_mgr:
             mock_mgr.return_value.list_instances.return_value = []
 
@@ -32,28 +32,28 @@ class TestPortfolioOverview:
         assert "total_assets" in data
         assert "total_pnl" in data
         assert "strategy_count" in data
-        # strategy_count可能包含默认实例，所以不强制为0
+        # strategy_count may include default instance, so don't enforce 0
 
     async def test_get_portfolio_overview_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required for portfolio overview."""
         response = await client.get("/api/v1/portfolio/overview")
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_get_portfolio_overview_with_strategies(self, client: AsyncClient, auth_headers):
-        """测试有策略的概览"""
+        """Test portfolio overview with active strategies."""
         mock_instances = [
             {
                 "id": "inst1",
                 "strategy_id": "test_strategy",
-                "strategy_name": "测试策略",
+                "strategy_name": "Test Strategy",
                 "status": "running",
             }
         ]
 
         with patch('app.services.live_trading_manager.get_live_trading_manager') as mock_mgr:
             mock_mgr.return_value.list_instances.return_value = mock_instances
-            # 模拟没有日志目录
+            # Mock no log directory
             with patch('app.services.log_parser_service.find_latest_log_dir', return_value=None):
                 response = await client.get(
                     "/api/v1/portfolio/overview",
@@ -67,10 +67,10 @@ class TestPortfolioOverview:
 
 @pytest.mark.asyncio
 class TestPortfolioPositions:
-    """汇总持仓测试"""
+    """Test aggregated portfolio positions."""
 
     async def test_get_portfolio_positions_empty(self, client: AsyncClient, auth_headers):
-        """测试空持仓列表"""
+        """Test getting portfolio positions when empty."""
         with patch('app.services.live_trading_manager.get_live_trading_manager') as mock_mgr:
             mock_mgr.return_value.list_instances.return_value = []
 
@@ -86,12 +86,12 @@ class TestPortfolioPositions:
         assert data["total"] == 0
 
     async def test_get_portfolio_positions_with_data(self, client: AsyncClient, auth_headers):
-        """测试有持仓数据"""
+        """Test getting portfolio positions with data."""
         mock_instances = [
             {
                 "id": "inst1",
                 "strategy_id": "test_strategy",
-                "strategy_name": "测试策略",
+                "strategy_name": "Test Strategy",
             }
         ]
 
@@ -111,10 +111,10 @@ class TestPortfolioPositions:
 
 @pytest.mark.asyncio
 class TestPortfolioTrades:
-    """汇总交易记录测试"""
+    """Test aggregated trade records."""
 
     async def test_get_portfolio_trades_empty(self, client: AsyncClient, auth_headers):
-        """测试空交易记录"""
+        """Test getting portfolio trades when empty."""
         with patch('app.services.live_trading_manager.get_live_trading_manager') as mock_mgr:
             mock_mgr.return_value.list_instances.return_value = []
 
@@ -129,7 +129,7 @@ class TestPortfolioTrades:
         assert "trades" in data
 
     async def test_get_portfolio_trades_with_limit(self, client: AsyncClient, auth_headers):
-        """测试带限制的交易记录"""
+        """Test getting portfolio trades with limit parameter."""
         with patch('app.services.live_trading_manager.get_live_trading_manager') as mock_mgr:
             mock_mgr.return_value.list_instances.return_value = []
 
@@ -141,12 +141,12 @@ class TestPortfolioTrades:
         assert response.status_code == 200
 
     async def test_get_portfolio_trades_with_data(self, client: AsyncClient, auth_headers):
-        """测试有交易数据"""
+        """Test getting portfolio trades with data."""
         mock_instances = [
             {
                 "id": "inst1",
                 "strategy_id": "test_strategy",
-                "strategy_name": "测试策略",
+                "strategy_name": "Test Strategy",
             }
         ]
 
@@ -166,10 +166,10 @@ class TestPortfolioTrades:
 
 @pytest.mark.asyncio
 class TestPortfolioEquity:
-    """组合资金曲线测试"""
+    """Test portfolio equity curve."""
 
     async def test_get_portfolio_equity_empty(self, client: AsyncClient, auth_headers):
-        """测试空资金曲线"""
+        """Test getting portfolio equity curve when empty."""
         with patch('app.services.live_trading_manager.get_live_trading_manager') as mock_mgr:
             mock_mgr.return_value.list_instances.return_value = []
 
@@ -186,12 +186,12 @@ class TestPortfolioEquity:
         assert len(data["dates"]) == 0
 
     async def test_get_portfolio_equity_with_data(self, client: AsyncClient, auth_headers):
-        """测试有资金曲线数据"""
+        """Test getting portfolio equity curve with data."""
         mock_instances = [
             {
                 "id": "inst1",
                 "strategy_id": "test_strategy",
-                "strategy_name": "测试策略",
+                "strategy_name": "Test Strategy",
             }
         ]
 
@@ -210,17 +210,17 @@ class TestPortfolioEquity:
 
         assert response.status_code == 200
         data = response.json()
-        # 检查响应结构，不强制检查数据内容
+        # Check response structure, don't enforce data content
         assert "dates" in data
         assert "total_equity" in data
 
 
 @pytest.mark.asyncio
 class TestPortfolioAllocation:
-    """策略资产配置测试"""
+    """Test strategy asset allocation."""
 
     async def test_get_portfolio_allocation_empty(self, client: AsyncClient, auth_headers):
-        """测试空资产配置"""
+        """Test getting portfolio allocation when empty."""
         with patch('app.services.live_trading_manager.get_live_trading_manager') as mock_mgr:
             mock_mgr.return_value.list_instances.return_value = []
 
@@ -235,12 +235,12 @@ class TestPortfolioAllocation:
         assert "items" in data
 
     async def test_get_portfolio_allocation_with_data(self, client: AsyncClient, auth_headers):
-        """测试有资产配置数据"""
+        """Test getting portfolio allocation with data."""
         mock_instances = [
             {
                 "id": "inst1",
                 "strategy_id": "test_strategy",
-                "strategy_name": "测试策略",
+                "strategy_name": "Test Strategy",
             }
         ]
 
@@ -259,27 +259,27 @@ class TestPortfolioAllocation:
 
         assert response.status_code == 200
         data = response.json()
-        # 检查响应结构，不强制检查数据内容
+        # Check response structure, don't enforce data content
         assert "items" in data
 
 
 @pytest.mark.asyncio
 class TestPortfolioHelpers:
-    """投资组合辅助函数测试"""
+    """Test portfolio helper functions."""
 
     async def test_safe_round(self):
-        """测试安全舍入函数"""
+        """Test safe rounding function."""
         from app.api.portfolio_api import _safe_round
         import math
 
-        # 正常值
+        # Normal values
         assert _safe_round(3.14159) == 3.14
         assert _safe_round(3.14159, 4) == 3.1416
 
-        # NaN 和 Inf
+        # NaN and Inf
         assert _safe_round(float('nan')) == 0.0
         assert _safe_round(float('inf')) == 0.0
         assert _safe_round(float('-inf')) == 0.0
 
-        # 负数
+        # Negative numbers
         assert _safe_round(-3.14159) == -3.14

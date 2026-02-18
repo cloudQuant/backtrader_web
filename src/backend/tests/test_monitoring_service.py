@@ -1,21 +1,21 @@
 """
-监控告警服务测试
+Monitoring Service Tests.
 
-测试：
-- MonitoringService 类
-- create_alert_rule 方法
-- update_alert_rule 方法
-- delete_alert_rule 方法
-- list_alert_rules 方法
-- list_alerts 方法
-- mark_alert_read 方法
-- resolve_alert 方法
-- acknowledge_alert 方法
-- _check_trigger 方法
-- _check_threshold_trigger 方法
-- _check_rate_trigger 方法
-- _check_cross_trigger 方法
-- _trigger_alert 方法
+Tests:
+- MonitoringService class
+- create_alert_rule method
+- update_alert_rule method
+- delete_alert_rule method
+- list_alert_rules method
+- list_alerts method
+- mark_alert_read method
+- resolve_alert method
+- acknowledge_alert method
+- _check_trigger method
+- _check_threshold_trigger method
+- _check_rate_trigger method
+- _check_cross_trigger method
+- _trigger_alert method
 """
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -27,10 +27,10 @@ from app.models.alerts import Alert, AlertRule, AlertType, AlertSeverity, AlertS
 
 
 class TestMonitoringServiceInitialization:
-    """测试MonitoringService初始化"""
+    """Test MonitoringService initialization."""
 
     def test_initialization(self):
-        """测试服务初始化"""
+        """Test service initialization with required components."""
         service = MonitoringService()
 
         assert service.alert_repo is not None
@@ -43,10 +43,10 @@ class TestMonitoringServiceInitialization:
 
 @pytest.mark.asyncio
 class TestCreateAlertRule:
-    """测试创建告警规则"""
+    """Test alert rule creation."""
 
     async def test_create_alert_rule_basic(self):
-        """测试基础创建"""
+        """Test basic alert rule creation."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -60,8 +60,8 @@ class TestCreateAlertRule:
         with patch.object(service, '_start_monitoring', new_callable=AsyncMock) as mock_start:
             result = await service.create_alert_rule(
                 user_id="user_123",
-                name="测试规则",
-                description="测试描述",
+                name="Test Rule",
+                description="Test description",
                 alert_type=AlertType.ACCOUNT.value,
                 severity=AlertSeverity.WARNING.value,
                 trigger_type="threshold",
@@ -72,7 +72,7 @@ class TestCreateAlertRule:
             mock_start.assert_called_once()
 
     async def test_create_alert_rule_with_notifications(self):
-        """测试创建带通知的规则"""
+        """Test creating rule with notification settings."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -86,8 +86,8 @@ class TestCreateAlertRule:
         with patch.object(service, '_start_monitoring', new_callable=AsyncMock):
             result = await service.create_alert_rule(
                 user_id="user_123",
-                name="测试规则",
-                description="测试描述",
+                name="Test Rule",
+                description="Test description",
                 alert_type=AlertType.ACCOUNT.value,
                 severity=AlertSeverity.WARNING.value,
                 trigger_type="threshold",
@@ -101,10 +101,10 @@ class TestCreateAlertRule:
 
 @pytest.mark.asyncio
 class TestUpdateAlertRule:
-    """测试更新告警规则"""
+    """Test alert rule updates."""
 
     async def test_update_alert_rule_name(self):
-        """测试更新名称"""
+        """Test updating rule name."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -116,14 +116,14 @@ class TestUpdateAlertRule:
         service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
         service.alert_rule_repo.update = AsyncMock(return_value=mock_rule)
 
-        update_data = {"name": "新名称"}
+        update_data = {"name": "New Name"}
 
         result = await service.update_alert_rule("rule_123", "user_123", update_data)
 
         assert result is not None
 
     async def test_update_alert_rule_not_owner(self):
-        """测试非所有者更新"""
+        """Test updating rule by non-owner returns None."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -133,14 +133,14 @@ class TestUpdateAlertRule:
         service.alert_rule_repo = AsyncMock()
         service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
 
-        update_data = {"name": "新名称"}
+        update_data = {"name": "New Name"}
 
         result = await service.update_alert_rule("rule_123", "user_123", update_data)
 
         assert result is None
 
     async def test_update_alert_rule_deactivate(self):
-        """测试停用规则"""
+        """Test deactivating rule stops monitoring."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -161,7 +161,7 @@ class TestUpdateAlertRule:
             mock_stop.assert_called_once_with("rule_123")
 
     async def test_update_alert_rule_activate(self):
-        """测试激活规则"""
+        """Test activating rule starts monitoring."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -198,10 +198,10 @@ class TestUpdateAlertRule:
 
 @pytest.mark.asyncio
 class TestDeleteAlertRule:
-    """测试删除告警规则"""
+    """Test alert rule deletion."""
 
     async def test_delete_alert_rule_success(self):
-        """测试成功删除"""
+        """Test successful rule deletion."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -217,7 +217,7 @@ class TestDeleteAlertRule:
             assert result is True
 
     async def test_delete_alert_rule_not_owner(self):
-        """测试非所有者删除"""
+        """Test deletion by non-owner returns False."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -231,7 +231,7 @@ class TestDeleteAlertRule:
         assert result is False
 
     async def test_delete_alert_rule_not_found(self):
-        """测试删除不存在的规则"""
+        """Test deleting non-existent rule returns False."""
         service = MonitoringService()
 
         service.alert_rule_repo = AsyncMock()
@@ -244,10 +244,10 @@ class TestDeleteAlertRule:
 
 @pytest.mark.asyncio
 class TestListAlertRules:
-    """测试列出告警规则"""
+    """Test alert rule listing."""
 
     async def test_list_alert_rules_default(self):
-        """测试默认列出用户规则"""
+        """Test listing user's rules with default parameters."""
         service = MonitoringService()
 
         mock_rules = []
@@ -261,7 +261,7 @@ class TestListAlertRules:
         assert total == 0
 
     async def test_list_alert_rules_with_filters(self):
-        """测试带筛选条件"""
+        """Test listing rules with filter parameters."""
         service = MonitoringService()
 
         mock_rules = []
@@ -282,10 +282,10 @@ class TestListAlertRules:
 
 @pytest.mark.asyncio
 class TestListAlerts:
-    """测试列出告警"""
+    """Test alert listing."""
 
     async def test_list_alerts_default(self):
-        """测试默认列出用户告警"""
+        """Test listing user's alerts with default parameters."""
         service = MonitoringService()
 
         mock_alerts = []
@@ -299,7 +299,7 @@ class TestListAlerts:
         assert total == 0
 
     async def test_list_alerts_with_filters(self):
-        """测试带筛选条件"""
+        """Test listing alerts with filter parameters."""
         service = MonitoringService()
 
         mock_alerts = []
@@ -321,7 +321,7 @@ class TestListAlerts:
         assert total == 0
 
     async def test_list_alerts_with_pagination(self):
-        """测试分页"""
+        """Test listing alerts with pagination."""
         service = MonitoringService()
 
         mock_alerts = []
@@ -337,9 +337,10 @@ class TestListAlerts:
 
 @pytest.mark.asyncio
 class TestGetAlertRuleAndAlert:
-    """测试获取单条规则/告警"""
+    """Test single rule/alert retrieval."""
 
     async def test_get_alert_rule_success(self):
+        """Test retrieving existing alert rule."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -352,6 +353,7 @@ class TestGetAlertRuleAndAlert:
         assert rule is mock_rule
 
     async def test_get_alert_rule_not_found(self):
+        """Test retrieving non-existent rule returns None."""
         service = MonitoringService()
 
         service.alert_rule_repo = AsyncMock()
@@ -361,6 +363,7 @@ class TestGetAlertRuleAndAlert:
         assert rule is None
 
     async def test_get_alert_rule_forbidden(self):
+        """Test retrieving rule owned by another user raises PermissionError."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -373,6 +376,7 @@ class TestGetAlertRuleAndAlert:
             await service.get_alert_rule(rule_id="rule_123", user_id="user_123")
 
     async def test_get_alert_success(self):
+        """Test retrieving existing alert."""
         service = MonitoringService()
 
         mock_alert = Mock()
@@ -385,6 +389,7 @@ class TestGetAlertRuleAndAlert:
         assert alert is mock_alert
 
     async def test_get_alert_not_found(self):
+        """Test retrieving non-existent alert returns None."""
         service = MonitoringService()
 
         service.alert_repo = AsyncMock()
@@ -394,6 +399,7 @@ class TestGetAlertRuleAndAlert:
         assert alert is None
 
     async def test_get_alert_forbidden(self):
+        """Test retrieving alert owned by another user raises PermissionError."""
         service = MonitoringService()
 
         mock_alert = Mock()
@@ -408,10 +414,10 @@ class TestGetAlertRuleAndAlert:
 
 @pytest.mark.asyncio
 class TestMarkAlertRead:
-    """测试标记告警已读"""
+    """Test marking alerts as read."""
 
     async def test_mark_alert_read_success(self):
-        """测试成功标记"""
+        """Test successfully marking alert as read."""
         service = MonitoringService()
 
         mock_alert = Mock()
@@ -426,7 +432,7 @@ class TestMarkAlertRead:
         assert result is True
 
     async def test_mark_alert_read_not_owner(self):
-        """测试非所有者标记"""
+        """Test marking alert by non-owner returns False."""
         service = MonitoringService()
 
         mock_alert = Mock()
@@ -440,7 +446,7 @@ class TestMarkAlertRead:
         assert result is False
 
     async def test_mark_alert_read_not_found(self):
-        """测试标记不存在的告警"""
+        """Test marking non-existent alert returns False."""
         service = MonitoringService()
 
         service.alert_repo = AsyncMock()
@@ -453,10 +459,10 @@ class TestMarkAlertRead:
 
 @pytest.mark.asyncio
 class TestResolveAlert:
-    """测试解决告警"""
+    """Test alert resolution."""
 
     async def test_resolve_alert_success(self):
-        """测试成功解决"""
+        """Test successfully resolving alert."""
         service = MonitoringService()
 
         mock_alert = Mock()
@@ -471,7 +477,7 @@ class TestResolveAlert:
         assert result is True
 
     async def test_resolve_alert_not_owner(self):
-        """测试非所有者解决"""
+        """Test resolving alert by non-owner returns False."""
         service = MonitoringService()
 
         mock_alert = Mock()
@@ -487,10 +493,10 @@ class TestResolveAlert:
 
 @pytest.mark.asyncio
 class TestAcknowledgeAlert:
-    """测试确认告警"""
+    """Test alert acknowledgment."""
 
     async def test_acknowledge_alert_success(self):
-        """测试成功确认"""
+        """Test successfully acknowledging alert."""
         service = MonitoringService()
 
         mock_alert = Mock()
@@ -505,7 +511,7 @@ class TestAcknowledgeAlert:
         assert result is True
 
     async def test_acknowledge_alert_not_owner(self):
-        """测试非所有者确认"""
+        """Test acknowledging alert by non-owner returns False."""
         service = MonitoringService()
 
         mock_alert = Mock()
@@ -521,10 +527,10 @@ class TestAcknowledgeAlert:
 
 @pytest.mark.asyncio
 class TestCheckTrigger:
-    """测试检查触发条件"""
+    """Test trigger condition checking."""
 
     async def test_check_trigger_threshold(self):
-        """测试阈值触发"""
+        """Test threshold trigger type."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -538,7 +544,7 @@ class TestCheckTrigger:
             assert result is True
 
     async def test_check_trigger_rate(self):
-        """测试变化率触发"""
+        """Test rate trigger type."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -551,7 +557,7 @@ class TestCheckTrigger:
             assert result is False
 
     async def test_check_trigger_cross(self):
-        """测试交叉触发"""
+        """Test cross trigger type."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -564,7 +570,7 @@ class TestCheckTrigger:
             assert result is False
 
     async def test_check_trigger_manual(self):
-        """测试手动触发"""
+        """Test manual trigger type returns False."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -575,7 +581,7 @@ class TestCheckTrigger:
         assert result is False
 
     async def test_check_trigger_unknown(self):
-        """测试未知触发类型"""
+        """Test unknown trigger type returns False."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -589,10 +595,10 @@ class TestCheckTrigger:
 
 @pytest.mark.asyncio
 class TestCheckThresholdTrigger:
-    """测试阈值触发检查"""
+    """Test threshold trigger checking."""
 
     async def test_threshold_account_lt_condition(self):
-        """测试账户小于阈值触发"""
+        """Test account less-than threshold trigger."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -609,7 +615,7 @@ class TestCheckThresholdTrigger:
         assert result is True  # 0.05 < 0.1
 
     async def test_threshold_account_gt_condition(self):
-        """测试账户大于阈值触发"""
+        """Test account greater-than threshold trigger."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -626,7 +632,7 @@ class TestCheckThresholdTrigger:
         assert result is True  # 0.15 > 0.1
 
     async def test_threshold_position_lt_condition(self):
-        """测试持仓小于阈值触发"""
+        """Test position less-than threshold trigger."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -643,7 +649,7 @@ class TestCheckThresholdTrigger:
         assert result is True  # -500 < -300
 
     async def test_threshold_not_met(self):
-        """测试阈值不满足"""
+        """Test threshold condition not met."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -660,7 +666,7 @@ class TestCheckThresholdTrigger:
         assert result is False  # 0.15 > 0.1, not less than
 
     async def test_threshold_strategy_alert(self):
-        """测试策略告警（默认返回False）"""
+        """Test strategy alert returns False by default."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -675,10 +681,10 @@ class TestCheckThresholdTrigger:
 
 @pytest.mark.asyncio
 class TestCheckRateTrigger:
-    """测试变化率触发检查"""
+    """Test rate trigger checking."""
 
     async def test_check_rate_trigger(self):
-        """测试变化率触发（默认返回False）"""
+        """Test rate trigger returns False by default (requires history)."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -686,16 +692,16 @@ class TestCheckRateTrigger:
 
         result = await service._check_rate_trigger(mock_rule, config)
 
-        # 默认返回False，因为需要历史数据
+        # Returns False by default because needs historical data
         assert result is False
 
 
 @pytest.mark.asyncio
 class TestCheckCrossTrigger:
-    """测试交叉触发检查"""
+    """Test cross trigger checking."""
 
     async def test_check_cross_trigger(self):
-        """测试交叉触发（默认返回False）"""
+        """Test cross trigger returns False by default (TODO not implemented)."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -703,16 +709,16 @@ class TestCheckCrossTrigger:
 
         result = await service._check_cross_trigger(mock_rule, config)
 
-        # 默认返回False，因为TODO未实现
+        # Returns False by default because TODO not implemented
         assert result is False
 
 
 @pytest.mark.asyncio
 class TestTriggerAlert:
-    """测试触发告警"""
+    """Test alert triggering."""
 
     async def test_trigger_alert_basic(self):
-        """测试基础触发"""
+        """Test basic alert triggering."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -720,11 +726,11 @@ class TestTriggerAlert:
         mock_rule.user_id = "user_123"
         mock_rule.alert_type = AlertType.ACCOUNT
         mock_rule.severity = AlertSeverity.WARNING
-        mock_rule.description = "测试告警"
+        mock_rule.description = "Test Alert"
         mock_rule.trigger_config = {"threshold": 0.1}
         mock_rule.notification_channels = []
         mock_rule.notification_enabled = False
-        mock_rule.triggered_count = 0  # 设置为整数而不是Mock对象
+        mock_rule.triggered_count = 0  # Set as integer instead of Mock object
 
         mock_alert = Mock()
         mock_alert.id = "alert_123"
@@ -750,7 +756,7 @@ class TestTriggerAlert:
         assert any("triggered_count" in str(call) for call in update_calls)
 
     async def test_trigger_alert_with_notification(self):
-        """测试带通知的触发"""
+        """Test alert triggering with notifications."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -758,11 +764,11 @@ class TestTriggerAlert:
         mock_rule.user_id = "user_123"
         mock_rule.alert_type = AlertType.ACCOUNT
         mock_rule.severity = AlertSeverity.WARNING
-        mock_rule.description = "测试告警"
+        mock_rule.description = "Test Alert"
         mock_rule.trigger_config = {"threshold": 0.1}
         mock_rule.notification_channels = ["email", "sms"]
         mock_rule.notification_enabled = True
-        mock_rule.triggered_count = 0  # 设置为整数而不是Mock对象
+        mock_rule.triggered_count = 0  # Set as integer instead of Mock object
 
         mock_alert = Mock()
         mock_alert.id = "alert_123"
@@ -781,10 +787,10 @@ class TestTriggerAlert:
 
 @pytest.mark.asyncio
 class TestStartStopMonitoring:
-    """测试启动停止监控"""
+    """Test monitoring task start/stop."""
 
     async def test_start_monitoring_new_task(self):
-        """测试启动新监控任务"""
+        """Test starting new monitoring task."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -812,17 +818,17 @@ class TestStartStopMonitoring:
             assert "rule_123" in service._monitoring_tasks
 
     async def test_start_monitoring_already_exists(self):
-        """测试启动已存在的监控任务"""
+        """Test starting monitoring task that already exists."""
         service = MonitoringService()
         service._monitoring_tasks["rule_123"] = Mock()
 
         await service._start_monitoring("rule_123")
 
-        # 应该不重复创建
+        # Should not create duplicate
         assert len(service._monitoring_tasks) == 1
 
     async def test_start_monitoring_inactive_rule(self):
-        """测试启动非活跃规则"""
+        """Test starting monitoring for inactive rule."""
         service = MonitoringService()
 
         mock_rule = Mock()
@@ -833,11 +839,11 @@ class TestStartStopMonitoring:
 
         await service._start_monitoring("rule_123")
 
-        # 应该不创建任务
+        # Should not create task
         assert "rule_123" not in service._monitoring_tasks
 
     async def test_stop_monitoring_existing_task(self):
-        """测试停止存在的监控任务"""
+        """Test stopping existing monitoring task."""
         service = MonitoringService()
 
         mock_task = Mock()
@@ -849,10 +855,10 @@ class TestStartStopMonitoring:
         mock_task.cancel.assert_called_once()
 
     async def test_stop_monitoring_nonexistent_task(self):
-        """测试停止不存在的监控任务"""
+        """Test stopping non-existent monitoring task."""
         service = MonitoringService()
 
-        # 应该不抛出异常
+        # Should not raise exception
         await service._stop_monitoring("rule_123")
 
         assert len(service._monitoring_tasks) == 0

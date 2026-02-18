@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-示例: 加载自定义策略脚本
+Example: Loading custom strategy scripts.
 
-这个示例展示如何加载您自己的策略文件
+This example demonstrates how to load your own strategy files.
 """
 import sys
 import os
@@ -16,20 +16,20 @@ from backtrader_web.data import get_stock_data
 
 
 # ============================================
-# 在这里定义您的策略，或者从其他文件导入
+# Define your strategy here, or import from other files
 # ============================================
 
 class RSIStrategy(bt.Strategy):
-    """RSI超买超卖策略"""
+    """RSI overbought/oversold strategy."""
     params = (
         ('period', 14),
         ('overbought', 70),
         ('oversold', 30),
     )
-    
+
     def __init__(self):
         self.rsi = bt.indicators.RSI(period=self.params.period)
-    
+
     def next(self):
         if not self.position:
             if self.rsi < self.params.oversold:
@@ -39,18 +39,18 @@ class RSIStrategy(bt.Strategy):
 
 
 class BollingerStrategy(bt.Strategy):
-    """布林带策略"""
+    """Bollinger Bands strategy."""
     params = (
         ('period', 20),
         ('devfactor', 2.0),
     )
-    
+
     def __init__(self):
         self.boll = bt.indicators.BollingerBands(
             period=self.params.period,
             devfactor=self.params.devfactor
         )
-    
+
     def next(self):
         if not self.position:
             if self.data.close[0] < self.boll.lines.bot[0]:
@@ -70,38 +70,38 @@ def run_backtest(
     **strategy_params
 ):
     """
-    运行回测并展示结果
-    
+    Run backtest and display results.
+
     Args:
-        strategy_class: 策略类
-        symbol: 股票代码
-        start_date: 开始日期
-        end_date: 结束日期
-        initial_cash: 初始资金
-        commission: 手续费率
-        port: Web服务端口
-        **strategy_params: 策略参数
+        strategy_class: Strategy class.
+        symbol: Stock code.
+        start_date: Start date.
+        end_date: End date.
+        initial_cash: Initial capital.
+        commission: Commission rate.
+        port: Web server port.
+        **strategy_params: Strategy parameters.
     """
-    # 创建Cerebro
+    # Create Cerebro
     cerebro = bt.Cerebro()
     cerebro.broker.setcash(initial_cash)
     cerebro.broker.setcommission(commission=commission)
-    
-    # 加载数据
-    print(f"📥 下载 {symbol} 数据: {start_date} ~ {end_date}")
+
+    # Load data
+    print(f"📥 Downloading {symbol} data: {start_date} ~ {end_date}")
     data = get_stock_data(symbol, start_date, end_date)
     cerebro.adddata(data)
-    
-    # 添加策略
+
+    # Add strategy
     cerebro.addstrategy(strategy_class, **strategy_params)
-    
-    # 运行并展示
+
+    # Run and display
     server = WebServer(cerebro)
     server.run(port=port)
 
 
 if __name__ == '__main__':
-    # 示例1: 运行RSI策略
+    # Example 1: Run RSI strategy
     # run_backtest(
     #     RSIStrategy,
     #     symbol='000001',
@@ -111,11 +111,11 @@ if __name__ == '__main__':
     #     overbought=70,
     #     oversold=30,
     # )
-    
-    # 示例2: 运行布林带策略
+
+    # Example 2: Run Bollinger Bands strategy
     run_backtest(
         BollingerStrategy,
-        symbol='600519',  # 贵州茅台
+        symbol='600519',  # Kweichow Moutai
         start_date='2022-01-01',
         end_date='2024-01-01',
         initial_cash=200000,

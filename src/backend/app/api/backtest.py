@@ -23,14 +23,13 @@ def get_backtest_service():
     return BacktestService()
 
 
-@router.post("/run", response_model=BacktestResponse, summary="运行回测")
+@router.post("/run", response_model=BacktestResponse, summary="Run backtest")
 async def run_backtest(
     request: BacktestRequest,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """
-    Submit a backtest task.
+    """Submit a backtest task.
 
     Args:
         request: Backtest request payload.
@@ -44,48 +43,84 @@ async def run_backtest(
     return result
 
 
-@router.get("/{task_id}", response_model=BacktestResult, summary="获取回测结果")
+@router.get("/{task_id}", response_model=BacktestResult, summary="Get backtest result")
 async def get_backtest_result(
     task_id: str,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """Get a backtest result by task id."""
+    """Get a backtest result by task ID.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        current_user: Authenticated user.
+        service: Backtest service dependency.
+
+    Returns:
+        BacktestResult if found and authorized.
+
+    Raises:
+        HTTPException: If result not found (404).
+    """
     result = await service.get_result(task_id, user_id=current_user.sub)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="回测结果不存在",
+            detail="Backtest result not found",
         )
     return result
 
 
-@router.get("/{task_id}/status", summary="获取回测任务状态")
+@router.get("/{task_id}/status", summary="Get backtest task status")
 async def get_backtest_status(
     task_id: str,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """Get a backtest task status by task id."""
+    """Get a backtest task status by task ID.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        current_user: Authenticated user.
+        service: Backtest service dependency.
+
+    Returns:
+        Dictionary containing task_id and status.
+
+    Raises:
+        HTTPException: If task not found (404).
+    """
     task_status = await service.get_task_status(task_id, user_id=current_user.sub)
     if task_status is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="任务不存在",
+            detail="Task not found",
         )
     return {"task_id": task_id, "status": task_status}
 
 
-@router.get("/", response_model=BacktestListResponse, summary="列出回测历史")
+@router.get("/", response_model=BacktestListResponse, summary="List backtest history")
 async def list_backtests(
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    sort_by: str = Query("created_at", description="排序字段: created_at/strategy_id/symbol"),
-    sort_order: str = Query("desc", description="排序方向: asc/desc"),
+    limit: int = Query(20, ge=1, le=100, description="Max number of results"),
+    offset: int = Query(0, ge=0, description="Number of results to skip"),
+    sort_by: str = Query("created_at", description="Sort field: created_at/strategy_id/symbol"),
+    sort_order: str = Query("desc", description="Sort direction: asc/desc"),
 ):
-    """List backtest history for the current user (supports sorting)."""
+    """List backtest history for the current user (supports sorting).
+
+    Args:
+        current_user: Authenticated user.
+        service: Backtest service dependency.
+        limit: Maximum number of results to return (1-100).
+        offset: Number of results to skip.
+        sort_by: Field to sort by.
+        sort_order: Sort direction (asc or desc).
+
+    Returns:
+        BacktestListResponse containing total count and list of results.
+    """
     results = await service.list_results(
         current_user.sub, limit, offset,
         sort_by=sort_by, sort_desc=(sort_order == "desc"),
@@ -93,33 +128,57 @@ async def list_backtests(
     return results
 
 
-@router.post("/{task_id}/cancel", summary="取消回测任务")
+@router.post("/{task_id}/cancel", summary="Cancel backtest task")
 async def cancel_backtest(
     task_id: str,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """Cancel a running backtest task."""
+    """Cancel a running backtest task.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        current_user: Authenticated user.
+        service: Backtest service dependency.
+
+    Returns:
+        Success message with task_id.
+
+    Raises:
+        HTTPException: If cancellation fails (400).
+    """
     success = await service.cancel_task(task_id, current_user.sub)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="任务不存在、无权操作或任务已完成",
+            detail="Task not found, unauthorized, or already completed",
         )
-    return {"message": "任务已取消", "task_id": task_id}
+    return {"message": "Task cancelled", "task_id": task_id}
 
 
-@router.delete("/{task_id}", summary="删除回测结果")
+@router.delete("/{task_id}", summary="Delete backtest result")
 async def delete_backtest(
     task_id: str,
     current_user=Depends(get_current_user),
     service: BacktestService = Depends(get_backtest_service),
 ):
-    """Delete a backtest result."""
+    """Delete a backtest result.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        current_user: Authenticated user.
+        service: Backtest service dependency.
+
+    Returns:
+        Success message.
+
+    Raises:
+        HTTPException: If deletion fails (404).
+    """
     success = await service.delete_result(task_id, current_user.sub)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="回测结果不存在或无权删除",
+            detail="Backtest result not found or unauthorized",
         )
-    return {"message": "删除成功"}
+    return {"message": "Deleted successfully"}

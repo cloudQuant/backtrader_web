@@ -7,106 +7,106 @@ from pydantic import BaseModel, Field
 
 
 class VersionCreate(BaseModel):
-    """创建策略版本请求"""
-    strategy_id: str = Field(..., min_length=1, max_length=100, description="策略 ID")
-    version_name: str = Field(..., min_length=1, max_length=50, description="版本名称（如 v1.0.0）")
-    code: str = Field(..., min_length=1, description="策略代码")
-    params: Optional[Dict[str, Any]] = Field(None, description="默认参数")
-    branch: str = Field("main", min_length=1, max_length=50, description="分支名称")
-    tags: Optional[List[str]] = Field(None, description="版本标签")
-    changelog: Optional[str] = Field(None, description="变更日志")
-    is_default: bool = Field(False, description="是否设为默认版本")
+    """Strategy version creation request schema."""
+    strategy_id: str = Field(..., min_length=1, max_length=100, description="Strategy ID")
+    version_name: str = Field(..., min_length=1, max_length=50, description="Version name (e.g., v1.0.0)")
+    code: str = Field(..., min_length=1, description="Strategy code")
+    params: Optional[Dict[str, Any]] = Field(None, description="Default parameters")
+    branch: str = Field("main", min_length=1, max_length=50, description="Branch name")
+    tags: Optional[List[str]] = Field(None, description="Version tags")
+    changelog: Optional[str] = Field(None, description="Change log")
+    is_default: bool = Field(False, description="Set as default version")
 
 
 class VersionUpdate(BaseModel):
-    """更新策略版本请求"""
-    code: Optional[str] = Field(None, min_length=1, description="策略代码")
-    params: Optional[Dict[str, Any]] = Field(None, description="默认参数")
-    description: Optional[str] = Field(None, description="版本描述")
-    tags: Optional[List[str]] = Field(None, description="版本标签")
-    status: Optional[str] = Field(None, description="版本状态：draft, stable, deprecated, archived")
-    changelog: Optional[str] = Field(None, description="变更日志（可选，通常在发布 stable 时填写）")
+    """Strategy version update request schema."""
+    code: Optional[str] = Field(None, min_length=1, description="Strategy code")
+    params: Optional[Dict[str, Any]] = Field(None, description="Default parameters")
+    description: Optional[str] = Field(None, description="Version description")
+    tags: Optional[List[str]] = Field(None, description="Version tags")
+    status: Optional[str] = Field(None, description="Version status: draft, stable, deprecated, archived")
+    changelog: Optional[str] = Field(None, description="Change log (optional, usually filled when publishing stable)")
 
 
 class VersionResponse(BaseModel):
-    """策略版本响应"""
-    id: str = Field(..., description="版本 ID")
-    strategy_id: str = Field(..., description="策略 ID")
-    version_number: int = Field(..., ge=1, description="版本号（1, 2, 3, ...）")
-    version_name: str = Field(..., description="版本名称")
-    branch: str = Field(..., description="分支名称")
-    status: str = Field(..., description="版本状态：draft, stable, deprecated, archived")
-    tags: List[str] = Field(..., description="版本标签")
-    description: Optional[str] = Field(None, description="版本描述")
-    is_active: bool = Field(..., description="是否为活跃版本")
-    is_default: bool = Field(..., description="是否为默认版本")
-    is_current: bool = Field(..., description="是否为当前版本（分支头部）")
-    parent_version_id: Optional[str] = Field(None, description="父版本 ID")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
+    """Strategy version response schema."""
+    id: str = Field(..., description="Version ID")
+    strategy_id: str = Field(..., description="Strategy ID")
+    version_number: int = Field(..., ge=1, description="Version number (1, 2, 3, ...)")
+    version_name: str = Field(..., description="Version name")
+    branch: str = Field(..., description="Branch name")
+    status: str = Field(..., description="Version status: draft, stable, deprecated, archived")
+    tags: List[str] = Field(..., description="Version tags")
+    description: Optional[str] = Field(None, description="Version description")
+    is_active: bool = Field(..., description="Whether the version is active")
+    is_default: bool = Field(..., description="Whether the version is default")
+    is_current: bool = Field(..., description="Whether the version is current (branch head)")
+    parent_version_id: Optional[str] = Field(None, description="Parent version ID")
+    created_at: datetime = Field(..., description="Creation time")
+    updated_at: datetime = Field(..., description="Update time")
 
 
 class VersionListResponse(BaseModel):
-    """策略版本列表响应"""
-    total: int = Field(..., ge=0, description="总数量")
-    items: List[VersionResponse] = Field(..., description="版本列表")
+    """Strategy version list response schema."""
+    total: int = Field(..., ge=0, description="Total count")
+    items: List[VersionResponse] = Field(..., description="Version list")
 
 
 class VersionComparisonRequest(BaseModel):
-    """版本对比请求"""
-    strategy_id: str = Field(..., description="策略 ID")
-    from_version_id: str = Field(..., description="源版本 ID")
-    to_version_id: str = Field(..., description="目标版本 ID")
-    comparison_type: str = Field("code", description="对比类型：code, params, performance")
+    """Version comparison request schema."""
+    strategy_id: str = Field(..., description="Strategy ID")
+    from_version_id: str = Field(..., description="Source version ID")
+    to_version_id: str = Field(..., description="Target version ID")
+    comparison_type: str = Field("code", description="Comparison type: code, params, performance")
 
 
-# 别名，用于服务层兼容
+# Alias for service layer compatibility
 VersionComparisonCreate = VersionComparisonRequest
 
 
 class VersionComparisonResponse(BaseModel):
-    """版本对比响应"""
-    comparison_id: str = Field(..., description="对比 ID")
-    strategy_id: str = Field(..., description="策略 ID")
-    from_version_id: str = Field(..., description="源版本 ID")
-    to_version_id: str = Field(..., description="目标版本 ID")
-    code_diff: Optional[str] = Field(None, description="代码差异（Unified diff）")
-    params_diff: Optional[Dict[str, Any]] = Field(None, description="参数差异")
-    performance_diff: Optional[Dict[str, Any]] = Field(None, description="性能差异（需要回测结果）")
-    created_at: datetime = Field(..., description="对比创建时间")
+    """Version comparison response schema."""
+    comparison_id: str = Field(..., description="Comparison ID")
+    strategy_id: str = Field(..., description="Strategy ID")
+    from_version_id: str = Field(..., description="Source version ID")
+    to_version_id: str = Field(..., description="Target version ID")
+    code_diff: Optional[str] = Field(None, description="Code difference (Unified diff)")
+    params_diff: Optional[Dict[str, Any]] = Field(None, description="Parameter difference")
+    performance_diff: Optional[Dict[str, Any]] = Field(None, description="Performance difference (requires backtest results)")
+    created_at: datetime = Field(..., description="Comparison creation time")
 
 
 class VersionRollbackRequest(BaseModel):
-    """版本回滚请求"""
-    strategy_id: str = Field(..., description="策略 ID")
-    target_version_id: str = Field(..., description="目标版本 ID")
-    reason: str = Field(..., description="回滚原因")
+    """Version rollback request schema."""
+    strategy_id: str = Field(..., description="Strategy ID")
+    target_version_id: str = Field(..., description="Target version ID")
+    reason: str = Field(..., description="Rollback reason")
 
 
-# 别名，用于服务层兼容
+# Alias for service layer compatibility
 VersionRollbackCreate = VersionRollbackRequest
 
 
 class BranchCreate(BaseModel):
-    """创建策略分支请求"""
-    strategy_id: str = Field(..., description="策略 ID")
-    branch_name: str = Field(..., min_length=1, max_length=50, pattern=r'^[a-zA-Z0-9/_-]+$', description="分支名称（如 feature/new-indicator）")
-    parent_branch: Optional[str] = Field(None, description="父分支名称（如 main）")
+    """Strategy branch creation request schema."""
+    strategy_id: str = Field(..., description="Strategy ID")
+    branch_name: str = Field(..., min_length=1, max_length=50, pattern=r'^[a-zA-Z0-9/_-]+$', description="Branch name (e.g., feature/new-indicator)")
+    parent_branch: Optional[str] = Field(None, description="Parent branch name (e.g., main)")
 
 
 class BranchResponse(BaseModel):
-    """策略分支响应"""
-    branch_id: str = Field(..., description="分支 ID")
-    strategy_id: str = Field(..., description="策略 ID")
-    branch_name: str = Field(..., description="分支名称")
-    parent_branch: Optional[str] = Field(None, description="父分支")
-    version_count: int = Field(..., ge=0, description="分支上的版本数量")
-    last_version_id: Optional[str] = Field(None, description="分支最新版本 ID")
-    is_default: bool = Field(..., description="是否为默认分支")
-    created_at: datetime = Field(..., description="创建时间")
+    """Strategy branch response schema."""
+    branch_id: str = Field(..., description="Branch ID")
+    strategy_id: str = Field(..., description="Strategy ID")
+    branch_name: str = Field(..., description="Branch name")
+    parent_branch: Optional[str] = Field(None, description="Parent branch")
+    version_count: int = Field(..., ge=0, description="Number of versions on the branch")
+    last_version_id: Optional[str] = Field(None, description="Latest version ID on the branch")
+    is_default: bool = Field(..., description="Whether the branch is default")
+    created_at: datetime = Field(..., description="Creation time")
 
 
 class BranchListResponse(BaseModel):
-    """策略分支列表响应"""
-    total: int = Field(..., ge=0, description="总数量")
-    items: List[BranchResponse] = Field(..., description="分支列表")
+    """Strategy branch list response schema."""
+    total: int = Field(..., ge=0, description="Total count")
+    items: List[BranchResponse] = Field(..., description="Branch list")

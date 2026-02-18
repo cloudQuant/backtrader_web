@@ -20,7 +20,7 @@ async def test_live_trading_api_remove_and_get_instance_success_paths():
     mgr.get_instance.return_value = {"id": "iid", "strategy_id": "s1"}
 
     resp = await api.remove_instance("iid", current_user=user, mgr=mgr)
-    assert resp == {"message": "已删除"}
+    assert resp == {"message": "Deleted successfully"}
 
     inst = await api.get_instance("iid", current_user=user, mgr=mgr)
     assert inst["strategy_id"] == "s1"

@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional, Callable
 import logging
 from datetime import datetime, timezone
 
-# 动态导入 backtrader 项目
+# Dynamically import backtrader project
 BACKTRADER_PATH = Path.home() / "Documents" / "backtrader"
 if BACKTRADER_PATH.exists():
     sys.path.insert(0, str(BACKTRADER_PATH))
@@ -31,19 +31,28 @@ logger = logging.getLogger(__name__)
 
 
 class LiveTradingService:
-    """
-    实盘交易服务（正确版本）
+    """Service for managing live trading strategies using Backtrader architecture.
 
-    使用 backtrader 的标准架构：
-    - Cerebro.run() 进行实盘交易
-    - Store 管理交易所连接
-    - Broker 管理订单执行
-    - Observer 订阅事件
+    This service provides functionality to submit, manage, and monitor live trading
+    strategies using the standard Backtrader architecture:
+
+    - Cerebro.run() for executing live trading
+    - Store for managing exchange connections
+    - Broker for managing order execution
+    - Observer for subscribing to events
+
+    Attributes:
+        tasks: Dictionary mapping task IDs to task information.
+        cerebro_instances: Dictionary mapping task IDs to Cerebro instances.
     """
 
     def __init__(self):
-        self.tasks: Dict[str, Dict[str, Any]] = {}  # {task_id: task_info}
-        self.cerebro_instances: Dict[str, bt.Cerebro] = {}  # {task_id: cerebro}
+        """Initialize the LiveTradingService.
+
+        Creates empty dictionaries for tracking tasks and Cerebro instances.
+        """
+        self.tasks: Dict[str, Dict[str, Any]] = {}
+        self.cerebro_instances: Dict[str, bt.Cerebro] = {}
 
     async def submit_live_strategy(
         self,
@@ -60,41 +69,43 @@ class LiveTradingService:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> str:
-        """
-        提交实盘交易策略
+        """Submit a live trading strategy for execution.
 
         Args:
-            user_id: 用户 ID
-            strategy_code: 策略代码
-            exchange: 交易所（binance, okex, huobi 等）
-            symbols: 交易对列表
-            api_key: API Key
-            secret: Secret Key
-            initial_cash: 初始资金
-            strategy_params: 策略参数
-            sandbox: 是否测试环境
-            timeframe: 时间周期
-            start_date: 开始时间
-            end_date: 结束时间
+            user_id: The user ID submitting the strategy.
+            strategy_code: The Python code containing the strategy implementation.
+            exchange: The exchange to connect to (e.g., 'binance', 'okex', 'huobi').
+            symbols: List of trading pairs to trade (e.g., ['BTC/USDT']).
+            api_key: API key for exchange authentication.
+            secret: Secret key for exchange authentication.
+            initial_cash: Initial cash amount for the strategy. Defaults to 100000.0.
+            strategy_params: Optional parameters to pass to the strategy.
+            sandbox: Whether to use the exchange's sandbox/test environment.
+            timeframe: The timeframe for data feeds (e.g., '1d', '1h', '5m').
+            start_date: Optional start date for historical data.
+            end_date: Optional end date for historical data.
 
         Returns:
-            str: 任务 ID
+            str: The unique task ID assigned to this live trading strategy.
+
+        Raises:
+            ImportError: If backtrader is not available.
         """
         if not BACKTRADER_AVAILABLE:
             raise ImportError("backtrader not available")
 
-        # 生成任务 ID
+        # Generate unique task ID
         task_id = f"live-{user_id}-{datetime.now(timezone.utc).timestamp()}"
 
-        # 在后台线程中运行实盘交易
+        # Run live trading in a background thread
         def _run_live_trading():
             try:
                 logger.info(f"Starting live trading task: {task_id}")
 
-                # 创建 Cerebro 实例
+                # Create Cerebro instance
                 cerebro = bt.Cerebro()
 
-                # 创建数据源
+                # Create data feeds for each symbol
                 for symbol in symbols:
                     data_feed = CCXTData(
                         dataname=symbol,
@@ -105,11 +116,11 @@ class LiveTradingService:
                     )
                     cerebro.adddata(data_feed)
 
-                # 创建策略
+                # Create and add strategy
                 strategy = self._load_strategy_from_code(strategy_code, strategy_params or {})
                 cerebro.addstrategy(strategy)
 
-                # 创建 Store 和 Broker
+                # Create Store and Broker
                 store = CCXTStore(
                     exchange=exchange,
                     api_key=api_key,
@@ -121,16 +132,16 @@ class LiveTradingService:
                 broker = store.getbroker()
                 cerebro.setbroker(broker)
 
-                # 设置初始资金
+                # Set initial cash
                 cerebro.broker.setcash(initial_cash)
 
-                # 添加观察者（用于获取事件）
+                # Add observer for event notifications
                 cerebro.addobserver(BrokerObserver)
 
-                # 保存 Cerebro 实例用于控制
+                # Store Cerebro instance for control
                 self.cerebro_instances[task_id] = cerebro
 
-                # 运行实盘交易
+                # Run live trading
                 logger.info(f"Running live trading with Cerebro: {task_id}")
                 cerebro.run()
 
@@ -139,11 +150,11 @@ class LiveTradingService:
                 self.tasks[task_id]["status"] = "failed"
                 self.tasks[task_id]["error"] = str(e)
 
-        # 启动后台线程
+        # Start background thread
         thread = threading.Thread(target=_run_live_trading, daemon=True)
         thread.start()
 
-        # 更新任务状态
+        # Update task status
         self.tasks[task_id] = {
             "user_id": user_id,
             "status": "running",
@@ -159,60 +170,61 @@ class LiveTradingService:
         return task_id
 
     def _load_strategy_from_code(self, code: str, params: Dict[str, Any]):
-        """
-        从代码加载策略
+        """Load a Backtrader strategy class from executable Python code.
 
         Args:
-            code: 策略代码
-            params: 策略参数
+            code: A string containing Python code with a Strategy class definition.
+            params: Dictionary of parameters to set on the strategy.
 
         Returns:
-            策略类
+            The loaded Backtrader Strategy class.
+
+        Raises:
+            ValueError: If no valid Strategy class is found in the code.
         """
-        # 创建临时模块
+        # Create temporary module
         import types
         module = types.ModuleType(f"strategy_{id(code)}")
         exec(code, module.__dict__)
 
-        # 查找策略类
+        # Find strategy class
         for name, obj in module.__dict__.items():
             if isinstance(obj, type) and issubclass(obj, bt.Strategy):
-                # 设置参数
+                # Set parameters
                 if hasattr(obj, 'params'):
                     for key, value in params.items():
                         obj.params._get(key).default = value
                 return obj
 
-        raise ValueError("策略代码中未找到有效的 Strategy 类")
+        raise ValueError("No valid Strategy class found in the provided code")
 
     async def stop_live_strategy(
         self,
         user_id: str,
         task_id: str,
     ) -> bool:
-        """
-        停止实盘交易策略
+        """Stop a running live trading strategy.
 
         Args:
-            user_id: 用户 ID
-            task_id: 任务 ID
+            user_id: The user ID who owns the strategy.
+            task_id: The unique task ID of the strategy to stop.
 
         Returns:
-            bool: 是否停止成功
+            bool: True if the strategy was stopped successfully, False otherwise.
         """
         if task_id not in self.cerebro_instances:
             return False
 
-        # 获取 Cerebro 实例
+        # Get Cerebro instance
         cerebro = self.cerebro_instances[task_id]
 
-        # 停止 Cerebro
+        # Stop Cerebro
         cerebro.stop()
 
-        # 清理
+        # Cleanup
         del self.cerebro_instances[task_id]
 
-        # 更新任务状态
+        # Update task status
         if task_id in self.tasks:
             self.tasks[task_id]["status"] = "stopped"
             self.tasks[task_id]["stopped_at"] = datetime.now(timezone.utc)
@@ -226,30 +238,30 @@ class LiveTradingService:
         user_id: str,
         task_id: str,
     ) -> Optional[Dict[str, Any]]:
-        """
-        获取任务状态
+        """Get the current status of a live trading task.
 
         Args:
-            user_id: 用户 ID
-            task_id: 任务 ID
+            user_id: The user ID who owns the strategy.
+            task_id: The unique task ID to query.
 
         Returns:
-            Dict: 状态信息
+            A dictionary containing task status including cash, value,
+            positions, and orders. Returns None if the task doesn't exist.
         """
         if task_id not in self.tasks:
             return None
 
         task = self.tasks[task_id]
 
-        # 如果有 Cerebro 实例，获取实时状态
+        # Get real-time status if Cerebro instance exists
         if task_id in self.cerebro_instances:
             cerebro = self.cerebro_instances[task_id]
-            
-            # 获取账户信息
+
+            # Get account information
             cash = cerebro.broker.getcash()
             value = cerebro.broker.getvalue()
 
-            # 获取持仓
+            # Get positions
             positions = []
             for data in cerebro.datas:
                 position = cerebro.broker.getposition(data)
@@ -262,7 +274,7 @@ class LiveTradingService:
                         "pnlcomm": position.pnlcomm,
                     })
 
-            # 获取订单
+            # Get orders
             orders = []
             for order in cerebro.broker.orders:
                 orders.append({
@@ -291,15 +303,15 @@ class LiveTradingService:
         user_id: str,
         status: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        列出所有任务
+        """List all live trading tasks for a user.
 
         Args:
-            user_id: 用户 ID
-            status: 状态筛选
+            user_id: The user ID to list tasks for.
+            status: Optional status filter (e.g., 'running', 'stopped', 'failed').
 
         Returns:
-            List: 任务列表
+            A list of dictionaries containing task information including
+            real-time status for active tasks.
         """
         tasks = []
         for task_id, task_info in self.tasks.items():
@@ -309,7 +321,7 @@ class LiveTradingService:
             if status and task_info["status"] != status:
                 continue
 
-            # 获取实时状态
+            # Get real-time status
             full_status = await self.get_task_status(user_id, task_id)
             if full_status:
                 tasks.append(full_status)

@@ -1,15 +1,17 @@
 """
-Backtrader Web - 量化回测可视化框架
+Backtrader Web - Quantitative backtest visualization framework.
 
-用法:
-    from backtrader_web import WebServer
-    import backtrader as bt
+This package provides web-based visualization for backtrader backtest results.
 
-    cerebro = bt.Cerebro()
-    # ... 配置策略和数据
-    
-    server = WebServer(cerebro)
-    server.run(port=8000)
+Usage:
+    >>> from backtrader_web import WebServer
+    >>> import backtrader as bt
+    >>>
+    >>> cerebro = bt.Cerebro()
+    >>> # ... configure strategy and data
+    >>>
+    >>> server = WebServer(cerebro)
+    >>> server.run(port=8000)
 """
 
 from .server import WebServer

@@ -12,16 +12,21 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.get("/kline", summary="查询K线数据")
+@router.get("/kline", summary="Query K-line data")
 async def get_kline_data(
-    symbol: str = Query(..., description="股票代码，如 000001.SZ"),
-    start_date: str = Query(..., description="开始日期 YYYY-MM-DD"),
-    end_date: str = Query(..., description="结束日期 YYYY-MM-DD"),
-    period: str = Query("daily", description="周期: daily/weekly/monthly"),
+    symbol: str = Query(..., description="Stock code, e.g., 000001.SZ"),
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+    period: str = Query("daily", description="Period: daily/weekly/monthly"),
     current_user=Depends(get_current_user),
 ):
-    """
-    Fetch A-share kline OHLCV data via AkShare.
+    """Fetch A-share kline OHLCV data via AkShare.
+
+    Args:
+        symbol: Stock code (e.g., 000001.SZ).
+        start_date: Start date in YYYY-MM-DD format.
+        end_date: End date in YYYY-MM-DD format.
+        period: Data period (daily/weekly/monthly).
 
     Returns:
         A payload containing `kline` arrays and a flat `records` list for UI display.
@@ -44,16 +49,17 @@ async def get_kline_data(
         )
 
         if df.empty:
-            raise HTTPException(status_code=404, detail=f"未获取到 {symbol} 的数据")
+            raise HTTPException(status_code=404, detail=f"No data retrieved for {symbol}")
 
+        # akshare returns Chinese column names, rename to English
         df = df.rename(columns={
-            '日期': 'date',
-            '开盘': 'open',
-            '最高': 'high',
-            '最低': 'low',
-            '收盘': 'close',
-            '成交量': 'volume',
-            '涨跌幅': 'change_pct',
+            '日期': 'date',      # Date
+            '开盘': 'open',      # Open
+            '最高': 'high',      # High
+            '最低': 'low',       # Low
+            '收盘': 'close',     # Close
+            '成交量': 'volume',  # Volume
+            '涨跌幅': 'change_pct',  # Change percentage
         })
 
         records = []
@@ -88,5 +94,5 @@ async def get_kline_data(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"查询行情数据失败: {symbol}, {e}")
-        raise HTTPException(status_code=500, detail=f"查询失败: {e}")
+        logger.error(f"Failed to fetch market data: {symbol}, {e}")
+        raise HTTPException(status_code=500, detail=f"Query failed: {e}")

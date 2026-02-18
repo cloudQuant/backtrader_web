@@ -1,12 +1,12 @@
 """
-模拟交易 API 路由完整测试
+Paper Trading API Route Tests.
 
-测试所有模拟交易 API 端点：
-- 账户管理：创建、列表、详情、删除
-- 订单管理：提交、列表、详情、撤销
-- 持仓管理：列表、详情
-- 成交管理：列表
-- WebSocket 端点
+Tests all paper trading API endpoints:
+- Account Management: create, list, details, delete
+- Order Management: submit, list, details, cancel
+- Position Management: list, details
+- Trade Management: list
+- WebSocket endpoints
 """
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -16,7 +16,7 @@ from fastapi import status
 
 @pytest.fixture
 def mock_current_user():
-    """Mock current user"""
+    """Mock current user for testing."""
     user = MagicMock()
     user.sub = "test_user_123"
     return user
@@ -24,7 +24,11 @@ def mock_current_user():
 
 @pytest.fixture
 def mock_paper_trading_service():
-    """Mock PaperTradingService"""
+    """Mock PaperTradingService for testing.
+
+    Returns:
+        AsyncMock: A mock service with all paper trading methods.
+    """
     service = AsyncMock()
     service.create_account = AsyncMock()
     service.list_accounts = AsyncMock(return_value=([], 0))
@@ -40,19 +44,24 @@ def mock_paper_trading_service():
     return service
 
 
-# ==================== 账户 API 测试 ====================
+# ==================== Account API Tests ====================
 
 @pytest.mark.asyncio
 class TestPaperTradingAccountsAPI:
-    """测试模拟账户 API"""
+    """Test paper trading account API endpoints."""
 
     async def test_create_account_success(self, mock_current_user, mock_paper_trading_service):
-        """测试成功创建模拟账户"""
+        """Test successful paper trading account creation.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import create_paper_account
         from app.schemas.paper_trading import AccountCreate, AccountResponse
 
         request = AccountCreate(
-            name="测试账户",
+            name="Test Account",
             initial_cash=100000.0,
             commission_rate=0.001,
             slippage_rate=0.001,
@@ -61,7 +70,7 @@ class TestPaperTradingAccountsAPI:
         mock_response = AccountResponse(
             id="acc_123",
             user_id="test_user_123",
-            name="测试账户",
+            name="Test Account",
             initial_cash=100000.0,
             current_cash=100000.0,
             total_equity=100000.0,
@@ -83,24 +92,29 @@ class TestPaperTradingAccountsAPI:
 
         assert result.id == "acc_123"
         assert result.user_id == "test_user_123"
-        assert result.name == "测试账户"
+        assert result.name == "Test Account"
         assert result.initial_cash == 100000.0
 
         # Verify service was called correctly
         mock_paper_trading_service.create_account.assert_called_once_with(
             user_id="test_user_123",
-            name="测试账户",
+            name="Test Account",
             initial_cash=100000.0,
             commission_rate=0.001,
             slippage_rate=0.001,
         )
 
     async def test_create_account_with_defaults(self, mock_current_user, mock_paper_trading_service):
-        """测试使用默认值创建账户"""
+        """Test account creation with default parameter values.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import create_paper_account
         from app.schemas.paper_trading import AccountCreate
 
-        request = AccountCreate(name="默认账户")
+        request = AccountCreate(name="Default Account")
 
         await create_paper_account(
             request=request,
@@ -115,7 +129,12 @@ class TestPaperTradingAccountsAPI:
         assert call_args.kwargs['slippage_rate'] == 0.001
 
     async def test_list_accounts_empty(self, mock_current_user, mock_paper_trading_service):
-        """测试空账户列表"""
+        """Test listing accounts when no accounts exist.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_accounts
 
         mock_paper_trading_service.list_accounts = AsyncMock(return_value=([], 0))
@@ -137,7 +156,12 @@ class TestPaperTradingAccountsAPI:
         )
 
     async def test_list_accounts_with_pagination(self, mock_current_user, mock_paper_trading_service):
-        """测试分页获取账户列表"""
+        """Test listing accounts with pagination support.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_accounts
         from app.schemas.paper_trading import AccountResponse
 
@@ -145,7 +169,7 @@ class TestPaperTradingAccountsAPI:
             AccountResponse(
                 id="acc_1",
                 user_id="test_user_123",
-                name="账户1",
+                name="Account 1",
                 initial_cash=100000.0,
                 current_cash=100000.0,
                 total_equity=100000.0,
@@ -160,7 +184,7 @@ class TestPaperTradingAccountsAPI:
             AccountResponse(
                 id="acc_2",
                 user_id="test_user_123",
-                name="账户2",
+                name="Account 2",
                 initial_cash=200000.0,
                 current_cash=200000.0,
                 total_equity=200000.0,
@@ -186,7 +210,12 @@ class TestPaperTradingAccountsAPI:
         assert len(result.items) == 2
 
     async def test_get_account_not_found(self, mock_current_user, mock_paper_trading_service):
-        """测试获取不存在的账户"""
+        """Test getting a non-existent account returns 404.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_account
         from fastapi import HTTPException
 
@@ -200,17 +229,22 @@ class TestPaperTradingAccountsAPI:
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
-        assert "不存在" in exc_info.value.detail
+        assert "not found" in exc_info.value.detail
 
     async def test_get_account_unauthorized(self, mock_current_user, mock_paper_trading_service):
-        """测试获取无权访问的账户"""
+        """Test getting an account owned by another user returns 403.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_account
         from fastapi import HTTPException
 
         mock_account = MagicMock(
             id="acc_other",
             user_id="other_user",  # Different from current user
-            name="其他账户",
+            name="Other Account",
         )
         mock_paper_trading_service.get_account = AsyncMock(return_value=mock_account)
 
@@ -222,16 +256,21 @@ class TestPaperTradingAccountsAPI:
             )
 
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-        assert "无权访问" in exc_info.value.detail
+        assert "permission" in exc_info.value.detail.lower()
 
     async def test_get_account_success(self, mock_current_user, mock_paper_trading_service):
-        """测试成功获取账户详情"""
+        """Test successful account details retrieval.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_account
 
         mock_account = MagicMock(
             id="acc_123",
             user_id="test_user_123",
-            name="测试账户",
+            name="Test Account",
             initial_cash=100000.0,
             current_cash=100000.0,
             total_equity=100000.0,
@@ -255,7 +294,12 @@ class TestPaperTradingAccountsAPI:
         assert result.user_id == "test_user_123"
 
     async def test_delete_account_success(self, mock_current_user, mock_paper_trading_service):
-        """测试成功删除账户"""
+        """Test successful account deletion.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import delete_paper_account
 
         mock_paper_trading_service.delete_account = AsyncMock(return_value=True)
@@ -266,14 +310,19 @@ class TestPaperTradingAccountsAPI:
             service=mock_paper_trading_service
         )
 
-        assert result == {"message": "删除成功"}
+        assert result == {"message": "Account deleted successfully"}
 
         mock_paper_trading_service.delete_account.assert_called_once_with(
             "acc_123", "test_user_123"
         )
 
     async def test_delete_account_not_found(self, mock_current_user, mock_paper_trading_service):
-        """测试删除不存在的账户"""
+        """Test deleting a non-existent account returns 404.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import delete_paper_account
         from fastapi import HTTPException
 
@@ -289,14 +338,19 @@ class TestPaperTradingAccountsAPI:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
 
-# ==================== 订单 API 测试 ====================
+# ==================== Order API Tests ====================
 
 @pytest.mark.asyncio
 class TestPaperTradingOrdersAPI:
-    """测试模拟订单 API"""
+    """Test paper trading order API endpoints."""
 
     async def test_submit_order_market_buy(self, mock_current_user, mock_paper_trading_service):
-        """测试提交市价买单"""
+        """Test submitting a market buy order.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import submit_paper_order
         from app.schemas.paper_trading import OrderRequest, OrderResponse
 
@@ -344,7 +398,12 @@ class TestPaperTradingOrdersAPI:
         mock_paper_trading_service.submit_order.assert_called_once()
 
     async def test_submit_order_limit_sell(self, mock_current_user, mock_paper_trading_service):
-        """测试提交限价卖单"""
+        """Test submitting a limit sell order.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import submit_paper_order
         from app.schemas.paper_trading import OrderRequest, OrderResponse
 
@@ -389,7 +448,12 @@ class TestPaperTradingOrdersAPI:
         assert result.price == 10.5
 
     async def test_submit_order_stop_loss(self, mock_current_user, mock_paper_trading_service):
-        """测试提交止损单"""
+        """Test submitting a stop-loss order.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import submit_paper_order
         from app.schemas.paper_trading import OrderRequest, OrderResponse
 
@@ -433,7 +497,12 @@ class TestPaperTradingOrdersAPI:
         assert result.stop_price == 9.5
 
     async def test_list_orders_empty(self, mock_current_user, mock_paper_trading_service):
-        """测试空订单列表"""
+        """Test listing orders when no orders exist.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_orders
 
         mock_paper_trading_service.list_orders = AsyncMock(return_value=([], 0))
@@ -456,7 +525,12 @@ class TestPaperTradingOrdersAPI:
         assert call_kwargs['filters']['user_id'] == "test_user_123"
 
     async def test_list_orders_with_filters(self, mock_current_user, mock_paper_trading_service):
-        """测试使用筛选条件获取订单列表"""
+        """Test listing orders with filter parameters.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_orders
 
         mock_paper_trading_service.list_orders = AsyncMock(return_value=([], 0))
@@ -480,7 +554,12 @@ class TestPaperTradingOrdersAPI:
         assert filters['status'] == "pending"
 
     async def test_get_order_not_found(self, mock_current_user, mock_paper_trading_service):
-        """测试获取不存在的订单"""
+        """Test getting a non-existent order returns 404.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_order
         from fastapi import HTTPException
 
@@ -496,7 +575,12 @@ class TestPaperTradingOrdersAPI:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
     async def test_get_order_unauthorized(self, mock_current_user, mock_paper_trading_service):
-        """测试获取无权访问的订单"""
+        """Test getting an order from another user's account returns 403.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_order
         from fastapi import HTTPException
 
@@ -523,7 +607,12 @@ class TestPaperTradingOrdersAPI:
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
     async def test_get_order_success(self, mock_current_user, mock_paper_trading_service):
-        """测试成功获取订单详情"""
+        """Test successful order details retrieval.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_order
 
         mock_order = MagicMock(
@@ -565,7 +654,12 @@ class TestPaperTradingOrdersAPI:
         assert result.status == "partial_filled"
 
     async def test_cancel_order_success(self, mock_current_user, mock_paper_trading_service):
-        """测试成功撤销订单"""
+        """Test successful order cancellation.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import cancel_paper_order
 
         mock_paper_trading_service.cancel_order = AsyncMock(return_value=True)
@@ -576,14 +670,19 @@ class TestPaperTradingOrdersAPI:
             service=mock_paper_trading_service
         )
 
-        assert result == {"message": "订单已撤销"}
+        assert result == {"message": "Order has been cancelled"}
 
         mock_paper_trading_service.cancel_order.assert_called_once_with(
             "order_123", "test_user_123"
         )
 
     async def test_cancel_order_not_found(self, mock_current_user, mock_paper_trading_service):
-        """测试撤销不存在的订单"""
+        """Test cancelling a non-existent order returns 404.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import cancel_paper_order
         from fastapi import HTTPException
 
@@ -599,14 +698,19 @@ class TestPaperTradingOrdersAPI:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
 
-# ==================== 持仓 API 测试 ====================
+# ==================== Position API Tests ====================
 
 @pytest.mark.asyncio
 class TestPaperTradingPositionsAPI:
-    """测试模拟持仓 API"""
+    """Test paper trading position API endpoints."""
 
     async def test_list_positions_empty(self, mock_current_user, mock_paper_trading_service):
-        """测试空持仓列表"""
+        """Test listing positions when no positions exist.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_positions
 
         mock_paper_trading_service.list_positions = AsyncMock(return_value=([], 0))
@@ -628,7 +732,12 @@ class TestPaperTradingPositionsAPI:
         assert call_kwargs['filters']['user_id'] == "test_user_123"
 
     async def test_list_positions_with_data(self, mock_current_user, mock_paper_trading_service):
-        """测试获取持仓列表"""
+        """Test listing positions with data.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_positions
         from app.schemas.paper_trading import PositionResponse
 
@@ -663,7 +772,12 @@ class TestPaperTradingPositionsAPI:
         assert result.items[0].symbol == "000001.SZ"
 
     async def test_list_positions_with_symbol_filter(self, mock_current_user, mock_paper_trading_service):
-        """测试使用标的代码筛选持仓"""
+        """Test listing positions filtered by symbol.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_positions
 
         mock_paper_trading_service.list_positions = AsyncMock(return_value=([], 0))
@@ -681,7 +795,12 @@ class TestPaperTradingPositionsAPI:
         assert call_kwargs['filters']['symbol'] == "600000.SH"
 
     async def test_get_position_not_found(self, mock_current_user, mock_paper_trading_service):
-        """测试获取不存在的持仓"""
+        """Test getting a non-existent position returns 404.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_position
         from fastapi import HTTPException
 
@@ -697,7 +816,12 @@ class TestPaperTradingPositionsAPI:
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
     async def test_get_position_unauthorized(self, mock_current_user, mock_paper_trading_service):
-        """测试获取无权访问的持仓"""
+        """Test getting a position from another user's account returns 403.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_position
         from fastapi import HTTPException
 
@@ -725,7 +849,12 @@ class TestPaperTradingPositionsAPI:
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
 
     async def test_get_position_success(self, mock_current_user, mock_paper_trading_service):
-        """测试成功获取持仓详情"""
+        """Test successful position details retrieval.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import get_paper_position
 
         mock_position = MagicMock(
@@ -760,14 +889,19 @@ class TestPaperTradingPositionsAPI:
         assert result.symbol == "000001.SZ"
 
 
-# ==================== 成交 API 测试 ====================
+# ==================== Trade API Tests ====================
 
 @pytest.mark.asyncio
 class TestPaperTradingTradesAPI:
-    """测试模拟成交 API"""
+    """Test paper trading trade API endpoints."""
 
     async def test_list_trades_empty(self, mock_current_user, mock_paper_trading_service):
-        """测试空成交列表"""
+        """Test listing trades when no trades exist.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_trades
 
         mock_paper_trading_service.list_trades = AsyncMock(return_value=([], 0))
@@ -790,7 +924,12 @@ class TestPaperTradingTradesAPI:
         assert call_kwargs['filters']['user_id'] == "test_user_123"
 
     async def test_list_trades_with_data(self, mock_current_user, mock_paper_trading_service):
-        """测试获取成交列表"""
+        """Test listing trades with data.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_trades
         from app.schemas.paper_trading import TradeResponse
 
@@ -827,7 +966,12 @@ class TestPaperTradingTradesAPI:
         assert result.items[0].side == "buy"
 
     async def test_list_trades_with_filters(self, mock_current_user, mock_paper_trading_service):
-        """测试使用筛选条件获取成交列表"""
+        """Test listing trades with filter parameters.
+
+        Args:
+            mock_current_user: Mock authenticated user fixture.
+            mock_paper_trading_service: Mock service fixture.
+        """
         from app.api.paper_trading import list_paper_trades
 
         mock_paper_trading_service.list_trades = AsyncMock(return_value=([], 0))
@@ -851,14 +995,14 @@ class TestPaperTradingTradesAPI:
         assert filters['side'] == "buy"
 
 
-# ==================== WebSocket 测试 ====================
+# ==================== WebSocket Tests ====================
 
 @pytest.mark.asyncio
 class TestPaperTradingWebSocket:
-    """测试模拟交易 WebSocket"""
+    """Test paper trading WebSocket endpoints."""
 
     async def test_websocket_account_not_found(self):
-        """测试WebSocket连接不存在的账户"""
+        """Test WebSocket connection to non-existent account closes connection."""
         from app.api.paper_trading import websocket_account_endpoint
 
         mock_ws = MagicMock()
@@ -875,7 +1019,7 @@ class TestPaperTradingWebSocket:
             mock_ws.close.assert_called_once_with(code=status.WS_1008_POLICY_VIOLATION)
 
     async def test_websocket_connection_established(self):
-        """测试WebSocket连接建立"""
+        """Test WebSocket connection is established successfully."""
         from app.api.paper_trading import websocket_account_endpoint
 
         mock_ws = MagicMock()
@@ -913,7 +1057,7 @@ class TestPaperTradingWebSocket:
                 assert mock_mgr.send_to_task.call_count >= 1
 
     async def test_websocket_disconnect_handling(self):
-        """测试WebSocket断开连接处理"""
+        """Test WebSocket disconnect is handled gracefully."""
         from app.api.paper_trading import websocket_account_endpoint
         from fastapi import WebSocketDisconnect
 
@@ -946,25 +1090,25 @@ class TestPaperTradingWebSocket:
                 mock_mgr.disconnect.assert_called_once()
 
 
-# ==================== Schema 测试 ====================
+# ==================== Schema Tests ====================
 
 @pytest.mark.asyncio
 class TestPaperTradingSchemas:
-    """测试模拟交易 Schema"""
+    """Test paper trading schema validation."""
 
     async def test_account_create_schema(self):
-        """测试账户创建 Schema"""
+        """Test account creation schema validation."""
         from app.schemas.paper_trading import AccountCreate
         from pydantic import ValidationError
 
         # Valid request
         request = AccountCreate(
-            name="测试账户",
+            name="Test Account",
             initial_cash=100000.0,
             commission_rate=0.001,
             slippage_rate=0.001,
         )
-        assert request.name == "测试账户"
+        assert request.name == "Test Account"
         assert request.initial_cash == 100000.0
 
         # Invalid: empty name
@@ -977,12 +1121,12 @@ class TestPaperTradingSchemas:
         # Invalid: negative initial_cash
         with pytest.raises(ValidationError):
             AccountCreate(
-                name="测试",
+                name="Test",
                 initial_cash=-1000.0,
             )
 
     async def test_order_request_schema(self):
-        """测试订单请求 Schema"""
+        """Test order request schema validation."""
         from app.schemas.paper_trading import OrderRequest
         from pydantic import ValidationError
 
@@ -1029,21 +1173,21 @@ class TestPaperTradingSchemas:
             )
 
 
-# ==================== 路由测试 ====================
+# ==================== Router Tests ====================
 
 @pytest.mark.asyncio
 class TestPaperTradingRouter:
-    """测试模拟交易路由"""
+    """Test paper trading router configuration."""
 
     async def test_router_exists(self):
-        """测试路由存在"""
+        """Test router is properly defined."""
         from app.api.paper_trading import router
 
         assert router is not None
         assert hasattr(router, 'routes')
 
     async def test_router_endpoint_count(self):
-        """测试路由端点数量"""
+        """Test router has expected number of endpoints."""
         from app.api.paper_trading import router
 
         routes = list(router.routes)
@@ -1051,7 +1195,7 @@ class TestPaperTradingRouter:
         assert len(routes) == 12
 
     async def test_router_has_account_endpoints(self):
-        """测试有账户端点"""
+        """Test router has account-related endpoints."""
         from app.api.paper_trading import router
 
         routes = [route for route in router.routes if hasattr(route, 'path')]
@@ -1059,7 +1203,7 @@ class TestPaperTradingRouter:
         assert len(account_routes) > 0
 
     async def test_router_has_websocket_endpoint(self):
-        """测试有WebSocket端点"""
+        """Test router has WebSocket endpoint."""
         from app.api.paper_trading import router
 
         routes = [route for route in router.routes if hasattr(route, 'path')]
@@ -1067,14 +1211,14 @@ class TestPaperTradingRouter:
         assert len(ws_routes) > 0
 
 
-# ==================== 依赖函数测试 ====================
+# ==================== Dependency Tests ====================
 
 @pytest.mark.asyncio
 class TestPaperTradingDependencies:
-    """测试模拟交易依赖函数"""
+    """Test paper trading dependency functions."""
 
     async def test_get_paper_trading_service(self):
-        """测试服务依赖函数"""
+        """Test service dependency function returns correct service instance."""
         from app.api.paper_trading import get_paper_trading_service
         from app.services.paper_trading_service import PaperTradingService
 
@@ -1082,7 +1226,7 @@ class TestPaperTradingDependencies:
         assert isinstance(service, PaperTradingService)
 
     async def test_get_paper_trading_service_callable(self):
-        """测试服务可调用"""
+        """Test service dependency is callable."""
         from app.api.paper_trading import get_paper_trading_service
 
         assert callable(get_paper_trading_service)

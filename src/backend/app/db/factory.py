@@ -1,5 +1,5 @@
 """
-数据库工厂 - 根据环境变量创建Repository
+Database factory - Create Repository based on environment variables.
 """
 from typing import Type, TypeVar
 
@@ -12,30 +12,39 @@ T = TypeVar('T')
 
 
 def get_repository(model_class: Type[T]) -> BaseRepository[T]:
-    """
-    获取Repository实例
-    
-    根据DATABASE_TYPE环境变量自动选择实现:
+    """Get Repository instance.
+
+    Automatically selects implementation based on DATABASE_TYPE environment variable:
     - postgresql/mysql/sqlite: SQLRepository
-    - mongodb: MongoRepository (待实现)
-    
-    使用方法:
+    - mongodb: MongoRepository (to be implemented)
+
+    Usage:
         from app.db import get_repository
         from app.models import User
-        
+
         user_repo = get_repository(User)
         user = await user_repo.get_by_id("123")
+
+    Args:
+        model_class: The model class.
+
+    Returns:
+        A repository instance for the model.
+
+    Raises:
+        NotImplementedError: If MongoDB is requested (not yet implemented).
+        ValueError: If an unsupported database type is specified.
     """
     settings = get_settings()
     db_type = settings.DATABASE_TYPE
-    
+
     if db_type in ("postgresql", "mysql", "sqlite"):
         return SQLRepository(model_class)
     elif db_type == "mongodb":
-        # MongoDB实现待添加
-        raise NotImplementedError("MongoDB支持即将推出")
+        # MongoDB implementation to be added
+        raise NotImplementedError("MongoDB support coming soon")
     else:
-        raise ValueError(f"不支持的数据库类型: {db_type}")
+        raise ValueError(f"Unsupported database type: {db_type}")
 
 
 __all__ = ["get_repository", "get_cache"]

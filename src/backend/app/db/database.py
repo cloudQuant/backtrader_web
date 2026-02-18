@@ -1,5 +1,5 @@
 """
-数据库连接管理
+Database connection management.
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
@@ -8,14 +8,14 @@ from app.config import get_settings
 
 settings = get_settings()
 
-# 创建异步引擎
+# Create async engine
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.SQL_ECHO,
     pool_pre_ping=True,
 )
 
-# 创建会话工厂
+# Create session factory
 async_session_maker = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -24,37 +24,37 @@ async_session_maker = async_sessionmaker(
 
 
 class Base(DeclarativeBase):
-    """ORM基类"""
+    """ORM base class."""
     pass
 
 
 async def init_db():
-    """初始化数据库 - 创建表并创建默认管理员账户"""
+    """Initialize database - Create tables and create default admin account."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    
-    # 创建默认管理员账户
+
+    # Create default admin account
     await create_default_admin()
 
 
 async def create_default_admin():
-    """创建默认管理员账户（如果不存在）"""
+    """Create default admin account (if it doesn't exist)."""
     from app.models.user import User
     from app.utils.security import get_password_hash
     from app.config import get_settings
     from sqlalchemy import select
-    
+
     settings = get_settings()
-    
+
     async with async_session_maker() as session:
-        # 检查管理员账户是否已存在
+        # Check if admin account already exists
         result = await session.execute(
             select(User).where(User.username == settings.ADMIN_USERNAME)
         )
         existing_user = result.scalar_one_or_none()
-        
+
         if not existing_user:
-            # 创建管理员账户
+            # Create admin account
             admin_user = User(
                 username=settings.ADMIN_USERNAME,
                 email=settings.ADMIN_EMAIL,
@@ -63,11 +63,15 @@ async def create_default_admin():
             )
             session.add(admin_user)
             await session.commit()
-            print(f"✓ 默认管理员账户已创建: {settings.ADMIN_USERNAME}")
+            print(f"Default admin account created: {settings.ADMIN_USERNAME}")
 
 
 async def get_db() -> AsyncSession:
-    """获取数据库会话"""
+    """Get database session.
+
+    Yields:
+        An async database session.
+    """
     async with async_session_maker() as session:
         try:
             yield session

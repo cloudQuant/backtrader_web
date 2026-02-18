@@ -31,24 +31,56 @@ router = APIRouter()
 
 
 def _get_manager() -> LiveTradingManager:
+    """Get the live trading manager instance.
+
+    Returns:
+        LiveTradingManager: The live trading manager singleton instance.
+    """
     return get_live_trading_manager()
 
 
 def _safe_round(v: float, n: int = 2) -> float:
+    """Safely round a float value, handling NaN and Infinity.
+
+    Args:
+        v: The value to round.
+        n: Number of decimal places.
+
+    Returns:
+        The rounded value, or 0.0 if the value is NaN or Infinity.
+    """
     if math.isnan(v) or math.isinf(v):
         return 0.0
     return round(v, n)
 
 
-# ---------- 组合概览 ----------
+# ---------- Portfolio Overview ----------
 
-@router.get("/overview", summary="组合概览")
+@router.get("/overview", summary="Portfolio overview")
 async def get_portfolio_overview(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
-    """
-    Return portfolio-level aggregated metrics.
+    """Return portfolio-level aggregated metrics.
+
+    Aggregates data across all live trading instances including total assets,
+    cash, PnL, and per-strategy summaries.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager.
+
+    Returns:
+        A dictionary containing portfolio overview metrics including:
+            - total_assets: Total portfolio value
+            - total_cash: Total cash across all strategies
+            - total_position_value: Total value of open positions
+            - total_initial_capital: Total initial capital
+            - total_pnl: Total profit/loss
+            - total_pnl_pct: Total PnL percentage
+            - strategy_count: Number of strategies
+            - running_count: Number of running strategies
+            - strategies: List of per-strategy summaries
     """
     instances = mgr.list_instances()
 
@@ -123,15 +155,29 @@ async def get_portfolio_overview(
     }
 
 
-# ---------- 汇总持仓 ----------
+# ---------- Aggregated Positions ----------
 
-@router.get("/positions", summary="汇总持仓")
+@router.get("/positions", summary="Aggregated positions")
 async def get_portfolio_positions(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
-    """
-    Return current positions across strategies (from current_position.json).
+    """Return current positions across strategies (from current_position.json).
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager.
+
+    Returns:
+        A dictionary containing total count and list of positions with:
+            - strategy_id: The strategy identifier
+            - strategy_name: The strategy display name
+            - instance_id: The instance identifier
+            - data_name: The symbol/instrument name
+            - size: Position size (positive for long, negative for short)
+            - price: Average entry price
+            - market_value: Current market value
+            - direction: Position direction ("long", "short", or "flat")
     """
     instances = mgr.list_instances()
     positions = []
@@ -152,22 +198,30 @@ async def get_portfolio_positions(
                 "size": p["size"],
                 "price": p["price"],
                 "market_value": p["market_value"],
-                "direction": "多" if p["size"] > 0 else ("空" if p["size"] < 0 else "空仓"),
+                "direction": "long" if p["size"] > 0 else ("short" if p["size"] < 0 else "flat"),
             })
 
     return {"total": len(positions), "positions": positions}
 
 
-# ---------- 汇总交易 ----------
+# ---------- Aggregated Trades ----------
 
-@router.get("/trades", summary="汇总交易记录")
+@router.get("/trades", summary="Aggregated trade records")
 async def get_portfolio_trades(
     limit: int = 200,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
-    """
-    Return historical trades across strategies (from trade.log), sorted by close time.
+    """Return historical trades across strategies (from trade.log), sorted by close time.
+
+    Args:
+        limit: Maximum number of trades to return.
+        current_user: The authenticated user.
+        mgr: The live trading manager.
+
+    Returns:
+        A dictionary containing total count and list of trades, sorted by
+        close date in descending order (most recent first).
     """
     instances = mgr.list_instances()
     all_trades = []
@@ -185,26 +239,37 @@ async def get_portfolio_trades(
             t["instance_id"] = inst["id"]
             all_trades.append(t)
 
-    # 按平仓日期降序
+    # Sort by close date descending
     all_trades.sort(key=lambda x: x.get("dtclose", ""), reverse=True)
 
     return {"total": len(all_trades), "trades": all_trades[:limit]}
 
 
-# ---------- 组合资金曲线 ----------
+# ---------- Portfolio Equity Curve ----------
 
-@router.get("/equity", summary="组合资金曲线")
+@router.get("/equity", summary="Portfolio equity curve")
 async def get_portfolio_equity(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
-    """
-    返回组合级别的资金曲线 — 将各策略的资金按日期对齐并叠加。
-    同时返回每个策略的独立资金曲线用于堆叠图。
+    """Return portfolio-level equity curve - aligning and stacking strategy equity by date.
+
+    Also returns individual strategy equity curves for stacked chart visualization.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager.
+
+    Returns:
+        A dictionary containing:
+            - dates: List of all dates across strategies
+            - total_equity: Portfolio total equity per date
+            - total_drawdown: Portfolio drawdown per date
+            - strategies: List of per-strategy equity curves
     """
     instances = mgr.list_instances()
 
-    # 每个策略的 date -> value 映射
+    # Each strategy's date -> value mapping
     strategy_curves: List[Dict[str, Any]] = []
     all_dates_set: set = set()
 
@@ -243,7 +308,7 @@ async def get_portfolio_equity(
 
     sorted_dates = sorted(all_dates_set)
 
-    # 聚合
+    # Aggregate
     total_equity = []
     strategy_series = {sc["instance_id"]: [] for sc in strategy_curves}
 
@@ -254,14 +319,14 @@ async def get_portfolio_equity(
             if dt in dm:
                 val = dm[dt]["equity"]
             else:
-                # 该策略在该日期无数据 — 使用最近已知值
+                # No data for this strategy on this date - use last known value
                 val = sc.get("_last", sc["initial"])
             sc["_last"] = val
             day_total += val
             strategy_series[sc["instance_id"]].append(_safe_round(val))
         total_equity.append(_safe_round(day_total))
 
-    # 组合回撤
+    # Portfolio drawdown
     total_drawdown = []
     peak = 0.0
     for v in total_equity:
@@ -287,15 +352,26 @@ async def get_portfolio_equity(
     }
 
 
-# ---------- 策略权重 / 资产配置 ----------
+# ---------- Strategy Weights / Asset Allocation ----------
 
-@router.get("/allocation", summary="策略资产配置")
+@router.get("/allocation", summary="Strategy asset allocation")
 async def get_portfolio_allocation(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
-    """
-    返回各策略在组合中的资产占比（饼图数据）。
+    """Return the asset allocation percentage of each strategy in the portfolio.
+
+    Returns pie chart data showing the value distribution across strategies.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The live trading manager.
+
+    Returns:
+        A dictionary containing:
+            - total: Total portfolio value
+            - items: List of allocation items with strategy_id, strategy_name,
+                instance_id, value, and weight percentage
     """
     instances = mgr.list_instances()
     items = []

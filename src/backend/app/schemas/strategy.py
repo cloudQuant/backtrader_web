@@ -7,28 +7,28 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ParamSpec(BaseModel):
-    """参数规格"""
-    type: str = Field("float", description="参数类型: int/float/string/enum")
-    default: Any = Field(..., description="默认值")
-    min: Optional[float] = Field(None, description="最小值")
-    max: Optional[float] = Field(None, description="最大值")
-    options: Optional[List[Any]] = Field(None, description="枚举选项")
-    description: Optional[str] = Field(None, description="参数描述")
+    """Parameter specification schema."""
+    type: str = Field("float", description="Parameter type: int/float/string/enum")
+    default: Any = Field(..., description="Default value")
+    min: Optional[float] = Field(None, description="Minimum value")
+    max: Optional[float] = Field(None, description="Maximum value")
+    options: Optional[List[Any]] = Field(None, description="Enum options")
+    description: Optional[str] = Field(None, description="Parameter description")
 
 
 class StrategyCreate(BaseModel):
-    """创建策略请求"""
-    name: str = Field(..., min_length=1, max_length=100, description="策略名称")
-    description: Optional[str] = Field(None, description="策略描述")
-    code: str = Field(..., description="策略代码")
-    params: Dict[str, ParamSpec] = Field(default_factory=dict, description="参数定义")
-    category: str = Field("custom", description="策略分类")
-    
+    """Strategy creation request schema."""
+    name: str = Field(..., min_length=1, max_length=100, description="Strategy name")
+    description: Optional[str] = Field(None, description="Strategy description")
+    code: str = Field(..., description="Strategy code")
+    params: Dict[str, ParamSpec] = Field(default_factory=dict, description="Parameter definitions")
+    category: str = Field("custom", description="Strategy category")
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
-                "name": "双均线策略",
-                "description": "基于快慢均线交叉的趋势策略",
+                "name": "Dual Moving Average Strategy",
+                "description": "Trend strategy based on fast and slow moving average crossover",
                 "code": "class MaCrossStrategy(bt.Strategy):\n    params = (('fast', 5), ('slow', 20))\n    ...",
                 "params": {
                     "fast_period": {
@@ -36,14 +36,14 @@ class StrategyCreate(BaseModel):
                         "default": 5,
                         "min": 2,
                         "max": 50,
-                        "description": "快线周期",
+                        "description": "Fast period",
                     },
                     "slow_period": {
                         "type": "int",
                         "default": 20,
                         "min": 10,
                         "max": 200,
-                        "description": "慢线周期",
+                        "description": "Slow period",
                     },
                 },
                 "category": "trend",
@@ -53,7 +53,7 @@ class StrategyCreate(BaseModel):
 
 
 class StrategyUpdate(BaseModel):
-    """更新策略请求"""
+    """Strategy update request schema."""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
     code: Optional[str] = None
@@ -62,28 +62,28 @@ class StrategyUpdate(BaseModel):
 
 
 class StrategyResponse(BaseModel):
-    """策略响应"""
-    id: str = Field(..., description="策略ID")
-    user_id: str = Field(..., description="用户ID")
-    name: str = Field(..., description="策略名称")
-    description: Optional[str] = Field(None, description="策略描述")
-    code: str = Field(..., description="策略代码")
-    params: Dict[str, ParamSpec] = Field(default_factory=dict, description="参数定义")
-    category: str = Field(..., description="策略分类")
-    created_at: datetime = Field(..., description="创建时间")
-    updated_at: datetime = Field(..., description="更新时间")
-    
+    """Strategy response schema."""
+    id: str = Field(..., description="Strategy ID")
+    user_id: str = Field(..., description="User ID")
+    name: str = Field(..., description="Strategy name")
+    description: Optional[str] = Field(None, description="Strategy description")
+    code: str = Field(..., description="Strategy code")
+    params: Dict[str, ParamSpec] = Field(default_factory=dict, description="Parameter definitions")
+    category: str = Field(..., description="Strategy category")
+    created_at: datetime = Field(..., description="Creation time")
+    updated_at: datetime = Field(..., description="Update time")
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class StrategyListResponse(BaseModel):
-    """策略列表响应"""
+    """Strategy list response schema."""
     total: int
     items: List[StrategyResponse]
 
 
 class StrategyTemplate(BaseModel):
-    """策略模板"""
+    """Strategy template schema."""
     id: str
     name: str
     description: str

@@ -1,12 +1,12 @@
 """
-回测报告生成服务测试
+Backtest Report Generation Service Tests.
 
-测试：
-- HTML 报告生成
-- PDF 报告生成
-- Excel 报告生成
-- 依赖缺失时的错误处理
-- 边界情况处理
+Tests:
+- HTML report generation
+- PDF report generation
+- Excel report generation
+- Error handling when dependencies are missing
+- Edge case handling
 """
 import pytest
 from unittest.mock import AsyncMock, Mock, patch, MagicMock
@@ -22,20 +22,20 @@ from app.services.report_service import (
 
 
 class TestReportServiceInitialization:
-    """测试服务初始化"""
+    """Test service initialization."""
 
     def test_initialization(self):
-        """测试服务初始化"""
+        """Test service initialization."""
         service = ReportService()
         assert service is not None
 
 
 class TestGenerateHtmlReport:
-    """测试 HTML 报告生成"""
+    """Test HTML report generation."""
 
     @pytest.mark.asyncio
     async def test_generate_html_success(self):
-        """测试成功生成 HTML 报告"""
+        """Test successful HTML report generation."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -56,13 +56,13 @@ class TestGenerateHtmlReport:
         }
 
         strategy = {
-            'name': '双均线策略',
+            'name': 'Dual Moving Average Strategy',
         }
 
         html = await service.generate_html_report(result, strategy)
 
         assert isinstance(html, str)
-        assert '双均线策略' in html
+        assert 'Dual Moving Average Strategy' in html
         assert '15.5' in html  # total_return
         assert '12.3' in html  # annual_return
         assert '1.5' in html  # sharpe_ratio
@@ -72,25 +72,25 @@ class TestGenerateHtmlReport:
 
     @pytest.mark.asyncio
     async def test_generate_html_with_missing_values(self):
-        """测试处理缺失值的 HTML 生成"""
+        """Test HTML generation with missing values."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
         service = ReportService()
 
-        result = {}  # 空结果
-        strategy = {'name': '测试策略'}
+        result = {}  # Empty result
+        strategy = {'name': 'Test Strategy'}
 
         html = await service.generate_html_report(result, strategy)
 
         assert isinstance(html, str)
-        assert '测试策略' in html
-        # 应该使用默认值 0
+        assert 'Test Strategy' in html
+        # Should use default value 0
         assert '0' in html
 
     @pytest.mark.asyncio
     async def test_generate_html_without_jinja2(self):
-        """测试 jinja2 不可用时抛出错误"""
+        """Test error when jinja2 is not available."""
         if JINJA2_AVAILABLE:
             pytest.skip("jinja2 is available")
 
@@ -101,7 +101,7 @@ class TestGenerateHtmlReport:
 
     @pytest.mark.asyncio
     async def test_generate_html_positive_returns(self):
-        """测试正收益显示为绿色"""
+        """Test positive returns display as green."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -111,7 +111,7 @@ class TestGenerateHtmlReport:
             'total_return': 25.5,
             'annual_return': 20.0,
         }
-        strategy = {'name': '测试'}
+        strategy = {'name': 'Test'}
 
         html = await service.generate_html_report(result, strategy)
 
@@ -119,7 +119,7 @@ class TestGenerateHtmlReport:
 
     @pytest.mark.asyncio
     async def test_generate_html_negative_returns(self):
-        """测试负收益显示为红色"""
+        """Test negative returns display as red."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -129,7 +129,7 @@ class TestGenerateHtmlReport:
             'total_return': -15.5,
             'annual_return': -10.0,
         }
-        strategy = {'name': '测试'}
+        strategy = {'name': 'Test'}
 
         html = await service.generate_html_report(result, strategy)
 
@@ -137,7 +137,7 @@ class TestGenerateHtmlReport:
 
     @pytest.mark.asyncio
     async def test_generate_html_with_params(self):
-        """测试包含策略参数的 HTML 生成"""
+        """Test HTML generation with strategy parameters."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -150,7 +150,7 @@ class TestGenerateHtmlReport:
                 'risk_ratio': 2.0,
             }
         }
-        strategy = {'name': '参数测试'}
+        strategy = {'name': 'Parameter Test'}
 
         html = await service.generate_html_report(result, strategy)
 
@@ -160,7 +160,7 @@ class TestGenerateHtmlReport:
 
     @pytest.mark.asyncio
     async def test_generate_html_with_trades_summary(self):
-        """测试包含交易统计的 HTML 生成"""
+        """Test HTML generation with trade statistics."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -172,7 +172,7 @@ class TestGenerateHtmlReport:
             'losing_trades': 60,
             'win_rate': 60.0,
         }
-        strategy = {'name': '交易测试'}
+        strategy = {'name': 'Trade Test'}
 
         html = await service.generate_html_report(result, strategy)
 
@@ -182,11 +182,11 @@ class TestGenerateHtmlReport:
 
 
 class TestGeneratePdfReport:
-    """测试 PDF 报告生成"""
+    """Test PDF report generation."""
 
     @pytest.mark.asyncio
     async def test_generate_pdf_success(self):
-        """测试成功生成 PDF 报告"""
+        """Test successful PDF report generation."""
         if not JINJA2_AVAILABLE or not WEASYPRINT_AVAILABLE:
             pytest.skip("jinja2 or weasyprint not available")
 
@@ -197,7 +197,7 @@ class TestGeneratePdfReport:
             'sharpe_ratio': 1.5,
             'max_drawdown': -8.2,
         }
-        strategy = {'name': 'PDF测试'}
+        strategy = {'name': 'PDF Test'}
 
         pdf_bytes = await service.generate_pdf_report(result, strategy)
 
@@ -208,7 +208,7 @@ class TestGeneratePdfReport:
 
     @pytest.mark.asyncio
     async def test_generate_pdf_without_weasyprint(self):
-        """测试 weasyprint 不可用时抛出错误"""
+        """Test error when weasyprint is not available."""
         if WEASYPRINT_AVAILABLE:
             pytest.skip("weasyprint is available")
 
@@ -221,14 +221,14 @@ class TestGeneratePdfReport:
 
     @pytest.mark.asyncio
     async def test_generate_pdf_uses_html_generation(self):
-        """测试 PDF 生成使用 HTML 生成"""
+        """Test PDF generation uses HTML generation."""
         if not JINJA2_AVAILABLE or not WEASYPRINT_AVAILABLE:
             pytest.skip("jinja2 or weasyprint not available")
 
         service = ReportService()
 
         result = {'total_return': 10.0}
-        strategy = {'name': '测试'}
+        strategy = {'name': 'Test'}
 
         # Generate HTML first and verify PDF uses it
         with patch.object(service, 'generate_html_report',
@@ -243,11 +243,11 @@ class TestGeneratePdfReport:
 
 
 class TestGenerateExcelReport:
-    """测试 Excel 报告生成"""
+    """Test Excel report generation."""
 
     @pytest.mark.asyncio
     async def test_generate_excel_success(self):
-        """测试成功生成 Excel 报告"""
+        """Test successful Excel report generation."""
         if not PANDAS_AVAILABLE or not OPENPYXL_AVAILABLE:
             pytest.skip("pandas or openpyxl not available")
 
@@ -272,7 +272,7 @@ class TestGenerateExcelReport:
             'equity_dates': ['2024-01-01', '2024-01-02', '2024-01-03'],
             'equity_curve': [100000, 101000, 102000],
         }
-        strategy = {'name': 'Excel测试', 'symbol': 'AAPL'}
+        strategy = {'name': 'Excel Test', 'symbol': 'AAPL'}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -283,7 +283,7 @@ class TestGenerateExcelReport:
 
     @pytest.mark.asyncio
     async def test_generate_excel_without_dependencies(self):
-        """测试依赖不可用时抛出错误"""
+        """Test error when dependencies are not available."""
         if PANDAS_AVAILABLE and OPENPYXL_AVAILABLE:
             pytest.skip("pandas and openpyxl are available")
 
@@ -295,14 +295,14 @@ class TestGenerateExcelReport:
 
     @pytest.mark.asyncio
     async def test_generate_excel_minimal_data(self):
-        """测试最小数据生成 Excel"""
+        """Test Excel generation with minimal data."""
         if not PANDAS_AVAILABLE or not OPENPYXL_AVAILABLE:
             pytest.skip("pandas or openpyxl not available")
 
         service = ReportService()
 
-        result = {}  # 最小数据
-        strategy = {'name': '最小测试'}
+        result = {}  # Minimal data
+        strategy = {'name': 'Minimal Test'}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -311,7 +311,7 @@ class TestGenerateExcelReport:
 
     @pytest.mark.asyncio
     async def test_generate_excel_with_trades(self):
-        """测试包含交易记录的 Excel 生成"""
+        """Test Excel generation with trade records."""
         if not PANDAS_AVAILABLE or not OPENPYXL_AVAILABLE:
             pytest.skip("pandas or openpyxl not available")
 
@@ -323,7 +323,7 @@ class TestGenerateExcelReport:
                 {'date': '2024-01-02', 'symbol': 'MSFT', 'type': 'sell', 'price': 200, 'pnl': -500},
             ]
         }
-        strategy = {'name': '交易测试'}
+        strategy = {'name': 'Trade Test'}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -332,7 +332,7 @@ class TestGenerateExcelReport:
 
     @pytest.mark.asyncio
     async def test_generate_excel_with_equity_curve(self):
-        """测试包含资金曲线的 Excel 生成"""
+        """Test Excel generation with equity curve."""
         if not PANDAS_AVAILABLE or not OPENPYXL_AVAILABLE:
             pytest.skip("pandas or openpyxl not available")
 
@@ -342,7 +342,7 @@ class TestGenerateExcelReport:
             'equity_dates': ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05'],
             'equity_curve': [100000, 101000, 100500, 102000, 103000],
         }
-        strategy = {'name': '资金曲线测试'}
+        strategy = {'name': 'Equity Curve Test'}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -351,11 +351,11 @@ class TestGenerateExcelReport:
 
 
 class TestEdgeCases:
-    """测试边界情况"""
+    """Test edge cases."""
 
     @pytest.mark.asyncio
     async def test_html_with_special_characters(self):
-        """测试包含特殊字符的 HTML 生成"""
+        """Test HTML generation with special characters."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -363,19 +363,19 @@ class TestEdgeCases:
 
         result = {
             'total_return': 15.5,
-            'params': {'param_<script>': 'value测试'}
+            'params': {'param_<script>': 'value_test'}
         }
-        strategy = {'name': '策略<>&"'}
+        strategy = {'name': 'Strategy<>&"'}
 
         html = await service.generate_html_report(result, strategy)
 
-        # 应该生成有效的 HTML
+        # Should generate valid HTML
         assert isinstance(html, str)
         assert len(html) > 0
 
     @pytest.mark.asyncio
     async def test_html_with_zero_values(self):
-        """测试零值处理的 HTML 生成"""
+        """Test HTML generation with zero values."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -391,7 +391,7 @@ class TestEdgeCases:
             'profitable_trades': 0,
             'losing_trades': 0,
         }
-        strategy = {'name': '零值测试'}
+        strategy = {'name': 'Zero Value Test'}
 
         html = await service.generate_html_report(result, strategy)
 
@@ -400,7 +400,7 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_html_with_large_values(self):
-        """测试大值处理的 HTML 生成"""
+        """Test HTML generation with large values."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -410,7 +410,7 @@ class TestEdgeCases:
             'total_return': 999999.99,
             'total_trades': 1000000,
         }
-        strategy = {'name': '大值测试'}
+        strategy = {'name': 'Large Value Test'}
 
         html = await service.generate_html_report(result, strategy)
 
@@ -420,18 +420,18 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_excel_empty_trades_list(self):
-        """测试空交易列表的 Excel 生成"""
+        """Test Excel generation with empty trades list."""
         if not PANDAS_AVAILABLE or not OPENPYXL_AVAILABLE:
             pytest.skip("pandas or openpyxl not available")
 
         service = ReportService()
 
         result = {
-            'trades': [],  # 空列表
-            'equity_dates': [],  # 空列表
-            'equity_curve': [],  # 空列表
+            'trades': [],  # Empty list
+            'equity_dates': [],  # Empty list
+            'equity_curve': [],  # Empty list
         }
-        strategy = {'name': '空数据测试'}
+        strategy = {'name': 'Empty Data Test'}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -440,11 +440,11 @@ class TestEdgeCases:
 
 
 class TestTemplateRendering:
-    """测试模板渲染"""
+    """Test template rendering."""
 
     @pytest.mark.asyncio
     async def test_template_contains_all_sections(self):
-        """测试 HTML 模板包含所有部分"""
+        """Test HTML template contains all sections."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
@@ -463,35 +463,35 @@ class TestTemplateRendering:
             'start_date': '2024-01-01',
             'end_date': '2024-12-31',
         }
-        strategy = {'name': '完整测试'}
+        strategy = {'name': 'Complete Test'}
 
         html = await service.generate_html_report(result, strategy)
 
-        # 检查 HTML 结构
+        # Check HTML structure
         assert '<!DOCTYPE html>' in html
         assert '<head>' in html
         assert '<body>' in html
         assert '</html>' in html
-        assert '回测概览' in html
-        assert '交易统计' in html
-        assert '策略参数' in html
-        assert '风险提示' in html
+        assert 'Backtest Overview' in html
+        assert 'Trade Statistics' in html
+        assert 'Strategy Parameters' in html
+        assert 'Risk Disclaimer' in html
         assert 'Backtrader Web' in html
 
     @pytest.mark.asyncio
     async def test_template_styling(self):
-        """测试模板样式"""
+        """Test template styling."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
         service = ReportService()
 
         result = {'total_return': 10.0}
-        strategy = {'name': '样式测试'}
+        strategy = {'name': 'Style Test'}
 
         html = await service.generate_html_report(result, strategy)
 
-        # 检查 CSS 样式
+        # Check CSS styles
         assert '<style>' in html
         assert 'container' in html
         assert 'metric-card' in html
@@ -501,17 +501,17 @@ class TestTemplateRendering:
 
 
 class TestIntegration:
-    """集成测试"""
+    """Integration tests."""
 
     @pytest.mark.asyncio
     async def test_full_report_generation_workflow(self):
-        """测试完整报告生成工作流"""
+        """Test complete report generation workflow."""
         if not JINJA2_AVAILABLE:
             pytest.skip("jinja2 not available")
 
         service = ReportService()
 
-        # 完整的回测结果
+        # Complete backtest results
         result = {
             'symbol': '000001.SZ',
             'start_date': '2024-01-01',
@@ -537,19 +537,17 @@ class TestIntegration:
             'equity_curve': [100000, 101000, 102000],
         }
         strategy = {
-            'name': '双均线策略',
-            'description': '基于快慢均线的交叉信号进行交易',
+            'name': 'Dual Moving Average Strategy',
+            'description': 'Trade based on fast/slow moving average crossover signals',
             'symbol': '000001.SZ',
         }
 
-        # 生成 HTML 报告
+        # Generate HTML report
         html = await service.generate_html_report(result, strategy)
-        assert '双均线策略' in html
+        assert 'Dual Moving Average Strategy' in html
         assert '25.5' in html  # total_return
-        # symbol is not directly shown in HTML template, so remove this check
-        # assert '000001.SZ' in html
 
-        # 生成 Excel 报告（如果依赖可用）
+        # Generate Excel report (if dependencies available)
         if PANDAS_AVAILABLE and OPENPYXL_AVAILABLE:
             excel = await service.generate_excel_report(result, strategy)
             assert len(excel) > 0

@@ -1,17 +1,17 @@
 """
-模拟交易服务测试
+Paper Trading Service Tests.
 
-测试：
-- 创建模拟账户
-- 提交模拟订单
-- 订单成交处理
-- 持仓更新
-- 账户更新
-- 订单撤销
-- 账户删除
-- 查询功能
-- 滑点计算
-- 价格模拟
+Tests:
+- Creating paper trading accounts
+- Submitting paper trading orders
+- Order fill processing
+- Position updates
+- Account updates
+- Order cancellation
+- Account deletion
+- Query functions
+- Slippage calculation
+- Price simulation
 """
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -29,10 +29,10 @@ from app.models.paper_trading import (
 
 
 class TestPaperTradingServiceInitialization:
-    """测试服务初始化"""
+    """Test paper trading service initialization."""
 
     def test_initialization(self):
-        """测试初始化"""
+        """Test service initialization with required repositories."""
         service = PaperTradingService()
         assert service.account_repo is not None
         assert service.position_repo is not None
@@ -42,16 +42,16 @@ class TestPaperTradingServiceInitialization:
 
 @pytest.mark.asyncio
 class TestCreateAccount:
-    """测试创建模拟账户"""
+    """Test paper trading account creation."""
 
     async def test_create_account_success(self):
-        """测试成功创建账户"""
+        """Test successful account creation."""
         service = PaperTradingService()
 
         mock_account = Mock()
         mock_account.id = "acc_123"
         mock_account.user_id = "user_123"
-        mock_account.name = "测试账户"
+        mock_account.name = "Test Account"
         mock_account.current_cash = 100000.0
         mock_account.total_equity = 100000.0
 
@@ -61,7 +61,7 @@ class TestCreateAccount:
         with patch.object(service, '_notify_account_update', new_callable=AsyncMock):
             result = await service.create_account(
                 "user_123",
-                "测试账户",
+                "Test Account",
                 100000.0
             )
 
@@ -69,7 +69,7 @@ class TestCreateAccount:
             assert result.id == "acc_123"
 
     async def test_create_account_with_custom_rates(self):
-        """测试创建自定义费率的账户"""
+        """Test account creation with custom commission and slippage rates."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -81,7 +81,7 @@ class TestCreateAccount:
         with patch.object(service, '_notify_account_update', new_callable=AsyncMock):
             result = await service.create_account(
                 "user_123",
-                "测试账户",
+                "Test Account",
                 initial_cash=200000.0,
                 commission_rate=0.0005,
                 slippage_rate=0.0005
@@ -90,7 +90,7 @@ class TestCreateAccount:
             assert result is not None
 
     async def test_create_account_sends_notification(self):
-        """测试创建账户发送通知"""
+        """Test that account creation triggers WebSocket notification."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -100,16 +100,16 @@ class TestCreateAccount:
         service.account_repo.create = AsyncMock(return_value=mock_account)
 
         with patch.object(service, '_notify_account_update', new_callable=AsyncMock) as mock_notify:
-            await service.create_account("user_123", "测试账户")
+            await service.create_account("user_123", "Test Account")
             assert mock_notify.called
 
 
 @pytest.mark.asyncio
 class TestSubmitOrder:
-    """测试提交订单"""
+    """Test order submission."""
 
     async def test_submit_order_success(self):
-        """测试成功提交订单"""
+        """Test successful order submission."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -137,7 +137,7 @@ class TestSubmitOrder:
             assert result is not None
 
     async def test_submit_order_account_not_found(self):
-        """测试账户不存在"""
+        """Test order submission with non-existent account raises ValueError."""
         service = PaperTradingService()
 
         service.account_repo = AsyncMock()
@@ -153,7 +153,7 @@ class TestSubmitOrder:
             )
 
     async def test_submit_order_with_stop_limit(self):
-        """测试提交止损止盈订单"""
+        """Test submitting stop-loss and take-profit orders."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -185,10 +185,10 @@ class TestSubmitOrder:
 
 @pytest.mark.asyncio
 class TestProcessOrder:
-    """测试订单处理"""
+    """Test order processing."""
 
     async def test_process_order_buy_success(self):
-        """测试买入订单成功处理"""
+        """Test successful buy order processing."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -216,7 +216,7 @@ class TestProcessOrder:
                         await service._process_order("order_123", "acc_123", mock_account)
 
     async def test_process_order_order_not_found(self):
-        """测试订单不存在"""
+        """Test processing of non-existent order logs without exception."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -227,10 +227,10 @@ class TestProcessOrder:
 
         with patch.object(service, '_get_simulated_price', return_value=50000.0):
             await service._process_order("nonexistent_order", "acc_123", mock_account)
-            # 应该不抛出异常，只记录日志
+            # Should not raise exception, only log
 
     async def test_process_order_insufficient_funds(self):
-        """测试资金不足"""
+        """Test order processing with insufficient funds triggers rejection."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -244,7 +244,7 @@ class TestProcessOrder:
         mock_account = Mock()
         mock_account.id = "acc_123"
         mock_account.slippage_rate = 0.001
-        mock_account.current_cash = 100.0  # 资金不足
+        mock_account.current_cash = 100.0  # Insufficient funds
         mock_account.commission_rate = 0.001
 
         service.order_repo = AsyncMock()
@@ -257,7 +257,7 @@ class TestProcessOrder:
                 assert mock_reject.called
 
     async def test_process_order_sell_insufficient_position(self):
-        """测试卖出持仓不足"""
+        """Test sell order processing with insufficient position triggers rejection."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -286,10 +286,10 @@ class TestProcessOrder:
 
 @pytest.mark.asyncio
 class TestFillOrder:
-    """测试订单成交"""
+    """Test order fill execution."""
 
     async def test_fill_order(self):
-        """测试填充订单"""
+        """Test order fill updates order status and creates trade record."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -317,10 +317,10 @@ class TestFillOrder:
 
 @pytest.mark.asyncio
 class TestRejectOrder:
-    """测试拒绝订单"""
+    """Test order rejection."""
 
     async def test_reject_order(self):
-        """测试拒绝订单"""
+        """Test order rejection updates status and reason."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -339,10 +339,10 @@ class TestRejectOrder:
 
 @pytest.mark.asyncio
 class TestUpdatePosition:
-    """测试更新持仓"""
+    """Test position updates."""
 
     async def test_update_position_new_long(self):
-        """测试新建多头持仓"""
+        """Test creating a new long position."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -366,7 +366,7 @@ class TestUpdatePosition:
         assert service.position_repo.create.called
 
     async def test_update_position_existing_long(self):
-        """测试更新现有多头持仓"""
+        """Test updating an existing long position."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -395,7 +395,7 @@ class TestUpdatePosition:
         assert service.position_repo.update.called
 
     async def test_update_position_close_long(self):
-        """测试平多仓"""
+        """Test closing a long position."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -411,7 +411,7 @@ class TestUpdatePosition:
         mock_position.id = "pos_123"
         mock_position.size = 10
         mock_position.avg_price = 48000.0
-        mock_position.market_value = 480000.0  # Added market_value attribute
+        mock_position.market_value = 480000.0
 
         mock_trade = Mock()
         mock_trade.id = "trade_123"
@@ -432,10 +432,10 @@ class TestUpdatePosition:
 
 @pytest.mark.asyncio
 class TestUpdateAccount:
-    """测试更新账户"""
+    """Test account updates."""
 
     async def test_update_account_buy(self):
-        """测试更新账户（买入）"""
+        """Test account update after buy order."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -462,7 +462,7 @@ class TestUpdateAccount:
                 await service._update_account(mock_account, mock_order, 50000.0, 50.0)
 
     async def test_update_account_sell(self):
-        """测试更新账户（卖出）"""
+        """Test account update after sell order."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -491,10 +491,10 @@ class TestUpdateAccount:
 
 @pytest.mark.asyncio
 class TestGetAccount:
-    """测试获取账户"""
+    """Test account retrieval."""
 
     async def test_get_account_found(self):
-        """测试获取存在的账户"""
+        """Test retrieving an existing account."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -509,7 +509,7 @@ class TestGetAccount:
         assert result.id == "acc_123"
 
     async def test_get_account_not_found(self):
-        """测试获取不存在的账户"""
+        """Test retrieving a non-existent account returns None."""
         service = PaperTradingService()
 
         service.account_repo = AsyncMock()
@@ -522,10 +522,10 @@ class TestGetAccount:
 
 @pytest.mark.asyncio
 class TestListAccounts:
-    """测试列出账户"""
+    """Test account listing."""
 
     async def test_list_accounts(self):
-        """测试列出账户"""
+        """Test listing user accounts."""
         service = PaperTradingService()
 
         mock_accounts = [Mock(id=f"acc_{i}") for i in range(5)]
@@ -540,7 +540,7 @@ class TestListAccounts:
         assert total == 5
 
     async def test_list_accounts_empty(self):
-        """测试列出空账户"""
+        """Test listing when user has no accounts."""
         service = PaperTradingService()
 
         service.account_repo = AsyncMock()
@@ -555,10 +555,10 @@ class TestListAccounts:
 
 @pytest.mark.asyncio
 class TestListOrders:
-    """测试列出订单"""
+    """Test order listing."""
 
     async def test_list_orders(self):
-        """测试列出订单"""
+        """Test listing orders with filters."""
         service = PaperTradingService()
 
         mock_orders = [Mock(id=f"order_{i}") for i in range(3)]
@@ -575,10 +575,10 @@ class TestListOrders:
 
 @pytest.mark.asyncio
 class TestListPositions:
-    """测试列出持仓"""
+    """Test position listing."""
 
     async def test_list_positions(self):
-        """测试列出持仓"""
+        """Test listing positions with filters."""
         service = PaperTradingService()
 
         mock_positions = [Mock(id=f"pos_{i}") for i in range(2)]
@@ -595,10 +595,10 @@ class TestListPositions:
 
 @pytest.mark.asyncio
 class TestListTrades:
-    """测试列出成交"""
+    """Test trade listing."""
 
     async def test_list_trades(self):
-        """测试列出成交"""
+        """Test listing trades with filters."""
         service = PaperTradingService()
 
         mock_trades = [Mock(id=f"trade_{i}") for i in range(4)]
@@ -615,10 +615,10 @@ class TestListTrades:
 
 @pytest.mark.asyncio
 class TestDeleteAccount:
-    """测试删除账户"""
+    """Test account deletion."""
 
     async def test_delete_account_success(self):
-        """测试成功删除账户"""
+        """Test successful account deletion."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -634,7 +634,7 @@ class TestDeleteAccount:
         assert result is True
 
     async def test_delete_account_not_found(self):
-        """测试删除不存在的账户"""
+        """Test deleting non-existent account returns False."""
         service = PaperTradingService()
 
         service.account_repo = AsyncMock()
@@ -645,7 +645,7 @@ class TestDeleteAccount:
         assert result is False
 
     async def test_delete_account_wrong_user(self):
-        """测试删除其他用户的账户"""
+        """Test deleting account owned by another user returns False."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -662,10 +662,10 @@ class TestDeleteAccount:
 
 @pytest.mark.asyncio
 class TestCancelOrder:
-    """测试撤销订单"""
+    """Test order cancellation."""
 
     async def test_cancel_order_success(self):
-        """测试成功撤销订单"""
+        """Test successful order cancellation."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -688,7 +688,7 @@ class TestCancelOrder:
             assert result is True
 
     async def test_cancel_order_not_found(self):
-        """测试撤销不存在的订单"""
+        """Test cancelling non-existent order returns False."""
         service = PaperTradingService()
 
         service.order_repo = AsyncMock()
@@ -699,7 +699,7 @@ class TestCancelOrder:
         assert result is False
 
     async def test_cancel_order_wrong_user(self):
-        """测试撤销其他用户的订单"""
+        """Test cancelling order from another user's account returns False."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -720,7 +720,7 @@ class TestCancelOrder:
         assert result is False
 
     async def test_cancel_order_already_filled(self):
-        """测试撤销已成交订单"""
+        """Test cancelling already filled order returns False."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -743,10 +743,10 @@ class TestCancelOrder:
 
 @pytest.mark.asyncio
 class TestGetPosition:
-    """测试获取持仓"""
+    """Test position retrieval."""
 
     async def test_get_position_found(self):
-        """测试获取存在的持仓"""
+        """Test retrieving an existing position."""
         service = PaperTradingService()
 
         mock_position = Mock()
@@ -761,7 +761,7 @@ class TestGetPosition:
         assert result.id == "pos_123"
 
     async def test_get_position_not_found(self):
-        """测试获取不存在的持仓"""
+        """Test retrieving non-existent position returns None."""
         service = PaperTradingService()
 
         service.position_repo = AsyncMock()
@@ -773,10 +773,10 @@ class TestGetPosition:
 
 
 class TestCalculateSlippage:
-    """测试滑点计算"""
+    """Test slippage calculation."""
 
     def test_calculate_slippage_market_order_buy(self):
-        """测试市价买入滑点"""
+        """Test slippage calculation for market buy order."""
         service = PaperTradingService()
 
         slippage = service._calculate_slippage(
@@ -790,7 +790,7 @@ class TestCalculateSlippage:
         assert slippage == 50.0  # 50000 * 0.001
 
     def test_calculate_slippage_market_order_sell(self):
-        """测试市价卖出滑点"""
+        """Test slippage calculation for market sell order."""
         service = PaperTradingService()
 
         slippage = service._calculate_slippage(
@@ -804,7 +804,7 @@ class TestCalculateSlippage:
         assert slippage == -50.0  # -50000 * 0.001
 
     def test_calculate_slippage_limit_order_buy_executed(self):
-        """测试限价买入单成交（限价优于市价）"""
+        """Test slippage for executed limit buy order (limit better than market)."""
         service = PaperTradingService()
 
         slippage = service._calculate_slippage(
@@ -815,10 +815,10 @@ class TestCalculateSlippage:
             order_type="limit"
         )
 
-        assert slippage == 50.0  # 市价 * 滑点率
+        assert slippage == 50.0  # Market price * slippage rate
 
     def test_calculate_slippage_limit_order_buy_not_executed(self):
-        """测试限价买入单不成交（限价差于市价）"""
+        """Test slippage for unexecuted limit buy order (limit worse than market)."""
         service = PaperTradingService()
 
         slippage = service._calculate_slippage(
@@ -832,7 +832,7 @@ class TestCalculateSlippage:
         assert slippage == 0.0
 
     def test_calculate_slippage_limit_order_sell_executed(self):
-        """测试限价卖出单成交（限价低于市价）"""
+        """Test slippage for executed limit sell order (limit below market)."""
         service = PaperTradingService()
 
         slippage = service._calculate_slippage(
@@ -846,7 +846,7 @@ class TestCalculateSlippage:
         assert slippage == -50.0
 
     def test_calculate_slippage_other_order_type(self):
-        """测试其他订单类型"""
+        """Test slippage calculation for other order types."""
         service = PaperTradingService()
 
         slippage = service._calculate_slippage(
@@ -862,10 +862,10 @@ class TestCalculateSlippage:
 
 @pytest.mark.asyncio
 class TestGetSimulatedPrice:
-    """测试获取模拟价格"""
+    """Test simulated price retrieval."""
 
     async def test_get_simulated_price_000001(self):
-        """测试获取000001价格"""
+        """Test getting price for symbol 000001."""
         service = PaperTradingService()
 
         price = await service._get_simulated_price("000001")
@@ -873,7 +873,7 @@ class TestGetSimulatedPrice:
         assert price == 10.5
 
     async def test_get_simulated_price_600000(self):
-        """测试获取600000价格"""
+        """Test getting price for symbol 600000."""
         service = PaperTradingService()
 
         price = await service._get_simulated_price("600000")
@@ -881,7 +881,7 @@ class TestGetSimulatedPrice:
         assert price == 10.8
 
     async def test_get_simulated_price_default(self):
-        """测试获取默认价格"""
+        """Test getting default price for unknown symbols."""
         service = PaperTradingService()
 
         price = await service._get_simulated_price("BTC/USDT")
@@ -891,10 +891,10 @@ class TestGetSimulatedPrice:
 
 @pytest.mark.asyncio
 class TestWebSocketNotifications:
-    """测试WebSocket通知"""
+    """Test WebSocket notification functions."""
 
     async def test_notify_account_update(self):
-        """测试账户更新通知"""
+        """Test account update WebSocket notification."""
         service = PaperTradingService()
 
         mock_account = Mock()
@@ -910,7 +910,7 @@ class TestWebSocketNotifications:
             assert mock_ws.send_to_task.called
 
     async def test_notify_position_update(self):
-        """测试持仓更新通知"""
+        """Test position update WebSocket notification."""
         service = PaperTradingService()
 
         mock_position = Mock()
@@ -928,7 +928,7 @@ class TestWebSocketNotifications:
             assert mock_ws.send_to_task.called
 
     async def test_notify_order_update(self):
-        """测试订单更新通知"""
+        """Test order update WebSocket notification."""
         service = PaperTradingService()
 
         mock_order = Mock()
@@ -949,10 +949,10 @@ class TestWebSocketNotifications:
 
 @pytest.mark.asyncio
 class TestHelperFunctions:
-    """测试辅助函数"""
+    """Test helper functions."""
 
     async def test_get_position_exists(self):
-        """测试获取存在的持仓"""
+        """Test retrieving existing position for account and symbol."""
         service = PaperTradingService()
 
         mock_position = Mock()
@@ -967,7 +967,7 @@ class TestHelperFunctions:
         assert result.id == "pos_123"
 
     async def test_get_position_not_exists(self):
-        """测试获取不存在的持仓"""
+        """Test retrieving non-existent position returns None."""
         service = PaperTradingService()
 
         service.position_repo = AsyncMock()
@@ -978,7 +978,7 @@ class TestHelperFunctions:
         assert result is None
 
     async def test_get_last_trade_exists(self):
-        """测试获取最后成交"""
+        """Test retrieving last trade for an order."""
         service = PaperTradingService()
 
         mock_trade = Mock()
@@ -992,7 +992,7 @@ class TestHelperFunctions:
         assert result is not None
 
     async def test_get_last_trade_not_exists(self):
-        """测试获取不存在的最后成交"""
+        """Test retrieving last trade when no trades exist returns None."""
         service = PaperTradingService()
 
         service.trade_repo = AsyncMock()

@@ -1,3 +1,14 @@
+"""
+Iteration 113 service unit coverage tests
+
+Tests:
+- Monitoring service monitoring task branches
+- Optimization service bayesian objective and exception paths
+- Parameter optimization service run optimization thread paths
+- Parameter optimization service worker and log parser branches
+- Backtest service task limits and cancel cleanup exceptions
+- Strategy version service create version and update version branches
+"""
 from __future__ import annotations
 
 import asyncio
@@ -298,13 +309,13 @@ async def test_backtest_service_task_limits_and_cancel_cleanup_excepts(monkeypat
         params={},
     )
     svc.task_repo.create = AsyncMock(return_value=SimpleNamespace(id="tid", user_id="u1"))
-    with pytest.raises(ValueError, match="系统回测任务已满"):
+    with pytest.raises(ValueError, match="System backtest tasks are full"):
         await svc.run_backtest("u1", req)
 
     # User limit branch.
     bts._running_tasks.clear()
     bts._user_task_count["u1"] = bts.MAX_USER_TASKS
-    with pytest.raises(ValueError, match="并发回测任务已达上限"):
+    with pytest.raises(ValueError, match="Your concurrent backtest tasks have reached the limit"):
         await svc.run_backtest("u1", req)
 
     # cancel_task kill exception is swallowed.
@@ -353,5 +364,5 @@ async def test_strategy_version_service_create_version_and_update_version_branch
 
     # update_version raises if not DRAFT.
     svc.version_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="v2", status=VersionStatus.STABLE, strategy_id="s1", is_active=True, is_default=False, created_by="u1"))
-    with pytest.raises(ValueError, match="只能更新"):
+    with pytest.raises(ValueError, match="Can only update"):
         await svc.update_version("v2", "u1", SimpleNamespace(code=None, params=None, description=None, tags=None, status=None, changelog=None))

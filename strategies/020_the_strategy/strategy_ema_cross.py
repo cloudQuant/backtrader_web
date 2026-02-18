@@ -1,9 +1,11 @@
-"""EMA双均线交叉策略 (EMA Dual Moving Average Crossover Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""EMA Dual Moving Average Crossover Strategy.
 
-基于双EMA交叉的交易策略:
-- 死叉（快线下穿慢线）-> 开空仓
-- 金叉（快线上穿慢线）-> 开多仓
-- 使用多周期数据（5分钟+日线）进行过滤
+A trading strategy based on dual EMA crossover:
+- Death cross (fast line crosses below slow line) -> Open short position
+- Golden cross (fast line crosses above slow line) -> Open long position
+- Uses multi-period data (5-minute + daily) for filtering
 
 Author: yunjinqi
 """
@@ -14,22 +16,22 @@ import backtrader as bt
 
 
 class EmaCrossStrategy(bt.Strategy):
-    """EMA双均线交叉策略，支持多周期
+    """EMA Dual Moving Average Crossover Strategy with multi-period support.
 
-    该策略使用两个不同周期的EMA产生交易信号:
-    - 快线上穿慢线（金叉）→ 开多仓
-    - 快线下穿慢线（死叉）→ 开空仓
-    - 使用日线数据过滤交易时机
+    This strategy uses two EMAs of different periods to generate trading signals:
+    - Fast line crosses above slow line (golden cross) -> Open long position
+    - Fast line crosses below slow line (death cross) -> Open short position
+    - Uses daily data for filtering trade timing
 
-    策略参数:
-        fast_period: 快线EMA周期（默认80）
-        slow_period: 慢线EMA周期（默认200）
-        short_size: 空头仓位规模（默认2）
-        long_size: 多头仓位规模（默认1）
+    Strategy Parameters:
+        fast_period: Fast EMA period (default 80)
+        slow_period: Slow EMA period (default 200)
+        short_size: Short position size (default 2)
+        long_size: Long position size (default 1)
 
-    数据源:
-        datas[0]: 5分钟bar数据（用于信号生成）
-        datas[1]: 日线数据（用于日期同步过滤，可选）
+    Data Sources:
+        datas[0]: 5-minute bar data (for signal generation)
+        datas[1]: Daily data (for date synchronization filtering, optional)
     """
 
     params = (
@@ -40,15 +42,15 @@ class EmaCrossStrategy(bt.Strategy):
     )
 
     def log(self, txt, dt=None, force=False):
-        """记录日志"""
+        """Log strategy information."""
         if not force:
             return
         dt = dt or self.datas[0].datetime.datetime(0)
         print(f"{dt.isoformat()}, {txt}")
 
     def __init__(self):
-        """初始化策略指标和状态变量"""
-        # 初始化统计跟踪
+        """Initialize strategy indicators and state variables."""
+        # Initialize statistical tracking
         self.bar_num = 0
         self.buy_count = 0
         self.sell_count = 0
@@ -56,31 +58,31 @@ class EmaCrossStrategy(bt.Strategy):
         self.win_count = 0
         self.loss_count = 0
 
-        # 获取数据引用 - 通过datas列表进行标准访问
-        self.minute_data = self.datas[0]  # 5分钟数据（主要）
-        self.daily_data = self.datas[1] if len(self.datas) > 1 else None  # 日线数据（过滤）
+        # Get data references - standard access through datas list
+        self.minute_data = self.datas[0]  # 5-minute data (primary)
+        self.daily_data = self.datas[1] if len(self.datas) > 1 else None  # Daily data (filter)
 
-        # 在分钟数据上计算EMA指标
+        # Calculate EMA indicators on minute data
         self.fast_ema = bt.ind.EMA(self.minute_data, period=self.p.fast_period)
         self.slow_ema = bt.ind.EMA(self.minute_data, period=self.p.slow_period)
         self.ema_cross = bt.indicators.CrossOver(self.fast_ema, self.slow_ema)
 
-        # 如果日线数据存在，在日线数据上计算SMA用于过滤
+        # If daily data exists, calculate SMA on daily data for filtering
         if self.daily_data is not None:
             self.sma_day = bt.ind.SMA(self.daily_data, period=6)
 
     def notify_trade(self, trade):
-        """处理交易完成事件并更新统计"""
+        """Handle trade completion events and update statistics."""
         if not trade.isclosed:
             return
 
-        # 更新胜负统计
+        # Update win/loss statistics
         if trade.pnl > 0:
             self.win_count += 1
         else:
             self.loss_count += 1
 
-        # 跟踪累积利润
+        # Track cumulative profit
         self.sum_profit += trade.pnl
         self.log(
             f"Trade completed: Gross profit={trade.pnl:.2f}, "
@@ -88,12 +90,12 @@ class EmaCrossStrategy(bt.Strategy):
         )
 
     def notify_order(self, order):
-        """处理订单状态更新并记录执行"""
-        # 跳过待处理订单
+        """Handle order status updates and log executions."""
+        # Skip pending orders
         if order.status in [order.Submitted, order.Accepted]:
             return
 
-        # 记录已完成的订单
+        # Log completed orders
         if order.status == order.Completed:
             if order.isbuy():
                 self.log(
@@ -105,56 +107,56 @@ class EmaCrossStrategy(bt.Strategy):
                     f"Sell executed: Price={order.executed.price:.2f}, "
                     f"Size={order.executed.size}"
                 )
-        # 记录订单问题
+        # Log order issues
         elif order.status in [order.Canceled, order.Margin, order.Rejected]:
             self.log(f"Order status: {order.Status[order.status]}")
 
     def next(self):
-        """为每个bar执行交易逻辑"""
+        """Execute trading logic for each bar."""
         self.bar_num += 1
 
-        # 获取EMA交叉信号历史（最近80根bar）
-        # CrossOver在金叉时返回1，死叉时返回-1，其他情况返回0
+        # Get EMA crossover signal history (recent 80 bars)
+        # CrossOver returns 1 on golden cross, -1 on death cross, 0 otherwise
         crosslist = [i for i in self.ema_cross.get(size=80) if i == 1 or i == -1]
 
-        # 检查日期同步（如果日线数据存在）
-        # 只在两个数据馈都有同一天数据时交易，防止不匹配
+        # Check date synchronization (if daily data exists)
+        # Only trade when both data feeds have data for the same day, preventing mismatch
         date_synced = True
         if self.daily_data is not None:
             date_synced = (
                 self.minute_data.datetime.date(0) == self.daily_data.datetime.date(0)
             )
 
-        # 开仓逻辑（没有当前持仓）
+        # Open position logic (no current position)
         if not self.position and date_synced:
-            # 交叉信号总和表示总体趋势方向
+            # Sum of crossover signals indicates overall trend direction
             if len(crosslist) > 0:
                 signal_sum = sum(crosslist)
 
-                # 死叉信号 - 开空仓
+                # Death cross signal - open short position
                 if signal_sum == -1:
                     self.sell(data=self.minute_data, size=self.p.short_size)
                     self.sell_count += 1
-                # 金叉信号 - 开多仓
+                # Golden cross signal - open long position
                 elif signal_sum == 1:
                     self.buy(data=self.minute_data, size=self.p.long_size)
                     self.buy_count += 1
 
-        # 平仓逻辑（有持仓）
+        # Close position logic (has position)
         elif self.position and date_synced:
             signal_sum = sum(crosslist) if len(crosslist) > 0 else 0
 
-            # 持有空仓时，金叉平仓
+            # When holding short, golden cross closes position
             if self.position.size < 0 and signal_sum == 1:
                 self.close()
                 self.buy_count += 1
-            # 持有多仓时，死叉平仓
+            # When holding long, death cross closes position
             elif self.position.size > 0 and signal_sum == -1:
                 self.close()
                 self.sell_count += 1
 
     def stop(self):
-        """策略完成时输出最终统计"""
+        """Output final statistics when strategy completes."""
         total_trades = self.win_count + self.loss_count
         win_rate = (self.win_count / total_trades * 100) if total_trades > 0 else 0
 

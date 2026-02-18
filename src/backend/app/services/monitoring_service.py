@@ -81,7 +81,22 @@ class MonitoringService:
         notification_enabled: bool = True,
         notification_channels: Optional[List[str]] = None,
     ) -> AlertRule:
-        """Create an alert rule and start monitoring if enabled."""
+        """Creates a new alert rule and starts monitoring if enabled.
+
+        Args:
+            user_id: The unique identifier of the user creating the rule.
+            name: The name of the alert rule.
+            description: A description of what the rule monitors.
+            alert_type: The type of alert (e.g., ACCOUNT, POSITION, STRATEGY, SYSTEM).
+            severity: The severity level of the alert.
+            trigger_type: The type of trigger (e.g., threshold, rate, cross).
+            trigger_config: Configuration for the trigger condition.
+            notification_enabled: Whether notifications are enabled for this rule.
+            notification_channels: List of notification channels (e.g., web, email, webhook).
+
+        Returns:
+            AlertRule: The created alert rule instance.
+        """
         rule = AlertRule(
             user_id=user_id,
             name=name,
@@ -100,7 +115,7 @@ class MonitoringService:
 
         logger.info(f"Created alert rule: {rule.id}")
 
-        # 启动监控任务
+        # Start monitoring task for this rule.
         await self._start_monitoring(rule.id)
 
         return rule
@@ -111,18 +126,30 @@ class MonitoringService:
         user_id: str,
         update_data: Dict[str, Any],
     ) -> Optional[AlertRule]:
-        """Update an alert rule and start/stop monitoring as needed."""
+        """Updates an existing alert rule and manages monitoring state.
+
+        Stops monitoring if the rule becomes inactive and starts monitoring
+        if an inactive rule becomes active.
+
+        Args:
+            rule_id: The unique identifier of the alert rule to update.
+            user_id: The unique identifier of the user updating the rule.
+            update_data: Dictionary containing fields to update.
+
+        Returns:
+            AlertRule: The updated alert rule, or None if not found.
+        """
         rule = await self.alert_rule_repo.get_by_id(rule_id)
         if not rule or rule.user_id != user_id:
             return None
 
         was_active = bool(getattr(rule, "is_active", False))
 
-        # 如果规则变为不活跃，停止监控
+        # Stop monitoring if the rule becomes inactive.
         if not update_data.get("is_active", True) and rule.is_active:
             await self._stop_monitoring(rule_id)
 
-        # 更新规则
+        # Update the rule with new data.
         rule = await self.alert_rule_repo.update(rule_id, update_data)
 
         # If the rule was inactive and becomes active, start monitoring.
@@ -136,15 +163,23 @@ class MonitoringService:
         rule_id: str,
         user_id: str,
     ) -> bool:
-        """Delete an alert rule and stop its monitoring task."""
+        """Deletes an alert rule and stops its associated monitoring task.
+
+        Args:
+            rule_id: The unique identifier of the alert rule to delete.
+            user_id: The unique identifier of the user requesting deletion.
+
+        Returns:
+            bool: True if the rule was deleted, False if not found or permission denied.
+        """
         rule = await self.alert_rule_repo.get_by_id(rule_id)
         if not rule or rule.user_id != user_id:
             return False
 
-        # 停止监控
+        # Stop monitoring for this rule.
         await self._stop_monitoring(rule_id)
 
-        # 删除规则
+        # Delete the rule from the repository.
         await self.alert_rule_repo.delete(rule_id)
 
         return True
@@ -156,7 +191,19 @@ class MonitoringService:
         severity: Optional[str] = None,
         is_active: Optional[bool] = None,
     ) -> tuple[List[AlertRule], int]:
-        """List alert rules for a user with optional filters."""
+        """Lists alert rules for a user with optional filters.
+
+        Args:
+            user_id: The unique identifier of the user.
+            alert_type: Optional filter by alert type.
+            severity: Optional filter by severity level.
+            is_active: Optional filter by active status.
+
+        Returns:
+            A tuple containing:
+                - List of AlertRule objects matching the filters.
+                - Total count of matching rules.
+        """
         filters = {"user_id": user_id}
         if alert_type:
             filters["alert_type"] = alert_type
@@ -176,7 +223,18 @@ class MonitoringService:
         return rules, total
 
     async def get_alert_rule(self, rule_id: str, user_id: str) -> Optional[AlertRule]:
-        """Get a single alert rule by id with permission check."""
+        """Retrieves a single alert rule by ID with permission check.
+
+        Args:
+            rule_id: The unique identifier of the alert rule.
+            user_id: The unique identifier of the user requesting the rule.
+
+        Returns:
+            AlertRule: The requested alert rule, or None if not found.
+
+        Raises:
+            PermissionError: If the user does not own the rule.
+        """
         rule = await self.alert_rule_repo.get_by_id(rule_id)
         if not rule:
             return None
@@ -194,7 +252,22 @@ class MonitoringService:
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[List[Alert], int]:
-        """List alerts for a user with optional filters and pagination."""
+        """Lists alerts for a user with optional filters and pagination.
+
+        Args:
+            user_id: The unique identifier of the user.
+            alert_type: Optional filter by alert type.
+            severity: Optional filter by severity level.
+            status: Optional filter by alert status.
+            is_read: Optional filter by read status.
+            limit: Maximum number of alerts to return.
+            offset: Number of alerts to skip for pagination.
+
+        Returns:
+            A tuple containing:
+                - List of Alert objects matching the filters.
+                - Total count of matching alerts.
+        """
         filters = {"user_id": user_id}
         if alert_type:
             filters["alert_type"] = alert_type
@@ -218,7 +291,18 @@ class MonitoringService:
         return alerts, total
 
     async def get_alert(self, alert_id: str, user_id: str) -> Optional[Alert]:
-        """Get a single alert by id with permission check."""
+        """Retrieves a single alert by ID with permission check.
+
+        Args:
+            alert_id: The unique identifier of the alert.
+            user_id: The unique identifier of the user requesting the alert.
+
+        Returns:
+            Alert: The requested alert, or None if not found.
+
+        Raises:
+            PermissionError: If the user does not own the alert.
+        """
         alert = await self.alert_repo.get_by_id(alert_id)
         if not alert:
             return None
@@ -227,7 +311,11 @@ class MonitoringService:
         return alert
 
     async def _start_monitoring(self, rule_id: str):
-        """Start a background monitoring loop for a rule."""
+        """Starts a background monitoring loop for an alert rule.
+
+        Args:
+            rule_id: The unique identifier of the alert rule to monitor.
+        """
         if rule_id in self._monitoring_tasks:
             logger.warning(f"Monitoring task already exists: {rule_id}")
             return
@@ -236,7 +324,7 @@ class MonitoringService:
         if not rule or not rule.is_active:
             return
 
-        # 创建监控任务
+        # Create the monitoring task.
         task = asyncio.create_task(self._monitor_task(rule_id))
 
         self._monitoring_tasks[rule_id] = task
@@ -244,7 +332,11 @@ class MonitoringService:
         logger.info(f"Started monitoring task: {rule_id}")
 
     async def _stop_monitoring(self, rule_id: str):
-        """Stop a background monitoring loop for a rule."""
+        """Stops a background monitoring loop for an alert rule.
+
+        Args:
+            rule_id: The unique identifier of the alert rule to stop monitoring.
+        """
         if rule_id in self._monitoring_tasks:
             task = self._monitoring_tasks[rule_id]
             task.cancel()
@@ -253,7 +345,14 @@ class MonitoringService:
             logger.info(f"Stopped monitoring task: {rule_id}")
 
     async def _monitor_task(self, rule_id: str):
-        """Background monitoring loop for a single rule."""
+        """Background monitoring loop for a single alert rule.
+
+        Periodically checks if the rule's trigger conditions are met and
+        triggers alerts when necessary. Sleep intervals vary by alert type.
+
+        Args:
+            rule_id: The unique identifier of the alert rule to monitor.
+        """
         rule = await self.alert_rule_repo.get_by_id(rule_id)
         if not rule or not rule.is_active:
             logger.info(f"Rule not active, stopping monitoring: {rule_id}")
@@ -263,31 +362,31 @@ class MonitoringService:
 
         while True:
             try:
-                # 获取规则配置
+                # Fetch the latest rule configuration.
                 rule = await self.alert_rule_repo.get_by_id(rule_id)
                 if not rule or not rule.is_active:
                     logger.info(f"Rule not active, stopping monitoring: {rule_id}")
                     break
 
-                # 检查触发条件
+                # Check if trigger conditions are met.
                 should_trigger = await self._check_trigger(rule)
 
                 if should_trigger:
-                    # 触发告警
+                    # Trigger the alert.
                     await self._trigger_alert(rule)
 
-                # 根据告警类型决定检查间隔
+                # Determine check interval based on alert type.
                 if rule.alert_type == AlertType.SYSTEM:
-                    # 系统告警：每 5 分钟检查一次
+                    # System alerts: check every 5 minutes.
                     await asyncio.sleep(300)
                 elif rule.alert_type in [AlertType.ACCOUNT, AlertType.POSITION]:
-                    # 账户/持仓告警：每 30 秒检查一次
+                    # Account/Position alerts: check every 30 seconds.
                     await asyncio.sleep(30)
                 elif rule.alert_type == AlertType.STRATEGY:
-                    # 策略告警：每 60 秒检查一次
+                    # Strategy alerts: check every 60 seconds.
                     await asyncio.sleep(60)
                 else:
-                    # 其他：每 60 秒检查一次
+                    # Other alerts: check every 60 seconds.
                     await asyncio.sleep(60)
 
             except asyncio.CancelledError:
@@ -298,33 +397,50 @@ class MonitoringService:
                 await asyncio.sleep(60)
 
     async def _check_trigger(self, rule: AlertRule) -> bool:
-        """Evaluate whether a rule should trigger."""
+        """Evaluates whether a rule should trigger based on its trigger type.
+
+        Args:
+            rule: The alert rule to evaluate.
+
+        Returns:
+            bool: True if the rule should trigger, False otherwise.
+        """
         trigger_type = rule.trigger_type
         trigger_config = rule.trigger_config
 
         if trigger_type == "threshold":
-            # 阈值触发
+            # Threshold-based trigger.
             return await self._check_threshold_trigger(rule, trigger_config)
         elif trigger_type == "rate":
-            # 变化率触发
+            # Rate-of-change trigger.
             return await self._check_rate_trigger(rule, trigger_config)
         elif trigger_type == "cross":
-            # 交叉触发
+            # Cross-over trigger.
             return await self._check_cross_trigger(rule, trigger_config)
         elif trigger_type == "manual":
-            # 手动触发
+            # Manual trigger (never auto-triggers).
             return False
         else:
             return False
 
     async def _check_threshold_trigger(self, rule: AlertRule, config: Dict[str, Any]) -> bool:
-        """Evaluate a threshold trigger.
+        """Evaluates a threshold-based trigger condition.
+
+        Compares the current metric value against a configured threshold
+        using the specified condition operator.
+
+        Args:
+            rule: The alert rule to evaluate.
+            config: Trigger configuration containing threshold and condition.
+
+        Returns:
+            bool: True if the threshold condition is met, False otherwise.
 
         Supported data sources (in `trigger_config`):
-        - Paper trading: `account_id` (+ optional `symbol` for position rules)
-        - Live trading: `live_task_id`
-        - Backtest: `backtest_task_id`
-        - Fallback/manual: `current_value`
+            - Paper trading: `account_id` (+ optional `symbol` for position rules)
+            - Live trading: `live_task_id`
+            - Backtest: `backtest_task_id`
+            - Fallback/manual: `current_value`
         """
         threshold = config.get("threshold")
         if threshold is None:
@@ -337,10 +453,22 @@ class MonitoringService:
         return self._compare(current_value, threshold, config.get("condition", "lt"))
 
     async def _check_rate_trigger(self, rule: AlertRule, config: Dict[str, Any]) -> bool:
-        """Evaluate a rate-of-change trigger.
+        """Evaluates a rate-of-change trigger condition.
 
-        This implementation keeps state in-memory per rule id. If there is no
-        previous value, it records the current value and returns False.
+        Calculates the change between the current metric value and the
+        previously stored value, comparing against a threshold.
+
+        Args:
+            rule: The alert rule to evaluate.
+            config: Trigger configuration containing threshold and mode.
+
+        Returns:
+            bool: True if the rate-of-change condition is met, False otherwise.
+
+        Note:
+            This implementation keeps state in-memory per rule ID. If there is
+            no previous value stored, it records the current value and returns
+            False.
         """
         threshold = config.get("threshold")
         if threshold is None:
@@ -372,12 +500,22 @@ class MonitoringService:
         return self._compare(change, float(threshold), config.get("condition", "gt"))
 
     async def _check_cross_trigger(self, rule: AlertRule, config: Dict[str, Any]) -> bool:
-        """Evaluate a cross trigger based on two values.
+        """Evaluates a cross-over trigger condition based on two values.
+
+        Detects when the difference between two values crosses zero in the
+        specified direction.
+
+        Args:
+            rule: The alert rule to evaluate.
+            config: Trigger configuration containing values and direction.
+
+        Returns:
+            bool: True if the cross condition is met, False otherwise.
 
         Expected config keys:
-        - `value1`: current value 1 (optional if `current_value` is provided)
-        - `value2`: value 2, or use `threshold` as value 2
-        - `direction`: "up" (crosses from <=0 to >0) or "down" (>=0 to <0)
+            - `value1`: current value 1 (optional if `current_value` is provided)
+            - `value2`: value 2, or use `threshold` as value 2
+            - `direction`: "up" (crosses from <=0 to >0) or "down" (>=0 to <0)
         """
         v1 = config.get("value1", config.get("current_value"))
         v2 = config.get("value2", config.get("threshold", 0.0))
@@ -403,8 +541,15 @@ class MonitoringService:
         return float(prev_diff) <= 0 and diff > 0
 
     async def _trigger_alert(self, rule: AlertRule):
-        """Create an alert record and push notifications."""
-        # 更新触发次数
+        """Creates an alert record and pushes notifications.
+
+        Updates the rule's trigger count, creates a new Alert entity, and
+        sends notifications via configured channels.
+
+        Args:
+            rule: The alert rule that was triggered.
+        """
+        # Update the trigger count and last triggered timestamp.
         await self.alert_rule_repo.update(rule.id, {
             "triggered_count": rule.triggered_count + 1,
             "last_triggered_at": datetime.now(timezone.utc),
@@ -416,7 +561,7 @@ class MonitoringService:
         threshold_value = trigger_config.get("threshold")
         trigger_type = getattr(rule, "trigger_type", "threshold")
 
-        # 创建告警
+        # Create the alert record.
         alert = Alert(
             user_id=rule.user_id,
             alert_type=rule.alert_type,
@@ -433,26 +578,30 @@ class MonitoringService:
 
         alert = await self.alert_repo.create(alert)
 
-        # 推送通知
+        # Send notifications via configured channels.
         await self._send_notification(rule, alert)
 
-        # 推送 WebSocket
+        # Send WebSocket alert to connected clients.
         await self._send_websocket_alert(rule, alert)
 
         logger.info(f"Alert triggered: {alert.id}")
 
     async def _send_notification(self, rule: AlertRule, alert: Alert):
-        """Send notifications for an alert.
+        """Sends notifications for an alert via configured channels.
 
-        Channels:
-        - web: handled by WebSocket publishing (always attempted)
-        - webhook: best-effort HTTP call if `trigger_config.webhook.url` is provided
-        - email/sms/push: recorded as pending (integration-specific)
+        Args:
+            rule: The alert rule containing notification configuration.
+            alert: The alert to send notifications for.
+
+        Notification channels:
+            - web: handled by WebSocket publishing (always attempted)
+            - webhook: best-effort HTTP call if `trigger_config.webhook.url` is provided
+            - email/sms/push: recorded as pending (integration-specific)
         """
         if not rule.notification_enabled:
             return
 
-        # 根据渠道发送通知
+        # Send notifications based on configured channels.
         channels = rule.notification_channels or []
 
         for channel in channels:
@@ -469,7 +618,16 @@ class MonitoringService:
         await self.alert_repo.update(alert.id, {"is_notification_sent": True})
 
     async def _send_webhook(self, rule: AlertRule, alert: Alert) -> None:
-        """Best-effort webhook delivery using stdlib urllib."""
+        """Performs best-effort webhook delivery using standard library urllib.
+
+        Args:
+            rule: The alert rule containing webhook configuration.
+            alert: The alert to send in the webhook payload.
+
+        Note:
+            This is a fire-and-forget implementation. Failures are recorded
+            in the notification log but do not affect alert processing.
+        """
         webhook = None
         if isinstance(rule.trigger_config, dict):
             webhook = rule.trigger_config.get("webhook") or {}
@@ -509,7 +667,14 @@ class MonitoringService:
             await self._record_notification(alert.id, channel="webhook", status="failed", message=str(e))
 
     async def _record_notification(self, alert_id: str, channel: str, status: str, message: str) -> None:
-        """Persist a notification delivery attempt."""
+        """Persists a notification delivery attempt to the database.
+
+        Args:
+            alert_id: The unique identifier of the alert.
+            channel: The notification channel (e.g., webhook, email).
+            status: The delivery status (e.g., sent, failed, pending).
+            message: Additional details about the delivery attempt.
+        """
         note = AlertNotification(
             alert_id=alert_id,
             channel=channel,
@@ -519,7 +684,12 @@ class MonitoringService:
         await self.notification_repo.create(note)
 
     async def _send_websocket_alert(self, rule: AlertRule, alert: Alert):
-        """Publish a WebSocket alert message."""
+        """Publishes an alert message via WebSocket to connected clients.
+
+        Args:
+            rule: The alert rule that was triggered.
+            alert: The alert to send to WebSocket clients.
+        """
         message = {
             "type": "alert",
             "alert_id": alert.id,
@@ -534,15 +704,23 @@ class MonitoringService:
             },
         }
 
-        # 推送给用户
+        # Send to the user's alert channel.
         await ws_manager.send_to_task(f"alert:{rule.user_id}", message)
 
-        # 推送给策略（如果有关联）
+        # Send to the strategy channel if associated.
         if alert.strategy_id:
             await ws_manager.send_to_task(f"strategy:{alert.strategy_id}", message)
 
     async def mark_alert_read(self, alert_id: str, user_id: str) -> bool:
-        """Mark an alert as read."""
+        """Marks an alert as read.
+
+        Args:
+            alert_id: The unique identifier of the alert.
+            user_id: The unique identifier of the user marking the alert.
+
+        Returns:
+            bool: True if the alert was marked as read, False otherwise.
+        """
         alert = await self.alert_repo.get_by_id(alert_id)
         if not alert or alert.user_id != user_id:
             return False
@@ -552,7 +730,15 @@ class MonitoringService:
         return True
 
     async def resolve_alert(self, alert_id: str, user_id: str) -> bool:
-        """Resolve an alert."""
+        """Resolves an alert by setting its status to RESOLVED.
+
+        Args:
+            alert_id: The unique identifier of the alert.
+            user_id: The unique identifier of the user resolving the alert.
+
+        Returns:
+            bool: True if the alert was resolved, False otherwise.
+        """
         alert = await self.alert_repo.get_by_id(alert_id)
         if not alert or alert.user_id != user_id:
             return False
@@ -565,7 +751,15 @@ class MonitoringService:
         return True
 
     async def acknowledge_alert(self, alert_id: str, user_id: str) -> bool:
-        """Acknowledge an alert."""
+        """Acknowledges an alert by setting its status to ACKNOWLEDGED.
+
+        Args:
+            alert_id: The unique identifier of the alert.
+            user_id: The unique identifier of the user acknowledging the alert.
+
+        Returns:
+            bool: True if the alert was acknowledged, False otherwise.
+        """
         alert = await self.alert_repo.get_by_id(alert_id)
         if not alert or alert.user_id != user_id:
             return False
@@ -577,7 +771,23 @@ class MonitoringService:
         return True
 
     async def get_alert_summary(self, user_id: str, recent_limit: int = 10) -> Dict[str, Any]:
-        """Build a lightweight alert summary for a user."""
+        """Builds a lightweight alert summary for a user.
+
+        Provides counts of alerts grouped by type, severity, and status,
+        along with a list of recent alerts.
+
+        Args:
+            user_id: The unique identifier of the user.
+            recent_limit: Maximum number of recent alerts to include.
+
+        Returns:
+            A dictionary containing:
+                - total_alerts: Total number of alerts.
+                - by_type: Dictionary of alert counts by type.
+                - by_severity: Dictionary of alert counts by severity.
+                - by_status: Dictionary of alert counts by status.
+                - recent: List of recent alert summaries.
+        """
         alerts, total = await self.list_alerts(user_id=user_id, limit=1000, offset=0)
 
         by_type: Dict[str, int] = {}
@@ -618,7 +828,16 @@ class MonitoringService:
         start_dt: datetime,
         end_dt: datetime,
     ) -> Dict[str, Any]:
-        """Compute alert counts by type for a given time range."""
+        """Computes alert counts grouped by type for a given time range.
+
+        Args:
+            user_id: The unique identifier of the user.
+            start_dt: Start of the time range (inclusive).
+            end_dt: End of the time range (inclusive).
+
+        Returns:
+            A dictionary containing alert counts by type under the key "by_type".
+        """
         alerts, _ = await self.list_alerts(user_id=user_id, limit=5000, offset=0)
         by_type: Dict[str, int] = {}
         for a in alerts:
@@ -632,7 +851,18 @@ class MonitoringService:
         return {"by_type": by_type}
 
     async def _get_current_metric_value(self, rule: AlertRule, config: Dict[str, Any]) -> Optional[float]:
-        """Resolve the current numeric value for a rule based on its type and config."""
+        """Resolves the current numeric metric value for a rule based on its type and config.
+
+        Fetches real-time data from paper trading, live trading, or backtest
+        services depending on the alert type and configuration.
+
+        Args:
+            rule: The alert rule requiring a metric value.
+            config: Configuration specifying which metric to retrieve.
+
+        Returns:
+            The current metric value as a float, or None if unavailable.
+        """
         alert_type = getattr(rule, "alert_type", None)
         try:
             alert_type_enum = AlertType(alert_type)
@@ -729,7 +959,17 @@ class MonitoringService:
 
     @staticmethod
     def _compare(current_value: float, threshold: float, condition: str) -> bool:
-        """Compare two floats using a simple operator string."""
+        """Compares two float values using a simple operator string.
+
+        Args:
+            current_value: The current value to compare.
+            threshold: The threshold value to compare against.
+            condition: The comparison operator ("gt" for greater than,
+                "eq" for equal, or "lt"/default for less than).
+
+        Returns:
+            bool: True if the comparison condition is met, False otherwise.
+        """
         cond = str(condition or "lt").lower()
         if cond == "gt":
             return current_value > threshold

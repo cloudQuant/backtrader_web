@@ -1,5 +1,5 @@
 """
-沙箱安全执行测试
+Sandbox security execution tests.
 """
 import pytest
 from app.utils.sandbox import StrategySandbox, execute_strategy_safely, DockerSandbox
@@ -33,110 +33,110 @@ def broken(
 
 
 class TestCodeSafety:
-    """代码安全检查测试"""
+    """Code safety check tests."""
 
     def test_safe_code_passes(self):
         StrategySandbox._check_code_safety("x = 1 + 2")  # should not raise
 
     def test_dangerous_import_os(self):
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import os")
 
     def test_dangerous_import_subprocess(self):
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import subprocess")
 
     def test_dangerous_import_sys(self):
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import sys")
 
     def test_dangerous_from_import(self):
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("from os import path")
 
     def test_dangerous_eval(self):
-        with pytest.raises(ValueError, match="不允许使用危险函数"):
+        with pytest.raises(ValueError, match="Using dangerous function is not allowed"):
             StrategySandbox._check_code_safety("eval('1+1')")
 
     def test_dangerous_exec(self):
-        with pytest.raises(ValueError, match="不允许使用危险函数"):
+        with pytest.raises(ValueError, match="Using dangerous function is not allowed"):
             StrategySandbox._check_code_safety("exec('pass')")
 
     def test_dangerous_open(self):
-        with pytest.raises(ValueError, match="不允许使用危险函数"):
+        with pytest.raises(ValueError, match="Using dangerous function is not allowed"):
             StrategySandbox._check_code_safety("open('/etc/passwd')")
 
     def test_dangerous_compile(self):
-        with pytest.raises(ValueError, match="不允许使用危险函数"):
+        with pytest.raises(ValueError, match="Using dangerous function is not allowed"):
             StrategySandbox._check_code_safety("compile('x=1', '', 'exec')")
 
     def test_dangerous_builtins_access(self):
-        with pytest.raises(ValueError, match="不允许访问 __builtins__"):
+        with pytest.raises(ValueError, match="Accessing __builtins__ is not allowed"):
             StrategySandbox._check_code_safety("x = __builtins__")
 
     def test_dangerous_globals_access(self):
-        with pytest.raises(ValueError, match="不允许使用 globals"):
+        with pytest.raises(ValueError, match="Using globals\\(\\) or locals\\(\\) is not allowed"):
             StrategySandbox._check_code_safety("globals()['x'] = 1")
 
     def test_dangerous_locals_access(self):
-        with pytest.raises(ValueError, match="不允许使用 globals"):
+        with pytest.raises(ValueError, match="Using globals\\(\\) or locals\\(\\) is not allowed"):
             StrategySandbox._check_code_safety("locals()['x'] = 1")
 
     def test_dangerous_pickle(self):
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import pickle")
 
     def test_dangerous_socket(self):
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import socket")
 
     def test_dangerous_shutil(self):
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import shutil")
 
     def test_dangerous_file(self):
-        """测试检测 file 函数"""
-        with pytest.raises(ValueError, match="不允许使用危险函数"):
+        """Test detection of file function."""
+        with pytest.raises(ValueError, match="Using dangerous function is not allowed"):
             StrategySandbox._check_code_safety("file('test.txt')")
 
     def test_dangerous_input(self):
-        """测试检测 input 函数"""
-        with pytest.raises(ValueError, match="不允许使用危险函数"):
+        """Test detection of input function."""
+        with pytest.raises(ValueError, match="Using dangerous function is not allowed"):
             StrategySandbox._check_code_safety("input()")
 
     def test_dangerous_raw_input(self):
-        """测试检测 raw_input 函数"""
-        with pytest.raises(ValueError, match="不允许使用危险函数"):
+        """Test detection of raw_input function."""
+        with pytest.raises(ValueError, match="Using dangerous function is not allowed"):
             StrategySandbox._check_code_safety("raw_input()")
 
     def test_dangerous_requests(self):
-        """测试检测 requests 模块"""
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        """Test detection of requests module."""
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import requests")
 
     def test_dangerous_http(self):
-        """测试检测 http 模块"""
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        """Test detection of http module."""
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import http")
 
     def test_dangerous_urllib(self):
-        """测试检测 urllib 模块"""
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        """Test detection of urllib module."""
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import urllib")
 
     def test_dangerous_dir(self):
-        """测试检测 dir 函数"""
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        """Test detection of dir function."""
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import dir")
 
     def test_dangerous_vars(self):
-        """测试检测 vars 函数"""
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        """Test detection of vars function."""
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox._check_code_safety("import vars")
 
 
 class TestCreateSafeGlobals:
-    """安全全局命名空间测试"""
+    """Safe global namespace tests."""
 
     def test_safe_globals_has_builtins(self):
         g = StrategySandbox._create_safe_globals()
@@ -154,22 +154,22 @@ class TestCreateSafeGlobals:
         assert '__import__' in g
 
     def test_safe_globals_has_datetime(self):
-        """测试包含 datetime 模块"""
+        """Test contains datetime module."""
         g = StrategySandbox._create_safe_globals()
         assert 'datetime' in g
 
     def test_safe_globals_has_math(self):
-        """测试包含 math 模块"""
+        """Test contains math module."""
         g = StrategySandbox._create_safe_globals()
         assert 'math' in g
 
     def test_safe_globals_has_safe_print(self):
-        """测试包含安全打印函数"""
+        """Test contains safe print function."""
         g = StrategySandbox._create_safe_globals()
         assert '__print__' in g
 
     def test_safe_globals_no_dangerous_builtins(self):
-        """测试不包含危险内置函数"""
+        """Test does not contain dangerous built-in functions."""
         g = StrategySandbox._create_safe_globals()
         assert 'print' not in g['__builtins__']
         assert 'open' not in g['__builtins__']
@@ -178,73 +178,73 @@ class TestCreateSafeGlobals:
 
 
 class TestSafeImport:
-    """安全导入测试"""
+    """Safe import tests."""
 
     def test_allowed_import(self):
         result = StrategySandbox._safe_import('datetime')
         assert result is not None
 
     def test_disallowed_import(self):
-        with pytest.raises(ImportError, match="不被允许导入"):
+        with pytest.raises(ImportError, match="is not allowed"):
             StrategySandbox._safe_import('os')
 
     def test_allowed_import_math(self):
-        """测试允许导入 math"""
+        """Test allowed import of math."""
         result = StrategySandbox._safe_import('math')
         assert result is not None
 
     def test_allowed_import_bt(self):
-        """测试允许导入 bt"""
+        """Test allowed import of bt."""
         result = StrategySandbox._safe_import('bt')
         assert result is not None
 
     def test_disallowed_import_socket(self):
-        """测试不允许导入 socket"""
-        with pytest.raises(ImportError, match="不被允许导入"):
+        """Test disallowed import of socket."""
+        with pytest.raises(ImportError, match="is not allowed"):
             StrategySandbox._safe_import('socket')
 
     def test_import_datetime_class(self):
-        """测试通过导入访问 datetime"""
-        # _ALLOWED_MODULES 中 datetime 是 datetime 类（来自 datetime 模块）
+        """Test accessing datetime through import."""
+        # In _ALLOWED_MODULES, datetime is the datetime class (from datetime module)
         result = StrategySandbox._safe_import('datetime')
         assert result is not None
-        # 结果应该是 datetime 类（因为在 _ALLOWED_MODULES 中存储的是类）
-        # 而不是 datetime 模块
+        # Result should be datetime class (because class is stored in _ALLOWED_MODULES)
+        # not the datetime module
 
     def test_import_nonexistent_submodule(self):
-        """测试导入不存在的子模块"""
-        with pytest.raises(ImportError, match="无法导入"):
+        """Test import of non-existent submodule."""
+        with pytest.raises(ImportError, match="Cannot import"):
             StrategySandbox._safe_import('datetime.nonexistent')
 
     def test_safe_print_does_nothing(self):
-        """测试安全打印不执行任何操作"""
+        """Test safe print does nothing."""
         StrategySandbox._safe_print("hello", "world")  # should not raise
         result = StrategySandbox._safe_print("test")
         assert result is None
 
 
 class TestExecuteStrategyCode:
-    """执行策略代码测试"""
+    """Execute strategy code tests."""
 
     def test_execute_valid_strategy(self):
-        """测试执行有效策略"""
+        """Test executing valid strategy."""
         result = StrategySandbox.execute_strategy_code(VALID_STRATEGY)
         assert result is not None
         assert issubclass(result, bt.Strategy)
         assert result.__name__ == 'MyStrategy'
 
     def test_execute_no_strategy_class(self):
-        """测试没有策略类"""
-        with pytest.raises(RuntimeError, match="策略代码执行失败"):
+        """Test code without strategy class."""
+        with pytest.raises(ValueError, match="No valid Strategy class found"):
             StrategySandbox.execute_strategy_code(NO_STRATEGY_CODE)
 
     def test_execute_syntax_error(self):
-        """测试语法错误"""
-        with pytest.raises(SyntaxError, match="语法错误"):
+        """Test syntax error."""
+        with pytest.raises(SyntaxError, match="syntax error"):
             StrategySandbox.execute_strategy_code(SYNTAX_ERROR_CODE)
 
     def test_execute_with_params(self):
-        """测试带参数执行"""
+        """Test execution with parameters."""
         code = """
 class TestStrategy(bt.Strategy):
     params = (('custom', None),)
@@ -258,9 +258,9 @@ class TestStrategy(bt.Strategy):
         assert issubclass(result, bt.Strategy)
 
     def test_execute_with_undefined_variable(self):
-        """测试使用未定义变量 - 类定义时不会执行__init__"""
-        # 未定义变量在类定义时不会报错，只在实例化时才会
-        # 所以这里测试代码能够成功编译
+        """Test using undefined variable - __init__ doesn't execute during class definition."""
+        # Undefined variables don't error during class definition, only during instantiation
+        # So this test verifies code can compile successfully
         code = """
 class TestStrategy(bt.Strategy):
     def __init__(self):
@@ -273,13 +273,13 @@ class TestStrategy(bt.Strategy):
     def test_execute_name_error_at_top_level(self):
         """NameError should be re-raised with a helpful message."""
         code = "x = not_defined_name\n"
-        with pytest.raises(NameError, match="未定义"):
+        with pytest.raises(NameError, match="Undefined name"):
             StrategySandbox.execute_strategy_code(code)
 
     def test_execute_attribute_error_at_top_level(self):
         """AttributeError should be re-raised with a helpful message."""
         code = "x = (1).not_allowed_attr\n"
-        with pytest.raises(AttributeError, match="不允许的属性"):
+        with pytest.raises(AttributeError, match="Disallowed attribute"):
             StrategySandbox.execute_strategy_code(code)
 
     def test_execute_import_error_from_safe_import(self):
@@ -290,40 +290,40 @@ import datetime.nonexistent
 class TestStrategy(bt.Strategy):
     pass
 """
-        with pytest.raises(ImportError, match="不允许的模块"):
+        with pytest.raises(ImportError, match="Disallowed module import"):
             StrategySandbox.execute_strategy_code(code)
 
     def test_execute_issubclass_type_error_is_ignored(self):
         """If issubclass raises TypeError, the sandbox should continue scanning."""
         code = "class Foo: pass\n"
         with patch("app.utils.sandbox.bt.Strategy", 1):
-            with pytest.raises(RuntimeError, match="策略代码执行失败"):
+            with pytest.raises(ValueError, match="No valid Strategy class found"):
                 StrategySandbox.execute_strategy_code(code)
 
     def test_execute_with_dangerous_import_runtime(self):
-        """测试危险导入在代码检查阶段被拦截"""
+        """Test dangerous import is intercepted during code check phase."""
         code = """
 class TestStrategy(bt.Strategy):
     def __init__(self):
         import os
         self.os = os
 """
-        # 危险导入在 _check_code_safety 阶段被 ValueError 拦截
-        with pytest.raises(ValueError, match="不允许导入危险模块"):
+        # Dangerous import is intercepted by ValueError in _check_code_safety phase
+        with pytest.raises(ValueError, match="Importing dangerous module is not allowed"):
             StrategySandbox.execute_strategy_code(code)
 
     def test_execute_empty_code(self):
-        """测试空代码"""
-        with pytest.raises(RuntimeError, match="策略代码执行失败"):
+        """Test empty code."""
+        with pytest.raises(ValueError, match="No valid Strategy class found"):
             StrategySandbox.execute_strategy_code("")
 
     def test_execute_only_whitespace(self):
-        """测试只有空白字符"""
-        with pytest.raises(RuntimeError, match="策略代码执行失败"):
+        """Test whitespace-only code."""
+        with pytest.raises(ValueError, match="No valid Strategy class found"):
             StrategySandbox.execute_strategy_code("   \n\n  ")
 
     def test_execute_with_multiple_strategies(self):
-        """测试多个策略类，返回第一个"""
+        """Test multiple strategy classes, return first one."""
         code = """
 class FirstStrategy(bt.Strategy):
     pass
@@ -336,7 +336,7 @@ class SecondStrategy(bt.Strategy):
         assert result.__name__ == 'FirstStrategy'
 
     def test_execute_with_indicators(self):
-        """测试使用指标"""
+        """Test using indicators."""
         code = """
 class TestStrategy(bt.Strategy):
     def __init__(self):
@@ -348,7 +348,7 @@ class TestStrategy(bt.Strategy):
         assert issubclass(result, bt.Strategy)
 
     def test_execute_with_math_functions(self):
-        """测试使用数学函数 - 直接使用math"""
+        """Test using math functions - directly using math."""
         code = """
 class TestStrategy(bt.Strategy):
     def __init__(self):
@@ -361,7 +361,7 @@ class TestStrategy(bt.Strategy):
         assert issubclass(result, bt.Strategy)
 
     def test_execute_with_datetime(self):
-        """测试使用 datetime - 直接使用datetime"""
+        """Test using datetime - directly using datetime."""
         code = """
 class TestStrategy(bt.Strategy):
     def __init__(self):
@@ -374,7 +374,7 @@ class TestStrategy(bt.Strategy):
         assert issubclass(result, bt.Strategy)
 
     def test_execute_with_list_comprehension(self):
-        """测试使用列表推导"""
+        """Test using list comprehension."""
         code = """
 class TestStrategy(bt.Strategy):
     def __init__(self):
@@ -385,26 +385,26 @@ class TestStrategy(bt.Strategy):
         assert issubclass(result, bt.Strategy)
 
     def test_execute_non_strategy_class(self):
-        """测试非策略类"""
+        """Test non-strategy class."""
         code = """
 class NotStrategy:
     pass
 """
-        with pytest.raises(RuntimeError, match="策略代码执行失败"):
+        with pytest.raises(ValueError, match="No valid Strategy class found"):
             StrategySandbox.execute_strategy_code(code)
 
     def test_execute_bt_strategy_base(self):
-        """测试 bt.Strategy 基类本身"""
+        """Test bt.Strategy base class itself."""
         code = """
 # Just referencing bt.Strategy, not subclassing
 x = bt.Strategy
 """
-        with pytest.raises(RuntimeError, match="策略代码执行失败"):
+        with pytest.raises(ValueError, match="No valid Strategy class found"):
             StrategySandbox.execute_strategy_code(code)
 
     def test_execute_with_attribute_error(self):
-        """测试属性错误 - 类定义时不会执行__init__"""
-        # 属性错误在类定义时不会发生，只在实例化时才会
+        """Test attribute error - __init__ doesn't execute during class definition."""
+        # Attribute errors don't occur during class definition, only during instantiation
         code = """
 class TestStrategy(bt.Strategy):
     def __init__(self):
@@ -416,7 +416,7 @@ class TestStrategy(bt.Strategy):
 
 
 class TestExecuteStrategySafely:
-    """便捷函数测试"""
+    """Convenience function tests."""
 
     def test_execute_safely_docker_raises(self):
         with pytest.raises((NotImplementedError, RuntimeError)):
@@ -428,25 +428,25 @@ class TestExecuteStrategySafely:
                 execute_strategy_safely("x=1", params={}, use_docker=True)
 
     def test_execute_safely_without_docker(self):
-        """测试不使用 Docker"""
+        """Test without using Docker."""
         result = execute_strategy_safely(VALID_STRATEGY, use_docker=False)
         assert result is not None
         assert issubclass(result, bt.Strategy)
 
     def test_execute_safely_with_params(self):
-        """测试带参数"""
+        """Test with parameters."""
         result = execute_strategy_safely(VALID_STRATEGY, params={'period': 20}, use_docker=False)
         assert result is not None
         assert issubclass(result, bt.Strategy)
 
 
 class TestDockerSandbox:
-    """Docker 沙箱测试"""
+    """Docker sandbox tests."""
 
     def test_docker_not_available(self):
         """Docker binary missing should raise a RuntimeError."""
         with patch("subprocess.run", side_effect=FileNotFoundError()):
-            with pytest.raises(RuntimeError, match="Docker 不可用"):
+            with pytest.raises(RuntimeError, match="Docker is not available"):
                 DockerSandbox.execute_in_container("print('x')", {}, timeout=1)
 
     def test_docker_check_fails(self):
@@ -459,7 +459,7 @@ class TestDockerSandbox:
             raise AssertionError("unexpected subprocess.run call")
 
         with patch("subprocess.run", side_effect=_fake_run):
-            with pytest.raises(RuntimeError, match="Docker 不可用"):
+            with pytest.raises(RuntimeError, match="Docker is not available"):
                 DockerSandbox.execute_in_container("print('x')", {}, timeout=1)
 
     def test_docker_execution_fails(self):
@@ -475,7 +475,7 @@ class TestDockerSandbox:
             return subprocess.CompletedProcess(args, 1, stdout="", stderr="boom")
 
         with patch("subprocess.run", side_effect=_fake_run):
-            with pytest.raises(RuntimeError, match="策略执行失败"):
+            with pytest.raises(RuntimeError, match="Strategy execution failed"):
                 DockerSandbox.execute_in_container("print('x')", {}, timeout=1)
 
     def test_docker_json_parse_fails(self):
@@ -488,5 +488,5 @@ class TestDockerSandbox:
             return subprocess.CompletedProcess(args, 0, stdout="not-json", stderr="")
 
         with patch("subprocess.run", side_effect=_fake_run):
-            with pytest.raises(RuntimeError, match="无法解析执行结果"):
+            with pytest.raises(RuntimeError, match="Cannot parse execution result"):
                 DockerSandbox.execute_in_container("print('x')", {}, timeout=1)

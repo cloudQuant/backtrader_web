@@ -20,87 +20,110 @@ def get_auth_service():
     return AuthService()
 
 
-@router.post("/register", response_model=UserResponse, summary="用户注册")
+@router.post("/register", response_model=UserResponse, summary="User registration")
 async def register(
     user_create: UserCreate,
     service: AuthService = Depends(get_auth_service),
 ):
-    """
-    Register a new user.
+    """Register a new user account.
 
     Args:
-        user_create: Registration payload.
+        user_create: Registration payload with username, email, and password.
         service: Auth service dependency.
 
     Returns:
-        The created user.
+        The created user information.
 
     Raises:
-        HTTPException: If the username or email already exists.
+        HTTPException: If the username or email already exists (400).
     """
     user = await service.register(user_create)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="用户名或邮箱已存在",
+            detail="Username or email already exists",
         )
     return user
 
 
-@router.post("/login", response_model=Token, summary="用户登录")
+@router.post("/login", response_model=Token, summary="User login")
 async def login(
     user_login: UserLogin,
     service: AuthService = Depends(get_auth_service),
 ):
-    """
-    Login and return a JWT access token.
+    """Authenticate and return a JWT access token.
 
     Args:
-        user_login: Login payload.
+        user_login: Login payload with username and password.
         service: Auth service dependency.
 
     Returns:
-        A token response.
+        A token response containing the JWT access token.
 
     Raises:
-        HTTPException: If credentials are invalid.
+        HTTPException: If credentials are invalid (401).
     """
     result = await service.login(user_login)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户名或密码错误",
+            detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return result
 
 
-@router.put("/change-password", summary="修改密码")
+@router.put("/change-password", summary="Change password")
 async def change_password(
     req: ChangePassword,
     current_user=Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
 ):
-    """修改当前用户密码"""
-    success = await service.change_password(current_user.sub, req.old_password, req.new_password)
+    """Change the current user's password.
+
+    Args:
+        req: Password change request with old and new passwords.
+        current_user: Authenticated user from JWT token.
+        service: Auth service dependency.
+
+    Returns:
+        Success message.
+
+    Raises:
+        HTTPException: If current password is incorrect (400).
+    """
+    success = await service.change_password(
+        current_user.sub, req.old_password, req.new_password
+    )
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前密码错误",
+            detail="Current password is incorrect",
         )
-    return {"message": "密码修改成功"}
+    return {"message": "Password changed successfully"}
 
 
-@router.get("/me", response_model=UserResponse, summary="获取当前用户信息")
+@router.get("/me", response_model=UserResponse, summary="Get current user info")
 async def get_me(
     current_user=Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
 ):
-    """获取当前登录用户信息"""
+    """Get information about the currently authenticated user.
+
+    Args:
+        current_user: Authenticated user from JWT token.
+        service: Auth service dependency.
+
+    Returns:
+        Current user information.
+
+    Raises:
+        HTTPException: If user not found (404).
+    """
     user = await service.get_user_by_id(current_user.sub)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="用户不存在",
+            detail="User not found",
         )
     return user

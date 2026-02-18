@@ -3,7 +3,8 @@
 """
 Forex EMA Triple Moving Average Strategy
 
-外汇三指数移动平均线策略 - 基于EMA排列的趋势跟踪系统。
+Forex triple exponential moving average strategy - trend-following system
+based on EMA alignment.
 """
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
@@ -15,13 +16,13 @@ import backtrader as bt
 
 
 def load_config(config_path: str = None) -> dict:
-    """从config.yaml加载配置文件
+    """Load configuration file from config.yaml.
 
     Args:
-        config_path: 配置文件路径，默认为当前目录下的config.yaml
+        config_path: Path to configuration file, defaults to config.yaml in current directory
 
     Returns:
-        dict: 配置字典
+        dict: Configuration dictionary
     """
     if config_path is None:
         config_path = Path(__file__).parent / "config.yaml"
@@ -221,12 +222,12 @@ class ForexEmaStrategy(bt.Strategy):
                 self.order = self.close()
 
 
-# 从配置文件加载参数的便捷函数
+# Convenience function to load parameters from configuration file
 def create_strategy_from_config():
-    """从config.yaml创建策略实例的便捷函数
+    """Convenience function to create strategy instance from config.yaml.
 
     Returns:
-        ForexEmaStrategy: 配置好的策略类
+        ForexEmaStrategy: Configured strategy class
     """
     config = load_config()
     params = config.get('params', {})

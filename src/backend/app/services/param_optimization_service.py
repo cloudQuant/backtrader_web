@@ -28,23 +28,43 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-# ---- 全局状态 ----
+# ---- Global State ----
 
 _tasks: Dict[str, Dict[str, Any]] = {}
 _tasks_lock = Lock()
 
 
 def _get_task(task_id: str) -> Optional[Dict[str, Any]]:
+    """Get a task by ID from the global task registry.
+
+    Args:
+        task_id: The task identifier.
+
+    Returns:
+        The task dictionary if found, None otherwise.
+    """
     with _tasks_lock:
         return _tasks.get(task_id)
 
 
 def _set_task(task_id: str, data: Dict[str, Any]):
+    """Set a task in the global task registry.
+
+    Args:
+        task_id: The task identifier.
+        data: The task data dictionary to store.
+    """
     with _tasks_lock:
         _tasks[task_id] = data
 
 
 def _update_task(task_id: str, **kwargs):
+    """Update specific fields of a task in the global registry.
+
+    Args:
+        task_id: The task identifier.
+        **kwargs: Field names and values to update.
+    """
     with _tasks_lock:
         if task_id in _tasks:
             _tasks[task_id].update(kwargs)
@@ -58,26 +78,40 @@ def _run_single_trial(
     trial_index: int,
     tmp_base: str,
 ) -> Dict[str, Any]:
-    """
-    在独立进程中运行单次回测试验。
+    """Run a single backtest trial in an isolated process.
 
-    为避免多进程同时写同一个 logs/ 目录冲突,
-    将整个策略目录拷贝到临时目录中执行。
+    To avoid conflicts from multiple processes writing to the same logs/
+    directory, the entire strategy directory is copied to a temporary
+    location for execution.
+
+    Args:
+        strategy_dir: Path to the strategy directory containing run.py.
+        params: Dictionary of parameters to use for this trial.
+        trial_index: Index of this trial in the optimization grid.
+        tmp_base: Base temporary directory for trial execution.
+
+    Returns:
+        Dictionary containing trial results with keys:
+        - params: The parameters used for this trial
+        - trial_index: Index of this trial
+        - success: Boolean indicating if trial succeeded
+        - metrics: Performance metrics (if success=True)
+        - error: Error message (if success=False)
     """
     strategy_path = Path(strategy_dir)
     trial_dir = Path(tmp_base) / f"trial_{trial_index}"
     result: Dict[str, Any] = {"params": params, "trial_index": trial_index, "success": False}
 
     try:
-        # 拷贝策略目录到临时位置
+        # Copy strategy directory to temporary location
         shutil.copytree(strategy_path, trial_dir, dirs_exist_ok=True)
 
-        # 清空 logs 子目录
+        # Clear logs subdirectory
         logs_dir = trial_dir / "logs"
         if logs_dir.is_dir():
             shutil.rmtree(logs_dir)
 
-        # 写入当前参数到 config.yaml
+        # Write current parameters to config.yaml
         config_path = trial_dir / "config.yaml"
         config: dict = {}
         if config_path.is_file():
@@ -91,7 +125,7 @@ def _run_single_trial(
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
 
-        # 移除 run.py 中的 assert 语句（参数变化后断言会失败）
+        # Remove assert statements from run.py (they fail when parameters change)
         run_py = trial_dir / "run.py"
         if run_py.is_file():
             code = run_py.read_text(encoding="utf-8")
@@ -105,15 +139,15 @@ def _run_single_trial(
                     cleaned.append(line)
             run_py.write_text("\n".join(cleaned), encoding="utf-8")
 
-        # 准备环境变量：设置数据目录以便 run.py 能找到数据文件
+        # Prepare environment: set data directory so run.py can find data files
         project_root = Path(strategy_dir).parent.parent  # strategies/ -> project root
         env = dict(os.environ)
         env["BACKTRADER_DATA_DIR"] = str(project_root / "datas")
-        # 将原始策略目录也加入 PYTHONPATH 以便导入本地模块
+        # Add original strategy directory to PYTHONPATH for local module imports
         extra_paths = [str(strategy_dir), str(trial_dir)]
         env["PYTHONPATH"] = os.pathsep.join(extra_paths + [env.get("PYTHONPATH", "")])
 
-        # 执行 run.py
+        # Execute run.py
         proc = subprocess.run(
             [sys.executable, str(run_py)],
             cwd=str(trial_dir),
@@ -127,7 +161,7 @@ def _run_single_trial(
             result["error"] = proc.stderr.strip().split("\n")[-1] if proc.stderr else "unknown error"
             return result
 
-        # 解析日志提取绩效指标
+        # Parse logs to extract performance metrics
         metrics = _parse_trial_logs(trial_dir)
         if metrics:
             result["metrics"] = metrics
@@ -138,7 +172,7 @@ def _run_single_trial(
     except Exception as e:
         result["error"] = str(e)
     finally:
-        # 清理临时目录
+        # Clean up temporary directory
         try:
             if trial_dir.is_dir():
                 shutil.rmtree(trial_dir)
@@ -149,6 +183,15 @@ def _run_single_trial(
 
 
 def _safe_float(val, default=0.0):
+    """Convert a value to float, handling NaN and infinity.
+
+    Args:
+        val: Value to convert.
+        default: Default value to return if conversion fails or value is invalid.
+
+    Returns:
+        Float value or default if conversion fails or value is NaN/inf.
+    """
     try:
         v = float(val)
         if math.isnan(v) or math.isinf(v):
@@ -159,7 +202,22 @@ def _safe_float(val, default=0.0):
 
 
 def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
-    """从 trial 的 logs 目录中提取核心绩效指标"""
+    """Extract core performance metrics from a trial's logs directory.
+
+    Args:
+        trial_dir: Path to the trial directory containing logs.
+
+    Returns:
+        Dictionary containing performance metrics:
+        - total_return: Total return percentage
+        - annual_return: Annualized return percentage
+        - sharpe_ratio: Sharpe ratio
+        - max_drawdown: Maximum drawdown percentage
+        - total_trades: Total number of trades
+        - win_rate: Win rate percentage
+        - final_value: Final portfolio value
+        Returns None if logs are not available.
+    """
     logs_dir = trial_dir / "logs"
     if not logs_dir.is_dir():
         return None
@@ -174,7 +232,7 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
 
     log_dir = subdirs[0]
 
-    # value.log → equity curve → return / drawdown
+    # value.log -> equity curve -> return / drawdown
     # columns: log_time(0) dt(1) value(2) cash(3)
     value_path = log_dir / "value.log"
     equity = []
@@ -253,8 +311,15 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
 def generate_param_grid(
     param_ranges: Dict[str, Dict[str, float]],
 ) -> List[Dict[str, Any]]:
-    """
-    根据 {param_name: {start, end, step}} 生成笛卡尔积参数网格。
+    """Generate a Cartesian product parameter grid from range specifications.
+
+    Args:
+        param_ranges: Dictionary mapping parameter names to range specifications.
+            Each spec must contain: start (inclusive), end (inclusive), step.
+            Optional: type ("int" or "float", defaults to "float").
+
+    Returns:
+        List of parameter dictionaries, one for each combination in the grid.
     """
     keys = []
     value_lists = []
@@ -281,18 +346,28 @@ def submit_optimization(
     param_ranges: Dict[str, Dict[str, float]],
     n_workers: int = 4,
 ) -> str:
-    """
-    提交优化任务（异步执行）。返回 task_id。
+    """Submit an optimization task to run asynchronously.
+
+    Args:
+        strategy_id: The strategy identifier to optimize.
+        param_ranges: Dictionary mapping parameter names to range specifications.
+        n_workers: Number of parallel worker processes to use.
+
+    Returns:
+        The task ID for tracking optimization progress.
+
+    Raises:
+        ValueError: If strategy does not exist or parameter grid is empty.
     """
     from app.services.strategy_service import STRATEGIES_DIR
 
     strategy_dir = STRATEGIES_DIR / strategy_id
     if not (strategy_dir / "run.py").is_file():
-        raise ValueError(f"策略 {strategy_id} 不存在或缺少 run.py")
+        raise ValueError(f"Strategy {strategy_id} not found or missing run.py")
 
     grid = generate_param_grid(param_ranges)
     if not grid:
-        raise ValueError("参数网格为空，请检查参数范围设置")
+        raise ValueError("Parameter grid is empty, please check parameter range settings")
 
     task_id = uuid.uuid4().hex[:8]
     _set_task(task_id, {
@@ -324,7 +399,14 @@ def _run_optimization_thread(
     grid: List[Dict[str, Any]],
     n_workers: int,
 ):
-    """在后台线程中运行多进程优化"""
+    """Run multiprocess optimization in a background thread.
+
+    Args:
+        task_id: The optimization task identifier.
+        strategy_dir: Path to the strategy directory.
+        grid: List of parameter combinations to evaluate.
+        n_workers: Number of parallel worker processes.
+    """
     tmp_base = tempfile.mkdtemp(prefix=f"opt_{task_id}_")
     all_results: List[Dict[str, Any]] = []
 
@@ -332,7 +414,7 @@ def _run_optimization_thread(
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             futures = {}
             for i, params in enumerate(grid):
-                # [B010] 提交前检查取消标志
+                # Check cancellation flag before submitting
                 task = _get_task(task_id)
                 if task and task["status"] == "cancelled":
                     break
@@ -342,10 +424,10 @@ def _run_optimization_thread(
                 futures[fut] = i
 
             for fut in as_completed(futures):
-                # [B010] 收集结果时检查取消标志
+                # Check cancellation flag when collecting results
                 task = _get_task(task_id)
                 if task and task["status"] == "cancelled":
-                    # 尝试取消剩余 future
+                    # Try to cancel remaining futures
                     for pending_fut in futures:
                         pending_fut.cancel()
                     break
@@ -365,14 +447,14 @@ def _run_optimization_thread(
 
                 _update_task(task_id, results=list(all_results))
 
-        # [B010] 只在非取消状态下标记完成
+        # Only mark completed if not cancelled
         task = _get_task(task_id)
         if task and task["status"] != "cancelled":
             _update_task(task_id, status="completed", results=all_results)
-        logger.info(f"优化完成 {task_id}: {len(all_results)}/{len(grid)} 成功")
+        logger.info(f"Optimization completed {task_id}: {len(all_results)}/{len(grid)} successful")
 
     except Exception as e:
-        logger.error(f"优化任务失败 {task_id}: {e}")
+        logger.error(f"Optimization task failed {task_id}: {e}")
         _update_task(task_id, status="error", error=str(e))
     finally:
         try:
@@ -382,7 +464,24 @@ def _run_optimization_thread(
 
 
 def get_optimization_progress(task_id: str) -> Optional[Dict[str, Any]]:
-    """获取优化任务进度"""
+    """Get the progress of an optimization task.
+
+    Args:
+        task_id: The optimization task identifier.
+
+    Returns:
+        Dictionary containing progress information with keys:
+        - task_id: The task identifier
+        - status: Current status ("running", "completed", "error", "cancelled")
+        - strategy_id: The strategy being optimized
+        - total: Total number of trials
+        - completed: Number of completed trials
+        - failed: Number of failed trials
+        - progress: Progress percentage (0-100)
+        - n_workers: Number of worker processes
+        - created_at: ISO format creation timestamp
+        Returns None if task not found.
+    """
     task = _get_task(task_id)
     if not task:
         return None
@@ -400,14 +499,32 @@ def get_optimization_progress(task_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_optimization_results(task_id: str) -> Optional[Dict[str, Any]]:
-    """获取优化任务结果"""
+    """Get the results of a completed optimization task.
+
+    Args:
+        task_id: The optimization task identifier.
+
+    Returns:
+        Dictionary containing optimization results with keys:
+        - task_id: The task identifier
+        - status: Current status
+        - strategy_id: The strategy that was optimized
+        - param_names: List of parameter names
+        - metric_names: List of metric names returned
+        - total: Total number of trials
+        - completed: Number of completed trials
+        - failed: Number of failed trials
+        - rows: List of result dictionaries sorted by annual_return (descending)
+        - best: Best parameter combination (first row)
+        Returns None if task not found.
+    """
     task = _get_task(task_id)
     if not task:
         return None
 
     results = task.get("results", [])
 
-    # 构建表格格式的数据
+    # Build table-formatted data
     rows = []
     for r in results:
         row = dict(r["params"])
@@ -415,10 +532,10 @@ def get_optimization_results(task_id: str) -> Optional[Dict[str, Any]]:
             row.update(r["metrics"])
         rows.append(row)
 
-    # 按年化收益率降序排序
+    # Sort by annual return descending
     rows.sort(key=lambda x: x.get("annual_return", -999999), reverse=True)
 
-    # 找到最佳参数
+    # Find best parameters
     best = rows[0] if rows else None
 
     return {
@@ -436,7 +553,14 @@ def get_optimization_results(task_id: str) -> Optional[Dict[str, Any]]:
 
 
 def cancel_optimization(task_id: str) -> bool:
-    """取消优化任务（标记状态，不强制杀子进程）"""
+    """Cancel an optimization task (marks status, does not force-kill subprocesses).
+
+    Args:
+        task_id: The optimization task identifier.
+
+    Returns:
+        True if task was found and marked for cancellation, False otherwise.
+    """
     task = _get_task(task_id)
     if not task:
         return False

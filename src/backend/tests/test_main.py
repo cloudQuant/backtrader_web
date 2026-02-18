@@ -1,15 +1,15 @@
 """
-Main app 测试
+Main app tests.
 
-测试：
-- FastAPI app 初始化
-- 根路由 (/)
-- 健康检查 (/health)
-- 系统信息 (/info)
-- WebSocket 端点
-- CORS 配置
-- 速率限制配置
-- Lifespan 生命周期
+Tests:
+- FastAPI app initialization
+- Root route (/)
+- Health check (/health)
+- System info (/info)
+- WebSocket endpoints
+- CORS configuration
+- Rate limiting configuration
+- Lifespan lifecycle
 """
 import pytest
 from httpx import AsyncClient
@@ -18,10 +18,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 @pytest.mark.asyncio
 class TestMainApp:
-    """主应用测试"""
+    """Main application tests."""
 
     async def test_app_exists(self):
-        """测试应用存在"""
+        """Test that the application exists."""
         from app.main import app
 
         assert app is not None
@@ -29,7 +29,7 @@ class TestMainApp:
         assert app.version == "2.0.0"
 
     async def test_app_docs_configured(self):
-        """测试 API 文档配置"""
+        """Test that API documentation is configured."""
         from app.main import app
 
         assert app.docs_url == "/docs"
@@ -38,10 +38,10 @@ class TestMainApp:
 
 @pytest.mark.asyncio
 class TestRootRoute:
-    """根路由测试"""
+    """Root route tests."""
 
     async def test_root_route(self, client: AsyncClient):
-        """测试根路由"""
+        """Test the root route."""
         resp = await client.get("/")
         assert resp.status_code == 200
         data = resp.json()
@@ -53,22 +53,22 @@ class TestRootRoute:
         assert data["status"] == "running"
 
     async def test_root_route_contains_features(self, client: AsyncClient):
-        """测试根路由包含功能列表"""
+        """Test that the root route contains the features list."""
         resp = await client.get("/")
         assert resp.status_code == 200
         data = resp.json()
         assert "features" in data
         assert isinstance(data["features"], list)
-        # 应该包含主要功能
+        # Should contain main features
         assert len(data["features"]) > 0
 
 
 @pytest.mark.asyncio
 class TestHealthCheck:
-    """健康检查测试"""
+    """Health check tests."""
 
     async def test_health_check_endpoint(self, client: AsyncClient):
-        """测试健康检查端点"""
+        """Test the health check endpoint."""
         resp = await client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
@@ -78,15 +78,15 @@ class TestHealthCheck:
         assert "version" in data
 
     async def test_health_check_database_status(self, client: AsyncClient):
-        """测试数据库状态检查"""
+        """Test the database status check."""
         resp = await client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
-        # 数据库状态应该是 connected 或 disconnected
+        # Database status should be connected or disconnected
         assert data["database"] in ["connected", "disconnected"]
 
     async def test_health_check_with_db_error(self):
-        """测试数据库错误时的健康检查"""
+        """Test health check when database has errors."""
         from app.main import app
 
         # This test is hard to implement due to the way FastAPI handles dependencies
@@ -98,10 +98,10 @@ class TestHealthCheck:
 
 @pytest.mark.asyncio
 class TestSystemInfo:
-    """系统信息测试"""
+    """System info tests."""
 
     async def test_system_info_endpoint(self, client: AsyncClient):
-        """测试系统信息端点"""
+        """Test the system info endpoint."""
         resp = await client.get("/info")
         assert resp.status_code == 200
         data = resp.json()
@@ -110,13 +110,13 @@ class TestSystemInfo:
         assert "features" in data
 
     async def test_system_info_features(self, client: AsyncClient):
-        """测试系统信息功能列表"""
+        """Test the system info features list."""
         resp = await client.get("/info")
         assert resp.status_code == 200
         data = resp.json()
         assert "features" in data
         features = data["features"]
-        # 检查关键功能
+        # Check key features
         assert isinstance(features, dict)
         expected_features = [
             "sandbox_execution",
@@ -138,14 +138,14 @@ class TestSystemInfo:
 
 @pytest.mark.asyncio
 class TestCORSConfig:
-    """CORS 配置测试"""
+    """CORS configuration tests."""
 
     async def test_cors_middleware_added(self):
-        """测试 CORS 中间件已添加"""
+        """Test that CORS middleware is added."""
         from app.main import app
         from starlette.middleware.cors import CORSMiddleware
 
-        # 检查 CORS 中间件是否存在
+        # Check if CORS middleware exists
         cors_middlewares = [
             m for m in app.user_middleware
             if m.cls == CORSMiddleware
@@ -153,64 +153,64 @@ class TestCORSConfig:
         assert len(cors_middlewares) > 0
 
     async def test_cors_headers(self, client: AsyncClient):
-        """测试 CORS 响应头"""
+        """Test CORS response headers."""
         resp = await client.options("/", headers={
             "Origin": "http://localhost:5173",
             "Access-Control-Request-Method": "GET",
         })
-        # 应该有 CORS 相关响应头
+        # Should have CORS related response headers
         assert resp.status_code in [200, 405]  # 405 for method not allowed in OPTIONS
 
 
 @pytest.mark.asyncio
 class TestRateLimiting:
-    """速率限制测试"""
+    """Rate limiting tests."""
 
     async def test_limiter_configured(self):
-        """测试速率限制器已配置"""
+        """Test that rate limiter is configured."""
         from app.main import app
 
         assert hasattr(app.state, "limiter")
 
     async def test_rate_limit_exception_handler(self):
-        """测试速率限制异常处理器"""
+        """Test the rate limit exception handler."""
         from app.main import app
         from slowapi.errors import RateLimitExceeded
 
-        # 检查异常处理器已注册
+        # Check that exception handler is registered
         exception_handlers = app.exception_handlers
         assert RateLimitExceeded in exception_handlers
 
 
 @pytest.mark.asyncio
 class TestLifespan:
-    """生命周期管理测试"""
+    """Lifespan management tests."""
 
     async def test_lifespan_context_manager(self):
-        """测试 lifespan 上下文管理器"""
+        """Test the lifespan context manager."""
         from app.main import lifespan
 
         assert lifespan is not None
         assert callable(lifespan)
 
     async def test_lifespan_startup_warning(self):
-        """测试启动时的安全警告"""
+        """Test security warning on startup."""
         from app.main import app
         from app.config import get_settings
 
         settings = get_settings()
 
-        # 检查是否正确设置了默认密钥警告
+        # Check that default secret key warning is properly set
         # (This would require actual startup, which is complex to test)
         assert settings is not None
 
 
 @pytest.mark.asyncio
 class TestWebSocketEndpoint:
-    """WebSocket 端点测试"""
+    """WebSocket endpoint tests."""
 
     async def test_websocket_route_exists(self):
-        """测试 WebSocket 路由存在"""
+        """Test that WebSocket routes exist."""
         from app.main import app
 
         routes = [route for route in app.routes if hasattr(route, 'path')]
@@ -218,7 +218,7 @@ class TestWebSocketEndpoint:
         assert len(ws_routes) > 0
 
     async def test_websocket_backtest_route(self):
-        """测试回测 WebSocket 路由"""
+        """Test the backtest WebSocket route."""
         from app.main import app
 
         routes = [route for route in app.routes if hasattr(route, 'path')]
@@ -230,17 +230,17 @@ class TestWebSocketEndpoint:
 
 
 class TestMainEntry:
-    """主入口测试"""
+    """Main entry point tests."""
 
     def test_main_entry_point(self):
-        """测试主入口点"""
+        """Test the main entry point."""
         from app import main
 
         assert main is not None
         assert hasattr(main, 'app')
 
     def test_settings_loaded(self):
-        """测试配置已加载"""
+        """Test that settings are loaded."""
         from app.main import settings
 
         assert settings is not None
@@ -249,10 +249,10 @@ class TestMainEntry:
 
 @pytest.mark.asyncio
 class TestAppIntegration:
-    """应用集成测试"""
+    """Application integration tests."""
 
     async def test_api_router_included(self):
-        """测试 API 路由已包含"""
+        """Test that API router is included."""
         from app.main import app
 
         routes = [route for route in app.routes if hasattr(route, 'path')]
@@ -260,7 +260,7 @@ class TestAppIntegration:
         assert len(api_routes) > 0
 
     async def test_openapi_schema(self, client: AsyncClient):
-        """测试 OpenAPI schema"""
+        """Test OpenAPI schema."""
         resp = await client.get("/openapi.json")
         assert resp.status_code == 200
         schema = resp.json()
@@ -269,21 +269,21 @@ class TestAppIntegration:
         assert "paths" in schema
 
     async def test_docs_accessible(self, client: AsyncClient):
-        """测试 Swagger 文档可访问"""
+        """Test that Swagger documentation is accessible."""
         resp = await client.get("/docs")
         assert resp.status_code == 200
 
     async def test_redoc_accessible(self, client: AsyncClient):
-        """测试 ReDoc 文档可访问"""
+        """Test that ReDoc documentation is accessible."""
         resp = await client.get("/redoc")
         assert resp.status_code == 200
 
 
 class TestLoggerSetup:
-    """日志配置测试"""
+    """Logger configuration tests."""
 
     def test_logger_configured(self):
-        """测试日志已配置"""
+        """Test that logger is configured."""
         from app.main import logger
 
         assert logger is not None
@@ -294,10 +294,10 @@ class TestLoggerSetup:
 
 
 class TestWebSocketManager:
-    """WebSocket 管理器测试"""
+    """WebSocket manager tests."""
 
     def test_websocket_manager_imported(self):
-        """测试 WebSocket 管理器已导入"""
+        """Test that WebSocket manager is imported."""
         from app.main import ws_manager
 
         assert ws_manager is not None

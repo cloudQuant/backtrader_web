@@ -1,10 +1,10 @@
 """
-行情数据 API 测试
+Market data API tests
 
-测试：
-- K线数据查询
-- 数据格式验证
-- 错误处理
+Tests:
+- K-line data query
+- Data format validation
+- Error handling
 """
 import sys
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,7 +15,7 @@ import pandas as pd
 
 @pytest.fixture
 def mock_akshare_response():
-    """Mock akshare 响应数据"""
+    """Mock akshare response data - using Chinese column names as returned by akshare"""
     df = pd.DataFrame({
         '日期': ['2024-01-01', '2024-01-02', '2024-01-03'],
         '开盘': [10.0, 10.3, 10.5],
@@ -30,25 +30,25 @@ def mock_akshare_response():
 
 @pytest.mark.asyncio
 class TestKlineData:
-    """K线数据测试"""
+    """K-line data tests"""
 
     async def test_get_kline_requires_auth(self, client: AsyncClient):
-        """测试需要认证"""
+        """Test authentication required"""
         response = await client.get(
             "/api/v1/data/kline",
             params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"}
         )
-        # API可能返回401或403
+        # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_get_kline_missing_params(self, client: AsyncClient):
-        """测试缺少必要参数"""
+        """Test missing required parameters"""
         response = await client.get("/api/v1/data/kline")
-        # 验证错误 - 缺少必要参数或未认证
+        # Validation error - missing required parameters or not authenticated
         assert response.status_code in [401, 403, 422]
 
     async def test_get_kline_with_auth(self, client: AsyncClient, auth_headers, mock_akshare_response, monkeypatch):
-        """测试带认证的K线查询"""
+        """Test authenticated K-line query"""
         # Avoid network dependency: stub akshare import used by the endpoint.
         class _DummyAk:
             @staticmethod
@@ -64,7 +64,7 @@ class TestKlineData:
         assert response.status_code == 200
 
     async def test_get_kline_different_periods(self, client: AsyncClient, auth_headers, mock_akshare_response, monkeypatch):
-        """测试不同周期"""
+        """Test different periods"""
         periods = ["daily", "weekly", "monthly"]
 
         class _DummyAk:
@@ -84,11 +84,11 @@ class TestKlineData:
 
 @pytest.mark.asyncio
 class TestDataHelpers:
-    """数据服务辅助函数测试"""
+    """Data service helper function tests"""
 
     async def test_date_parsing(self):
-        """测试日期解析"""
-        # 测试API内部日期转换逻辑
+        """Test date parsing"""
+        # Test API internal date conversion logic
         start_date = "2024-01-01"
         start_str = start_date.replace('-', '')
         assert start_str == "20240101"
@@ -98,7 +98,7 @@ class TestDataHelpers:
         assert end_str == "20241231"
 
     async def test_symbol_parsing(self):
-        """测试股票代码解析"""
+        """Test stock code parsing"""
         symbol = "000001.SZ"
         code = symbol.split('.')[0]
         assert code == "000001"
@@ -110,10 +110,10 @@ class TestDataHelpers:
 
 @pytest.mark.asyncio
 class TestDataValidation:
-    """数据验证测试"""
+    """Data validation tests"""
 
     async def test_valid_stock_codes(self):
-        """测试有效股票代码格式"""
+        """Test valid stock code formats"""
         valid_codes = [
             "000001.SZ",
             "600000.SH",
@@ -126,10 +126,10 @@ class TestDataValidation:
             assert parts[1] in ["SZ", "SH"]
 
     async def test_date_format_validation(self):
-        """测试日期格式验证"""
+        """Test date format validation"""
         from datetime import datetime
 
-        # 测试正确格式
+        # Test correct format
         valid_dates = ["2024-01-01", "2024-12-31"]
         for date_str in valid_dates:
             try:
@@ -140,11 +140,11 @@ class TestDataValidation:
                 assert True
 
     async def test_ohlc_data_structure(self):
-        """测试OHLC数据结构"""
-        # 正确的OHLC数据顺序: [open, high, low, close] 或 [open, close, low, high]
-        # 这里使用 [open, high, low, close] 格式，确保high是最大值，low是最小值
+        """Test OHLC data structure"""
+        # Correct OHLC data order: [open, high, low, close] or [open, close, low, high]
+        # Here using [open, high, low, close] format, ensure high is max, low is min
         ohlc_data = [10.0, 10.5, 9.8, 10.3]  # open, high, low, close
-        # 验证OHLC顺序：high应该是最大值，low应该是最小值
+        # Verify OHLC order: high should be max, low should be min
         assert ohlc_data[0] <= ohlc_data[1]  # open <= high
         assert ohlc_data[2] <= ohlc_data[1]  # low <= high
         assert ohlc_data[3] <= ohlc_data[1]  # close <= high
@@ -154,33 +154,33 @@ class TestDataValidation:
 
 @pytest.mark.asyncio
 class TestDataAPIRoutes:
-    """数据API路由测试"""
+    """Data API route tests"""
 
     async def test_data_routes_registered(self):
-        """测试数据路由已注册"""
+        """Test data routes registered"""
         from app.main import app
         from app.api.data import router as data_router
 
-        # 检查路由存在
+        # Check route exists
         assert data_router is not None
         assert hasattr(data_router, 'routes')
 
     async def test_kline_endpoint_exists(self):
-        """测试K线端点存在"""
+        """Test K-line endpoint exists"""
         from app.api.data import router
 
-        # 检查路由中是否有K线端点
+        # Check if K-line endpoint exists in routes
         routes = [route.path for route in router.routes]
         assert "/kline" in routes or "/kline" in str(routes)
 
 
 @pytest.mark.asyncio
 class TestDataModels:
-    """数据模型测试"""
+    """Data model tests"""
 
     async def test_kline_response_structure(self):
-        """测试K线响应结构"""
-        # 模拟K线响应数据结构
+        """Test K-line response structure"""
+        # Mock K-line response data structure
         mock_response = {
             "symbol": "000001.SZ",
             "count": 10,
@@ -202,7 +202,7 @@ class TestDataModels:
             ]
         }
 
-        # 验证响应结构
+        # Verify response structure
         assert "symbol" in mock_response
         assert "count" in mock_response
         assert "kline" in mock_response
@@ -214,10 +214,10 @@ class TestDataModels:
 
 @pytest.mark.asyncio
 class TestKlineDataWithMock:
-    """K线数据测试 - 使用mock akshare"""
+    """K-line data tests - using mock akshare"""
 
     async def test_get_kline_success_with_mock(self, client: AsyncClient, auth_headers, mock_akshare_response):
-        """测试成功获取K线数据 - 使用mock"""
+        """Test successful K-line data retrieval - using mock"""
         with patch('akshare.stock_zh_a_hist') as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
@@ -237,9 +237,9 @@ class TestKlineDataWithMock:
             assert len(data["kline"]["volumes"]) == 3
 
     async def test_get_kline_empty_dataframe(self, client: AsyncClient, auth_headers):
-        """测试空DataFrame情况"""
+        """Test empty DataFrame case"""
         with patch('akshare.stock_zh_a_hist') as mock_ak:
-            # 返回空DataFrame
+            # Return empty DataFrame
             mock_ak.return_value = pd.DataFrame()
 
             response = await client.get(
@@ -248,12 +248,12 @@ class TestKlineDataWithMock:
                 headers=auth_headers
             )
             assert response.status_code == 404
-            assert "未获取到" in response.json()["detail"]
+            assert "No data retrieved" in response.json()["detail"]
 
     async def test_get_kline_exception_handling(self, client: AsyncClient, auth_headers):
-        """测试异常处理"""
+        """Test exception handling"""
         with patch('akshare.stock_zh_a_hist') as mock_ak:
-            # 模拟网络错误
+            # Simulate network error
             mock_ak.side_effect = Exception("Network error")
 
             response = await client.get(
@@ -262,10 +262,10 @@ class TestKlineDataWithMock:
                 headers=auth_headers
             )
             assert response.status_code == 500
-            assert "查询失败" in response.json()["detail"]
+            assert "Query failed" in response.json()["detail"] or "query failed" in response.json()["detail"]
 
     async def test_get_kline_data_transformation(self, client: AsyncClient, auth_headers, mock_akshare_response):
-        """测试数据转换逻辑"""
+        """Test data transformation logic"""
         with patch('akshare.stock_zh_a_hist') as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
@@ -277,12 +277,12 @@ class TestKlineDataWithMock:
             assert response.status_code == 200
             data = response.json()
 
-            # 验证数据格式转换
+            # Verify data format transformation
             assert "dates" in data["kline"]
             assert "ohlc" in data["kline"]
             assert "volumes" in data["kline"]
 
-            # 验证OHLC格式 [open, close, low, high]
+            # Verify OHLC format [open, close, low, high]
             first_ohlc = data["kline"]["ohlc"][0]
             assert len(first_ohlc) == 4
             assert isinstance(first_ohlc[0], float)  # open
@@ -290,7 +290,7 @@ class TestKlineDataWithMock:
             assert isinstance(first_ohlc[2], float)  # low
             assert isinstance(first_ohlc[3], float)  # high
 
-            # 验证records格式
+            # Verify records format
             assert len(data["records"]) == 3
             first_record = data["records"][0]
             assert "date" in first_record
@@ -302,7 +302,7 @@ class TestKlineDataWithMock:
             assert "change" in first_record
 
     async def test_get_kline_with_weekly_period(self, client: AsyncClient, auth_headers, mock_akshare_response):
-        """测试周线数据"""
+        """Test weekly data"""
         with patch('akshare.stock_zh_a_hist') as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
@@ -317,11 +317,11 @@ class TestKlineDataWithMock:
                 headers=auth_headers
             )
             assert response.status_code == 200
-            # 验证akshare被正确调用
+            # Verify akshare was called correctly
             mock_ak.assert_called_once()
 
     async def test_get_kline_with_monthly_period(self, client: AsyncClient, auth_headers, mock_akshare_response):
-        """测试月线数据"""
+        """Test monthly data"""
         with patch('akshare.stock_zh_a_hist') as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
@@ -338,7 +338,7 @@ class TestKlineDataWithMock:
             assert response.status_code == 200
 
     async def test_get_kline_symbol_parsing(self, client: AsyncClient, auth_headers, mock_akshare_response):
-        """测试股票代码解析"""
+        """Test stock code parsing"""
         with patch('akshare.stock_zh_a_hist') as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
@@ -348,12 +348,12 @@ class TestKlineDataWithMock:
                 headers=auth_headers
             )
             assert response.status_code == 200
-            # 验证akshare被调用时使用的是正确的代码（不含后缀）
+            # Verify akshare was called with correct code (without suffix)
             call_args = mock_ak.call_args
             assert call_args.kwargs['symbol'] == '600000'
 
     async def test_get_kline_date_format_conversion(self, client: AsyncClient, auth_headers, mock_akshare_response):
-        """测试日期格式转换"""
+        """Test date format conversion"""
         with patch('akshare.stock_zh_a_hist') as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
@@ -363,14 +363,14 @@ class TestKlineDataWithMock:
                 headers=auth_headers
             )
             assert response.status_code == 200
-            # 验证日期格式被正确转换
+            # Verify date format was converted correctly
             call_args = mock_ak.call_args
             assert call_args.kwargs['start_date'] == '20240101'
             assert call_args.kwargs['end_date'] == '20240131'
 
     async def test_get_kline_column_rename(self, client: AsyncClient, auth_headers):
-        """测试列名重命名"""
-        # 创建带有中文列名的DataFrame
+        """Test column renaming"""
+        # Create DataFrame with Chinese column names (as returned by akshare)
         df = pd.DataFrame({
             '日期': ['2024-01-01'],
             '开盘': [10.0],
@@ -391,7 +391,7 @@ class TestKlineDataWithMock:
             )
             assert response.status_code == 200
             data = response.json()
-            # 验证英文列名在records中
+            # Verify English column names in records
             assert "open" in data["records"][0]
             assert "high" in data["records"][0]
             assert "low" in data["records"][0]
@@ -402,10 +402,10 @@ class TestKlineDataWithMock:
 
 @pytest.mark.asyncio
 class TestKlineDataEdgeCases:
-    """K线数据边界情况测试"""
+    """K-line data edge case tests"""
 
     async def test_get_kline_single_record(self, client: AsyncClient, auth_headers):
-        """测试只有一条记录的情况"""
+        """Test single record case"""
         df = pd.DataFrame({
             '日期': ['2024-01-01'],
             '开盘': [10.0],
@@ -430,7 +430,7 @@ class TestKlineDataEdgeCases:
             assert len(data["records"]) == 1
 
     async def test_get_kline_missing_change_pct(self, client: AsyncClient, auth_headers):
-        """测试缺少涨跌幅列的情况"""
+        """Test missing change percentage column case"""
         df = pd.DataFrame({
             '日期': ['2024-01-01'],
             '开盘': [10.0],
@@ -438,7 +438,7 @@ class TestKlineDataEdgeCases:
             '最低': [9.8],
             '收盘': [10.3],
             '成交量': [1000000],
-            # 缺少涨跌幅列
+            # Missing 涨跌幅 column
         })
 
         with patch('akshare.stock_zh_a_hist') as mock_ak:
@@ -451,5 +451,5 @@ class TestKlineDataEdgeCases:
             )
             assert response.status_code == 200
             data = response.json()
-            # change应该默认为0
+            # change should default to 0
             assert data["records"][0]["change"] == 0

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""策略运行脚本 - 布林带RSI策略"""
+"""Strategy Runner - Bollinger BandsRSIStrategy"""
 
 import os
 import datetime
@@ -9,21 +9,21 @@ from pathlib import Path
 
 import backtrader as bt
 
-# 导入策略类
+# Import strategy class
 from strategy_bb_rsi import BbRsiStrategy
 
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_config():
-    """从config.yaml加载配置"""
+    """Load configuration from config.yaml"""
     config_path = BASE_DIR / "config.yaml"
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 
 def resolve_data_path(filename: str) -> Path:
-    """查找数据文件路径"""
+    """Locate data file path"""
     search_paths = [
         BASE_DIR / filename,
         BASE_DIR.parent / filename,
@@ -44,20 +44,20 @@ def resolve_data_path(filename: str) -> Path:
 
 
 def run():
-    """运行策略回测"""
+    """Run strategy backtest"""
     config = load_config()
 
-    # 创建cerebro
+    # Create cerebro
     cerebro = bt.Cerebro(stdstats=True)
 
-    # 添加策略（从config加载参数）
+    # Add strategy (load parameters from config)
     params = config.get('params', {})
     cerebro.addstrategy(BbRsiStrategy, **params)
 
 
 
 
-    # 加载数据
+    # Load data
     data_config = config.get('data', {})
     symbol = data_config.get('symbol', 'ORCL')
     print(f"Loading stock data: {symbol}...")
@@ -72,16 +72,16 @@ def run():
     cerebro.adddata(data, name=symbol)
     print(f"Data range: 2010-01-01 to 2014-12-31")
 
-    # 回测配置
+    # Backtest configuration
     bt_config = config.get('backtest', {})
     cerebro.broker.setcash(bt_config.get('initial_cash', 100000))
     cerebro.broker.setcommission(commission=bt_config.get('commission', 0.001))
 
-    # 添加分析器
+    # Add analyzers
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe', riskfreerate=0.0)
     cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -89,10 +89,10 @@ def run():
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data log
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), 'csv' also available
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',
@@ -103,18 +103,18 @@ def run():
         # mysql_table_prefix='bt',
     )
 
-    # 运行回测
+    # Run backtest
     print(f"\nRunning {config['strategy']['name']}...")
     results = cerebro.run()
     strat = results[0]
 
-    # 获取结果
+    # Get results
     sharpe_ratio = strat.analyzers.sharpe.get_analysis().get('sharperatio', None)
     annual_return = strat.analyzers.returns.get_analysis().get('rnorm', 0)
     max_drawdown = strat.analyzers.drawdown.get_analysis().get('max', {}).get('drawdown', 0)
     final_value = cerebro.broker.getvalue()
 
-    # 打印结果
+    # Print results
     print("\n" + "=" * 60)
     print("Bollinger Bands + RSI Strategy Backtest Results:")
     print(f"  bar_num: {strat.bar_num}")
@@ -126,7 +126,7 @@ def run():
     print(f"  final_value: {final_value:.2f}")
     print("=" * 60)
 
-    # **关键**：与原test文件完全相同的断言
+    # **Critical**: Identical assertions from original test file
     assert strat.bar_num == 1238, f"Expected bar_num=1238, got {strat.bar_num}"
     assert abs(final_value - 100120.94) < 0.01, f"Expected final_value=100000.0, got {final_value}"
     assert abs(sharpe_ratio - (1.1614145060616812)) < 1e-6, f"Expected sharpe_ratio=0.0, got {sharpe_ratio}"

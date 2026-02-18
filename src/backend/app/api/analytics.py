@@ -40,7 +40,15 @@ def get_backtest_service():
 
 
 async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
-    """Resolve a task log directory (prefer DB `log_dir`, fallback to latest)."""
+    """Resolve a task log directory (prefer DB log_dir, fallback to latest).
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        strategy_id: The strategy identifier.
+
+    Returns:
+        Path to the log directory.
+    """
     try:
         task_repo = SQLRepository(BacktestTask)
         task = await task_repo.get_by_id(task_id)
@@ -50,27 +58,41 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
                 return p
     except Exception:
         pass
-    # 回退: 兼容旧任务
+    # Fallback: compatible with old tasks
     strategy_dir = STRATEGIES_DIR / strategy_id
     return find_latest_log_dir(strategy_dir)
 
 
-async def get_backtest_data(task_id: str, backtest_service: BacktestService, user_id: str = None):
-    """Load a backtest result with optional user_id authorization."""
+async def get_backtest_data(
+    task_id: str,
+    backtest_service: BacktestService,
+    user_id: Optional[str] = None
+) -> Optional[dict]:
+    """Load a backtest result with optional user_id authorization.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        backtest_service: BacktestService instance.
+        user_id: Optional user ID for authorization.
+
+    Returns:
+        Dictionary containing backtest data including equity curve,
+        trades, signals, klines, etc.
+    """
     result = await backtest_service.get_result(task_id, user_id=user_id)
-    
+
     if not result:
         return None
-    
-    # 转换资金曲线格式
+
+    # Convert equity curve format
     equity_curve = []
     drawdown_curve = []
-    
+
     equity_values = result.equity_curve or []
     equity_dates = result.equity_dates or []
     drawdown_values = result.drawdown_curve or []
-    
-    # [B009] 使用任务专属日志目录获取真实现金数据
+
+    # [B009] Use task-specific log directory to get real cash data
     real_cash_map: dict = {}
     task_log_dir = await _resolve_log_dir(task_id, result.strategy_id)
     try:
@@ -80,33 +102,34 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService, use
                 real_cash_map[d] = c
     except Exception:
         pass
-    
+
     peak = equity_values[0] if equity_values else 0
-    
+
     for i, (date, value) in enumerate(zip(equity_dates, equity_values)):
         if value > peak:
             peak = value
         dd = (value - peak) / peak if peak > 0 else 0
-        
+
         date_str = date if isinstance(date, str) else str(date)
         cash = real_cash_map.get(date_str, value * 0.3)
         position = value - cash
-        
+
         equity_curve.append({
             'date': date_str,
             'total_assets': round(value, 2),
             'cash': round(cash, 2),
             'position_value': round(position, 2),
         })
-        
+
         drawdown_curve.append({
             'date': date_str,
             'drawdown': round(dd, 6),
             'peak': round(peak, 2),
             'trough': round(value, 2),
         })
-    
-    # [B009] 从任务专属日志目录获取真实K线数据（提前解析，供信号价格查找使用）
+
+    # [B009] Get real K-line data from task-specific log directory
+    # (parse in advance for signal price lookup)
     klines = []
     log_indicators: dict = {}
     kline_close_map: dict = {}  # date -> close price
@@ -131,11 +154,12 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService, use
     except Exception:
         pass
 
-    # 转换交易记录 & 生成信号
-    # 优先从 trade.log 直接解析（始终包含 dtopen/dtclose），回退到 DB 存储的 trades
+    # Convert trade records & generate signals
+    # Prefer parsing from trade.log directly (always contains dtopen/dtclose),
+    # fallback to DB stored trades
     trades = []
     signals = []
-    
+
     log_trades = None
     if task_log_dir:
         try:
@@ -143,10 +167,10 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService, use
             log_trades = parse_trade_log(task_log_dir)
         except Exception:
             log_trades = None
-    
-    # 使用 log_trades（完整字段）或 result.trades（可能缺少 dtopen/dtclose）
+
+    # Use log_trades (complete fields) or result.trades (may lack dtopen/dtclose)
     source_trades = log_trades if log_trades else (result.trades or [])
-    
+
     for i, t in enumerate(source_trades):
         td = t.model_dump() if hasattr(t, 'model_dump') else (t if isinstance(t, dict) else {})
         trade = {
@@ -162,9 +186,9 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService, use
             'barlen': td.get('barlen'),
         }
         trades.append(trade)
-        
-        # 每笔已关闭的交易生成开仓和平仓两个信号
-        # 优先使用K线收盘价作为信号价格，回退到交易均价
+
+        # Generate open and close signals for each closed trade
+        # Prefer K-line close price as signal price, fallback to trade avg price
         is_long = trade['direction'] == 'buy'
         dtopen = td.get('dtopen', '') or ''
         dtclose = td.get('dtclose', '') or trade['datetime'] or ''
@@ -184,8 +208,8 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService, use
                 'price': kline_close_map.get(close_date, trade['price']),
                 'size': trade['size'],
             })
-    
-    # 如果无法从日志获取，回退使用资金曲线反推
+
+    # Fallback: use equity curve to derive if no log data
     if not klines:
         base_price = 10.0
         for i, date in enumerate(equity_dates):
@@ -200,18 +224,18 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService, use
                 'close': round(base_price, 2),
                 'volume': 500000,
             })
-    
-    # 计算月度收益
+
+    # Calculate monthly returns
     monthly_returns = {}
     if equity_dates and equity_values:
         month_start_value = equity_values[0]
         current_month = None
-        
+
         for date, value in zip(equity_dates, equity_values):
             try:
                 dt = datetime.strptime(date, '%Y-%m-%d') if isinstance(date, str) else date
                 month_key = (dt.year, dt.month)
-                
+
                 if current_month != month_key:
                     if current_month and month_start_value > 0:
                         ret = (value - month_start_value) / month_start_value
@@ -220,12 +244,12 @@ async def get_backtest_data(task_id: str, backtest_service: BacktestService, use
                     current_month = month_key
             except Exception:
                 pass
-        
-        # 最后一个月
+
+        # Last month
         if current_month and month_start_value > 0:
             ret = (equity_values[-1] - month_start_value) / month_start_value
             monthly_returns[current_month] = round(ret, 6)
-    
+
     return {
         'task_id': task_id,
         'strategy_name': result.strategy_id or 'Unknown',
@@ -250,25 +274,35 @@ async def get_backtest_detail(
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),
 ):
+    """Get detailed backtest results including metrics and curves.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        current_user: Authenticated user.
+        service: Analytics service dependency.
+        backtest_service: Backtest service dependency.
+
+    Returns:
+        BacktestDetailResponse with performance metrics, equity curve,
+        drawdown curve, and trades.
+
+    Raises:
+        HTTPException: If result not found (404).
     """
-    获取回测详细结果
-    
-    包含绩效指标、资金曲线、回撤曲线、交易记录等
-    """
-    # 从数据库获取真实回测结果
+    # Get real backtest result from database
     result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
-    
+
     if not result:
-        raise HTTPException(status_code=404, detail="回测结果不存在")
-    
-    # 计算绩效指标
+        raise HTTPException(status_code=404, detail="Backtest result not found")
+
+    # Calculate performance metrics
     metrics = service.calculate_metrics(result)
-    
-    # 处理数据
+
+    # Process data
     equity_curve = service.process_equity_curve(result['equity_curve'])
     drawdown_curve = service.process_drawdown_curve(result['drawdown_curve'])
     trades = service.process_trades(result['trades'])
-    
+
     return BacktestDetailResponse(
         task_id=task_id,
         strategy_name=result['strategy_name'],
@@ -292,34 +326,45 @@ async def get_kline_with_signals(
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),
 ):
-    """
-    获取K线数据及交易信号
-    
-    用于绘制带买卖点标记的K线图
+    """Get K-line data with trading signals for chart visualization.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        start_date: Optional start date filter (YYYY-MM-DD).
+        end_date: Optional end date filter (YYYY-MM-DD).
+        current_user: Authenticated user.
+        service: Analytics service dependency.
+        backtest_service: Backtest service dependency.
+
+    Returns:
+        KlineWithSignalsResponse with klines, signals, and indicators.
+
+    Raises:
+        HTTPException: If result not found (404).
     """
     result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
-    
+
     if not result:
-        raise HTTPException(status_code=404, detail="回测结果不存在")
-    
+        raise HTTPException(status_code=404, detail="Backtest result not found")
+
     klines = result['klines']
     signals = result['signals']
-    
-    # 日期筛选
+
+    # Date filtering
     if start_date:
         klines = [k for k in klines if k['date'] >= start_date]
         signals = [s for s in signals if s['date'] >= start_date]
     if end_date:
         klines = [k for k in klines if k['date'] <= end_date]
         signals = [s for s in signals if s['date'] <= end_date]
-    
-    # 优先使用日志中的真实指标，没有则计算均线
+
+    # Prefer real indicators from logs, fallback to calculated MA
     log_indicators = result.get('log_indicators', {})
     if log_indicators:
         indicators = log_indicators
     else:
         indicators = service.calculate_indicators(klines)
-    
+
     return KlineWithSignalsResponse(
         symbol=result['symbol'],
         klines=[
@@ -345,16 +390,25 @@ async def get_monthly_returns(
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),
 ):
-    """
-    获取月度收益数据
-    
-    用于绘制收益热力图
+    """Get monthly returns data for heatmap visualization.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        current_user: Authenticated user.
+        service: Analytics service dependency.
+        backtest_service: Backtest service dependency.
+
+    Returns:
+        MonthlyReturnsResponse with monthly return data.
+
+    Raises:
+        HTTPException: If result not found (404).
     """
     result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
-    
+
     if not result:
-        raise HTTPException(status_code=404, detail="回测结果不存在")
-    
+        raise HTTPException(status_code=404, detail="Backtest result not found")
+
     return service.process_monthly_returns(result['monthly_returns'])
 
 
@@ -363,14 +417,22 @@ async def get_optimization_results(
     task_id: str,
     current_user=Depends(get_current_user),
 ):
-    """
-    获取参数优化结果
+    """Get parameter optimization results for a backtest task.
 
-    该回测任务未关联优化结果。请使用 /api/v1/optimization/ 模块进行参数优化。
+    Note: This backtest task has no associated optimization results.
+    Use the /api/v1/optimization/ module for parameter optimization.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        current_user: Authenticated user.
+
+    Raises:
+        HTTPException: Always (404) - optimization is a separate feature.
     """
     raise HTTPException(
         status_code=404,
-        detail="该回测任务没有关联的优化结果。请通过「参数优化」功能执行优化。",
+        detail="This backtest task has no associated optimization results. "
+               "Please use the 'Parameter Optimization' feature to run optimizations.",
     )
 
 
@@ -382,24 +444,40 @@ async def export_backtest_results(
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),
 ):
-    """
-    导出回测结果
+    """Export backtest results to CSV or JSON format.
+
+    Args:
+        task_id: The unique identifier for the backtest task.
+        format: Export format - "csv" or "json". Defaults to "csv".
+        current_user: Authenticated user.
+        service: Analytics service dependency.
+        backtest_service: Backtest service dependency.
+
+    Returns:
+        StreamingResponse with file attachment.
+
+    Raises:
+        HTTPException: If result not found (404) or format unsupported (400).
     """
     result = await get_backtest_data(task_id, backtest_service, user_id=current_user.sub)
-    
+
     if not result:
-        raise HTTPException(status_code=404, detail="回测结果不存在")
+        raise HTTPException(status_code=404, detail="Backtest result not found")
 
     trades = result['trades']
 
     if format == "csv":
         output = io.StringIO()
-        # 处理交易记录为空的情况
-        fieldnames = trades[0].keys() if trades else ['id', 'datetime', 'symbol', 'direction', 'price', 'size', 'value', 'commission', 'pnl']
+        # Handle empty trade records
+        fieldnames = (
+            trades[0].keys() if trades
+            else ['id', 'datetime', 'symbol', 'direction', 'price',
+                   'size', 'value', 'commission', 'pnl']
+        )
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(trades)
-        
+
         return StreamingResponse(
             iter([output.getvalue()]),
             media_type="text/csv",
@@ -407,9 +485,10 @@ async def export_backtest_results(
                 "Content-Disposition": f"attachment; filename=backtest_{task_id}.csv"
             }
         )
-    
+
     elif format == "json":
-        # Ensure the payload is JSON serializable (e.g. tuple keys in monthly_returns).
+        # Ensure the payload is JSON serializable
+        # (e.g., tuple keys in monthly_returns).
         result_json = dict(result)
         monthly_returns = result_json.get("monthly_returns")
         if isinstance(monthly_returns, dict):
@@ -429,5 +508,5 @@ async def export_backtest_results(
                 "Content-Disposition": f"attachment; filename=backtest_{task_id}.json"
             }
         )
-    
-    raise HTTPException(status_code=400, detail="不支持的导出格式")
+
+    raise HTTPException(status_code=400, detail="Unsupported export format")

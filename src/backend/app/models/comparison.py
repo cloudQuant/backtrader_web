@@ -12,59 +12,81 @@ from app.db.database import Base
 
 
 class ComparisonType(str, Enum):
-    """对比类型"""
-    METRICS = "metrics"  # 指标对比
-    EQUITY = "equity"    # 资金曲线对比
-    TRADES = "trades"    # 交易对比
-    DRAWDOWN = "drawdown"  # 回撤对比
+    """Comparison type enum."""
+    METRICS = "metrics"  # Metrics comparison
+    EQUITY = "equity"    # Equity curve comparison
+    TRADES = "trades"    # Trade comparison
+    DRAWDOWN = "drawdown"  # Drawdown comparison
 
 
 class Comparison(Base):
-    """回测结果对比表"""
+    """Backtest result comparison table.
+
+    Attributes:
+        id: Unique comparison identifier (UUID).
+        user_id: User ID who owns the comparison.
+        name: Comparison name.
+        description: Comparison description.
+        type: Comparison type.
+        backtest_task_ids: List of backtest task IDs.
+        comparison_data: Comparison results (JSON).
+        is_favorite: Whether marked as favorite.
+        is_public: Whether publicly visible.
+        created_at: Creation timestamp.
+        updated_at: Last update timestamp.
+    """
     __tablename__ = "backtest_comparisons"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
-    name = Column(String(200), nullable=False)  # 对比名称
+    name = Column(String(200), nullable=False)  # Comparison name
     description = Column(Text, nullable=True)
-    type = Column(String(20), default=ComparisonType.METRICS, nullable=False)  # 对比类型
+    type = Column(String(20), default=ComparisonType.METRICS, nullable=False)  # Comparison type
 
-    # 对比的回测任务 ID 列表
-    backtest_task_ids = Column(JSON, nullable=False)  # 回测任务 ID 列表
+    # Compared backtest task ID list
+    backtest_task_ids = Column(JSON, nullable=False)  # Backtest task ID list
 
-    # 对比结果（JSON 存储）
-    comparison_data = Column(JSON, nullable=False)  # 对比结果
+    # Comparison results (JSON stored)
+    comparison_data = Column(JSON, nullable=False)  # Comparison results
 
-    # 标记
-    is_favorite = Column(Boolean, default=False, nullable=False)  # 是否收藏
-    is_public = Column(Boolean, default=False, nullable=False)  # 是否公开
+    # Flags
+    is_favorite = Column(Boolean, default=False, nullable=False)  # Whether favorited
+    is_public = Column(Boolean, default=False, nullable=False)  # Whether public
 
-    # 时间戳
+    # Timestamps
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    # 关联
+    # Relationships
     user = relationship("User", back_populates="comparisons")
     backtest_tasks = relationship("BacktestTask", secondary="comparison_backtest_association")
     shares = relationship("ComparisonShare", back_populates="comparison")
 
 
 class ComparisonShare(Base):
-    """对比分享表"""
+    """Comparison share table.
+
+    Attributes:
+        id: Unique share identifier (UUID).
+        comparison_id: Associated comparison ID.
+        shared_with_user_id: User ID to share with.
+        can_edit: Whether edit permission is granted.
+        created_at: Share creation timestamp.
+    """
     __tablename__ = "comparison_shares"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     comparison_id = Column(String(36), ForeignKey("backtest_comparisons.id"), nullable=False, index=True)
     shared_with_user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
-    can_edit = Column(Boolean, default=False, nullable=False)  # 是否允许编辑
+    can_edit = Column(Boolean, default=False, nullable=False)  # Whether edit is allowed
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # 关联
+    # Relationships
     comparison = relationship("Comparison", back_populates="shares")
     shared_with_user = relationship("User")
 
 
-# 多对多关联表（对比 - 回测任务）
+# Many-to-many association table (comparison - backtest tasks)
 comparison_backtest_association = Table(
     'comparison_backtest_association',
     Base.metadata,

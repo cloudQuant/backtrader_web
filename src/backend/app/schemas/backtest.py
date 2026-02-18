@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskStatus(str, Enum):
-    """任务状态"""
+    """Task status enum."""
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -17,15 +17,15 @@ class TaskStatus(str, Enum):
 
 
 class BacktestRequest(BaseModel):
-    """回测请求"""
-    strategy_id: str = Field(..., description="策略ID")
-    symbol: str = Field(..., description="股票代码")
-    start_date: datetime = Field(..., description="开始日期")
-    end_date: datetime = Field(..., description="结束日期")
-    initial_cash: float = Field(100000.0, description="初始资金")
-    commission: float = Field(0.001, description="手续费率")
-    params: Dict[str, Any] = Field(default_factory=dict, description="策略参数")
-    
+    """Backtest request schema."""
+    strategy_id: str = Field(..., description="Strategy ID")
+    symbol: str = Field(..., description="Stock symbol")
+    start_date: datetime = Field(..., description="Start date")
+    end_date: datetime = Field(..., description="End date")
+    initial_cash: float = Field(100000.0, description="Initial cash")
+    commission: float = Field(0.001, description="Commission rate")
+    params: Dict[str, Any] = Field(default_factory=dict, description="Strategy parameters")
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -42,14 +42,14 @@ class BacktestRequest(BaseModel):
 
 
 class BacktestResponse(BaseModel):
-    """回测任务响应"""
-    task_id: str = Field(..., description="任务ID")
-    status: TaskStatus = Field(..., description="任务状态")
-    message: Optional[str] = Field(None, description="状态消息")
+    """Backtest task response schema."""
+    task_id: str = Field(..., description="Task ID")
+    status: TaskStatus = Field(..., description="Task status")
+    message: Optional[str] = Field(None, description="Status message")
 
 
 class TradeRecord(BaseModel):
-    """交易记录"""
+    """Trade record schema."""
     datetime: Optional[str] = None
     date: Optional[str] = None
     dtopen: Optional[str] = None
@@ -66,42 +66,42 @@ class TradeRecord(BaseModel):
 
 
 class BacktestResult(BaseModel):
-    """回测结果"""
+    """Backtest result schema."""
     task_id: str
     strategy_id: str
     symbol: str
     start_date: datetime
     end_date: datetime
     status: TaskStatus
-    
-    # 性能指标
-    total_return: float = Field(0, description="总收益率(%)")
-    annual_return: float = Field(0, description="年化收益率(%)")
-    sharpe_ratio: float = Field(0, description="夏普比率")
-    max_drawdown: float = Field(0, description="最大回撤(%)")
-    win_rate: float = Field(0, description="胜率(%)")
-    
-    # 交易统计
-    total_trades: int = Field(0, description="总交易次数")
-    profitable_trades: int = Field(0, description="盈利交易次数")
-    losing_trades: int = Field(0, description="亏损交易次数")
-    
-    # 资金曲线数据
-    equity_curve: List[float] = Field(default_factory=list, description="资金曲线")
-    equity_dates: List[str] = Field(default_factory=list, description="日期序列")
-    drawdown_curve: List[float] = Field(default_factory=list, description="回撤曲线")
-    
-    # 交易记录
-    trades: List[TradeRecord] = Field(default_factory=list, description="交易记录")
-    
-    # 元信息
+
+    # Performance metrics
+    total_return: float = Field(0, description="Total return (%)")
+    annual_return: float = Field(0, description="Annualized return (%)")
+    sharpe_ratio: float = Field(0, description="Sharpe ratio")
+    max_drawdown: float = Field(0, description="Maximum drawdown (%)")
+    win_rate: float = Field(0, description="Win rate (%)")
+
+    # Trade statistics
+    total_trades: int = Field(0, description="Total trades")
+    profitable_trades: int = Field(0, description="Profitable trades")
+    losing_trades: int = Field(0, description="Losing trades")
+
+    # Equity curve data
+    equity_curve: List[float] = Field(default_factory=list, description="Equity curve")
+    equity_dates: List[str] = Field(default_factory=list, description="Date sequence")
+    drawdown_curve: List[float] = Field(default_factory=list, description="Drawdown curve")
+
+    # Trade records
+    trades: List[TradeRecord] = Field(default_factory=list, description="Trade records")
+
+    # Meta info
     created_at: datetime
     error_message: Optional[str] = None
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
 class BacktestListResponse(BaseModel):
-    """回测列表响应"""
+    """Backtest list response schema."""
     total: int
     items: List[BacktestResult]

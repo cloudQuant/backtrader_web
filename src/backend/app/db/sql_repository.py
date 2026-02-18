@@ -1,8 +1,8 @@
 """
-SQL数据库Repository实现 - 支持PostgreSQL/MySQL/SQLite
+SQL database Repository implementation - Supports PostgreSQL/MySQL/SQLite.
 """
-from typing import TypeVar, Generic, List, Optional, Dict, Any, Type
-from sqlalchemy import select, update, delete, func, desc, asc
+from typing import TypeVar, Generic, List, Optional, Dict, Any, Type, Union
+from sqlalchemy import select, update, delete, func, desc, asc, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import BaseRepository
@@ -12,33 +12,62 @@ T = TypeVar('T')
 
 
 class SQLRepository(BaseRepository[T], Generic[T]):
+    """SQL database implementation - Shared by PostgreSQL/MySQL/SQLite.
+
+    Uses SQLAlchemy 2.0 async interface.
+
+    Attributes:
+        model_class: The model class this repository handles.
     """
-    SQL数据库实现 - PostgreSQL/MySQL/SQLite共用
-    
-    使用SQLAlchemy 2.0异步接口
-    """
-    
+
     def __init__(self, model_class: Type[T]):
+        """Initialize the repository.
+
+        Args:
+            model_class: The model class to manage.
+        """
         self.model_class = model_class
-    
+
     async def create(self, entity: T) -> T:
-        """创建实体"""
+        """Create an entity.
+
+        Args:
+            entity: The entity to create.
+
+        Returns:
+            The created entity.
+        """
         async with async_session_maker() as session:
             session.add(entity)
             await session.commit()
             await session.refresh(entity)
             return entity
-    
+
     async def get_by_id(self, id: str) -> Optional[T]:
-        """根据ID获取实体"""
+        """Get entity by ID.
+
+        Args:
+            id: The entity ID.
+
+        Returns:
+            The entity, or None if not found.
+        """
         async with async_session_maker() as session:
             result = await session.execute(
                 select(self.model_class).where(self.model_class.id == id)
             )
             return result.scalar_one_or_none()
-    
+
     async def update(self, id: str, data: Dict[str, Any]) -> Optional[T]:
-        """更新实体"""
+        """Update an entity.
+
+        Args:
+            id: The entity ID.
+            data: Dictionary of fields to update.
+
+        Returns:
+            The updated entity, or None if not found.
+        """
         async with async_session_maker() as session:
             await session.execute(
                 update(self.model_class)
@@ -47,16 +76,23 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             )
             await session.commit()
             return await self.get_by_id(id)
-    
+
     async def delete(self, id: str) -> bool:
-        """删除实体"""
+        """Delete an entity.
+
+        Args:
+            id: The entity ID.
+
+        Returns:
+            True if deleted, False otherwise.
+        """
         async with async_session_maker() as session:
             result = await session.execute(
                 delete(self.model_class).where(self.model_class.id == id)
             )
             await session.commit()
             return result.rowcount > 0
-    
+
     async def list(
         self,
         filters: Dict[str, Any] = None,
@@ -67,8 +103,28 @@ class SQLRepository(BaseRepository[T], Generic[T]):
         sort_by: str = None,
         sort_order: str = None,
     ) -> List[T]:
-        """列表查询，支持排序（兼容 sort_by/sort_order 别名）"""
-        # B011: 别名兼容
+        """List entities with optional filtering and sorting.
+
+        Supports sort_by/sort_order alias for compatibility.
+
+        Supported filter types:
+        - Regular value: field == value
+        - List value: field.in_(values)  # IN query
+        - None value: field.is_(None)     # IS NULL query
+
+        Args:
+            filters: Optional filter dictionary.
+            skip: Number of records to skip.
+            limit: Maximum number of records to return.
+            order_by: Field to order by.
+            order_desc: Whether to order descending.
+            sort_by: Alias for order_by.
+            sort_order: "asc" or "desc".
+
+        Returns:
+            List of entities.
+        """
+        # Alias compatibility
         if sort_by and not order_by:
             order_by = sort_by
         if sort_order is not None and sort_order != "":
@@ -76,39 +132,60 @@ class SQLRepository(BaseRepository[T], Generic[T]):
 
         async with async_session_maker() as session:
             query = select(self.model_class)
-            
+
             if filters:
                 for key, value in filters.items():
                     if hasattr(self.model_class, key):
-                        query = query.where(
-                            getattr(self.model_class, key) == value
-                        )
-            
+                        col = getattr(self.model_class, key)
+                        # Support IN query: if value is list/tuple/set
+                        if isinstance(value, (list, tuple, set)):
+                            if value:  # Only add condition if non-empty
+                                query = query.where(col.in_(value))
+                        elif value is None:
+                            query = query.where(col.is_(None))
+                        else:
+                            query = query.where(col == value)
+
             if order_by and hasattr(self.model_class, order_by):
                 col = getattr(self.model_class, order_by)
                 query = query.order_by(desc(col) if order_desc else asc(col))
-            
+
             query = query.offset(skip).limit(limit)
             result = await session.execute(query)
             return list(result.scalars().all())
-    
+
     async def count(self, filters: Dict[str, Any] = None) -> int:
-        """计数"""
+        """Count entities with optional filtering.
+
+        Args:
+            filters: Optional filter dictionary.
+
+        Returns:
+            The count of matching entities.
+        """
         async with async_session_maker() as session:
             query = select(func.count()).select_from(self.model_class)
-            
+
             if filters:
                 for key, value in filters.items():
                     if hasattr(self.model_class, key):
                         query = query.where(
                             getattr(self.model_class, key) == value
                         )
-            
+
             result = await session.execute(query)
             return result.scalar() or 0
-    
+
     async def get_by_field(self, field: str, value: Any) -> Optional[T]:
-        """根据字段获取实体"""
+        """Get entity by field value.
+
+        Args:
+            field: The field name.
+            value: The field value.
+
+        Returns:
+            The entity, or None if not found.
+        """
         async with async_session_maker() as session:
             result = await session.execute(
                 select(self.model_class).where(

@@ -1,15 +1,15 @@
 """
-策略版本管理服务测试
+Strategy Version Management Service Tests.
 
-测试：
-- 创建策略版本
-- 获取/更新版本
-- 设置默认版本
-- 激活版本
-- 版本对比
-- 版本回滚
-- 分支管理
-- 辅助函数（代码差异、参数差异）
+Tests:
+- Create strategy version
+- Get/update version
+- Set default version
+- Activate version
+- Version comparison
+- Version rollback
+- Branch management
+- Helper functions (code diff, params diff)
 """
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -17,10 +17,10 @@ from datetime import datetime
 
 
 class TestVersionControlServiceInitialization:
-    """测试服务初始化"""
+    """Test service initialization."""
 
     def test_initialization(self):
-        """测试初始化"""
+        """Test initialization."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -32,10 +32,10 @@ class TestVersionControlServiceInitialization:
 
 
 class TestGenerateCodeDiff:
-    """测试代码差异生成"""
+    """Test code diff generation."""
 
     def test_generate_code_diff_identical(self):
-        """测试相同代码的差异"""
+        """Test diff for identical code."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -43,11 +43,11 @@ class TestGenerateCodeDiff:
 
         diff = service._generate_code_diff(code, code, "v1", "v2")
 
-        # 相同代码应该没有差异（或只有头部）
+        # Identical code should have no diff (or only header)
         assert isinstance(diff, str)
 
     def test_generate_code_diff_different(self):
-        """测试不同代码的差异"""
+        """Test diff for different code."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -56,12 +56,12 @@ class TestGenerateCodeDiff:
 
         diff = service._generate_code_diff(code1, code2, "v1", "v2")
 
-        # 应该有差异
+        # Should have diff
         assert isinstance(diff, str)
         assert len(diff) > 0
 
     def test_generate_code_diff_with_lines(self):
-        """测试多行代码的差异"""
+        """Test diff for multi-line code."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -74,10 +74,10 @@ class TestGenerateCodeDiff:
 
 
 class TestGenerateParamsDiff:
-    """测试参数差异生成"""
+    """Test parameter diff generation."""
 
     def test_generate_params_diff_identical(self):
-        """测试相同参数的差异"""
+        """Test diff for identical parameters."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -90,14 +90,14 @@ class TestGenerateParamsDiff:
         assert "removed" in diff
         assert "modified" in diff
         assert "unchanged" in diff
-        # 所有参数应该不变
+        # All params should be unchanged
         assert len(diff["unchanged"]) == 2
         assert len(diff["added"]) == 0
         assert len(diff["removed"]) == 0
         assert len(diff["modified"]) == 0
 
     def test_generate_params_diff_added(self):
-        """测试添加参数"""
+        """Test adding parameters."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -111,7 +111,7 @@ class TestGenerateParamsDiff:
         assert len(diff["unchanged"]) == 1
 
     def test_generate_params_diff_removed(self):
-        """测试删除参数"""
+        """Test removing parameters."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -125,7 +125,7 @@ class TestGenerateParamsDiff:
         assert len(diff["unchanged"]) == 1
 
     def test_generate_params_diff_modified(self):
-        """测试修改参数"""
+        """Test modifying parameters."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -140,7 +140,7 @@ class TestGenerateParamsDiff:
         assert len(diff["unchanged"]) == 1
 
     def test_generate_params_diff_complex(self):
-        """测试复杂参数差异"""
+        """Test complex parameter diff."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -156,10 +156,10 @@ class TestGenerateParamsDiff:
 
 
 class TestToResponse:
-    """测试响应转换"""
+    """Test response conversion."""
 
     def test_to_response(self):
-        """测试转换为响应"""
+        """Test conversion to response."""
         from app.services.strategy_version_service import VersionControlService
         from app.models.strategy_version import StrategyVersion
 
@@ -201,10 +201,10 @@ class TestToResponse:
 
 @pytest.mark.asyncio
 class TestGetVersion:
-    """测试获取版本"""
+    """Test getting version."""
 
     async def test_get_version_success(self):
-        """测试成功获取版本"""
+        """Test successful version retrieval."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -221,7 +221,7 @@ class TestGetVersion:
         assert result.id == "ver_123"
 
     async def test_get_version_not_found(self):
-        """测试获取不存在的版本"""
+        """Test getting non-existent version."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -236,10 +236,10 @@ class TestGetVersion:
 
 @pytest.mark.asyncio
 class TestSetVersionDefault:
-    """测试设置默认版本"""
+    """Test setting default version."""
 
     async def test_set_version_default_success(self):
-        """测试成功设置默认版本"""
+        """Test successful default version set."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -260,7 +260,7 @@ class TestSetVersionDefault:
         assert result is True
 
     async def test_set_version_default_not_found(self):
-        """测试设置不存在的版本为默认"""
+        """Test setting non-existent version as default."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -275,10 +275,10 @@ class TestSetVersionDefault:
 
 @pytest.mark.asyncio
 class TestActivateVersion:
-    """测试激活版本"""
+    """Test activating version."""
 
     async def test_activate_version_success(self):
-        """测试成功激活版本"""
+        """Test successful version activation."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -299,7 +299,7 @@ class TestActivateVersion:
         assert result is True
 
     async def test_activate_version_not_found(self):
-        """测试激活不存在的版本"""
+        """Test activating non-existent version."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -314,10 +314,10 @@ class TestActivateVersion:
 
 @pytest.mark.asyncio
 class TestUpdateVersion:
-    """测试更新版本"""
+    """Test updating version."""
 
     async def test_update_version_success(self):
-        """测试成功更新版本"""
+        """Test successful version update."""
         from app.services.strategy_version_service import VersionControlService
         from app.schemas.strategy_version import VersionUpdate
 
@@ -348,7 +348,7 @@ class TestUpdateVersion:
             assert result is not None
 
     async def test_update_version_not_found(self):
-        """测试更新不存在的版本"""
+        """Test updating non-existent version."""
         from app.services.strategy_version_service import VersionControlService
         from app.schemas.strategy_version import VersionUpdate
 
@@ -371,10 +371,10 @@ class TestUpdateVersion:
 
 @pytest.mark.asyncio
 class TestCompareVersions:
-    """测试版本对比"""
+    """Test version comparison."""
 
     async def test_compare_versions_success(self):
-        """测试成功对比版本"""
+        """Test successful version comparison."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -409,7 +409,7 @@ class TestCompareVersions:
         assert result is not None
 
     async def test_compare_versions_not_found(self):
-        """测试对比不存在的版本"""
+        """Test comparing non-existent versions."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -417,7 +417,7 @@ class TestCompareVersions:
         service.version_repo = AsyncMock()
         service.version_repo.get_by_id = AsyncMock(return_value=None)
 
-        with pytest.raises(ValueError, match="版本不存在"):
+        with pytest.raises(ValueError, match="Version not found"):
             await service.compare_versions(
                 "user_123", "strat_123", "nonexistent1", "nonexistent2"
             )
@@ -425,10 +425,10 @@ class TestCompareVersions:
 
 @pytest.mark.asyncio
 class TestGetNextVersionNumber:
-    """测试获取下一个版本号"""
+    """Test getting next version number."""
 
     async def test_get_next_version_number_new_branch(self):
-        """测试新分支的版本号"""
+        """Test version number for new branch."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -441,7 +441,7 @@ class TestGetNextVersionNumber:
         assert result == 1
 
     async def test_get_next_version_number_existing_branch(self):
-        """测试已有分支的版本号"""
+        """Test version number for existing branch."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -459,10 +459,10 @@ class TestGetNextVersionNumber:
 
 @pytest.mark.asyncio
 class TestGetOrCreateBranch:
-    """测试获取或创建分支"""
+    """Test getting or creating branch."""
 
     async def test_get_existing_branch(self):
-        """测试获取已存在的分支"""
+        """Test getting existing branch."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -478,7 +478,7 @@ class TestGetOrCreateBranch:
         assert result.id == "branch_123"
 
     async def test_create_new_branch(self):
-        """测试创建新分支"""
+        """Test creating new branch."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -497,10 +497,10 @@ class TestGetOrCreateBranch:
 
 @pytest.mark.asyncio
 class TestRollbackVersion:
-    """测试版本回滚"""
+    """Test version rollback."""
 
     async def test_rollback_version_success(self):
-        """测试成功回滚版本"""
+        """Test successful version rollback."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -550,7 +550,7 @@ class TestRollbackVersion:
                     assert result is not None
 
     async def test_rollback_version_not_found(self):
-        """测试回滚到不存在的版本"""
+        """Test rollback to non-existent version."""
         from app.services.strategy_version_service import VersionControlService
 
         service = VersionControlService()
@@ -558,7 +558,7 @@ class TestRollbackVersion:
         service.version_repo = AsyncMock()
         service.version_repo.get_by_id = AsyncMock(return_value=None)
 
-        with pytest.raises(ValueError, match="目标版本不存在"):
+        with pytest.raises(ValueError, match="Target version not found"):
             await service.rollback_version(
                 "user_123", "strat_123", "nonexistent", "test"
             )

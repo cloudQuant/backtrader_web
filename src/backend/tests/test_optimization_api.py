@@ -1,12 +1,12 @@
 """
-参数优化 API 完整测试
+Parameter Optimization API Complete Tests.
 
-测试：
-- 获取策略参数
-- 提交优化任务
-- 查询优化进度
-- 获取优化结果
-- 取消优化任务
+Tests:
+- Getting strategy parameters
+- Submitting optimization tasks
+- Querying optimization progress
+- Getting optimization results
+- Canceling optimization tasks
 """
 from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
@@ -15,7 +15,7 @@ from fastapi import HTTPException
 
 @pytest.fixture
 def mock_current_user():
-    """Mock current user"""
+    """Mock current user."""
     user = MagicMock()
     user.sub = "test_user_123"
     return user
@@ -23,7 +23,7 @@ def mock_current_user():
 
 @pytest.fixture
 def mock_strategy_template():
-    """Mock strategy template"""
+    """Mock strategy template."""
     tpl = MagicMock()
     tpl.id = "test_strategy"
     tpl.name = "Test Strategy"
@@ -34,14 +34,14 @@ def mock_strategy_template():
     return tpl
 
 
-# ==================== 获取策略参数测试 ====================
+# ==================== Get Strategy Parameters Tests ====================
 
 @pytest.mark.asyncio
 class TestOptimizationStrategyParams:
-    """获取策略参数测试"""
+    """Tests for getting strategy parameters."""
 
     async def test_get_strategy_params_success(self, mock_current_user, mock_strategy_template):
-        """测试成功获取策略参数"""
+        """Test successful strategy parameter retrieval."""
         from app.api.optimization_api import get_strategy_params
 
         with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
@@ -57,7 +57,7 @@ class TestOptimizationStrategyParams:
             assert result["params"][0]["type"] == "int"
 
     async def test_get_strategy_params_not_found(self, mock_current_user):
-        """测试策略不存在"""
+        """Test when strategy does not exist."""
         from app.api.optimization_api import get_strategy_params
 
         with patch('app.api.optimization_api.get_template_by_id', return_value=None):
@@ -68,10 +68,10 @@ class TestOptimizationStrategyParams:
                 )
 
             assert exc_info.value.status_code == 404
-            assert "不存在" in exc_info.value.detail
+            assert "not found" in exc_info.value.detail
 
     async def test_get_strategy_params_empty_params(self, mock_current_user):
-        """测试策略无参数"""
+        """Test strategy with no parameters."""
         from app.api.optimization_api import get_strategy_params
 
         tpl = MagicMock()
@@ -88,14 +88,14 @@ class TestOptimizationStrategyParams:
             assert result["params"] == []
 
 
-# ==================== 提交优化任务测试 ====================
+# ==================== Submit Optimization Task Tests ====================
 
 @pytest.mark.asyncio
 class TestOptimizationSubmit:
-    """提交优化任务测试"""
+    """Tests for submitting optimization tasks."""
 
     async def test_submit_optimization_success(self, mock_current_user, mock_strategy_template):
-        """测试成功提交优化任务"""
+        """Test successful optimization task submission."""
         from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
 
         request = OptimizationSubmitRequest(
@@ -116,10 +116,10 @@ class TestOptimizationSubmit:
 
                     assert result.task_id == "task_123"
                     assert result.total_combinations == 3
-                    assert "已提交" in result.message
+                    assert "submitted" in result.message.lower()
 
     async def test_submit_optimization_strategy_not_found(self, mock_current_user):
-        """测试策略不存在"""
+        """Test when strategy does not exist."""
         from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
 
         request = OptimizationSubmitRequest(
@@ -137,10 +137,10 @@ class TestOptimizationSubmit:
                 )
 
             assert exc_info.value.status_code == 404
-            assert "不存在" in exc_info.value.detail
+            assert "not found" in exc_info.value.detail
 
     async def test_submit_optimization_empty_grid(self, mock_current_user, mock_strategy_template):
-        """测试参数网格为空"""
+        """Test when parameter grid is empty."""
         from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
 
         request = OptimizationSubmitRequest(
@@ -160,10 +160,10 @@ class TestOptimizationSubmit:
                         )
 
                     assert exc_info.value.status_code == 400
-                    assert "参数网格为空" in exc_info.value.detail
+                    assert "empty" in exc_info.value.detail.lower() or "parameter" in exc_info.value.detail.lower()
 
     async def test_submit_optimization_value_error(self, mock_current_user, mock_strategy_template):
-        """测试服务返回 ValueError"""
+        """Test when service returns ValueError."""
         from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
 
         request = OptimizationSubmitRequest(
@@ -186,7 +186,7 @@ class TestOptimizationSubmit:
                     assert "Invalid parameters" in exc_info.value.detail
 
     async def test_submit_optimization_default_workers(self, mock_current_user, mock_strategy_template):
-        """测试默认 worker 数量"""
+        """Test default worker count."""
         from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
 
         request = OptimizationSubmitRequest(
@@ -210,14 +210,14 @@ class TestOptimizationSubmit:
                     assert call_kwargs['n_workers'] == 4
 
 
-# ==================== 查询优化进度测试 ====================
+# ==================== Query Optimization Progress Tests ====================
 
 @pytest.mark.asyncio
 class TestOptimizationProgress:
-    """查询优化进度测试"""
+    """Tests for querying optimization progress."""
 
     async def test_get_progress_success(self, mock_current_user):
-        """测试成功获取进度"""
+        """Test successful progress retrieval."""
         from app.api.optimization_api import get_progress
 
         mock_progress = {
@@ -239,7 +239,7 @@ class TestOptimizationProgress:
             assert result["progress"] == 50.0
 
     async def test_get_progress_not_found(self, mock_current_user):
-        """测试任务不存在"""
+        """Test when task does not exist."""
         from app.api.optimization_api import get_progress
 
         with patch('app.api.optimization_api.get_optimization_progress', return_value=None):
@@ -250,17 +250,17 @@ class TestOptimizationProgress:
                 )
 
             assert exc_info.value.status_code == 404
-            assert "不存在" in exc_info.value.detail
+            assert "not found" in exc_info.value.detail
 
 
-# ==================== 获取优化结果测试 ====================
+# ==================== Get Optimization Results Tests ====================
 
 @pytest.mark.asyncio
 class TestOptimizationResults:
-    """获取优化结果测试"""
+    """Tests for getting optimization results."""
 
     async def test_get_results_success(self, mock_current_user):
-        """测试成功获取结果"""
+        """Test successful results retrieval."""
         from app.api.optimization_api import get_results
 
         mock_results = {
@@ -282,7 +282,7 @@ class TestOptimizationResults:
             assert result["best_return"] == 0.15
 
     async def test_get_results_not_found(self, mock_current_user):
-        """测试任务不存在"""
+        """Test when task does not exist."""
         from app.api.optimization_api import get_results
 
         with patch('app.services.param_optimization_service.get_optimization_results', return_value=None):
@@ -293,17 +293,17 @@ class TestOptimizationResults:
                 )
 
             assert exc_info.value.status_code == 404
-            assert "不存在" in exc_info.value.detail
+            assert "not found" in exc_info.value.detail
 
 
-# ==================== 取消优化任务测试 ====================
+# ==================== Cancel Optimization Task Tests ====================
 
 @pytest.mark.asyncio
 class TestOptimizationCancel:
-    """取消优化任务测试"""
+    """Tests for canceling optimization tasks."""
 
     async def test_cancel_task_success(self, mock_current_user):
-        """测试成功取消任务"""
+        """Test successful task cancellation."""
         from app.api.optimization_api import cancel_task
 
         with patch('app.api.optimization_api.cancel_optimization', return_value=True):
@@ -312,11 +312,11 @@ class TestOptimizationCancel:
                 current_user=mock_current_user
             )
 
-            assert result["message"] == "已请求取消"
+            assert result["message"] == "Cancellation requested"
             assert result["task_id"] == "task_123"
 
     async def test_cancel_task_not_found(self, mock_current_user):
-        """测试任务不存在"""
+        """Test when task does not exist."""
         from app.api.optimization_api import cancel_task
 
         with patch('app.services.param_optimization_service.cancel_optimization', return_value=False):
@@ -327,17 +327,17 @@ class TestOptimizationCancel:
                 )
 
             assert exc_info.value.status_code == 404
-            assert "不存在" in exc_info.value.detail
+            assert "not found" in exc_info.value.detail
 
 
-# ==================== Schema 测试 ====================
+# ==================== Schema Tests ====================
 
 @pytest.mark.asyncio
 class TestOptimizationSchemas:
-    """测试优化 Schema"""
+    """Tests for optimization schemas."""
 
     async def test_param_range_spec_schema(self):
-        """测试参数范围 Schema"""
+        """Test parameter range schema."""
         from app.api.optimization_api import ParamRangeSpec
 
         spec = ParamRangeSpec(
@@ -352,7 +352,7 @@ class TestOptimizationSchemas:
         assert spec.type == "int"
 
     async def test_optimization_submit_request_schema(self):
-        """测试优化提交请求 Schema"""
+        """Test optimization submit request schema."""
         from app.api.optimization_api import OptimizationSubmitRequest, ParamRangeSpec
 
         request = OptimizationSubmitRequest(
@@ -368,19 +368,19 @@ class TestOptimizationSchemas:
         assert request.n_workers == 8
 
     async def test_optimization_submit_response_schema(self):
-        """测试优化提交响应 Schema"""
+        """Test optimization submit response schema."""
         from app.api.optimization_api import OptimizationSubmitResponse
 
         response = OptimizationSubmitResponse(
             task_id="task_123",
             total_combinations=100,
-            message="优化任务已提交"
+            message="Optimization task submitted"
         )
         assert response.task_id == "task_123"
         assert response.total_combinations == 100
 
     async def test_optimization_submit_request_defaults(self):
-        """测试优化提交请求默认值"""
+        """Test optimization submit request default values."""
         from app.api.optimization_api import OptimizationSubmitRequest, ParamRangeSpec
 
         request = OptimizationSubmitRequest(
@@ -393,7 +393,7 @@ class TestOptimizationSchemas:
         assert request.n_workers == 4
 
     async def test_optimization_submit_request_validation_n_workers_min(self):
-        """测试 n_workers 最小值验证"""
+        """Test n_workers minimum value validation."""
         from app.api.optimization_api import OptimizationSubmitRequest, ParamRangeSpec
         from pydantic import ValidationError
 
@@ -405,7 +405,7 @@ class TestOptimizationSchemas:
             )
 
     async def test_optimization_submit_request_validation_n_workers_max(self):
-        """测试 n_workers 最大值验证"""
+        """Test n_workers maximum value validation."""
         from app.api.optimization_api import OptimizationSubmitRequest, ParamRangeSpec
         from pydantic import ValidationError
 
@@ -417,21 +417,21 @@ class TestOptimizationSchemas:
             )
 
 
-# ==================== 路由测试 ====================
+# ==================== Router Tests ====================
 
 @pytest.mark.asyncio
 class TestOptimizationRouter:
-    """测试优化路由"""
+    """Tests for optimization router."""
 
     async def test_router_exists(self):
-        """测试路由存在"""
+        """Test that router exists."""
         from app.api.optimization_api import router
 
         assert router is not None
         assert hasattr(router, 'routes')
 
     async def test_router_endpoint_count(self):
-        """测试路由端点数量"""
+        """Test router endpoint count."""
         from app.api.optimization_api import router
 
         routes = list(router.routes)
@@ -439,7 +439,7 @@ class TestOptimizationRouter:
         assert len(routes) == 5
 
     async def test_router_has_strategy_params_endpoint(self):
-        """测试有获取策略参数端点"""
+        """Test that strategy params endpoint exists."""
         from app.api.optimization_api import router
 
         routes = [route for route in router.routes if hasattr(route, 'path')]
@@ -447,7 +447,7 @@ class TestOptimizationRouter:
         assert len(params_routes) > 0
 
     async def test_router_has_submit_endpoint(self):
-        """测试有提交优化端点"""
+        """Test that submit endpoint exists."""
         from app.api.optimization_api import router
 
         routes = [route for route in router.routes if hasattr(route, 'path') and hasattr(route, 'methods')]
@@ -455,7 +455,7 @@ class TestOptimizationRouter:
         assert len(submit_routes) > 0
 
     async def test_router_has_progress_endpoint(self):
-        """测试有进度查询端点"""
+        """Test that progress endpoint exists."""
         from app.api.optimization_api import router
 
         routes = [route for route in router.routes if hasattr(route, 'path')]
@@ -463,7 +463,7 @@ class TestOptimizationRouter:
         assert len(progress_routes) > 0
 
     async def test_router_has_results_endpoint(self):
-        """测试有结果获取端点"""
+        """Test that results endpoint exists."""
         from app.api.optimization_api import router
 
         routes = [route for route in router.routes if hasattr(route, 'path')]
@@ -471,7 +471,7 @@ class TestOptimizationRouter:
         assert len(results_routes) > 0
 
     async def test_router_has_cancel_endpoint(self):
-        """测试有取消任务端点"""
+        """Test that cancel endpoint exists."""
         from app.api.optimization_api import router
 
         routes = [route for route in router.routes if hasattr(route, 'path') and hasattr(route, 'methods')]
@@ -479,14 +479,14 @@ class TestOptimizationRouter:
         assert len(cancel_routes) > 0
 
 
-# ==================== 服务函数测试 ====================
+# ==================== Service Function Tests ====================
 
 @pytest.mark.asyncio
 class TestOptimizationService:
-    """优化服务测试"""
+    """Tests for optimization service."""
 
     async def test_generate_param_grid_exists(self):
-        """测试参数网格生成函数存在"""
+        """Test that parameter grid generation function exists."""
         from app.services.param_optimization_service import generate_param_grid
 
         param_ranges = {
@@ -499,28 +499,28 @@ class TestOptimizationService:
         assert len(grid) > 0
 
     async def test_submit_optimization_exists(self):
-        """测试提交优化函数存在"""
+        """Test that submit optimization function exists."""
         from app.services.param_optimization_service import submit_optimization
 
         # Test that function exists and is callable
         assert callable(submit_optimization)
 
     async def test_get_optimization_progress_exists(self):
-        """测试获取进度函数存在"""
+        """Test that get progress function exists."""
         from app.services.param_optimization_service import get_optimization_progress
 
         # Test that function exists and is callable
         assert callable(get_optimization_progress)
 
     async def test_get_optimization_results_exists(self):
-        """测试获取结果函数存在"""
+        """Test that get results function exists."""
         from app.services.param_optimization_service import get_optimization_results
 
         # Test that function exists and is callable
         assert callable(get_optimization_results)
 
     async def test_cancel_optimization_exists(self):
-        """测试取消优化函数存在"""
+        """Test that cancel optimization function exists."""
         from app.services.param_optimization_service import cancel_optimization
 
         # Test that function exists and is callable

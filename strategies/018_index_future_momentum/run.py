@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""国债期货MACD策略回测运行脚本
+"""Treasury Bond FuturesMACDStrategyBacktestRunscript
 
-从config.yaml加载配置，运行回测并验证结果与预期值一致。
+Load configuration from config.yaml，RunBacktestand verify resultsandmatch expected values。
 """
 from __future__ import (absolute_import, division, print_function,
                         unicode_literals)
@@ -15,14 +15,14 @@ import backtrader as bt
 from backtrader.comminfo import ComminfoFuturesPercent
 import yaml
 
-# 导入策略类
+# Import strategy class
 from strategy_index_future_momentum import TreasuryFuturesMacdStrategy
 
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_config():
-    """从config.yaml加载配置"""
+    """Load configuration from config.yaml"""
     config_path = BASE_DIR / "config.yaml"
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
@@ -34,7 +34,7 @@ def resolve_data_path(filename: str) -> Path:
     search_paths = [
         BASE_DIR / "datas" / filename,
         BASE_DIR.parent / "datas" / filename,
-        BASE_DIR.parent.parent / "datas" / filename,  # 项目根目录datas
+        BASE_DIR.parent.parent / "datas" / filename,  # Project root directorydatas
         BASE_DIR.parent.parent / "tests" / "datas" / filename,
         BASE_DIR / filename,
         BASE_DIR.parent / filename,
@@ -87,8 +87,8 @@ def load_futures_data(variety: str = "T"):
 
 
 def run():
-    """运行回测"""
-    # 加载配置
+    """RunBacktest"""
+    # Load configuration
     config = load_config()
     params = config['params']
     data_config = config['data']
@@ -96,12 +96,12 @@ def run():
 
     cerebro = bt.Cerebro(stdstats=True)
 
-    # 加载期货数据
+    # Loadfutures data
     print("Loading futures data...")
     index_df, data = load_futures_data(data_config['symbol'])
     print(f"Index data range: {index_df.index[0]} to {index_df.index[-1]}, total {len(index_df)} bars")
 
-    # 加载指数合约
+    # Loadindex contract
     feed = bt.feeds.PandasDirectData(dataname=index_df)
     cerebro.adddata(feed, name='index')
     comm = ComminfoFuturesPercent(
@@ -111,7 +111,7 @@ def run():
     )
     cerebro.broker.addcommissioninfo(comm, name="index")
 
-    # 加载具体合约数据
+    # Loadspecific contractData
     contract_count = 0
     for symbol, df in data.groupby("symbol"):
         df.index = pd.to_datetime(df['datetime'])
@@ -129,10 +129,10 @@ def run():
 
     print(f"Successfully loaded {contract_count} contracts")
 
-    # 设置初始资金
+    # Set initial capital
     cerebro.broker.setcash(backtest_config['initial_cash'])
 
-    # 添加策略
+    # AddStrategy
     cerebro.addstrategy(
 
 
@@ -143,13 +143,13 @@ def run():
         period_dif=params['period_dif']
     )
 
-    # 添加分析器
+    # Add analyzers
     cerebro.addanalyzer(bt.analyzers.TotalValue, _name="my_value")
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name="my_sharpe")
     cerebro.addanalyzer(bt.analyzers.Returns, _name="my_returns")
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="my_drawdown")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="my_trade_analyzer")
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -157,10 +157,10 @@ def run():
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data log
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), 'csv' also available
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',
@@ -171,11 +171,11 @@ def run():
         # mysql_table_prefix='bt',
     )
 
-    # 运行回测
+    # Run backtest
     print("\nStarting backtest...")
     results = cerebro.run()
 
-    # 获取结果
+    # Get results
     strat = results[0]
     sharpe_ratio = strat.analyzers.my_sharpe.get_analysis().get("sharperatio")
     annual_return = strat.analyzers.my_returns.get_analysis().get("rnorm")
@@ -184,7 +184,7 @@ def run():
     total_trades = trade_analysis.get("total", {}).get("total", 0)
     final_value = cerebro.broker.getvalue()
 
-    # 打印结果
+    # Print results
     print("\n" + "=" * 50)
     print("Treasury Futures MACD Strategy Backtest Results:")
     print(f"  bar_num: {strat.bar_num}")
@@ -197,7 +197,7 @@ def run():
     print(f"  final_value: {final_value}")
     print("=" * 50)
 
-    # 断言测试结果（与原test文件完全一致）
+    # Asserttest results（andoriginaltestfile is completely consistent）
     assert strat.bar_num == 1990, f"Expected bar_num=1990, got {strat.bar_num}"
     assert strat.buy_count == 38, f"Expected buy_count=38, got {strat.buy_count}"
     assert strat.sell_count == 38, f"Expected sell_count=38, got {strat.sell_count}"

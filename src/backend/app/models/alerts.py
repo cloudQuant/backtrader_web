@@ -14,18 +14,18 @@ from app.db.database import Base
 
 
 class AlertType(str, Enum):
-    """告警类型"""
-    ACCOUNT = "account"           # 账户告警
-    POSITION = "position"       # 持仓告警
-    ORDER = "order"             # 订单告警
-    STRATEGY = "strategy"        # 策略告警
-    SYSTEM = "system"           # 系统告警
-    PERFORMANCE = "performance" # 性能告警
-    RISK = "risk"               # 风险告警
+    """Alert type enum."""
+    ACCOUNT = "account"           # Account alert
+    POSITION = "position"         # Position alert
+    ORDER = "order"               # Order alert
+    STRATEGY = "strategy"         # Strategy alert
+    SYSTEM = "system"             # System alert
+    PERFORMANCE = "performance"   # Performance alert
+    RISK = "risk"                 # Risk alert
 
 
 class AlertSeverity(str, Enum):
-    """告警级别"""
+    """Alert severity enum."""
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -33,29 +33,54 @@ class AlertSeverity(str, Enum):
 
 
 class AlertStatus(str, Enum):
-    """告警状态"""
-    ACTIVE = "active"      # 活跃
-    RESOLVED = "resolved"  # 已解决
-    ACKNOWLEDGED = "acknowledged"  # 已确认
-    IGNORED = "ignored"   # 已忽略
+    """Alert status enum."""
+    ACTIVE = "active"           # Active
+    RESOLVED = "resolved"       # Resolved
+    ACKNOWLEDGED = "acknowledged"  # Acknowledged
+    IGNORED = "ignored"         # Ignored
 
 
 class Alert(Base):
-    """告警表"""
+    """Alert table.
+
+    Attributes:
+        id: Unique alert identifier (UUID).
+        user_id: User ID who owns the alert.
+        alert_type: Alert type.
+        severity: Alert severity.
+        status: Alert status.
+        title: Alert title.
+        message: Alert message.
+        details: Additional details (JSON).
+        rule_id: Associated alert rule ID.
+        strategy_id: Associated strategy ID.
+        backtest_task_id: Associated backtest task ID.
+        account_id: Associated paper trading account ID.
+        position_id: Associated paper trading position ID.
+        order_id: Associated paper trading order ID.
+        trigger_type: Trigger type (threshold, rate, manual).
+        trigger_value: Trigger value.
+        threshold_value: Threshold value.
+        is_read: Whether the alert is read.
+        is_notification_sent: Whether notification was sent.
+        resolved_at: Resolution timestamp.
+        created_at: Creation timestamp.
+        updated_at: Last update timestamp.
+    """
     __tablename__ = "alerts"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
 
-    # 告警信息
-    alert_type = Column(String(20), nullable=False, index=True)  # 告警类型
-    severity = Column(String(20), default=AlertSeverity.INFO, nullable=False)  # 告警级别
-    status = Column(String(20), default=AlertStatus.ACTIVE, nullable=False, index=True)  # 告警状态
-    title = Column(String(200), nullable=False)  # 告警标题
-    message = Column(Text, nullable=False)  # 告警消息
-    details = Column(JSON, nullable=True)  # 详细信息（JSON）
+    # Alert information
+    alert_type = Column(String(20), nullable=False, index=True)  # Alert type
+    severity = Column(String(20), default=AlertSeverity.INFO, nullable=False)  # Alert severity
+    status = Column(String(20), default=AlertStatus.ACTIVE, nullable=False, index=True)  # Alert status
+    title = Column(String(200), nullable=False)  # Alert title
+    message = Column(Text, nullable=False)  # Alert message
+    details = Column(JSON, nullable=True)  # Additional details (JSON)
 
-    # 关联对象
+    # Associated objects
     rule_id = Column(String(36), ForeignKey("alert_rules.id"), nullable=True, index=True)
     strategy_id = Column(String(36), ForeignKey("strategies.id"), nullable=True, index=True)
     backtest_task_id = Column(String(36), ForeignKey("backtest_tasks.id"), nullable=True, index=True)
@@ -63,19 +88,19 @@ class Alert(Base):
     position_id = Column(String(36), ForeignKey("paper_trading_positions.id"), nullable=True, index=True)
     order_id = Column(String(36), ForeignKey("paper_trading_orders.id"), nullable=True, index=True)
 
-    # 触发条件
-    trigger_type = Column(String(50), nullable=False)  # 触发类型（threshold、rate、manual）
-    trigger_value = Column(Float, nullable=True)  # 触发值
-    threshold_value = Column(Float, nullable=True)  # 阈值
+    # Trigger conditions
+    trigger_type = Column(String(50), nullable=False)  # Trigger type (threshold, rate, manual)
+    trigger_value = Column(Float, nullable=True)  # Trigger value
+    threshold_value = Column(Float, nullable=True)  # Threshold value
 
-    # 元信息
-    is_read = Column(Boolean, default=False, nullable=False)  # 是否已读
-    is_notification_sent = Column(Boolean, default=False, nullable=False)  # 是否已发送通知
-    resolved_at = Column(DateTime, nullable=True)  # 解决时间
+    # Meta information
+    is_read = Column(Boolean, default=False, nullable=False)  # Whether read
+    is_notification_sent = Column(Boolean, default=False, nullable=False)  # Whether notification sent
+    resolved_at = Column(DateTime, nullable=True)  # Resolution time
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    # 关联
+    # Relationships
     user = relationship("User", back_populates="alerts")
     strategy = relationship("Strategy", backref="alerts")
     backtest_task = relationship("BacktestTask", backref="alerts")
@@ -86,52 +111,81 @@ class Alert(Base):
 
 
 class AlertRule(Base):
-    """告警规则表"""
+    """Alert rule table.
+
+    Attributes:
+        id: Unique rule identifier (UUID).
+        user_id: User ID who owns the rule.
+        alert_type: Alert type.
+        severity: Alert severity.
+        name: Rule name.
+        description: Rule description.
+        trigger_type: Trigger type (threshold, rate, cross).
+        trigger_config: Trigger configuration (JSON).
+        notification_enabled: Whether notifications are enabled.
+        notification_channels: Notification channels (JSON).
+        is_active: Whether the rule is active.
+        triggered_count: Number of times triggered.
+        last_triggered_at: Last triggered timestamp.
+        created_at: Creation timestamp.
+        updated_at: Last update timestamp.
+    """
     __tablename__ = "alert_rules"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
 
-    # 规则配置
-    alert_type = Column(String(20), nullable=False)  # 告警类型
-    severity = Column(String(20), default=AlertSeverity.WARNING, nullable=False)  # 告警级别
-    name = Column(String(200), nullable=False)  # 规则名称
-    description = Column(Text, nullable=True)  # 规则描述
+    # Rule configuration
+    alert_type = Column(String(20), nullable=False)  # Alert type
+    severity = Column(String(20), default=AlertSeverity.WARNING, nullable=False)  # Alert severity
+    name = Column(String(200), nullable=False)  # Rule name
+    description = Column(Text, nullable=True)  # Rule description
 
-    # 触发条件
-    trigger_type = Column(String(50), nullable=False)  # 触发类型（threshold、rate、cross）
-    trigger_config = Column(JSON, nullable=False)  # 触发配置
+    # Trigger conditions
+    trigger_type = Column(String(50), nullable=False)  # Trigger type (threshold, rate, cross)
+    trigger_config = Column(JSON, nullable=False)  # Trigger configuration
 
-    # 通知配置
-    notification_enabled = Column(Boolean, default=True, nullable=False)  # 是否启用通知
-    notification_channels = Column(JSON, default=list, nullable=False)  # 通知渠道
+    # Notification configuration
+    notification_enabled = Column(Boolean, default=True, nullable=False)  # Whether notifications enabled
+    notification_channels = Column(JSON, default=list, nullable=False)  # Notification channels
 
-    # 状态
-    is_active = Column(Boolean, default=True, nullable=False)  # 是否启用
-    triggered_count = Column(Integer, default=0, nullable=False)  # 触发次数
-    last_triggered_at = Column(DateTime, nullable=True)  # 上次触发时间
+    # Status
+    is_active = Column(Boolean, default=True, nullable=False)  # Whether active
+    triggered_count = Column(Integer, default=0, nullable=False)  # Trigger count
+    last_triggered_at = Column(DateTime, nullable=True)  # Last triggered time
 
-    # 元信息
+    # Meta information
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
-    # 关联
+    # Relationships
     user = relationship("User", back_populates="alert_rules")
     alerts = relationship("Alert", backref="rule")
 
 
 class AlertNotification(Base):
-    """告警通知记录表"""
+    """Alert notification record table.
+
+    Attributes:
+        id: Unique notification identifier (UUID).
+        alert_id: Associated alert ID.
+        channel: Notification channel (email, sms, push, webhook).
+        status: Notification status (sent, failed, pending).
+        message: Notification message.
+        error: Error message.
+        sent_at: Send timestamp.
+        created_at: Creation timestamp.
+    """
     __tablename__ = "alert_notifications"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     alert_id = Column(String(36), ForeignKey("alerts.id"), nullable=False, index=True)
-    channel = Column(String(50), nullable=False)  # 通知渠道（email、sms、push、webhook）
-    status = Column(String(20), nullable=False)  # 通知状态（sent、failed、pending）
-    message = Column(Text, nullable=True)  # 通知消息
-    error = Column(Text, nullable=True)  # 错误信息
-    sent_at = Column(DateTime, nullable=True)  # 发送时间
+    channel = Column(String(50), nullable=False)  # Notification channel (email, sms, push, webhook)
+    status = Column(String(20), nullable=False)  # Notification status (sent, failed, pending)
+    message = Column(Text, nullable=True)  # Notification message
+    error = Column(Text, nullable=True)  # Error message
+    sent_at = Column(DateTime, nullable=True)  # Send time
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
-    # 关联
+    # Relationships
     alert = relationship("Alert", back_populates="notifications")

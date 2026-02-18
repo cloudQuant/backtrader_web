@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""策略运行脚本 - 可转债溢价率双均线策略"""
+"""Convertible Bond Premium Rate Dual Moving Average Strategy Runner."""
 
 import os
 import yaml
@@ -10,26 +10,26 @@ import backtrader as bt
 import sys
 import pandas as pd
 
-# 导入策略类
+# Import strategy class
 from strategy_premium_rate import PremiumRateCrossoverStrategy, ExtendPandasFeed
 
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_config():
-    """从config.yaml加载配置"""
+    """Load configuration from config.yaml"""
     config_path = BASE_DIR / "config.yaml"
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 
 def resolve_data_path(filename: str) -> Path:
-    """查找数据文件路径"""
+    """Locate data file path"""
     search_paths = [
         BASE_DIR / filename,
         BASE_DIR.parent / filename,
         BASE_DIR.parent / "datas" / filename,
-        BASE_DIR.parent.parent / "datas" / filename,  # 项目根目录下的datas
+        BASE_DIR.parent.parent / "datas" / filename,  # Project root datas directory
     ]
 
     data_dir = os.environ.get("BACKTRADER_DATA_DIR")
@@ -44,7 +44,7 @@ def resolve_data_path(filename: str) -> Path:
 
 
 def load_bond_data(csv_file: str) -> pd.DataFrame:
-    """加载可转债数据"""
+    """Load convertible bond data"""
     df = pd.read_csv(csv_file)
     df.columns = ['BOND_CODE', 'BOND_SYMBOL', 'datetime', 'open', 'high', 'low',
                   'close', 'volume', 'pure_bond_value', 'convert_value',
@@ -60,20 +60,20 @@ def load_bond_data(csv_file: str) -> pd.DataFrame:
 
 
 def run():
-    """运行策略回测"""
+    """Run strategy backtest"""
     config = load_config()
 
-    # 创建cerebro
+    # Create cerebro
     cerebro = bt.Cerebro(stdstats=True)
 
-    # 添加策略（从config加载参数）
+    # Add strategy (load parameters from config)
     params = config.get('params', {})
     cerebro.addstrategy(PremiumRateCrossoverStrategy, **params)
 
     
 
 
-    # 加载数据
+    # Load data
     data_config = config.get('data', {})
     symbol = data_config.get('symbol', '113013')
     print(f"Loading convertible bond data: {symbol}.csv...")
@@ -84,18 +84,18 @@ def run():
     feed = ExtendPandasFeed(dataname=df)
     cerebro.adddata(feed, name=symbol)
 
-    # 回测配置
+    # Backtest configuration
     bt_config = config.get('backtest', {})
     cerebro.broker.setcash(bt_config.get('initial_cash', 100000))
     cerebro.broker.setcommission(commission=bt_config.get('commission', 0.0003))
 
-    # 添加分析器
+    # Add analyzers
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe',
                         annualize=True, riskfreerate=0.0)
     cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -103,10 +103,10 @@ def run():
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data log
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), 'csv' also available
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',
@@ -117,12 +117,12 @@ def run():
         # mysql_table_prefix='bt',
     )
 
-    # 运行回测
+    # Run backtest
     print(f"\nRunning {config['strategy']['name']}...")
     results = cerebro.run()
     strat = results[0]
 
-    # 获取结果
+    # Get results
     sharpe_ratio = strat.analyzers.sharpe.get_analysis().get('sharperatio')
     annual_return = strat.analyzers.returns.get_analysis().get('rnorm100')
     max_drawdown = strat.analyzers.drawdown.get_analysis()['max']['drawdown']
@@ -130,7 +130,7 @@ def run():
     total_trades = trade_analysis.get('total', {}).get('total', 0)
     final_value = cerebro.broker.getvalue()
 
-    # 打印结果
+    # Print results
     print("\n" + "=" * 60)
     print("Backtest Results:")
     print(f"  bar_num: {strat.bar_num}")
@@ -143,7 +143,7 @@ def run():
     print(f"  final_value: {final_value}")
     print("=" * 60)
 
-    # **关键**：与原test文件完全相同的断言
+    # **Critical**: Identical assertions from original test file
     assert strat.bar_num == 1384, f"Expected bar_num=1384, got {strat.bar_num}"
     assert abs(final_value - 104275.87) < 0.01, \
         f"Expected final_value=104275.87, got {final_value}"

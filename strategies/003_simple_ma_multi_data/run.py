@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""策略运行脚本 - 多品种简单均线策略"""
+"""Multi-Asset Simple Moving Average Strategy Runner."""
 
 import os
 import yaml
@@ -10,21 +10,21 @@ import backtrader as bt
 import backtrader.indicators as btind
 import pandas as pd
 
-# 导入策略类
+# Import strategy class
 from strategy_simple_ma_multi_data import SimpleMAMultiDataStrategy, ExtendPandasFeed
 
 BASE_DIR = Path(__file__).resolve().parent
 
 
 def load_config():
-    """从config.yaml加载配置"""
+    """Load configuration from config.yaml"""
     config_path = BASE_DIR / "config.yaml"
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 
 def resolve_data_path(filename: str) -> Path:
-    """查找数据文件路径"""
+    """Locate data file path"""
     search_paths = []
 
     # 1. Current directory
@@ -58,7 +58,7 @@ def resolve_data_path(filename: str) -> Path:
 
 
 def load_index_data(csv_file):
-    """加载指数数据"""
+    """Load index data"""
     df = pd.read_csv(csv_file)
     df["datetime"] = pd.to_datetime(df["datetime"])
     df = df.set_index("datetime")
@@ -68,7 +68,7 @@ def load_index_data(csv_file):
 
 
 def load_bond_data_multi(csv_file, max_bonds=100):
-    """加载多可转债数据"""
+    """Load multiple convertible bond data"""
     df = pd.read_csv(csv_file)
     df.columns = [
         "BOND_CODE",
@@ -85,7 +85,7 @@ def load_bond_data_multi(csv_file, max_bonds=100):
         "convert_premium_rate",
     ]
 
-    # 获取唯一可转债代码
+    # Get unique convertible bond codes
     bond_codes = df["BOND_CODE"].unique()[:max_bonds]
 
     result = {}
@@ -97,7 +97,7 @@ def load_bond_data_multi(csv_file, max_bonds=100):
         bond_df = bond_df.dropna()
         bond_df = bond_df.astype(float)
 
-        # 只保留数据充足的可转债（至少60个交易日）
+        # Only keep convertible bonds with sufficient data (at least 60 trading days)
         if len(bond_df) >= 60:
             result[str(code)] = bond_df
 
@@ -105,27 +105,27 @@ def load_bond_data_multi(csv_file, max_bonds=100):
 
 
 def run(max_bonds=30):
-    """运行策略回测"""
+    """Run strategy backtest"""
     config = load_config()
 
-    # 创建cerebro
+    # Create cerebro
     cerebro = bt.Cerebro(stdstats=True)
 
-    # 添加策略（从config加载参数）
+    # Add strategy (load parameters from config)
     params = config.get('params', {})
     cerebro.addstrategy(SimpleMAMultiDataStrategy, **params)
 
 
 
 
-    # 加载指数数据（用于时间对齐）
+    # Load index data（for time alignment）
     print("Loading index data...")
     index_file = resolve_data_path("bond_index_000000.csv")
     index_df = load_index_data(index_file)
     index_feed = ExtendPandasFeed(dataname=index_df)
     cerebro.adddata(index_feed, name="index")
 
-    # 加载可转债数据
+    # Load convertible bond data
     print("Loading convertible bond data...")
     bond_file = resolve_data_path("bond_merged_all_data.csv")
     bond_data_dict = load_bond_data_multi(bond_file, max_bonds=max_bonds)
@@ -136,18 +136,18 @@ def run(max_bonds=30):
         feed = ExtendPandasFeed(dataname=bond_df)
         cerebro.adddata(feed, name=bond_code)
 
-    # 回测配置
+    # Backtest configuration
     bt_config = config.get('backtest', {})
     cerebro.broker.setcash(bt_config.get('initial_cash', 10000000.0))
     cerebro.broker.setcommission(commission=bt_config.get('commission', 0.0002), stocklike=True)
 
-    # 添加分析器
+    # Add analyzers
     cerebro.addanalyzer(bt.analyzers.TotalValue, _name="total_value")
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name="sharpe")
     cerebro.addanalyzer(bt.analyzers.Returns, _name="returns")
     cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
     cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
-    # 日志配置
+    # Logging configuration
     log_dir = os.path.join(os.path.dirname(__file__), 'logs')
     cerebro.addobserver(
         bt.observers.TradeLogger,
@@ -155,10 +155,10 @@ def run(max_bonds=30):
         log_trades=True,
         log_positions=True,
         log_data=True,
-        log_indicators=True,       # 在data日志中包含策略指标
+        log_indicators=True,       # Include strategy indicators in data log
         log_dir=log_dir,
         log_file_enabled=True,
-        file_format='log',         # 默认log(tab分隔)，也可选'csv'
+        file_format='log',         # Default log (tab-separated), 'csv' also available
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',
@@ -169,12 +169,12 @@ def run(max_bonds=30):
         # mysql_table_prefix='bt',
     )
 
-    # 运行回测
+    # Run backtest
     print("Starting backtest...")
     results = cerebro.run()
     strat = results[0]
 
-    # 获取结果
+    # Get results
     final_value = cerebro.broker.getvalue()
     sharpe_analysis = strat.analyzers.sharpe.get_analysis()
     returns_analysis = strat.analyzers.returns.get_analysis()
@@ -188,7 +188,7 @@ def run(max_bonds=30):
         drawdown_analysis["max"]["drawdown"] if drawdown_analysis["max"]["drawdown"] else 0
     )
 
-    # 打印结果
+    # Print results
     print("\n" + "=" * 60)
     print("Backtest Results:")
     print(f"  Bonds loaded: {len(bond_data_dict)}")
@@ -202,7 +202,7 @@ def run(max_bonds=30):
     print(f"  max_drawdown: {max_drawdown:.4f}%")
     print("=" * 60)
 
-    # **关键**：与原test文件完全相同的断言
+    # **Critical**: Identical assertions from original test file
     assert len(bond_data_dict) == 30, f"Expected bonds_loaded=30, got {len(bond_data_dict)}"
     assert strat.bar_num == 4434, f"Expected bar_num=4434, got {strat.bar_num}"
     assert strat.buy_count == 463, f"Expected buy_count=463, got {strat.buy_count}"

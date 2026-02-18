@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-快速测试后端代码
+Quick backend test script.
 
-不依赖所有模块，只测试核心功能
+Tests core functionality without dependencies on all modules.
 """
 import sys
 import importlib.util
 from pathlib import Path
 
-# 添加项目路径
+# Add project path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
@@ -17,16 +17,16 @@ print("🚀 Quick Backend Test")
 print("="*70)
 print()
 
-# 测试 1: Python 版本
+# Test 1: Python version
 print(f"✅ Python Version: {sys.version}")
 print()
 
-# 测试 2: 项目路径
+# Test 2: Project path
 print(f"✅ Project Root: {project_root}")
 print(f"✅ Working Directory: {Path.cwd()}")
 print()
 
-# 测试 3: 检查文件存在
+# Test 3: Check file existence
 files_to_check = [
     "app/models/paper_trading.py",
     "app/services/paper_trading_service.py",
@@ -45,7 +45,7 @@ for file_path in files_to_check:
 
 print()
 
-# 测试 4: 检查核心模块导入
+# Test 4: Check core module imports
 print("📋 Testing Core Imports...")
 modules_to_import = [
     "app.models.paper_trading",

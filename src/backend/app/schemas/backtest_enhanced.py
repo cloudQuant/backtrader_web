@@ -11,14 +11,21 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 def _to_utc(dt: datetime) -> datetime:
-    """Normalize datetimes to timezone-aware UTC for safe comparisons."""
+    """Normalize datetimes to timezone-aware UTC for safe comparisons.
+
+    Args:
+        dt: The datetime to normalize.
+
+    Returns:
+        A timezone-aware UTC datetime.
+    """
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
 
 
 class TaskStatus(str, Enum):
-    """任务状态"""
+    """Task status enum."""
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -27,55 +34,55 @@ class TaskStatus(str, Enum):
 
 
 class BacktestRequest(BaseModel):
-    """回测请求（增强版）"""
+    """Backtest request schema (enhanced version)."""
 
-    # 基本参数
+    # Basic parameters
     strategy_id: str = Field(
         ...,
         min_length=1,
         max_length=100,
-        description="策略ID",
-        pattern=r'^[a-zA-Z0-9_-]+$'  # 只允许字母、数字、下划线和连字符
+        description="Strategy ID",
+        pattern=r'^[a-zA-Z0-9_-]+$'  # Only letters, numbers, underscores, and hyphens
     )
 
     symbol: str = Field(
         ...,
-        description="股票代码",
-        pattern=r'^\d{6}\.(SH|SZ)$'  # 必须是 A 股代码格式：6位数字.SH 或 .SZ
+        description="Stock code",
+        pattern=r'^\d{6}\.(SH|SZ)$'  # Must be A-share format: 6 digits.SH or .SZ
     )
 
-    # 日期范围（带验证）
+    # Date range (with validation)
     start_date: datetime = Field(
         ...,
-        description="开始日期",
+        description="Start date",
     )
 
     end_date: datetime = Field(
         ...,
-        description="结束日期",
+        description="End date",
     )
 
-    # 资金和手续费（带范围限制）
+    # Capital and commission (with range limits)
     initial_cash: float = Field(
         ...,
-        gt=0,  # 必须大于 0
-        le=10000000,  # 最多 1000 万
-        description="初始资金",
+        gt=0,  # Must be greater than 0
+        le=10000000,  # Maximum 10 million
+        description="Initial capital",
         examples=[100000, 1000000]
     )
 
     commission: float = Field(
         ...,
-        ge=0,  # 必须大于等于 0
-        le=0.1,  # 最多 10%
-        description="手续费率",
+        ge=0,  # Must be greater than or equal to 0
+        le=0.1,  # Maximum 10%
+        description="Commission rate",
         examples=[0.001, 0.0003, 0.01]
     )
 
-    # 策略参数（带类型和范围验证）
+    # Strategy parameters (with type and range validation)
     params: Dict[str, Any] = Field(
         default_factory=dict,
-        description="策略参数（必须符合策略的参数定义）",
+        description="Strategy parameters (must match strategy parameter definitions)",
     )
 
     @field_validator("start_date")
@@ -87,42 +94,65 @@ class BacktestRequest(BaseModel):
     @field_validator('end_date')
     @classmethod
     def validate_date_range(cls, v: datetime, info) -> datetime:
-        """验证日期范围"""
+        """Validate date range.
+
+        Args:
+            v: The end date value.
+            info: Field validation context.
+
+        Returns:
+            The validated end date.
+
+        Raises:
+            ValueError: If end_date is before start_date, range exceeds 10 years,
+                or end_date is in the future.
+        """
         v = _to_utc(v)
         start_date = info.data.get('start_date')
         if isinstance(start_date, datetime):
             start_date = _to_utc(start_date)
         if start_date and v <= start_date:
-            raise ValueError('end_date 必须晚于 start_date')
+            raise ValueError('end_date must be later than start_date')
 
-        # 限制回测时间范围（最多 10 年）
+        # Limit backtest time range (maximum 10 years)
         max_end_date = start_date + timedelta(days=3650) if start_date else None
         if max_end_date and v > max_end_date:
-            raise ValueError('回测时间范围不能超过 10 年')
+            raise ValueError('Backtest time range cannot exceed 10 years')
 
-        # 不能使用未来日期
+        # Cannot use future dates
         now = datetime.now(timezone.utc)
         if v > now:
-            raise ValueError('end_date 不能是未来日期')
+            raise ValueError('end_date cannot be a future date')
 
         return v
 
     @field_validator('params')
     @classmethod
     def validate_params(cls, v: Dict[str, Any], info) -> Dict[str, Any]:
-        """验证策略参数"""
+        """Validate strategy parameters.
+
+        Args:
+            v: The parameters to validate.
+            info: Field validation context.
+
+        Returns:
+            The validated parameters.
+
+        Raises:
+            ValueError: If a parameter is unknown or has an invalid value.
+        """
         if not v:
             return {}
 
         strategy_id = info.data.get('strategy_id')
 
-        # 获取策略的参数定义
+        # Get strategy parameter definitions
         param_specs = get_strategy_params(strategy_id)
 
-        # 验证每个参数
+        # Validate each parameter
         for key, value in v.items():
             if key not in param_specs:
-                raise ValueError(f'未知参数: {key}')
+                raise ValueError(f'Unknown parameter: {key}')
 
             spec = param_specs[key]
 
@@ -131,44 +161,51 @@ class BacktestRequest(BaseModel):
 
             if spec_type == "int":
                 if not isinstance(value, int):
-                    raise ValueError(f'{key} 必须是整数')
+                    raise ValueError(f'{key} must be an integer')
                 if spec.min is not None and value < spec.min:
-                    raise ValueError(f'{key} 必须大于等于 {spec.min}')
+                    raise ValueError(f'{key} must be greater than or equal to {spec.min}')
                 if spec.max is not None and value > spec.max:
-                    raise ValueError(f'{key} 必须小于等于 {spec.max}')
+                    raise ValueError(f'{key} must be less than or equal to {spec.max}')
 
             elif spec_type == "float":
                 if not isinstance(value, (int, float)):
-                    raise ValueError(f'{key} 必须是数字')
+                    raise ValueError(f'{key} must be a number')
                 if spec.min is not None and value < spec.min:
-                    raise ValueError(f'{key} 必须大于等于 {spec.min}')
+                    raise ValueError(f'{key} must be greater than or equal to {spec.min}')
                 if spec.max is not None and value > spec.max:
-                    raise ValueError(f'{key} 必须小于等于 {spec.max}')
+                    raise ValueError(f'{key} must be less than or equal to {spec.max}')
 
             elif spec_type in {"str", "string"}:
                 if not isinstance(value, str):
-                    raise ValueError(f'{key} 必须是字符串')
+                    raise ValueError(f'{key} must be a string')
                 if spec.options and value not in spec.options:
-                    raise ValueError(f'{key} 必须是以下之一: {", ".join(map(str, spec.options))}')
+                    raise ValueError(f'{key} must be one of: {", ".join(map(str, spec.options))}')
 
             elif spec_type in {"bool", "boolean"}:
                 if not isinstance(value, bool):
-                    raise ValueError(f'{key} 必须是布尔值')
+                    raise ValueError(f'{key} must be a boolean')
 
             # Generic enum-style validation: if options are provided, enforce membership.
             elif spec.options:
                 if value not in spec.options:
-                    raise ValueError(f'{key} 必须是以下之一: {", ".join(map(str, spec.options))}')
+                    raise ValueError(f'{key} must be one of: {", ".join(map(str, spec.options))}')
 
         return v
 
     @model_validator(mode='after')
     def validate_backtest_days(self) -> 'BacktestRequest':
-        """验证回测天数不少于 30 个交易日"""
+        """Validate backtest duration is at least 30 trading days.
+
+        Returns:
+            The validated backtest request.
+
+        Raises:
+            ValueError: If date range is less than 30 days.
+        """
         if self.start_date and self.end_date:
             days = (self.end_date - self.start_date).days
             if days < 30:
-                raise ValueError('回测时间范围不能少于 30 天（约 20 个交易日）')
+                raise ValueError('Backtest time range cannot be less than 30 days (approximately 20 trading days)')
         return self
 
     model_config = ConfigDict(
@@ -190,24 +227,24 @@ class BacktestRequest(BaseModel):
 
 
 class BacktestResponse(BaseModel):
-    """回测任务响应"""
-    task_id: str = Field(..., description="任务ID")
-    status: TaskStatus = Field(..., description="任务状态")
-    message: Optional[str] = Field(None, description="状态消息")
+    """Backtest task response schema."""
+    task_id: str = Field(..., description="Task ID")
+    status: TaskStatus = Field(..., description="Task status")
+    message: Optional[str] = Field(None, description="Status message")
 
 
 class TradeRecord(BaseModel):
-    """交易记录"""
+    """Trade record schema."""
     date: datetime
-    type: Literal['buy', 'sell']  # 只允许 buy 或 sell
-    price: float = Field(..., gt=0, description="成交价格")
-    size: int = Field(..., gt=0, description="成交数量")
-    value: float = Field(..., gt=0, description="成交金额")
-    pnl: Optional[float] = Field(None, description="盈亏")
+    type: Literal['buy', 'sell']  # Only allow buy or sell
+    price: float = Field(..., gt=0, description="Trade price")
+    size: int = Field(..., gt=0, description="Trade quantity")
+    value: float = Field(..., gt=0, description="Trade value")
+    pnl: Optional[float] = Field(None, description="Profit/loss")
 
 
 class BacktestResult(BaseModel):
-    """回测结果"""
+    """Backtest result schema."""
     task_id: str
     strategy_id: str
     symbol: str
@@ -215,85 +252,92 @@ class BacktestResult(BaseModel):
     end_date: datetime
     status: TaskStatus
 
-    # 性能指标（带范围验证）
-    total_return: float = Field(0, ge=-100, le=10000, description="总收益率(%)")
-    annual_return: float = Field(0, ge=-100, le=10000, description="年化收益率(%)")
-    sharpe_ratio: float = Field(0, description="夏普比率")
-    max_drawdown: float = Field(0, ge=0, le=100, description="最大回撤(%)")
-    win_rate: float = Field(0, ge=0, le=100, description="胜率(%)")
+    # Performance metrics (with range validation)
+    total_return: float = Field(0, ge=-100, le=10000, description="Total return (%)")
+    annual_return: float = Field(0, ge=-100, le=10000, description="Annualized return (%)")
+    sharpe_ratio: float = Field(0, description="Sharpe ratio")
+    max_drawdown: float = Field(0, ge=0, le=100, description="Maximum drawdown (%)")
+    win_rate: float = Field(0, ge=0, le=100, description="Win rate (%)")
 
-    # 交易统计
-    total_trades: int = Field(0, ge=0, description="总交易次数")
-    profitable_trades: int = Field(0, ge=0, description="盈利交易次数")
-    losing_trades: int = Field(0, ge=0, description="亏损交易次数")
+    # Trade statistics
+    total_trades: int = Field(0, ge=0, description="Total trades")
+    profitable_trades: int = Field(0, ge=0, description="Profitable trades")
+    losing_trades: int = Field(0, ge=0, description="Losing trades")
 
-    # 资金曲线数据
-    equity_curve: List[float] = Field(default_factory=list, description="资金曲线")
-    equity_dates: List[str] = Field(default_factory=list, description="日期序列")
-    drawdown_curve: List[float] = Field(default_factory=list, description="回撤曲线")
+    # Equity curve data
+    equity_curve: List[float] = Field(default_factory=list, description="Equity curve")
+    equity_dates: List[str] = Field(default_factory=list, description="Date sequence")
+    drawdown_curve: List[float] = Field(default_factory=list, description="Drawdown curve")
 
-    # 交易记录
-    trades: List[TradeRecord] = Field(default_factory=list, description="交易记录")
+    # Trade records
+    trades: List[TradeRecord] = Field(default_factory=list, description="Trade records")
 
-    # 元信息
+    # Meta information
     created_at: datetime
     error_message: Optional[str] = None
 
 
 class BacktestListResponse(BaseModel):
-    """回测列表响应"""
-    total: int = Field(..., ge=0, description="总数量")
+    """Backtest list response schema."""
+    total: int = Field(..., ge=0, description="Total count")
     items: List[BacktestResult]
 
 
 class OptimizationRequest(BaseModel):
-    """参数优化请求"""
+    """Parameter optimization request schema."""
 
-    # 优化配置
-    strategy_id: str = Field(..., description="策略ID")
-    backtest_config: BacktestRequest = Field(..., description="回测配置")
+    # Optimization configuration
+    strategy_id: str = Field(..., description="Strategy ID")
+    backtest_config: BacktestRequest = Field(..., description="Backtest configuration")
 
-    # 优化方法
+    # Optimization method
     method: Literal['grid', 'bayesian'] = Field(
         default='bayesian',
-        description="优化方法：grid（网格搜索）或 bayesian（贝叶斯优化）"
+        description="Optimization method: grid (grid search) or bayesian (Bayesian optimization)"
     )
 
-    # 优化目标
+    # Optimization objective
     metric: Literal['sharpe_ratio', 'max_drawdown', 'total_return'] = Field(
         default='sharpe_ratio',
-        description="优化目标：sharpe_ratio（夏普比率）、max_drawdown（最小化）、total_return（收益率）"
+        description="Optimization objective: sharpe_ratio, max_drawdown (minimize), total_return"
     )
 
-    # 网格搜索参数
+    # Grid search parameters
     param_grid: Optional[Dict[str, List[Any]]] = Field(
         None,
-        description="参数网格（用于网格搜索）"
+        description="Parameter grid (for grid search)"
     )
 
-    # 贝叶斯优化参数
+    # Bayesian optimization parameters
     param_bounds: Optional[Dict[str, Dict[str, Any]]] = Field(
         None,
-        description="参数边界（用于贝叶斯优化）"
+        description="Parameter bounds (for Bayesian optimization)"
     )
 
-    # 试验次数
+    # Number of trials
     n_trials: int = Field(
         default=100,
         ge=10,
         le=1000,
-        description="试验次数（用于贝叶斯优化）"
+        description="Number of trials (for Bayesian optimization)"
     )
 
     @model_validator(mode='after')
     def validate_optimization_config(self) -> 'OptimizationRequest':
-        """验证优化配置"""
+        """Validate optimization configuration.
+
+        Returns:
+            The validated optimization request.
+
+        Raises:
+            ValueError: If required parameters are missing for the chosen method.
+        """
         if self.method == 'grid':
             if not self.param_grid:
-                raise ValueError('网格搜索需要 param_grid 参数')
+                raise ValueError('Grid search requires param_grid parameter')
         elif self.method == 'bayesian':
             if not self.param_bounds:
-                raise ValueError('贝叶斯优化需要 param_bounds 参数')
+                raise ValueError('Bayesian optimization requires param_bounds parameter')
 
         return self
 
@@ -339,34 +383,33 @@ class OptimizationRequest(BaseModel):
 
 
 class OptimizationResult(BaseModel):
-    """优化结果"""
-    # 最优参数
-    best_params: Dict[str, Any] = Field(..., description="最优参数组合")
-    # 最优指标
-    best_metrics: Dict[str, float] = Field(..., description="最优指标值")
-    # 所有试验结果
-    all_results: List[Dict[str, Any]] = Field(..., description="所有试验结果")
-    # 试验次数
-    n_trials: int = Field(..., ge=0, description="实际试验次数")
+    """Optimization result schema."""
+    # Best parameters
+    best_params: Dict[str, Any] = Field(..., description="Best parameter combination")
+    # Best metrics
+    best_metrics: Dict[str, float] = Field(..., description="Best metric values")
+    # All trial results
+    all_results: List[Dict[str, Any]] = Field(..., description="All trial results")
+    # Number of trials
+    n_trials: int = Field(..., ge=0, description="Actual number of trials")
 
 
-# 辅助函数
+# Helper function
 def get_strategy_params(strategy_id: str) -> Dict[str, Any]:
-    """
-    获取策略的参数定义
+    """Get strategy parameter definitions.
 
     Args:
-        strategy_id: 策略ID
+        strategy_id: The strategy ID.
 
     Returns:
-        参数定义字典
+        A dictionary of parameter definitions.
     """
-    # 从策略模板中获取参数定义
+    # Get parameter definitions from strategy templates
     from app.services.strategy_service import STRATEGY_TEMPLATES
 
     for template in STRATEGY_TEMPLATES:
         if template.id == strategy_id:
             return template.params
 
-    # 如果没找到，返回空字典
+    # Return empty dict if not found
     return {}

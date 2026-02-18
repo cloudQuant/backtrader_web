@@ -24,18 +24,18 @@ logger = logging.getLogger(__name__)
 
 
 class PaperTradingService:
-    """
-    模拟交易服务
+    """Paper trading service.
 
-    功能：
-    1. 创建和管理模拟账户
-    2. 提交和管理模拟订单
-    3. 模拟订单成交
-    4. 计算持仓和盈亏
-    5. WebSocket 实时推送
+    This service provides:
+    1. Create and manage paper trading accounts
+    2. Submit and manage paper orders
+    3. Simulate order execution
+    4. Calculate positions and PnL
+    5. Real-time WebSocket notifications
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialize the paper trading service."""
         self.account_repo = SQLRepository(Account)
         self.position_repo = SQLRepository(Position)
         self.order_repo = SQLRepository(Order)
@@ -49,18 +49,17 @@ class PaperTradingService:
         commission_rate: float = 0.001,
         slippage_rate: float = 0.001,
     ) -> Account:
-        """
-        创建模拟账户
+        """Create a paper trading account.
 
         Args:
-            user_id: 用户 ID
-            name: 账户名称
-            initial_cash: 初始资金
-            commission_rate: 手续费率
-            slippage_rate: 滑点率
+            user_id: The user ID.
+            name: Account name.
+            initial_cash: Initial cash amount.
+            commission_rate: Commission rate.
+            slippage_rate: Slippage rate.
 
         Returns:
-            Account: 创建的账户
+            The created account.
         """
         account = Account(
             user_id=user_id,
@@ -78,7 +77,7 @@ class PaperTradingService:
 
         logger.info(f"Created paper trading account: {account.id} for user {user_id}")
 
-        # 推送通知
+        # Send notification
         await self._notify_account_update(account)
 
         return account
@@ -94,31 +93,30 @@ class PaperTradingService:
         stop_price: Optional[float] = None,
         limit_price: Optional[float] = None,
     ) -> Order:
-        """
-        提交模拟订单
+        """Submit a paper trading order.
 
         Args:
-            account_id: 账户 ID
-            symbol: 标的代码
-            order_type: 订单类型
-            side: 买卖方向
-            size: 数量
-            price: 价格（限价单）
-            stop_price: 止损价格
-            limit_price: 止盈价格
+            account_id: Account ID.
+            symbol: Trading symbol.
+            order_type: Order type (market, limit, stop, etc.).
+            side: Order side (buy/sell).
+            size: Order size.
+            price: Limit price (for limit orders).
+            stop_price: Stop price (for stop orders).
+            limit_price: Limit price (for stop-limit orders).
 
         Returns:
-            Order: 创建的订单
+            The created order.
         """
-        # 获取账户
+        # Get account
         account = await self.account_repo.get_by_id(account_id)
         if not account:
             raise ValueError(f"Account not found: {account_id}")
 
-        # 计算保证金和手续费
+        # Calculate margin and commission
         commission = size * price * account.commission_rate if price else 0
 
-        # 创建订单
+        # Create order
         order = Order(
             account_id=account_id,
             symbol=symbol,
@@ -136,33 +134,32 @@ class PaperTradingService:
 
         logger.info(f"Submitted paper order: {order.id} for account {account_id}")
 
-        # 推送订单创建通知
+        # Send order creation notification
         await self._notify_order_update(account_id, order)
 
-        # 异步处理订单成交
+        # Process order fill asynchronously
         asyncio.create_task(self._process_order(order.id, account_id, account))
 
         return order
 
-    async def _process_order(self, order_id: str, account_id: str, account: Account):
-        """
-        处理订单成交（模拟）
+    async def _process_order(self, order_id: str, account_id: str, account: Account) -> None:
+        """Process order execution (simulated).
 
         Args:
-            order_id: 订单 ID
-            account_id: 账户 ID
-            account: 账户对象
+            order_id: Order ID.
+            account_id: Account ID.
+            account: Account object.
         """
-        # 获取订单
+        # Get order
         order = await self.order_repo.get_by_id(order_id)
         if not order:
             logger.error(f"Order not found: {order_id}")
             return
 
-        # 获取当前价格（模拟）
+        # Get current price (simulated)
         current_price = await self._get_simulated_price(order.symbol)
 
-        # 计算滑点
+        # Calculate slippage
         slippage = self._calculate_slippage(
             order.price,
             current_price,
@@ -174,41 +171,40 @@ class PaperTradingService:
         fill_price = current_price + slippage
         commission = order.size * fill_price * account.commission_rate
 
-        # 检查是否有足够资金
+        # Check sufficient funds
         if order.side == OrderSide.BUY:
             required_cash = order.size * fill_price + commission
             if account.current_cash < required_cash:
-                # 拒绝订单
+                # Reject order
                 await self._reject_order(order, "Insufficient funds")
                 return
         else:
-            # 卖出，检查是否有足够持仓
+            # Sell, check sufficient position
             position = await self._get_position(account_id, order.symbol)
             if not position or abs(position.size) < order.size:
                 await self._reject_order(order, "Insufficient position")
                 return
 
-        # 执行成交
+        # Execute fill
         await self._fill_order(order, fill_price, commission)
 
-        # 更新持仓
+        # Update position
         await self._update_position(account, order, fill_price, commission)
 
-        # 更新账户
+        # Update account
         await self._update_account(account, order, fill_price, commission)
 
         logger.info(f"Order filled: {order_id} at {fill_price}")
 
-    async def _fill_order(self, order: Order, price: float, commission: float):
-        """
-        填充订单
+    async def _fill_order(self, order: Order, price: float, commission: float) -> None:
+        """Fill an order.
 
         Args:
-            order: 订单对象
-            price: 成交价格
-            commission: 手续费
+            order: Order object.
+            price: Fill price.
+            commission: Commission amount.
         """
-        # 更新订单状态
+        # Update order status
         order.status = OrderStatus.FILLED
         order.filled_size = order.size
         order.avg_fill_price = price
@@ -223,7 +219,7 @@ class PaperTradingService:
             "filled_at": order.filled_at,
         })
 
-        # 创建成交记录
+        # Create trade record
         trade = PaperTrade(
             account_id=order.account_id,
             order_id=order.id,
@@ -232,20 +228,19 @@ class PaperTradingService:
             size=order.size,
             price=price,
             commission=commission,
-            slippage=0.0,  # 滑点已包含在价格中
-            pnl=0.0,  # 暂时为 0，后续在更新持仓时计算
+            slippage=0.0,  # Slippage already included in price
+            pnl=0.0,  # Will be calculated when updating position
             pnl_pct=0.0,
         )
 
         await self.trade_repo.create(trade)
 
-    async def _reject_order(self, order: Order, reason: str):
-        """
-        拒绝订单
+    async def _reject_order(self, order: Order, reason: str) -> None:
+        """Reject an order.
 
         Args:
-            order: 订单对象
-            reason: 拒绝原因
+            order: Order object.
+            reason: Rejection reason.
         """
         order.status = OrderStatus.REJECTED
         order.rejected_reason = reason
@@ -255,20 +250,19 @@ class PaperTradingService:
             "rejected_reason": order.rejected_reason,
         })
 
-        # 推送订单更新
+        # Send order update
         account_id = order.account_id
         await self._notify_order_update(account_id, order)
 
     async def _get_position(self, account_id: str, symbol: str) -> Optional[Position]:
-        """
-        获取持仓
+        """Get position by account and symbol.
 
         Args:
-            account_id: 账户 ID
-            symbol: 标的代码
+            account_id: Account ID.
+            symbol: Trading symbol.
 
         Returns:
-            Position or None
+            Position or None.
         """
         positions = await self.position_repo.list(
             filters={"account_id": account_id, "symbol": symbol},
@@ -283,20 +277,19 @@ class PaperTradingService:
         order: Order,
         price: float,
         commission: float,
-    ):
-        """
-        更新持仓
+    ) -> None:
+        """Update position after order fill.
 
         Args:
-            account: 账户对象
-            order: 订单对象
-            price: 成交价格
-            commission: 手续费
+            account: Account object.
+            order: Order object.
+            price: Fill price.
+            commission: Commission amount.
         """
         position = await self._get_position(account.id, order.symbol)
 
         if not position:
-            # 新建持仓
+            # Create new position
             position = Position(
                 account_id=account.id,
                 symbol=order.symbol,
@@ -312,24 +305,24 @@ class PaperTradingService:
             await self.position_repo.create(position)
 
         else:
-            # 更新现有持仓
+            # Update existing position
             old_size = position.size
             old_market_value = position.market_value
 
-            # 更新数量
+            # Update size
             if order.side == OrderSide.BUY:
                 new_size = old_size + order.size
             else:
                 new_size = old_size - order.size
 
-            # 计算新的平均价格
+            # Calculate new average price
             total_value = abs(old_size) * position.avg_price + order.size * price
             new_avg_price = total_value / abs(new_size) if new_size != 0 else 0
 
-            # 计算新的市值
+            # Calculate new market value
             new_market_value = new_size * price
 
-            # 计算未实现盈亏
+            # Calculate unrealized PnL
             if new_size != 0:
                 if new_size > 0:
                     unrealized_pnl = (price - new_avg_price) * new_size
@@ -349,9 +342,9 @@ class PaperTradingService:
                 "updated_at": datetime.now(timezone.utc),
             })
 
-            # 更新成交记录的盈亏（如果是平仓）
+            # Update trade record PnL (if closing position)
             if (old_size > 0 and new_size <= 0) or (old_size < 0 and new_size >= 0):
-                # 计算已实现盈亏
+                # Calculate realized PnL
                 if old_size > 0:
                     pnl = (price - position.avg_price) * abs(old_size)
                 else:
@@ -359,7 +352,7 @@ class PaperTradingService:
 
                 pnl_pct = (pnl / (abs(old_size) * position.avg_price) * 100) if position.avg_price != 0 else 0
 
-                # 更新成交记录
+                # Update trade record
                 trade = await self._get_last_trade(order.id)
                 if trade:
                     await self.trade_repo.update(trade.id, {
@@ -373,30 +366,29 @@ class PaperTradingService:
         order: Order,
         price: float,
         commission: float,
-    ):
-        """
-        更新账户
+    ) -> None:
+        """Update account after order fill.
 
         Args:
-            account: 账户对象
-            order: 订单对象
-            price: 成交价格
-            commission: 手续费
+            account: Account object.
+            order: Order object.
+            price: Fill price.
+            commission: Commission amount.
         """
-        # 计算持仓价值
+        # Calculate position value
         positions = await self.position_repo.list(filters={"account_id": account.id})
         total_market_value = sum(p.market_value for p in positions)
 
-        # 更新现金
+        # Update cash
         if order.side == OrderSide.BUY:
             account.current_cash -= order.size * price + commission
         else:
             account.current_cash += order.size * price - commission
 
-        # 更新总权益
+        # Update total equity
         account.total_equity = account.current_cash + total_market_value
 
-        # 更新盈亏
+        # Update PnL
         profit_loss = account.total_equity - account.initial_cash
         account.profit_loss = profit_loss
         account.profit_loss_pct = (profit_loss / account.initial_cash) * 100
@@ -409,22 +401,21 @@ class PaperTradingService:
             "updated_at": datetime.now(timezone.utc),
         })
 
-        # 推送账户更新
+        # Send account update
         await self._notify_account_update(account)
 
-        # 推送持仓更新
+        # Send position updates
         for position in positions:
             await self._notify_position_update(position)
 
     async def _get_last_trade(self, order_id: str) -> Optional[PaperTrade]:
-        """
-        获取最后一个成交
+        """Get the last trade for an order.
 
         Args:
-            order_id: 订单 ID
+            order_id: Order ID.
 
         Returns:
-            PaperTrade or None
+            PaperTrade or None.
         """
         trades = await self.trade_repo.list(
             filters={"order_id": order_id},
@@ -436,14 +427,13 @@ class PaperTradingService:
         return trades[0] if trades else None
 
     async def get_account(self, account_id: str) -> Optional[Account]:
-        """
-        获取账户
+        """Get account by ID.
 
         Args:
-            account_id: 账户 ID
+            account_id: Account ID.
 
         Returns:
-            Account or None
+            Account or None.
         """
         return await self.account_repo.get_by_id(account_id)
 
@@ -453,16 +443,15 @@ class PaperTradingService:
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[List[Account], int]:
-        """
-        列出用户的模拟账户
+        """List user's paper trading accounts.
 
         Args:
-            user_id: 用户 ID
-            limit: 每页数量
-            offset: 偏移量
+            user_id: User ID.
+            limit: Items per page.
+            offset: Offset for pagination.
 
         Returns:
-            (accounts, total)
+            Tuple of (accounts list, total count).
         """
         accounts = await self.account_repo.list(
             filters={"user_id": user_id, "is_active": True},
@@ -478,14 +467,13 @@ class PaperTradingService:
         return accounts, total
 
     async def get_order(self, order_id: str) -> Optional[Order]:
-        """
-        获取订单
+        """Get order by ID.
 
         Args:
-            order_id: 订单 ID
+            order_id: Order ID.
 
         Returns:
-            Order or None
+            Order or None.
         """
         return await self.order_repo.get_by_id(order_id)
 
@@ -497,18 +485,17 @@ class PaperTradingService:
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> tuple[List[Order], int]:
-        """
-        列出订单
+        """List orders with filtering.
 
         Args:
-            filters: 过滤条件
-            limit: 每页数量
-            offset: 偏移量
-            sort_by: 排序字段
-            sort_order: 排序方向
+            filters: Filter conditions.
+            limit: Items per page.
+            offset: Offset for pagination.
+            sort_by: Sort field.
+            sort_order: Sort direction.
 
         Returns:
-            (orders, total)
+            Tuple of (orders list, total count).
         """
         orders = await self.order_repo.list(
             filters=filters,
@@ -529,18 +516,17 @@ class PaperTradingService:
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> tuple[List[Position], int]:
-        """
-        列出持仓
+        """List positions with filtering.
 
         Args:
-            filters: 过滤条件
-            limit: 每页数量
-            offset: 偏移量
-            sort_by: 排序字段
-            sort_order: 排序方向
+            filters: Filter conditions.
+            limit: Items per page.
+            offset: Offset for pagination.
+            sort_by: Sort field.
+            sort_order: Sort direction.
 
         Returns:
-            (positions, total)
+            Tuple of (positions list, total count).
         """
         positions = await self.position_repo.list(
             filters=filters,
@@ -561,18 +547,17 @@ class PaperTradingService:
         sort_by: str = "created_at",
         sort_order: str = "desc",
     ) -> tuple[List[PaperTrade], int]:
-        """
-        列出成交
+        """List trades with filtering.
 
         Args:
-            filters: 过滤条件
-            limit: 每页数量
-            offset: 偏移量
-            sort_by: 排序字段
-            sort_order: 排序方向
+            filters: Filter conditions.
+            limit: Items per page.
+            offset: Offset for pagination.
+            sort_by: Sort field.
+            sort_order: Sort direction.
 
         Returns:
-            (trades, total)
+            Tuple of (trades list, total count).
         """
         trades = await self.trade_repo.list(
             filters=filters,
@@ -586,65 +571,62 @@ class PaperTradingService:
         return trades, total
 
     async def delete_account(self, account_id: str, user_id: str) -> bool:
-        """
-        删除模拟账户
+        """Delete a paper trading account.
 
         Args:
-            account_id: 账户 ID
-            user_id: 用户 ID
+            account_id: Account ID.
+            user_id: User ID for authorization.
 
         Returns:
-            bool: 是否删除成功
+            True if deleted successfully, False otherwise.
         """
         account = await self.account_repo.get_by_id(account_id)
         if not account or account.user_id != user_id:
             return False
 
-        # 软删除：标记为不活跃
+        # Soft delete: mark as inactive
         await self.account_repo.update(account_id, {"is_active": False})
         return True
 
     async def cancel_order(self, order_id: str, user_id: str) -> bool:
-        """
-        撤销订单
+        """Cancel an order.
 
         Args:
-            order_id: 订单 ID
-            user_id: 用户 ID
+            order_id: Order ID.
+            user_id: User ID for authorization.
 
         Returns:
-            bool: 是否撤销成功
+            True if cancelled successfully, False otherwise.
         """
         order = await self.order_repo.get_by_id(order_id)
         if not order:
             return False
 
-        # 检查权限
+        # Check permission
         account = await self.account_repo.get_by_id(order.account_id)
         if not account or account.user_id != user_id:
             return False
 
-        # 只有待成交的订单可以撤销
+        # Only pending orders can be cancelled
         if order.status != OrderStatus.PENDING:
             return False
 
-        # 标记为已撤销
+        # Mark as cancelled
         await self.order_repo.update(order_id, {"status": OrderStatus.CANCELLED})
 
-        # 推送更新
+        # Send update
         await self._notify_order_update(order.account_id, order)
 
         return True
 
     async def get_position(self, position_id: str) -> Optional[Position]:
-        """
-        获取持仓
+        """Get position by ID.
 
         Args:
-            position_id: 持仓 ID
+            position_id: Position ID.
 
         Returns:
-            Position or None
+            Position or None.
         """
         return await self.position_repo.get_by_id(position_id)
 
@@ -656,27 +638,26 @@ class PaperTradingService:
         side: str,
         order_type: str,
     ) -> float:
-        """
-        计算滑点
+        """Calculate slippage amount.
 
         Args:
-            order_price: 订单价格
-            market_price: 市场价格
-            slippage_rate: 滑点率
-            side: 买卖方向
-            order_type: 订单类型
+            order_price: Order price.
+            market_price: Current market price.
+            slippage_rate: Slippage rate.
+            side: Order side (buy/sell).
+            order_type: Order type.
 
         Returns:
-            float: 滑点金额
+            Slippage amount.
         """
         if order_type == OrderType.MARKET:
-            # 市价单，直接按滑点率计算
+            # Market order, calculate directly from rate
             if side == OrderSide.BUY:
                 return market_price * slippage_rate
             else:
                 return -market_price * slippage_rate
         elif order_type == OrderType.LIMIT:
-            # 限价单，如果限价优于市价则成交，否则可能不成交
+            # Limit order, fill if limit is better than market
             if order_price and side == OrderSide.BUY:
                 if order_price <= market_price:
                     return market_price * slippage_rate
@@ -685,24 +666,23 @@ class PaperTradingService:
                     return -market_price * slippage_rate
             return 0.0
         else:
-            # 其他类型，暂时不计算滑点
+            # Other types, no slippage for now
             return 0.0
 
     async def _get_simulated_price(self, symbol: str) -> float:
-        """
-        获取模拟价格
+        """Get simulated price for trading.
 
-        在实际应用中，这里应该从实时数据源获取价格
-        目前使用模拟价格
+        In production, this should fetch from real-time data source.
+        Currently returns simulated price for testing.
 
         Args:
-            symbol: 标的代码
+            symbol: Trading symbol.
 
         Returns:
-            float: 模拟价格
+            Simulated price.
         """
-        # 这里应该集成实时行情数据源
-        # 目前返回固定价格用于测试
+        # This should integrate with real-time market data
+        # Currently returns fixed price for testing
         if "000001" in symbol:
             return 10.5
         elif "600000" in symbol:
@@ -710,12 +690,11 @@ class PaperTradingService:
         else:
             return 10.0
 
-    async def _notify_account_update(self, account: Account):
-        """
-        推送账户更新
+    async def _notify_account_update(self, account: Account) -> None:
+        """Send account update notification via WebSocket.
 
         Args:
-            account: 账户对象
+            account: Account object.
         """
         await ws_manager.send_to_task(f"account:{account.id}", {
             "type": MessageType.PROGRESS,
@@ -728,12 +707,11 @@ class PaperTradingService:
             }
         })
 
-    async def _notify_position_update(self, position: Position):
-        """
-        推送持仓更新
+    async def _notify_position_update(self, position: Position) -> None:
+        """Send position update notification via WebSocket.
 
         Args:
-            position: 持仓对象
+            position: Position object.
         """
         await ws_manager.send_to_task(f"position:{position.id}", {
             "type": MessageType.PROGRESS,
@@ -748,13 +726,12 @@ class PaperTradingService:
             }
         })
 
-    async def _notify_order_update(self, account_id: str, order: Order):
-        """
-        推送订单更新
+    async def _notify_order_update(self, account_id: str, order: Order) -> None:
+        """Send order update notification via WebSocket.
 
         Args:
-            account_id: 账户 ID
-            order: 订单对象
+            account_id: Account ID.
+            order: Order object.
         """
         await ws_manager.send_to_task(f"account:{account_id}", {
             "type": MessageType.PROGRESS,

@@ -1,10 +1,12 @@
-"""国债期货跨期套利策略 (Treasury Futures Spread Arbitrage Strategy)
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+"""Treasury Futures Spread Arbitrage Strategy.
 
-基于价差的国债期货跨期套利策略:
-- 近月-远月价差 < 下限 -> 开多价差（多近月空远月）
-- 近月-远月价差 > 上限 -> 开空价差（空近月多远月）
-- 价差回归时平仓
-- 支持合约换月
+A treasury futures inter-contract spread arbitrage strategy:
+- Near month - Far month spread < Lower limit -> Open long spread (long near, short far)
+- Near month - Far month spread > Upper limit -> Open short spread (short near, long far)
+- Close position when spread reverts
+- Supports contract rollover
 
 Author: yunjinqi
 """
@@ -16,45 +18,45 @@ from backtrader.comminfo import ComminfoFuturesPercent
 
 
 class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
-    """国债期货跨期套利策略
+    """Treasury Futures Inter-Contract Spread Arbitrage Strategy.
 
-    该策略通过交易近月和远月合约之间的价差进行套利:
-    - 当价差低于下限时，做多价差（买近月卖远月）
-    - 当价差高于上限时，做空价差（卖近月买远月）
-    - 当价差回归时平仓
-    - 支持自动换月
+    This strategy trades the spread between near and far month contracts:
+    - When spread is below lower limit, go long spread (buy near, sell far)
+    - When spread is above upper limit, go short spread (sell near, buy far)
+    - Close position when spread reverts
+    - Supports automatic contract rollover
     """
-    # 策略作者
+    # Strategy author
     author = 'yunjinqi'
-    # 策略参数
+    # Strategy parameters
     params = (
-        ("spread_low", 0.06),   # 价差下限，低于此值开多
-        ("spread_high", 0.52),  # 价差上限，高于此值开空
+        ("spread_low", 0.06),   # Spread lower limit, go long when below this
+        ("spread_high", 0.52),  # Spread upper limit, go short when above this
     )
 
     def log(self, txt, dt=None):
-        """记录日志"""
+        """Log strategy information."""
         dt = dt or bt.num2date(self.datas[0].datetime[0])
         print('{}, {}'.format(dt.isoformat(), txt))
 
     def __init__(self):
-        """初始化策略属性和状态变量"""
-        # 通用属性变量
-        self.bar_num = 0  # next中运行的bar数
+        """Initialize strategy attributes and state variables."""
+        # Common attribute variables
+        self.bar_num = 0  # Number of bars run in next()
         self.buy_count = 0
         self.sell_count = 0
-        self.current_date = None  # 当前交易日
-        # 保存当前持有的合约
+        self.current_date = None  # Current trading day
+        # Save currently held contracts
         self.holding_contract_name = None
         self.market_position = 0
 
     def prenext(self):
-        """在最小周期到达前调用"""
+        """Called before minimum period is reached."""
         self.next()
 
     def next(self):
-        """执行主要策略逻辑"""
-        # 每次运行bar_num加1，并更新交易日
+        """Execute main strategy logic."""
+        # Increment bar_num and update trading day each run
         self.current_date = bt.num2date(self.datas[0].datetime[0])
         self.bar_num += 1
         near_data, far_data = self.get_near_far_data()
@@ -70,9 +72,9 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
         else:
             self.log(f"near data is None------------------------------------------")
 
-        # 开仓
+        # Open positions
         if self.market_position == 0:
-            # 开多价差
+            # Open long spread
             if near_data.close[0] - far_data.close[0] < self.p.spread_low:
                 self.buy(near_data, size=1)
                 self.sell(far_data, size=1)
@@ -81,7 +83,7 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
                 self.market_position = 1
                 self.holding_contract_name = [near_data, far_data]
                 self.log(f"Open position, buy: {near_data._name}, sell: {far_data._name}")
-            # 开空价差
+            # Open short spread
             if near_data.close[0] - far_data.close[0] > self.p.spread_high:
                 self.sell(near_data, size=1)
                 self.buy(far_data, size=1)
@@ -90,7 +92,7 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
                 self.market_position = -1
                 self.holding_contract_name = [near_data, far_data]
                 self.log(f"Open short position, buy: {far_data._name}, sell: {near_data._name}")
-        # 平仓
+        # Close positions
         if self.market_position == 1:
             near_data = self.holding_contract_name[0]
             far_data = self.holding_contract_name[1]
@@ -109,7 +111,7 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
                 self.market_position = 0
                 self.holding_contract_name = [None, None]
 
-        # 换月到新合约
+        # Rollover to new contracts
         if self.market_position != 0:
             hold_near_data = self.holding_contract_name[0]
             hold_far_data = self.holding_contract_name[1]
@@ -130,8 +132,8 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
                         self.holding_contract_name = [near_data, far_data]
 
     def get_near_far_data(self):
-        """确定近月和远月合约（基于持仓量）"""
-        # 计算近月和远月合约价格
+        """Determine near and far month contracts (based on open interest)."""
+        # Calculate near and far month contract prices
         target_datas = []
         for data in self.datas[1:]:
             try:
@@ -154,11 +156,11 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
             return [None, None]
 
     def get_dominant_contract(self):
-        """确定主力合约（持仓量最大）"""
-        # 使用持仓量最大的合约作为主力合约，返回数据名称
-        # 可以根据需要自定义如何计算主力合约
+        """Determine dominant contract (highest open interest)."""
+        # Use contract with highest open interest as dominant contract, return data name
+        # Can customize how to calculate dominant contract as needed
 
-        # 获取当前交易的品种
+        # Get currently trading instruments
         target_datas = []
         for data in self.datas[1:]:
             try:
@@ -173,7 +175,7 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
         return target_datas[-1][0]
 
     def notify_order(self, order):
-        """订单状态变化时调用"""
+        """Called when order status changes."""
         if order.status in [order.Submitted, order.Accepted]:
             return
 
@@ -199,8 +201,8 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
                     f" SELL : data_name:{order.p.data._name} price : {order.executed.price} , cost : {order.executed.value} , commission : {order.executed.comm}")
 
     def notify_trade(self, trade):
-        """交易生命周期事件处理"""
-        # 输出交易结束时的信息
+        """Handle trade lifecycle events."""
+        # Output information when trade ends
         if trade.isclosed:
             self.log('closed symbol is : {} , total_profit : {} , net_profit : {}'.format(
                 trade.getdataname(), trade.pnl, trade.pnlcomm))
@@ -210,5 +212,5 @@ class TreasuryFuturesSpreadArbitrageStrategy(bt.Strategy):
                 trade.getdataname(), trade.price))
 
     def stop(self):
-        """回测结束时调用"""
+        """Called when backtesting ends."""
         self.log(f"bar_num={self.bar_num}, buy_count={self.buy_count}, sell_count={self.sell_count}")

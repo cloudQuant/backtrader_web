@@ -1,7 +1,7 @@
 """
-WebSocket 实时推送服务
+WebSocket real-time push service.
 
-用于回测进度和日志的实时推送
+Used for real-time push of backtest progress and logs.
 """
 import json
 import logging
@@ -14,74 +14,76 @@ logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    """WebSocket 连接管理器"""
+    """WebSocket connection manager.
+
+    Attributes:
+        active_connections: Dictionary mapping task IDs to WebSocket connection lists.
+            key: task_id, value: list of (websocket, client_id) tuples.
+    """
 
     def __init__(self):
-        # 任务 ID 到 WebSocket 连接列表的映射
+        # Task ID to WebSocket connection list mapping
         # key: task_id, value: list of (websocket, client_id)
         self.active_connections: Dict[str, List[tuple]] = {}
 
     async def connect(self, websocket: WebSocket, task_id: str, client_id: str):
-        """
-        建立连接
+        """Establish a WebSocket connection.
 
         Args:
-            websocket: WebSocket 连接对象
-            task_id: 任务 ID
-            client_id: 客户端 ID（用于同一任务的多个连接）
+            websocket: WebSocket connection object.
+            task_id: Task ID.
+            client_id: Client ID (for multiple connections to the same task).
         """
         await websocket.accept()
 
-        # 添加到活跃连接
+        # Add to active connections
         if task_id not in self.active_connections:
             self.active_connections[task_id] = []
 
         self.active_connections[task_id].append((websocket, client_id))
 
-        # 发送连接成功消息
+        # Send connection success message
         await self.send_to_task(task_id, {
             "type": "connected",
             "task_id": task_id,
-            "message": "WebSocket 连接成功",
+            "message": "WebSocket connected successfully",
         })
 
-        logger.info(f"WebSocket 连接建立: task_id={task_id}, client_id={client_id}")
+        logger.info(f"WebSocket connected: task_id={task_id}, client_id={client_id}")
 
     def disconnect(self, websocket: WebSocket, task_id: str, client_id: str):
-        """
-        断开连接
+        """Disconnect a WebSocket connection.
 
         Args:
-            websocket: WebSocket 连接对象
-            task_id: 任务 ID
-            client_id: 客户端 ID
+            websocket: WebSocket connection object.
+            task_id: Task ID.
+            client_id: Client ID.
         """
         if task_id in self.active_connections:
-            # 移除指定客户端的连接
+            # Remove specified client connection
             self.active_connections[task_id] = [
                 (ws, cid) for ws, cid in self.active_connections[task_id]
                 if ws != websocket and cid != client_id
             ]
 
-            # 如果没有连接了，删除任务
+            # Delete task if no more connections
             if not self.active_connections[task_id]:
                 del self.active_connections[task_id]
 
-        logger.info(f"WebSocket 连接断开: task_id={task_id}, client_id={client_id}")
+        logger.info(f"WebSocket disconnected: task_id={task_id}, client_id={client_id}")
 
     async def send_to_task(self, task_id: str, message: Dict[str, Any]):
-        """
-        向特定任务的所有连接发送消息
+        """Send a message to all connections for a specific task.
 
         Args:
-            task_id: 任务 ID
-            message: 要发送的消息
+            task_id: Task ID.
+            message: Message to send.
         """
         if task_id not in self.active_connections:
-            logger.warning(f"任务 {task_id} 没有活跃连接")
+            logger.warning(f"Task {task_id} has no active connections")
             return
 
-        # 获取该任务的所有连接
+        # Get all connections for the task
         connections = self.active_connections[task_id]
         dead_connections = []
 
@@ -89,59 +91,56 @@ class ConnectionManager:
             try:
                 await websocket.send_json(message)
             except Exception as e:
-                logger.error(f"发送消息失败: task_id={task_id}, client_id={client_id}, {e}")
+                logger.error(f"Failed to send message: task_id={task_id}, client_id={client_id}, {e}")
                 dead_connections.append((websocket, client_id))
 
-        # 移除死亡的连接
+        # Remove dead connections
         for dead_ws, dead_cid in dead_connections:
             self.disconnect(dead_ws, task_id, dead_cid)
 
-        logger.debug(f"向任务 {task_id} 发送消息: {message.get('type')}")
+        logger.debug(f"Sent message to task {task_id}: {message.get('type')}")
 
     async def broadcast(self, message: Dict[str, Any]):
-        """
-        广播消息给所有连接
+        """Broadcast a message to all connected clients.
 
         Args:
-            message: 要广播的消息
+            message: Message to broadcast.
         """
         for task_id, connections in list(self.active_connections.items()):
             for websocket, client_id in connections:
                 try:
                     await websocket.send_json(message)
                 except Exception as e:
-                    logger.error(f"广播消息失败: {e}")
+                    logger.error(f"Failed to broadcast message: {e}")
                     self.disconnect(websocket, task_id, client_id)
 
     def get_connection_count(self, task_id: str) -> int:
-        """
-        获取任务的连接数
+        """Get the number of connections for a task.
 
         Args:
-            task_id: 任务 ID
+            task_id: Task ID.
 
         Returns:
-            int: 连接数
+            The number of connections.
         """
         return len(self.active_connections.get(task_id, []))
 
     def get_total_connections(self) -> int:
-        """
-        获取总连接数
+        """Get the total number of active connections.
 
         Returns:
-            int: 总连接数
+            The total number of connections across all tasks.
         """
         return sum(len(conns) for conns in self.active_connections.values())
 
 
-# 全局连接管理器实例
+# Global connection manager instance
 manager = ConnectionManager()
 
 
-# 消息类型常量
+# Message type constants
 class MessageType:
-    """WebSocket 消息类型"""
+    """WebSocket message types."""
     CONNECTED = "connected"
     PROGRESS = "progress"
     LOG = "log"
@@ -151,7 +150,15 @@ class MessageType:
 
 
 class ProgressMessage:
-    """进度消息"""
+    """Progress message class.
+
+    Attributes:
+        task_id: Task ID.
+        progress: Progress percentage (0-100).
+        message: Optional status message.
+        data: Optional data payload.
+        type: Message type (always "progress").
+    """
 
     def __init__(
         self,
@@ -167,7 +174,11 @@ class ProgressMessage:
         self.type = MessageType.PROGRESS
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to dictionary.
+
+        Returns:
+            Dictionary representation of the progress message.
+        """
         return {
             "type": self.type,
             "task_id": self.task_id,
@@ -178,7 +189,13 @@ class ProgressMessage:
 
 
 class ResultMessage:
-    """回测结果消息"""
+    """Backtest result message class.
+
+    Attributes:
+        task_id: Task ID.
+        result: Result dictionary.
+        type: Message type (completed or failed).
+    """
 
     def __init__(
         self,
@@ -190,7 +207,11 @@ class ResultMessage:
         self.type = MessageType.COMPLETED if result.get('status') == TaskStatus.COMPLETED else MessageType.FAILED
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to dictionary.
+
+        Returns:
+            Dictionary representation of the result message.
+        """
         return {
             "type": self.type,
             "task_id": self.task_id,
@@ -199,7 +220,15 @@ class ResultMessage:
 
 
 class LogMessage:
-    """日志消息"""
+    """Log message class.
+
+    Attributes:
+        task_id: Task ID.
+        level: Log level (info, warning, error).
+        message: Log message content.
+        data: Optional data payload.
+        type: Message type (always "log").
+    """
 
     def __init__(
         self,
@@ -215,7 +244,11 @@ class LogMessage:
         self.type = MessageType.LOG
 
     def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
+        """Convert to dictionary.
+
+        Returns:
+            Dictionary representation of the log message.
+        """
         return {
             "type": self.type,
             "task_id": self.task_id,

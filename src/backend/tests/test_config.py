@@ -1,11 +1,11 @@
 """
-配置模块测试
+Configuration module tests.
 """
 from app.config import get_settings, Settings
 
 
 class TestConfig:
-    """配置测试"""
+    """Configuration tests."""
 
     def test_get_settings_returns_settings(self):
         settings = get_settings()

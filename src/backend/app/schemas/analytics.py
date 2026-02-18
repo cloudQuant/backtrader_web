@@ -7,29 +7,29 @@ from datetime import datetime
 
 
 class PerformanceMetrics(BaseModel):
-    """绩效指标"""
-    initial_capital: float = Field(..., description="初始资金")
-    final_assets: float = Field(..., description="最终资产")
-    total_return: float = Field(..., description="总收益率")
-    annualized_return: float = Field(..., description="年化收益率")
-    max_drawdown: float = Field(..., description="最大回撤")
-    max_drawdown_duration: int = Field(0, description="最大回撤持续天数")
-    sharpe_ratio: Optional[float] = Field(None, description="夏普比率")
-    sortino_ratio: Optional[float] = Field(None, description="索提诺比率")
-    calmar_ratio: Optional[float] = Field(None, description="卡玛比率")
-    win_rate: float = Field(0, description="胜率")
-    profit_factor: float = Field(0, description="盈亏比")
-    trade_count: int = Field(0, description="交易次数")
-    avg_trade_return: float = Field(0, description="平均每笔收益率")
-    avg_holding_days: float = Field(0, description="平均持仓天数")
-    avg_win: float = Field(0, description="平均盈利")
-    avg_loss: float = Field(0, description="平均亏损")
-    max_consecutive_wins: int = Field(0, description="最大连续盈利次数")
-    max_consecutive_losses: int = Field(0, description="最大连续亏损次数")
+    """Performance metrics schema."""
+    initial_capital: float = Field(..., description="Initial capital")
+    final_assets: float = Field(..., description="Final assets")
+    total_return: float = Field(..., description="Total return")
+    annualized_return: float = Field(..., description="Annualized return")
+    max_drawdown: float = Field(..., description="Maximum drawdown")
+    max_drawdown_duration: int = Field(0, description="Maximum drawdown duration (days)")
+    sharpe_ratio: Optional[float] = Field(None, description="Sharpe ratio")
+    sortino_ratio: Optional[float] = Field(None, description="Sortino ratio")
+    calmar_ratio: Optional[float] = Field(None, description="Calmar ratio")
+    win_rate: float = Field(0, description="Win rate")
+    profit_factor: float = Field(0, description="Profit factor")
+    trade_count: int = Field(0, description="Trade count")
+    avg_trade_return: float = Field(0, description="Average return per trade")
+    avg_holding_days: float = Field(0, description="Average holding days")
+    avg_win: float = Field(0, description="Average win")
+    avg_loss: float = Field(0, description="Average loss")
+    max_consecutive_wins: int = Field(0, description="Maximum consecutive wins")
+    max_consecutive_losses: int = Field(0, description="Maximum consecutive losses")
 
 
 class EquityPoint(BaseModel):
-    """资金曲线点"""
+    """Equity curve point schema."""
     date: str
     total_assets: float
     cash: float
@@ -38,7 +38,7 @@ class EquityPoint(BaseModel):
 
 
 class DrawdownPoint(BaseModel):
-    """回撤点"""
+    """Drawdown point schema."""
     date: str
     drawdown: float
     peak: float
@@ -46,7 +46,7 @@ class DrawdownPoint(BaseModel):
 
 
 class TradeRecord(BaseModel):
-    """交易记录"""
+    """Trade record schema."""
     id: int
     datetime: str
     symbol: str
@@ -62,7 +62,7 @@ class TradeRecord(BaseModel):
 
 
 class TradeSignal(BaseModel):
-    """交易信号"""
+    """Trade signal schema."""
     date: str
     type: str
     price: float
@@ -71,7 +71,7 @@ class TradeSignal(BaseModel):
 
 
 class KlineData(BaseModel):
-    """K线数据"""
+    """K-line data schema."""
     date: str
     open: float
     high: float
@@ -82,14 +82,14 @@ class KlineData(BaseModel):
 
 
 class MonthlyReturn(BaseModel):
-    """月度收益"""
+    """Monthly return schema."""
     year: int
     month: int
     return_pct: float
 
 
 class OptimizationResultItem(BaseModel):
-    """单个参数优化结果"""
+    """Single parameter optimization result schema."""
     params: Dict[str, Any]
     total_return: float
     max_drawdown: float
@@ -100,7 +100,7 @@ class OptimizationResultItem(BaseModel):
 
 
 class BacktestDetailResponse(BaseModel):
-    """回测详情响应"""
+    """Backtest detail response schema."""
     task_id: str
     strategy_name: str
     symbol: str
@@ -114,7 +114,7 @@ class BacktestDetailResponse(BaseModel):
 
 
 class KlineWithSignalsResponse(BaseModel):
-    """K线与信号响应"""
+    """K-line with signals response schema."""
     symbol: str
     klines: List[KlineData]
     signals: List[TradeSignal]
@@ -122,7 +122,7 @@ class KlineWithSignalsResponse(BaseModel):
 
 
 class OptimizationResponse(BaseModel):
-    """参数优化响应"""
+    """Parameter optimization response schema."""
     task_id: str
     parameters: List[str]
     results: List[OptimizationResultItem]
@@ -130,7 +130,7 @@ class OptimizationResponse(BaseModel):
 
 
 class MonthlyReturnsResponse(BaseModel):
-    """月度收益响应"""
+    """Monthly returns response schema."""
     returns: List[MonthlyReturn]
     years: List[int]
     summary: Dict[int, float]

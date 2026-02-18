@@ -1,5 +1,5 @@
 """
-回测服务单元测试
+Backtest service unit tests
 """
 import asyncio
 import shutil
@@ -16,7 +16,7 @@ from app.services.backtest_service import BacktestService, _running_processes, _
 
 
 class TestBacktestServiceHelpers:
-    """回测服务辅助方法测试"""
+    """Backtest service helper method tests"""
 
     def test_has_custom_params_default(self):
         svc = BacktestService()
@@ -96,11 +96,11 @@ class TestBacktestServiceHelpers:
 
 
 class TestRunBacktest:
-    """测试运行回测"""
+    """Test running backtest"""
 
     @pytest.mark.asyncio
     async def test_run_backtest_creates_task(self):
-        """测试run_backtest创建任务"""
+        """Test run_backtest creates task"""
         svc = BacktestService()
 
         req = BacktestRequest(
@@ -136,7 +136,7 @@ class TestRunBacktest:
 
     @pytest.mark.asyncio
     async def test_run_backtest_stores_task_reference(self):
-        """测试run_backtest存储任务引用"""
+        """Test run_backtest stores task reference"""
         svc = BacktestService()
 
         req = BacktestRequest(
@@ -168,11 +168,11 @@ class TestRunBacktest:
 
 
 class TestExecuteBacktest:
-    """测试执行回测"""
+    """Test executing backtest"""
 
     @pytest.mark.asyncio
     async def test_execute_backtest_success(self):
-        """测试成功执行回测"""
+        """Test successful backtest execution"""
         svc = BacktestService()
 
         req = BacktestRequest(
@@ -214,7 +214,7 @@ class TestExecuteBacktest:
 
     @pytest.mark.asyncio
     async def test_execute_backtest_no_run_py(self):
-        """测试run.py不存在"""
+        """Test when run.py does not exist"""
         svc = BacktestService()
 
         req = BacktestRequest(
@@ -243,7 +243,7 @@ class TestExecuteBacktest:
 
     @pytest.mark.asyncio
     async def test_execute_backtest_asyncio_cancelled(self):
-        """测试asyncio任务被取消（调用cancel_task时）"""
+        """Test asyncio task cancellation (when cancel_task is called)"""
         svc = BacktestService()
 
         req = BacktestRequest(
@@ -277,7 +277,7 @@ class TestExecuteBacktest:
 
     @pytest.mark.asyncio
     async def test_execute_backtest_cleanup_on_error(self):
-        """测试错误时清理临时目录"""
+        """Test cleanup of temp directory on error"""
         svc = BacktestService()
 
         req = BacktestRequest(
@@ -313,11 +313,11 @@ class TestExecuteBacktest:
 
 
 class TestRunStrategySubprocess:
-    """测试运行策略子进程"""
+    """Test running strategy subprocess"""
 
     @pytest.mark.asyncio
     async def test_run_strategy_subprocess_success(self):
-        """测试成功运行子进程"""
+        """Test successful subprocess execution"""
         svc = BacktestService()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -338,7 +338,7 @@ class TestRunStrategySubprocess:
 
     @pytest.mark.asyncio
     async def test_run_strategy_subprocess_failure(self):
-        """测试子进程失败"""
+        """Test subprocess failure"""
         svc = BacktestService()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -352,12 +352,12 @@ class TestRunStrategySubprocess:
             with patch('subprocess.Popen', return_value=mock_proc):
                 with patch('app.config.get_settings') as mock_settings:
                     mock_settings.return_value = MagicMock(BACKTEST_TIMEOUT=60)
-                    with pytest.raises(RuntimeError, match="run.py 执行失败"):
+                    with pytest.raises(RuntimeError, match="run.py execution failed"):
                         await svc._run_strategy_subprocess(tmpdir)
 
     @pytest.mark.asyncio
     async def test_run_strategy_subprocess_stores_pid(self):
-        """测试存储子进程PID"""
+        """Test storing subprocess PID"""
         svc = BacktestService()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -380,11 +380,11 @@ class TestRunStrategySubprocess:
 
 
 class TestGetResult:
-    """测试获取回测结果"""
+    """Test getting backtest results"""
 
     @pytest.mark.asyncio
     async def test_get_result_success(self):
-        """测试成功获取结果"""
+        """Test successful result retrieval"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -426,7 +426,7 @@ class TestGetResult:
 
     @pytest.mark.asyncio
     async def test_get_result_not_found(self):
-        """测试任务不存在"""
+        """Test task not found"""
         svc = BacktestService()
 
         with patch.object(svc.task_repo, 'get_by_id', return_value=None):
@@ -436,7 +436,7 @@ class TestGetResult:
 
     @pytest.mark.asyncio
     async def test_get_result_wrong_user(self):
-        """测试用户不匹配"""
+        """Test user mismatch"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -456,7 +456,7 @@ class TestGetResult:
 
     @pytest.mark.asyncio
     async def test_get_result_from_cache(self):
-        """测试从缓存获取结果"""
+        """Test getting result from cache"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -502,7 +502,7 @@ class TestGetResult:
 
     @pytest.mark.asyncio
     async def test_get_result_caches_completed(self):
-        """测试缓存已完成的结果"""
+        """Test caching completed results"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -543,11 +543,11 @@ class TestGetResult:
 
 
 class TestCancelTask:
-    """测试取消任务"""
+    """Test canceling tasks"""
 
     @pytest.mark.asyncio
     async def test_cancel_task_success(self):
-        """测试成功取消任务"""
+        """Test successful task cancellation"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -575,7 +575,7 @@ class TestCancelTask:
 
     @pytest.mark.asyncio
     async def test_cancel_task_not_found(self):
-        """测试任务不存在"""
+        """Test task not found"""
         svc = BacktestService()
 
         with patch.object(svc.task_repo, 'get_by_id', return_value=None):
@@ -585,7 +585,7 @@ class TestCancelTask:
 
     @pytest.mark.asyncio
     async def test_cancel_task_wrong_user(self):
-        """测试用户不匹配"""
+        """Test user mismatch"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -601,7 +601,7 @@ class TestCancelTask:
 
     @pytest.mark.asyncio
     async def test_cancel_task_already_completed(self):
-        """测试取消已完成任务"""
+        """Test canceling already completed task"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -617,11 +617,11 @@ class TestCancelTask:
 
 
 class TestGetTaskStatus:
-    """测试获取任务状态"""
+    """Test getting task status"""
 
     @pytest.mark.asyncio
     async def test_get_task_status_success(self):
-        """测试成功获取状态"""
+        """Test successful status retrieval"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -637,7 +637,7 @@ class TestGetTaskStatus:
 
     @pytest.mark.asyncio
     async def test_get_task_status_not_found(self):
-        """测试任务不存在"""
+        """Test task not found"""
         svc = BacktestService()
 
         with patch.object(svc.task_repo, 'get_by_id', return_value=None):
@@ -647,7 +647,7 @@ class TestGetTaskStatus:
 
     @pytest.mark.asyncio
     async def test_get_task_status_wrong_user(self):
-        """测试用户不匹配"""
+        """Test user mismatch"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -663,7 +663,7 @@ class TestGetTaskStatus:
 
     @pytest.mark.asyncio
     async def test_get_task_status_no_user_filter(self):
-        """测试不过滤用户"""
+        """Test without user filter"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -679,11 +679,11 @@ class TestGetTaskStatus:
 
 
 class TestListResults:
-    """测试列出回测结果"""
+    """Test listing backtest results"""
 
     @pytest.mark.asyncio
     async def test_list_results_success(self):
-        """测试成功列出结果"""
+        """Test successful result listing"""
         svc = BacktestService()
 
         mock_tasks = [
@@ -748,7 +748,7 @@ class TestListResults:
 
     @pytest.mark.asyncio
     async def test_list_results_empty(self):
-        """测试空列表"""
+        """Test empty list"""
         svc = BacktestService()
 
         with patch.object(svc.task_repo, 'list', return_value=[]):
@@ -760,7 +760,7 @@ class TestListResults:
 
     @pytest.mark.asyncio
     async def test_list_results_with_pagination(self):
-        """测试分页"""
+        """Test pagination"""
         svc = BacktestService()
 
         mock_tasks = [
@@ -809,11 +809,11 @@ class TestListResults:
 
 
 class TestDeleteResult:
-    """测试删除回测结果"""
+    """Test deleting backtest results"""
 
     @pytest.mark.asyncio
     async def test_delete_result_success(self):
-        """测试成功删除"""
+        """Test successful deletion"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -835,7 +835,7 @@ class TestDeleteResult:
 
     @pytest.mark.asyncio
     async def test_delete_result_not_found(self):
-        """测试任务不存在"""
+        """Test task not found"""
         svc = BacktestService()
 
         with patch.object(svc.task_repo, 'get_by_id', return_value=None):
@@ -845,7 +845,7 @@ class TestDeleteResult:
 
     @pytest.mark.asyncio
     async def test_delete_result_wrong_user(self):
-        """测试用户不匹配"""
+        """Test user mismatch"""
         svc = BacktestService()
 
         mock_task = BacktestTask(
@@ -860,7 +860,7 @@ class TestDeleteResult:
 
     @pytest.mark.asyncio
     async def test_delete_result_clears_cache(self):
-        """测试清除缓存"""
+        """Test cache clearing"""
         svc = BacktestService()
 
         mock_task = BacktestTask(

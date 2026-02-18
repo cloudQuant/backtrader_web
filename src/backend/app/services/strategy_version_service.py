@@ -41,19 +41,26 @@ logger = logging.getLogger(__name__)
 
 
 class VersionControlService:
-    """
-    策略版本控制服务
+    """Service for managing strategy version control.
 
-    功能：
-    1. 创建策略版本
-    2. 管理策略分支
-    3. 版本对比（代码、参数、性能）
-    4. 版本回滚
-    5. 标记版本
-    6. 设置默认/活跃版本
+    Features:
+    1. Creating strategy versions
+    2. Managing strategy branches
+    3. Version comparison (code, parameters, performance)
+    4. Version rollback
+    5. Tagging versions
+    6. Setting default/active versions
+
+    Attributes:
+        version_repo: Repository for StrategyVersion entities.
+        branch_repo: Repository for VersionBranch entities.
+        comparison_repo: Repository for VersionComparison entities.
+        rollback_repo: Repository for VersionRollback entities.
+        strategy_repo: Repository for Strategy entities.
     """
 
     def __init__(self):
+        """Initialize the VersionControlService with required repositories."""
         self.version_repo = SQLRepository(StrategyVersion)
         self.branch_repo = SQLRepository(VersionBranch)
         self.comparison_repo = SQLRepository(VersionComparison)
@@ -61,10 +68,22 @@ class VersionControlService:
         self.strategy_repo = SQLRepository(Strategy)
 
     async def _require_strategy_owner(self, strategy_id: str, user_id: str) -> Strategy:
-        """Load a strategy and enforce ownership."""
+        """Load a strategy and enforce ownership.
+
+        Args:
+            strategy_id: The strategy identifier.
+            user_id: The user identifier to verify ownership.
+
+        Returns:
+            The Strategy entity if found and owned by the user.
+
+        Raises:
+            ValueError: If the strategy does not exist.
+            PermissionError: If the user does not own the strategy.
+        """
         strategy = await self.strategy_repo.get_by_id(strategy_id)
         if not strategy:
-            raise ValueError(f"策略不存在: {strategy_id}")
+            raise ValueError(f"Strategy not found: {strategy_id}")
         if getattr(strategy, "user_id", None) != user_id:
             raise PermissionError("forbidden")
         return strategy
@@ -81,39 +100,42 @@ class VersionControlService:
         changelog: Optional[str] = None,
         is_default: bool = False,
     ) -> StrategyVersion:
-        """
-        创建策略新版本
+        """Create a new strategy version.
 
         Args:
-            user_id: 用户 ID
-            strategy_id: 策略 ID
-            version_name: 版本名称（如 v1.0.0）
-            code: 策略代码
-            params: 默认参数
-            branch: 分支名称
-            tags: 版本标签
-            changelog: 更新日志
-            is_default: 是否设为默认版本
+            user_id: The user identifier creating the version.
+            strategy_id: The strategy identifier to version.
+            version_name: Version name (e.g., v1.0.0).
+            code: Strategy code content.
+            params: Default parameters for this version.
+            branch: Branch name for this version.
+            tags: Version tags for categorization.
+            changelog: Update log describing changes.
+            is_default: Whether to set as the default version.
 
         Returns:
-            StrategyVersion: 创建的版本
+            The created StrategyVersion entity.
+
+        Raises:
+            ValueError: If strategy does not exist or user lacks permission.
+            PermissionError: If user does not own the strategy.
         """
         # Enforce strategy ownership.
         await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
-        # 获取或创建分支
+        # Get or create branch
         version_branch = await self._get_or_create_branch(
             strategy_id, user_id, branch
         )
 
-        # 计算版本号
+        # Calculate version number
         version_number = await self._get_next_version_number(strategy_id, branch)
 
-        # 如果是默认版本，先取消其他默认版本
+        # If default version, unset other default versions
         if is_default:
             await self._unset_default_versions(strategy_id, branch)
 
-        # 创建版本
+        # Create version
         version = StrategyVersion(
             strategy_id=strategy_id,
             version_number=version_number,
@@ -126,18 +148,18 @@ class VersionControlService:
             description=changelog,
             is_active=True,
             is_default=is_default,
-            is_current=True,  # 新版本总是当前版本
+            is_current=True,  # New version is always current
             created_by=user_id,
         )
 
-        # 设置父版本（分支的最新版本）
+        # Set parent version (latest version in branch)
         last_version = await self._get_latest_version(strategy_id, branch)
         if last_version:
             version.parent_version_id = last_version.id
 
         version = await self.version_repo.create(version)
 
-        # 更新分支
+        # Update branch
         await self._update_branch(version_branch, version)
 
         logger.info(f"Created version {version.id} for strategy {strategy_id}")
@@ -145,14 +167,13 @@ class VersionControlService:
         return version
 
     async def get_version(self, version_id: str) -> Optional[StrategyVersion]:
-        """
-        获取策略版本
+        """Get a strategy version by ID.
 
         Args:
-            version_id: 版本 ID
+            version_id: The version identifier.
 
         Returns:
-            StrategyVersion or None
+            The StrategyVersion entity if found, None otherwise.
         """
         return await self.version_repo.get_by_id(version_id)
 
@@ -167,8 +188,20 @@ class VersionControlService:
     ) -> tuple[List[Dict[str, Any]], int]:
         """List versions for a strategy.
 
+        Args:
+            user_id: The user identifier requesting the list.
+            strategy_id: The strategy identifier.
+            branch: Optional branch name filter.
+            status: Optional status filter.
+            limit: Maximum number of items to return.
+            offset: Number of items to skip.
+
         Returns:
-            (items, total) where items are API-shaped dicts.
+            A tuple of (items, total) where items are API-shaped dictionaries
+            and total is the count of all matching versions.
+
+        Raises:
+            PermissionError: If user does not own the strategy.
         """
         await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
@@ -194,16 +227,18 @@ class VersionControlService:
         user_id: str,
         update_data: VersionUpdate,
     ) -> Optional[StrategyVersion]:
-        """
-        更新策略版本
+        """Update a strategy version.
 
         Args:
-            version_id: 版本 ID
-            user_id: 用户 ID
-            update_data: 更新数据
+            version_id: The version identifier.
+            user_id: The user identifier making the update.
+            update_data: Dictionary containing fields to update.
 
         Returns:
-            StrategyVersion or None
+            The updated StrategyVersion entity if successful, None otherwise.
+
+        Raises:
+            ValueError: If version is not in DRAFT status.
         """
         version = await self.version_repo.get_by_id(version_id)
         if not version:
@@ -211,11 +246,11 @@ class VersionControlService:
         if getattr(version, "created_by", None) != user_id:
             return None
 
-        # 只能更新 DRAFT 状态的版本
+        # Can only update DRAFT status versions
         if version.status != VersionStatus.DRAFT:
-            raise ValueError(f"只能更新 DRAFT 状态的版本，当前状态：{version.status}")
+            raise ValueError(f"Can only update DRAFT status versions, current status: {version.status}")
 
-        # 更新字段
+        # Update fields
         update_dict = {
             "updated_at": datetime.now(timezone.utc),
             "updated_by": user_id,
@@ -244,7 +279,7 @@ class VersionControlService:
 
         version = await self.version_repo.update(version_id, update_dict)
 
-        # 推送版本更新通知
+        # Push version update notification
         await ws_manager.send_to_task(f"strategy_version:{version.strategy_id}", {
             "type": "version_updated",
             "version_id": version.id,
@@ -262,15 +297,14 @@ class VersionControlService:
         version_id: str,
         user_id: str,
     ) -> bool:
-        """
-        设置默认版本
+        """Set a version as the default version.
 
         Args:
-            version_id: 版本 ID
-            user_id: 用户 ID
+            version_id: The version identifier.
+            user_id: The user identifier making the change.
 
         Returns:
-            bool: 是否成功
+            True if successful, False otherwise.
         """
         version = await self.version_repo.get_by_id(version_id)
         if not version:
@@ -278,10 +312,10 @@ class VersionControlService:
         if getattr(version, "created_by", None) != user_id:
             return False
 
-        # 取消分支上的其他默认版本
+        # Unset other default versions on branch
         await self._unset_default_versions(version.strategy_id, version.branch)
 
-        # 设置为默认版本
+        # Set as default version
         await self.version_repo.update(version_id, {
             "is_default": True,
             "updated_at": datetime.now(timezone.utc),
@@ -294,15 +328,14 @@ class VersionControlService:
         version_id: str,
         user_id: str,
     ) -> bool:
-        """
-        激活版本
+        """Activate a version.
 
         Args:
-            version_id: 版本 ID
-            user_id: 用户 ID
+            version_id: The version identifier.
+            user_id: The user identifier making the change.
 
         Returns:
-            bool: 是否成功
+            True if successful, False otherwise.
         """
         version = await self.version_repo.get_by_id(version_id)
         if not version:
@@ -310,10 +343,10 @@ class VersionControlService:
         if getattr(version, "created_by", None) != user_id:
             return False
 
-        # 取消分支上的其他活跃版本
+        # Unset other active versions on branch
         await self._unset_active_versions(version.strategy_id, version.branch)
 
-        # 设置为活跃版本
+        # Set as active version
         await self.version_repo.update(version_id, {
             "is_active": True,
             "updated_at": datetime.now(timezone.utc),
@@ -328,28 +361,32 @@ class VersionControlService:
         from_version_id: str,
         to_version_id: str,
     ) -> VersionComparison:
-        """
-        对比两个版本
+        """Compare two strategy versions.
 
         Args:
-            user_id: 用户 ID
-            strategy_id: 策略 ID
-            from_version_id: 源版本 ID
-            to_version_id: 目标版本 ID
+            user_id: The user identifier requesting the comparison.
+            strategy_id: The strategy identifier.
+            from_version_id: The source version identifier.
+            to_version_id: The target version identifier.
 
         Returns:
-            VersionComparison: 对比结果
+            The VersionComparison entity containing code, parameters,
+            and performance differences.
+
+        Raises:
+            ValueError: If versions do not exist.
+            PermissionError: If user does not have access to both versions.
         """
-        # 获取两个版本
+        # Get both versions
         from_version = await self.version_repo.get_by_id(from_version_id)
         to_version = await self.version_repo.get_by_id(to_version_id)
 
         if not from_version or not to_version:
-            raise ValueError("版本不存在")
+            raise ValueError("Version not found")
         if getattr(from_version, "created_by", None) != user_id or getattr(to_version, "created_by", None) != user_id:
             raise PermissionError("forbidden")
 
-        # 计算代码差异
+        # Calculate code diff
         code_diff = self._generate_code_diff(
             from_version.code,
             to_version.code,
@@ -357,19 +394,19 @@ class VersionControlService:
             to_version.version_name,
         )
 
-        # 计算参数差异
+        # Calculate parameters diff
         params_diff = self._generate_params_diff(
             from_version.params,
             to_version.params,
         )
 
-        # 计算性能差异
+        # Calculate performance diff
         performance_diff = await self._generate_performance_diff(
             from_version_id,
             to_version_id,
         )
 
-        # 创建对比记录
+        # Create comparison record
         comparison = VersionComparison(
             strategy_id=strategy_id,
             from_version_id=from_version_id,
@@ -392,35 +429,38 @@ class VersionControlService:
         target_version_id: str,
         reason: str,
     ) -> StrategyVersion:
-        """
-        回滚到指定版本
+        """Rollback to a specific version.
 
         Args:
-            user_id: 用户 ID
-            strategy_id: 策略 ID
-            target_version_id: 目标版本 ID
-            reason: 回滚原因
+            user_id: The user identifier initiating the rollback.
+            strategy_id: The strategy identifier.
+            target_version_id: The target version to rollback to.
+            reason: The reason for the rollback.
 
         Returns:
-            StrategyVersion: 新的回滚版本
+            The newly created rollback version.
+
+        Raises:
+            ValueError: If target version does not exist or current version not found.
+            PermissionError: If user lacks necessary permissions.
         """
-        # 获取目标版本
+        # Get target version
         target_version = await self.version_repo.get_by_id(target_version_id)
         if not target_version:
-            raise ValueError(f"目标版本不存在: {target_version_id}")
+            raise ValueError(f"Target version not found: {target_version_id}")
         if getattr(target_version, "created_by", None) != user_id:
             raise PermissionError("forbidden")
 
         await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
-        # 获取当前活跃版本
+        # Get current active version
         current_version = await self._get_current_version(strategy_id)
         if not current_version:
-            raise ValueError(f"当前版本不存在: {strategy_id}")
+            raise ValueError(f"Current version not found: {strategy_id}")
         if getattr(current_version, "created_by", None) != user_id:
             raise PermissionError("forbidden")
 
-        # 保存当前版本快照（用于回滚）
+        # Save current version snapshot (for undo)
         snapshot_data = {
             "version_id": current_version.id,
             "code": current_version.code,
@@ -428,7 +468,7 @@ class VersionControlService:
             "description": current_version.description,
         }
 
-        # 创建回滚记录
+        # Create rollback record
         rollback = VersionRollback(
             strategy_id=strategy_id,
             from_version_id=current_version.id,
@@ -440,7 +480,7 @@ class VersionControlService:
 
         await self.rollback_repo.create(rollback)
 
-        # 创建新版本（基于目标版本的代码和参数）
+        # Create new version (based on target version code and params)
         new_version = StrategyVersion(
             strategy_id=strategy_id,
             version_number=await self._get_next_version_number(strategy_id, "main"),
@@ -450,15 +490,15 @@ class VersionControlService:
             tags=["rollback"],
             code=target_version.code,
             params=target_version.params,
-            description=f"回滚到 {target_version.version_name}，原因：{reason}",
+            description=f"Rolled back to {target_version.version_name}, reason: {reason}",
             parent_version_id=target_version.id,
             is_active=True,
-            is_default=False,  # 回滚版本不设为默认
+            is_default=False,  # Rollback version not set as default
             is_current=True,
             created_by=user_id,
         )
 
-        # 取消其他版本的活跃状态
+        # Unset active status for other versions
         await self._unset_active_versions(strategy_id, "main")
 
         new_version = await self.version_repo.create(new_version)
@@ -474,17 +514,16 @@ class VersionControlService:
         name1: str,
         name2: str,
     ) -> str:
-        """
-        生成代码差异（Unified diff）
+        """Generate a code difference in unified diff format.
 
         Args:
-            code1: 源代码
-            code2: 目标代码
-            name1: 源名称
-            name2: 目标名称
+            code1: Source code content.
+            code2: Target code content.
+            name1: Source name for diff header.
+            name2: Target name for diff header.
 
         Returns:
-            str: Unified diff 格式
+            String containing the unified diff.
         """
         lines1 = code1.splitlines(keepends=True)
         lines2 = code2.splitlines(keepends=True)
@@ -497,15 +536,15 @@ class VersionControlService:
         params1: Dict[str, Any],
         params2: Dict[str, Any],
     ) -> Dict[str, Dict[str, Any]]:
-        """
-        生成参数差异
+        """Generate a parameter difference between two parameter sets.
 
         Args:
-            params1: 源参数
-            params2: 目标参数
+            params1: Source parameters dictionary.
+            params2: Target parameters dictionary.
 
         Returns:
-            Dict: 参数差异
+            Dictionary with keys 'added', 'removed', 'modified', and 'unchanged'
+            containing the respective parameter differences.
         """
         all_keys = set(params1.keys()) | set(params2.keys())
 
@@ -536,17 +575,20 @@ class VersionControlService:
         from_version_id: str,
         to_version_id: str,
     ) -> Dict[str, Any]:
-        """
-        生成性能差异
+        """Generate a performance difference between two versions.
 
-        对比两个版本的回测结果
+        Compares backtest results from both versions.
 
         Args:
-            from_version_id: 源版本 ID
-            to_version_id: 目标版本 ID
+            from_version_id: Source version identifier.
+            to_version_id: Target version identifier.
 
         Returns:
-            Dict: 性能差异
+            Dictionary containing performance metrics differences with keys:
+            - available: Whether performance data exists for both versions
+            - from: Source version metrics
+            - to: Target version metrics
+            - diff: Metric differences (to - from)
         """
         async def _latest(version_id: str) -> Optional[Dict[str, Any]]:
             async with db.async_session_maker() as session:
@@ -591,14 +633,13 @@ class VersionControlService:
         return {"available": True, "from": from_res, "to": to_res, "diff": diff}
 
     def _to_response(self, version: StrategyVersion) -> Dict[str, Any]:
-        """
-        转换为响应字典
+        """Convert a StrategyVersion entity to an API response dictionary.
 
         Args:
-            version: 版本模型
+            version: The StrategyVersion entity.
 
         Returns:
-            Dict: 响应数据
+            Dictionary containing version data for API responses.
         """
         return {
             "id": version.id,
@@ -624,16 +665,15 @@ class VersionControlService:
         user_id: str,
         branch_name: str,
     ) -> VersionBranch:
-        """
-        获取或创建分支
+        """Get an existing branch or create a new one.
 
         Args:
-            strategy_id: 策略 ID
-            user_id: 用户 ID
-            branch_name: 分支名称
+            strategy_id: The strategy identifier.
+            user_id: The user identifier.
+            branch_name: The branch name.
 
         Returns:
-            VersionBranch: 分支对象
+            The VersionBranch entity.
         """
         branches = await self.branch_repo.list(
             filters={"strategy_id": strategy_id, "branch_name": branch_name},
@@ -643,7 +683,7 @@ class VersionControlService:
         if branches:
             return branches[0]
 
-        # 创建新分支
+        # Create new branch
         branch = VersionBranch(
             strategy_id=strategy_id,
             branch_name=branch_name,
@@ -661,12 +701,11 @@ class VersionControlService:
         branch: VersionBranch,
         version: StrategyVersion,
     ):
-        """
-        更新分支信息
+        """Update branch information after a version is created.
 
         Args:
-            branch: 分支对象
-            version: 版本对象
+            branch: The VersionBranch entity to update.
+            version: The StrategyVersion entity to incorporate.
         """
         await self.branch_repo.update(branch.id, {
             "version_count": branch.version_count + 1,
@@ -680,7 +719,20 @@ class VersionControlService:
         branch_name: str,
         parent_branch: Optional[str] = None,
     ) -> VersionBranch:
-        """Create a strategy branch (idempotent if it already exists)."""
+        """Create a strategy branch (idempotent if it already exists).
+
+        Args:
+            user_id: The user identifier creating the branch.
+            strategy_id: The strategy identifier.
+            branch_name: The name for the new branch.
+            parent_branch: Optional parent branch name.
+
+        Returns:
+            The created or existing VersionBranch entity.
+
+        Raises:
+            PermissionError: If user does not own the strategy.
+        """
         await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
         existing = await self.branch_repo.list(
@@ -710,7 +762,21 @@ class VersionControlService:
         limit: int = 20,
         offset: int = 0,
     ) -> tuple[List[VersionBranch], int]:
-        """List strategy branches with pagination."""
+        """List strategy branches with pagination.
+
+        Args:
+            user_id: The user identifier requesting the list.
+            strategy_id: The strategy identifier.
+            limit: Maximum number of items to return.
+            offset: Number of items to skip.
+
+        Returns:
+            A tuple of (branches, total) where branches is a list of
+            VersionBranch entities and total is the count.
+
+        Raises:
+            PermissionError: If user does not own the strategy.
+        """
         await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
         branches = await self.branch_repo.list(
             filters={"strategy_id": strategy_id},
@@ -724,7 +790,14 @@ class VersionControlService:
 
     @staticmethod
     def branch_to_response(branch: VersionBranch) -> Dict[str, Any]:
-        """Convert a branch ORM object to the API response dict."""
+        """Convert a branch ORM object to the API response dict.
+
+        Args:
+            branch: The VersionBranch entity.
+
+        Returns:
+            Dictionary containing branch data for API responses.
+        """
         return {
             "branch_id": branch.id,
             "strategy_id": branch.strategy_id,
@@ -741,15 +814,14 @@ class VersionControlService:
         strategy_id: str,
         branch: str,
     ) -> Optional[StrategyVersion]:
-        """
-        获取分支的最新版本
+        """Get the latest version for a branch.
 
         Args:
-            strategy_id: 策略 ID
-            branch: 分支名称
+            strategy_id: The strategy identifier.
+            branch: The branch name.
 
         Returns:
-            StrategyVersion or None
+            The latest StrategyVersion entity or None if not found.
         """
         versions = await self.version_repo.list(
             filters={
@@ -768,14 +840,13 @@ class VersionControlService:
         self,
         strategy_id: str,
     ) -> Optional[StrategyVersion]:
-        """
-        获取策略的当前版本（is_current=True）
+        """Get the current version of a strategy (is_current=True).
 
         Args:
-            strategy_id: 策略 ID
+            strategy_id: The strategy identifier.
 
         Returns:
-            StrategyVersion or None
+            The current StrategyVersion entity or None if not found.
         """
         versions = await self.version_repo.list(
             filters={
@@ -792,17 +863,16 @@ class VersionControlService:
         strategy_id: str,
         branch: str,
     ) -> int:
-        """
-        获取下一个版本号
+        """Get the next version number for a branch.
 
         Args:
-            strategy_id: 策略 ID
-            branch: 分支名称
+            strategy_id: The strategy identifier.
+            branch: The branch name.
 
         Returns:
-            int: 下一个版本号
+            The next available version number (integer).
         """
-        # 获取当前最大版本号
+        # Get current maximum version number
         versions = await self.version_repo.list(
             filters={
                 "strategy_id": strategy_id,
@@ -823,12 +893,11 @@ class VersionControlService:
         strategy_id: str,
         branch: str,
     ):
-        """
-        取消分支上的其他默认版本
+        """Unset default flag for all versions on a branch.
 
         Args:
-            strategy_id: 策略 ID
-            branch: 分支名称
+            strategy_id: The strategy identifier.
+            branch: The branch name.
         """
         versions = await self.version_repo.list(
             filters={
@@ -846,12 +915,11 @@ class VersionControlService:
         strategy_id: str,
         branch: str,
     ):
-        """
-        取消分支上的其他活跃版本
+        """Unset active flag for all versions on a branch.
 
         Args:
-            strategy_id: 策略 ID
-            branch: 分支名称
+            strategy_id: The strategy identifier.
+            branch: The branch name.
         """
         versions = await self.version_repo.list(
             filters={

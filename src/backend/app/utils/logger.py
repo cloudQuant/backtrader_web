@@ -7,28 +7,35 @@ from app.config import get_settings
 
 
 def setup_logger(name: str = None):
-    """Configure a logger instance."""
+    """Configure a logger instance.
+
+    Args:
+        name: Optional logger name (not used in loguru but kept for compatibility).
+
+    Returns:
+        The configured logger instance.
+    """
     settings = get_settings()
-    
-    # 移除默认处理器
+
+    # Remove default handler
     logger.remove()
-    
-    # 添加控制台输出
+
+    # Add console output
     log_format = (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
         "<level>{level: <8}</level> | "
         "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
         "<level>{message}</level>"
     )
-    
+
     logger.add(
         sys.stdout,
         format=log_format,
         level="DEBUG" if settings.DEBUG else "INFO",
         colorize=True,
     )
-    
-    # 添加文件输出
+
+    # Add file output
     logger.add(
         "logs/app_{time:YYYY-MM-DD}.log",
         rotation="00:00",
@@ -36,5 +43,5 @@ def setup_logger(name: str = None):
         format=log_format,
         level="INFO",
     )
-    
+
     return logger
