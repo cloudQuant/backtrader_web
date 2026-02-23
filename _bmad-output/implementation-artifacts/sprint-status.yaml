@@ -50,8 +50,8 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: 部署与运维文档
-  epic-2: backlog
-  2-1-installation-guide: backlog
-  2-2-deployment-guide: backlog
-  2-3-operations-guide: backlog
+  epic-2: done
+  2-1-installation-guide: done
+  2-2-deployment-guide: done
+  2-3-operations-guide: done
   epic-2-retrospective: optional
