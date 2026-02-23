@@ -14,10 +14,25 @@ FastAPI-based backend service for the Backtrader Web quantitative backtesting pl
 - **Real-time Data** — Market data feeds and subscriptions
 - **Strategy Comparison** — Side-by-side performance analysis
 - **Analytics & Reports** — HTML/PDF/Excel report generation
+- **Financial Metrics** — Standardized metrics via [fincore](https://github.com/quantopian/fincore) library
 - **System Monitoring** — Health checks, metrics, alerts
 - **Database Abstraction** — SQLite/PostgreSQL/MySQL via env config
 - **Caching** — Optional Redis cache layer
 - **Sandbox** — Secure execution of user-uploaded strategy code
+
+## Financial Metrics
+
+This project uses the **fincore** library for standardized financial metric calculations, ensuring industry-consistent results for:
+
+- **Sharpe Ratio** — Risk-adjusted return measure
+- **Maximum Drawdown** — Peak-to-trough decline
+- **Total Returns** — Overall portfolio performance
+- **Annualized Returns** — Yearly performance extrapolation
+- **Win Rate** — Percentage of profitable trades
+- **Profit Factor** — Ratio of average win to average loss
+- **Average Holding Period** — Mean trade duration
+
+The `FincoreAdapter` class provides a unified interface with fallback to manual calculations for backward compatibility. See [FINCORE_MIGRATION.md](FINCORE_MIGRATION.md) for details.
 
 ## Quick Start
 

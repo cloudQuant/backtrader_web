@@ -41,12 +41,12 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   # Epic 1: fincore 性能指标标准化
-  epic-1: in-progress
+  epic-1: done
   1-1-install-fincore: done
   1-2-adapter-pattern: done
   1-3-basic-metrics: done
   1-4-advanced-metrics: done
-  1-5-validation-cleanup: backlog
+  1-5-validation-cleanup: done
   epic-1-retrospective: optional
 
   # Epic 2: 部署与运维文档
