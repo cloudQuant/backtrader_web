@@ -1,22 +1,21 @@
 """Strategy service (CRUD + template/config loading)."""
-import glob
 import logging
-from pathlib import Path
-from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, List, Optional
 
 import yaml
 
+from app.db.sql_repository import SQLRepository
 from app.models.strategy import Strategy
 from app.schemas.strategy import (
-    StrategyCreate,
-    StrategyUpdate,
-    StrategyResponse,
-    StrategyListResponse,
-    StrategyTemplate,
     ParamSpec,
+    StrategyCreate,
+    StrategyListResponse,
+    StrategyResponse,
+    StrategyTemplate,
+    StrategyUpdate,
 )
-from app.db.sql_repository import SQLRepository
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +92,7 @@ def _scan_strategies_folder() -> List[StrategyTemplate]:
             category = _infer_category(name, description)
 
             # Read backtest config as additional metadata
-            bt_config = config.get("backtest", {})
+            _bt_config = config.get("backtest", {})
             data_config = config.get("data", {})
 
             # Append author and symbol info to description

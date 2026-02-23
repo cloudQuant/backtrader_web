@@ -3,38 +3,27 @@ Strategy version control service.
 
 Supports versioning, branch management, rollback, and comparisons.
 """
-import uuid
 import difflib
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
 import logging
-import json
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 
+from app.db import database as db
+from app.db.sql_repository import SQLRepository
+from app.models.backtest import BacktestResultModel, BacktestTask
+from app.models.strategy import Strategy
 from app.models.strategy_version import (
     StrategyVersion,
-    VersionStatus,
-    VersionTag,
+    VersionBranch,
     VersionComparison,
     VersionRollback,
-    VersionBranch,
+    VersionStatus,
 )
-from app.models.backtest import BacktestTask, BacktestResultModel
 from app.schemas.strategy_version import (
-    VersionCreate,
-    VersionResponse,
     VersionUpdate,
-    VersionListResponse,
-    VersionComparisonCreate,
-    VersionRollbackCreate,
-    BranchCreate,
-    BranchResponse,
-    BranchListResponse,
 )
-from app.models.strategy import Strategy
-from app.db.sql_repository import SQLRepository
-from app.db import database as db
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)

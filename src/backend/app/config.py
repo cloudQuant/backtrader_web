@@ -1,8 +1,8 @@
 """
 Configuration management - Load configuration from environment variables.
 """
-import os
 from typing import Optional
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

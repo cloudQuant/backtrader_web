@@ -2,17 +2,17 @@
 Strategy API routes.
 """
 from functools import lru_cache
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.deps import get_current_user
 from app.schemas.strategy import (
     StrategyCreate,
-    StrategyUpdate,
-    StrategyResponse,
     StrategyListResponse,
+    StrategyResponse,
+    StrategyUpdate,
 )
-from app.services.strategy_service import StrategyService, get_template_by_id, get_strategy_readme
-from app.api.deps import get_current_user
+from app.services.strategy_service import StrategyService, get_strategy_readme, get_template_by_id
 
 router = APIRouter()
 
@@ -143,8 +143,9 @@ async def get_template_config(template_id: str):
     Raises:
         HTTPException: If config file not found.
     """
-    from app.services.strategy_service import STRATEGIES_DIR
     import yaml as _yaml
+
+    from app.services.strategy_service import STRATEGIES_DIR
 
     config_path = STRATEGIES_DIR / template_id / "config.yaml"
     if not config_path.is_file():

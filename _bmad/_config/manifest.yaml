@@ -1,0 +1,52 @@
+installation:
+  version: 6.0.1
+  installDate: 2026-02-22T15:43:09.517Z
+  lastUpdated: 2026-02-22T15:43:09.517Z
+modules:
+  - name: core
+    version: 6.0.1
+    installDate: 2026-02-22T15:43:05.068Z
+    lastUpdated: 2026-02-22T15:43:05.068Z
+    source: built-in
+    npmPackage: null
+    repoUrl: null
+  - name: bmm
+    version: 6.0.1
+    installDate: 2026-02-22T15:42:30.244Z
+    lastUpdated: 2026-02-22T15:43:05.068Z
+    source: built-in
+    npmPackage: null
+    repoUrl: null
+  - name: bmb
+    version: 0.1.6
+    installDate: 2026-02-22T15:42:36.959Z
+    lastUpdated: 2026-02-22T15:43:06.667Z
+    source: external
+    npmPackage: bmad-builder
+    repoUrl: https://github.com/bmad-code-org/bmad-builder
+  - name: cis
+    version: 0.1.6
+    installDate: 2026-02-22T15:42:41.931Z
+    lastUpdated: 2026-02-22T15:43:07.488Z
+    source: external
+    npmPackage: bmad-creative-intelligence-suite
+    repoUrl: https://github.com/bmad-code-org/bmad-module-creative-intelligence-suite
+  - name: gds
+    version: 0.1.7
+    installDate: 2026-02-22T15:42:48.650Z
+    lastUpdated: 2026-02-22T15:43:08.578Z
+    source: external
+    npmPackage: bmad-game-dev-studio
+    repoUrl: https://github.com/bmad-code-org/bmad-module-game-dev-studio.git
+  - name: tea
+    version: 1.2.3
+    installDate: 2026-02-22T15:42:53.016Z
+    lastUpdated: 2026-02-22T15:43:09.517Z
+    source: external
+    npmPackage: bmad-method-test-architecture-enterprise
+    repoUrl: https://github.com/bmad-code-org/bmad-method-test-architecture-enterprise
+ides:
+  - claude-code
+  - codex
+  - cursor
+  - windsurf

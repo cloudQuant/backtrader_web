@@ -6,29 +6,24 @@ Provides:
 - Alert listing and status updates
 - Real-time notifications via WebSocket
 """
-from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-import logging
 import asyncio
+import logging
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.deps import get_current_user
 from app.schemas.monitoring import (
-    AlertCreate,
-    AlertUpdate,
-    AlertRuleCreate,
-    AlertRuleUpdate,
-    AccountAlertConfig,
-    PositionAlertConfig,
-    StrategyAlertConfig,
-    WebhookConfig,
-    AlertResponse,
-    AlertRuleResponse,
-    AlertRuleListResponse,
     AlertListResponse,
-    NotificationConfig,
+    AlertResponse,
+    AlertRuleCreate,
+    AlertRuleListResponse,
+    AlertRuleResponse,
+    AlertRuleUpdate,
 )
 from app.services.monitoring_service import MonitoringService
-from app.api.deps import get_current_user
-from app.websocket_manager import manager as ws_manager, MessageType
+from app.websocket_manager import MessageType
+from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 

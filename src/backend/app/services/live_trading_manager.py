@@ -4,15 +4,15 @@ Live trading instance manager.
 Manages strategy instances (CRUD/start/stop). Uses a JSON file for persistence and runs strategies
 in subprocesses.
 """
-import json
-import uuid
-import sys
-import signal
 import asyncio
+import json
 import logging
-from pathlib import Path
+import signal
+import sys
+import uuid
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from app.services.strategy_service import STRATEGIES_DIR, get_template_by_id
 

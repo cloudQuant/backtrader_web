@@ -4,22 +4,19 @@ Realtime market data API routes.
 Supports realtime tick subscription and WebSocket streaming across brokers.
 """
 import asyncio
-from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 import logging
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.deps import get_current_user
 from app.schemas.realtime_data import (
     RealtimeTickSubscribeRequest,
     RealtimeTickUnsubscribeRequest,
-    RealtimeHistoricalTickRequest,
-    RealtimeTickResponse,
-    RealtimeTickUpdate,
-    RealtimeTickBatchResponse,
-    RealtimeTickListResponse,
 )
 from app.services.realtime_data_service import RealTimeDataService
-from app.api.deps import get_current_user
-from app.websocket_manager import manager as ws_manager, MessageType
+from app.websocket_manager import MessageType
+from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 

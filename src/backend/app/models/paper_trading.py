@@ -6,9 +6,9 @@ Supports accounts, orders, and position management.
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from sqlalchemy import Column, String, DateTime, Float, Integer, ForeignKey, JSON, Boolean
+
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
 
 from app.db.database import Base
 

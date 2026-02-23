@@ -3,23 +3,22 @@ Optimization service.
 
 Supports grid search and Bayesian optimization.
 """
-import uuid
 import asyncio
-from datetime import datetime
-from typing import Dict, Any, List, Optional
-import logging
 import itertools
+import logging
+from typing import Any, Dict, List
 
-from app.models.backtest import BacktestTask, BacktestResultModel
+from app.db.cache import get_cache
+from app.db.sql_repository import SQLRepository
+from app.models.backtest import BacktestTask
 from app.schemas.backtest_enhanced import (
-    OptimizationRequest,
-    OptimizationResult,
     BacktestRequest,
     BacktestResult,
+    OptimizationRequest,
+    OptimizationResult,
     TaskStatus,
 )
-from app.db.sql_repository import SQLRepository
-from app.db.cache import get_cache
+
 from .backtest_service import BacktestService
 
 logger = logging.getLogger(__name__)
@@ -220,7 +219,7 @@ class OptimizationService:
         # Run backtest with best parameters to get complete results
         backtest_request = request.backtest_config.model_copy()
         backtest_request.params = best_params
-        backtest_result = await self._run_single_backtest(user_id, backtest_request)
+        _backtest_result = await self._run_single_backtest(user_id, backtest_request)
 
         # Collect all trial results
         all_results = []
@@ -340,7 +339,7 @@ class OptimizationService:
             waited += 1
 
             status = await self.backtest_service.get_task_status(task_id)
-            
+
             if status == TaskStatus.COMPLETED:
                 return await self.backtest_service.get_result(task_id)
             elif status == TaskStatus.FAILED:

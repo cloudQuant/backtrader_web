@@ -3,12 +3,11 @@ Strategy execution sandbox.
 
 Safely executes user strategy code in a restricted environment.
 """
-import sys
-import types
-from typing import Any, Dict, Optional
-import backtrader as bt
-from datetime import datetime
 import math
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+import backtrader as bt
 
 
 class StrategySandbox:
@@ -287,10 +286,10 @@ class DockerSandbox:
         Raises:
             RuntimeError: If Docker is not available or execution fails.
         """
-        import subprocess
         import json
-        import tempfile
         import os
+        import subprocess
+        import tempfile
 
         # Check if Docker is available
         try:
@@ -320,7 +319,7 @@ class DockerSandbox:
                 '--read-only',  # Read-only root filesystem (except /tmp)
                 '--tmpfs', '/tmp:rw,noexec,nosuid,size=100m',  # Temporary filesystem
                 '-v', f'{tmpdir}:/data:ro',  # Read-only mount for strategy and params
-                '-e', f'PYTHONUNBUFFERED=1',  # Unbuffered output
+                '-e', 'PYTHONUNBUFFERED=1',  # Unbuffered output
                 docker_image,
                 'python', '/data/strategy.py'
             ], capture_output=True, timeout=timeout, text=True)
@@ -354,7 +353,7 @@ def execute_strategy_safely(
     """
     if use_docker:
         # Use Docker container isolation
-        result = DockerSandbox.execute_in_container(code, params or {})
+        DockerSandbox.execute_in_container(code, params or {})
         # Assume Docker container returns serialized strategy class
         # Actual implementation requires more complexity
         raise NotImplementedError("Docker sandbox mode requires additional configuration")

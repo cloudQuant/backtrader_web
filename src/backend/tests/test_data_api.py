@@ -438,7 +438,7 @@ class TestKlineDataEdgeCases:
             '最低': [9.8],
             '收盘': [10.3],
             '成交量': [1000000],
-            # Missing 涨跌幅 column
+            # Missing change_pct column
         })
 
         with patch('akshare.stock_zh_a_hist') as mock_ak:

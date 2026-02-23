@@ -3,13 +3,12 @@ Live trading service (Backtrader architecture).
 
 Uses the standard Backtrader architecture: Cerebro + Store + Broker.
 """
-import sys
-import asyncio
-import threading
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable
 import logging
+import sys
+import threading
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 # Dynamically import backtrader project
 BACKTRADER_PATH = Path.home() / "Documents" / "backtrader"
@@ -18,10 +17,10 @@ if BACKTRADER_PATH.exists():
 
 try:
     import backtrader as bt
-    from backtrader.brokers.ccxtbroker import CCXTBroker, CCXTStore
+    from backtrader.brokers.ccxtbroker import CCXTBroker  # noqa: F401
     from backtrader.feeds.ccxtdata import CCXTData
     from backtrader.observers.broker import BrokerObserver
-    from backtrader.stores.ccxtstore import CCXTStore
+    from backtrader.stores.ccxtstore import CCXTStore  # noqa: F811
     BACKTRADER_AVAILABLE = True
 except ImportError as e:
     BACKTRADER_AVAILABLE = False

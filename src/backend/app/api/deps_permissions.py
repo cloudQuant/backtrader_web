@@ -3,9 +3,9 @@ Permission dependencies.
 
 Implements role-based permission checks.
 """
-from typing import List
 from fastapi import Depends, HTTPException, status
-from app.models.permission import Permission, Role, ROLE_PERMISSIONS
+
+from app.models.permission import ROLE_PERMISSIONS, Permission
 from app.models.user import User
 
 

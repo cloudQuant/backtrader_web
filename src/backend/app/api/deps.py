@@ -2,12 +2,12 @@
 API dependencies.
 """
 from typing import Optional
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-from app.utils.security import decode_access_token
-from app.services.auth_service import AuthService
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
 from app.schemas.auth import TokenPayload
+from app.utils.security import decode_access_token
 
 security = HTTPBearer()
 

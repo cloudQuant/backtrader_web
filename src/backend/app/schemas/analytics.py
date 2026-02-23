@@ -1,9 +1,9 @@
 """
 Backtest analytics schemas.
 """
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
-from datetime import datetime
 
 
 class PerformanceMetrics(BaseModel):

@@ -1,19 +1,21 @@
 """
 Authentication API routes.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
+from app.api.deps import get_current_user
 from app.schemas.auth import (
+    ChangePassword,
+    Token,
     UserCreate,
     UserLogin,
     UserResponse,
-    Token,
-    ChangePassword,
 )
 from app.services.auth_service import AuthService
-from app.api.deps import get_current_user
+from app.utils.logger import audit_logger, get_logger
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 
 def get_auth_service():
@@ -49,12 +51,14 @@ async def register(
 @router.post("/login", response_model=Token, summary="User login")
 async def login(
     user_login: UserLogin,
+    request: Request,
     service: AuthService = Depends(get_auth_service),
 ):
     """Authenticate and return a JWT access token.
 
     Args:
         user_login: Login payload with username and password.
+        request: FastAPI request for client IP.
         service: Auth service dependency.
 
     Returns:
@@ -64,12 +68,18 @@ async def login(
         HTTPException: If credentials are invalid (401).
     """
     result = await service.login(user_login)
+    client_ip = request.client.host if request.client else "unknown"
+
     if result is None:
+        audit_logger.log_login(user_login.username, success=False, ip=client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    audit_logger.log_login(user_login.username, success=True, ip=client_ip)
+    logger.info(f"User logged in: {user_login.username}", user_id=user_login.username)
     return result
 
 

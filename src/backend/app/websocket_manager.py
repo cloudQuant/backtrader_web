@@ -3,10 +3,10 @@ WebSocket real-time push service.
 
 Used for real-time push of backtest progress and logs.
 """
-import json
 import logging
-from typing import List, Dict, Any, Optional
-from fastapi import WebSocket, WebSocketDisconnect
+from typing import Any, Dict, List, Optional
+
+from fastapi import WebSocket
 
 from app.schemas.backtest_enhanced import TaskStatus
 

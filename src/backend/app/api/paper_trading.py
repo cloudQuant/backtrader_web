@@ -3,24 +3,24 @@ Paper trading API routes.
 
 Provides a full paper trading workflow: accounts, orders, positions, trades, and WebSocket updates.
 """
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.websockets import WebSocket, WebSocketDisconnect
-import json
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.websockets import WebSocket, WebSocketDisconnect
+
+from app.api.deps import get_current_user
 from app.schemas.paper_trading import (
     AccountCreate,
-    AccountResponse,
     AccountListResponse,
+    AccountResponse,
+    OrderListResponse,
     OrderRequest,
     OrderResponse,
-    OrderListResponse,
-    PositionResponse,
     PositionListResponse,
+    PositionResponse,
     TradeListResponse,
 )
 from app.services.paper_trading_service import PaperTradingService
-from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -430,8 +430,10 @@ async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
         websocket: The WebSocket connection instance.
         account_id: The unique identifier of the paper trading account.
     """
-    from app.websocket_manager import manager as ws_manager, MessageType
     import asyncio
+
+    from app.websocket_manager import MessageType
+    from app.websocket_manager import manager as ws_manager
 
     # Verify account exists
     service = PaperTradingService()

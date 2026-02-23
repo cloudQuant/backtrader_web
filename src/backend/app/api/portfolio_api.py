@@ -7,24 +7,21 @@ Aggregates data across live trading strategy instances:
 - Aggregated trades (historical trades per strategy)
 - Portfolio equity curve (stacked equity across strategies)
 """
-import math
 import logging
-from collections import defaultdict
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+import math
+from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
-from app.services.live_trading_manager import get_live_trading_manager, LiveTradingManager
+from app.api.deps import get_current_user
+from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
 from app.services.log_parser_service import (
     find_latest_log_dir,
-    parse_value_log,
-    parse_trade_log,
     parse_current_position,
-    parse_all_logs,
+    parse_trade_log,
+    parse_value_log,
 )
 from app.services.strategy_service import STRATEGIES_DIR
-from app.api.deps import get_current_user
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -4,9 +4,8 @@ Permission models.
 Implements role-based access control (RBAC).
 """
 import enum
-from sqlalchemy import Column, String, DateTime, Table, ForeignKey
-from sqlalchemy.orm import relationship
-from datetime import datetime
+
+from sqlalchemy import Column, ForeignKey, String, Table
 
 from app.db.database import Base
 

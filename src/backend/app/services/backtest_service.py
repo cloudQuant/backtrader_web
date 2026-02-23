@@ -3,30 +3,29 @@ Backtest service.
 
 Encapsulates Backtrader backtest execution and persistence.
 """
-import os
-import uuid
 import asyncio
+import logging
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
-import logging
+from typing import Dict, Optional
 
-from app.models.backtest import BacktestTask, BacktestResultModel
+from app.db.cache import get_cache
+from app.db.sql_repository import SQLRepository
+from app.models.backtest import BacktestResultModel, BacktestTask
 from app.schemas.backtest import (
+    BacktestListResponse,
     BacktestRequest,
     BacktestResponse,
     BacktestResult,
-    BacktestListResponse,
     TaskStatus,
-    TradeRecord,
 )
-from app.db.sql_repository import SQLRepository
-from app.db.cache import get_cache
-from app.websocket_manager import manager as ws_manager, MessageType
+from app.websocket_manager import MessageType
+from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +189,7 @@ class BacktestService:
             })
 
             # Call run.py (run in temp directory)
-            result = await self._run_strategy_subprocess(
+            _result = await self._run_strategy_subprocess(
                 task_work_dir, str(strategy_dir), task_id
             )
 
@@ -201,21 +200,28 @@ class BacktestService:
 
             # Parse logs from temp directory
             from app.services.log_parser_service import parse_all_logs
+            from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
+
             log_result = parse_all_logs(task_work_dir)
             if not log_result:
                 raise ValueError("Backtest completed but no log file found")
 
-            # Save results
+            # Calculate metrics using FincoreAdapter (use_fincore=True by default)
+            # This provides standardized financial metrics with fallback to manual calculation
+            metrics = calculate_metrics_from_log_data(log_result, use_fincore=True)
+
+            # Save results with fincore-calculated metrics
             result_model = BacktestResultModel(
                 task_id=task_id,
-                total_return=log_result.get("total_return", 0),
-                annual_return=log_result.get("annual_return", 0),
-                sharpe_ratio=log_result.get("sharpe_ratio", 0),
-                max_drawdown=log_result.get("max_drawdown", 0),
-                win_rate=log_result.get("win_rate", 0),
-                total_trades=log_result.get("total_trades", 0),
-                profitable_trades=log_result.get("profitable_trades", 0),
-                losing_trades=log_result.get("losing_trades", 0),
+                total_return=metrics.get("total_return", 0),
+                annual_return=metrics.get("annual_return", 0),
+                sharpe_ratio=metrics.get("sharpe_ratio", 0),
+                max_drawdown=metrics.get("max_drawdown", 0),
+                win_rate=metrics.get("win_rate", 0),
+                metrics_source=metrics.get("metrics_source", "manual"),
+                total_trades=metrics.get("total_trades", 0),
+                profitable_trades=metrics.get("profitable_trades", 0),
+                losing_trades=metrics.get("losing_trades", 0),
                 equity_curve=log_result.get("equity_curve", []),
                 equity_dates=log_result.get("equity_dates", []),
                 drawdown_curve=log_result.get("drawdown_curve", []),
@@ -473,6 +479,7 @@ class BacktestService:
             sharpe_ratio=result_model.sharpe_ratio if result_model else 0,
             max_drawdown=result_model.max_drawdown if result_model else 0,
             win_rate=result_model.win_rate if result_model else 0,
+            metrics_source=getattr(result_model, 'metrics_source', 'manual') if result_model else 'manual',
             total_trades=result_model.total_trades if result_model else 0,
             profitable_trades=result_model.profitable_trades if result_model else 0,
             losing_trades=result_model.losing_trades if result_model else 0,

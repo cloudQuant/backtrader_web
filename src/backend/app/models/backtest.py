@@ -3,7 +3,8 @@ Backtest ORM models.
 """
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Text, DateTime, Float, Integer, ForeignKey, JSON
+
+from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -76,6 +77,7 @@ class BacktestResultModel(Base):
     sharpe_ratio = Column(Float, default=0)
     max_drawdown = Column(Float, default=0)
     win_rate = Column(Float, default=0)
+    metrics_source = Column(String(20), default="manual")  # 'manual' or 'fincore'
 
     # Trade statistics
     total_trades = Column(Integer, default=0)

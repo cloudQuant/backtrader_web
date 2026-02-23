@@ -3,7 +3,8 @@ User ORM model.
 """
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Boolean, DateTime
+
+from sqlalchemy import Boolean, Column, DateTime, String
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base

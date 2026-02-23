@@ -2,18 +2,17 @@
 Backtest API routes.
 """
 from functools import lru_cache
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.deps import get_current_user
 from app.schemas.backtest import (
+    BacktestListResponse,
     BacktestRequest,
     BacktestResponse,
     BacktestResult,
-    BacktestListResponse,
-    TaskStatus,
 )
 from app.services.backtest_service import BacktestService
-from app.api.deps import get_current_user
 
 router = APIRouter()
 

@@ -16,7 +16,7 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -243,9 +243,9 @@ def parse_data_log(log_dir: Path) -> Dict[str, Any]:
 
         o = _safe_float(row.get("open", "0"))
         h = _safe_float(row.get("high", "0"))
-        l = _safe_float(row.get("low", "0"))
+        low = _safe_float(row.get("low", "0"))
         c = _safe_float(row.get("close", "0"))
-        ohlc.append([o, c, l, h])
+        ohlc.append([o, c, low, h])
         volumes.append(_safe_float(row.get("volume", "0")))
 
         for col in indicator_cols:

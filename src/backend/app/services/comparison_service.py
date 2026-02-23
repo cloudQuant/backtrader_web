@@ -3,21 +3,17 @@ Backtest comparison service.
 
 Supports comparing and analyzing multiple backtest results.
 """
-import uuid
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
 import logging
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
+from app.db.sql_repository import SQLRepository
 from app.models.comparison import Comparison, ComparisonType
 from app.schemas.comparison import (
-    ComparisonCreate,
     ComparisonResponse,
     ComparisonUpdate,
-    ComparisonListResponse,
 )
 from app.services.backtest_service import BacktestService
-from app.db.sql_repository import SQLRepository
-from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 

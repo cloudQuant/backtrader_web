@@ -3,28 +3,28 @@ Strategy version control API routes (full version).
 
 Supports versioning, branch management, rollback, and comparisons.
 """
-from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-import logging
 import asyncio
-import difflib
-from datetime import datetime
+import logging
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.deps import get_current_user
 from app.schemas.strategy_version import (
-    VersionCreate,
-    VersionUpdate,
-    VersionResponse,
-    VersionListResponse,
+    BranchCreate,
+    BranchListResponse,
+    BranchResponse,
     VersionComparisonRequest,
     VersionComparisonResponse,
+    VersionCreate,
+    VersionListResponse,
+    VersionResponse,
     VersionRollbackRequest,
-    BranchCreate,
-    BranchResponse,
-    BranchListResponse,
+    VersionUpdate,
 )
 from app.services.strategy_version_service import VersionControlService
-from app.api.deps import get_current_user
-from app.websocket_manager import manager as ws_manager, MessageType
+from app.websocket_manager import MessageType
+from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 

@@ -4,9 +4,18 @@ Backtest comparison models.
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from sqlalchemy import Column, String, DateTime, Float, Integer, ForeignKey, JSON, Boolean, Text, Table
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    String,
+    Table,
+    Text,
+)
 from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
 
 from app.db.database import Base
 

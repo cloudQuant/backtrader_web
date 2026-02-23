@@ -15,6 +15,11 @@ from slowapi.util import get_remote_address
 from app.api.router import api_router
 from app.config import get_settings
 from app.db.database import init_db
+from app.middleware.logging import (
+    LoggingMiddleware,
+    AuditLoggingMiddleware,
+    PerformanceLoggingMiddleware,
+)
 from app.utils.logger import setup_logger
 from app.websocket_manager import manager as ws_manager
 
@@ -145,6 +150,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Logging middleware (order matters - logging first)
+app.add_middleware(LoggingMiddleware)
+app.add_middleware(AuditLoggingMiddleware)
+app.add_middleware(PerformanceLoggingMiddleware, slow_request_threshold=5.0)
 
 # Register only through api_router to avoid duplicate registration causing OpenAPI documentation confusion
 app.include_router(api_router, prefix="/api/v1")

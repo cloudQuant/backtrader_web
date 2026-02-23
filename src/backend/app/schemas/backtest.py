@@ -2,8 +2,9 @@
 Backtest schemas.
 """
 from datetime import datetime
-from typing import Optional, List, Dict, Any
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -80,6 +81,7 @@ class BacktestResult(BaseModel):
     sharpe_ratio: float = Field(0, description="Sharpe ratio")
     max_drawdown: float = Field(0, description="Maximum drawdown (%)")
     win_rate: float = Field(0, description="Win rate (%)")
+    metrics_source: str = Field("manual", description="Source of metric calculations")
 
     # Trade statistics
     total_trades: int = Field(0, description="Total trades")

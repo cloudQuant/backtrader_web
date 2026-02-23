@@ -4,21 +4,22 @@ Paper trading service.
 Provides a Backtrader-based paper trading environment.
 """
 import asyncio
-from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
 import logging
+from datetime import datetime, timezone
+from typing import List, Optional
 
+from app.db.sql_repository import SQLRepository
 from app.models.paper_trading import (
     Account,
-    Position,
     Order,
-    OrderType,
     OrderSide,
     OrderStatus,
+    OrderType,
     PaperTrade,
+    Position,
 )
-from app.db.sql_repository import SQLRepository
-from app.websocket_manager import manager as ws_manager, MessageType, ProgressMessage
+from app.websocket_manager import MessageType
+from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 

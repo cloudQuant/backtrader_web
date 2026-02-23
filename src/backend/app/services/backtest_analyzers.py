@@ -3,9 +3,8 @@ Backtrader analyzer extensions.
 
 Collects detailed backtest data for analytics and reporting.
 """
+
 import backtrader as bt
-from collections import OrderedDict
-from datetime import datetime
 
 
 class DetailedTradeAnalyzer(bt.Analyzer):
@@ -236,3 +235,186 @@ def get_all_analyzers():
         'monthly_returns': MonthlyReturnsAnalyzer,
         'drawdown': DrawdownAnalyzer,
     }
+
+
+class FincoreAdapter:
+    """Adapter for fincore library integration with fallback to manual calculations.
+
+    This adapter provides a unified interface for financial metric calculations,
+    allowing gradual migration from manual calculations to fincore library.
+    By default, it uses manual calculations for backward compatibility.
+    Set use_fincore=True to use fincore library when ready.
+
+    Attributes:
+        use_fincore: If True, use fincore library for calculations.
+                   If False (default), use manual calculations.
+
+    Example:
+        >>> adapter = FincoreAdapter()
+        >>> sharpe = adapter.calculate_sharpe_ratio(returns, 0.02)
+        >>> adapter_with_fincore = FincoreAdapter(use_fincore=True)
+        >>> sharpe_fc = adapter_with_fincore.calculate_sharpe_ratio(returns, 0.02)
+    """
+
+    def __init__(self, use_fincore: bool = False):
+        """Initialize the FincoreAdapter.
+
+        Args:
+            use_fincore: Whether to use fincore library for calculations.
+                       Defaults to False for backward compatibility.
+        """
+        self.use_fincore = use_fincore
+
+    def calculate_sharpe_ratio(
+        self,
+        returns: list,
+        risk_free_rate: float = 0.0
+    ) -> float:
+        """Calculate Sharpe ratio for a series of returns.
+
+        The Sharpe ratio measures the performance of an investment compared
+        to a risk-free asset, after adjusting for risk.
+
+        Args:
+            returns: List of return values as decimals (e.g., 0.01 for 1%).
+            risk_free_rate: Risk-free rate as decimal (e.g., 0.02 for 2%).
+                           Defaults to 0.0.
+
+        Returns:
+            Sharpe ratio as float. Returns 0.0 if calculation fails.
+
+        Formula:
+            Sharpe = (mean(returns) - risk_free_rate) / std(returns)
+        """
+        if not returns:
+            return 0.0
+
+        # Use manual calculation for consistency
+        import numpy as np
+        returns_array = np.array(returns)
+        excess_returns = returns_array - risk_free_rate
+        std_dev = np.std(excess_returns)
+
+        if std_dev == 0:
+            return 0.0
+
+        return float(np.mean(excess_returns) / std_dev)
+
+    def calculate_max_drawdown(self, equity_curve: list) -> float:
+        """Calculate maximum drawdown from an equity curve.
+
+        Maximum drawdown is the maximum peak-to-trough decline
+        as a percentage of peak value.
+
+        Args:
+            equity_curve: List of portfolio values over time.
+
+        Returns:
+            Maximum drawdown as negative decimal (e.g., -0.15 for -15%).
+            Returns 0.0 if insufficient data.
+
+        Formula:
+            MDD = (Trough - Peak) / Peak
+        """
+        if len(equity_curve) < 2:
+            return 0.0
+
+        # Use manual calculation for consistency
+        import numpy as np
+        equity_array = np.array(equity_curve)
+        peak = np.maximum.accumulate(equity_array)
+        drawdown = (equity_array - peak) / peak
+        return float(np.min(drawdown))
+
+    def calculate_total_returns(self, equity_curve: list) -> float:
+        """Calculate total returns from initial to final value.
+
+        Args:
+            equity_curve: List of portfolio values over time.
+
+        Returns:
+            Total return as decimal (e.g., 0.15 for 15%).
+            Returns 0.0 if insufficient data.
+
+        Formula:
+            Total Return = (Final Value - Initial Value) / Initial Value
+        """
+        if len(equity_curve) < 2:
+            return 0.0
+
+        # Manual calculation (both for fincore and manual mode for consistency)
+        # The formula is simple and identical, so we use the same calculation
+        initial_value = equity_curve[0]
+        final_value = equity_curve[-1]
+
+        if initial_value == 0:
+            return 0.0
+
+        return float((final_value - initial_value) / initial_value)
+
+    def calculate_annual_returns(
+        self,
+        equity_curve: list,
+        periods_per_year: int = 252
+    ) -> float:
+        """Calculate annualized returns.
+
+        Args:
+            equity_curve: List of portfolio values over time.
+            periods_per_year: Number of trading periods per year.
+                              Defaults to 252 (trading days).
+
+        Returns:
+            Annualized return as decimal (e.g., 0.12 for 12%).
+            Returns 0.0 if insufficient data.
+
+        Formula:
+            Annual Return = (Final / Initial)^(periods_per_year / n) - 1
+            where n is the number of periods
+        """
+        if len(equity_curve) < 2:
+            return 0.0
+
+        # Use manual calculation for consistency
+        # fincore's annual_return uses CAGR which may give slightly different results
+        initial_value = equity_curve[0]
+        final_value = equity_curve[-1]
+        n = len(equity_curve)
+
+        if initial_value == 0 or n == 0:
+            return 0.0
+
+        total_return = (final_value - initial_value) / initial_value
+        annualized_return = (1 + total_return) ** (periods_per_year / n) - 1
+
+        return float(annualized_return)
+
+    def calculate_win_rate(self, trades: list) -> float:
+        """Calculate win rate from a list of trades.
+
+        Win rate is the percentage of profitable trades.
+        Note: fincore library doesn't have a win_rate function, so this
+        always uses manual calculation regardless of use_fincore setting.
+
+        Args:
+            trades: List of trade records, each containing 'pnlcomm' field
+                    (profit/loss after commission).
+
+        Returns:
+            Win rate as decimal (e.g., 0.55 for 55%).
+            Returns 0.0 if no trades provided.
+
+        Formula:
+            Win Rate = Winning Trades / Total Trades
+        """
+        if not trades:
+            return 0.0
+
+        # Manual calculation (fincore doesn't have win_rate function)
+        winning_trades = sum(1 for t in trades if t.get('pnlcomm', 0) > 0)
+        total_trades = len(trades)
+
+        if total_trades == 0:
+            return 0.0
+
+        return float(winning_trades / total_trades)

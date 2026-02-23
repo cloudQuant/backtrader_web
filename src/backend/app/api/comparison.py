@@ -3,19 +3,20 @@ Backtest comparison API routes.
 
 Supports comparing and analyzing multiple backtest results.
 """
-from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 import logging
+from typing import Any, Optional
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.deps import get_current_user
 from app.schemas.comparison import (
     ComparisonCreate,
-    ComparisonUpdate,
-    ComparisonResponse,
-    ComparisonListResponse,
     ComparisonDetail,
+    ComparisonListResponse,
+    ComparisonResponse,
+    ComparisonUpdate,
 )
 from app.services.comparison_service import ComparisonService
-from app.api.deps import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +264,7 @@ async def share_comparison(
         HTTPException: If the comparison does not exist (404) or user lacks
             permission to share (403).
     """
-    shared_with_user_ids = request.get("shared_with_user_ids", [])
+    _shared_with_user_ids = request.get("shared_with_user_ids", [])
 
     comparison = await service.get_comparison(comparison_id, current_user.sub)
 

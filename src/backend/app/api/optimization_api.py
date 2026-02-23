@@ -9,19 +9,19 @@ Provides:
 - GET  /strategy-params/{strategy_id}: fetch default params
 """
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user
-from app.services.strategy_service import get_template_by_id
 from app.services.param_optimization_service import (
-    submit_optimization,
+    cancel_optimization,
     get_optimization_progress,
     get_optimization_results,
-    cancel_optimization,
+    submit_optimization,
 )
+from app.services.strategy_service import get_template_by_id
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -1,10 +1,9 @@
 """
 Market data API routes.
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import Optional
-from datetime import datetime
 import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_current_user
 
@@ -32,7 +31,6 @@ async def get_kline_data(
         A payload containing `kline` arrays and a flat `records` list for UI display.
     """
     import akshare as ak
-    import pandas as pd
 
     code = symbol.split('.')[0]
     start_str = start_date.replace('-', '')
@@ -72,15 +70,15 @@ async def get_kline_data(
             dates.append(d)
             o = round(float(row['open']), 2)
             h = round(float(row['high']), 2)
-            l = round(float(row['low']), 2)
+            low = round(float(row['low']), 2)
             c = round(float(row['close']), 2)
             v = int(row['volume'])
             change = round(float(row.get('change_pct', 0)), 2)
 
-            ohlc.append([o, c, l, h])
+            ohlc.append([o, c, low, h])
             volumes.append(v)
             records.append({
-                'date': d, 'open': o, 'high': h, 'low': l,
+                'date': d, 'open': o, 'high': h, 'low': low,
                 'close': c, 'volume': v, 'change': change,
             })
 

@@ -3,24 +3,21 @@ Live trading API routes (full version).
 
 Based on Backtrader's Cerebro + Store + Broker architecture.
 """
-from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
-import logging
 import asyncio
+import logging
 
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from app.api.deps import get_current_user
 from app.schemas.live_trading import (
-    LiveTradingSubmitRequest,
-    LiveTradingTaskResponse,
-    LiveTradingTaskListResponse,
     LiveTradingDataResponse,
-    LiveAccountInfo,
-    LiveTradingPosition,
-    LiveTradingOrder,
-    LiveTradingTrade,
+    LiveTradingSubmitRequest,
+    LiveTradingTaskListResponse,
+    LiveTradingTaskResponse,
 )
 from app.services.live_trading_service import LiveTradingService
-from app.api.deps import get_current_user
-from app.websocket_manager import manager as ws_manager, MessageType
+from app.websocket_manager import MessageType
+from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
 

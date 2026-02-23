@@ -5,32 +5,31 @@ This module provides endpoints for managing live trading strategy instances,
 including starting, stopping, and monitoring live trading operations.
 """
 from pathlib import Path
-from typing import Optional, Dict, Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.schemas.live_trading_instance import (
-    LiveInstanceCreate,
-    LiveInstanceInfo,
-    LiveInstanceListResponse,
-    LiveBatchResponse,
-)
+from app.api.deps import get_current_user
 from app.schemas.analytics import (
     BacktestDetailResponse,
     KlineWithSignalsResponse,
     MonthlyReturnsResponse,
     PerformanceMetrics,
 )
-from app.services.live_trading_manager import get_live_trading_manager, LiveTradingManager
+from app.schemas.live_trading_instance import (
+    LiveBatchResponse,
+    LiveInstanceCreate,
+    LiveInstanceInfo,
+    LiveInstanceListResponse,
+)
+from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
 from app.services.log_parser_service import (
     find_latest_log_dir,
-    parse_value_log,
-    parse_trade_log,
-    parse_data_log,
     parse_all_logs,
+    parse_data_log,
+    parse_trade_log,
+    parse_value_log,
 )
-from app.services.analytics_service import AnalyticsService
 from app.services.strategy_service import STRATEGIES_DIR
-from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -277,7 +276,7 @@ async def get_live_detail(
     equity_dates = log_result.get("equity_dates", [])
     equity_values = log_result.get("equity_curve", [])
     cash_values = log_result.get("cash_curve", [])
-    dd_values = log_result.get("drawdown_curve", [])
+    _dd_values = log_result.get("drawdown_curve", [])
     trades_raw = log_result.get("trades", [])
 
     equity_curve = []

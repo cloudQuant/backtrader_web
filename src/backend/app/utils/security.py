@@ -3,8 +3,9 @@ Security utilities for JWT and password handling.
 """
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from jose import JWTError, jwt
+
 import bcrypt
+from jose import JWTError, jwt
 
 from app.config import get_settings
 

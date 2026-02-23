@@ -1,14 +1,14 @@
 """
 Authentication service.
 """
-from typing import Optional
 from datetime import timedelta
+from typing import Optional
 
-from app.models.user import User
-from app.schemas.auth import UserCreate, UserLogin, UserResponse, Token
-from app.db.sql_repository import SQLRepository
-from app.utils.security import verify_password, get_password_hash, create_access_token
 from app.config import get_settings
+from app.db.sql_repository import SQLRepository
+from app.models.user import User
+from app.schemas.auth import Token, UserCreate, UserLogin, UserResponse
+from app.utils.security import create_access_token, get_password_hash, verify_password
 
 settings = get_settings()
 

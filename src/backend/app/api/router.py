@@ -5,13 +5,13 @@ All sub-routers are registered here (B016: avoid duplicate registration in main.
 """
 from fastapi import APIRouter
 
+from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
 from app.api.backtest import router as backtest_router
-from app.api.strategy import router as strategy_router
-from app.api.analytics import router as analytics_router
 from app.api.live_trading_api import router as live_trading_router
-from app.api.portfolio_api import router as portfolio_router
 from app.api.optimization_api import router as optimization_router
+from app.api.portfolio_api import router as portfolio_router
+from app.api.strategy import router as strategy_router
 
 api_router = APIRouter()
 

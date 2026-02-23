@@ -5,7 +5,7 @@ Supports tick subscription and streaming across brokers.
 """
 import logging
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

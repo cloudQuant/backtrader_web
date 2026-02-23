@@ -4,8 +4,8 @@ Backtest report generation service.
 Supports exporting professional reports in HTML/PDF/Excel formats.
 """
 import io
-from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+from typing import Any, Dict
 
 try:
     from jinja2 import Template
@@ -16,8 +16,8 @@ except ImportError:
 
 try:
     import pandas as pd
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl import Workbook  # noqa: F401
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side  # noqa: F401
     PANDAS_AVAILABLE = True
     OPENPYXL_AVAILABLE = True
 except ImportError:

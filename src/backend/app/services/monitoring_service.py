@@ -7,35 +7,26 @@ Supports:
 - Strategy monitoring
 - System monitoring
 """
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Any, Optional
-import logging
 import asyncio
 import json
-import urllib.request
+import logging
 import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
+from app.db.sql_repository import SQLRepository
 from app.models.alerts import (
     Alert,
-    AlertRule,
     AlertNotification,
-    AlertType,
+    AlertRule,
     AlertSeverity,
     AlertStatus,
+    AlertType,
 )
-from app.schemas.monitoring import (
-    AlertCreate,
-    AlertResponse,
-    AlertListResponse,
-    AlertRuleCreate,
-    AlertRuleResponse,
-    AlertRuleListResponse,
-)
-from app.services.live_trading_service import LiveTradingService
 from app.services.backtest_service import BacktestService
+from app.services.live_trading_service import LiveTradingService
 from app.services.paper_trading_service import PaperTradingService
-from app.db.sql_repository import SQLRepository
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)

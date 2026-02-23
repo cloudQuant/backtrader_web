@@ -5,8 +5,8 @@ from typing import Type, TypeVar
 
 from app.config import get_settings
 from app.db.base import BaseRepository
+from app.db.cache import get_cache
 from app.db.sql_repository import SQLRepository
-from app.db.cache import get_cache, MemoryCache, RedisCache
 
 T = TypeVar('T')
 

@@ -1,30 +1,29 @@
 """
 Backtest analytics API routes.
 """
-from functools import lru_cache
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import StreamingResponse
-from typing import Optional
-import json
-import io
 import csv
-from datetime import datetime, timedelta
-
+import io
+import json
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+
+from app.api.deps import get_current_user
+from app.db.sql_repository import SQLRepository
+from app.models.backtest import BacktestTask
 from app.schemas.analytics import (
     BacktestDetailResponse,
     KlineWithSignalsResponse,
     MonthlyReturnsResponse,
-    PerformanceMetrics,
 )
 from app.services.analytics_service import AnalyticsService
 from app.services.backtest_service import BacktestService
-from app.services.log_parser_service import parse_data_log, parse_value_log, find_latest_log_dir
+from app.services.log_parser_service import find_latest_log_dir, parse_data_log, parse_value_log
 from app.services.strategy_service import STRATEGIES_DIR
-from app.db.sql_repository import SQLRepository
-from app.models.backtest import BacktestTask
-from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -90,7 +89,7 @@ async def get_backtest_data(
 
     equity_values = result.equity_curve or []
     equity_dates = result.equity_dates or []
-    drawdown_values = result.drawdown_curve or []
+    _drawdown_values = result.drawdown_curve or []
 
     # [B009] Use task-specific log directory to get real cash data
     real_cash_map: dict = {}

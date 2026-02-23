@@ -6,9 +6,9 @@ Supports account monitoring, strategy monitoring, and system monitoring.
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from sqlalchemy import Column, String, DateTime, Text, Float, Integer, ForeignKey, Boolean, JSON
+
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
 
 from app.db.database import Base
 

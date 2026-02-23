@@ -1,9 +1,9 @@
 """
 SQL database Repository implementation - Supports PostgreSQL/MySQL/SQLite.
 """
-from typing import TypeVar, Generic, List, Optional, Dict, Any, Type, Union
-from sqlalchemy import select, update, delete, func, desc, asc, or_, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any, Dict, Generic, List, Optional, Type, TypeVar
+
+from sqlalchemy import asc, delete, desc, func, select, update
 
 from app.db.base import BaseRepository
 from app.db.database import async_session_maker

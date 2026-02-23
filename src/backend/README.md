@@ -1,127 +1,207 @@
 # Backtrader Web Backend
 
-基于 FastAPI 的 Backtrader 量化交易回测 Web 服务后端。
+FastAPI-based backend service for the Backtrader Web quantitative backtesting platform.
 
-## 功能特性
+## Features
 
-- **用户认证**: JWT 认证 + bcrypt 密码加密
-- **回测服务**: 异步回测任务执行、结果存储
-- **策略管理**: 策略 CRUD、模板库、YAML 配置
-- **数据库抽象**: 支持 SQLite/PostgreSQL/MySQL，通过环境变量切换
-- **缓存层**: 可选 Redis 缓存
+- **Authentication** — JWT tokens + bcrypt password hashing
+- **Backtest Engine** — Async backtest execution with result persistence
+- **Strategy Management** — CRUD, 100+ built-in templates, YAML config auto-scan
+- **Strategy Version Control** — Branching, comparison, rollback (Git-like workflow)
+- **Paper Trading** — Simulated live trading sessions
+- **Parameter Optimization** — Grid search and genetic algorithm support
+- **Portfolio Management** — Multi-strategy portfolio construction
+- **Real-time Data** — Market data feeds and subscriptions
+- **Strategy Comparison** — Side-by-side performance analysis
+- **Analytics & Reports** — HTML/PDF/Excel report generation
+- **System Monitoring** — Health checks, metrics, alerts
+- **Database Abstraction** — SQLite/PostgreSQL/MySQL via env config
+- **Caching** — Optional Redis cache layer
+- **Sandbox** — Secure execution of user-uploaded strategy code
 
-## 快速开始
+## Quick Start
 
-### 1. 安装依赖
+### 1. Install Dependencies
 
 ```bash
-# 创建虚拟环境
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 安装依赖
+source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. 配置环境变量
+### 2. Configure Environment
 
 ```bash
 cp .env.example .env
-# 编辑 .env 文件配置数据库等参数
+# Edit .env to configure database, JWT secret, etc.
 ```
 
-### 3. 启动服务
+### 3. Start the Server
 
 ```bash
-# 开发模式
+# Development mode (auto-reload)
 uvicorn app.main:app --reload --port 8000
 
-# 或直接运行
+# Or run directly
 python -m app.main
 ```
 
-### 4. 访问 API 文档
+### 4. API Documentation
 
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
 
-## 项目结构
+## Project Structure
 
 ```
 backend/
 ├── app/
-│   ├── api/              # API 路由
-│   │   ├── auth.py       # 认证接口
-│   │   ├── backtest.py   # 回测接口
-│   │   └── strategy.py   # 策略接口
-│   ├── db/               # 数据库层
-│   │   ├── base.py       # Repository 基类
-│   │   ├── database.py   # 数据库连接
-│   │   └── sql_repository.py
-│   ├── models/           # ORM 模型
-│   ├── schemas/          # Pydantic 模型
-│   ├── services/         # 业务服务
+│   ├── api/                        # API routes
+│   │   ├── auth.py                 # Authentication
+│   │   ├── backtest.py             # Basic backtest
+│   │   ├── backtest_enhanced.py    # Enhanced backtest with analyzers
+│   │   ├── strategy.py             # Strategy CRUD + templates
+│   │   ├── strategy_version.py     # Version control + branches
+│   │   ├── comparison.py           # Strategy comparison
+│   │   ├── paper_trading.py        # Paper trading
+│   │   ├── optimization_api.py     # Parameter optimization
+│   │   ├── portfolio_api.py        # Portfolio management
+│   │   ├── realtime_data.py        # Real-time data feeds
+│   │   ├── monitoring.py           # System monitoring
+│   │   ├── analytics.py            # Analytics dashboards
+│   │   ├── data.py                 # Market data (AkShare)
+│   │   ├── live_trading_api.py     # Live trading
+│   │   ├── deps.py                 # Dependency injection
+│   │   └── router.py               # Route registry
+│   ├── db/                         # Database layer
+│   │   ├── base.py                 # Repository interface
+│   │   ├── database.py             # Engine + session factory
+│   │   ├── sql_repository.py       # SQL implementation
+│   │   ├── factory.py              # Repository factory
+│   │   └── cache.py                # Cache abstraction
+│   ├── models/                     # SQLAlchemy ORM models
+│   ├── schemas/                    # Pydantic request/response schemas
+│   ├── services/                   # Business logic
 │   │   ├── auth_service.py
 │   │   ├── backtest_service.py
-│   │   └── strategy_service.py
-│   ├── utils/            # 工具函数
-│   ├── config.py         # 配置管理
-│   └── main.py           # 应用入口
-├── tests/                # 测试
+│   │   ├── strategy_service.py
+│   │   ├── strategy_version_service.py
+│   │   ├── comparison_service.py
+│   │   ├── paper_trading_service.py
+│   │   ├── optimization_service.py
+│   │   ├── monitoring_service.py
+│   │   ├── report_service.py
+│   │   └── ...
+│   ├── utils/                      # Utilities
+│   │   ├── sandbox.py              # Strategy code sandbox
+│   │   ├── security.py             # JWT + password utils
+│   │   └── logger.py               # Logging config
+│   ├── config.py                   # Settings (pydantic-settings)
+│   └── main.py                     # FastAPI app entry point
+├── tests/                          # 1200+ tests, 100% coverage
 ├── requirements.txt
 ├── pyproject.toml
 └── .env.example
 ```
 
-## API 接口
+## API Endpoints
 
-### 认证
+All endpoints require JWT authentication unless noted.
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | /api/v1/auth/register | 用户注册 |
-| POST | /api/v1/auth/login | 用户登录 |
-| GET | /api/v1/auth/me | 获取当前用户 |
+### Authentication (public)
 
-### 回测
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/auth/register` | Register a new user |
+| POST | `/api/v1/auth/login` | Login and get JWT token |
+| GET | `/api/v1/auth/me` | Get current user info |
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | /api/v1/backtest/run | 运行回测 |
-| GET | /api/v1/backtest/{id} | 获取回测结果 |
-| GET | /api/v1/backtest/ | 列出回测历史 |
-| DELETE | /api/v1/backtest/{id} | 删除回测 |
+### Backtest
 
-### 策略
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/backtest/run` | Run a backtest |
+| GET | `/api/v1/backtest/{id}` | Get backtest result |
+| GET | `/api/v1/backtest/` | List backtest history |
+| DELETE | `/api/v1/backtest/{id}` | Delete a backtest |
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | /api/v1/strategy/ | 创建策略 |
-| GET | /api/v1/strategy/ | 列出策略 |
-| GET | /api/v1/strategy/{id} | 获取策略详情 |
-| PUT | /api/v1/strategy/{id} | 更新策略 |
-| DELETE | /api/v1/strategy/{id} | 删除策略 |
-| GET | /api/v1/strategy/templates | 获取策略模板 |
+### Strategy
 
-## 测试
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/strategy/` | Create user strategy |
+| GET | `/api/v1/strategy/` | List user strategies |
+| GET | `/api/v1/strategy/{id}` | Get strategy detail |
+| PUT | `/api/v1/strategy/{id}` | Update strategy |
+| DELETE | `/api/v1/strategy/{id}` | Delete strategy |
+| GET | `/api/v1/strategy/templates` | List built-in templates |
+
+### Strategy Version Control
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/strategy-versions/versions` | Create version |
+| GET | `/api/v1/strategy-versions/strategies/{id}/versions` | List versions |
+| POST | `/api/v1/strategy-versions/versions/compare` | Compare versions |
+| POST | `/api/v1/strategy-versions/versions/rollback` | Rollback |
+| POST | `/api/v1/strategy-versions/branches` | Create branch |
+
+### Paper Trading
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/paper-trading/sessions` | Create session |
+| GET | `/api/v1/paper-trading/sessions` | List sessions |
+| POST | `/api/v1/paper-trading/sessions/{id}/start` | Start |
+| POST | `/api/v1/paper-trading/sessions/{id}/stop` | Stop |
+
+### Optimization
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/optimization/tasks` | Create task |
+| GET | `/api/v1/optimization/tasks` | List tasks |
+| GET | `/api/v1/optimization/tasks/{id}` | Get result |
+
+### Portfolio
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/portfolio/` | Create portfolio |
+| GET | `/api/v1/portfolio/` | List portfolios |
+
+### Monitoring
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/monitoring/health` | Health check |
+| GET | `/api/v1/monitoring/metrics` | Metrics |
+
+## Testing
 
 ```bash
-# 运行测试
-pytest
+# Run all tests
+pytest tests/
 
-# 带覆盖率
-pytest --cov=app
+# With coverage
+pytest tests/ --cov=app --cov-report=term-missing
+
+# Single file
+pytest tests/test_auth.py -v
 ```
 
-## 环境变量
+**Status: 1218 tests, 100% code coverage.**
 
-| 变量 | 默认值 | 描述 |
-|------|--------|------|
-| DATABASE_TYPE | sqlite | 数据库类型 |
-| DATABASE_URL | sqlite+aiosqlite:///./backtrader.db | 数据库连接 |
-| JWT_SECRET_KEY | - | JWT 密钥 |
-| JWT_EXPIRE_MINUTES | 1440 | Token 过期时间 |
-| DEBUG | true | 调试模式 |
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_TYPE` | `sqlite` | Database type (sqlite/postgresql/mysql) |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./backtrader.db` | Connection URL |
+| `JWT_SECRET_KEY` | (auto) | JWT signing secret |
+| `JWT_EXPIRE_MINUTES` | `1440` | Token TTL in minutes |
+| `DEBUG` | `true` | Debug mode |
+| `SQL_ECHO` | `false` | SQLAlchemy query logging |
 
 ## License
 

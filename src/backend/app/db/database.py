@@ -1,7 +1,7 @@
 """
 Database connection management.
 """
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
@@ -39,10 +39,11 @@ async def init_db():
 
 async def create_default_admin():
     """Create default admin account (if it doesn't exist)."""
+    from sqlalchemy import select
+
+    from app.config import get_settings
     from app.models.user import User
     from app.utils.security import get_password_hash
-    from app.config import get_settings
-    from sqlalchemy import select
 
     settings = get_settings()
 

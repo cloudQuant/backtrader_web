@@ -7,9 +7,7 @@ Design:
 - Each worker: write a temporary config.yaml -> run a run.py subprocess -> parse logs -> return metrics.
 - The main process aggregates results and exposes progress queries.
 """
-import copy
 import itertools
-import json
 import logging
 import math
 import os
@@ -238,7 +236,7 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
     equity = []
     if value_path.is_file():
         with open(value_path, "r", encoding="utf-8") as f:
-            header = f.readline()
+            _header = f.readline()
             for line in f:
                 parts = line.strip().split("\t")
                 if len(parts) >= 3:

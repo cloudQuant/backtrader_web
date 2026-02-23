@@ -1,24 +1,18 @@
 """
 Backtest analytics service.
 """
-from typing import List, Dict, Optional, Any
-from datetime import datetime
+from typing import Dict, List, Optional
+
 import numpy as np
-from loguru import logger
 
 from app.schemas.analytics import (
-    PerformanceMetrics,
-    EquityPoint,
     DrawdownPoint,
+    EquityPoint,
+    MonthlyReturn,
+    MonthlyReturnsResponse,
+    PerformanceMetrics,
     TradeRecord,
     TradeSignal,
-    KlineData,
-    MonthlyReturn,
-    OptimizationResultItem,
-    BacktestDetailResponse,
-    KlineWithSignalsResponse,
-    OptimizationResponse,
-    MonthlyReturnsResponse,
 )
 
 

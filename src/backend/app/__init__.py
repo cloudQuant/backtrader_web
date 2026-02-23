@@ -5,11 +5,7 @@ Provides a single import surface for submodules.
 """
 
 # Backend modules
-from . import config
-from . import db
-from . import services
-from . import api
-from . import utils
+from . import api, config, db, services, utils
 
 __all__ = [
     "config",
