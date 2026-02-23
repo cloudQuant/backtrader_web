@@ -45,7 +45,7 @@ development_status:
   1-1-install-fincore: done
   1-2-adapter-pattern: done
   1-3-basic-metrics: done
-  1-4-advanced-metrics: backlog
+  1-4-advanced-metrics: done
   1-5-validation-cleanup: backlog
   epic-1-retrospective: optional
 

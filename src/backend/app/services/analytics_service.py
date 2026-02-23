@@ -14,13 +14,29 @@ from app.schemas.analytics import (
     TradeRecord,
     TradeSignal,
 )
+from app.services.backtest_analyzers import FincoreAdapter
 
 
 class AnalyticsService:
-    """Service for analyzing backtest results and calculating performance metrics."""
+    """Service for analyzing backtest results and calculating performance metrics.
+
+    Uses FincoreAdapter for standardized financial metric calculations with
+    fallback to manual calculations for consistency.
+    """
+
+    def __init__(self, use_fincore: bool = True):
+        """Initialize the AnalyticsService.
+
+        Args:
+            use_fincore: Whether to use fincore library for calculations.
+                       Defaults to True.
+        """
+        self.adapter = FincoreAdapter(use_fincore=use_fincore)
 
     def calculate_metrics(self, result_data: Dict) -> PerformanceMetrics:
         """Calculate performance metrics from backtest results.
+
+        Uses FincoreAdapter for standardized metric calculations.
 
         Args:
             result_data: Dictionary containing backtest result data including
@@ -45,36 +61,35 @@ class AnalyticsService:
         initial = equity_curve[0].get('total_assets', 0)
         final = equity_curve[-1].get('total_assets', 0)
 
+        # Use FincoreAdapter for calculations
+        equity_values = [e.get('total_assets', 0) for e in equity_curve]
+
         # Total return
-        total_return = (final - initial) / initial if initial else 0
+        total_return = self.adapter.calculate_total_returns(equity_values)
 
         # Annualized return
-        days = len(equity_curve)
-        annualized = (1 + total_return) ** (252 / days) - 1 if days > 0 else 0
+        days = len(equity_values)
+        annualized = self.adapter.calculate_annual_returns(equity_values, periods_per_year=252)
 
-        # Maximum drawdown
-        max_dd, max_dd_duration = self._calculate_max_drawdown(equity_curve)
+        # Maximum drawdown with duration
+        max_dd, max_dd_duration = self.adapter.calculate_max_drawdown_with_duration(equity_values)
 
         # Sharpe ratio
         returns = self._calculate_daily_returns(equity_curve)
-        sharpe = self._calculate_sharpe(returns)
+        sharpe = self.adapter.calculate_sharpe_ratio(returns, risk_free_rate=0.02) if returns else None
 
-        # Trade statistics
+        # Trade statistics using FincoreAdapter
+        profit_factor = self.adapter.calculate_profit_factor(trades)
+        avg_holding = self.adapter.calculate_avg_holding_period(trades)
+        max_wins = self.adapter.calculate_max_consecutive(trades, True)
+        max_losses = self.adapter.calculate_max_consecutive(trades, False)
+        win_rate = self.adapter.calculate_win_rate(trades)
+
+        # Average win/loss amounts
         wins = [t for t in trades if (t.get('pnl') or 0) > 0]
         losses = [t for t in trades if (t.get('pnl') or 0) < 0]
-
-        win_rate = len(wins) / len(trades) if trades else 0
         avg_win = np.mean([t['pnl'] for t in wins]) if wins else 0
         avg_loss = abs(np.mean([t['pnl'] for t in losses])) if losses else 0
-        profit_factor = avg_win / avg_loss if avg_loss else 0
-
-        # Average holding days
-        holding_days = [t.get('barlen', 0) for t in trades if t.get('barlen')]
-        avg_holding = np.mean(holding_days) if holding_days else 0
-
-        # Consecutive wins/losses
-        max_wins = self._max_consecutive(trades, True)
-        max_losses = self._max_consecutive(trades, False)
 
         # Calmar ratio
         calmar = annualized / abs(max_dd) if max_dd != 0 else None
@@ -99,37 +114,6 @@ class AnalyticsService:
             max_consecutive_losses=max_losses,
         )
 
-    def _calculate_max_drawdown(self, equity_curve: List[Dict]) -> tuple:
-        """Calculate maximum drawdown and duration from equity curve.
-
-        Args:
-            equity_curve: List of equity data points.
-
-        Returns:
-            A tuple of (max_drawdown, max_drawdown_duration).
-        """
-        if not equity_curve:
-            return 0, 0
-
-        values = [e['total_assets'] for e in equity_curve]
-        peak = values[0]
-        max_dd = 0
-        max_dd_duration = 0
-        current_duration = 0
-
-        for value in values:
-            if value > peak:
-                peak = value
-                current_duration = 0
-            else:
-                dd = (value - peak) / peak if peak > 0 else 0
-                current_duration += 1
-                if dd < max_dd:
-                    max_dd = dd
-                    max_dd_duration = current_duration
-
-        return max_dd, max_dd_duration
-
     def _calculate_daily_returns(self, equity_curve: List[Dict]) -> List[float]:
         """Calculate daily returns from equity curve.
 
@@ -149,57 +133,6 @@ class AnalyticsService:
                 ret = (values[i] - values[i-1]) / values[i-1]
                 returns.append(ret)
         return returns
-
-    def _calculate_sharpe(
-        self,
-        returns: List[float],
-        rf: float = 0
-    ) -> Optional[float]:
-        """Calculate Sharpe ratio from returns.
-
-        Args:
-            returns: List of daily returns.
-            rf: Risk-free rate (annualized). Defaults to 0.
-
-        Returns:
-            Sharpe ratio (annualized), or None if insufficient data.
-        """
-        if len(returns) < 2:
-            return None
-
-        returns_arr = np.array(returns)
-        excess_returns = returns_arr - rf / 252
-
-        if np.std(excess_returns) == 0:
-            return None
-
-        return float(
-            np.sqrt(252) * np.mean(excess_returns) / np.std(excess_returns)
-        )
-
-    def _max_consecutive(self, trades: List[Dict], win: bool) -> int:
-        """Calculate maximum consecutive wins or losses.
-
-        Args:
-            trades: List of trade records.
-            win: True to count wins, False to count losses.
-
-        Returns:
-            Maximum consecutive count of wins or losses.
-        """
-        max_count = 0
-        current = 0
-
-        for t in trades:
-            pnl = t.get('pnl') or 0
-            is_win = pnl > 0
-            if is_win == win:
-                current += 1
-                max_count = max(max_count, current)
-            else:
-                current = 0
-
-        return max_count
 
     def process_trades(self, raw_trades: List[Dict]) -> List[TradeRecord]:
         """Process and format trade records.

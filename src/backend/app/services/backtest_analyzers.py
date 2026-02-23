@@ -418,3 +418,106 @@ class FincoreAdapter:
             return 0.0
 
         return float(winning_trades / total_trades)
+
+    def calculate_profit_factor(self, trades: list) -> float:
+        """Calculate profit factor (ratio of average win to average loss).
+
+        Args:
+            trades: List of trade records, each containing 'pnlcomm' field
+                    (profit/loss after commission).
+
+        Returns:
+            Profit factor as float. Returns 0.0 if no losses or no trades.
+        """
+        if not trades:
+            return 0.0
+
+        winning_trades = [t for t in trades if t.get('pnlcomm', 0) > 0]
+        losing_trades = [t for t in trades if t.get('pnlcomm', 0) < 0]
+
+        if not losing_trades or not winning_trades:
+            return 0.0
+
+        avg_win = sum(t.get('pnlcomm', 0) for t in winning_trades) / len(winning_trades)
+        avg_loss = abs(sum(t.get('pnlcomm', 0) for t in losing_trades) / len(losing_trades))
+
+        if avg_loss == 0:
+            return 0.0
+
+        return float(avg_win / avg_loss)
+
+    def calculate_avg_holding_period(self, trades: list) -> float:
+        """Calculate average holding period in days.
+
+        Args:
+            trades: List of trade records, each containing 'barlen' field
+                    (number of bars the position was held).
+
+        Returns:
+            Average holding period in days. Returns 0.0 if no trades.
+        """
+        if not trades:
+            return 0.0
+
+        holding_periods = [t.get('barlen', 0) for t in trades if t.get('barlen') is not None]
+
+        if not holding_periods:
+            return 0.0
+
+        return float(sum(holding_periods) / len(holding_periods))
+
+    def calculate_max_consecutive(self, trades: list, win: bool) -> int:
+        """Calculate maximum consecutive wins or losses.
+
+        Args:
+            trades: List of trade records, each containing 'pnlcomm' field.
+            win: True to count consecutive wins, False for consecutive losses.
+
+        Returns:
+            Maximum consecutive count.
+        """
+        max_count = 0
+        current = 0
+
+        for t in trades:
+            pnl = t.get('pnlcomm', 0)
+            is_win = pnl > 0
+            if is_win == win:
+                current += 1
+                max_count = max(max_count, current)
+            else:
+                current = 0
+
+        return max_count
+
+    def calculate_max_drawdown_with_duration(self, equity_curve: list) -> tuple:
+        """Calculate maximum drawdown and its duration.
+
+        Args:
+            equity_curve: List of portfolio values over time.
+
+        Returns:
+            Tuple of (max_drawdown, duration_days).
+        """
+        if len(equity_curve) < 2:
+            return 0.0, 0
+
+        import numpy as np
+        equity_array = np.array(equity_curve)
+        peak = equity_array[0]
+        max_dd = 0.0
+        max_dd_duration = 0
+        current_duration = 0
+
+        for value in equity_array:
+            if value > peak:
+                peak = value
+                current_duration = 0
+            else:
+                dd = (value - peak) / peak if peak > 0 else 0
+                current_duration += 1
+                if dd < max_dd:
+                    max_dd = dd
+                    max_dd_duration = current_duration
+
+        return float(max_dd), max_dd_duration
