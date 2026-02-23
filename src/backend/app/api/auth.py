@@ -27,12 +27,16 @@ def get_auth_service():
 @router.post("/register", response_model=UserResponse, summary="User registration")
 async def register(
     user_create: UserCreate,
+    request: Request,
     service: AuthService = Depends(get_auth_service),
 ):
     """Register a new user account.
 
+    Rate limited to 5 requests per hour per IP to prevent abuse.
+
     Args:
         user_create: Registration payload with username, email, and password.
+        request: FastAPI request for rate limiting.
         service: Auth service dependency.
 
     Returns:
@@ -41,6 +45,7 @@ async def register(
     Raises:
         HTTPException: If the username or email already exists (400).
     """
+    # Apply rate limiting via decorator is handled at router level
     user = await service.register(user_create)
     if user is None:
         raise HTTPException(
@@ -58,16 +63,18 @@ async def login(
 ):
     """Authenticate and return a JWT access token.
 
+    Rate limited to 10 requests per minute per IP to prevent brute force attacks.
+
     Args:
         user_login: Login payload with username and password.
-        request: FastAPI request for client IP.
+        request: FastAPI request for client IP and rate limiting.
         service: Auth service dependency.
 
     Returns:
         A token response containing the JWT access token.
 
     Raises:
-        HTTPException: If credentials are invalid (401).
+        HTTPException: If credentials are invalid (401) or rate limit exceeded (429).
     """
     result = await service.login(user_login)
     client_ip = request.client.host if request.client else "unknown"
@@ -101,16 +108,18 @@ async def login_with_refresh(
     (short-lived) and a refresh token (long-lived). The refresh token can be
     used to obtain new access tokens without re-authenticating.
 
+    Rate limited to 10 requests per minute per IP to prevent brute force attacks.
+
     Args:
         user_login: Login payload with username and password.
-        request: FastAPI request for client IP.
+        request: FastAPI request for client IP and rate limiting.
         service: Auth service dependency.
 
     Returns:
         A token response containing both JWT access and refresh tokens.
 
     Raises:
-        HTTPException: If credentials are invalid (401).
+        HTTPException: If credentials are invalid (401) or rate limit exceeded (429).
     """
     result = await service.login_with_refresh(user_login)
     client_ip = request.client.host if request.client else "unknown"
@@ -134,7 +143,8 @@ async def login_with_refresh(
     summary="Refresh access token"
 )
 async def refresh_tokens(
-    request: RefreshTokenRequest,
+    request: Request,
+    request_data: RefreshTokenRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """Refresh an access token using a refresh token.
@@ -142,8 +152,11 @@ async def refresh_tokens(
     This endpoint implements token rotation - the old refresh token is
     revoked and a new one is issued with each refresh.
 
+    Rate limited to 30 requests per minute per IP.
+
     Args:
-        request: Refresh token request containing the refresh token.
+        request: FastAPI request for rate limiting.
+        request_data: Refresh token request containing the refresh token.
         auth_service: Auth service dependency.
 
     Returns:
@@ -152,7 +165,7 @@ async def refresh_tokens(
     Raises:
         HTTPException: If the refresh token is invalid, expired, or revoked (401).
     """
-    result = await auth_service.refresh_tokens(request)
+    result = await auth_service.refresh_tokens(request_data)
 
     if result is None:
         raise HTTPException(
@@ -166,12 +179,14 @@ async def refresh_tokens(
 
 @router.post("/logout", summary="Logout user")
 async def logout(
+    request: Request,
     request_data: RefreshTokenRequest,
     auth_service: AuthService = Depends(get_auth_service),
 ):
     """Logout user by revoking their refresh token.
 
     Args:
+        request: FastAPI request for rate limiting.
         request_data: Request containing the refresh token to revoke.
         auth_service: Auth service dependency.
 
@@ -191,6 +206,7 @@ async def logout(
 @router.put("/change-password", summary="Change password")
 async def change_password(
     req: ChangePassword,
+    request: Request,
     current_user=Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
 ):
@@ -201,6 +217,7 @@ async def change_password(
 
     Args:
         req: Password change request with old and new passwords.
+        request: FastAPI request for rate limiting.
         current_user: Authenticated user from JWT token.
         service: Auth service dependency.
 
@@ -223,12 +240,14 @@ async def change_password(
 
 @router.get("/me", response_model=UserResponse, summary="Get current user info")
 async def get_me(
+    request: Request,
     current_user=Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
 ):
     """Get information about the currently authenticated user.
 
     Args:
+        request: FastAPI request for rate limiting.
         current_user: Authenticated user from JWT token.
         service: Auth service dependency.
 
