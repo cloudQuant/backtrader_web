@@ -174,6 +174,11 @@ def setup_logger(
     # Remove default handler
     logger.remove()
 
+    # Function to safely get extra values
+    def formatter_extra(record: Dict[str, Any]) -> Dict[str, Any]:
+        """Safely extract extra fields from log record."""
+        return record.get("extra", {})
+
     # Console output format
     if settings.DEBUG:
         # Detailed colored format for development
@@ -181,7 +186,7 @@ def setup_logger(
             "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
             "<level>{level: <8}</level> | "
             "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-            "<magenta>req:{extra[request_id]}</magenta> | "
+            "{extra[request_id]:<12} | "
             "<level>{message}</level>"
         )
     else:
@@ -190,9 +195,16 @@ def setup_logger(
             "{time:YYYY-MM-DD HH:mm:ss} | "
             "{level: <8} | "
             "{name}:{function}:{line} | "
-            "req:{extra[request_id]} | "
+            "{extra[request_id]:<12} | "
             "{message}"
         )
+
+    # Patch logger to always have request_id
+    def patch_record(record: Dict[str, Any]) -> Dict[str, Any]:
+        """Ensure record has default values for optional fields."""
+        if "request_id" not in record["extra"]:
+            record["extra"]["request_id"] = "N/A"
+        return record
 
     # Add console handler
     logger.add(
@@ -201,6 +213,7 @@ def setup_logger(
         level=level,
         colorize=settings.DEBUG,
         catch=True,
+        filter=patch_record,
     )
 
     # Application log - all logs
@@ -213,12 +226,13 @@ def setup_logger(
             "{time:YYYY-MM-DD HH:mm:ss} | "
             "{level: <8} | "
             "{name}:{function}:{line} | "
-            "req:{extra[request_id]} | "
+            "{extra[request_id]:<12} | "
             "{message}"
         ),
         level="INFO",
         enqueue=True,  # Thread-safe logging
         catch=True,
+        filter=patch_record,
     )
 
     # Error log - only errors and above
@@ -238,6 +252,7 @@ def setup_logger(
         catch=True,
         backtrace=True,
         diagnose=True,
+        filter=patch_record,
     )
 
     # Security/audit log - authentication and authorization events
@@ -250,7 +265,7 @@ def setup_logger(
             "{time:YYYY-MM-DD HH:mm:ss} | "
             "{level: <8} | "
             "{name}:{function}:{line} | "
-            "user:{extra[user_id]} | "
+            "user:{extra[user_id]:<12} | "
             "{message}"
         ),
         level="INFO",
@@ -268,8 +283,8 @@ def setup_logger(
         format=_serialize_log if use_json else (
             "{time:YYYY-MM-DD HH:mm:ss} | "
             "{level: <8} | "
-            "task:{extra[task_id]} | "
-            "user:{extra[user_id]} | "
+            "task:{extra[task_id]:<12} | "
+            "user:{extra[user_id]:<12} | "
             "{message}"
         ),
         level="INFO",

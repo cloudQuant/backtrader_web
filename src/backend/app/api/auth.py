@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.api.deps import get_current_user
 from app.schemas.auth import (
     ChangePassword,
+    RefreshTokenRequest,
+    RefreshTokenResponse,
     Token,
     UserCreate,
     UserLogin,
@@ -83,6 +85,109 @@ async def login(
     return result
 
 
+@router.post(
+    "/login/refresh",
+    response_model=RefreshTokenResponse,
+    summary="User login with refresh token"
+)
+async def login_with_refresh(
+    user_login: UserLogin,
+    request: Request,
+    service: AuthService = Depends(get_auth_service),
+):
+    """Authenticate and return JWT access and refresh tokens.
+
+    This endpoint provides enhanced security by issuing both an access token
+    (short-lived) and a refresh token (long-lived). The refresh token can be
+    used to obtain new access tokens without re-authenticating.
+
+    Args:
+        user_login: Login payload with username and password.
+        request: FastAPI request for client IP.
+        service: Auth service dependency.
+
+    Returns:
+        A token response containing both JWT access and refresh tokens.
+
+    Raises:
+        HTTPException: If credentials are invalid (401).
+    """
+    result = await service.login_with_refresh(user_login)
+    client_ip = request.client.host if request.client else "unknown"
+
+    if result is None:
+        audit_logger.log_login(user_login.username, success=False, ip=client_ip)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    audit_logger.log_login(user_login.username, success=True, ip=client_ip)
+    logger.info(f"User logged in with refresh token: {user_login.username}")
+    return result
+
+
+@router.post(
+    "/refresh",
+    response_model=RefreshTokenResponse,
+    summary="Refresh access token"
+)
+async def refresh_tokens(
+    request: RefreshTokenRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """Refresh an access token using a refresh token.
+
+    This endpoint implements token rotation - the old refresh token is
+    revoked and a new one is issued with each refresh.
+
+    Args:
+        request: Refresh token request containing the refresh token.
+        auth_service: Auth service dependency.
+
+    Returns:
+        A new token response with fresh access and refresh tokens.
+
+    Raises:
+        HTTPException: If the refresh token is invalid, expired, or revoked (401).
+    """
+    result = await auth_service.refresh_tokens(request)
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return result
+
+
+@router.post("/logout", summary="Logout user")
+async def logout(
+    request_data: RefreshTokenRequest,
+    auth_service: AuthService = Depends(get_auth_service),
+):
+    """Logout user by revoking their refresh token.
+
+    Args:
+        request_data: Request containing the refresh token to revoke.
+        auth_service: Auth service dependency.
+
+    Returns:
+        Success message.
+    """
+    success = await auth_service.logout(request_data.refresh_token)
+
+    if success:
+        logger.info("User logged out successfully")
+        return {"message": "Logged out successfully"}
+
+    # Even if token revocation fails, return success for idempotency
+    return {"message": "Logged out successfully"}
+
+
 @router.put("/change-password", summary="Change password")
 async def change_password(
     req: ChangePassword,
@@ -90,6 +195,9 @@ async def change_password(
     service: AuthService = Depends(get_auth_service),
 ):
     """Change the current user's password.
+
+    Note: Changing password will revoke all existing refresh tokens
+    for security reasons.
 
     Args:
         req: Password change request with old and new passwords.

@@ -59,3 +59,17 @@ class TokenPayload(BaseModel):
     sub: str = Field(..., description="User ID")
     username: str = Field(..., description="Username")
     exp: Optional[int] = Field(None, description="Expiration timestamp")
+    token_type: str = Field("access", description="Token type: access or refresh")
+
+
+class RefreshTokenRequest(BaseModel):
+    """Refresh token request schema."""
+    refresh_token: str = Field(..., description="Refresh token")
+
+
+class RefreshTokenResponse(BaseModel):
+    """Refresh token response schema."""
+    access_token: str = Field(..., description="New access token")
+    refresh_token: str = Field(..., description="New refresh token")
+    token_type: str = Field("bearer", description="Token type")
+    expires_in: int = Field(..., description="Expiration time (seconds)")
