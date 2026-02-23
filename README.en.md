@@ -10,6 +10,7 @@ A modern, full-featured web backtesting platform built on [Backtrader](https://w
 ## Features
 
 - **Backtest Engine** — Run backtests on 100+ built-in strategy templates or your own custom strategies
+- **Financial Metrics** — Standardized metrics via [fincore](https://github.com/quantopian/fincore) library
 - **Strategy Version Control** — Branch, compare, and rollback strategy versions like Git
 - **Paper Trading** — Simulate live trading with real-time market data
 - **Parameter Optimization** — Grid search and genetic algorithm optimization
@@ -28,6 +29,7 @@ A modern, full-featured web backtesting platform built on [Backtrader](https://w
 | Backend | FastAPI + Uvicorn + Pydantic + SQLAlchemy 2.0 |
 | Database | SQLite (default) / PostgreSQL / MySQL |
 | Backtest Engine | Backtrader |
+| Financial Metrics | fincore (industry-standard calculations) |
 | Auth | JWT + bcrypt |
 
 ## Quick Start
@@ -217,7 +219,15 @@ pytest tests/ --cov=app --cov-report=term-missing
 pytest tests/test_auth.py -v
 ```
 
-Current status: **1218 tests, 100% code coverage**.
+Current status: **1218+ tests, 100% code coverage**.
+
+## Documentation
+
+- **[Installation Guide](docs/INSTALLATION.md)** — Quick start and setup
+- **[Deployment Guide](docs/DEPLOYMENT.md)** — Production deployment
+- **[Operations Guide](docs/OPERATIONS.md)** — System administration
+- **[Backend README](src/backend/README.md)** — Backend architecture
+- **[Fincore Migration Guide](src/backend/FINCORE_MIGRATION.md)** — Metrics integration
 
 ## Development
 
