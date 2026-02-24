@@ -102,16 +102,30 @@ SECRET_KEY=your-secret-key
 JWT_EXPIRE_MINUTES=1440
 ```
 
-## 开发文档
+## 文档
 
-详细的敏捷开发文档请查看: [docs/AGILE_DEVELOPMENT.md](docs/AGILE_DEVELOPMENT.md)
+详细文档请查看: [docs/INDEX.md](docs/INDEX.md)
 
-包含:
-- 产品愿景和目标
-- 用户故事和验收标准
-- Sprint 规划
-- 技术架构设计
-- 开发规范
+### 核心文档
+
+- [安装指南](docs/INSTALLATION.md) - 环境配置和安装
+- [快速上手](docs/QUICKSTART.md) - 5分钟完成首次回测
+- [API 文档](docs/API.md) - RESTful API 接口说明
+- [开发指南](docs/DEVELOPMENT.md) - 本地开发环境配置
+- [架构设计](docs/ARCHITECTURE.md) - 整体架构设计
+- [数据库设计](docs/DATABASE.md) - 数据模型和关系
+- [安全指南](docs/SECURITY.md) - 安全最佳实践
+- [策略开发](docs/STRATEGY_DEVELOPMENT.md) - 如何编写交易策略
+- [更新日志](docs/CHANGELOG.md) - 版本更新记录
+
+### 敏捷开发文档
+
+- [敏捷开发文档](docs/AGILE_DEVELOPMENT.md)
+  - 产品愿景和目标
+  - 用户故事和验收标准
+  - Sprint 规划
+  - 技术架构设计
+  - 开发规范
 
 ## 参与贡献
 
