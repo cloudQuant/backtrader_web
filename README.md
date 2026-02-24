@@ -1,6 +1,6 @@
 # Backtrader Web
 
-基于 Backtrader 的现代化量化回测 Web 平台
+基于 Backtrader 的现代化量化交易管理平台
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-green.svg)](https://vuejs.org)
@@ -9,13 +9,17 @@
 
 ## 项目简介
 
-Backtrader Web 是一个为量化交易开发者打造的 Web 回测平台，提供：
+Backtrader Web 是一个为量化交易开发者打造的**全功能量化交易管理平台**，提供：
 
 - 🚀 **开箱即用** - 5分钟完成首次回测
 - 📊 **专业图表** - Echarts K线图 + 10+ 分析图表
 - 🔌 **API优先** - RESTful API 100% 覆盖
 - 💾 **多数据库** - 支持 SQLite/PostgreSQL/MySQL/MongoDB
-- 🎯 **策略管理** - YAML配置 + 代码编辑器
+- 🎯 **策略管理** - 策略版本控制 + 代码编辑器
+- 📈 **模拟交易** - 完整的模拟交易环境
+- 🔴 **实盘交易** - 多券商实盘对接
+- 📡 **实时行情** - WebSocket 实时推送
+- 🚨 **监控告警** - 实时监控和告警系统
 
 ## 技术栈
 
@@ -108,6 +112,7 @@ JWT_EXPIRE_MINUTES=1440
 
 ### 核心文档
 
+- **[综合技术文档](docs/TECHNICAL_DOCS.md)** - 系统功能概览、API 模块、数据模型、部署运维
 - [安装指南](docs/INSTALLATION.md) - 环境配置和安装
 - [快速上手](docs/QUICKSTART.md) - 5分钟完成首次回测
 - [API 文档](docs/API.md) - RESTful API 接口说明
