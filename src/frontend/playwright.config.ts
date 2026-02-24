@@ -25,7 +25,8 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
 
   // 并行执行工作进程
-  workers: process.env.CI ? 1 : undefined,
+  // 使用单 worker 避免并行测试时的登录冲突
+  workers: 1,
 
   // 报告器配置
   reporter: [
@@ -88,7 +89,8 @@ export default defineConfig({
   // 开发服务器配置
   // 注意: 需要手动启动前端服务: npm run dev (端口 5173)
   // 设置 reuseExistingServer: true 假设服务器已在运行
-  webServer: {
+  // 当 BASE_URL 环境变量设置时，禁用自动启动服务器
+  webServer: process.env.BASE_URL ? undefined : {
     command: 'npm run dev',
     url: 'http://localhost:5173',
     reuseExistingServer: true,  // 只使用已存在的服务器
