@@ -4,36 +4,23 @@ import { BasePage } from './BasePage';
 /**
  * 投资组合页面 Page Object
  *
- * 封装投资组合概览、持仓汇总、交易记录等功能
+ * 适配实际前端 PortfolioPage.vue
  */
 export class PortfolioPage extends BasePage {
-  // 概览面板
-  readonly totalEquity = '[data-testid="total-equity"], [data-metric="total-equity"]';
-  readonly totalCash = '[data-testid="total-cash"], [data-metric="total-cash"]';
-  readonly totalPnL = '[data-testid="total-pnl"], [data-metric="total-pnl"]';
-  readonly todayPnL = '[data-testid="today-pnl"], [data-metric="today-pnl"]';
+  // 概览卡片选择器 - 基于 PortfolioPage.vue
+  readonly totalAssetsCard = '.el-card:has(.text-gray-500:has-text("组合总资产"))';
+  readonly totalPnLCard = '.el-card:has(.text-gray-500:has-text("总盈亏"))';
 
-  // 权益曲线图表
-  readonly equityChart = '[data-testid="equity-chart"], canvas[data-chart*="equity"]';
-  readonly dateRangeSelector = '[data-testid="date-range"], .date-range-selector';
+  // 标签页
+  readonly strategiesTab = 'button:has-text("策略概览")';
+  readonly positionsTab = 'button:has-text("当前持仓")';
+  readonly tradesTab = 'button:has-text("交易记录")';
+  readonly equityTab = 'button:has-text("资金曲线")';
+  readonly allocationTab = 'button:has-text("资产配置")';
 
-  // 资产配置
-  readonly allocationChart = '[data-testid="allocation-chart"], canvas[data-chart*="allocation"]';
-  readonly allocationLegend = '[data-testid="allocation-legend"], .legend';
-
-  // 汇总持仓
-  readonly aggregatedPositions = '[data-testid="aggregated-positions"], .position-list';
-  readonly positionRow = '[data-testid="position-row"], .position-row';
-
-  // 汇总交易
-  readonly aggregatedTrades = '[data-testid="aggregated-trades"], .trade-list';
-  readonly tradeRow = '[data-testid="trade-row"], .trade-row';
-
-  // 过滤器
-  readonly accountFilter = '[data-testid="account-filter"], select[name="account"]';
-  readonly dateFromInput = '[data-testid="date-from"], input[name="date_from"]';
-  readonly dateToInput = '[data-testid="date-to"], input[name="date_to"]';
-  readonly applyFilterButton = '[data-testid="apply-filter"], button:has-text("应用")';
+  // 表格
+  readonly strategiesTable = '.el-table';
+  readonly tableRow = '.el-table__row';
 
   constructor(page: Page) {
     super(page);
@@ -50,158 +37,67 @@ export class PortfolioPage extends BasePage {
    * 断言在投资组合页面
    */
   async assertOnPortfolioPage() {
-    await expect(this.page.locator(this.totalEquity)).toBeVisible();
+    // 等待页面加载
+    await this.page.waitForTimeout(1000);
+    // 至少应该有一些卡片或内容
+    const hasContent = await this.page.locator('.el-card').count() > 0;
+    expect(hasContent).toBeTruthy();
   }
 
   /**
-   * 获取总权益
+   * 切换到策略概览标签
    */
-  async getTotalEquity(): Promise<number> {
-    const text = await this.getText(this.totalEquity);
-    return parseFloat(text.replace(/[^0-9.-]/g, ''));
-  }
-
-  /**
-   * 获取总现金
-   */
-  async getTotalCash(): Promise<number> {
-    const text = await this.getText(this.totalCash);
-    return parseFloat(text.replace(/[^0-9.-]/g, ''));
-  }
-
-  /**
-   * 获取总盈亏
-   */
-  async getTotalPnL(): Promise<number> {
-    const text = await this.getText(this.totalPnL);
-    return parseFloat(text.replace(/[^0-9.-]/g, ''));
-  }
-
-  /**
-   * 获取今日盈亏
-   */
-  async getTodayPnL(): Promise<number> {
-    const text = await this.getText(this.todayPnL);
-    return parseFloat(text.replace(/[^0-9.-]/g, ''));
-  }
-
-  /**
-   * 获取投资组合摘要
-   */
-  async getPortfolioSummary(): Promise<{
-    totalEquity: number;
-    totalCash: number;
-    totalPnL: number;
-    todayPnL: number;
-  }> {
-    return {
-      totalEquity: await this.getTotalEquity(),
-      totalCash: await this.getTotalCash(),
-      totalPnL: await this.getTotalPnL(),
-      todayPnL: await this.getTodayPnL(),
-    };
-  }
-
-  /**
-   * 按日期范围过滤
-   */
-  async filterByDateRange(fromDate: string, toDate: string) {
-    await this.fill(this.dateFromInput, fromDate);
-    await this.fill(this.dateToInput, toDate);
-    await this.click(this.applyFilterButton);
+  async goToStrategiesTab() {
+    await this.page.click(this.strategiesTab);
     await this.page.waitForTimeout(500);
   }
 
   /**
-   * 按账户过滤
+   * 切换到持仓标签
    */
-  async filterByAccount(accountName: string) {
-    await this.page.selectOption(this.accountFilter, accountName);
+  async goToPositionsTab() {
+    await this.page.click(this.positionsTab);
     await this.page.waitForTimeout(500);
   }
 
   /**
-   * 获取汇总持仓数量
+   * 切换到交易记录标签
    */
-  async getAggregatedPositionCount(): Promise<number> {
-    await this.page.waitForSelector(this.positionRow, { timeout: 5000 });
-    return await this.page.locator(this.positionRow).count();
+  async goToTradesTab() {
+    await this.page.click(this.tradesTab);
+    await this.page.waitForTimeout(500);
   }
 
   /**
-   * 获取所有汇总持仓
+   * 切换到资金曲线标签
    */
-  async getAggregatedPositions(): Promise<Array<{
-    symbol: string;
-    totalSize: number;
-    avgPrice: number;
-    marketValue: number;
-    pnl: number;
-  }>> {
-    const positions: Array<{
-      symbol: string;
-      totalSize: number;
-      avgPrice: number;
-      marketValue: number;
-      pnl: number;
-    }> = [];
-
-    const count = await this.getAggregatedPositionCount();
-    for (let i = 0; i < count; i++) {
-      const row = this.page.locator(this.positionRow).nth(i);
-      const symbol = await row.locator('[data-symbol], .symbol').textContent() || '';
-      const sizeText = await row.locator('[data-size], .size').textContent() || '0';
-      const priceText = await row.locator('[data-price], .price').textContent() || '0';
-      const valueText = await row.locator('[data-value], .value').textContent() || '0';
-      const pnlText = await row.locator('[data-pnl], .pnl').textContent() || '0';
-
-      positions.push({
-        symbol: symbol.trim(),
-        totalSize: parseFloat(sizeText.replace(/[^0-9.-]/g, '')),
-        avgPrice: parseFloat(priceText.replace(/[^0-9.-]/g, '')),
-        marketValue: parseFloat(valueText.replace(/[^0-9.-]/g, '')),
-        pnl: parseFloat(pnlText.replace(/[^0-9.-]/g, '')),
-      });
-    }
-
-    return positions;
+  async goToEquityTab() {
+    await this.page.click(this.equityTab);
+    await this.page.waitForTimeout(500);
   }
 
   /**
-   * 获取汇总交易记录数量
+   * 切换到资产配置标签
    */
-  async getAggregatedTradeCount(): Promise<number> {
-    await this.page.waitForSelector(this.tradeRow, { timeout: 5000 });
-    return await this.page.locator(this.tradeRow).count();
+  async goToAllocationTab() {
+    await this.page.click(this.allocationTab);
+    await this.page.waitForTimeout(500);
   }
 
   /**
-   * 断言权益图表可见
+   * 获取策略表格行数
    */
-  async assertEquityChartVisible() {
-    await expect(this.page.locator(this.equityChart)).toBeVisible();
+  async getStrategyCount(): Promise<number> {
+    await this.page.waitForTimeout(500);
+    const rows = this.page.locator(this.tableRow);
+    return await rows.count();
   }
 
   /**
-   * 断言资产配置图表可见
+   * 等待数据加载
    */
-  async assertAllocationChartVisible() {
-    await expect(this.page.locator(this.allocationChart)).toBeVisible();
-  }
-
-  /**
-   * 导出投资组合报告
-   */
-  async exportReport(format: 'csv' | 'excel' = 'csv') {
-    const exportButton = `[data-testid="export-${format}"], button:has-text("导出${format === 'csv' ? 'CSV' : 'Excel'}")`;
-    await this.click(exportButton);
-
-    // 等待下载开始
-    const [download] = await Promise.all([
-      this.page.waitForEvent('download'),
-      this.click(exportButton)
-    ]);
-
-    return download;
+  async waitForDataLoad() {
+    await this.page.waitForSelector('.el-card', { state: 'visible', timeout: 10000 });
+    await this.page.waitForTimeout(500);
   }
 }

@@ -1,0 +1,145 @@
+{
+  "config": {
+    "configFile": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/playwright.config.ts",
+    "rootDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/e2e/tests",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "Mobile Chrome",
+        "name": "Mobile Chrome",
+        "testDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/src/frontend/e2e/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "html",
+        {
+          "outputFolder": "e2e-results/html-report"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "e2e-results/test-results.json"
+        }
+      ],
+      [
+        "junit",
+        {
+          "outputFile": "e2e-results/junit-results.xml"
+        }
+      ],
+      [
+        "list",
+        null
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "runAgents": "none",
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.58.2",
+    "workers": 4,
+    "webServer": {
+      "command": "npm run dev",
+      "url": "http://localhost:5173",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [],
+  "errors": [
+    {
+      "message": "Error: Timed out waiting 120000ms from config.webServer.",
+      "stack": "Error: Timed out waiting 120000ms from config.webServer."
+    }
+  ],
+  "stats": {
+    "startTime": "2026-02-24T03:45:37.262Z",
+    "duration": 120360.01,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

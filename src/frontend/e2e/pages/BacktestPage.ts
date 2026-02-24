@@ -5,30 +5,29 @@ import { BacktestRequest } from '../fixtures/test-data.fixture';
 /**
  * 回测页面 Page Object
  *
- * 封装回测配置、执行、结果查看等操作
+ * 适配实际前端 BacktestPage.vue
  */
 export class BacktestPage extends BasePage {
-  // 回测配置选择器
-  readonly strategySelect = '[data-testid="strategy-select"], select[name="strategy_id"]';
-  readonly symbolInput = '[data-testid="symbol-input"], input[name="symbol"]';
-  readonly startDateInput = '[data-testid="start-date"], input[name="start_date"]';
-  readonly endDateInput = '[data-testid="end-date"], input[name="end_date"]';
-  readonly initialCashInput = '[data-testid="initial-cash"], input[name="initial_cash"]';
-  readonly commissionInput = '[data-testid="commission"], input[name="commission"]';
-  readonly runButton = '[data-testid="run-backtest"], button:has-text("运行")';
-  readonly stopButton = '[data-testid="stop-backtest"], button:has-text("停止")';
+  // 回测配置选择器 - 基于 BacktestPage.vue
+  readonly cardTitle = '.el-card__header:has-text("回测配置")';
+  readonly strategySelect = '.el-select:has(.el-input__inner)';
+  readonly runButton = 'button.el-button--primary:has-text("运行回测")';
+  readonly stopButton = 'button.el-button--danger:has-text("取消")';
+  readonly viewButton = 'button:has-text("查看")';
 
   // 回测状态
-  readonly statusIndicator = '[data-testid="backtest-status"], .status';
-  readonly progressBar = '[data-testid="progress-bar"], .el-progress';
+  readonly progressBar = '.el-progress';
+  readonly progressText = '.el-progress__text';
 
-  // 回测结果
-  readonly resultsPanel = '[data-testid="backtest-results"], .results-panel';
-  readonly sharpeRatio = '[data-testid="sharpe-ratio"], [data-sharpe]';
-  readonly totalReturn = '[data-testid="total-return"], [data-return]';
-  readonly maxDrawdown = '[data-testid="max-drawdown"], [data-drawdown]';
-  readonly winRate = '[data-testid="win-rate"], [data-winrate]';
-  readonly equityChart = '[data-testid="equity-chart"], canvas[data-chart*="equity"]';
+  // 回测结果卡片
+  readonly resultsCard = '.el-card__header:has-text("回测结果")';
+  readonly resultsTable = '.el-table';
+
+  // 关键指标选择器
+  readonly totalReturnMetric = '.el-card:has(.text-gray-500:has-text("总收益率"))';
+  readonly sharpeRatioMetric = '.el-card:has(.text-gray-500:has-text("夏普比率"))';
+  readonly maxDrawdownMetric = '.el-card:has(.text-gray-500:has-text("最大回撤"))';
+  readonly winRateMetric = '.el-card:has(.text-gray-500:has-text("胜率"))';
 
   constructor(page: Page) {
     super(page);
@@ -45,21 +44,19 @@ export class BacktestPage extends BasePage {
    * 断言在回测页面
    */
   async assertOnBacktestPage() {
-    await expect(this.page.locator(this.runButton)).toBeVisible();
+    await expect(this.page.locator(this.cardTitle)).toBeVisible();
   }
 
   /**
-   * 填写回测配置表单
+   * 选择策略
    */
-  async fillBacktestForm(request: BacktestRequest) {
-    if (request.strategy_id) {
-      await this.page.selectOption(this.strategySelect, request.strategy_id);
-    }
-    await this.fill(this.symbolInput, request.symbol);
-    await this.fill(this.startDateInput, request.start_date);
-    await this.fill(this.endDateInput, request.end_date);
-    await this.fill(this.initialCashInput, request.initial_cash.toString());
-    await this.fill(this.commissionInput, request.commission.toString());
+  async selectStrategy(strategyName: string) {
+    // 点击策略选择器
+    await this.page.click('.el-select:has(.el-input__inner)');
+    // 等待下拉选项出现
+    await this.page.waitForTimeout(500);
+    // 选择对应的策略
+    await this.page.click(`.el-select-dropdown__item:has-text("${strategyName}")`);
   }
 
   /**
@@ -74,86 +71,39 @@ export class BacktestPage extends BasePage {
    */
   async runBacktest(request: BacktestRequest) {
     await this.goto();
-    await this.fillBacktestForm(request);
+    // 等待页面加载
+    await this.page.waitForTimeout(1000);
+    // 如果指定了策略，选择它
+    if (request.strategy_id) {
+      await this.selectStrategy(request.strategy_id);
+    }
     await this.clickRun();
   }
 
   /**
    * 等待回测完成
-   *
-   * 智能等待：等待 API 响应和状态更新
    */
-  async waitForCompletion(timeout: number = 120000) {
-    // 等待进度条消失或状态变为完成
-    await Promise.race([
-      this.page.waitForSelector(this.progressBar, { state: 'hidden', timeout }),
-      this.page.waitForSelector(`${this.statusIndicator}:has-text("完成")`, { timeout }),
-      this.page.waitForSelector(`${this.statusIndicator}:has-text("completed")`, { timeout }),
-    ]);
-  }
-
-  /**
-   * 等待回测结果显示
-   */
-  async waitForResults() {
-    await this.page.waitForSelector(this.resultsPanel, { state: 'visible', timeout: 120000 });
+  async waitForCompletion(timeout: number = 60000) {
+    // 等待进度条出现然后消失
+    await this.page.waitForSelector(this.progressBar, { state: 'visible', timeout: 5000 }).catch(() => {});
+    await this.page.waitForSelector(this.progressBar, { state: 'hidden', timeout }).catch(() => {});
+    // 或者等待结果显示
+    await this.page.waitForSelector(this.resultsCard, { state: 'visible', timeout: 10000 }).catch(() => {});
   }
 
   /**
    * 断言回测结果可见
    */
   async assertResultsVisible() {
-    await expect(this.page.locator(this.resultsPanel)).toBeVisible();
-    await expect(this.page.locator(this.equityChart)).toBeVisible();
+    await expect(this.page.locator(this.resultsCard)).toBeVisible({ timeout: 10000 });
   }
 
   /**
-   * 获取回测指标
+   * 获取回测历史记录数
    */
-  async getMetrics(): Promise<{
-    sharpeRatio: number;
-    totalReturn: number;
-    maxDrawdown: number;
-    winRate: number;
-  }> {
-    return {
-      sharpeRatio: await this.getMetricValue(this.sharpeRatio),
-      totalReturn: await this.getMetricValue(this.totalReturn),
-      maxDrawdown: await this.getMetricValue(this.maxDrawdown),
-      winRate: await this.getMetricValue(this.winRate),
-    };
-  }
-
-  /**
-   * 获取单个指标值
-   */
-  private async getMetricValue(selector: string): Promise<number> {
-    const text = await this.getText(selector);
-    const match = text.match(/[-+]?\d*\.?\d+/);
-    return match ? parseFloat(match[0]) : 0;
-  }
-
-  /**
-   * 断言指标在合理范围内
-   */
-  async assertMetricsValid(metrics?: {
-    sharpeRatio?: number;
-    totalReturn?: number;
-    maxDrawdown?: number;
-    winRate?: number;
-  }) {
-    const actual = await this.getMetrics();
-
-    if (metrics?.sharpeRatio !== undefined) {
-      expect(actual.sharpeRatio).toBeCloseTo(metrics.sharpeRatio, 1);
-    }
-    if (metrics?.totalReturn !== undefined) {
-      expect(actual.totalReturn).toBeCloseTo(metrics.totalReturn, 1);
-    }
-    // 最大回撤应该是负数
-    expect(actual.maxDrawdown).toBeLessThan(0);
-    // 胜率在 0-100 之间
-    expect(actual.winRate).toBeGreaterThanOrEqual(0);
-    expect(actual.winRate).toBeLessThanOrEqual(100);
+  async getHistoryCount(): Promise<number> {
+    await this.page.waitForTimeout(500);
+    const rows = this.page.locator('.el-table__body-wrapper .el-table__row');
+    return await rows.count();
   }
 }

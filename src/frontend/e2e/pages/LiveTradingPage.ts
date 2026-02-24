@@ -4,38 +4,36 @@ import { BasePage } from './BasePage';
 /**
  * 实盘交易管理 Page Object
  *
- * 封装实盘实例的创建、启动、停止、监控等操作
+ * 适配实际前端 LiveTradingPage.vue
  */
 export class LiveTradingPage extends BasePage {
-  // 实例管理选择器
-  readonly addInstanceButton = '[data-testid="add-instance"], button:has-text("添加实例")';
+  // 实例管理选择器 - 基于 LiveTradingPage.vue
+  readonly pageTitle = 'h3:has-text("实盘交易")';
+  readonly addInstanceButton = 'button:has-text("添加策略")';
+  readonly startAllButton = 'button:has-text("一键启动")';
+  readonly stopAllButton = 'button:has-text("一键停止")';
 
   // 实例表单
-  readonly instanceNameInput = '[data-testid="instance-name"], input[name="name"]';
-  readonly strategySelect = '[data-testid="strategy-select"], select[name="strategy_id"]';
-  readonly symbolInput = '[data-testid="symbol-input"], input[name="symbol"]';
-  readonly brokerSelect = '[data-testid="broker-select"], select[name="broker"]';
-  readonly saveInstanceButton = '[data-testid="save-instance"], button:has-text("保存")';
+  readonly dialogTitle = '.el-dialog__title:has-text("添加实盘策略")';
+  readonly strategySelect = '.el-select:has(.el-input__inner)';
+  readonly saveInstanceButton = 'button.el-button--primary:has-text("添加")';
+  readonly cancelButton = 'button:has-text("取消")';
 
   // 实例列表
-  readonly instanceList = '[data-testid="instance-list"], .instance-list';
-  readonly instanceCard = '[data-testid="instance-card"], .instance-card';
+  readonly instanceCard = '.el-card';
 
-  // 实例状态
-  readonly statusIndicator = '[data-testid="status"], .status';
-  readonly startButton = '[data-testid="start-button"], button:has-text("启动")';
-  readonly stopButton = '[data-testid="stop-button"], button:has-text("停止")';
-  readonly restartButton = '[data-testid="restart-button"], button:has-text("重启")';
+  // 实例状态标签
+  readonly runningTag = '.el-tag--success';
+  readonly stoppedTag = '.el-tag--info';
+  readonly errorTag = '.el-tag--danger';
 
-  // 实例详情
-  readonly positionTab = '[data-testid="tab-positions"], tab:has-text("持仓")';
-  readonly orderTab = '[data-testid="tab-orders"], tab:has-text("订单")';
-  readonly tradeTab = '[data-testid="tab-trades"], tab:has-text("成交")';
-  readonly logTab = '[data-testid="tab-logs"], tab:has-text("日志")';
+  // 实例操作按钮
+  readonly startButton = 'button:has-text("启动")';
+  readonly stopButton = 'button:has-text("停止")';
+  readonly deleteButton = 'button:has-text("删除")';
 
-  // 详情面板
-  readonly instanceLog = '[data-testid="instance-log"], .instance-log';
-  readonly metricsPanel = '[data-testid="metrics"], .metrics';
+  // 详情相关
+  readonly analyzeButton = 'button:has-text("分析")';
 
   constructor(page: Page) {
     super(page);
@@ -52,152 +50,93 @@ export class LiveTradingPage extends BasePage {
    * 断言在实盘交易页面
    */
   async assertOnLiveTradingPage() {
-    await expect(this.page.locator(this.addInstanceButton)).toBeVisible();
+    await expect(this.page.locator(this.pageTitle)).toBeVisible();
   }
 
   /**
-   * 创建实盘实例
+   * 打开添加实例对话框
    */
-  async createInstance(instance: {
-    name: string;
-    strategyId?: string;
-    symbol: string;
-    broker?: string;
-  }) {
+  async openAddDialog() {
     await this.click(this.addInstanceButton);
+    await this.page.waitForSelector(this.dialogTitle, { timeout: 5000 });
+  }
 
-    await this.fill(this.instanceNameInput, instance.name);
+  /**
+   * 选择策略（在对话框中）
+   */
+  async selectStrategy(strategyId: string) {
+    // 点击策略选择器
+    await this.page.click('.el-select .el-input__inner');
+    await this.page.waitForTimeout(500);
+    // 选择策略
+    await this.page.click(`.el-select-dropdown__item:has-text("${strategyId}")`);
+  }
 
-    if (instance.strategyId) {
-      await this.page.selectOption(this.strategySelect, instance.strategyId);
-    }
-
-    await this.fill(this.symbolInput, instance.symbol);
-
-    if (instance.broker) {
-      await this.page.selectOption(this.brokerSelect, instance.broker);
-    }
-
+  /**
+   * 点击添加按钮
+   */
+  async clickAdd() {
     await this.click(this.saveInstanceButton);
-    await this.waitForToast();
+  }
+
+  /**
+   * 创建实盘实例（简化版）
+   */
+  async createInstance(strategyId: string) {
+    await this.openAddDialog();
+    await this.selectStrategy(strategyId);
+    await this.clickAdd();
+    await this.page.waitForTimeout(1000);
   }
 
   /**
    * 获取实例数量
    */
   async getInstanceCount(): Promise<number> {
-    await this.page.waitForSelector(this.instanceCard, { timeout: 5000 });
+    await this.page.waitForTimeout(500);
     return await this.page.locator(this.instanceCard).count();
+  }
+
+  /**
+   * 获取指定实例的卡片
+   */
+  getInstanceCard(instanceId: string) {
+    return this.page.locator(this.instanceCard).filter({ hasText: instanceId });
   }
 
   /**
    * 启动实例
    */
-  async startInstance(instanceName: string) {
-    const card = this.page.locator(this.instanceCard).filter({ hasText: instanceName });
+  async startInstance(instanceId: string) {
+    const card = this.getInstanceCard(instanceId);
     await card.locator(this.startButton).click();
-    await this.waitForToast();
+    await this.page.waitForTimeout(1000);
   }
 
   /**
    * 停止实例
    */
-  async stopInstance(instanceName: string) {
-    const card = this.page.locator(this.instanceCard).filter({ hasText: instanceName });
+  async stopInstance(instanceId: string) {
+    const card = this.getInstanceCard(instanceId);
     await card.locator(this.stopButton).click();
-    await this.waitForToast();
+    await this.page.waitForTimeout(1000);
+  }
+
+  /**
+   * 删除实例
+   */
+  async deleteInstance(instanceId: string) {
+    const card = this.getInstanceCard(instanceId);
+    await card.locator(this.deleteButton).click();
+    await this.page.waitForTimeout(500);
   }
 
   /**
    * 获取实例状态
    */
-  async getInstanceStatus(instanceName: string): Promise<string> {
-    const card = this.page.locator(this.instanceCard).filter({ hasText: instanceName });
-    const status = await card.locator(this.statusIndicator).textContent() || '';
+  async getInstanceStatus(instanceId: string): Promise<string> {
+    const card = this.getInstanceCard(instanceId);
+    const status = await card.locator('.el-tag').first().textContent() || '';
     return status.trim();
-  }
-
-  /**
-   * 断言实例正在运行
-   */
-  async assertInstanceRunning(instanceName: string) {
-    const status = await this.getInstanceStatus(instanceName);
-    expect(status.toLowerCase()).toMatch(/running|运行中/);
-  }
-
-  /**
-   * 断言实例已停止
-   */
-  async assertInstanceStopped(instanceName: string) {
-    const status = await this.getInstanceStatus(instanceName);
-    expect(status.toLowerCase()).toMatch(/stopped|stopped|已停止/);
-  }
-
-  /**
-   * 查看实例详情
-   */
-  async viewInstanceDetails(instanceName: string) {
-    const card = this.page.locator(this.instanceCard).filter({ hasText: instanceName });
-    await card.click();
-
-    // 等待详情面板加载
-    await expect(this.page.locator(this.positionTab)).toBeVisible();
-  }
-
-  /**
-   * 切换到持仓选项卡
-   */
-  async showPositions() {
-    await this.click(this.positionTab);
-    await this.page.waitForTimeout(300);
-  }
-
-  /**
-   * 切换到订单选项卡
-   */
-  async showOrders() {
-    await this.click(this.orderTab);
-    await this.page.waitForTimeout(300);
-  }
-
-  /**
-   * 切换到成交选项卡
-   */
-  async showTrades() {
-    await this.click(this.tradeTab);
-    await this.page.waitForTimeout(300);
-  }
-
-  /**
-   * 切换到日志选项卡
-   */
-  async showLogs() {
-    await this.click(this.logTab);
-    await this.page.waitForTimeout(300);
-  }
-
-  /**
-   * 获取实例日志
-   */
-  async getInstanceLogs(): Promise<string[]> {
-    const logs: string[] = [];
-    const logLines = await this.page.locator(this.instanceLog).locator('.log-line, p, div').all();
-
-    for (const line of logLines) {
-      const text = await line.textContent();
-      if (text) logs.push(text.trim());
-    }
-
-    return logs;
-  }
-
-  /**
-   * 等待日志包含特定文本
-   */
-  async waitForLogText(text: string, timeout: number = 30000) {
-    await this.page.waitForSelector(
-      `${this.instanceLog}:has-text("${text}")`,
-      { timeout }
-    );
   }
 }

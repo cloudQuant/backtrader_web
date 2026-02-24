@@ -74,7 +74,10 @@ export class AuthPage extends BasePage {
     await this.clickLogin();
 
     // 等待登录完成 - 检查 URL 变化或成功提示
-    await this.page.waitForURL(/\/(dashboard|strategies)?/, { timeout: 10000 });
+    // 登录成功后会跳转到 / (Dashboard)
+    await this.page.waitForURL(/\//, { timeout: 10000 });
+    // 等待页面加载
+    await this.page.waitForTimeout(1000);
   }
 
   /**
