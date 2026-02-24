@@ -11,6 +11,17 @@ from app.db.database import async_session_maker
 T = TypeVar('T')
 
 
+class BulkUpdateResult:
+    """Result of a bulk update operation.
+
+    Attributes:
+        rowcount: Number of rows updated.
+    """
+
+    def __init__(self, rowcount: int):
+        self.rowcount = rowcount
+
+
 class SQLRepository(BaseRepository[T], Generic[T]):
     """SQL database implementation - Shared by PostgreSQL/MySQL/SQLite.
 
@@ -58,24 +69,34 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             )
             return result.scalar_one_or_none()
 
-    async def update(self, id: str, data: Dict[str, Any]) -> Optional[T]:
+    async def update(
+        self,
+        id: str,
+        data: Dict[str, Any],
+        refresh: bool = True
+    ) -> Optional[T]:
         """Update an entity.
 
         Args:
             id: The entity ID.
             data: Dictionary of fields to update.
+            refresh: Whether to fetch and return the updated entity.
+                     Set to False for better performance when the return value is not needed.
 
         Returns:
-            The updated entity, or None if not found.
+            The updated entity if refresh=True, None otherwise or if not found.
         """
         async with async_session_maker() as session:
-            await session.execute(
+            result = await session.execute(
                 update(self.model_class)
                 .where(self.model_class.id == id)
                 .values(**data)
             )
             await session.commit()
-            return await self.get_by_id(id)
+
+            if refresh:
+                return await self.get_by_id(id)
+            return None
 
     async def delete(self, id: str) -> bool:
         """Delete an entity.
@@ -159,6 +180,8 @@ class SQLRepository(BaseRepository[T], Generic[T]):
 
         Args:
             filters: Optional filter dictionary.
+                     Supports IN queries when value is a list/tuple/set.
+                     Supports IS NULL queries when value is None.
 
         Returns:
             The count of matching entities.
@@ -169,9 +192,15 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             if filters:
                 for key, value in filters.items():
                     if hasattr(self.model_class, key):
-                        query = query.where(
-                            getattr(self.model_class, key) == value
-                        )
+                        col = getattr(self.model_class, key)
+                        # Support IN query: if value is list/tuple/set
+                        if isinstance(value, (list, tuple, set)):
+                            if value:  # Only add condition if non-empty
+                                query = query.where(col.in_(value))
+                        elif value is None:
+                            query = query.where(col.is_(None))
+                        else:
+                            query = query.where(col == value)
 
             result = await session.execute(query)
             return result.scalar() or 0
@@ -193,3 +222,133 @@ class SQLRepository(BaseRepository[T], Generic[T]):
                 )
             )
             return result.scalar_one_or_none()
+
+    async def exists(self, filters: Dict[str, Any] = None) -> bool:
+        """Check if any entity matches the given filters.
+
+        More efficient than count() when you only need to know if records exist.
+
+        Args:
+            filters: Optional filter dictionary.
+                     Supports IN queries when value is a list/tuple/set.
+
+        Returns:
+            True if at least one matching entity exists, False otherwise.
+        """
+        async with async_session_maker() as session:
+            query = select(func.count()).select_from(self.model_class)
+
+            if filters:
+                for key, value in filters.items():
+                    if hasattr(self.model_class, key):
+                        col = getattr(self.model_class, key)
+                        if isinstance(value, (list, tuple, set)):
+                            if value:
+                                query = query.where(col.in_(value))
+                        elif value is None:
+                            query = query.where(col.is_(None))
+                        else:
+                            query = query.where(col == value)
+
+            # Use limit(1) for optimization - database stops counting after finding first row
+            result = await session.execute(query.limit(1))
+            return (result.scalar() or 0) > 0
+
+    async def bulk_create(self, entities: List[T]) -> List[T]:
+        """Create multiple entities in a single transaction.
+
+        More efficient than creating entities one by one.
+
+        Args:
+            entities: List of entities to create.
+
+        Returns:
+            List of created entities.
+        """
+        if not entities:
+            return []
+
+        async with async_session_maker() as session:
+            session.add_all(entities)
+            await session.commit()
+            # Refresh all entities to get generated IDs
+            for entity in entities:
+                await session.refresh(entity)
+            return entities
+
+    async def bulk_update(
+        self,
+        ids: List[str],
+        data: Dict[str, Any]
+    ) -> BulkUpdateResult:
+        """Update multiple entities with the same data in a single query.
+
+        Args:
+            ids: List of entity IDs to update.
+            data: Dictionary of fields to update (same for all entities).
+
+        Returns:
+            BulkUpdateResult with the number of rows updated.
+        """
+        if not ids:
+            return BulkUpdateResult(rowcount=0)
+
+        async with async_session_maker() as session:
+            result = await session.execute(
+                update(self.model_class)
+                .where(self.model_class.id.in_(ids))
+                .values(**data)
+            )
+            await session.commit()
+            return BulkUpdateResult(rowcount=result.rowcount)
+
+    async def bulk_delete(self, ids: List[str]) -> int:
+        """Delete multiple entities in a single query.
+
+        Args:
+            ids: List of entity IDs to delete.
+
+        Returns:
+            Number of rows deleted.
+        """
+        if not ids:
+            return 0
+
+        async with async_session_maker() as session:
+            result = await session.execute(
+                delete(self.model_class).where(self.model_class.id.in_(ids))
+            )
+            await session.commit()
+            return result.rowcount
+
+    async def get_by_fields(
+        self,
+        filters: Dict[str, Any],
+        limit: int = 1
+    ) -> List[T]:
+        """Get entities by multiple field values.
+
+        Args:
+            filters: Dictionary of field=value conditions.
+            limit: Maximum number of results to return. Defaults to 1.
+
+        Returns:
+            List of matching entities.
+        """
+        async with async_session_maker() as session:
+            query = select(self.model_class)
+
+            for key, value in filters.items():
+                if hasattr(self.model_class, key):
+                    col = getattr(self.model_class, key)
+                    if isinstance(value, (list, tuple, set)):
+                        if value:
+                            query = query.where(col.in_(value))
+                    elif value is None:
+                        query = query.where(col.is_(None))
+                    else:
+                        query = query.where(col == value)
+
+            query = query.limit(limit)
+            result = await session.execute(query)
+            return list(result.scalars().all())
