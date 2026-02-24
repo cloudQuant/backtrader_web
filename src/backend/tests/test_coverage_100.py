@@ -50,7 +50,7 @@ class TestStrategyVersionPermissionErrors:
                     "is_default": False,
                 },
             )
-            assert resp.status_code == 401  # Unauthorized when no token provided
+            assert resp.status_code == 403  # Forbidden when permission denied
 
     async def test_compare_versions_permission_error(self, client: AsyncClient, auth_headers: dict):
         """Cover line 308: PermissionError in compare_strategy_versions."""
@@ -69,7 +69,7 @@ class TestStrategyVersionPermissionErrors:
                     "comparison_type": "code",
                 },
             )
-            assert resp.status_code == 401  # Unauthorized when no token provided
+            assert resp.status_code == 403  # Forbidden when permission denied
 
     async def test_rollback_version_permission_error(self, client: AsyncClient, auth_headers: dict):
         """Cover line 364: PermissionError in rollback_strategy_version."""
@@ -87,7 +87,7 @@ class TestStrategyVersionPermissionErrors:
                     "reason": "revert",
                 },
             )
-            assert resp.status_code == 401  # Unauthorized when no token provided
+            assert resp.status_code == 403  # Forbidden when permission denied
 
     async def test_create_branch_permission_error(self, client: AsyncClient, auth_headers: dict):
         """Cover lines 415-416: PermissionError in create_strategy_branch."""
@@ -105,7 +105,7 @@ class TestStrategyVersionPermissionErrors:
                     "parent_branch": "main",
                 },
             )
-            assert resp.status_code == 401  # Unauthorized when no token provided
+            assert resp.status_code == 403  # Forbidden when permission denied
 
     async def test_create_branch_value_error(self, client: AsyncClient, auth_headers: dict):
         """Cover lines 417-418: ValueError in create_strategy_branch."""
@@ -136,7 +136,7 @@ class TestStrategyVersionPermissionErrors:
                 "/api/v1/strategy-versions/strategies/s1/branches",
                 headers=auth_headers,
             )
-            assert resp.status_code == 401  # Unauthorized when no token provided
+            assert resp.status_code == 403  # Forbidden when permission denied
 
     async def test_list_branches_value_error(self, client: AsyncClient, auth_headers: dict):
         """Cover lines 455-456: ValueError in list_strategy_branches."""

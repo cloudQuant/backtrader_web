@@ -156,7 +156,7 @@ class TestGetStrategyVersion:
             mock_service_class.return_value = mock_service
 
             resp = await client.get("/api/v1/strategy-versions/versions/ver123", headers=auth_headers)
-            assert resp.status_code == 401  # Unauthorized when no token provided
+            assert resp.status_code == 403  # Forbidden - user has token but not owner
 
     async def test_get_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful get - accept multiple status codes due to mock complexity."""
