@@ -3,7 +3,7 @@ Backtest analytics schemas.
 """
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PerformanceMetrics(BaseModel):
@@ -27,6 +27,31 @@ class PerformanceMetrics(BaseModel):
     max_consecutive_wins: int = Field(0, description="Maximum consecutive wins")
     max_consecutive_losses: int = Field(0, description="Maximum consecutive losses")
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "initial_capital": 100000.0,
+                "final_assets": 115000.0,
+                "total_return": 0.15,
+                "annualized_return": 0.15,
+                "max_drawdown": -0.08,
+                "max_drawdown_duration": 15,
+                "sharpe_ratio": 1.5,
+                "sortino_ratio": 2.0,
+                "calmar_ratio": 1.8,
+                "win_rate": 0.6,
+                "profit_factor": 1.8,
+                "trade_count": 50,
+                "avg_trade_return": 0.003,
+                "avg_holding_days": 5.5,
+                "avg_win": 500.0,
+                "avg_loss": -300.0,
+                "max_consecutive_wins": 8,
+                "max_consecutive_losses": 3,
+            }
+        }
+    )
+
 
 class EquityPoint(BaseModel):
     """Equity curve point schema."""
@@ -36,6 +61,18 @@ class EquityPoint(BaseModel):
     position_value: float
     benchmark: Optional[float] = None
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "date": "2023-01-01",
+                "total_assets": 100000.0,
+                "cash": 50000.0,
+                "position_value": 50000.0,
+                "benchmark": 100000.0,
+            }
+        }
+    )
+
 
 class DrawdownPoint(BaseModel):
     """Drawdown point schema."""
@@ -43,6 +80,17 @@ class DrawdownPoint(BaseModel):
     drawdown: float
     peak: float
     trough: float
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "date": "2023-02-15",
+                "drawdown": -0.05,
+                "peak": 105000.0,
+                "trough": 99750.0,
+            }
+        }
+    )
 
 
 class TradeRecord(BaseModel):
@@ -60,6 +108,25 @@ class TradeRecord(BaseModel):
     holding_days: Optional[int] = None
     cumulative_pnl: float = 0
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "id": 1,
+                "datetime": "2023-01-15 09:30:00",
+                "symbol": "000001.SZ",
+                "direction": "buy",
+                "price": 10.5,
+                "size": 1000,
+                "value": 10500.0,
+                "commission": 10.5,
+                "pnl": 500.0,
+                "return_pct": 0.048,
+                "holding_days": 5,
+                "cumulative_pnl": 500.0,
+            }
+        }
+    )
+
 
 class TradeSignal(BaseModel):
     """Trade signal schema."""
@@ -68,6 +135,18 @@ class TradeSignal(BaseModel):
     price: float
     size: Optional[float] = 0
     reason: Optional[str] = None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "date": "2023-01-15",
+                "type": "buy",
+                "price": 10.5,
+                "size": 1000,
+                "reason": "MA crossover",
+            }
+        }
+    )
 
 
 class KlineData(BaseModel):
@@ -80,12 +159,36 @@ class KlineData(BaseModel):
     volume: float
     change_pct: Optional[float] = None
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "date": "2023-01-01",
+                "open": 10.0,
+                "high": 10.5,
+                "low": 9.8,
+                "close": 10.3,
+                "volume": 1000000,
+                "change_pct": 0.03,
+            }
+        }
+    )
+
 
 class MonthlyReturn(BaseModel):
     """Monthly return schema."""
     year: int
     month: int
     return_pct: float
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "year": 2023,
+                "month": 1,
+                "return_pct": 0.05,
+            }
+        }
+    )
 
 
 class OptimizationResultItem(BaseModel):
@@ -97,6 +200,20 @@ class OptimizationResultItem(BaseModel):
     trade_count: int
     rank: int = 0
     is_best: bool = False
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "params": {"fast_period": 5, "slow_period": 20},
+                "total_return": 0.2,
+                "max_drawdown": -0.1,
+                "sharpe_ratio": 1.8,
+                "trade_count": 45,
+                "rank": 1,
+                "is_best": True,
+            }
+        }
+    )
 
 
 class BacktestDetailResponse(BaseModel):
