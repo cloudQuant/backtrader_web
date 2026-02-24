@@ -44,7 +44,7 @@ class TestStrategyCreate:
         resp = await client.post("/api/v1/strategy/", json={
             "name": "NoAuth", "code": SAMPLE_CODE,
         })
-        assert resp.status_code == 403
+        assert resp.status_code == 401  # Unauthorized when no token provided
 
     async def test_create_empty_name(self, client: AsyncClient, auth_headers: dict):
         """Test creating a strategy with an empty name.

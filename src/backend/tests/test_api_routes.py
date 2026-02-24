@@ -13,7 +13,7 @@ class TestDataAPI:
     async def test_query_kline_no_auth(self, client: AsyncClient):
         """Test K-line query without authentication."""
         resp = await client.get("/api/v1/data/kline?symbol=000001.SZ")
-        assert resp.status_code in [200, 403, 422]
+        assert resp.status_code in [200, 401, 422]  # 401 for unauthorized, 422 for invalid params
 
     async def test_query_kline(self, client: AsyncClient, auth_headers: dict):
         """Test K-line query with authentication."""
@@ -29,7 +29,7 @@ class TestComparisonAPI:
     async def test_create_comparison_no_auth(self, client: AsyncClient):
         """Test creating comparison without authentication."""
         resp = await client.post("/api/v1/comparisons/", json={})
-        assert resp.status_code in [403, 422]
+        assert resp.status_code in [401, 422]  # 401 for unauthorized, 422 for invalid params
 
     async def test_list_comparisons(self, client: AsyncClient, auth_headers: dict):
         """Test listing comparisons."""

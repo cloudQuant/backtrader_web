@@ -53,7 +53,7 @@ class TestPortfolioAPI:
     async def test_no_auth(self, client: AsyncClient):
         """Test accessing endpoints without authentication."""
         resp = await client.get("/api/v1/portfolio/overview")
-        assert resp.status_code == 403
+        assert resp.status_code == 401  # Unauthorized when no token provided
 
 
 @pytest.mark.asyncio

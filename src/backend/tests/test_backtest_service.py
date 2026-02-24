@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.models.backtest import BacktestResultModel, BacktestTask
-from app.schemas.backtest import BacktestRequest, TaskStatus
+from app.schemas.backtest import BacktestRequest, BacktestResult, TaskStatus
 from app.services.backtest_service import BacktestService, _running_processes, _running_tasks
 
 
@@ -412,6 +412,7 @@ class TestGetResult:
             equity_dates=["2024-01-01", "2024-01-02", "2024-01-03"],
             drawdown_curve=[0, -0.5, -1.0],
             trades=[],
+            metrics_source="manual",
         )
 
         with patch.object(svc.task_repo, 'get_by_id', return_value=mock_task):
@@ -530,6 +531,7 @@ class TestGetResult:
             equity_dates=["2024-01-01", "2024-01-02"],
             drawdown_curve=[0, -0.5],
             trades=[],
+            metrics_source="manual",
         )
 
         with patch.object(svc.task_repo, 'get_by_id', return_value=mock_task):
@@ -693,7 +695,7 @@ class TestListResults:
                         status=TaskStatus.COMPLETED, request_data={}, created_at=datetime(2024, 1, 2)),
         ]
 
-        mock_result1 = MagicMock(
+        mock_result1 = BacktestResult(
             task_id="task1",
             strategy_id="s1",
             symbol="000001.SZ",
@@ -714,8 +716,9 @@ class TestListResults:
             trades=[],
             created_at=datetime(2024, 1, 1),
             error_message=None,
+            metrics_source="manual",
         )
-        mock_result2 = MagicMock(
+        mock_result2 = BacktestResult(
             task_id="task2",
             strategy_id="s2",
             symbol="000002.SZ",
@@ -736,6 +739,7 @@ class TestListResults:
             trades=[],
             created_at=datetime(2024, 1, 2),
             error_message=None,
+            metrics_source="manual",
         )
 
         with patch.object(svc.task_repo, 'list', return_value=mock_tasks):
@@ -769,7 +773,7 @@ class TestListResults:
             for i in range(1, 6)
         ]
 
-        mock_result = MagicMock(
+        mock_result = BacktestResult(
             task_id="task1",
             strategy_id="s1",
             symbol="000001.SZ",
@@ -790,6 +794,7 @@ class TestListResults:
             trades=[],
             created_at=datetime(2024, 1, 1),
             error_message=None,
+            metrics_source="manual",
         )
 
         with patch.object(svc.task_repo, 'list') as mock_list:

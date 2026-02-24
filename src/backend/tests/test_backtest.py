@@ -44,7 +44,7 @@ class TestBacktestRun:
             "start_date": "2023-01-01",
             "end_date": "2023-06-30",
         })
-        assert resp.status_code == 403
+        assert resp.status_code == 401  # Unauthorized when no token provided
 
 
 class TestBacktestList:
@@ -89,7 +89,7 @@ class TestBacktestList:
             None
         """
         resp = await client.get("/api/v1/backtest/")
-        assert resp.status_code == 403
+        assert resp.status_code == 401  # Unauthorized when no token provided
 
 
 class TestBacktestResult:

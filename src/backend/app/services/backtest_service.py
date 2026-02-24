@@ -479,7 +479,7 @@ class BacktestService:
             sharpe_ratio=result_model.sharpe_ratio if result_model else 0,
             max_drawdown=result_model.max_drawdown if result_model else 0,
             win_rate=result_model.win_rate if result_model else 0,
-            metrics_source=getattr(result_model, 'metrics_source', 'manual') if result_model else 'manual',
+            metrics_source=getattr(result_model, 'metrics_source', None) or 'manual',
             total_trades=result_model.total_trades if result_model else 0,
             profitable_trades=result_model.profitable_trades if result_model else 0,
             losing_trades=result_model.losing_trades if result_model else 0,
