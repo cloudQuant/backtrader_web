@@ -68,7 +68,6 @@ class AnalyticsService:
         total_return = self.adapter.calculate_total_returns(equity_values)
 
         # Annualized return
-        days = len(equity_values)
         annualized = self.adapter.calculate_annual_returns(equity_values, periods_per_year=252)
 
         # Maximum drawdown with duration

@@ -145,24 +145,104 @@
 
 ## ER 图
 
-```
-┌─────────────┐
-│    users    │
-└──────┬──────┘
-       │
-       ├── refresh_tokens
-       ├── strategies
-       ├── backtest_tasks
-       ├── paper_accounts
-       └── alerts
+```mermaid
+erDiagram
+    users ||--o{ refresh_tokens : "has"
+    users ||--o{ strategies : "owns"
+    users ||--o{ backtest_tasks : "submits"
+    users ||--o{ paper_accounts : "creates"
+    users ||--o{ alerts : "configures"
 
-┌─────────────┐           ┌──────────────┐
-│backtest_tasks│───────────│backtest_results│
-└─────────────┘           └──────────────┘
+    backtest_tasks ||--o| backtest_results : "produces"
+    backtest_tasks }o--|| strategy_versions : "uses"
 
-┌─────────────┐           ┌──────────────┐
-│paper_accounts│───────────│ paper_orders │
-└─────────────┘           └──────────────┘
+    paper_accounts ||--o{ paper_orders : "contains"
+
+    strategies ||--o{ strategy_versions : "has"
+
+    users {
+        string id PK "UUID"
+        string username UK
+        string email UK
+        string hashed_password
+        boolean is_active
+        boolean is_admin
+        datetime created_at
+    }
+
+    strategies {
+        string id PK "UUID"
+        string user_id FK
+        string name
+        text code
+        json params
+        string category
+    }
+
+    backtest_tasks {
+        string id PK "UUID"
+        string user_id FK
+        string strategy_id FK
+        string symbol
+        string status "pending/running/completed/failed"
+        json request_data
+        text log_dir
+    }
+
+    backtest_results {
+        string id PK "UUID"
+        string task_id FK "unique"
+        float total_return
+        float sharpe_ratio
+        float max_drawdown
+        float win_rate
+        integer total_trades
+        json equity_curve
+        json trades
+    }
+
+    paper_accounts {
+        string id PK "UUID"
+        string user_id FK
+        string name
+        float initial_cash
+        float current_cash
+    }
+
+    paper_orders {
+        string id PK "UUID"
+        string account_id FK
+        string symbol
+        string side "buy/sell"
+        float quantity
+        float price
+        string status
+    }
+
+    alerts {
+        string id PK "UUID"
+        string user_id FK
+        string name
+        string type
+        json condition
+        boolean is_active
+    }
+
+    refresh_tokens {
+        string id PK
+        string token_hash UK
+        string user_id FK
+        datetime expires_at
+        boolean is_revoked
+    }
+
+    strategy_versions {
+        string id PK "UUID"
+        string strategy_id FK
+        integer version_number
+        text code
+        boolean is_default
+    }
 ```
 
 ## 数据迁移

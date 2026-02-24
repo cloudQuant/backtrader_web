@@ -63,128 +63,13 @@
 
 ## 2. 项目目录结构
 
-### 2.1 后端目录结构
+> 📁 完整的标注源码树请参阅 **[source-tree-analysis.md](source-tree-analysis.md)**
 
-```
-src/backend/
-├── app/
-│   ├── __init__.py
-│   ├── main.py                  # FastAPI 应用入口
-│   ├── config.py                # 配置管理
-│   │
-│   ├── api/                     # API 路由层
-│   │   ├── __init__.py
-│   │   ├── router.py            # 路由注册
-│   │   ├── deps.py              # 依赖注入
-│   │   ├── deps_permissions.py  # 权限依赖
-│   │   ├── auth.py              # 认证 API
-│   │   ├── strategy.py          # 策略管理 API
-│   │   ├── strategy_version.py  # 策略版本控制 API
-│   │   ├── backtest.py          # 回测 API
-│   │   ├── optimization_api.py  # 参数优化 API
-│   │   ├── paper_trading.py     # 模拟交易 API
-│   │   ├── live_trading_api.py  # 实盘交易 API
-│   │   ├── realtime_data.py     # 实时行情 API
-│   │   ├── data.py              # 市场数据 API
-│   │   ├── comparison.py        # 回测对比 API
-│   │   ├── analytics.py         # 分析 API
-│   │   ├── portfolio_api.py     # 投资组合 API
-│   │   └── monitoring.py        # 监控告警 API
-│   │
-│   ├── services/                # 业务逻辑层
-│   │   ├── __init__.py
-│   │   ├── auth_service.py
-│   │   ├── strategy_service.py
-│   │   ├── strategy_version_service.py
-│   │   ├── backtest_service.py
-│   │   ├── optimization_service.py
-│   │   ├── param_optimization_service.py
-│   │   ├── paper_trading_service.py
-│   │   ├── live_trading_service.py
-│   │   ├── live_trading_manager.py
-│   │   ├── realtime_data_service.py
-│   │   ├── comparison_service.py
-│   │   ├── analytics_service.py
-│   │   ├── monitoring_service.py
-│   │   ├── report_service.py
-│   │   ├── log_parser_service.py
-│   │   └── backtest_analyzers.py
-│   │
-│   ├── models/                  # ORM 数据模型
-│   │   ├── __init__.py
-│   │   ├── user.py              # 用户模型
-│   │   ├── strategy.py          # 策略模型
-│   │   ├── strategy_version.py  # 策略版本模型
-│   │   ├── backtest.py          # 回测模型
-│   │   ├── comparison.py        # 对比模型
-│   │   ├── paper_trading.py     # 模拟交易模型
-│   │   ├── alerts.py            # 告警模型
-│   │   └── permission.py        # 权限模型
-│   │
-│   ├── schemas/                 # Pydantic 数据校验模式
-│   │   ├── __init__.py
-│   │   ├── auth.py
-│   │   ├── strategy.py
-│   │   ├── strategy_version.py
-│   │   ├── backtest.py
-│   │   ├── paper_trading.py
-│   │   ├── live_trading.py
-│   │   ├── live_trading_instance.py
-│   │   ├── realtime_data.py
-│   │   ├── comparison.py
-│   │   ├── analytics.py
-│   │   ├── monitoring.py
-│   │   └── backtest_enhanced.py
-│   │
-│   ├── db/                      # 数据库层
-│   │   ├── __init__.py
-│   │   ├── database.py          # 数据库连接
-│   │   ├── base.py              # 基类
-│   │   ├── factory.py           # 工厂模式
-│   │   ├── sql_repository.py    # SQL 仓储
-│   │   └── cache.py             # 缓存
-│   │
-│   ├── utils/                   # 工具类
-│   │   ├── __init__.py
-│   │   ├── logger.py            # 日志工具
-│   │   ├── security.py          # 安全工具
-│   │   ├── sandbox.py           # 沙箱执行
-│   │   ├── exceptions.py        # 异常定义
-│   │   └── validation.py        # 验证工具
-│   │
-│   ├── middleware/              # 中间件
-│   │   ├── __init__.py
-│   │   ├── logging.py           # 日志中间件
-│   │   ├── exception_handling.py # 异常处理
-│   │   └── security_headers.py  # 安全头
-│   │
-│   └── websocket_manager.py     # WebSocket 管理
-│
-├── tests/                       # 测试目录
-│   ├── conftest.py
-│   ├── test_auth.py
-│   ├── test_strategy.py
-│   ├── test_backtest.py
-│   └── ...
-│
-├── requirements.txt             # Python 依赖
-└── pyproject.toml              # 项目配置
-```
-
-### 2.2 前端目录结构
-
-```
-src/frontend/
-├── src/
-│   ├── api/                     # API 客户端
-│   ├── components/              # Vue 组件
-│   ├── views/                   # 页面视图
-│   ├── stores/                  # Pinia 状态管理
-│   ├── router/                  # Vue Router
-│   └── utils/                   # 工具函数
-├── package.json
-└── vite.config.ts
-```
+项目采用 Multi-Part 架构：
+- **`src/backend/`** — FastAPI 后端（15 个 API 模块 + 18 个 Service）
+- **`src/frontend/`** — Vue 3 前端（12 个页面视图）
+- **`strategies/`** — 118 个内置策略模板
+- **`tests/`** — pytest 单元测试 + Playwright E2E 测试
 
 ---
 
@@ -344,339 +229,48 @@ erDiagram
 
 ## 5. API 模块详细文档
 
-### 5.1 认证模块 (`/api/v1/auth`)
+> 📡 完整的 API 端点列表（15 个模块、80+ 端点）请参阅 **[API.md](API.md)**
 
-| 方法 | 路径 | 说明 | 请求体 | 响应 |
-|------|------|------|--------|------|
-| POST | `/register` | 用户注册 | UserCreate | UserResponse |
-| POST | `/login` | 用户登录 | UserLogin | Token |
-| POST | `/login/refresh` | 登录(含刷新令牌) | UserLogin | RefreshTokenResponse |
-| POST | `/refresh` | 刷新访问令牌 | RefreshTokenRequest | RefreshTokenResponse |
-| POST | `/logout` | 用户登出 | RefreshTokenRequest | Message |
-| PUT | `/change-password` | 修改密码 | ChangePassword | Message |
-| GET | `/me` | 获取当前用户信息 | - | UserResponse |
+本系统 API 按功能分为以下模块：
 
-#### Token Response
-```json
-{
-  "access_token": "string (JWT令牌)",
-  "token_type": "bearer",
-  "expires_in": "integer (秒)",
-  "refresh_token": "string (刷新令牌)"
-}
-```
+| # | 模块 | 前缀 | 端点数 |
+|---|------|------|--------|
+| 1 | Auth（认证） | `/auth` | 7 |
+| 2 | Strategy（策略管理） | `/strategy` | 9 |
+| 3 | Backtest（回测） | `/backtest` | 6 |
+| 4 | Analytics（回测分析） | `/analytics` | 5 |
+| 5 | Optimization（参数优化） | `/optimization` | 5 |
+| 6 | Live Trading（实盘交易） | `/live-trading` | 11 |
+| 7 | Portfolio（投资组合） | `/portfolio` | 5 |
+| 8 | Enhanced Backtest（增强回测） | `/backtests` | 8 |
+| 9 | Paper Trading（模拟交易） | `/paper-trading` | 7 |
+| 10 | Comparison（策略对比） | `/comparisons` | 8 |
+| 11 | Strategy Version（版本控制） | `/strategy-versions` | 11 |
+| 12 | Realtime Data（实时数据） | `/realtime` | 6 |
+| 13 | Monitoring（监控告警） | `/monitoring` | 13 |
+| 14 | Market Data（行情数据） | `/data` | 1 |
+| 15 | Crypto Trading（加密货币） | `/live-trading-crypto` | 6 |
 
-### 5.2 策略管理模块 (`/api/v1/strategy`)
-
-| 方法 | 路径 | 说明 | 请求体 | 响应 |
-|------|------|------|--------|------|
-| POST | `/` | 创建策略 | StrategyCreate | StrategyResponse |
-| GET | `/` | 列出用户策略 | - | StrategyListResponse |
-| GET | `/templates` | 获取策略模板列表 | - | TemplatesResponse |
-| GET | `/templates/{id}` | 获取模板详情 | - | TemplateDetail |
-| GET | `/{strategy_id}` | 获取策略详情 | - | StrategyResponse |
-| PUT | `/{strategy_id}` | 更新策略 | StrategyUpdate | StrategyResponse |
-| DELETE | `/{strategy_id}` | 删除策略 | - | Message |
-
-### 5.3 策略版本控制模块 (`/api/v1/strategy-versions`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/versions` | 创建策略版本 |
-| GET | `/strategies/{id}/versions` | 列出版本 |
-| POST | `/versions/compare` | 比较两个版本 |
-| POST | `/versions/rollback` | 回滚到指定版本 |
-| POST | `/branches` | 创建分支 |
-
-#### WebSocket
-| 路径 | 说明 |
-|------|------|
-| `/ws/strategies/{strategy_id}` | 版本变更实时推送 |
-
-### 5.4 回测模块 (`/api/v1/backtest`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/run` | 运行回测 |
-| GET | `/{task_id}` | 获取回测结果 |
-| GET | `/{task_id}/status` | 获取任务状态 |
-| GET | `/` | 列出回测历史 |
-| POST | `/{task_id}/cancel` | 取消回测 |
-
-#### WebSocket
-| 路径 | 说明 |
-|------|------|
-| `/ws/backtest/{task_id}` | 回测进度实时推送 |
-
-### 5.5 参数优化模块 (`/api/v1/optimization`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/strategy-params/{id}` | 获取策略参数 |
-| POST | `/submit` | 提交优化任务 |
-| GET | `/progress/{task_id}` | 查询优化进度 |
-| GET | `/results/{task_id}` | 获取优化结果 |
-| POST | `/cancel/{task_id}` | 取消优化任务 |
-
-### 5.6 模拟交易模块 (`/api/v1/paper-trading`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/accounts` | 创建模拟账户 |
-| GET | `/accounts` | 列出账户 |
-| POST | `/orders` | 提交订单 |
-| GET | `/orders` | 列出订单 |
-| GET | `/positions` | 列出持仓 |
-| GET | `/trades` | 列出成交记录 |
-
-#### WebSocket
-| 路径 | 说明 |
-|------|------|
-| `/ws/account/{account_id}` | 账户实时数据推送 |
-
-### 5.7 实盘交易模块 (`/api/v1/live-trading`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/` | 列出实盘实例 |
-| POST | `/` | 添加实盘实例 |
-| POST | `/{instance_id}/start` | 启动实例 |
-| POST | `/{instance_id}/stop` | 停止实例 |
-| GET | `/{instance_id}/detail` | 获取分析详情 |
-
-### 5.8 实时行情模块 (`/api/v1/realtime`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/ticks/subscribe` | 订阅实时行情 |
-| POST | `/ticks/unsubscribe` | 取消订阅 |
-| GET | `/ticks` | 获取实时行情 |
-| GET | `/ticks/batch` | 批量获取行情 |
-
-#### WebSocket
-| 路径 | 说明 |
-|------|------|
-| `/ws/ticks/{broker_id}` | 实时行情推送 |
-
-### 5.9 市场数据模块 (`/api/v1/data`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/kline` | 获取A股K线数据 |
-
-### 5.10 回测对比模块 (`/api/v1/comparisons`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/` | 创建对比 |
-| GET | `/{comparison_id}` | 获取对比详情 |
-| POST | `/{comparison_id}/toggle-favorite` | 切换收藏状态 |
-| GET | `/{comparison_id}/metrics` | 获取指标对比 |
-
-### 5.11 分析模块 (`/api/v1/analytics`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/{task_id}/detail` | 获取回测详情 |
-| GET | `/{task_id}/kline` | 获取K线与信号 |
-| GET | `/{task_id}/monthly-returns` | 获取月度收益 |
-
-### 5.12 投资组合模块 (`/api/v1/portfolio`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/overview` | 投资组合概览 |
-| GET | `/positions` | 汇总持仓 |
-| GET | `/equity` | 投资组合权益曲线 |
-
-### 5.13 监控告警模块 (`/api/v1/monitoring`)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/rules` | 创建告警规则 |
-| GET | `/rules` | 列出告警规则 |
-| GET | `/` | 列出告警 |
-| PUT | `/{alert_id}/resolve` | 解决告警 |
-| GET | `/statistics/summary` | 告警统计摘要 |
-
-#### WebSocket
-| 路径 | 说明 |
-|------|------|
-| `/ws/alerts` | 告警实时推送 |
+WebSocket 端点共 6 个，覆盖回测进度、模拟账户、策略版本、实时行情、告警推送。
 
 ---
 
-## 6. 部署运维手册
+## 6. 部署运维
 
-### 6.1 环境要求
+> 🚀 详细的部署和运维指南请参阅：
+> - **[部署指南](DEPLOYMENT.md)** — 环境要求、配置清单、后端/前端部署、Nginx 配置
+> - **[运维手册](OPERATIONS.md)** — 监控指标、日志管理、备份策略、健康检查
+> - **[安装指南](INSTALLATION.md)** — 快速本地安装
 
-| 组件 | 要求 |
-|------|------|
-| Python | 3.10+ |
-| Node.js | 18+ |
-| 数据库 | SQLite (开发) / PostgreSQL/MySQL (生产) |
-| 缓存 | Redis (可选) |
-
-### 6.2 配置清单
-
-创建 `.env` 文件：
+快速启动命令：
 
 ```bash
-# 应用配置
-APP_NAME=backtrader_web
-DEBUG=false
-SECRET_KEY=your-secret-key-change-in-production
-JWT_SECRET_KEY=your-jwt-secret-change-in-production
-JWT_EXPIRE_MINUTES=1440
+# 后端
+cd src/backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8001
 
-# 服务配置
-HOST=0.0.0.0
-PORT=8000
-CORS_ORIGINS=http://localhost:5173,http://localhost:3000
-
-# 数据库配置
-DATABASE_TYPE=sqlite
-DATABASE_URL=sqlite+aiosqlite:///./backtrader.db
-
-# PostgreSQL 示例
-# DATABASE_TYPE=postgresql
-# DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/backtrader
-
-# MySQL 示例
-# DATABASE_TYPE=mysql
-# DATABASE_URL=mysql+aiomysql://user:password@localhost:3306/backtrader
-
-# 缓存配置 (可选)
-REDIS_URL=redis://localhost:6379/0
-
-# 回测配置
-BACKTEST_TIMEOUT=300
-
-# 默认管理员
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
-ADMIN_EMAIL=admin@example.com
-
-# SQL 日志
-SQL_ECHO=false
+# 前端
+cd src/frontend && npm install && npm run dev
 ```
-
-### 6.3 后端部署
-
-```bash
-# 进入后端目录
-cd src/backend
-
-# 创建虚拟环境
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 安装依赖
-pip install -r requirements.txt
-
-# 初始化数据库
-python -c "from app.db.database import init_db; import asyncio; asyncio.run(init_db())"
-
-# 启动服务 (开发模式)
-uvicorn app.main:app --reload --port 8000
-
-# 启动服务 (生产模式)
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
-### 6.4 前端部署
-
-```bash
-# 进入前端目录
-cd src/frontend
-
-# 安装依赖
-npm install
-
-# 开发模式
-npm run dev
-
-# 生产构建
-npm run build
-
-# 使用 nginx 部署构建产物
-# 将 dist 目录部署到 nginx
-```
-
-### 6.5 Nginx 配置示例
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    # 前端静态文件
-    location / {
-        root /path/to/frontend/dist;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # 后端 API 代理
-    location /api {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # WebSocket 代理
-    location /ws {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-}
-```
-
-### 6.6 健康检查
-
-| 端点 | 说明 |
-|------|------|
-| `GET /` | 服务基本信息 |
-| `GET /health` | 健康检查 |
-| `GET /info` | 系统信息 |
-| `GET /docs` | Swagger API 文档 |
-| `GET /redoc` | ReDoc API 文档 |
-
-### 6.7 监控指标
-
-系统提供了以下监控指标：
-
-- **请求响应时间**：通过 PerformanceLoggingMiddleware 记录
-- **慢查询日志**：超过 5 秒的请求会被标记
-- **审计日志**：登录、权限变更等操作记录
-- **告警系统**：可配置阈值告警
-
-### 6.8 日志说明
-
-日志文件位置（默认）：
-
-| 日志类型 | 位置 |
-|----------|------|
-| 应用日志 | `logs/app.log` |
-| 审计日志 | `logs/audit.log` |
-| 回测日志 | `strategies/{strategy_id}/logs/{timestamp}/` |
-
-### 6.9 备份建议
-
-1. **数据库备份**：
-   - SQLite: 定期复制 `backtrader.db` 文件
-   - PostgreSQL: 使用 `pg_dump`
-   - MySQL: 使用 `mysqldump`
-
-2. **策略文件备份**：
-   - 备份 `strategies/` 目录下用户自定义策略
-
-3. **日志归档**：
-   - 定期清理和归档历史回测日志
 
 ---
 

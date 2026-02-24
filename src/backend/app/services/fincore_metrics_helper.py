@@ -7,9 +7,7 @@ across the platform.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
-
-import numpy as np
+from typing import Any, Dict, List
 
 from app.services.backtest_analyzers import FincoreAdapter
 

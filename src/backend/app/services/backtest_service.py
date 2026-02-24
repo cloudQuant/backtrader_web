@@ -199,8 +199,8 @@ class BacktestService:
             })
 
             # Parse logs from temp directory
-            from app.services.log_parser_service import parse_all_logs
             from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
+            from app.services.log_parser_service import parse_all_logs
 
             log_result = parse_all_logs(task_work_dir)
             if not log_result:

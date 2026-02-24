@@ -1,0 +1,117 @@
+name: Deploy - Preview Environment
+
+on:
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'src/frontend/**'
+      - 'src/backend/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: "3.10"
+  NODE_VERSION: "20"
+
+jobs:
+  # ========================================
+  # Build and Deploy Preview
+  # ========================================
+  deploy-preview:
+    name: Deploy Preview Environment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate preview URL
+        id: preview-url
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          echo "Preview URL: https://pr-$PR_NUMBER.backtrader-web.preview.dev"
+          echo "url=https://pr-$PR_NUMBER.backtrader-web.preview.dev" >> $GITHUB_OUTPUT
+
+      - name: Build frontend
+        working-directory: src/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Create deployment info
+        run: |
+          cat > deployment-info.json << EOF
+          {
+            "pr_number": "${{ github.event.pull_request.number }}",
+            "commit_sha": "${{ github.sha }}",
+            "preview_url": "${{ steps.preview-url.outputs.url }}",
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Comment PR with preview info
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const info = JSON.parse(fs.readFileSync('deployment-info.json', 'utf8'));
+            const previewUrl = `${{ steps.preview-url.outputs.url }}`;
+
+            const comment = `
+            ## :rocket: Preview Environment Deployed
+
+            **PR #${info.pr_number}** is now available for testing.
+
+            | Field | Value |
+            |-------|-------|
+            | Preview URL | ${previewUrl} |
+            | Commit | ${info.commit_sha.substring(0, 7)} |
+            | Created | ${info.created_at} |
+
+            ### Quick Tests
+            - [ ] Homepage loads correctly
+            - [ ] Login works
+            - [ ] API requests succeed
+            - [ ] No console errors
+
+            *This preview will be available until the PR is closed.*
+            `;
+
+            // Find existing bot comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Preview Environment Deployed')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+      - name: Upload preview artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-build-${{ github.event.pull_request.number }}
+          path: src/frontend/dist/
+          retention-days: 7

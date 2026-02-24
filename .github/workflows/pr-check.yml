@@ -1,0 +1,280 @@
+name: PR - Pull Request Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  pull-requests: write
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.10"
+  NODE_VERSION: "20"
+
+jobs:
+  # ========================================
+  # PR Validation
+  # ========================================
+  pr-validation:
+    name: PR Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR description
+        run: |
+          DESCRIPTION="${{ github.event.pull_request.body }}"
+          if [ -z "$DESCRIPTION" ] || [ "$DESCRIPTION" == "null" ]; then
+            echo "::warning::PR description is empty. Please provide a description."
+          fi
+
+      - name: Check for linked issues
+        run: |
+          BODY="${{ github.event.pull_request.body }}"
+          if ! echo "$BODY" | grep -qE "(#[0-9]+|Closes|Fixes|Resolves)"; then
+            echo "::notice::No linked issues found. Consider linking related issues."
+          fi
+
+  # ========================================
+  # Size Check
+  # ========================================
+  size-check:
+    name: Check PR Size
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v44
+        with:
+          files_separator: ' '
+
+      - name: Calculate changes
+        run: |
+          ADDED=$(git diff --stat origin/${{ github.base_ref }}...HEAD | grep -o '[0-9]* insertion' | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
+          DELETED=$(git diff --stat origin/${{ github.base_ref }}...HEAD | grep -o '[0-9]* deletion' | grep -o '[0-9]*' | awk '{s+=$1} END {print s+0}')
+          TOTAL=$((ADDED + DELETED))
+          echo "Lines added: $ADDED"
+          echo "Lines deleted: $DELETED"
+          echo "Total changes: $TOTAL"
+
+          if [ $TOTAL -gt 2000 ]; then
+            echo "::warning::Large PR detected ($TOTAL lines). Consider splitting into smaller PRs."
+          fi
+
+      - name: Count changed files
+        run: |
+          FILES=${{ steps.changed-files.outputs.all_changed_files_count }}
+          echo "Changed files: $FILES"
+          if [ $FILES -gt 50 ]; then
+            echo "::warning::Many files changed ($FILES). Consider splitting into smaller PRs."
+          fi
+
+  # ========================================
+  # Code Review Checklist
+  # ========================================
+  review-checklist:
+    name: Review Checklist
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create review checklist
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const hasBotChecklist = comments.some(comment =>
+              comment.user.type === 'Bot' && comment.body.includes('Review Checklist')
+            );
+
+            if (!hasBotChecklist) {
+              const checklist = `
+              ## Review Checklist
+
+              ### Code Quality
+              - [ ] Code follows project style guidelines
+              - [ ] No console.log or debug statements
+              - [ ] Proper error handling implemented
+              - [ ] Tests added/updated for new features
+
+              ### Testing
+              - [ ] All tests pass locally
+              - [ ] Unit tests cover new code
+              - [ ] E2E tests pass for affected areas
+              - [ ] Manual testing completed
+
+              ### Documentation
+              - [ ] API documentation updated (if needed)
+              - [ ] README updated (if needed)
+              - [ ] Comments explain complex logic
+
+              ### Security
+              - [ ] No hardcoded credentials
+              - [ ] Input validation implemented
+              - [ ] Proper authentication/authorization checks
+              `;
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: checklist
+              });
+            }
+
+  # ========================================
+  # Quick Smoke Tests
+  # ========================================
+  smoke-tests:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        check: [backend-imports, frontend-build]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Backend imports check
+        if: matrix.check == 'backend-imports'
+        working-directory: src/backend
+        run: |
+          python -m pip install -e ".[dev,backtrader]" || pip install -e .
+          python -c "
+          import sys
+          import app.main
+          import app.api.router
+          import app.db.database
+          print('All critical imports successful!')
+          "
+
+      - name: Frontend build check
+        if: matrix.check == 'frontend-build'
+        working-directory: src/frontend
+        run: |
+          npm ci
+          npm run build
+
+  # ========================================
+  # Required Labels Check
+  # ========================================
+  label-check:
+    name: Required Labels
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Check for required labels
+        run: |
+          LABELS="${{ toJson(github.event.pull_request.labels.*.name) }}"
+
+          echo "PR Labels: $LABELS"
+
+          # Check if PR has at least one type label
+          if echo "$LABELS" | grep -qE "(feature|fix|docs|refactor|test|chore|perf|ci)"; then
+            echo "::notice::PR has a valid type label."
+          else
+            echo "::warning::PR missing type label (feature/fix/docs/refactor/test/chore/perf/ci)"
+          fi
+
+  # ========================================
+  # Merge Ready Check
+  # ========================================
+  merge-ready:
+    name: Merge Ready Check
+    runs-on: ubuntu-latest
+    needs: [pr-validation, size-check, review-checklist, smoke-tests]
+    if: always()
+
+    steps:
+      - name: Check all jobs
+        run: |
+          echo "PR Validation: ${{ needs.pr-validation.result }}"
+          echo "Size Check: ${{ needs.size-check.result }}"
+          echo "Review Checklist: ${{ needs.review-checklist.result }}"
+          echo "Smoke Tests: ${{ needs.smoke-tests.result }}"
+
+      - name: Add merge-ready label
+        if: |
+          needs.pr-validation.result == 'success' &&
+          needs.size-check.result == 'success' &&
+          needs.review-checklist.result == 'success' &&
+          needs.smoke-tests.result == 'success'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              labels: ['merge-ready']
+            })
+
+      - name: Remove merge-ready label on failure
+        if: |
+          needs.pr-validation.result == 'failure' ||
+          needs.size-check.result == 'failure' ||
+          needs.review-checklist.result == 'failure' ||
+          needs.smoke-tests.result == 'failure'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                name: 'merge-ready'
+              });
+            } catch (e) {
+              // Label doesn't exist, ignore
+            }
+
+  # ========================================
+  # PR Summary
+  # ========================================
+  pr-summary:
+    name: PR Summary
+    runs-on: ubuntu-latest
+    needs: [pr-validation, size-check, smoke-tests]
+    if: always()
+
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Pull Request Summary :page_facing_up:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Check Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| PR Validation | ${{ needs.pr-validation.result == 'success' && ':white_check_mark:' || ':x:' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Size Check | ${{ needs.size-check.result == 'success' && ':white_check_mark:' || ':warning:' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Smoke Tests | ${{ needs.smoke-tests.result == 'success' && ':white_check_mark:' || ':x:' }} |" >> $GITHUB_STEP_SUMMARY

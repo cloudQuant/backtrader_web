@@ -170,20 +170,118 @@ class BacktestService:
 
 ## 数据流
 
-### 回测数据流
+### 回测数据流（Mermaid）
 
+```mermaid
+sequenceDiagram
+    participant U as 用户/前端
+    participant API as FastAPI
+    participant BS as BacktestService
+    participant BT as Backtrader Engine
+    participant DB as 数据库
+    participant WS as WebSocket
+
+    U->>API: POST /backtest/run
+    API->>API: JWT 验证 + 参数校验
+    API->>BS: run_backtest(user_id, request)
+    BS->>DB: 创建 BacktestTask (status=pending)
+    BS->>BS: 加载策略代码 (模板/用户)
+    BS->>BT: 初始化 Cerebro + 添加策略
+    BT->>BT: 加载历史数据 (AkShare)
+    BT->>BT: 执行回测
+    BT-->>WS: 推送进度 (10%...90%)
+    BT->>BS: 返回回测结果
+    BS->>BS: 计算指标 (fincore)
+    BS->>DB: 保存 BacktestResult
+    BS->>DB: 更新 Task (status=completed)
+    BS-->>WS: 推送完成通知
+    API-->>U: 返回 task_id
+    U->>API: GET /analytics/{task_id}/detail
+    API-->>U: 返回分析数据
 ```
-用户请求 → API验证 → 创建任务 → 消息队列
-                                    ↓
-                              工作进程消费
-                                    ↓
-    加载数据 ← 加载策略 ← 初始化引擎
-         ↓
-    执行回测
-         ↓
-    收集结果 → 计算指标 → 保存数据库
-                                    ↓
-                              WebSocket推送
+
+### 实盘交易数据流（Mermaid）
+
+```mermaid
+sequenceDiagram
+    participant U as 用户/前端
+    participant API as FastAPI
+    participant LTM as LiveTradingManager
+    participant BT as Backtrader Engine
+    participant Broker as 券商 (CCXT/CTP)
+    participant WS as WebSocket
+
+    U->>API: POST /live-trading/ (添加实例)
+    API->>LTM: create_instance(config)
+    U->>API: POST /live-trading/{id}/start
+    API->>LTM: start_instance(id)
+    LTM->>BT: 初始化 Cerebro (live mode)
+    BT->>Broker: 连接券商 API
+    loop 交易循环
+        Broker-->>BT: 实时行情推送
+        BT->>BT: 策略计算信号
+        BT->>Broker: 下单/撤单
+        Broker-->>BT: 订单状态更新
+        BT-->>WS: 推送持仓/盈亏
+    end
+    U->>API: POST /live-trading/{id}/stop
+    API->>LTM: stop_instance(id)
+    LTM->>BT: 停止引擎
+```
+
+### 部署架构（Mermaid）
+
+```mermaid
+graph TB
+    subgraph 客户端
+        Browser[浏览器 Vue 3 SPA]
+    end
+
+    subgraph 反向代理
+        Nginx[Nginx / Vite Dev Server]
+    end
+
+    subgraph 应用层
+        FastAPI[FastAPI + Uvicorn]
+        WSM[WebSocket Manager]
+    end
+
+    subgraph 服务层
+        AuthSvc[Auth Service]
+        BtSvc[Backtest Service]
+        LiveSvc[Live Trading Manager]
+        OptSvc[Optimization Service]
+        MonSvc[Monitoring Service]
+    end
+
+    subgraph 数据层
+        DB[(SQLite / PostgreSQL / MySQL)]
+        Cache[(Redis 缓存)]
+        Files[策略文件 118+]
+    end
+
+    subgraph 外部服务
+        AkShare[AkShare 数据源]
+        CCXT[CCXT 交易所]
+        CTP[CTP 券商]
+    end
+
+    Browser -->|HTTP/WS| Nginx
+    Nginx -->|proxy /api| FastAPI
+    Nginx -->|proxy /ws| WSM
+    FastAPI --> AuthSvc
+    FastAPI --> BtSvc
+    FastAPI --> LiveSvc
+    FastAPI --> OptSvc
+    FastAPI --> MonSvc
+    BtSvc --> DB
+    BtSvc --> Files
+    BtSvc --> AkShare
+    LiveSvc --> CCXT
+    LiveSvc --> CTP
+    AuthSvc --> DB
+    MonSvc --> DB
+    OptSvc --> DB
 ```
 
 ## 安全架构

@@ -17,13 +17,13 @@ from app.schemas.auth import (
 )
 from app.utils.logger import get_logger
 from app.utils.security import (
+    REFRESH_TOKEN_EXPIRE_DAYS,
     create_access_token,
     create_refresh_token,
     generate_refresh_token_id,
     get_password_hash,
     hash_token,
     verify_password,
-    REFRESH_TOKEN_EXPIRE_DAYS,
 )
 
 settings = get_settings()
@@ -192,7 +192,7 @@ class AuthService:
             RefreshTokenResponse: New access and refresh tokens.
             None: Invalid or expired refresh token.
         """
-        from app.utils.security import decode_refresh_token, get_password_hash
+        from app.utils.security import decode_refresh_token
 
         # Decode and validate refresh token
         payload = decode_refresh_token(request.refresh_token)
@@ -293,6 +293,7 @@ class AuthService:
             Number of tokens revoked.
         """
         from sqlalchemy import select
+
         from app.db.database import async_session_maker
 
         count = 0
@@ -300,7 +301,7 @@ class AuthService:
             result = await session.execute(
                 select(RefreshToken).where(
                     RefreshToken.user_id == user_id,
-                    RefreshToken.is_revoked == False
+                    RefreshToken.is_revoked == False  # noqa: E712 SQLAlchemy filter
                 )
             )
             tokens = result.scalars().all()
@@ -376,7 +377,7 @@ class AuthService:
         Returns:
             True if successfully logged out, False otherwise.
         """
-        from app.utils.security import decode_refresh_token, get_password_hash
+        from app.utils.security import decode_refresh_token
 
         payload = decode_refresh_token(refresh_token)
         if not payload:

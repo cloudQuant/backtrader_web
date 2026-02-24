@@ -1,0 +1,142 @@
+{
+  "workflow_version": "1.2.0",
+  "timestamps": {
+    "started": "2026-02-24T17:10:00+08:00",
+    "last_updated": "2026-02-24T17:10:00+08:00"
+  },
+  "mode": "full_rescan",
+  "scan_level": "deep",
+  "project_root": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web",
+  "project_knowledge": "/Users/yunjinqi/Documents/量化交易框架/backtrader_web/docs",
+  "project_types": [
+    {"part_id": "backend", "project_type_id": "backend", "display_name": "FastAPI Backend"},
+    {"part_id": "frontend", "project_type_id": "web", "display_name": "Vue 3 Frontend"}
+  ],
+  "repository_type": "multi-part",
+  "project_classification": {
+    "name": "Backtrader Web",
+    "description": "Full-stack quantitative trading management platform",
+    "primary_language": "Python + TypeScript",
+    "architecture_pattern": "Layered MVC with REST API",
+    "parts": [
+      {
+        "id": "backend",
+        "root": "src/backend",
+        "type": "FastAPI REST API",
+        "framework": "FastAPI 0.100+",
+        "language": "Python 3.9+",
+        "database": "SQLite / PostgreSQL / MySQL (SQLAlchemy 2.0)",
+        "api_modules": 15,
+        "service_modules": 18,
+        "test_files": 40
+      },
+      {
+        "id": "frontend",
+        "root": "src/frontend",
+        "type": "Vue 3 SPA",
+        "framework": "Vue 3 + Vite",
+        "language": "TypeScript",
+        "ui_library": "Element Plus",
+        "state_management": "Pinia",
+        "views": 12,
+        "routes": 12
+      }
+    ]
+  },
+  "technology_stack": {
+    "backend": {
+      "framework": "FastAPI",
+      "orm": "SQLAlchemy 2.0",
+      "auth": "JWT (PyJWT)",
+      "trading_engine": "Backtrader",
+      "metrics": "fincore",
+      "data_source": "AkShare",
+      "testing": "pytest + Playwright"
+    },
+    "frontend": {
+      "framework": "Vue 3",
+      "build": "Vite",
+      "language": "TypeScript",
+      "ui": "Element Plus",
+      "state": "Pinia",
+      "testing": "Vitest + Playwright"
+    }
+  },
+  "api_inventory": {
+    "auth": ["POST /register", "POST /login", "POST /login/refresh", "POST /refresh", "GET /me", "PUT /change-password"],
+    "backtest": ["POST /run", "GET /{task_id}", "GET /{task_id}/status", "GET /", "POST /{task_id}/cancel", "DELETE /{task_id}"],
+    "backtests_enhanced": ["POST /run", "GET /{task_id}", "GET /", "DELETE /{task_id}", "POST /optimization/grid", "POST /optimization/bayesian", "GET /{task_id}/report/html", "GET /{task_id}/report/pdf", "GET /{task_id}/report/excel", "WS /ws/backtest/{task_id}"],
+    "strategy": ["POST /", "GET /", "GET /templates", "GET /templates/{id}", "GET /templates/{id}/readme", "GET /templates/{id}/config", "GET /{id}", "PUT /{id}", "DELETE /{id}"],
+    "optimization": ["GET /strategy-params/{id}", "POST /submit", "GET /progress/{id}", "GET /results/{id}"],
+    "live_trading": ["GET /", "POST /", "DELETE /{id}", "GET /{id}", "POST /{id}/start", "POST /{id}/stop", "GET /{id}/orders", "GET /{id}/positions", "POST /start-all", "POST /stop-all"],
+    "portfolio": ["GET /overview", "GET /positions", "GET /trades", "GET /equity-curve", "GET /allocation"],
+    "analytics": ["GET /dashboard", "GET /performance/{task_id}"],
+    "data": ["GET /query"],
+    "comparison": ["POST /", "GET /{id}", "GET /"],
+    "paper_trading": ["POST /accounts", "GET /accounts", "POST /orders", "GET /orders", "GET /positions"],
+    "strategy_version": ["POST /", "GET /", "GET /{id}", "POST /{id}/rollback"],
+    "realtime": ["WS /ws", "GET /subscribe"],
+    "monitoring": ["POST /alerts", "GET /alerts", "GET /stats"]
+  },
+  "frontend_routes": {
+    "/login": "LoginPage.vue",
+    "/register": "RegisterPage.vue",
+    "/": "Dashboard.vue",
+    "/backtest": "BacktestPage.vue",
+    "/backtest/:id": "BacktestResultPage.vue",
+    "/optimization": "OptimizationPage.vue",
+    "/strategy": "StrategyPage.vue",
+    "/data": "DataPage.vue",
+    "/live-trading": "LiveTradingPage.vue",
+    "/live-trading/:id": "LiveTradingDetailPage.vue",
+    "/portfolio": "PortfolioPage.vue",
+    "/settings": "SettingsPage.vue"
+  },
+  "documentation_inventory": {
+    "core_docs": [
+      "INDEX.md", "TECHNICAL_DOCS.md", "ARCHITECTURE.md", "API.md",
+      "DATABASE.md", "SECURITY.md", "SECURITY_ENHANCEMENTS.md"
+    ],
+    "getting_started": [
+      "INSTALLATION.md", "QUICKSTART.md", "DEVELOPMENT.md"
+    ],
+    "feature_docs": [
+      "STRATEGY_DEVELOPMENT.md", "BACKTEST_GUIDE.md", "LIVE_TRADING.md",
+      "OPTIMIZATION.md", "USER_GUIDE.md"
+    ],
+    "operations": [
+      "DEPLOYMENT.md", "OPERATIONS.md", "TROUBLESHOOTING.md",
+      "LOGGING.md", "CI_CD.md"
+    ],
+    "development": [
+      "CODING_STANDARDS.md", "TESTING.md", "CONTRIBUTING.md"
+    ],
+    "quality": [
+      "E2E_TEST_COVERAGE_ANALYSIS.md", "DOCUMENTATION_IMPROVEMENT_PLAN.md"
+    ],
+    "project_mgmt": [
+      "PROJECT_COMPLETION.md", "AGILE_DEVELOPMENT.md", "CHANGELOG.md"
+    ],
+    "iteration_notes": 15
+  },
+  "completed_steps": [
+    {"step": "step_1", "status": "completed", "summary": "Multi-part project: backend (FastAPI) + frontend (Vue 3)"},
+    {"step": "step_2", "status": "completed", "summary": "Found 28+ core docs, 15 iteration notes"},
+    {"step": "step_3", "status": "completed", "summary": "Tech stack: FastAPI+SQLAlchemy+Backtrader / Vue3+Vite+ElementPlus"},
+    {"step": "step_4", "status": "completed", "summary": "15 API modules, 18 services, 12 views, 12 routes"},
+    {"step": "step_5", "status": "completed", "summary": "Source tree documented"},
+    {"step": "step_10", "status": "completed", "summary": "INDEX.md updated with all docs linked"}
+  ],
+  "outputs_generated": [
+    "project-scan-report.json",
+    "INDEX.md (updated)",
+    "TESTING.md (created)",
+    "CODING_STANDARDS.md (created)",
+    "TROUBLESHOOTING.md (created)",
+    "BACKTEST_GUIDE.md (created)",
+    "LIVE_TRADING.md (created)",
+    "OPTIMIZATION.md (created)",
+    "E2E_TEST_COVERAGE_ANALYSIS.md (created)",
+    "DOCUMENTATION_IMPROVEMENT_PLAN.md (created)"
+  ]
+}

@@ -1,0 +1,447 @@
+name: E2E - End-to-End Tests
+
+on:
+  push:
+    branches: [master, develop]
+  pull_request:
+    branches: [master, develop]
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser to test (all/chromium/firefox/webkit)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - chromium
+          - firefox
+          - webkit
+
+env:
+  PYTHON_VERSION: "3.10"
+  NODE_VERSION: "20"
+
+jobs:
+  # ========================================
+  # E2E Test Setup
+  # ========================================
+  e2e-setup:
+    name: E2E - Setup & Install
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,backtrader]"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: src/frontend/node_modules/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('src/frontend/package-lock.json') }}
+          restore-keys: |
+            playwright-browsers-${{ runner.os }}-
+
+  # ========================================
+  # E2E Tests - Chromium
+  # ========================================
+  e2e-chromium:
+    name: E2E - Chromium
+    runs-on: ubuntu-latest
+    needs: e2e-setup
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,backtrader]"
+
+      - name: Start backend server
+        working-directory: src/backend
+        run: |
+          python -c "import asyncio; from app.main import app; import uvicorn; uvicorn.run(app, host='127.0.0.1', port=8000)" &
+          sleep 5
+
+      - name: Wait for backend health check
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/health > /dev/null; then
+              echo "Backend is ready"
+              break
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+
+      - name: Build frontend
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Start frontend dev server
+        working-directory: src/frontend
+        run: |
+          npm run dev &
+          sleep 10
+
+      - name: Wait for frontend
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:3000 > /dev/null; then
+              echo "Frontend is ready"
+              break
+            fi
+            echo "Waiting for frontend... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run Playwright tests (Chromium)
+        working-directory: src/frontend
+        env:
+          BASE_URL: http://127.0.0.1:3000
+          CI: true
+        run: npx playwright test --project=chromium
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-chromium
+          path: src/frontend/e2e-results/
+          retention-days: 14
+
+      - name: Upload test screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-chromium
+          path: src/frontend/e2e-results/**/*.png
+          retention-days: 14
+
+      - name: Upload test traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traces-chromium
+          path: src/frontend/e2e-results/**/trace.zip
+          retention-days: 14
+
+  # ========================================
+  # E2E Tests - Firefox
+  # ========================================
+  e2e-firefox:
+    name: E2E - Firefox
+    runs-on: ubuntu-latest
+    needs: e2e-setup
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/frontend
+        run: npx playwright install --with-deps firefox
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,backtrader]"
+
+      - name: Start backend server
+        working-directory: src/backend
+        run: |
+          python -c "import asyncio; from app.main import app; import uvicorn; uvicorn.run(app, host='127.0.0.1', port=8000)" &
+          sleep 5
+
+      - name: Wait for backend
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/health > /dev/null; then
+              echo "Backend is ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Start frontend server
+        working-directory: src/frontend
+        run: |
+          npm run dev &
+          sleep 10
+
+      - name: Wait for frontend
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:3000 > /dev/null; then
+              echo "Frontend is ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run Playwright tests (Firefox)
+        working-directory: src/frontend
+        env:
+          BASE_URL: http://127.0.0.1:3000
+          CI: true
+        run: npx playwright test --project=firefox
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-firefox
+          path: src/frontend/e2e-results/
+          retention-days: 14
+
+  # ========================================
+  # E2E Tests - WebKit
+  # ========================================
+  e2e-webkit:
+    name: E2E - WebKit
+    runs-on: ubuntu-latest
+    needs: e2e-setup
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/frontend
+        run: npx playwright install --with-deps webkit
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,backtrader]"
+
+      - name: Start backend server
+        working-directory: src/backend
+        run: |
+          python -c "import asyncio; from app.main import app; import uvicorn; uvicorn.run(app, host='127.0.0.1', port=8000)" &
+          sleep 5
+
+      - name: Wait for backend
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/health > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Start frontend server
+        working-directory: src/frontend
+        run: |
+          npm run dev &
+          sleep 10
+
+      - name: Run Playwright tests (WebKit)
+        working-directory: src/frontend
+        env:
+          BASE_URL: http://127.0.0.1:3000
+          CI: true
+        run: npx playwright test --project=webkit
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-webkit
+          path: src/frontend/e2e-results/
+          retention-days: 14
+
+  # ========================================
+  # Mobile E2E Tests
+  # ========================================
+  e2e-mobile:
+    name: E2E - Mobile
+    runs-on: ubuntu-latest
+    needs: e2e-setup
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/frontend
+        run: npx playwright install --with-deps
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,backtrader]"
+
+      - name: Start backend server
+        working-directory: src/backend
+        run: |
+          python -c "import asyncio; from app.main import app; import uvicorn; uvicorn.run(app, host='127.0.0.1', port=8000)" &
+          sleep 5
+
+      - name: Wait for backend
+        run: |
+          for i in {1..30}; do
+            if curl -s http://127.0.0.1:8000/health > /dev/null; then
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Start frontend server
+        working-directory: src/frontend
+        run: |
+          npm run dev &
+          sleep 10
+
+      - name: Run Mobile Playwright tests
+        working-directory: src/frontend
+        env:
+          BASE_URL: http://127.0.0.1:3000
+          CI: true
+        run: npx playwright test --project="Mobile Chrome" --project="Mobile Safari"
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-mobile
+          path: src/frontend/e2e-results/
+          retention-days: 14
+
+  # ========================================
+  # E2E Summary & Report
+  # ========================================
+  e2e-summary:
+    name: E2E - Summary Report
+    runs-on: ubuntu-latest
+    needs: [e2e-chromium, e2e-firefox, e2e-webkit, e2e-mobile]
+    if: always()
+
+    steps:
+      - name: Check all browsers
+        run: |
+          echo "Chromium: ${{ needs.e2e-chromium.result }}"
+          echo "Firefox: ${{ needs.e2e-firefox.result }}"
+          echo "WebKit: ${{ needs.e2e-webkit.result }}"
+          echo "Mobile: ${{ needs.e2e-mobile.result }}"
+
+      - name: Fail if any browser failed
+        if: |
+          needs.e2e-chromium.result == 'failure' ||
+          needs.e2e-firefox.result == 'failure' ||
+          needs.e2e-webkit.result == 'failure' ||
+          needs.e2e-mobile.result == 'failure'
+        run: exit 1
+
+      - name: Create summary comment
+        if: always()
+        run: |
+          echo "## E2E Test Results :running:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Browser | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Chromium | ${{ needs.e2e-chromium.result == 'success' && ':white_check_mark:' || ':x:' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Firefox | ${{ needs.e2e-firefox.result == 'success' && ':white_check_mark:' || ':x:' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| WebKit | ${{ needs.e2e-webkit.result == 'success' && ':white_check_mark:' || ':x:' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Mobile | ${{ needs.e2e-mobile.result == 'success' && ':white_check_mark:' || ':x:' }} |" >> $GITHUB_STEP_SUMMARY

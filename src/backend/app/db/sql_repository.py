@@ -87,7 +87,7 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             The updated entity if refresh=True, None otherwise or if not found.
         """
         async with async_session_maker() as session:
-            result = await session.execute(
+            await session.execute(
                 update(self.model_class)
                 .where(self.model_class.id == id)
                 .values(**data)

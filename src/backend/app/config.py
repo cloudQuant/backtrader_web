@@ -4,7 +4,7 @@ Configuration management - Load configuration from environment variables.
 import os
 from typing import Optional
 
-from pydantic import field_validator, Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

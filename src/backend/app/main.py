@@ -15,12 +15,12 @@ from slowapi.util import get_remote_address
 from app.api.router import api_router
 from app.config import get_settings
 from app.db.database import init_db
+from app.middleware.exception_handling import register_exception_handlers
 from app.middleware.logging import (
-    LoggingMiddleware,
     AuditLoggingMiddleware,
+    LoggingMiddleware,
     PerformanceLoggingMiddleware,
 )
-from app.middleware.exception_handling import register_exception_handlers
 from app.middleware.security_headers import add_security_headers
 from app.utils.logger import setup_logger
 from app.websocket_manager import manager as ws_manager

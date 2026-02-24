@@ -8,7 +8,7 @@ from playwright.sync_api import Page, expect
 import uuid
 import time
 
-FRONTEND_URL = "http://localhost:3000"
+from conftest import FRONTEND_URL
 
 
 class TestBacktestPage:

@@ -1,0 +1,94 @@
+# Docker Compose for CI/E2E Testing
+# Usage: docker-compose -f docker-compose.ci.yml up -d
+# Then run: npm run test:e2e
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: backtrader_postgres_ci
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: test_db
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backtrader_ci
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: backtrader_redis_ci
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backtrader_ci
+
+  # Backend API
+  backend:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    container_name: backtrader_backend_ci
+    environment:
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@postgres:5432/test_db
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: test-secret-key-for-ci
+      JWT_SECRET_KEY: test-jwt-secret-key-for-ci
+      HOST: 0.0.0.0
+      PORT: 8001
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backtrader_ci
+
+  # Frontend Dev Server
+  frontend:
+    image: node:20-alpine
+    container_name: backtrader_frontend_ci
+    working_dir: /app
+    volumes:
+      - ./src/frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8001/api/v1
+    ports:
+      - "3000:3000"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - backtrader_ci
+
+networks:
+  backtrader_ci:
+    driver: bridge
+
+volumes:
+  frontend_node_modules:

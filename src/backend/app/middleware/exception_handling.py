@@ -5,10 +5,8 @@ This middleware catches all exceptions and converts them to standardized
 JSON responses, preventing information leakage and providing consistent
 error format to API consumers.
 """
-import logging
-import traceback
 import uuid
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse

@@ -14,11 +14,9 @@ Usage:
     >>> safe_html = sanitize_html("<script>alert('xss')</script>")
 """
 import re
-import html
 import urllib.parse
-from typing import Any, List, Optional, Union
 from html import escape as html_escape
-
+from typing import Any, List, Optional
 
 # ==================== SQL Injection Prevention ====================
 
