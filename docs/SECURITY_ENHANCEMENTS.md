@@ -154,8 +154,9 @@ BaseAppError
 | Custom Exceptions | 35 | ✅ Passing |
 | Config Validation | 22 | ✅ Passing |
 | Input Validation | 57 | ✅ Passing |
+| Middleware | 17 | ✅ Passing |
 | Fincore Integration | 66 | ✅ Passing |
-| **Total New Tests** | **197** | **✅ All Passing** |
+| **Total New Tests** | **214** | **✅ All Passing** |
 
 ---
 
@@ -196,6 +197,7 @@ BaseAppError
 2. `a56e888` - feat(security): add custom exception classes for better error handling
 3. `9aed58d` - feat(security): add environment variable validation
 4. `7ead4b5` - feat(security): add input validation and sanitization utilities
+5. `41f3160` - feat(middleware): add global exception handler and security headers middleware
 
 ---
 
@@ -203,7 +205,7 @@ BaseAppError
 
 While all security improvements are complete, potential future enhancements could include:
 
-1. **Additional Security Headers** - CSP, X-Frame-Options, etc.
+1. ~~**Additional Security Headers** - CSP, X-Frame-Options, etc.~~ ✅ COMPLETED
 2. **API Request Signing** - HMAC signatures for sensitive operations
 3. **Two-Factor Authentication** - TOTP support for admin accounts
 4. **Session Management** - Session fixation prevention
@@ -227,6 +229,8 @@ While all security improvements are complete, potential future enhancements coul
 - ✅ Audit logging
 - ✅ Secure error handling
 - ✅ Custom exception hierarchy
+- ✅ Global exception handler middleware
+- ✅ Security headers middleware (CSP, HSTS, X-Frame-Options, etc.)
 
 ---
 
@@ -237,10 +241,52 @@ The Backtrader Web platform now has:
 - ✅ Comprehensive input validation
 - ✅ Secure configuration management
 - ✅ Structured error handling
-- ✅ 197 tests covering all security features
+- ✅ Global exception handling middleware
+- ✅ Security headers middleware
+- ✅ 214 tests covering all security features
 
 ---
 
-*Generated: 2026-02-23*
+## Update 2026-02-24 - Additional Security Middleware
+
+### 6. Global Exception Handler Middleware ✅
+
+**Implementation**: Centralized exception handling for consistent API error responses.
+
+**Key Features**:
+- ErrorResponse class for standardized error format
+- Custom exception handlers for BaseAppError
+- Pydantic validation error handling
+- HTTP exception handling
+- Generic exception handling (no sensitive data leaked)
+- Request ID tracking in all error responses
+
+**Files Created**:
+- `app/middleware/exception_handling.py` - Exception handlers
+
+### 7. Security Headers Middleware ✅
+
+**Implementation**: HTTP security headers to prevent common web vulnerabilities.
+
+**Key Features**:
+- X-Content-Type-Options: nosniff
+- X-Frame-Options: DENY (clickjacking prevention)
+- X-XSS-Protection: 1; mode=block
+- Content-Security-Policy: restrictive policy
+- Referrer-Policy: strict-origin-when-cross-origin
+- Permissions-Policy: disables sensitive browser features
+- Strict-Transport-Security: HSTS for production HTTPS
+- Cache-Control: no-cache for auth endpoints
+- Server header removal
+- X-Powered-By header (debug mode only)
+
+**Files Created**:
+- `app/middleware/security_headers.py` - Security headers middleware
+
+**Tests**: 17 tests in `test_middleware.py`
+
+---
+
+*Updated: 2026-02-24*
 *Claude Opus 4.6*
 *Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>*
