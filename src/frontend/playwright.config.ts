@@ -86,10 +86,12 @@ export default defineConfig({
   ],
 
   // 开发服务器配置
+  // 注意: 需要手动启动前端服务: npm run dev (端口 5173)
+  // 设置 reuseExistingServer: true 假设服务器已在运行
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
+    reuseExistingServer: true,  // 只使用已存在的服务器
+    timeout: 5000,  // 快速失败
   },
 });
