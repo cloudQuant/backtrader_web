@@ -10,6 +10,9 @@ export { AuthPage } from './pages/AuthPage';
 export { DashboardPage } from './pages/DashboardPage';
 export { StrategyPage } from './pages/StrategyPage';
 export { BacktestPage } from './pages/BacktestPage';
+export { PaperTradingPage } from './pages/PaperTradingPage';
+export { LiveTradingPage } from './pages/LiveTradingPage';
+export { PortfolioPage } from './pages/PortfolioPage';
 
 // Fixtures
 export { test, authTest, expect } from './fixtures/test-data.fixture';
