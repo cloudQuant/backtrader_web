@@ -20,6 +20,8 @@ from app.middleware.logging import (
     AuditLoggingMiddleware,
     PerformanceLoggingMiddleware,
 )
+from app.middleware.exception_handling import register_exception_handlers
+from app.middleware.security_headers import add_security_headers
 from app.utils.logger import setup_logger
 from app.websocket_manager import manager as ws_manager
 
@@ -138,6 +140,12 @@ app = FastAPI(
 
 # Set limiter to app.state
 app.state.limiter = limiter
+
+# Register global exception handlers (must be before other middleware)
+register_exception_handlers(app)
+
+# Add security headers middleware
+add_security_headers(app)
 
 # Add rate limit exception handler
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
