@@ -205,14 +205,14 @@ export function exportBacktestResult(
   let mimeType: string
   
   switch (format) {
-    case 'csv':
+    case 'csv': {
       // 扁平化数据用于 CSV
       const flatData = flattenBacktestResult(result)
       content = exportToCSV([flatData])
       filename = `${baseFilename}.csv`
       mimeType = 'text/csv'
       break
-      
+    }
     case 'json':
       content = exportToJSON(result)
       filename = `${baseFilename}.json`
