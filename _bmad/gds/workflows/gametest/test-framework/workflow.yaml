@@ -1,6 +1,6 @@
 # Game QA workflow: framework
 name: gametest-framework
-description: "Initialize game test framework architecture for Unity, Unreal Engine, or Godot projects"
+description: 'Game test framework initializer. Use when the user says "lets create a test framework" or "initialize game testing infrastructure"'
 author: "BMad"
 
 # Critical variables from config

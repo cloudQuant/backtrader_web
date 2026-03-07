@@ -1,7 +1,7 @@
 ---
 validationDate: 2026-01-27
 workflowName: testarch-trace
-workflowPath: /Users/murat.ozcan/opensource/bmad-method-test-architecture-enterprise/src/workflows/testarch/trace
+workflowPath: {project-root}/src/workflows/testarch/trace
 validationStatus: COMPLETE
 completionDate: 2026-01-27 10:24:01
 ---
@@ -87,9 +87,9 @@ Standard BMAD config variables treated as valid exceptions: bmb_creations_output
 - Steps use progressive prompts and clear role reinforcement; no laundry-list interrogation detected
 - Flow progression is clear and aligned to workflow goals
 
-## Subprocess Optimization Opportunities
+## Subagent Optimization Opportunities
 
-- No high-priority subprocess optimizations identified; workflow already uses step-file architecture
+- No high-priority subagent optimizations identified; workflow already uses step-file architecture
 - Pattern 1 (grep/regex): N/A for most steps
 - Pattern 2 (per-file analysis): already aligned to validation structure
 - Pattern 3 (data ops): minimal data file loads

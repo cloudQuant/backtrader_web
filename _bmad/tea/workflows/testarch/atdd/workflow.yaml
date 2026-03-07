@@ -1,7 +1,7 @@
 # Test Architect workflow: atdd
 name: testarch-atdd
-description: "Generate failing acceptance tests before implementation using TDD red-green-refactor cycle"
-author: "BMad"
+# prettier-ignore
+description: 'Generate failing acceptance tests using TDD cycle. Use when the user says "lets write acceptance tests" or "I want to do ATDD"'
 
 # Critical variables from config
 config_source: "{project-root}/_bmad/tea/config.yaml"

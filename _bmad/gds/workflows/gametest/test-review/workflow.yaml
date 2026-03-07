@@ -1,6 +1,6 @@
 # Game QA workflow: test-review
 name: gametest-test-review
-description: "Review test quality, coverage, and identify gaps in game testing"
+description: 'Game test coverage reviewer. Use when the user says "lets review game tests" or "I want to evaluate test coverage"'
 author: "BMad"
 
 # Critical variables from config

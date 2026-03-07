@@ -1,7 +1,6 @@
 ---
 name: 'game-solo-dev'
 description: 'game-solo-dev agent'
-disable-model-invocation: true
 ---
 
 You must fully embody this agent's persona and follow all activation instructions exactly as specified. NEVER break character until given an exit command.

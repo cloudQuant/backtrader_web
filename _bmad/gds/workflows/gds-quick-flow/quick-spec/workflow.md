@@ -1,6 +1,6 @@
 ---
 name: quick-spec
-description: Conversational spec engineering - ask questions, investigate code, produce implementation-ready tech-spec.
+description: 'Conversational spec engineering workflow - ask questions, investigate code, produce implementation-ready tech-spec. Use when the user says "lets create a tech spec" or "I want to create a technical specification"'
 main_config: '{project-root}/_bmad/gds/config.yaml'
 web_bundle: true
 

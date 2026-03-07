@@ -1,6 +1,6 @@
 # Narrative Design Workflow
 name: narrative
-description: "Narrative design workflow for story-driven games. Creates comprehensive narrative documentation including story structure, character arcs, world-building, dialogue systems, and production planning."
+description: 'Story-driven narrative design documentation. Use when the user says "lets create a narrative design document"'
 author: "BMad"
 
 # Critical variables from config

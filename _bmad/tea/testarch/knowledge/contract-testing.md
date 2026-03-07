@@ -4,9 +4,13 @@
 
 Contract testing validates API contracts between consumer and provider services without requiring integrated end-to-end tests. Store consumer contracts alongside integration specs, version contracts semantically, and publish on every CI run. Provider verification before merge surfaces breaking changes immediately, while explicit fallback behavior (timeouts, retries, error payloads) captures resilience guarantees in contracts.
 
+> **Pact.js Utils Note**: When `tea_use_pactjs_utils` is enabled, prefer the patterns in the `pactjs-utils-*.md` fragments over the raw Pact.js patterns shown below. The pactjs-utils library eliminates boilerplate for provider states, verifier configuration, and request filters. See `pactjs-utils-overview.md` for the decision tree.
+
 ## Rationale
 
 Traditional integration testing requires running both consumer and provider simultaneously, creating slow, flaky tests with complex setup. Contract testing decouples services: consumers define expectations (pact files), providers verify against those expectations independently. This enables parallel development, catches breaking changes early, and documents API behavior as executable specifications. Pair contract tests with API smoke tests to validate data mapping and UI rendering in tandem.
+
+> **Recommended**: When `tea_use_pactjs_utils` is enabled, use `@seontechnologies/pactjs-utils` utilities instead of the manual patterns below. The library handles JsonMap conversion, verifier configuration, and request filter assembly automatically. See the `pactjs-utils-overview.md`, `pactjs-utils-consumer-helpers.md`, `pactjs-utils-provider-verifier.md`, and `pactjs-utils-request-filter.md` fragments for the simplified approach.
 
 ## Pattern Examples
 
@@ -158,13 +162,13 @@ describe('User API Contract', () => {
 });
 ```
 
-**package.json scripts**:
+**package.json scripts** (when using pactjs-utils conventions, prefer `test:pact:consumer` naming — see `pact-consumer-framework-setup.md`):
 
 ```json
 {
   "scripts": {
-    "test:contract": "jest tests/contract --testTimeout=30000",
-    "pact:publish": "pact-broker publish ./pacts --consumer-app-version=$GIT_SHA --broker-base-url=$PACT_BROKER_URL --broker-token=$PACT_BROKER_TOKEN"
+    "test:pact:consumer": "vitest run --config vitest.config.pact.ts",
+    "publish:pact": ". ./scripts/env-setup.sh && ./scripts/publish-pact.sh"
   }
 }
 ```
@@ -220,10 +224,10 @@ describe('Pact Provider Verification', () => {
       providerBaseUrl: `http://localhost:${PORT}`,
 
       // Pact Broker configuration
-      pactBrokerUrl: process.env.PACT_BROKER_URL,
+      pactBrokerUrl: process.env.PACT_BROKER_BASE_URL,
       pactBrokerToken: process.env.PACT_BROKER_TOKEN,
       publishVerificationResult: process.env.CI === 'true',
-      providerVersion: process.env.GIT_SHA || 'dev',
+      providerVersion: process.env.GITHUB_SHA || 'dev',
 
       // State handlers: Setup provider state for each interaction
       stateHandlers: {
@@ -275,7 +279,8 @@ describe('Pact Provider Verification', () => {
 **CI integration**:
 
 ```yaml
-# .github/workflows/pact-provider.yml
+# .github/workflows/contract-test-provider.yml
+# NOTE: Canonical naming is contract-test-provider.yml per pactjs-utils conventions
 name: Pact Provider Verification
 on:
   pull_request:
@@ -303,22 +308,16 @@ jobs:
         run: npm run db:migrate
 
       - name: Verify pacts
-        run: npm run test:contract:provider
+        run: npm run test:pact:provider:remote:contract
         env:
-          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_BASE_URL }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
-          GIT_SHA: ${{ github.sha }}
-          CI: true
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_BRANCH: ${{ github.head_ref || github.ref_name }}
 
       - name: Can I Deploy?
-        run: |
-          npx pact-broker can-i-deploy \
-            --pacticipant user-api-service \
-            --version ${{ github.sha }} \
-            --to-environment production
-        env:
-          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_URL }}
-          PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
+        if: github.ref == 'refs/heads/main'
+        run: npm run can:i:deploy:provider
 ```
 
 **Key Points**:
@@ -333,12 +332,13 @@ jobs:
 
 ### Example 3: Contract CI Integration (Consumer & Provider Workflow)
 
-**Context**: Complete CI/CD workflow coordinating consumer pact publishing and provider verification.
+**Context**: Simplified overview of consumer and provider CI coordination. For the complete consumer CI workflow with env blocks, concurrency, and breaking-change detection, see `pact-consumer-framework-setup.md` Example 5.
 
 **Implementation**:
 
 ```yaml
-# .github/workflows/pact-consumer.yml (Consumer side)
+# .github/workflows/contract-test-consumer.yml (Consumer side)
+# NOTE: Canonical naming is contract-test-consumer.yml per pactjs-utils conventions
 name: Pact Consumer Tests
 on:
   pull_request:
@@ -360,30 +360,23 @@ jobs:
         run: npm ci
 
       - name: Run consumer contract tests
-        run: npm run test:contract
+        run: npm run test:pact:consumer
 
       - name: Publish pacts to broker
-        if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
-        run: |
-          npx pact-broker publish ./pacts \
-            --consumer-app-version ${{ github.sha }} \
-            --branch ${{ github.head_ref || github.ref_name }} \
-            --broker-base-url ${{ secrets.PACT_BROKER_URL }} \
-            --broker-token ${{ secrets.PACT_BROKER_TOKEN }}
+        run: npm run publish:pact
 
-      - name: Tag pact with environment (main branch only)
+      - name: Can I deploy consumer? (main only)
+        if: github.ref == 'refs/heads/main' && env.PACT_BREAKING_CHANGE != 'true'
+        run: npm run can:i:deploy:consumer
+
+      - name: Record consumer deployment (main only)
         if: github.ref == 'refs/heads/main'
-        run: |
-          npx pact-broker create-version-tag \
-            --pacticipant user-management-web \
-            --version ${{ github.sha }} \
-            --tag production \
-            --broker-base-url ${{ secrets.PACT_BROKER_URL }} \
-            --broker-token ${{ secrets.PACT_BROKER_TOKEN }}
+        run: npm run record:consumer:deployment --env=dev
 ```
 
 ```yaml
-# .github/workflows/pact-provider.yml (Provider side)
+# .github/workflows/contract-test-provider.yml (Provider side)
+# NOTE: Canonical naming is contract-test-provider.yml per pactjs-utils conventions
 name: Pact Provider Verification
 on:
   pull_request:
@@ -410,38 +403,20 @@ jobs:
         run: docker-compose up -d
 
       - name: Run provider verification
-        run: npm run test:contract:provider
+        run: npm run test:pact:provider:remote:contract
         env:
-          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_BASE_URL }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
-          GIT_SHA: ${{ github.sha }}
-          CI: true
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_BRANCH: ${{ github.head_ref || github.ref_name }}
 
-      - name: Publish verification results
-        if: always()
-        run: echo "Verification results published to broker"
+      - name: Can I deploy provider? (main only)
+        if: github.ref == 'refs/heads/main' && env.PACT_BREAKING_CHANGE != 'true'
+        run: npm run can:i:deploy:provider
 
-      - name: Can I Deploy to Production?
+      - name: Record provider deployment (main only)
         if: github.ref == 'refs/heads/main'
-        run: |
-          npx pact-broker can-i-deploy \
-            --pacticipant user-api-service \
-            --version ${{ github.sha }} \
-            --to-environment production \
-            --broker-base-url ${{ secrets.PACT_BROKER_URL }} \
-            --broker-token ${{ secrets.PACT_BROKER_TOKEN }} \
-            --retry-while-unknown 6 \
-            --retry-interval 10
-
-      - name: Record deployment (if can-i-deploy passed)
-        if: success() && github.ref == 'refs/heads/main'
-        run: |
-          npx pact-broker record-deployment \
-            --pacticipant user-api-service \
-            --version ${{ github.sha }} \
-            --environment production \
-            --broker-base-url ${{ secrets.PACT_BROKER_URL }} \
-            --broker-token ${{ secrets.PACT_BROKER_TOKEN }}
+        run: npm run record:provider:deployment --env=dev
 ```
 
 **Pact Broker Webhook Configuration**:
@@ -722,7 +697,7 @@ export async function getUserById(
 
 ---
 
-### Example 4: Pact Broker Housekeeping & Lifecycle Management
+### Example 5: Pact Broker Housekeeping & Lifecycle Management
 
 **Context**: Automated broker maintenance to prevent contract sprawl and noise.
 
@@ -737,9 +712,9 @@ export async function getUserById(
  * - Tag releases for environment tracking
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'node:child_process';
 
-const PACT_BROKER_URL = process.env.PACT_BROKER_URL!;
+const PACT_BROKER_BASE_URL = process.env.PACT_BROKER_BASE_URL!;
 const PACT_BROKER_TOKEN = process.env.PACT_BROKER_TOKEN!;
 const PACTICIPANT = 'user-api-service';
 
@@ -749,13 +724,21 @@ const PACTICIPANT = 'user-api-service';
 function tagRelease(version: string, environment: 'staging' | 'production') {
   console.log(`🏷️  Tagging ${PACTICIPANT} v${version} as ${environment}`);
 
-  execSync(
-    `npx pact-broker create-version-tag \
-      --pacticipant ${PACTICIPANT} \
-      --version ${version} \
-      --tag ${environment} \
-      --broker-base-url ${PACT_BROKER_URL} \
-      --broker-token ${PACT_BROKER_TOKEN}`,
+  execFileSync(
+    'pact-broker',
+    [
+      'create-version-tag',
+      '--pacticipant',
+      PACTICIPANT,
+      '--version',
+      version,
+      '--tag',
+      environment,
+      '--broker-base-url',
+      PACT_BROKER_BASE_URL,
+      '--broker-token',
+      PACT_BROKER_TOKEN,
+    ],
     { stdio: 'inherit' },
   );
 }
@@ -766,13 +749,21 @@ function tagRelease(version: string, environment: 'staging' | 'production') {
 function recordDeployment(version: string, environment: 'staging' | 'production') {
   console.log(`📝 Recording deployment of ${PACTICIPANT} v${version} to ${environment}`);
 
-  execSync(
-    `npx pact-broker record-deployment \
-      --pacticipant ${PACTICIPANT} \
-      --version ${version} \
-      --environment ${environment} \
-      --broker-base-url ${PACT_BROKER_URL} \
-      --broker-token ${PACT_BROKER_TOKEN}`,
+  execFileSync(
+    'pact-broker',
+    [
+      'record-deployment',
+      '--pacticipant',
+      PACTICIPANT,
+      '--version',
+      version,
+      '--environment',
+      environment,
+      '--broker-base-url',
+      PACT_BROKER_BASE_URL,
+      '--broker-token',
+      PACT_BROKER_TOKEN,
+    ],
     { stdio: 'inherit' },
   );
 }
@@ -784,13 +775,21 @@ function recordDeployment(version: string, environment: 'staging' | 'production'
 function cleanupOldPacts() {
   console.log(`🧹 Cleaning up old pacts for ${PACTICIPANT}`);
 
-  execSync(
-    `npx pact-broker clean \
-      --pacticipant ${PACTICIPANT} \
-      --broker-base-url ${PACT_BROKER_URL} \
-      --broker-token ${PACT_BROKER_TOKEN} \
-      --keep-latest-for-branch 1 \
-      --keep-min-age 30`,
+  execFileSync(
+    'pact-broker',
+    [
+      'clean',
+      '--pacticipant',
+      PACTICIPANT,
+      '--broker-base-url',
+      PACT_BROKER_BASE_URL,
+      '--broker-token',
+      PACT_BROKER_TOKEN,
+      '--keep-latest-for-branch',
+      '1',
+      '--keep-min-age',
+      '30',
+    ],
     { stdio: 'inherit' },
   );
 }
@@ -802,15 +801,25 @@ function canIDeploy(version: string, toEnvironment: string): boolean {
   console.log(`🔍 Checking if ${PACTICIPANT} v${version} can deploy to ${toEnvironment}`);
 
   try {
-    execSync(
-      `npx pact-broker can-i-deploy \
-        --pacticipant ${PACTICIPANT} \
-        --version ${version} \
-        --to-environment ${toEnvironment} \
-        --broker-base-url ${PACT_BROKER_URL} \
-        --broker-token ${PACT_BROKER_TOKEN} \
-        --retry-while-unknown 6 \
-        --retry-interval 10`,
+    execFileSync(
+      'pact-broker',
+      [
+        'can-i-deploy',
+        '--pacticipant',
+        PACTICIPANT,
+        '--version',
+        version,
+        '--to-environment',
+        toEnvironment,
+        '--broker-base-url',
+        PACT_BROKER_BASE_URL,
+        '--broker-token',
+        PACT_BROKER_TOKEN,
+        '--retry-while-unknown',
+        '10',
+        '--retry-interval',
+        '30',
+      ],
       { stdio: 'inherit' },
     );
     return true;
@@ -886,7 +895,7 @@ jobs:
       - name: Check pact compatibility
         run: npm run pact:can-deploy ${{ github.ref_name }} production
         env:
-          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_BASE_URL }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
 
   deploy:
@@ -899,7 +908,7 @@ jobs:
       - name: Record deployment in Pact Broker
         run: npm run pact:record ${{ github.ref_name }} production
         env:
-          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_BASE_URL }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
 ```
 
@@ -921,7 +930,7 @@ jobs:
       - name: Cleanup old pacts
         run: npm run pact:cleanup
         env:
-          PACT_BROKER_URL: ${{ secrets.PACT_BROKER_URL }}
+          PACT_BROKER_BASE_URL: ${{ secrets.PACT_BROKER_BASE_URL }}
           PACT_BROKER_TOKEN: ${{ secrets.PACT_BROKER_TOKEN }}
 ```
 
@@ -951,7 +960,27 @@ Before implementing contract testing, verify:
 ## Integration Points
 
 - Used in workflows: `*automate` (integration test generation), `*ci` (contract CI setup)
-- Related fragments: `test-levels-framework.md`, `ci-burn-in.md`
+- Related fragments: `test-levels-framework.md`, `ci-burn-in.md`, `pact-consumer-framework-setup.md`
 - Tools: Pact.js, Pact Broker (Pactflow or self-hosted), Pact CLI
 
-_Source: Pact consumer/provider sample repos, Murat contract testing blog, Pact official documentation_
+---
+
+## Pact.js Utils Accelerator
+
+When `tea_use_pactjs_utils` is enabled, the following utilities replace manual boilerplate:
+
+| Manual Pattern (raw Pact.js)                             | Pact.js Utils Equivalent                                                          | Benefit                                                               |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Manual `JsonMap` casting for `.given()` params           | `createProviderState({ name, params })`                                           | Type-safe, auto-conversion of Date/null/nested objects                |
+| Repeated builder callbacks for query/header/body         | `setJsonContent({ query, headers, body })`                                        | Reusable callback for `.withRequest(...)` and `.willRespondWith(...)` |
+| Inline body lambda `(builder) => builder.jsonBody(body)` | `setJsonBody(body)`                                                               | Body-only shorthand for cleaner response builders                     |
+| 30+ lines of `VerifierOptions` assembly                  | `buildVerifierOptions({ provider, port, includeMainAndDeployed, stateHandlers })` | One-call setup, env-aware, flow auto-detection                        |
+| Manual broker URL + selector logic from env vars         | `handlePactBrokerUrlAndSelectors({ ..., options })`                               | Mutates options in-place with broker URL and selectors                |
+| DIY Express middleware for auth injection                | `createRequestFilter({ tokenGenerator })`                                         | Bearer prefix contract prevents double-prefix bugs                    |
+| Manual CI branch/tag extraction                          | `getProviderVersionTags()`                                                        | CI-aware (GitHub Actions, GitLab CI, etc.)                            |
+| Message verifier config assembly                         | `buildMessageVerifierOptions({ provider, messageProviders })`                     | Same one-call pattern for Kafka/async contracts                       |
+| Inline no-op filter `(req, res, next) => next()`         | `noOpRequestFilter`                                                               | Pre-built pass-through for no-auth providers                          |
+
+See the `pactjs-utils-*.md` knowledge fragments for complete examples and anti-patterns.
+
+_Source: Pact consumer/provider sample repos, Murat contract testing blog, Pact official documentation, @seontechnologies/pactjs-utils library_

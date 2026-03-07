@@ -60,7 +60,7 @@ Create an ongoing learning companion that teaches testing progressively through 
 ## Classification Decisions
 
 **Workflow Name:** teach-me-testing
-**Target Path:** /Users/murat.ozcan/opensource/bmad-method-test-architecture-enterprise/src/workflows/testarch/teach-me-testing/
+**Target Path:** {project-root}/src/workflows/testarch/teach-me-testing/
 
 **4 Key Decisions:**
 
@@ -501,7 +501,7 @@ teach-me-testing/
 └── checklist.md                          ✓ Created
 ```
 
-**Location:** /Users/murat.ozcan/opensource/bmad-playground/\_bmad-output/bmb-creations/workflows/teach-me-testing/
+**Location:** {external-project-root}/\_bmad-output/bmb-creations/workflows/teach-me-testing/
 
 **Configuration:**
 
@@ -924,16 +924,16 @@ teach-me-testing/
 **DEPLOYMENT:** Move workflow from staging to TEA module
 
 **Source (Staging):**
-`/Users/murat.ozcan/opensource/bmad-playground/_bmad-output/bmb-creations/workflows/teach-me-testing/`
+`{external-project-root}/_bmad-output/bmb-creations/workflows/teach-me-testing/`
 
 **Target (Production):**
-`/Users/murat.ozcan/opensource/bmad-method-test-architecture-enterprise/src/workflows/testarch/teach-me-testing/`
+`{project-root}/src/workflows/testarch/teach-me-testing/`
 
 **Command:**
 
 ```bash
-cp -r /Users/murat.ozcan/opensource/bmad-playground/_bmad-output/bmb-creations/workflows/teach-me-testing \
-      /Users/murat.ozcan/opensource/bmad-method-test-architecture-enterprise/src/workflows/testarch/
+cp -r {external-project-root}/_bmad-output/bmb-creations/workflows/teach-me-testing \
+      {project-root}/src/workflows/testarch/
 ```
 
 **After deployment:**

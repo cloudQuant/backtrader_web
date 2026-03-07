@@ -1,5 +1,5 @@
 ---
-description: 'Creates a concise project-context.md file with critical rules and patterns that AI agents must follow when implementing code. Optimized for LLM context efficiency.'
+description: 'Create project-context.md with AI rules. Use when the user says "generate project context" or "create project context"'
 auto_execution_mode: "iterate"
 ---
 

@@ -213,6 +213,8 @@ import { backtestApi } from '@/api/backtest'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
 import type { BacktestResult, StrategyConfig } from '@/types'
 import dayjs from 'dayjs'
+import { exportToCSV, exportToJSON, downloadFile } from '@/utils/exportUtils'
+import { exportToCSV, exportToJSON, downloadFile } from '@/utils/exportUtils'
 
 const router = useRouter()
 const backtestStore = useBacktestStore()

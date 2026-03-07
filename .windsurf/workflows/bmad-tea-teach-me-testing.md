@@ -1,5 +1,5 @@
 ---
-description: 'Multi-session learning companion that teaches testing progressively through 7 structured sessions with state persistence'
+description: 'Teach testing progressively through structured sessions. Use when user says "lets learn testing" or "I want to study test practices"'
 auto_execution_mode: "iterate"
 ---
 

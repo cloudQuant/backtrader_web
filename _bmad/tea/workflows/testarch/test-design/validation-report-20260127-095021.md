@@ -1,7 +1,7 @@
 ---
 validationDate: 2026-01-27
 workflowName: testarch-test-design
-workflowPath: /Users/murat.ozcan/opensource/bmad-method-test-architecture-enterprise/src/workflows/testarch/test-design
+workflowPath: {project-root}/src/workflows/testarch/test-design
 validationStatus: COMPLETE
 completionDate: 2026-01-27 10:03:10
 ---

@@ -1,6 +1,6 @@
 # Game QA workflow: playtest-plan
 name: gametest-playtest-plan
-description: "Create structured playtesting sessions for gameplay validation and user feedback"
+description: 'Playtest session planner. Use when the user says "lets create a playtest plan" or "I want to schedule gameplay testing"'
 author: "BMad"
 
 # Critical variables from config

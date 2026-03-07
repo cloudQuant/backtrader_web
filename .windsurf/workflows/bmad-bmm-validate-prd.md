@@ -1,5 +1,5 @@
 ---
-description: 'Validate an existing PRD against BMAD standards - comprehensive review for completeness, clarity, and quality'
+description: 'Validate a PRD against standards. Use when the user says "validate this PRD" or "run PRD validation"'
 auto_execution_mode: "iterate"
 ---
 

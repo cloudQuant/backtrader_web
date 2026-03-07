@@ -1,7 +1,6 @@
 ---
 name: 'create-game-brief'
-description: 'Creates a comprehensive Game Brief through collaborative step-by-step discovery to capture game vision before detailed design.'
-disable-model-invocation: true
+description: 'Game vision definition workflow through collaborative step-by-step discovery. Use when the user says "lets create a game brief" or "I want to define my game vision"'
 ---
 
-IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL @{project-root}/_bmad/gds/workflows/1-preproduction/game-brief/workflow.md, READ its entire contents and follow its directions exactly!
+IT IS CRITICAL THAT YOU FOLLOW THIS COMMAND: LOAD the FULL {project-root}/_bmad/gds/workflows/1-preproduction/game-brief/workflow.md, READ its entire contents and follow its directions exactly!

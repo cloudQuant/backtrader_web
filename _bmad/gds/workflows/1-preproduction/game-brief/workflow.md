@@ -1,6 +1,6 @@
 ---
 name: create-game-brief
-description: Creates a comprehensive Game Brief through collaborative step-by-step discovery to capture game vision before detailed design.
+description: 'Game vision definition workflow through collaborative step-by-step discovery. Use when the user says "lets create a game brief" or "I want to define my game vision"'
 main_config: '{project-root}/_bmad/gds/config.yaml'
 web_bundle: true
 ---

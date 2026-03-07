@@ -1,6 +1,6 @@
 ---
 name: create-gdd
-description: Creates a comprehensive Game Design Document through collaborative step-by-step discovery between game designer and user.
+description: 'Comprehensive game design document creator through collaborative discovery. Use when the user says "lets create a game design document" or "I want to create a comprehensive GDD"'
 main_config: '{project-root}/_bmad/gds/config.yaml'
 web_bundle: true
 ---

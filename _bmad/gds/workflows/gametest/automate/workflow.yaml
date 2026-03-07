@@ -1,6 +1,6 @@
 # Game QA workflow: automate
 name: gametest-automate
-description: "Generate automated game tests for Unity, Unreal, or Godot based on test design scenarios"
+description: 'Automated test scenario generator. Use when the user says "I want to create automated game tests" or "Generate test scenarios for Unity Unreal or Godot"'
 author: "BMad"
 
 # Critical variables from config

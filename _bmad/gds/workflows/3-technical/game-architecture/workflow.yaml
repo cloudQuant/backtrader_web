@@ -1,6 +1,6 @@
 # Game Architecture Workflow Configuration
 name: game-architecture
-description: "Collaborative game architecture workflow for AI-agent consistency. Intelligent, adaptive conversation that produces a decision-focused game architecture document covering engine, systems, networking, and technical design optimized for game development."
+description: 'Technical game systems architecture design. Use when the user says "lets create a game architecture" or "I want to design technical game systems"'
 author: "BMad"
 
 # Critical variables
@@ -23,6 +23,15 @@ decision_catalog: "{installed_path}/decision-catalog.yaml"
 architecture_patterns: "{installed_path}/architecture-patterns.yaml"
 pattern_categories: "{installed_path}/pattern-categories.csv"
 engine_mcps: "{installed_path}/engine-mcps.yaml"
+
+# Engine-specific knowledge fragments
+# Steps 4, 6, and 7 should load ONLY the fragment matching the engine selected in Step 3
+# These complement (not replace) decision-catalog.yaml — catalog has relationships, fragments have depth
+knowledge_fragments:
+  godot: "{installed_path}/knowledge/godot-engine.md"
+  unity: "{installed_path}/knowledge/unity-engine.md"
+  unreal: "{installed_path}/knowledge/unreal-engine.md"
+  phaser: "{installed_path}/knowledge/phaser-engine.md"
 
 # Smart input file references - handles both whole docs and sharded docs
 input_file_patterns:

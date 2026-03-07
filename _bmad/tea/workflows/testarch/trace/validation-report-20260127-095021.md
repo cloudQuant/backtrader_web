@@ -1,7 +1,7 @@
 ---
 validationDate: 2026-01-27
 workflowName: testarch-trace
-workflowPath: /Users/murat.ozcan/opensource/bmad-method-test-architecture-enterprise/src/workflows/testarch/trace
+workflowPath: {project-root}/src/workflows/testarch/trace
 validationStatus: COMPLETE
 completionDate: 2026-01-27 10:03:10
 ---
