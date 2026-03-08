@@ -17,10 +17,11 @@ def _new_service_without_init(cls):
 @pytest.mark.asyncio
 async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path, monkeypatch):
     """Cover _execute_backtest branches: tmp_logs cleanup, custom params write, parse_all_logs empty, persist copy, cleanup except."""
-    from app.services.backtest_service import BacktestService
     from app.schemas.backtest import BacktestRequest, TaskStatus
+    from app.services.backtest_service import BacktestService
 
     svc = BacktestService()
+    svc.task_manager = AsyncMock()
 
     # Build strategy dir with run.py, config.yaml and logs/ to trigger tmp_logs cleanup.
     strategies_dir = tmp_path / "strategies"
@@ -61,16 +62,17 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
 
     with patch("app.services.strategy_service.STRATEGIES_DIR", strategies_dir):
         with patch("app.services.log_parser_service.parse_all_logs", return_value=log_result_ok):
-            with patch.object(svc.result_repo, "create", new=AsyncMock()):
-                with patch.object(svc.task_repo, "update", new=AsyncMock()):
-                    with patch("app.services.backtest_service.ws_manager") as mock_ws:
-                        mock_ws.send_to_task = AsyncMock()
-                        # observe internal calls: tmp_logs cleanup, config overwrite, persist copytree
-                        with patch("shutil.rmtree") as mock_rmtree:
-                            with patch("shutil.copytree") as mock_copytree:
-                                await svc._execute_backtest("t1", "u1", req)
-                                assert mock_rmtree.called  # tmp_logs cleanup executed
-                                assert mock_copytree.called  # persist copy executed
+            svc.task_manager.create_result = AsyncMock()
+            svc.task_manager.update_task_status = AsyncMock()
+            with patch("app.services.backtest_service.ws_manager") as mock_ws:
+                mock_ws.send_to_task = AsyncMock()
+                # observe internal calls: tmp_logs cleanup, config overwrite, persist copytree
+                with patch("shutil.rmtree") as mock_rmtree:
+                    with patch("shutil.copytree") as mock_copytree:
+                        await svc._execute_backtest("t1", "u1", req)
+                        assert mock_rmtree.called  # tmp_logs cleanup executed
+                        assert mock_copytree.called  # persist copy executed
+                        svc.task_manager.create_result.assert_awaited_once()
 
     # parse_all_logs empty -> raises -> status FAILED (covers the raise ValueError branch).
     req2 = BacktestRequest(
@@ -81,30 +83,30 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
     )
     with patch("app.services.strategy_service.STRATEGIES_DIR", strategies_dir):
         with patch("app.services.log_parser_service.parse_all_logs", return_value={}):
-            with patch.object(svc.task_repo, "update", new=AsyncMock()) as mock_update:
-                with patch("app.services.backtest_service.ws_manager") as mock_ws:
-                    mock_ws.send_to_task = AsyncMock()
-                    await svc._execute_backtest("t2", "u1", req2)
-                    last = mock_update.call_args_list[-1]
-                    assert last.args[1]["status"] == TaskStatus.FAILED
+            svc.task_manager.update_task_status = AsyncMock()
+            with patch("app.services.backtest_service.ws_manager") as mock_ws:
+                mock_ws.send_to_task = AsyncMock()
+                await svc._execute_backtest("t2", "u1", req2)
+                last = svc.task_manager.update_task_status.await_args_list[-1]
+                assert last.args[1] == TaskStatus.FAILED
 
     # Cleanup finally: simulate shutil.rmtree raising to cover exception swallow.
     with patch("app.services.strategy_service.STRATEGIES_DIR", strategies_dir):
         with patch.object(svc, "_run_strategy_subprocess", AsyncMock(side_effect=RuntimeError("x"))):
-            with patch.object(svc.task_repo, "update", new=AsyncMock()):
-                with patch("app.services.backtest_service.ws_manager") as mock_ws:
-                    mock_ws.send_to_task = AsyncMock()
+            svc.task_manager.update_task_status = AsyncMock()
+            with patch("app.services.backtest_service.ws_manager") as mock_ws:
+                mock_ws.send_to_task = AsyncMock()
 
-                    real_rmtree = __import__("shutil").rmtree
+                real_rmtree = __import__("shutil").rmtree
 
-                    def _rmtree_side_effect(path, *args, **kwargs):
-                        # Only raise on the cleanup rmtree which passes ignore_errors=True.
-                        if kwargs.get("ignore_errors") is True:
-                            raise RuntimeError("cleanup failed")
-                        return real_rmtree(path, *args, **kwargs)
+                def _rmtree_side_effect(path, *args, **kwargs):
+                    # Only raise on the cleanup rmtree which passes ignore_errors=True.
+                    if kwargs.get("ignore_errors") is True:
+                        raise RuntimeError("cleanup failed")
+                    return real_rmtree(path, *args, **kwargs)
 
-                    with patch("shutil.rmtree", side_effect=_rmtree_side_effect):
-                        await svc._execute_backtest("t3", "u1", req2)
+                with patch("shutil.rmtree", side_effect=_rmtree_side_effect):
+                    await svc._execute_backtest("t3", "u1", req2)
 
 
 def test_comparison_service_compare_equity_default_initial():
@@ -123,8 +125,8 @@ def test_comparison_service_compare_equity_default_initial():
 @pytest.mark.asyncio
 async def test_comparison_service_update_comparison_with_description_and_backtest_ids():
     """Cover update_comparison branches setting description and regenerating comparison_data."""
-    from app.services.comparison_service import ComparisonService
     from app.schemas.comparison import ComparisonUpdate
+    from app.services.comparison_service import ComparisonService
 
     svc = _new_service_without_init(ComparisonService)
     svc.comparison_repo = SimpleNamespace(
@@ -232,8 +234,8 @@ async def test_live_trading_manager_missing_branches(tmp_path: Path, monkeypatch
 @pytest.mark.asyncio
 async def test_monitoring_service_missing_branches(monkeypatch):
     """Cover monitoring_service: early return, trigger path, all sleep branches, and POSITION gt threshold."""
-    from app.services.monitoring_service import MonitoringService
     from app.models.alerts import AlertType
+    from app.services.monitoring_service import MonitoringService
 
     svc = _new_service_without_init(MonitoringService)
     svc.alert_rule_repo = SimpleNamespace(get_by_id=AsyncMock())
@@ -280,8 +282,8 @@ async def test_monitoring_service_missing_branches(monkeypatch):
 @pytest.mark.asyncio
 async def test_optimization_service_missing_branches(monkeypatch):
     """Cover optimization_service: grid warning branch, objective metric branches, _wait_for_backtest loop completed path."""
+    from app.schemas.backtest_enhanced import BacktestRequest, OptimizationRequest, TaskStatus
     from app.services.optimization_service import OptimizationService
-    from app.schemas.backtest_enhanced import OptimizationRequest, BacktestRequest, TaskStatus
 
     svc = _new_service_without_init(OptimizationService)
     svc.backtest_service = SimpleNamespace(run_backtest=AsyncMock(), get_task_status=AsyncMock(), get_result=AsyncMock())
@@ -464,8 +466,8 @@ async def test_param_optimization_service_missing_branches(tmp_path: Path, monke
 @pytest.mark.asyncio
 async def test_paper_trading_service_missing_branches():
     """Cover paper_trading_service: short unrealized pnl branch, short close realized pnl branch, and get_order."""
-    from app.services.paper_trading_service import PaperTradingService
     from app.models.paper_trading import OrderSide
+    from app.services.paper_trading_service import PaperTradingService
 
     svc = _new_service_without_init(PaperTradingService)
     svc.position_repo = SimpleNamespace(update=AsyncMock(), create=AsyncMock(), list=AsyncMock(return_value=[]))
@@ -505,8 +507,8 @@ async def test_paper_trading_service_missing_branches():
 
 def test_strategy_service_to_response_paramspec_and_inference():
     """Cover strategy_service._to_response ParamSpec passthrough and type inference branches."""
-    from app.services.strategy_service import StrategyService
     from app.schemas.strategy import ParamSpec
+    from app.services.strategy_service import StrategyService
 
     svc = _new_service_without_init(StrategyService)
 
@@ -536,9 +538,9 @@ def test_strategy_service_to_response_paramspec_and_inference():
 @pytest.mark.asyncio
 async def test_strategy_version_service_missing_branches(monkeypatch):
     """Cover strategy_version_service: parent_version_id, update_dict fields, changelog set, get_current, unset default/active loops."""
-    from app.services.strategy_version_service import VersionControlService
-    from app.schemas.strategy_version import VersionUpdate
     from app.models.strategy_version import VersionStatus
+    from app.schemas.strategy_version import VersionUpdate
+    from app.services.strategy_version_service import VersionControlService
 
     svc = _new_service_without_init(VersionControlService)
     svc.strategy_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1")))
@@ -553,7 +555,7 @@ async def test_strategy_version_service_missing_branches(monkeypatch):
     last = SimpleNamespace(id="v_last")
     svc._get_latest_version = AsyncMock(return_value=last)
 
-    created = await VersionControlService.create_version(
+    await VersionControlService.create_version(
         svc,
         user_id="u1",
         strategy_id="s1",

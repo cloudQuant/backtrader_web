@@ -26,6 +26,7 @@ from app.schemas.backtest import (
     TaskStatus,
 )
 from app.services.backtest_manager import BacktestExecutionManager
+from app.services.backtest_runner import BacktestExecutionRunner
 from app.websocket_manager import MessageType
 from app.websocket_manager import manager as ws_manager
 
@@ -41,7 +42,11 @@ class BacktestService:
     3. Backtest task lifecycle management
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        task_manager: Optional[BacktestExecutionManager] = None,
+        task_runner: Optional[BacktestExecutionRunner] = None,
+    ) -> None:
         """Initialize the BacktestService.
 
         Attributes:
@@ -49,13 +54,13 @@ class BacktestService:
             result_repo: Repository for backtest result CRUD operations.
             cache: Cache instance for storing frequently accessed results.
             task_manager: BacktestExecutionManager for database-backed task state.
-            _running_processes: Dictionary tracking subprocess PIDs for cancellation.
+            task_runner: Process-local execution runner used by the current API worker.
         """
         self.task_repo = SQLRepository(BacktestTask)
         self.result_repo = SQLRepository(BacktestResultModel)
         self.cache = get_cache()
-        self.task_manager = BacktestExecutionManager()
-        self._running_processes: Dict[str, subprocess.Popen] = {}
+        self.task_manager = task_manager or BacktestExecutionManager()
+        self.task_runner = task_runner or BacktestExecutionRunner()
 
     async def run_backtest(self, user_id: str, request: BacktestRequest) -> BacktestResponse:
         """Run a backtest asynchronously.
@@ -73,8 +78,9 @@ class BacktestService:
         # Use BacktestExecutionManager for database-backed task creation
         task = await self.task_manager.create_task(user_id, request)
 
-        # Create async task for execution
-        asyncio.create_task(self._execute_backtest(str(task.id), user_id, request))
+        # Execution is still owned by the current API process. The database stores
+        # task state, while the runner keeps process-local cancellation handles.
+        self.task_runner.schedule(str(task.id), self._execute_backtest(str(task.id), user_id, request))
 
         return BacktestResponse(
             task_id=str(task.id),
@@ -383,11 +389,15 @@ class BacktestService:
             )
             # Record PID for cancellation
             if task_id:
-                self._running_processes[task_id] = proc
+                self.task_runner.register_process(task_id, proc)
             from app.config import get_settings
 
-            stdout, stderr = proc.communicate(timeout=get_settings().BACKTEST_TIMEOUT)
-            return proc.returncode, stdout, stderr
+            try:
+                stdout, stderr = proc.communicate(timeout=get_settings().BACKTEST_TIMEOUT)
+                return proc.returncode, stdout, stderr
+            finally:
+                if task_id:
+                    self.task_runner.unregister_process(task_id)
 
         returncode, stdout, stderr = await asyncio.get_event_loop().run_in_executor(None, _run)
 
@@ -463,7 +473,9 @@ class BacktestService:
     async def cancel_task(self, task_id: str, user_id: str) -> bool:
         """Cancel a running backtest task.
 
-        Uses process-level singleton and PID to terminate subprocess (B001 fix).
+        Cancellation is only supported for execution handles owned by the current
+        API process. Persistent status lives in the database, but actual process
+        termination is still process-local in the current architecture.
 
         Args:
             task_id: The unique identifier for the backtest task.
@@ -479,13 +491,13 @@ class BacktestService:
         if task.status not in (TaskStatus.PENDING, TaskStatus.RUNNING):
             return False
 
-        # Terminate subprocess
-        proc = self._running_processes.pop(task_id, None)
-        if proc and proc.poll() is None:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+        cancelled_locally = self.task_runner.cancel_local_execution(task_id)
+        if task.status == TaskStatus.RUNNING and not cancelled_locally:
+            logger.warning(
+                "Cannot cancel running backtest %s: no local execution handle in this process",
+                task_id,
+            )
+            return False
 
         # Update task status using task_manager
         await self.task_manager.update_task_status(

@@ -13,18 +13,16 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 
 @pytest.mark.asyncio
 async def test_monitoring_service_monitor_task_cancel_and_error_and_threshold_branches():
-    from app.services.monitoring_service import MonitoringService, AlertType
+    from app.services.monitoring_service import AlertType, MonitoringService
 
     svc = MonitoringService()
 
@@ -91,8 +89,8 @@ async def test_monitoring_service_monitor_task_cancel_and_error_and_threshold_br
 
 @pytest.mark.asyncio
 async def test_optimization_service_bayesian_objective_and_exception_paths(monkeypatch):
-    from app.services.optimization_service import OptimizationService
     from app.schemas.backtest_enhanced import TaskStatus
+    from app.services.optimization_service import OptimizationService
 
     svc = OptimizationService()
 
@@ -238,6 +236,7 @@ def test_param_optimization_service_run_optimization_thread_paths(tmp_path, monk
 
 def test_param_optimization_service_worker_and_log_parser_branches(tmp_path, monkeypatch):
     import subprocess
+
     import app.services.param_optimization_service as pos
 
     # Prepare a minimal "strategy" dir.
@@ -261,7 +260,7 @@ def test_param_optimization_service_worker_and_log_parser_branches(tmp_path, mon
     assert "error" in out2
 
     # Cleanup exception path.
-    monkeypatch.setattr(pos.shutil, "copytree", shutil_copytree := __import__("shutil").copytree)
+    monkeypatch.setattr(pos.shutil, "copytree", __import__("shutil").copytree)
     monkeypatch.setattr(pos.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout="", stderr=""))
     # Make rmtree raise in finally.
     monkeypatch.setattr(pos.shutil, "rmtree", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("rm boom")))
@@ -284,20 +283,13 @@ def test_param_optimization_service_worker_and_log_parser_branches(tmp_path, mon
 
 @pytest.mark.asyncio
 async def test_backtest_service_task_limits_and_cancel_cleanup_excepts(monkeypatch):
-    from app.services import backtest_service as bts
+    from app.schemas.backtest_enhanced import BacktestRequest, TaskStatus
+    from app.services.backtest_runner import BacktestExecutionRunner
     from app.services.backtest_service import BacktestService
-    from app.schemas.backtest_enhanced import BacktestRequest
 
     svc = BacktestService()
-    svc.task_repo = AsyncMock()
-    svc.result_repo = AsyncMock()
     svc.cache = AsyncMock()
-
-    # Ensure global limit branch is hit.
-    bts._running_tasks.clear()
-    bts._user_task_count.clear()
-    for i in range(bts.MAX_GLOBAL_TASKS):
-        bts._running_tasks[f"t{i}"] = Mock()
+    svc.task_manager = AsyncMock()
 
     req = BacktestRequest(
         strategy_id="001_ma_cross",
@@ -308,30 +300,28 @@ async def test_backtest_service_task_limits_and_cancel_cleanup_excepts(monkeypat
         commission=0.001,
         params={},
     )
-    svc.task_repo.create = AsyncMock(return_value=SimpleNamespace(id="tid", user_id="u1"))
-    with pytest.raises(ValueError, match="System backtest tasks are full"):
+    svc.task_manager.create_task = AsyncMock(side_effect=ValueError("limit reached"))
+    with pytest.raises(ValueError, match="limit reached"):
         await svc.run_backtest("u1", req)
 
-    # User limit branch.
-    bts._running_tasks.clear()
-    bts._user_task_count["u1"] = bts.MAX_USER_TASKS
-    with pytest.raises(ValueError, match="Your concurrent backtest tasks have reached the limit"):
-        await svc.run_backtest("u1", req)
-
-    # cancel_task kill exception is swallowed.
+    # cancel_task kill exception is swallowed and still updates state when a local
+    # handle exists.
     proc = Mock()
     proc.poll = Mock(return_value=None)
     proc.kill = Mock(side_effect=RuntimeError("kill boom"))
-    bts._running_processes["t1"] = proc
-    svc.task_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="t1", user_id="u1", status=bts.TaskStatus.RUNNING))
-    svc.task_repo.update = AsyncMock()
+    runner = BacktestExecutionRunner()
+    runner.register_process("t1", proc)
+    svc.task_runner = runner
+    svc.task_repo.get_by_id = AsyncMock(
+        return_value=SimpleNamespace(id="t1", user_id="u1", status=TaskStatus.RUNNING)
+    )
+    svc.task_manager.update_task_status = AsyncMock()
     assert await svc.cancel_task("t1", "u1") is True
 
     # delete_result rmtree exception is swallowed.
     bad_task = SimpleNamespace(id="t2", user_id="u1", log_dir="/tmp/does-not-matter")
     svc.task_repo.get_by_id = AsyncMock(return_value=bad_task)
-    svc.result_repo.list = AsyncMock(return_value=[])
-    svc.task_repo.delete = AsyncMock()
+    svc.task_manager.delete_task_and_result = AsyncMock(return_value=True)
     svc.cache.delete = AsyncMock()
 
     with patch("app.services.backtest_service.Path.is_dir", return_value=True), \
@@ -341,8 +331,8 @@ async def test_backtest_service_task_limits_and_cancel_cleanup_excepts(monkeypat
 
 @pytest.mark.asyncio
 async def test_strategy_version_service_create_version_and_update_version_branches():
-    from app.services.strategy_version_service import VersionControlService
     from app.models.strategy_version import VersionStatus
+    from app.services.strategy_version_service import VersionControlService
 
     svc = VersionControlService()
 
