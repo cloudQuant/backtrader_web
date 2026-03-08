@@ -6,6 +6,13 @@
 
 为了支持跨多个 repository 的事务操作，项目引入了 session provider 和新的 repository 模式。
 
+当前已经实际接入的链路包括：
+
+1. refresh token 轮换
+2. 修改密码后的 refresh token 全量撤销
+
+这些链路现在在同一 unit-of-work 中完成，避免出现“旧 token 已撤销但新 token 未写入”或“密码已更新但 token 未全部失效”的半成功状态。
+
 ### 优势
 
 1. **事务一致性**：多个 repository 操作可以在同一个事务中执行

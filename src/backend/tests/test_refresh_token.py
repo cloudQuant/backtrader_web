@@ -1,14 +1,16 @@
 """
 Tests for refresh token functionality.
 """
-import pytest
 from datetime import datetime, timedelta, timezone
 
-from app.models.user import RefreshToken, User
-from app.schemas.auth import RefreshTokenRequest, UserLogin, UserCreate
-from app.services.auth_service import AuthService
-from app.utils.security import get_password_hash
+import pytest
+from sqlalchemy import select
+
 from app.db.database import async_session_maker
+from app.models.user import RefreshToken, User
+from app.schemas.auth import RefreshTokenRequest, UserLogin
+from app.services.auth_service import AuthService
+from app.utils.security import decode_refresh_token, get_password_hash, verify_password
 
 
 @pytest.mark.asyncio
@@ -61,7 +63,6 @@ class TestRefreshTokenService:
 
         # Verify refresh token was created
         async with async_session_maker() as session:
-            from sqlalchemy import select
             result = await session.execute(
                 select(RefreshToken).where(RefreshToken.user_id == user.id)
             )
@@ -111,15 +112,53 @@ class TestRefreshTokenService:
 
         # Verify old token is revoked
         async with async_session_maker() as session:
-            from sqlalchemy import select
             result = await session.execute(
                 select(RefreshToken).where(
                     RefreshToken.user_id == user.id,
-                    RefreshToken.is_revoked == True
+                    RefreshToken.is_revoked.is_(True),
                 )
             )
             revoked_tokens = result.scalars().all()
         assert len(revoked_tokens) == 1
+
+    async def test_refresh_rotation_rolls_back_when_new_token_issue_fails(
+        self,
+        setup_db,
+        monkeypatch,
+    ):
+        """Test that old refresh token is not revoked if rotation fails mid-transaction."""
+        service = AuthService()
+
+        async with async_session_maker() as session:
+            user = User(
+                username="rotation_rollback_user",
+                email="rotation_rollback@example.com",
+                hashed_password=get_password_hash("Test@123"),
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+
+        login_data = UserLogin(username="rotation_rollback_user", password="Test@123")
+        initial_tokens = await service.login_with_refresh(login_data)
+        payload = decode_refresh_token(initial_tokens.refresh_token)
+
+        async def fail_issue_refresh_token(session, user):
+            del session, user
+            raise RuntimeError("simulated issue failure")
+
+        monkeypatch.setattr(service, "_issue_refresh_token", fail_issue_refresh_token)
+
+        with pytest.raises(RuntimeError, match="simulated issue failure"):
+            await service.refresh_tokens(
+                RefreshTokenRequest(refresh_token=initial_tokens.refresh_token)
+            )
+
+        async with async_session_maker() as session:
+            token = await session.get(RefreshToken, payload["jti"])
+
+        assert token is not None
+        assert token.is_revoked is False
 
     async def test_refresh_invalid_token_returns_none(self, setup_db):
         """Test that an invalid refresh token returns None."""
@@ -150,7 +189,6 @@ class TestRefreshTokenService:
         first_result = await service.login_with_refresh(login_data)
 
         # Revoke the token
-        from app.utils.security import decode_refresh_token
         payload = decode_refresh_token(first_result.refresh_token)
         await service.revoke_refresh_token(payload["jti"])
 
@@ -185,8 +223,6 @@ class TestRefreshTokenService:
 
         # Verify token is revoked
         async with async_session_maker() as session:
-            from sqlalchemy import select
-            from app.utils.security import decode_refresh_token
             payload = decode_refresh_token(result.refresh_token)
             db_result = await session.execute(
                 select(RefreshToken).where(RefreshToken.id == payload["jti"])
@@ -218,11 +254,10 @@ class TestRefreshTokenService:
 
         # Verify 2 tokens exist
         async with async_session_maker() as session:
-            from sqlalchemy import select
             result = await session.execute(
                 select(RefreshToken).where(
                     RefreshToken.user_id == user.id,
-                    RefreshToken.is_revoked == False
+                    RefreshToken.is_revoked.is_(False),
                 )
             )
             active_tokens = result.scalars().all()
@@ -237,11 +272,56 @@ class TestRefreshTokenService:
             result = await session.execute(
                 select(RefreshToken).where(
                     RefreshToken.user_id == user.id,
-                    RefreshToken.is_revoked == False
+                    RefreshToken.is_revoked.is_(False),
                 )
             )
             active_tokens = result.scalars().all()
         assert len(active_tokens) == 0
+
+    async def test_change_password_rolls_back_if_token_revocation_fails(
+        self,
+        setup_db,
+        monkeypatch,
+    ):
+        """Test that password update is rolled back when token revocation fails."""
+        service = AuthService()
+
+        async with async_session_maker() as session:
+            user = User(
+                username="password_rollback_user",
+                email="password_rollback@example.com",
+                hashed_password=get_password_hash("Test@123"),
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+
+        login_data = UserLogin(username="password_rollback_user", password="Test@123")
+        await service.login_with_refresh(login_data)
+        await service.login_with_refresh(login_data)
+
+        async def fail_revoke_all_tokens(session, user_id):
+            del session, user_id
+            raise RuntimeError("simulated revoke failure")
+
+        monkeypatch.setattr(service, "_revoke_all_user_tokens_in_session", fail_revoke_all_tokens)
+
+        with pytest.raises(RuntimeError, match="simulated revoke failure"):
+            await service.change_password(user.id, "Test@123", "NewTest@456")
+
+        async with async_session_maker() as session:
+            refreshed_user = await session.get(User, user.id)
+            result = await session.execute(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == user.id,
+                    RefreshToken.is_revoked.is_(False),
+                )
+            )
+            active_tokens = result.scalars().all()
+
+        assert refreshed_user is not None
+        assert verify_password("Test@123", refreshed_user.hashed_password)
+        assert len(active_tokens) == 2
 
     async def test_refresh_token_for_inactive_user_fails(self, setup_db):
         """Test that refresh token fails for inactive users."""
@@ -290,8 +370,6 @@ class TestRefreshTokenSecurity:
 
         # Get the token from DB
         async with async_session_maker() as session:
-            from sqlalchemy import select
-            from app.utils.security import decode_refresh_token
             payload = decode_refresh_token(result.refresh_token)
             db_result = await session.execute(
                 select(RefreshToken).where(RefreshToken.id == payload["jti"])
@@ -327,8 +405,6 @@ class TestRefreshTokenSecurity:
 
         # Get the token from DB
         async with async_session_maker() as session:
-            from sqlalchemy import select
-            from app.utils.security import decode_refresh_token
             payload = decode_refresh_token(result.refresh_token)
             db_result = await session.execute(
                 select(RefreshToken).where(RefreshToken.id == payload["jti"])
@@ -358,11 +434,9 @@ class TestRefreshTokenSecurity:
         result = await service.login_with_refresh(login_data)
 
         # Manually expire the token
-        from app.utils.security import decode_refresh_token
         payload = decode_refresh_token(result.refresh_token)
 
         async with async_session_maker() as session:
-            from sqlalchemy import select
             db_result = await session.execute(
                 select(RefreshToken).where(RefreshToken.id == payload["jti"])
             )

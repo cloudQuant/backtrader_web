@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
 import TradeSignalChart from '@/components/charts/TradeSignalChart.vue'
 import { elStubs } from '@/test/stubs'
 
@@ -89,9 +88,24 @@ describe('TradeSignalChart', () => {
     }
   })
 
-  it('handleExport does nothing without chart instance', () => {
+  it('handleExport triggers chart download without navigation warnings', () => {
+    const originalCreateElement = document.createElement.bind(document)
+    const anchorClick = vi.fn()
+    const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tagName: string) => {
+      const element = originalCreateElement(tagName)
+      if (tagName === 'a') {
+        Object.defineProperty(element, 'click', {
+          value: anchorClick,
+        })
+      }
+      return element
+    })
+
     const vm = doMount().vm as any
-    vm.handleExport() // should not throw
+    vm.handleExport()
+
+    expect(anchorClick).toHaveBeenCalledTimes(1)
+    createElementSpy.mockRestore()
   })
 
   it('renderChart does nothing with no klines', () => {

@@ -3,6 +3,8 @@ import { mount } from '@vue/test-utils'
 import KlineChart from '@/components/charts/KlineChart.vue'
 import { elStubs } from '@/test/stubs'
 
+const emptyData = { dates: [], ohlc: [], volumes: [] }
+
 describe('KlineChart', () => {
   it('mounts with data prop', () => {
     const wrapper = mount(KlineChart, {
@@ -12,8 +14,11 @@ describe('KlineChart', () => {
     expect(wrapper.exists()).toBe(true)
   })
 
-  it('mounts without data', () => {
-    const wrapper = mount(KlineChart, { global: { stubs: elStubs } })
+  it('mounts with empty data', () => {
+    const wrapper = mount(KlineChart, {
+      props: { data: emptyData } as any,
+      global: { stubs: elStubs },
+    })
     expect(wrapper.exists()).toBe(true)
   })
 })

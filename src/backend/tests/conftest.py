@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 # Ensure test environment configuration (before any app imports)
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 os.environ.setdefault("SQL_ECHO", "false")
+os.environ.setdefault("ADMIN_PASSWORD", "TestAdmin@12345")
 
 importlib.import_module("app.models")
 db_module = importlib.import_module("app.db.database")
@@ -52,6 +53,11 @@ app = importlib.import_module("app.main").app
 
 
 # ==================== Database Fixtures ====================
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    """Ensure pytest-asyncio sees an explicit loop-scope default."""
+    config.inicfg["asyncio_default_fixture_loop_scope"] = "function"
 
 @pytest.fixture(autouse=True)
 async def setup_db():
