@@ -12,7 +12,7 @@ export abstract class BasePage {
 
   constructor(page: Page) {
     this.page = page;
-    this.baseURL = process.env.BASE_URL || 'http://localhost:5173';
+    this.baseURL = process.env.BASE_URL || 'http://localhost:3000';
   }
 
   /**

@@ -2,6 +2,7 @@
 Tests for environment variable validation.
 """
 import os
+
 import pytest
 from pydantic import ValidationError
 
@@ -116,7 +117,7 @@ class TestSettingsValidation:
         # Valid origins
         valid_origins = [
             "http://localhost:3000",
-            "http://localhost:5173,https://example.com",
+            "http://localhost:3000,https://example.com",
             "*",  # Wildcard
         ]
         for origins in valid_origins:
@@ -238,7 +239,7 @@ class TestSettingsIntegration:
             DATABASE_TYPE="sqlite",
             HOST="localhost",
             PORT=8000,
-            CORS_ORIGINS="http://localhost:5173"
+            CORS_ORIGINS="http://localhost:3000"
         )
         assert settings.DEBUG is True
         assert settings.DATABASE_TYPE == "sqlite"

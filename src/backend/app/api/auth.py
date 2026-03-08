@@ -1,9 +1,12 @@
 """
 Authentication API routes.
 """
+from functools import lru_cache
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.api.deps import get_current_user
+from app.rate_limit import limiter
 from app.schemas.auth import (
     ChangePassword,
     RefreshTokenRequest,
@@ -20,11 +23,13 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
+@lru_cache
 def get_auth_service():
     return AuthService()
 
 
 @router.post("/register", response_model=UserResponse, summary="User registration")
+@limiter.limit("5/hour")
 async def register(
     user_create: UserCreate,
     request: Request,
@@ -56,6 +61,7 @@ async def register(
 
 
 @router.post("/login", response_model=Token, summary="User login")
+@limiter.limit("10/minute")
 async def login(
     user_login: UserLogin,
     request: Request,
@@ -97,6 +103,7 @@ async def login(
     response_model=RefreshTokenResponse,
     summary="User login with refresh token"
 )
+@limiter.limit("10/minute")
 async def login_with_refresh(
     user_login: UserLogin,
     request: Request,
@@ -142,6 +149,7 @@ async def login_with_refresh(
     response_model=RefreshTokenResponse,
     summary="Refresh access token"
 )
+@limiter.limit("30/minute")
 async def refresh_tokens(
     request: Request,
     request_data: RefreshTokenRequest,
@@ -178,6 +186,7 @@ async def refresh_tokens(
 
 
 @router.post("/logout", summary="Logout user")
+@limiter.limit("30/minute")
 async def logout(
     request: Request,
     request_data: RefreshTokenRequest,
@@ -204,6 +213,7 @@ async def logout(
 
 
 @router.put("/change-password", summary="Change password")
+@limiter.limit("5/minute")
 async def change_password(
     req: ChangePassword,
     request: Request,
@@ -239,6 +249,7 @@ async def change_password(
 
 
 @router.get("/me", response_model=UserResponse, summary="Get current user info")
+@limiter.limit("60/minute")
 async def get_me(
     request: Request,
     current_user=Depends(get_current_user),

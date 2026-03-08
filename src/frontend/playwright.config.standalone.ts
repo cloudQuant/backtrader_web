@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const DEV_SERVER_URL = process.env.BASE_URL || 'http://localhost:3000';
+
 /**
  * Playwright E2E 测试配置 - 独立模式
  *
@@ -22,7 +24,7 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:5173',
+    baseURL: DEV_SERVER_URL,
     ignoreHTTPSErrors: true,
     viewport: { width: 1280, height: 720 },
     actionTimeout: 10 * 1000,

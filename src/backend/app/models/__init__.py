@@ -1,6 +1,43 @@
-"""ORM models."""
-from app.models.backtest import BacktestResultModel, BacktestTask
-from app.models.strategy import Strategy
-from app.models.user import User
+"""ORM models.
 
-__all__ = ["BacktestResultModel", "BacktestTask", "Strategy", "User"]
+Importing this package registers all ORM models with ``Base.metadata`` so
+schema creation helpers and tests can safely call ``create_all()``.
+"""
+
+from app.models.alerts import Alert, AlertNotification, AlertRule
+from app.models.backtest import BacktestResultModel, BacktestTask
+from app.models.comparison import Comparison, ComparisonShare
+from app.models.paper_trading import Account, Order, PaperTrade, Position
+from app.models.permission import Permission, Role, user_roles
+from app.models.strategy import Strategy
+from app.models.strategy_version import (
+    StrategyVersion,
+    VersionBranch,
+    VersionComparison,
+    VersionRollback,
+)
+from app.models.user import RefreshToken, User
+
+__all__ = [
+    "Account",
+    "Alert",
+    "AlertNotification",
+    "AlertRule",
+    "BacktestResultModel",
+    "BacktestTask",
+    "Comparison",
+    "ComparisonShare",
+    "Order",
+    "PaperTrade",
+    "Permission",
+    "Position",
+    "RefreshToken",
+    "Role",
+    "Strategy",
+    "StrategyVersion",
+    "User",
+    "VersionBranch",
+    "VersionComparison",
+    "VersionRollback",
+    "user_roles",
+]

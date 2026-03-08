@@ -5,6 +5,7 @@ Provides shared fixtures and configuration for all tests.
 Uses httpx.AsyncClient + ASGITransport for direct FastAPI app testing.
 Each test uses an independent in-memory SQLite database (shared connection via StaticPool).
 """
+import importlib
 import os
 import uuid
 from typing import AsyncGenerator
@@ -12,15 +13,17 @@ from typing import AsyncGenerator
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 # Ensure test environment configuration (before any app imports)
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 os.environ.setdefault("SQL_ECHO", "false")
 
-from app.db import database as db_module  # noqa: E402
-from app.db.database import Base  # noqa: E402
+importlib.import_module("app.models")
+db_module = importlib.import_module("app.db.database")
+Base = db_module.Base
+limiter = importlib.import_module("app.rate_limit").limiter
 
 # Override database engine and session factory: use StaticPool to share one connection for in-memory SQLite during tests
 _test_engine = create_async_engine(
@@ -37,11 +40,15 @@ _test_session_maker = async_sessionmaker(
 db_module.engine = _test_engine
 db_module.async_session_maker = _test_session_maker
 
-# Also patch all modules that have already imported async_session_maker
-from app.db import sql_repository as _sql_repo_module  # noqa: E402
-_sql_repo_module.async_session_maker = _test_session_maker
+# Also patch modules that imported async_session_maker by value before the test override.
+for module_name in [
+    "app.db.session_provider",
+    "app.db.sql_repository",
+    "app.services.backtest_manager",
+]:
+    importlib.import_module(module_name).async_session_maker = _test_session_maker
 
-from app.main import app  # noqa: E402
+app = importlib.import_module("app.main").app
 
 
 # ==================== Database Fixtures ====================
@@ -49,11 +56,13 @@ from app.main import app  # noqa: E402
 @pytest.fixture(autouse=True)
 async def setup_db():
     """Rebuild all tables before each test, cleanup after."""
+    limiter.reset()
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+    limiter.reset()
 
 
 # ==================== HTTP Client Fixture ====================

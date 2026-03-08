@@ -51,6 +51,14 @@ htmlcov/
 .pytest_cache/
 coverage.xml
 nosetests.xml
+coverage/
+coverage.json
+src/backend/coverage/
+src/backend/coverage.json
+src/frontend/coverage/
+src/frontend/e2e-results/
+src/frontend/playwright-report/
+src/frontend/test-results/
 
 # =====================================================
 # 项目运行时文件

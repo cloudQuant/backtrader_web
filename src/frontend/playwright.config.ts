@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const DEV_SERVER_URL = process.env.BASE_URL || 'http://localhost:3000';
+
 /**
  * Playwright E2E 测试配置
  *
@@ -39,7 +41,7 @@ export default defineConfig({
   // 共享配置
   use: {
     // 基础 URL
-    baseURL: process.env.BASE_URL || 'http://localhost:5173',
+    baseURL: DEV_SERVER_URL,
 
     // 追踪配置（仅在失败时记录）
     trace: 'retain-on-failure',
@@ -87,12 +89,12 @@ export default defineConfig({
   ],
 
   // 开发服务器配置
-  // 注意: 需要手动启动前端服务: npm run dev (端口 5173)
+  // 注意: 需要手动启动前端服务: npm run dev (端口 3000)
   // 设置 reuseExistingServer: true 假设服务器已在运行
   // 当 BASE_URL 环境变量设置时，禁用自动启动服务器
   webServer: process.env.BASE_URL ? undefined : {
     command: 'npm run dev',
-    url: 'http://localhost:5173',
+    url: DEV_SERVER_URL,
     reuseExistingServer: true,  // 只使用已存在的服务器
     timeout: 5000,  // 快速失败
   },

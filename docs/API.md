@@ -2,7 +2,7 @@
 
 The backend is a FastAPI service. The interactive OpenAPI docs are available at:
 
-- `http://localhost:8001/docs` (开发环境)
+- `http://localhost:8000/docs` (开发环境)
 
 All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 转发至后端。
 
@@ -213,7 +213,7 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 ### 登录获取 Token
 
 ```bash
-curl -X POST http://localhost:8001/api/v1/auth/login \
+curl -X POST http://localhost:8000/api/v1/auth/login \
   -d "username=testuser&password=Test123456"
 ```
 
@@ -227,7 +227,7 @@ curl -X POST http://localhost:8001/api/v1/auth/login \
 ### 获取策略模板列表
 
 ```bash
-curl http://localhost:8001/api/v1/strategy/templates \
+curl http://localhost:8000/api/v1/strategy/templates \
   -H "Authorization: Bearer <token>"
 ```
 
@@ -245,7 +245,7 @@ curl http://localhost:8001/api/v1/strategy/templates \
 ### 提交回测任务
 
 ```bash
-curl -X POST http://localhost:8001/api/v1/backtest/run \
+curl -X POST http://localhost:8000/api/v1/backtest/run \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -270,7 +270,7 @@ curl -X POST http://localhost:8001/api/v1/backtest/run \
 ### 提交参数优化任务
 
 ```bash
-curl -X POST http://localhost:8001/api/v1/optimization/submit \
+curl -X POST http://localhost:8000/api/v1/optimization/submit \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -296,7 +296,7 @@ curl -X POST http://localhost:8001/api/v1/optimization/submit \
 ### 添加实盘实例
 
 ```bash
-curl -X POST http://localhost:8001/api/v1/live-trading/ \
+curl -X POST http://localhost:8000/api/v1/live-trading/ \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{

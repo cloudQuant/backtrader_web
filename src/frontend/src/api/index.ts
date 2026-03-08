@@ -2,6 +2,12 @@ import axios from 'axios'
 import type { AxiosInstance, AxiosError } from 'axios'
 import { ElMessage } from 'element-plus'
 
+import {
+  clearAccessToken,
+  dispatchAuthExpired,
+  getAccessToken,
+} from '@/utils/session'
+
 // 创建axios实例
 const api: AxiosInstance = axios.create({
   baseURL: '/api/v1',
@@ -14,7 +20,7 @@ const api: AxiosInstance = axios.create({
 // 请求拦截器
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token')
+    const token = getAccessToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
     }
@@ -35,8 +41,8 @@ api.interceptors.response.use(
     const data = error.response?.data as { detail?: string }
     
     if (status === 401) {
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+      clearAccessToken()
+      dispatchAuthExpired()
       ElMessage.error('登录已过期，请重新登录')
     } else if (status === 403) {
       ElMessage.error('没有权限访问')

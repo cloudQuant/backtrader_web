@@ -1,11 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { describe, it, expect, vi } from 'vitest'
 import RegisterPage from '@/views/RegisterPage.vue'
-
-vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}))
+import { mountWithPlugins } from '../mountWithPlugins'
 
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
@@ -13,27 +8,16 @@ vi.mock('@/stores/auth', () => ({
   }),
 }))
 
-const stubs = {
-  'router-link': { template: '<a><slot /></a>' },
-  'el-card': { template: '<div><slot /><slot name="header" /></div>' },
-  'el-form': { template: '<form><slot /></form>' },
-  'el-form-item': { template: '<div><slot /></div>' },
-  'el-input': { template: '<input />' },
-  'el-button': { template: '<button><slot /></button>' },
-}
-
 describe('RegisterPage', () => {
-  beforeEach(() => { setActivePinia(createPinia()) })
-
   it('renders register form', () => {
-    const wrapper = mount(RegisterPage, { global: { stubs } })
+    const wrapper = mountWithPlugins(RegisterPage)
     expect(wrapper.text()).toContain('注册账号')
     expect(wrapper.text()).toContain('注册')
     expect(wrapper.text()).toContain('立即登录')
   })
 
   it('has reactive form with 4 fields', () => {
-    const wrapper = mount(RegisterPage, { global: { stubs } })
+    const wrapper = mountWithPlugins(RegisterPage)
     const vm = wrapper.vm as any
     expect(vm.form.username).toBe('')
     expect(vm.form.email).toBe('')
@@ -42,7 +26,7 @@ describe('RegisterPage', () => {
   })
 
   it('validateConfirmPassword rejects mismatch', () => {
-    const wrapper = mount(RegisterPage, { global: { stubs } })
+    const wrapper = mountWithPlugins(RegisterPage)
     const vm = wrapper.vm as any
     vm.form.password = 'abc123'
     const cb = vi.fn()
@@ -51,7 +35,7 @@ describe('RegisterPage', () => {
   })
 
   it('validateConfirmPassword accepts match', () => {
-    const wrapper = mount(RegisterPage, { global: { stubs } })
+    const wrapper = mountWithPlugins(RegisterPage)
     const vm = wrapper.vm as any
     vm.form.password = 'abc123'
     const cb = vi.fn()

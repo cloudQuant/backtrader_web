@@ -196,14 +196,14 @@ python tests/test_backtest_e2e.py --headless  # 无头模式
 ### 3.4 E2E 前置条件
 
 运行 E2E 测试前需要：
-1. 后端运行在 `http://localhost:8001`
+1. 后端运行在 `http://localhost:8000`
 2. 前端运行在 `http://localhost:3000`
 3. 数据库已初始化
 4. admin 用户已创建（默认密码 admin123）
 
 ```bash
 # 启动后端
-cd src/backend && uvicorn app.main:app --reload --port 8001
+cd src/backend && uvicorn app.main:app --reload --port 8000
 
 # 启动前端
 cd src/frontend && npm run dev

@@ -14,6 +14,9 @@ Backtrader Web 是一个基于 Backtrader 的现代化**量化交易管理平台
 - [快速上手](QUICKSTART.md) - 5分钟完成首次回测
 - [API 文档](API.md) - RESTful API 接口说明
 
+### 环境校验与排查
+- **[Backtrader 导入问题排查](BACKTRADER_IMPORT_TROUBLESHOOTING.md)** - 详细的 backtrader 模块导入问题排查步骤
+
 ### 开发指南
 - [开发指南](DEVELOPMENT.md) - 本地开发环境配置
 - [代码规范](CODING_STANDARDS.md) - 代码风格和最佳实践
@@ -31,6 +34,8 @@ Backtrader Web 是一个基于 Backtrader 的现代化**量化交易管理平台
 ### 架构文档
 - [系统架构](ARCHITECTURE.md) - 整体架构设计
 - [数据库设计](DATABASE.md) - 数据模型和关系
+- [数据库初始化指南](DATABASE_INIT.md) - 数据库设置和初始化（重要：不再自动在启动时执行）
+- [Request-Scoped Session 指南](REQUEST_SCOPED_SESSION.md) - 事务管理模式和最佳实践
 - [安全指南](SECURITY.md) - 安全最佳实践
 
 ### 功能文档
@@ -50,7 +55,11 @@ Backtrader Web 是一个基于 Backtrader 的现代化**量化交易管理平台
 - [敏捷开发](AGILE_DEVELOPMENT.md) - 敏捷流程说明
 - [更新日志](CHANGELOG.md) - 版本更新记录
 - [安全增强记录](SECURITY_ENHANCEMENTS.md) - 安全改进历史
-- [迭代历史](iterations/README.md) - 迭代 45–114 开发记录
+- [迭代历史](iterations/README.md) - 迭代 45–118 开发记录
+- [迭代115：工程基线治理与质量收敛计划](iterations/迭代115-工程基线治理与质量收敛计划.md) - 面向初级工程师的短周期改进迭代计划
+- [迭代116：开发环境校验与可复现治理](iterations/迭代116-开发环境校验与可复现治理.md) - 开发环境自检与安装入口统一
+- [迭代117：运行时稳定性与交付一致性提升计划](iterations/迭代117-运行时稳定性与交付一致性提升计划.md) - 面向中级工程师的后端稳定性与交付治理计划
+- [迭代118：验收缺陷修复与交付闸门加固计划](iterations/迭代118-验收缺陷修复与交付闸门加固计划.md) - 面向当前阻断问题和质量闸门缺口的收口计划
 
 ## 项目概述
 

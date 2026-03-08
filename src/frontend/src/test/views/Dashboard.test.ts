@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import Dashboard from '@/views/Dashboard.vue'
+import Dashboard from '@/views/DashboardPage.vue'
 import { elStubs } from '@/test/stubs'
 
 vi.mock('@element-plus/icons-vue', () => ({

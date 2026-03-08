@@ -196,8 +196,10 @@ describe('AppLayout', () => {
     it('应该包含所有菜单项', async () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      const menuItems = wrapper.findAll('.el-menu-item')
-      expect(menuItems.length).toBeGreaterThan(0)
+      expect(wrapper.text()).toContain('首页')
+      expect(wrapper.text()).toContain('回测分析')
+      expect(wrapper.text()).toContain('参数优化')
+      expect(wrapper.text()).toContain('策略管理')
     })
 
     it('应该包含首页菜单项', async () => {

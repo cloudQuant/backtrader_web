@@ -102,6 +102,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 path=request.url.path,
                 status_code=response.status_code,
                 duration_ms=round(duration * 1000, 2),
+                user_id=getattr(request.state, "user_id", None),
             )
 
             # Add request ID to response headers
@@ -118,6 +119,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 method=request.method,
                 path=request.url.path,
                 duration_ms=round(duration * 1000, 2),
+                user_id=getattr(request.state, "user_id", None),
                 error_type=type(e).__name__,
                 error_message=str(e),
                 exc_info=True,

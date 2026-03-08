@@ -96,7 +96,7 @@ python -m playwright install chromium
 curl http://localhost:8000/docs
 
 # 检查 CORS 配置
-export CORS_ORIGINS="http://localhost:3000,http://localhost:5173"
+export CORS_ORIGINS="http://localhost:3000"
 ```
 
 ## 3. 登录问题
@@ -104,7 +104,7 @@ export CORS_ORIGINS="http://localhost:3000,http://localhost:5173"
 ### 3.1 无法登录
 
 **检查项**:
-1. 默认管理员账号: `admin` / `admin123`
+1. 默认管理员账号: `admin` / `admin123` （仅开发环境默认值，不可作为生产环境配置建议）
 2. 确认后端正在运行
 3. 检查浏览器控制台错误
 

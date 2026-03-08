@@ -3,6 +3,8 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
+import { AUTH_EXPIRED_EVENT } from '@/utils/session'
+
 // Mock localStorage
 const localStorageMock = (() => {
   let store: Record<string, string> = {}
@@ -14,14 +16,6 @@ const localStorageMock = (() => {
   }
 })()
 Object.defineProperty(global, 'localStorage', { value: localStorageMock })
-
-// Mock window.location
-Object.defineProperty(window, 'location', {
-  value: {
-    href: '',
-  },
-  writable: true,
-})
 
 // Mock Element Plus
 vi.mock('element-plus', () => ({
@@ -129,8 +123,11 @@ describe('API module', () => {
       const { ElMessage } = await import('element-plus')
       const api = (await import('@/api/index')).default
       const handler = (api.interceptors.response as any).handlers[0]
+      const dispatchSpy = vi.spyOn(window, 'dispatchEvent')
       const error = { response: { status: 401, data: {} } }
       await expect(handler.rejected(error)).rejects.toBe(error)
+      expect(localStorageMock.removeItem).toHaveBeenCalledWith('token')
+      expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: AUTH_EXPIRED_EVENT }))
       expect(ElMessage.error).toHaveBeenCalledWith('登录已过期，请重新登录')
     })
 

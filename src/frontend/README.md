@@ -60,7 +60,7 @@ frontend/
 │   │   └── common/       # 通用组件
 │   │       └── AppLayout.vue
 │   ├── views/            # 页面
-│   │   ├── Dashboard.vue
+│   │   ├── DashboardPage.vue
 │   │   ├── BacktestPage.vue
 │   │   ├── StrategyPage.vue
 │   │   ├── DataPage.vue

@@ -45,24 +45,34 @@ Backtrader Web 是一个为量化交易开发者打造的**全功能量化交易
 git clone https://gitee.com/xxx/backtrader_web.git
 cd backtrader_web
 
+# 步骤 1：安装前环境检查
+./scripts/verify-dev-env.sh --preinstall
+# 该脚本会检查 Node.js、Python 版本等系统级前置条件
+# 如果检查失败，请先修复环境问题
+
+# 步骤 2：安装项目依赖
 # 后端
 cd src/backend
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -e ".[dev,backtrader]"
 cp .env.example .env
-uvicorn app.main:app --reload --port 8001
 
-# 前端 (新终端)
+# 安装后环境检查（可选，但推荐）
+# 返回项目根目录再次运行校验，确认依赖安装正确
+cd ../..
+./scripts/verify-dev-env.sh --postinstall
+# 该脚本会检查 backtrader、FastAPI 等依赖是否可用
+
+# 前端（新终端）
 cd src/frontend
-npm install
-npm run dev
+npm ci
 ```
 
 ### 访问
 
 - 前端: http://localhost:3000
-- 后端 API 文档: http://localhost:8001/docs
+- 后端 API 文档: http://localhost:8000/docs
 
 ## 项目结构
 

@@ -2,7 +2,25 @@
  * Vitest 测试设置文件
  * 在所有测试运行前执行
  */
+import { config } from '@vue/test-utils'
 import { vi } from 'vitest'
+
+import { elStubs } from './stubs'
+
+config.global.stubs = {
+  ...(config.global.stubs || {}),
+  ...elStubs,
+}
+
+// Mock v-loading directive
+config.global.directives = {
+  ...(config.global.directives || {}),
+  loading: {
+    mounted: vi.fn(),
+    updated: vi.fn(),
+    unmounted: vi.fn(),
+  },
+}
 
 // Mock echarts
 vi.mock('echarts', () => {

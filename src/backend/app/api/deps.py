@@ -3,7 +3,7 @@ API dependencies.
 """
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.schemas.auth import TokenPayload
@@ -13,6 +13,7 @@ security = HTTPBearer()
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> TokenPayload:
     """Return the current authenticated user.
@@ -36,10 +37,13 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return TokenPayload(**payload)
+    current_user = TokenPayload(**payload)
+    request.state.user_id = current_user.sub
+    return current_user
 
 
 async def get_current_user_optional(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(
         HTTPBearer(auto_error=False)
     )
@@ -61,4 +65,6 @@ async def get_current_user_optional(
     if payload is None:
         return None
 
-    return TokenPayload(**payload)
+    current_user = TokenPayload(**payload)
+    request.state.user_id = current_user.sub
+    return current_user

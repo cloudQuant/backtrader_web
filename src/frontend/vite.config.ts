@@ -3,6 +3,9 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
+const FRONTEND_DEV_PORT = 3000
+const BACKEND_PROXY_TARGET = process.env.VITE_API_TARGET || 'http://localhost:8000'
+
 export default defineConfig({
   plugins: [vue()],
   test: {
@@ -28,14 +31,15 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: FRONTEND_DEV_PORT,
+    strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8001',
+        target: BACKEND_PROXY_TARGET,
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8001',
+        target: BACKEND_PROXY_TARGET.replace('http', 'ws'),
         ws: true,
       },
     },

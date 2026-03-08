@@ -9,7 +9,7 @@ vi.mock('@/stores/auth', () => ({
 // Mock all lazy-loaded views so import() calls resolve
 vi.mock('@/views/LoginPage.vue', () => ({ default: { template: '<div>Login</div>' } }))
 vi.mock('@/views/RegisterPage.vue', () => ({ default: { template: '<div>Register</div>' } }))
-vi.mock('@/views/Dashboard.vue', () => ({ default: { template: '<div>Dashboard</div>' } }))
+vi.mock('@/views/DashboardPage.vue', () => ({ default: { template: '<div>Dashboard</div>' } }))
 vi.mock('@/views/BacktestPage.vue', () => ({ default: { template: '<div>Backtest</div>' } }))
 vi.mock('@/views/BacktestResultPage.vue', () => ({ default: { template: '<div>Result</div>' } }))
 vi.mock('@/views/OptimizationPage.vue', () => ({ default: { template: '<div>Optimization</div>' } }))
