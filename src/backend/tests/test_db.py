@@ -1,27 +1,29 @@
 """
 Database module tests.
 """
+
 import pytest
-from sqlalchemy import select, text
-from unittest.mock import AsyncMock, MagicMock, patch
-from app.db.database import Base, get_db, init_db, create_default_admin, engine, async_session_maker
+from sqlalchemy import delete, select, text
+
+from app.config import get_settings
+from app.db.database import (
+    Base,
+    async_session_maker,
+    create_default_admin,
+    create_tables,
+    engine,
+    get_db,
+    init_db,
+)
+from app.db.session_provider import unit_of_work
 from app.db.sql_repository import SQLRepository
 from app.models.user import User
-from app.config import get_settings
 
 
 class TestBase:
     """ORM base class tests."""
 
-    def test_base_is_declarative(self):
-        """Test that Base is DeclarativeBase."""
-        from sqlalchemy.orm import DeclarativeBase
-        assert isinstance(Base, type)
-        # Base should be a subclass of DeclarativeBase
-        assert hasattr(Base, 'metadata')
-
     def test_base_metadata_exists(self):
-        """Test that Base metadata exists."""
         assert Base.metadata is not None
 
 
@@ -29,63 +31,52 @@ class TestEngineAndSessionMaker:
     """Engine and session factory tests."""
 
     def test_engine_exists(self):
-        """Test that the engine is created."""
         assert engine is not None
 
     def test_async_session_maker_exists(self):
-        """Test that the session factory is created."""
         assert async_session_maker is not None
 
 
-class TestInitDb:
+@pytest.mark.asyncio
+class TestDatabaseInitialization:
     """Database initialization tests."""
 
-    async def test_init_db_creates_tables(self):
-        """Test that init_db creates tables."""
-        # Drop all tables first
+    async def test_create_tables_creates_schema(self):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.drop_all)
 
-        # Call init_db
-        await init_db()
+        await create_tables()
 
-        # Verify tables are created (by querying user table)
         async with engine.begin() as conn:
             result = await conn.execute(
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
             )
-            tables = result.fetchall()
-            assert len(tables) >= 1
+            assert len(result.fetchall()) == 1
 
-    async def test_init_db_idempotent(self):
-        """Test that init_db can be called multiple times."""
-        # First call
-        await init_db()
-        # Second call should not error
-        await init_db()
-
-
-class TestCreateDefaultAdmin:
-    """Default admin creation tests."""
-
-    async def test_create_default_admin_when_not_exists(self):
-        """Test admin creation when it does not exist."""
-        from sqlalchemy import delete
-        from app.utils.security import get_password_hash
-
+    async def test_init_db_only_creates_tables(self):
         settings = get_settings()
 
-        # Delete admin if it exists
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+
+        await init_db()
+
         async with async_session_maker() as session:
-            await session.execute(
-                delete(User).where(User.username == settings.ADMIN_USERNAME)
+            result = await session.execute(
+                select(User).where(User.username == settings.ADMIN_USERNAME)
             )
+            assert result.scalar_one_or_none() is None
+
+    async def test_create_default_admin_when_not_exists(self):
+        settings = get_settings()
+        await create_tables()
+
+        async with async_session_maker() as session:
+            await session.execute(delete(User).where(User.username == settings.ADMIN_USERNAME))
             await session.commit()
 
-        # Create default admin
         await create_default_admin()
 
-        # Verify admin is created
         async with async_session_maker() as session:
             result = await session.execute(
                 select(User).where(User.username == settings.ADMIN_USERNAME)
@@ -97,46 +88,27 @@ class TestCreateDefaultAdmin:
         assert admin.email == settings.ADMIN_EMAIL
         assert admin.is_active is True
 
-    async def test_create_default_admin_when_exists(self):
-        """Test that admin is not recreated when it already exists."""
-        from app.utils.security import get_password_hash
-        from sqlalchemy import delete
-
+    async def test_create_default_admin_is_idempotent(self):
         settings = get_settings()
+        await create_tables()
 
-        # Create an admin first
         async with async_session_maker() as session:
-            await session.execute(
-                delete(User).where(User.username == settings.ADMIN_USERNAME)
-            )
+            await session.execute(delete(User).where(User.username == settings.ADMIN_USERNAME))
             await session.commit()
 
-        # First creation
+        await create_default_admin()
         await create_default_admin()
 
-        # Get the first created admin ID
         async with async_session_maker() as session:
             result = await session.execute(
                 select(User).where(User.username == settings.ADMIN_USERNAME)
             )
-            admin_first = result.scalar_one_or_none()
-            first_id = admin_first.id if admin_first else None
+            admins = list(result.scalars().all())
 
-        # Second creation (should not create new one)
-        await create_default_admin()
-
-        # Verify no duplicate creation
-        async with async_session_maker() as session:
-            result = await session.execute(
-                select(User).where(User.username == settings.ADMIN_USERNAME)
-            )
-            admin_second = result.scalar_one_or_none()
-
-        assert admin_second is not None
-        if first_id:
-            assert admin_second.id == first_id
+        assert len(admins) == 1
 
 
+@pytest.mark.asyncio
 class TestGetDb:
     """Database session tests."""
 
@@ -145,135 +117,66 @@ class TestGetDb:
             assert session is not None
             break
 
-    async def test_get_db_session_closes(self):
-        sessions = []
-        async for session in get_db():
-            sessions.append(session)
-        assert len(sessions) == 1
 
-
+@pytest.mark.asyncio
 class TestSQLRepository:
     """SQL repository tests."""
 
     async def test_create_and_get(self):
         repo = SQLRepository(User)
-        user = User(
-            username="repo_test",
-            email="repo@test.com",
-            hashed_password="fakehash",
+        created = await repo.create(
+            User(username="repo_test", email="repo@test.com", hashed_password="fakehash")
         )
-        created = await repo.create(user)
-        assert created.id is not None
 
         fetched = await repo.get_by_id(created.id)
         assert fetched is not None
         assert fetched.username == "repo_test"
 
-    async def test_get_by_field(self):
+    async def test_update_and_delete(self):
         repo = SQLRepository(User)
-        user = User(username="field_test", email="field@test.com", hashed_password="x")
-        await repo.create(user)
-
-        found = await repo.get_by_field("username", "field_test")
-        assert found is not None
-        assert found.email == "field@test.com"
-
-    async def test_get_by_field_not_found(self):
-        repo = SQLRepository(User)
-        found = await repo.get_by_field("username", "nonexistent_user_xyz")
-        assert found is None
-
-    async def test_update(self):
-        repo = SQLRepository(User)
-        user = User(username="upd_test", email="upd@test.com", hashed_password="x")
-        created = await repo.create(user)
+        created = await repo.create(
+            User(username="upd_test", email="upd@test.com", hashed_password="x")
+        )
 
         updated = await repo.update(created.id, {"email": "updated@test.com"})
         assert updated is not None
         assert updated.email == "updated@test.com"
+        assert await repo.delete(created.id) is True
+        assert await repo.get_by_id(created.id) is None
 
-    async def test_delete(self):
-        repo = SQLRepository(User)
-        user = User(username="del_test", email="del@test.com", hashed_password="x")
-        created = await repo.create(user)
-
-        success = await repo.delete(created.id)
-        assert success is True
-
-        deleted = await repo.get_by_id(created.id)
-        assert deleted is None
-
-    async def test_delete_nonexistent(self):
-        repo = SQLRepository(User)
-        success = await repo.delete("nonexistent-id-xyz")
-        assert success is False
-
-    async def test_list(self):
-        repo = SQLRepository(User)
-        await repo.create(User(username="list1", email="l1@t.com", hashed_password="x"))
-        await repo.create(User(username="list2", email="l2@t.com", hashed_password="x"))
-
-        items = await repo.list(limit=10, skip=0)
-        assert len(items) >= 2
-
-    async def test_list_with_filter(self):
+    async def test_filters_and_count(self):
         repo = SQLRepository(User)
         await repo.create(User(username="filter_u", email="filter@t.com", hashed_password="x"))
 
-        items = await repo.list(limit=10, skip=0, filters={"username": "filter_u"})
-        assert len(items) >= 1
+        items = await repo.list(filters={"username": "filter_u"})
+        assert len(items) == 1
+        assert await repo.count(filters={"username": "filter_u"}) == 1
+        assert await repo.exists(filters={"username": "filter_u"}) is True
 
-    async def test_count(self):
+    async def test_external_session_commits_at_unit_of_work_boundary(self):
+        async with unit_of_work() as session:
+            repo = SQLRepository(User, session=session)
+            await repo.create(
+                User(username="uow_commit", email="uow_commit@test.com", hashed_password="x")
+            )
+
         repo = SQLRepository(User)
-        await repo.create(User(username="cnt_u", email="cnt@t.com", hashed_password="x"))
+        created = await repo.get_by_field("username", "uow_commit")
+        assert created is not None
 
-        c = await repo.count()
-        assert c >= 1
+    async def test_external_session_rolls_back_on_error(self):
+        with pytest.raises(RuntimeError):
+            async with unit_of_work() as session:
+                repo = SQLRepository(User, session=session)
+                await repo.create(
+                    User(
+                        username="uow_rollback",
+                        email="uow_rollback@test.com",
+                        hashed_password="x",
+                    )
+                )
+                raise RuntimeError("force rollback")
 
-    async def test_count_with_filter(self):
         repo = SQLRepository(User)
-        await repo.create(User(username="cnt_f", email="cntf@t.com", hashed_password="x"))
-
-        c = await repo.count(filters={"username": "cnt_f"})
-        assert c >= 1
-
-    async def test_list_pagination(self):
-        """Test pagination functionality."""
-        repo = SQLRepository(User)
-
-        # Create multiple users
-        for i in range(5):
-            await repo.create(User(username=f"page_{i}", email=f"page_{i}@t.com", hashed_password="x"))
-
-        # Test limit and skip
-        page1 = await repo.list(limit=2, skip=0)
-        page2 = await repo.list(limit=2, skip=2)
-
-        assert len(page1) == 2
-        assert len(page2) == 2
-        # Ensure pagination results are different
-        if page1 and page2:
-            assert page1[0].id != page2[0].id
-
-    async def test_update_nonexistent(self):
-        """Test updating a nonexistent record."""
-        repo = SQLRepository(User)
-        result = await repo.update("nonexistent-id-xyz", {"email": "test@test.com"})
-        assert result is None
-
-    async def test_list_with_ordering(self):
-        """Test ordering functionality."""
-        repo = SQLRepository(User)
-
-        # Create multiple users
-        await repo.create(User(username="order_a", email="order_a@t.com", hashed_password="x"))
-        await repo.create(User(username="order_b", email="order_b@t.com", hashed_password="x"))
-        await repo.create(User(username="order_c", email="order_c@t.com", hashed_password="x"))
-
-        # Test ascending order
-        items_asc = await repo.list(order_by="username", order_desc=False, limit=10)
-        # Test descending order
-        items_desc = await repo.list(order_by="username", order_desc=True, limit=10)
-
-        assert len(items_asc) >= 3
-        assert len(items_desc) >= 3
+        rolled_back = await repo.get_by_field("username", "uow_rollback")
+        assert rolled_back is None

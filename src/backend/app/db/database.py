@@ -28,13 +28,19 @@ class Base(DeclarativeBase):
     pass
 
 
-async def init_db():
-    """Initialize database - Create tables and create default admin account."""
+async def create_tables() -> None:
+    """Create all ORM tables."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Create default admin account
-    await create_default_admin()
+
+async def init_db():
+    """Initialize database tables.
+
+    This helper is retained for backward compatibility in tests and scripts.
+    It no longer creates the default administrator account implicitly.
+    """
+    await create_tables()
 
 
 async def create_default_admin():

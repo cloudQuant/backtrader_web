@@ -113,7 +113,7 @@ backend/
 │   │   └── logger.py               # Logging config
 │   ├── config.py                   # Settings (pydantic-settings)
 │   └── main.py                     # FastAPI app entry point
-├── tests/                          # 1200+ tests, 100% coverage
+├── tests/                          # pytest-based backend test suite
 ├── requirements.txt
 ├── pyproject.toml
 └── .env.example

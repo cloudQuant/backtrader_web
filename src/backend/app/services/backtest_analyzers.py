@@ -4,10 +4,17 @@ Backtrader analyzer extensions.
 Collects detailed backtest data for analytics and reporting.
 """
 
+import logging
+
 import backtrader as bt
 
+logger = logging.getLogger(__name__)
+AnalyzerBase = getattr(bt, "Analyzer", object)
+if AnalyzerBase is object:
+    logger.warning("backtrader.Analyzer is unavailable; custom analyzers are running in fallback mode")
 
-class DetailedTradeAnalyzer(bt.Analyzer):
+
+class DetailedTradeAnalyzer(AnalyzerBase):
     """Detailed trade analyzer that records detailed information for each trade.
 
     Attributes:
@@ -52,7 +59,7 @@ class DetailedTradeAnalyzer(bt.Analyzer):
         return {'trades': self.trades}
 
 
-class EquityCurveAnalyzer(bt.Analyzer):
+class EquityCurveAnalyzer(AnalyzerBase):
     """Equity curve analyzer that records daily changes in account value.
 
     Attributes:
@@ -92,7 +99,7 @@ class EquityCurveAnalyzer(bt.Analyzer):
         return {'equity_curve': self.equity_curve}
 
 
-class TradeSignalAnalyzer(bt.Analyzer):
+class TradeSignalAnalyzer(AnalyzerBase):
     """Trade signal analyzer that records buy and sell signals.
 
     Attributes:
@@ -128,7 +135,7 @@ class TradeSignalAnalyzer(bt.Analyzer):
         return {'signals': self.signals}
 
 
-class MonthlyReturnsAnalyzer(bt.Analyzer):
+class MonthlyReturnsAnalyzer(AnalyzerBase):
     """Monthly returns analyzer that calculates returns for each month.
 
     Attributes:
@@ -179,7 +186,7 @@ class MonthlyReturnsAnalyzer(bt.Analyzer):
         return {'monthly_returns': self.monthly_returns}
 
 
-class DrawdownAnalyzer(bt.Analyzer):
+class DrawdownAnalyzer(AnalyzerBase):
     """Drawdown analyzer that records daily drawdown metrics.
 
     Attributes:

@@ -19,7 +19,7 @@ A modern, full-featured web backtesting platform built on [Backtrader](https://w
 - **Strategy Comparison** — Side-by-side comparison of multiple strategies
 - **Analytics & Reports** — HTML/PDF/Excel report generation with 10+ chart types
 - **System Monitoring** — Health checks, performance metrics, and alerts
-- **REST API** — 100% API coverage, every feature accessible programmatically
+- **REST API** — Programmatic access to implemented platform modules
 
 ## Tech Stack
 
@@ -37,31 +37,41 @@ A modern, full-featured web backtesting platform built on [Backtrader](https://w
 ### Requirements
 
 - Python 3.10+
-- Node.js 18+
+- Node.js 20 LTS
 
 ### Installation
 
 ```bash
 git clone https://gitee.com/xxx/backtrader_web.git
 cd backtrader_web
+./scripts/verify-dev-env.sh --preinstall
 
 # Backend
 cd src/backend
 python -m venv venv
 source venv/bin/activate   # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+pip install -e ".[dev,backtrader]"
 cp .env.example .env
+python scripts/init_db.py --init-all
+cd ../..
+./scripts/verify-dev-env.sh --postinstall
+
+cd src/backend
 uvicorn app.main:app --reload --port 8000
 
 # Frontend (new terminal)
 cd src/frontend
-npm install
+npm ci
 npm run dev
 ```
 
+If the preinstall check fails, fix the reported Node or Python mismatch first. If
+the postinstall check fails, reinstall backend dependencies and verify that the
+installed `backtrader` package exposes `Analyzer`.
+
 ### Access
 
-- **Frontend**: http://localhost:5173
+- **Frontend**: http://localhost:3000
 - **Swagger API Docs**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
@@ -69,25 +79,25 @@ npm run dev
 
 ```
 backtrader_web/
-├── src/
-│   ├── backend/                # FastAPI backend
-│   │   ├── app/
-│   │   │   ├── api/            # API routes (auth, backtest, strategy, etc.)
-│   │   │   ├── services/       # Business logic layer
-│   │   │   ├── db/             # Database abstraction (SQLite/PostgreSQL/MySQL)
-│   │   │   ├── models/         # SQLAlchemy ORM models
-│   │   │   ├── schemas/        # Pydantic request/response schemas
-│   │   │   └── utils/          # Utilities (sandbox, security, logging)
-│   │   └── tests/              # Backend tests (1200+ tests, 100% coverage)
-│   └── frontend/               # Vue 3 frontend
-│       └── src/
-│           ├── api/            # API client
-│           ├── components/     # Reusable components
-│           ├── views/          # Page views
-│           └── stores/         # Pinia state management
-├── strategies/                 # 100+ built-in strategy templates
-├── examples/                   # Usage examples
-└── docs/                       # Documentation
+ ├── src/
+ │   ├── backend/                # FastAPI backend
+ │   │   ├── app/
+ │   │   │   ├── api/            # API routes (auth, backtest, strategy, etc.)
+ │   │   │   ├── services/       # Business logic layer
+ │   │   │   ├── db/             # Database abstraction (SQLite/PostgreSQL/MySQL)
+ │   │   │   ├── models/         # SQLAlchemy ORM models
+ │   │   │   ├── schemas/        # Pydantic request/response schemas
+ │   │   │   └── utils/          # Utilities (sandbox, security, logging)
+ │   │   └── tests/              # Backend tests (pytest unit tests + coverage)
+ │   └── frontend/               # Vue 3 frontend
+ │       └── src/
+ │           ├── api/            # API client
+ │           ├── components/     # Reusable components
+ │           ├── views/          # Page views
+ │           └── stores/         # Pinia state management
+ ├── strategies/                 # 100+ built-in strategy templates
+ ├── examples/                   # Usage examples
+ └── docs/                       # Documentation
 ```
 
 ## API Reference

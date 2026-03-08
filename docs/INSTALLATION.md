@@ -1,120 +1,100 @@
 # Installation Guide
 
-This guide will help you install and run the Backtrader Web quantitative trading platform on your local machine.
+This guide covers the supported local development setup for Backtrader Web.
 
 ## Prerequisites
 
-### System Requirements
+- Operating system: Linux, macOS, or Windows with WSL2 recommended
+- Python: 3.10 or higher
+- Node.js: 20 LTS
+- Git
 
-- **Operating System**: Linux, macOS, or Windows (WSL2 recommended)
-- **Python**: Version 3.8 or higher (3.11 recommended)
-- **Memory**: Minimum 4GB RAM, 8GB recommended
-- **Disk**: Minimum 2GB free space
-
-### Required Software
-
-Before installing, ensure you have the following:
-
-- Python 3.8+ with pip
-- Git (for cloning the repository)
-- SQLite3 (usually included with Python)
-
-## Installation Steps
-
-### 1. Clone the Repository
+## 1. Clone the Repository
 
 ```bash
 git clone https://github.com/your-org/backtrader_web.git
 cd backtrader_web
 ```
 
-### 2. Create Virtual Environment
+## 2. Run Preinstall Checks
 
-**Linux/macOS:**
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-**Windows:**
-
-```cmd
-python -m venv venv
-venv\Scripts\activate
-```
-
-### 3. Install Dependencies
+Use the preinstall verifier before creating environments or installing project dependencies.
 
 ```bash
-# Install backend dependencies
+./scripts/verify-dev-env.sh --preinstall
+```
+
+If this fails, fix the reported Node or Python mismatch first.
+
+## 3. Set Up the Backend Environment
+
+```bash
 cd src/backend
-pip install -r requirements.txt
-
-# Or install using pyproject.toml (recommended)
-pip install -e .
-```
-
-**Required Dependencies:**
-
-- fastapi>=0.109.0
-- uvicorn[standard]>=0.27.0
-- sqlalchemy[asyncio]>=2.0.25
-- aiosqlite>=0.19.0
-- python-jose[cryptography]>=3.3.0
-- passlib[bcrypt]>=1.7.4
-- fincore>=1.0.0
-- backtrader>=1.9.76
-- pandas>=1.5.0
-- numpy>=1.21.0
-
-### 4. Configure Environment
-
-```bash
-# Copy example environment file
+python -m venv venv
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -e ".[dev,backtrader]"
 cp .env.example .env
-
-# Edit configuration (optional for development)
-# nano .env
+cd ../..
 ```
 
-**Default Development Settings:**
+## 4. Run Postinstall Checks
 
-```ini
-DATABASE_TYPE=sqlite
-DATABASE_URL=sqlite+aiosqlite:///./backtrader.db
-DEBUG=true
-JWT_SECRET_KEY=development-secret-key-change-in-production
-JWT_EXPIRE_MINUTES=1440
-```
-
-### 5. Initialize Database
+After backend dependencies are installed, verify runtime imports.
 
 ```bash
-# Run database migrations (if using PostgreSQL/MySQL)
-# For SQLite, the database is created automatically
-
-python -c "from app.db.database import init_db; import asyncio; asyncio.run(init_db())"
+./scripts/verify-dev-env.sh --postinstall
 ```
 
-### 6. Start the Backend Server
+This checks `backtrader`, `backtrader.Analyzer`, `fastapi`, and `sqlalchemy`.
+
+## 5. Set Up the Frontend
 
 ```bash
-# Development mode with auto-reload
+cd src/frontend
+npm ci
+cd ../..
+```
+
+## 6. Initialize the Database
+
+Database initialization is explicit. The application no longer creates tables or
+the default administrator account during startup.
+
+```bash
+cd src/backend
+python scripts/init_db.py --init-all
+cd ../..
+```
+
+For more detail, see [Database Initialization Guide](DATABASE_INIT.md).
+
+## 7. Start the Application
+
+Backend:
+
+```bash
+cd src/backend
+source venv/bin/activate   # Windows: venv\Scripts\activate
 uvicorn app.main:app --reload --port 8000
-
-# Or run directly
-python -m app.main
 ```
 
-The backend API will be available at:
-- **API**: http://localhost:8000
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+Frontend:
 
-## Quick Start
+```bash
+cd src/frontend
+npm run dev
+```
 
-### 1. Register a User
+## Access URLs
+
+- Frontend: `http://localhost:3000`
+- API: `http://localhost:8000`
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+## Quick API Smoke Test
+
+Register:
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/auth/register" \
@@ -126,7 +106,7 @@ curl -X POST "http://localhost:8000/api/v1/auth/register" \
   }'
 ```
 
-### 2. Login
+Login:
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/auth/login" \
@@ -137,115 +117,30 @@ curl -X POST "http://localhost:8000/api/v1/auth/login" \
   }'
 ```
 
-Save the returned `access_token` for subsequent requests.
-
-### 3. List Available Strategies
-
-```bash
-curl -X GET "http://localhost:8000/api/v1/strategy/templates" \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
-```
-
-### 4. Run Your First Backtest
-
-```bash
-curl -X POST "http://localhost:8000/api/v1/backtest/run" \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "strategy_id": "ma_cross",
-    "symbol": "000001.SZ",
-    "start_date": "2023-01-01T00:00:00",
-    "end_date": "2024-01-01T00:00:00",
-    "initial_cash": 100000,
-    "commission": 0.001
-  }'
-```
-
 ## Troubleshooting
 
-### Python Version Issues
-
-**Problem**: `ModuleNotFoundError: No module named '_ctypes'`
-
-**Solution**: Ensure you're using Python 3.8+:
+### Backtrader Import Fails
 
 ```bash
-python --version  # Should show 3.8 or higher
+./scripts/verify-dev-env.sh --postinstall
 ```
 
-### Import Errors
-
-**Problem**: `ImportError: cannot import name 'fastapi'`
-
-**Solution**: Install dependencies in the virtual environment:
+If `Analyzer` is missing, reinstall backend dependencies:
 
 ```bash
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-pip install -r requirements.txt
+cd src/backend
+pip install -e ".[dev,backtrader]"
 ```
 
-### Database Errors
+### Database Tables Do Not Exist
 
-**Problem**: `sqlite3.OperationalError: no such table`
-
-**Solution**: Initialize the database:
+Initialize them explicitly:
 
 ```bash
-python -c "from app.db.database import init_db; import asyncio; asyncio.run(init_db())"
+cd src/backend
+python scripts/init_db.py --create-tables
 ```
 
-### Port Already in Use
+### Port 8000 or 3000 Is Already in Use
 
-**Problem**: `OSError: [Errno 48] Address already in use`
-
-**Solution**: Either stop the process using port 8000 or use a different port:
-
-```bash
-uvicorn app.main:app --reload --port 8001
-```
-
-### fincore Import Errors
-
-**Problem**: `ImportError: cannot import name 'fincore'`
-
-**Solution**: Install fincore:
-
-```bash
-pip install fincore>=1.0.0
-```
-
-### Permission Denied (Linux/macOS)
-
-**Problem**: `Permission denied` when running scripts
-
-**Solution**: Make scripts executable:
-
-```bash
-chmod +x scripts/*.sh
-```
-
-### Windows-Specific Issues
-
-**Problem**: Event loop policy warnings
-
-**Solution**: Set the event loop policy before importing:
-
-```python
-import asyncio
-asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-```
-
-## Next Steps
-
-After installation:
-
-1. Read the [Deployment Guide](DEPLOYMENT.md) for production setup
-2. Read the [Operations Guide](OPERATIONS.md) for maintenance tips
-3. Check the [API Documentation](http://localhost:8000/docs) for all endpoints
-
-## Additional Resources
-
-- [Backend README](../src/backend/README.md)
-- [Fincore Migration Guide](../src/backend/FINCORE_MIGRATION.md)
-- [Project GitHub](https://github.com/your-org/backtrader_web)
+Start the service on a different port after updating the matching config and proxy settings.

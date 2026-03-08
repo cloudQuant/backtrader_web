@@ -3,6 +3,9 @@ Live trading service (Backtrader architecture).
 
 Uses the standard Backtrader architecture: Cerebro + Store + Broker.
 """
+
+from __future__ import annotations
+
 import logging
 import sys
 import threading
@@ -22,7 +25,7 @@ try:
     from backtrader.observers.broker import BrokerObserver
     from backtrader.stores.ccxtstore import CCXTStore  # noqa: F811
     BACKTRADER_AVAILABLE = True
-except ImportError as e:
+except Exception as e:
     BACKTRADER_AVAILABLE = False
     logging.warning(f"backtrader not available: {e}")
 

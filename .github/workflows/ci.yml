@@ -13,15 +13,30 @@ env:
 
 jobs:
   # ========================================
+  # Pre-flight Checks
+  # ========================================
+  check-generated-artifacts:
+    name: Check - No Generated Artifacts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for generated artifacts
+        run: ./scripts/check-generated-artifacts.sh
+
+  # ========================================
   # Backend Quality Checks
   # ========================================
   backend-lint:
     name: Backend - Lint & Type Check
     runs-on: ubuntu-latest
+    needs: check-generated-artifacts
     defaults:
       run:
         working-directory: src/backend
-
+ 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,6 +60,11 @@ jobs:
       - name: Check import sorting
         run: |
           ruff check . --select I --fix --check-only
+
+      - name: Smoke check backend entrypoint
+        run: |
+          python -m py_compile app/main.py
+          python -c "from app.main import app; print(app.title)"
 
   backend-test:
     name: Backend - Unit Tests
@@ -137,6 +157,7 @@ jobs:
   frontend-lint:
     name: Frontend - Lint & Type Check
     runs-on: ubuntu-latest
+    needs: check-generated-artifacts
     defaults:
       run:
         working-directory: src/frontend
@@ -292,12 +313,13 @@ jobs:
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-test, backend-security, frontend-lint, frontend-test, frontend-build]
+    needs: [check-generated-artifacts, backend-lint, backend-test, backend-security, frontend-lint, frontend-test, frontend-build]
     if: always()
 
     steps:
       - name: Check all jobs status
         run: |
+          echo "Check Generated Artifacts: ${{ needs.check-generated-artifacts.result }}"
           echo "Backend Lint: ${{ needs.backend-lint.result }}"
           echo "Backend Test: ${{ needs.backend-test.result }}"
           echo "Backend Security: ${{ needs.backend-security.result }}"
@@ -307,6 +329,7 @@ jobs:
 
       - name: Fail if any job failed
         if: |
+          needs.check-generated-artifacts.result == 'failure' ||
           needs.backend-lint.result == 'failure' ||
           needs.backend-test.result == 'failure' ||
           needs.frontend-lint.result == 'failure' ||

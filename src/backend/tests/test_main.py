@@ -13,7 +13,6 @@ Tests:
 """
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.mark.asyncio
@@ -142,8 +141,9 @@ class TestCORSConfig:
 
     async def test_cors_middleware_added(self):
         """Test that CORS middleware is added."""
-        from app.main import app
         from starlette.middleware.cors import CORSMiddleware
+
+        from app.main import app
 
         # Check if CORS middleware exists
         cors_middlewares = [
@@ -155,7 +155,7 @@ class TestCORSConfig:
     async def test_cors_headers(self, client: AsyncClient):
         """Test CORS response headers."""
         resp = await client.options("/", headers={
-            "Origin": "http://localhost:5173",
+            "Origin": "http://localhost:3000",
             "Access-Control-Request-Method": "GET",
         })
         # Should have CORS related response headers
@@ -174,8 +174,9 @@ class TestRateLimiting:
 
     async def test_rate_limit_exception_handler(self):
         """Test the rate limit exception handler."""
-        from app.main import app
         from slowapi.errors import RateLimitExceeded
+
+        from app.main import app
 
         # Check that exception handler is registered
         exception_handlers = app.exception_handlers
@@ -195,7 +196,6 @@ class TestLifespan:
 
     async def test_lifespan_startup_warning(self):
         """Test security warning on startup."""
-        from app.main import app
         from app.config import get_settings
 
         settings = get_settings()

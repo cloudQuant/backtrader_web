@@ -5,10 +5,13 @@
 ### Install
 
 ```bash
+./scripts/verify-dev-env.sh --preinstall
 cd src/backend
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -e ".[dev,backtrader]"
+cd ../..
+./scripts/verify-dev-env.sh --postinstall
 ```
 
 ### Run
@@ -47,7 +50,6 @@ The HTML report is generated under `src/backend/htmlcov/`.
 
 ```bash
 cd src/frontend
-npm install
+npm ci
 npm run dev
 ```
-
