@@ -8,9 +8,10 @@ Tests all paper trading API endpoints:
 - Trade Management: list
 - WebSocket endpoints
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import status
 
 
@@ -216,8 +217,9 @@ class TestPaperTradingAccountsAPI:
             mock_current_user: Mock authenticated user fixture.
             mock_paper_trading_service: Mock service fixture.
         """
-        from app.api.paper_trading import get_paper_account
         from fastapi import HTTPException
+
+        from app.api.paper_trading import get_paper_account
 
         mock_paper_trading_service.get_account = AsyncMock(return_value=None)
 
@@ -238,8 +240,9 @@ class TestPaperTradingAccountsAPI:
             mock_current_user: Mock authenticated user fixture.
             mock_paper_trading_service: Mock service fixture.
         """
-        from app.api.paper_trading import get_paper_account
         from fastapi import HTTPException
+
+        from app.api.paper_trading import get_paper_account
 
         mock_account = MagicMock(
             id="acc_other",
@@ -323,8 +326,9 @@ class TestPaperTradingAccountsAPI:
             mock_current_user: Mock authenticated user fixture.
             mock_paper_trading_service: Mock service fixture.
         """
-        from app.api.paper_trading import delete_paper_account
         from fastapi import HTTPException
+
+        from app.api.paper_trading import delete_paper_account
 
         mock_paper_trading_service.delete_account = AsyncMock(return_value=False)
 
@@ -560,8 +564,9 @@ class TestPaperTradingOrdersAPI:
             mock_current_user: Mock authenticated user fixture.
             mock_paper_trading_service: Mock service fixture.
         """
-        from app.api.paper_trading import get_paper_order
         from fastapi import HTTPException
+
+        from app.api.paper_trading import get_paper_order
 
         mock_paper_trading_service.get_order = AsyncMock(return_value=None)
 
@@ -581,8 +586,9 @@ class TestPaperTradingOrdersAPI:
             mock_current_user: Mock authenticated user fixture.
             mock_paper_trading_service: Mock service fixture.
         """
-        from app.api.paper_trading import get_paper_order
         from fastapi import HTTPException
+
+        from app.api.paper_trading import get_paper_order
 
         mock_order = MagicMock(
             id="order_123",
@@ -683,8 +689,9 @@ class TestPaperTradingOrdersAPI:
             mock_current_user: Mock authenticated user fixture.
             mock_paper_trading_service: Mock service fixture.
         """
-        from app.api.paper_trading import cancel_paper_order
         from fastapi import HTTPException
+
+        from app.api.paper_trading import cancel_paper_order
 
         mock_paper_trading_service.cancel_order = AsyncMock(return_value=False)
 
@@ -801,8 +808,9 @@ class TestPaperTradingPositionsAPI:
             mock_current_user: Mock authenticated user fixture.
             mock_paper_trading_service: Mock service fixture.
         """
-        from app.api.paper_trading import get_paper_position
         from fastapi import HTTPException
+
+        from app.api.paper_trading import get_paper_position
 
         mock_paper_trading_service.get_position = AsyncMock(return_value=None)
 
@@ -822,8 +830,9 @@ class TestPaperTradingPositionsAPI:
             mock_current_user: Mock authenticated user fixture.
             mock_paper_trading_service: Mock service fixture.
         """
-        from app.api.paper_trading import get_paper_position
         from fastapi import HTTPException
+
+        from app.api.paper_trading import get_paper_position
 
         mock_position = MagicMock(
             id="pos_123",
@@ -1058,8 +1067,9 @@ class TestPaperTradingWebSocket:
 
     async def test_websocket_disconnect_handling(self):
         """Test WebSocket disconnect is handled gracefully."""
-        from app.api.paper_trading import websocket_account_endpoint
         from fastapi import WebSocketDisconnect
+
+        from app.api.paper_trading import websocket_account_endpoint
 
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
@@ -1098,8 +1108,9 @@ class TestPaperTradingSchemas:
 
     async def test_account_create_schema(self):
         """Test account creation schema validation."""
-        from app.schemas.paper_trading import AccountCreate
         from pydantic import ValidationError
+
+        from app.schemas.paper_trading import AccountCreate
 
         # Valid request
         request = AccountCreate(
@@ -1127,8 +1138,9 @@ class TestPaperTradingSchemas:
 
     async def test_order_request_schema(self):
         """Test order request schema validation."""
-        from app.schemas.paper_trading import OrderRequest
         from pydantic import ValidationError
+
+        from app.schemas.paper_trading import OrderRequest
 
         # Valid market order
         request = OrderRequest(

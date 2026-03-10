@@ -6,7 +6,6 @@ for financial metric calculations with fallback to manual calculations.
 """
 
 import pytest
-import numpy as np
 
 from app.services.backtest_analyzers import FincoreAdapter
 
@@ -294,11 +293,11 @@ class TestBackwardCompatibility:
         """Test that adding adapter doesn't break existing analyzer imports."""
         from app.services.backtest_analyzers import (
             DetailedTradeAnalyzer,
-            EquityCurveAnalyzer,
-            TradeSignalAnalyzer,
-            MonthlyReturnsAnalyzer,
             DrawdownAnalyzer,
+            EquityCurveAnalyzer,
             FincoreAdapter,  # New adapter
+            MonthlyReturnsAnalyzer,
+            TradeSignalAnalyzer,
         )
 
         # Verify all classes can be instantiated

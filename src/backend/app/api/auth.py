@@ -1,6 +1,7 @@
 """
 Authentication API routes.
 """
+
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -99,9 +100,7 @@ async def login(
 
 
 @router.post(
-    "/login/refresh",
-    response_model=RefreshTokenResponse,
-    summary="User login with refresh token"
+    "/login/refresh", response_model=RefreshTokenResponse, summary="User login with refresh token"
 )
 @limiter.limit("10/minute")
 async def login_with_refresh(
@@ -144,11 +143,7 @@ async def login_with_refresh(
     return result
 
 
-@router.post(
-    "/refresh",
-    response_model=RefreshTokenResponse,
-    summary="Refresh access token"
-)
+@router.post("/refresh", response_model=RefreshTokenResponse, summary="Refresh access token")
 @limiter.limit("30/minute")
 async def refresh_tokens(
     request: Request,
@@ -237,9 +232,7 @@ async def change_password(
     Raises:
         HTTPException: If current password is incorrect (400).
     """
-    success = await service.change_password(
-        current_user.sub, req.old_password, req.new_password
-    )
+    success = await service.change_password(current_user.sub, req.old_password, req.new_password)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

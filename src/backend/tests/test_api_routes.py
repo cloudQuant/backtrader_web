@@ -2,7 +2,6 @@
 API route coverage tests - Cover data, comparison, paper_trading, strategy_version,
 realtime, monitoring, live_trading, optimization and other low-coverage API routes.
 """
-import pytest
 from httpx import AsyncClient
 
 

@@ -1,7 +1,7 @@
 """
 Permission model tests.
 """
-from app.models.permission import Permission, Role, ROLE_PERMISSIONS
+from app.models.permission import ROLE_PERMISSIONS, Permission, Role
 
 
 class TestPermission:

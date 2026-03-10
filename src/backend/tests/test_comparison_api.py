@@ -11,7 +11,6 @@ Tests:
 - Sharing comparisons
 - Getting comparison data (metrics, equity curves, trades, drawdowns)
 """
-from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
 

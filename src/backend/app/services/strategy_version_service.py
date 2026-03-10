@@ -3,6 +3,7 @@ Strategy version control service.
 
 Supports versioning, branch management, rollback, and comparisons.
 """
+
 import difflib
 import logging
 from datetime import datetime, timezone
@@ -113,9 +114,7 @@ class VersionControlService:
         await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
         # Get or create branch
-        version_branch = await self._get_or_create_branch(
-            strategy_id, user_id, branch
-        )
+        version_branch = await self._get_or_create_branch(strategy_id, user_id, branch)
 
         # Calculate version number
         version_number = await self._get_next_version_number(strategy_id, branch)
@@ -237,7 +236,9 @@ class VersionControlService:
 
         # Can only update DRAFT status versions
         if version.status != VersionStatus.DRAFT:
-            raise ValueError(f"Can only update DRAFT status versions, current status: {version.status}")
+            raise ValueError(
+                f"Can only update DRAFT status versions, current status: {version.status}"
+            )
 
         # Update fields
         update_dict = {
@@ -261,7 +262,11 @@ class VersionControlService:
             update_dict["status"] = update_data.status
 
         # If updated to STABLE, optionally record changelog.
-        status_val = update_data.status.value if isinstance(update_data.status, VersionStatus) else update_data.status
+        status_val = (
+            update_data.status.value
+            if isinstance(update_data.status, VersionStatus)
+            else update_data.status
+        )
         if status_val == VersionStatus.STABLE.value and getattr(update_data, "changelog", None):
             if not version.changelog:
                 update_dict["changelog"] = update_data.changelog
@@ -269,15 +274,18 @@ class VersionControlService:
         version = await self.version_repo.update(version_id, update_dict)
 
         # Push version update notification
-        await ws_manager.send_to_task(f"strategy_version:{version.strategy_id}", {
-            "type": "version_updated",
-            "version_id": version.id,
-            "data": {
-                "status": version.status,
-                "is_active": version.is_active,
-                "is_default": version.is_default,
+        await ws_manager.send_to_task(
+            f"strategy_version:{version.strategy_id}",
+            {
+                "type": "version_updated",
+                "version_id": version.id,
+                "data": {
+                    "status": version.status,
+                    "is_active": version.is_active,
+                    "is_default": version.is_default,
+                },
             },
-        })
+        )
 
         return version
 
@@ -305,10 +313,13 @@ class VersionControlService:
         await self._unset_default_versions(version.strategy_id, version.branch)
 
         # Set as default version
-        await self.version_repo.update(version_id, {
-            "is_default": True,
-            "updated_at": datetime.now(timezone.utc),
-        })
+        await self.version_repo.update(
+            version_id,
+            {
+                "is_default": True,
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
 
         return True
 
@@ -336,10 +347,13 @@ class VersionControlService:
         await self._unset_active_versions(version.strategy_id, version.branch)
 
         # Set as active version
-        await self.version_repo.update(version_id, {
-            "is_active": True,
-            "updated_at": datetime.now(timezone.utc),
-        })
+        await self.version_repo.update(
+            version_id,
+            {
+                "is_active": True,
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
 
         return True
 
@@ -372,7 +386,10 @@ class VersionControlService:
 
         if not from_version or not to_version:
             raise ValueError("Version not found")
-        if getattr(from_version, "created_by", None) != user_id or getattr(to_version, "created_by", None) != user_id:
+        if (
+            getattr(from_version, "created_by", None) != user_id
+            or getattr(to_version, "created_by", None) != user_id
+        ):
             raise PermissionError("forbidden")
 
         # Calculate code diff
@@ -518,7 +535,7 @@ class VersionControlService:
         lines2 = code2.splitlines(keepends=True)
 
         diff = difflib.unified_diff(lines1, lines2, fromfile=name1, tofile=name2, lineterm="")
-        return ''.join(diff)
+        return "".join(diff)
 
     def _generate_params_diff(
         self,
@@ -579,6 +596,7 @@ class VersionControlService:
             - to: Target version metrics
             - diff: Metric differences (to - from)
         """
+
         async def _latest(version_id: str) -> Optional[Dict[str, Any]]:
             async with db.async_session_maker() as session:
                 stmt = (
@@ -596,7 +614,9 @@ class VersionControlService:
                 task, res = row
                 return {
                     "task_id": task.id,
-                    "created_at": task.created_at.isoformat() if getattr(task, "created_at", None) else None,
+                    "created_at": task.created_at.isoformat()
+                    if getattr(task, "created_at", None)
+                    else None,
                     "metrics": {
                         "total_return": float(getattr(res, "total_return", 0.0)),
                         "annual_return": float(getattr(res, "annual_return", 0.0)),
@@ -616,7 +636,11 @@ class VersionControlService:
 
         diff: Dict[str, Any] = {}
         for k, v in to_res["metrics"].items():
-            if k in from_res["metrics"] and isinstance(v, (int, float)) and isinstance(from_res["metrics"][k], (int, float)):
+            if (
+                k in from_res["metrics"]
+                and isinstance(v, (int, float))
+                and isinstance(from_res["metrics"][k], (int, float))
+            ):
                 diff[k] = v - from_res["metrics"][k]
 
         return {"available": True, "from": from_res, "to": to_res, "diff": diff}
@@ -665,8 +689,7 @@ class VersionControlService:
             The VersionBranch entity.
         """
         branches = await self.branch_repo.list(
-            filters={"strategy_id": strategy_id, "branch_name": branch_name},
-            limit=1
+            filters={"strategy_id": strategy_id, "branch_name": branch_name}, limit=1
         )
 
         if branches:
@@ -696,10 +719,13 @@ class VersionControlService:
             branch: The VersionBranch entity to update.
             version: The StrategyVersion entity to incorporate.
         """
-        await self.branch_repo.update(branch.id, {
-            "version_count": branch.version_count + 1,
-            "last_version_id": version.id,
-        })
+        await self.branch_repo.update(
+            branch.id,
+            {
+                "version_count": branch.version_count + 1,
+                "last_version_id": version.id,
+            },
+        )
 
     async def create_branch(
         self,
@@ -732,7 +758,9 @@ class VersionControlService:
             return existing[0]
 
         if parent_branch:
-            await self._get_or_create_branch(strategy_id=strategy_id, user_id=user_id, branch_name=parent_branch)
+            await self._get_or_create_branch(
+                strategy_id=strategy_id, user_id=user_id, branch_name=parent_branch
+            )
 
         branch = VersionBranch(
             strategy_id=strategy_id,

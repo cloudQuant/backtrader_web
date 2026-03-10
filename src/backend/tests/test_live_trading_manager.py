@@ -9,20 +9,17 @@ Tests:
     - Error handling
     - Log directory lookup
 """
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
-from datetime import datetime
-from pathlib import Path
-import asyncio
 
 from app.services.live_trading_manager import (
     LiveTradingManager,
-    get_live_trading_manager,
-    _load_instances,
-    _save_instances,
     _find_latest_log_dir,
     _is_pid_alive,
-    _manager,
+    _load_instances,
+    _save_instances,
+    get_live_trading_manager,
 )
 
 

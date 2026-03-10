@@ -15,6 +15,7 @@ Usage:
     ... )
     >>> raise UserNotFoundError(user_id="123")
 """
+
 from typing import Any, Dict, Optional
 
 
@@ -33,7 +34,7 @@ class BaseAppError(Exception):
         self,
         message: str,
         details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
     ):
         """Initialize the base application error.
 
@@ -64,6 +65,7 @@ class BaseAppError(Exception):
 
 # ==================== Authentication Errors ====================
 
+
 class AuthenticationError(BaseAppError):
     """Base class for authentication-related errors."""
 
@@ -71,7 +73,7 @@ class AuthenticationError(BaseAppError):
         self,
         message: str = "Authentication failed",
         details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
     ):
         """Initialize authentication error.
 
@@ -80,11 +82,7 @@ class AuthenticationError(BaseAppError):
             details: Additional error details.
             error_code: Optional override for error code.
         """
-        super().__init__(
-            message,
-            details,
-            error_code or "AUTHENTICATION_ERROR"
-        )
+        super().__init__(message, details, error_code or "AUTHENTICATION_ERROR")
 
 
 class InvalidCredentialsError(AuthenticationError):
@@ -99,11 +97,7 @@ class InvalidCredentialsError(AuthenticationError):
         details = {}
         if username:
             details["username"] = username
-        super().__init__(
-            "Invalid username or password",
-            details,
-            "InvalidCredentialsError"
-        )
+        super().__init__("Invalid username or password", details, "InvalidCredentialsError")
 
 
 class UserNotFoundError(AuthenticationError):
@@ -162,11 +156,7 @@ class InvalidTokenError(AuthenticationError):
         Args:
             reason: The reason why the token is invalid.
         """
-        super().__init__(
-            reason,
-            {"reason": reason},
-            "InvalidTokenError"
-        )
+        super().__init__(reason, {"reason": reason}, "InvalidTokenError")
 
 
 class TokenExpiredError(InvalidTokenError):
@@ -180,11 +170,7 @@ class TokenExpiredError(InvalidTokenError):
 class InsufficientPermissionsError(AuthenticationError):
     """Raised when a user lacks required permissions."""
 
-    def __init__(
-        self,
-        required_permission: Optional[str] = None,
-        resource: Optional[str] = None
-    ):
+    def __init__(self, required_permission: Optional[str] = None, resource: Optional[str] = None):
         """Initialize insufficient permissions error.
 
         Args:
@@ -218,14 +204,11 @@ class UserInactiveError(AuthenticationError):
             details["user_id"] = user_id
         if username:
             details["username"] = username
-        super().__init__(
-            "User account is inactive",
-            details,
-            "UserInactiveError"
-        )
+        super().__init__("User account is inactive", details, "UserInactiveError")
 
 
 # ==================== Validation Errors ====================
+
 
 class ValidationError(BaseAppError):
     """Base class for validation errors."""
@@ -235,7 +218,7 @@ class ValidationError(BaseAppError):
         message: str = "Validation failed",
         field: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
     ):
         """Initialize validation error.
 
@@ -248,22 +231,13 @@ class ValidationError(BaseAppError):
         full_details = details or {}
         if field:
             full_details["field"] = field
-        super().__init__(
-            message,
-            full_details,
-            error_code or "VALIDATION_ERROR"
-        )
+        super().__init__(message, full_details, error_code or "VALIDATION_ERROR")
 
 
 class InvalidInputError(ValidationError):
     """Raised when input data is invalid."""
 
-    def __init__(
-        self,
-        message: str,
-        field: Optional[str] = None,
-        value: Optional[Any] = None
-    ):
+    def __init__(self, message: str, field: Optional[str] = None, value: Optional[Any] = None):
         """Initialize invalid input error.
 
         Args:
@@ -276,12 +250,7 @@ class InvalidInputError(ValidationError):
             details["field"] = field
         if value is not None:
             details["value_type"] = type(value).__name__
-        super().__init__(
-            message,
-            field,
-            details,
-            "InvalidInputError"
-        )
+        super().__init__(message, field, details, "InvalidInputError")
 
 
 class MissingFieldError(ValidationError):
@@ -296,7 +265,7 @@ class MissingFieldError(ValidationError):
         super().__init__(
             f"Required field is missing: {field_name}",
             field=field_name,
-            error_code="MissingFieldError"
+            error_code="MissingFieldError",
         )
 
 
@@ -312,11 +281,12 @@ class PasswordTooWeakError(ValidationError):
         super().__init__(
             "Password does not meet security requirements",
             details={"requirements": reasons},
-            error_code="PasswordTooWeakError"
+            error_code="PasswordTooWeakError",
         )
 
 
 # ==================== Strategy Errors ====================
+
 
 class StrategyError(BaseAppError):
     """Base class for strategy-related errors."""
@@ -325,7 +295,7 @@ class StrategyError(BaseAppError):
         self,
         message: str = "Strategy operation failed",
         details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
     ):
         """Initialize strategy error.
 
@@ -334,11 +304,7 @@ class StrategyError(BaseAppError):
             details: Additional error details.
             error_code: Optional override for error code.
         """
-        super().__init__(
-            message,
-            details,
-            error_code or "STRATEGY_ERROR"
-        )
+        super().__init__(message, details, error_code or "STRATEGY_ERROR")
 
 
 class StrategyNotFoundError(StrategyError):
@@ -366,7 +332,7 @@ class InvalidStrategyCodeError(StrategyError):
         self,
         message: str = "Invalid strategy code",
         line: Optional[int] = None,
-        error: Optional[str] = None
+        error: Optional[str] = None,
     ):
         """Initialize invalid strategy code error.
 
@@ -385,6 +351,7 @@ class InvalidStrategyCodeError(StrategyError):
 
 # ==================== Backtest Errors ====================
 
+
 class BacktestError(BaseAppError):
     """Base class for backtest-related errors."""
 
@@ -392,7 +359,7 @@ class BacktestError(BaseAppError):
         self,
         message: str = "Backtest operation failed",
         details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
     ):
         """Initialize backtest error.
 
@@ -401,11 +368,7 @@ class BacktestError(BaseAppError):
             details: Additional error details.
             error_code: Optional override for error code.
         """
-        super().__init__(
-            message,
-            details,
-            error_code or "BACKTEST_ERROR"
-        )
+        super().__init__(message, details, error_code or "BACKTEST_ERROR")
 
 
 class BacktestNotFoundError(BacktestError):
@@ -429,12 +392,7 @@ class BacktestNotFoundError(BacktestError):
 class BacktestExecutionError(BacktestError):
     """Raised when backtest execution fails."""
 
-    def __init__(
-        self,
-        message: str,
-        task_id: Optional[str] = None,
-        logs: Optional[str] = None
-    ):
+    def __init__(self, message: str, task_id: Optional[str] = None, logs: Optional[str] = None):
         """Initialize backtest execution error.
 
         Args:
@@ -461,12 +419,12 @@ class BacktestTimeoutError(BacktestExecutionError):
             timeout_seconds: The timeout duration in seconds.
         """
         super().__init__(
-            f"Backtest execution timed out after {timeout_seconds} seconds",
-            task_id=task_id
+            f"Backtest execution timed out after {timeout_seconds} seconds", task_id=task_id
         )
 
 
 # ==================== Data Errors ====================
+
 
 class DataError(BaseAppError):
     """Base class for data-related errors."""
@@ -475,7 +433,7 @@ class DataError(BaseAppError):
         self,
         message: str = "Data operation failed",
         details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
     ):
         """Initialize data error.
 
@@ -484,11 +442,7 @@ class DataError(BaseAppError):
             details: Additional error details.
             error_code: Optional override for error code.
         """
-        super().__init__(
-            message,
-            details,
-            error_code or "DATA_ERROR"
-        )
+        super().__init__(message, details, error_code or "DATA_ERROR")
 
 
 class DataNotFoundError(DataError):
@@ -498,7 +452,7 @@ class DataNotFoundError(DataError):
         self,
         symbol: Optional[str] = None,
         start_date: Optional[str] = None,
-        end_date: Optional[str] = None
+        end_date: Optional[str] = None,
     ):
         """Initialize data not found error.
 
@@ -525,10 +479,7 @@ class InvalidDateRangeError(DataError):
     """Raised when date range is invalid."""
 
     def __init__(
-        self,
-        reason: str,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None
+        self, reason: str, start_date: Optional[str] = None, end_date: Optional[str] = None
     ):
         """Initialize invalid date range error.
 
@@ -547,6 +498,7 @@ class InvalidDateRangeError(DataError):
 
 # ==================== Configuration Errors ====================
 
+
 class ConfigurationError(BaseAppError):
     """Base class for configuration-related errors."""
 
@@ -554,7 +506,7 @@ class ConfigurationError(BaseAppError):
         self,
         message: str = "Configuration error",
         setting: Optional[str] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
     ):
         """Initialize configuration error.
 
@@ -566,11 +518,7 @@ class ConfigurationError(BaseAppError):
         details = {}
         if setting:
             details["setting"] = setting
-        super().__init__(
-            message,
-            details if details else None,
-            error_code or "CONFIGURATION_ERROR"
-        )
+        super().__init__(message, details if details else None, error_code or "CONFIGURATION_ERROR")
 
 
 class MissingConfigError(ConfigurationError):
@@ -585,19 +533,14 @@ class MissingConfigError(ConfigurationError):
         super().__init__(
             f"Required configuration setting is missing: {setting}",
             setting=setting,
-            error_code="MissingConfigError"
+            error_code="MissingConfigError",
         )
 
 
 class InvalidConfigError(ConfigurationError):
     """Raised when a configuration value is invalid."""
 
-    def __init__(
-        self,
-        setting: str,
-        value: Optional[Any] = None,
-        reason: Optional[str] = None
-    ):
+    def __init__(self, setting: str, value: Optional[Any] = None, reason: Optional[str] = None):
         """Initialize invalid config error.
 
         Args:
@@ -615,16 +558,13 @@ class InvalidConfigError(ConfigurationError):
         if reason:
             message += f" - {reason}"
         # Call parent's __init__ with message and setting, not details
-        super().__init__(
-            message,
-            setting=setting,
-            error_code="InvalidConfigError"
-        )
+        super().__init__(message, setting=setting, error_code="InvalidConfigError")
         # Then update details
         self.details.update(details)
 
 
 # ==================== External Service Errors ====================
+
 
 class ExternalServiceError(BaseAppError):
     """Base class for external service errors."""
@@ -634,7 +574,7 @@ class ExternalServiceError(BaseAppError):
         service: str,
         message: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None
+        error_code: Optional[str] = None,
     ):
         """Initialize external service error.
 
@@ -647,21 +587,13 @@ class ExternalServiceError(BaseAppError):
         full_message = message or f"External service error: {service}"
         full_details = details or {}
         full_details["service"] = service
-        super().__init__(
-            full_message,
-            full_details,
-            error_code or "EXTERNAL_SERVICE_ERROR"
-        )
+        super().__init__(full_message, full_details, error_code or "EXTERNAL_SERVICE_ERROR")
 
 
 class BrokerConnectionError(ExternalServiceError):
     """Raised when broker connection fails."""
 
-    def __init__(
-        self,
-        broker: str,
-        reason: Optional[str] = None
-    ):
+    def __init__(self, broker: str, reason: Optional[str] = None):
         """Initialize broker connection error.
 
         Args:
@@ -675,18 +607,14 @@ class BrokerConnectionError(ExternalServiceError):
             broker,
             message=f"Failed to connect to broker: {broker}",
             details=details,
-            error_code="BrokerConnectionError"
+            error_code="BrokerConnectionError",
         )
 
 
 class DataProviderError(ExternalServiceError):
     """Raised when data provider fails."""
 
-    def __init__(
-        self,
-        provider: str,
-        reason: Optional[str] = None
-    ):
+    def __init__(self, provider: str, reason: Optional[str] = None):
         """Initialize data provider error.
 
         Args:
@@ -700,11 +628,12 @@ class DataProviderError(ExternalServiceError):
             provider,
             message=f"Data provider error: {provider}",
             details=details,
-            error_code="DataProviderError"
+            error_code="DataProviderError",
         )
 
 
 # ==================== Utility Functions ====================
+
 
 def format_exception_for_response(exc: Exception) -> Dict[str, Any]:
     """Format any exception for API response.

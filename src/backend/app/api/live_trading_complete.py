@@ -3,6 +3,7 @@ Live trading API routes (full version).
 
 Based on Backtrader's Cerebro + Store + Broker architecture.
 """
+
 import asyncio
 import logging
 
@@ -35,7 +36,10 @@ def get_live_trading_service():
 
 # ==================== Live Trading Strategy Submission API ====================
 
-@router.post("/live/submit", response_model=LiveTradingTaskResponse, summary="Submit live trading strategy")
+
+@router.post(
+    "/live/submit", response_model=LiveTradingTaskResponse, summary="Submit live trading strategy"
+)
 async def submit_live_strategy(
     request: LiveTradingSubmitRequest,
     current_user=Depends(get_current_user),
@@ -83,12 +87,15 @@ async def submit_live_strategy(
     )
 
     # Push task creation notification
-    await ws_manager.send_to_task(f"user:{current_user.sub}:live", {
-        "type": MessageType.PROGRESS,
-        "task_id": task_id,
-        "message": "Live trading strategy has been submitted",
-        "data": request.model_dump(),
-    })
+    await ws_manager.send_to_task(
+        f"user:{current_user.sub}:live",
+        {
+            "type": MessageType.PROGRESS,
+            "task_id": task_id,
+            "message": "Live trading strategy has been submitted",
+            "data": request.model_dump(),
+        },
+    )
 
     # Return response matching LiveTradingTaskResponse schema
     return LiveTradingTaskResponse(
@@ -102,7 +109,10 @@ async def submit_live_strategy(
 
 # ==================== Live Task Management API ====================
 
-@router.get("/live/tasks", response_model=LiveTradingTaskListResponse, summary="List live trading tasks")
+
+@router.get(
+    "/live/tasks", response_model=LiveTradingTaskListResponse, summary="List live trading tasks"
+)
 async def list_live_tasks(
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
@@ -129,7 +139,11 @@ async def list_live_tasks(
     return LiveTradingTaskListResponse(total=total, tasks=tasks)
 
 
-@router.get("/live/tasks/{task_id}", response_model=LiveTradingTaskResponse, summary="Get live trading task status")
+@router.get(
+    "/live/tasks/{task_id}",
+    response_model=LiveTradingTaskResponse,
+    summary="Get live trading task status",
+)
 async def get_live_task_status(
     task_id: str,
     current_user=Depends(get_current_user),
@@ -152,14 +166,14 @@ async def get_live_task_status(
 
     if not task:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Live trading task not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Live trading task not found"
         )
 
     return task
 
 
 # ==================== Live Task Control API ====================
+
 
 @router.post("/live/tasks/{task_id}/stop", summary="Stop live trading task")
 async def stop_live_strategy(
@@ -185,22 +199,30 @@ async def stop_live_strategy(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Live trading task not found or no permission to stop"
+            detail="Live trading task not found or no permission to stop",
         )
 
     # Push stop notification
-    await ws_manager.send_to_task(f"live:{task_id}", {
-        "type": MessageType.PROGRESS,
-        "task_id": task_id,
-        "message": "Live trading task has been stopped",
-    })
+    await ws_manager.send_to_task(
+        f"live:{task_id}",
+        {
+            "type": MessageType.PROGRESS,
+            "task_id": task_id,
+            "message": "Live trading task has been stopped",
+        },
+    )
 
     return {"message": "Live trading task has been stopped"}
 
 
 # ==================== Live Trading Data API ====================
 
-@router.get("/live/tasks/{task_id}/data", response_model=LiveTradingDataResponse, summary="Get live trading data")
+
+@router.get(
+    "/live/tasks/{task_id}/data",
+    response_model=LiveTradingDataResponse,
+    summary="Get live trading data",
+)
 async def get_live_trading_data(
     task_id: str,
     current_user=Depends(get_current_user),
@@ -223,8 +245,7 @@ async def get_live_trading_data(
     task_status = await service.get_task_status(current_user.sub, task_id)
     if not task_status:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Live trading task not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Live trading task not found"
         )
 
     data = await service.get_task_data(task_id)
@@ -232,15 +253,20 @@ async def get_live_trading_data(
     # Return response matching LiveTradingDataResponse schema
     return LiveTradingDataResponse(
         task_id=task_id,
-        status=task_status.get("status", "stopped") if isinstance(task_status, dict) else getattr(task_status, "status", "stopped"),
+        status=task_status.get("status", "stopped")
+        if isinstance(task_status, dict)
+        else getattr(task_status, "status", "stopped"),
         cash=data.get("cash", 0.0) if isinstance(data, dict) else getattr(data, "cash", 0.0),
         value=data.get("value", 0.0) if isinstance(data, dict) else getattr(data, "value", 0.0),
-        positions=data.get("positions", []) if isinstance(data, dict) else getattr(data, "positions", []),
+        positions=data.get("positions", [])
+        if isinstance(data, dict)
+        else getattr(data, "positions", []),
         orders=data.get("orders", []) if isinstance(data, dict) else getattr(data, "orders", []),
     )
 
 
 # ==================== WebSocket Endpoint ====================
+
 
 @router.websocket("/ws/live/{task_id}")
 async def live_trading_websocket(
@@ -279,11 +305,14 @@ async def live_trading_websocket(
 
     try:
         # Send initial message
-        await ws_manager.send_to_task(f"live:{task_id}", {
-            "type": MessageType.CONNECTED,
-            "task_id": task_id,
-            "message": "Live trading WebSocket connection successful",
-        })
+        await ws_manager.send_to_task(
+            f"live:{task_id}",
+            {
+                "type": MessageType.CONNECTED,
+                "task_id": task_id,
+                "message": "Live trading WebSocket connection successful",
+            },
+        )
 
         # Keep connection alive and push updates
         while True:

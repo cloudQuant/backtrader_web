@@ -1,5 +1,4 @@
 import asyncio
-import types
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -202,10 +201,10 @@ async def test_strategy_version_api_ws_notifications_and_returns(monkeypatch):
     """Cover strategy_version API missing ws notification lines and return statements."""
     from app.api import strategy_version as api
     from app.schemas.strategy_version import (
-        VersionCreate,
-        VersionUpdate,
         VersionComparisonRequest,
+        VersionCreate,
         VersionRollbackRequest,
+        VersionUpdate,
     )
 
     monkeypatch.setattr(api.ws_manager, "send_to_task", AsyncMock())

@@ -6,7 +6,6 @@ These tests verify that fincore calculations are consistent with
 manual calculations within acceptable error bounds.
 """
 
-import pytest
 import numpy as np
 
 from app.services.fincore_metrics_helper import (

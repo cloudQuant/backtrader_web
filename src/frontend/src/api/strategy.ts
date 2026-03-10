@@ -28,9 +28,10 @@ export const strategyApi = {
     return api.get('/strategy/', { params: { limit, offset, category } })
   },
 
-  async getTemplates(category?: string): Promise<{ templates: StrategyTemplate[]; total: number }> {
-    return api.get('/strategy/templates', { params: { category } })
+  async getTemplates(strategyType?: StrategyType): Promise<{ templates: StrategyTemplate[]; total: number }> {
+    return api.get('/strategy/templates', { params: { strategy_type: strategyType } })
   },
+
 
   async getTemplateDetail(id: string): Promise<StrategyTemplate> {
     return api.get(`/strategy/templates/${id}`)

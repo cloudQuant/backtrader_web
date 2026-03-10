@@ -1,11 +1,12 @@
 """
 Sandbox security execution tests.
 """
-import pytest
-from app.utils.sandbox import StrategySandbox, execute_strategy_safely, DockerSandbox
-from unittest.mock import patch, MagicMock
-import backtrader as bt
+from unittest.mock import patch
 
+import backtrader as bt
+import pytest
+
+from app.utils.sandbox import DockerSandbox, StrategySandbox, execute_strategy_safely
 
 VALID_STRATEGY = """
 class MyStrategy(bt.Strategy):

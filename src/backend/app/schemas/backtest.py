@@ -1,6 +1,7 @@
 """
 Backtest schemas.
 """
+
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class TaskStatus(str, Enum):
     """Task status enum."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -19,6 +21,7 @@ class TaskStatus(str, Enum):
 
 class BacktestRequest(BaseModel):
     """Backtest request schema."""
+
     strategy_id: str = Field(..., description="Strategy ID")
     symbol: str = Field(..., description="Stock symbol")
     start_date: datetime = Field(..., description="Start date")
@@ -44,6 +47,7 @@ class BacktestRequest(BaseModel):
 
 class BacktestResponse(BaseModel):
     """Backtest task response schema."""
+
     task_id: str = Field(..., description="Task ID")
     status: TaskStatus = Field(..., description="Task status")
     message: Optional[str] = Field(None, description="Status message")
@@ -51,6 +55,7 @@ class BacktestResponse(BaseModel):
 
 class TradeRecord(BaseModel):
     """Trade record schema."""
+
     datetime: Optional[str] = None
     date: Optional[str] = None
     dtopen: Optional[str] = None
@@ -68,6 +73,7 @@ class TradeRecord(BaseModel):
 
 class BacktestResult(BaseModel):
     """Backtest result schema."""
+
     task_id: str
     strategy_id: str
     symbol: str
@@ -105,5 +111,6 @@ class BacktestResult(BaseModel):
 
 class BacktestListResponse(BaseModel):
     """Backtest list response schema."""
+
     total: int
     items: List[BacktestResult]

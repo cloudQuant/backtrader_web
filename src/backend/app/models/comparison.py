@@ -1,6 +1,7 @@
 """
 Backtest comparison models.
 """
+
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -22,9 +23,10 @@ from app.db.database import Base
 
 class ComparisonType(str, Enum):
     """Comparison type enum."""
+
     METRICS = "metrics"  # Metrics comparison
-    EQUITY = "equity"    # Equity curve comparison
-    TRADES = "trades"    # Trade comparison
+    EQUITY = "equity"  # Equity curve comparison
+    TRADES = "trades"  # Trade comparison
     DRAWDOWN = "drawdown"  # Drawdown comparison
 
 
@@ -44,6 +46,7 @@ class Comparison(Base):
         created_at: Creation timestamp.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "backtest_comparisons"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -64,7 +67,11 @@ class Comparison(Base):
 
     # Timestamps
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     user = relationship("User", back_populates="comparisons")
@@ -82,10 +89,13 @@ class ComparisonShare(Base):
         can_edit: Whether edit permission is granted.
         created_at: Share creation timestamp.
     """
+
     __tablename__ = "comparison_shares"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    comparison_id = Column(String(36), ForeignKey("backtest_comparisons.id"), nullable=False, index=True)
+    comparison_id = Column(
+        String(36), ForeignKey("backtest_comparisons.id"), nullable=False, index=True
+    )
     shared_with_user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     can_edit = Column(Boolean, default=False, nullable=False)  # Whether edit is allowed
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -97,8 +107,8 @@ class ComparisonShare(Base):
 
 # Many-to-many association table (comparison - backtest tasks)
 comparison_backtest_association = Table(
-    'comparison_backtest_association',
+    "comparison_backtest_association",
     Base.metadata,
-    Column('comparison_id', String(36), ForeignKey('backtest_comparisons.id'), primary_key=True),
-    Column('backtest_task_id', String(36), ForeignKey('backtest_tasks.id'), primary_key=True),
+    Column("comparison_id", String(36), ForeignKey("backtest_comparisons.id"), primary_key=True),
+    Column("backtest_task_id", String(36), ForeignKey("backtest_tasks.id"), primary_key=True),
 )

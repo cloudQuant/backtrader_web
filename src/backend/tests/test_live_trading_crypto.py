@@ -9,11 +9,11 @@ Tests /api/v1/live-trading-crypto routes:
     - GET /live/tasks/{task_id}/data - Get trading data
     - WebSocket /ws/live/{task_id} - Real-time updates
 """
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
-
 
 # Valid live trading request
 VALID_LIVE_TRADING_REQUEST = {
@@ -556,10 +556,10 @@ class TestLiveTradingCryptoSchemas:
         live trading are defined.
         """
         from app.schemas.live_trading import (
-            LiveTradingSubmitRequest,
-            LiveTradingTaskResponse,
-            LiveTradingTaskListResponse,
             LiveTradingDataResponse,
+            LiveTradingSubmitRequest,
+            LiveTradingTaskListResponse,
+            LiveTradingTaskResponse,
         )
 
         assert LiveTradingSubmitRequest is not None

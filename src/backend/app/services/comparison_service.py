@@ -3,6 +3,7 @@ Backtest comparison service.
 
 Supports comparing and analyzing multiple backtest results.
 """
+
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -89,9 +90,7 @@ class ComparisonService:
             }
 
         # Generate comparison data
-        comparison_data = await self._generate_comparison_data(
-            backtest_results, comparison_type
-        )
+        comparison_data = await self._generate_comparison_data(backtest_results, comparison_type)
 
         # Create the comparison
         comparison = Comparison(
@@ -194,10 +193,10 @@ class ComparisonService:
             the minimum value is selected.
         """
         best_metrics = {
-            "total_return": {"task_id": None, "value": float('-inf')},
-            "annual_return": {"task_id": None, "value": float('-inf')},
-            "sharpe_ratio": {"task_id": None, "value": float('-inf')},
-            "max_drawdown": {"task_id": None, "value": float('inf')},
+            "total_return": {"task_id": None, "value": float("-inf")},
+            "annual_return": {"task_id": None, "value": float("-inf")},
+            "sharpe_ratio": {"task_id": None, "value": float("-inf")},
+            "max_drawdown": {"task_id": None, "value": float("inf")},
             "win_rate": {"task_id": None, "value": 0.0},
         }
 
@@ -208,7 +207,10 @@ class ComparisonService:
 
             # Annual return (maximize)
             if result["annual_return"] > best_metrics["annual_return"]["value"]:
-                best_metrics["annual_return"] = {"task_id": task_id, "value": result["annual_return"]}
+                best_metrics["annual_return"] = {
+                    "task_id": task_id,
+                    "value": result["annual_return"],
+                }
 
             # Sharpe ratio (maximize)
             if result["sharpe_ratio"] > best_metrics["sharpe_ratio"]["value"]:

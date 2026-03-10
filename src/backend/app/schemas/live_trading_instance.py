@@ -1,6 +1,7 @@
 """
 Live trading instance schemas.
 """
+
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -8,12 +9,14 @@ from pydantic import BaseModel, Field
 
 class LiveInstanceCreate(BaseModel):
     """Live trading instance creation request schema."""
+
     strategy_id: str = Field(..., description="Strategy directory name, e.g., 002_dual_ma")
     params: Optional[Dict[str, Any]] = Field(None, description="Custom parameter overrides")
 
 
 class LiveInstanceInfo(BaseModel):
     """Live trading instance info schema."""
+
     id: str = Field(..., description="Unique instance ID")
     strategy_id: str = Field(..., description="Strategy directory name")
     strategy_name: str = Field("", description="Strategy name")
@@ -29,12 +32,14 @@ class LiveInstanceInfo(BaseModel):
 
 class LiveInstanceListResponse(BaseModel):
     """Live trading instance list response schema."""
+
     total: int
     instances: List[LiveInstanceInfo]
 
 
 class LiveBatchResponse(BaseModel):
     """Batch operation response schema."""
+
     success: int = 0
     failed: int = 0
     details: List[Dict[str, str]] = Field(default_factory=list)

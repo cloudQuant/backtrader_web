@@ -1,7 +1,6 @@
 """
 Main application route tests - Cover root, health, info routes in main.py.
 """
-import pytest
 from httpx import AsyncClient
 
 

@@ -8,9 +8,9 @@ Tests:
     - Batch start/stop
     - Live trading analytics endpoints
 """
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from httpx import AsyncClient
 
@@ -475,7 +475,7 @@ class TestLiveTradingManager:
         Verifies that get_live_trading_manager returns
         the same instance each time.
         """
-        from app.services.live_trading_manager import get_live_trading_manager, LiveTradingManager
+        from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
 
         mgr1 = get_live_trading_manager()
         mgr2 = get_live_trading_manager()

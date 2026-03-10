@@ -13,19 +13,15 @@ Tests:
 - Slippage calculation
 - Price simulation
 """
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
-from datetime import datetime
 
-from app.services.paper_trading_service import PaperTradingService
+import pytest
+
 from app.models.paper_trading import (
-    Account,
-    Position,
-    Order,
-    OrderType,
     OrderSide,
     OrderStatus,
 )
+from app.services.paper_trading_service import PaperTradingService
 
 
 class TestPaperTradingServiceInitialization:

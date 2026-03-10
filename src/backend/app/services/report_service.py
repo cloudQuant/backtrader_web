@@ -3,12 +3,14 @@ Backtest report generation service.
 
 Supports exporting professional reports in HTML/PDF/Excel formats.
 """
+
 import io
 from datetime import datetime, timezone
 from typing import Any, Dict
 
 try:
     from jinja2 import Template
+
     JINJA2_AVAILABLE = True
 except ImportError:
     JINJA2_AVAILABLE = False
@@ -18,6 +20,7 @@ try:
     import pandas as pd
     from openpyxl import Workbook  # noqa: F401
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side  # noqa: F401
+
     PANDAS_AVAILABLE = True
     OPENPYXL_AVAILABLE = True
 except ImportError:
@@ -27,6 +30,7 @@ except ImportError:
 
 try:
     from weasyprint import HTML as WeasyPrintHTML
+
     WEASYPRINT_AVAILABLE = True
 except ImportError:
     WEASYPRINT_AVAILABLE = False
@@ -65,7 +69,7 @@ class ReportService:
             raise ImportError("Please install jinja2: pip install jinja2")
 
         # HTML template
-        template_str = '''
+        template_str = """
         <!DOCTYPE html>
         <html lang="zh-CN">
         <head>
@@ -307,25 +311,25 @@ class ReportService:
             </div>
         </body>
         </html>
-        '''
+        """
 
         template = Template(template_str)
 
         # Render template
         html_content = template.render(
             strategy=strategy,
-            total_return=result.get('total_return', 0),
-            annual_return=result.get('annual_return', 0),
-            sharpe_ratio=result.get('sharpe_ratio', 0),
-            max_drawdown=result.get('max_drawdown', 0),
-            win_rate=result.get('win_rate', 0),
-            total_trades=result.get('total_trades', 0),
-            profitable_trades=result.get('profitable_trades', 0),
-            losing_trades=result.get('losing_trades', 0),
-            params=result.get('params', {}),
-            created_at=datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-            start_date=result.get('start_date', ''),
-            end_date=result.get('end_date', ''),
+            total_return=result.get("total_return", 0),
+            annual_return=result.get("annual_return", 0),
+            sharpe_ratio=result.get("sharpe_ratio", 0),
+            max_drawdown=result.get("max_drawdown", 0),
+            win_rate=result.get("win_rate", 0),
+            total_trades=result.get("total_trades", 0),
+            profitable_trades=result.get("profitable_trades", 0),
+            losing_trades=result.get("losing_trades", 0),
+            params=result.get("params", {}),
+            created_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            start_date=result.get("start_date", ""),
+            end_date=result.get("end_date", ""),
         )
 
         return html_content
@@ -382,44 +386,59 @@ class ReportService:
         # Create Excel file
         output = io.BytesIO()
 
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
             # Overview sheet
-            overview_df = pd.DataFrame({
-                'Metric': ['Strategy Name', 'Symbol', 'Start Date', 'End Date', 'Total Return',
-                         'Annual Return', 'Sharpe Ratio', 'Max Drawdown', 'Win Rate',
-                         'Total Trades', 'Profitable Trades', 'Losing Trades'],
-                'Value': [
-                    strategy.get('name', ''),
-                    result.get('symbol', ''),
-                    str(result.get('start_date', '')),
-                    str(result.get('end_date', '')),
-                    result.get('total_return', 0),
-                    result.get('annual_return', 0),
-                    result.get('sharpe_ratio', 0),
-                    result.get('max_drawdown', 0),
-                    result.get('win_rate', 0),
-                    result.get('total_trades', 0),
-                    result.get('profitable_trades', 0),
-                    result.get('losing_trades', 0),
-                ]
-            })
-            overview_df.to_excel(writer, sheet_name='Overview', index=False)
+            overview_df = pd.DataFrame(
+                {
+                    "Metric": [
+                        "Strategy Name",
+                        "Symbol",
+                        "Start Date",
+                        "End Date",
+                        "Total Return",
+                        "Annual Return",
+                        "Sharpe Ratio",
+                        "Max Drawdown",
+                        "Win Rate",
+                        "Total Trades",
+                        "Profitable Trades",
+                        "Losing Trades",
+                    ],
+                    "Value": [
+                        strategy.get("name", ""),
+                        result.get("symbol", ""),
+                        str(result.get("start_date", "")),
+                        str(result.get("end_date", "")),
+                        result.get("total_return", 0),
+                        result.get("annual_return", 0),
+                        result.get("sharpe_ratio", 0),
+                        result.get("max_drawdown", 0),
+                        result.get("win_rate", 0),
+                        result.get("total_trades", 0),
+                        result.get("profitable_trades", 0),
+                        result.get("losing_trades", 0),
+                    ],
+                }
+            )
+            overview_df.to_excel(writer, sheet_name="Overview", index=False)
 
             # Trade records sheet
-            trades_data = result.get('trades', [])
+            trades_data = result.get("trades", [])
             if trades_data:
                 trades_df = pd.DataFrame(trades_data)
-                trades_df.to_excel(writer, sheet_name='Trades', index=False)
+                trades_df.to_excel(writer, sheet_name="Trades", index=False)
 
             # Equity curve sheet
-            equity_dates = result.get('equity_dates', [])
-            equity_curve = result.get('equity_curve', [])
+            equity_dates = result.get("equity_dates", [])
+            equity_curve = result.get("equity_curve", [])
             if equity_dates and equity_curve:
-                equity_df = pd.DataFrame({
-                    'Date': equity_dates,
-                    'Equity': equity_curve,
-                })
-                equity_df.to_excel(writer, sheet_name='Equity Curve', index=False)
+                equity_df = pd.DataFrame(
+                    {
+                        "Date": equity_dates,
+                        "Equity": equity_curve,
+                    }
+                )
+                equity_df.to_excel(writer, sheet_name="Equity Curve", index=False)
 
         output.seek(0)
         return output.getvalue()

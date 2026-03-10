@@ -3,6 +3,7 @@ Strategy versioning models.
 
 Supports versioning, rollback, and branch management.
 """
+
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -15,6 +16,7 @@ from app.db.database import Base
 
 class VersionStatus(str, Enum):
     """Version status enum."""
+
     DRAFT = "draft"
     STABLE = "stable"
     DEPRECATED = "deprecated"
@@ -23,6 +25,7 @@ class VersionStatus(str, Enum):
 
 class VersionTag(str, Enum):
     """Version tag enum."""
+
     LATEST = "latest"
     STABLE = "stable"
     ALPHA = "alpha"
@@ -54,6 +57,7 @@ class StrategyVersion(Base):
         updated_by: User ID who last updated the version.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "strategy_versions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -73,7 +77,9 @@ class StrategyVersion(Base):
     # Meta info
     is_active = Column(Boolean, default=True, nullable=False)  # Whether version is active
     is_default = Column(Boolean, default=False, nullable=False)  # Whether version is default
-    is_current = Column(Boolean, default=False, nullable=False)  # Whether version is current (branch head)
+    is_current = Column(
+        Boolean, default=False, nullable=False
+    )  # Whether version is current (branch head)
 
     # Relationships
     parent_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=True)
@@ -83,7 +89,11 @@ class StrategyVersion(Base):
     created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_by = Column(String(36), ForeignKey("users.id"), nullable=True)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     strategy = relationship("Strategy", back_populates="versions")
@@ -103,6 +113,7 @@ class VersionComparison(Base):
         performance_diff: Performance difference (JSON).
         created_at: Creation timestamp.
     """
+
     __tablename__ = "version_comparisons"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -132,6 +143,7 @@ class VersionRollback(Base):
         created_at: Creation timestamp.
         created_by: User ID who initiated the rollback.
     """
+
     __tablename__ = "version_rollbacks"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -160,11 +172,14 @@ class VersionBranch(Base):
         created_at: Creation timestamp.
         created_by: User ID who created the branch.
     """
+
     __tablename__ = "strategy_branches"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     strategy_id = Column(String(36), ForeignKey("strategies.id"), nullable=False, index=True)
-    branch_name = Column(String(50), nullable=False, index=True)  # Branch name (main, dev, feature/xxx)
+    branch_name = Column(
+        String(50), nullable=False, index=True
+    )  # Branch name (main, dev, feature/xxx)
     parent_branch = Column(String(50), nullable=True)  # Parent branch name
 
     # Branch info

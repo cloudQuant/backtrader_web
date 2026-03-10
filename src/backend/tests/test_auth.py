@@ -2,7 +2,7 @@
 Authentication API tests.
 """
 import uuid
-import pytest
+
 from httpx import AsyncClient
 
 

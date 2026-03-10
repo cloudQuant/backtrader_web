@@ -1,6 +1,7 @@
 """
 Market data API routes.
 """
+
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,9 +33,9 @@ async def get_kline_data(
     """
     import akshare as ak
 
-    code = symbol.split('.')[0]
-    start_str = start_date.replace('-', '')
-    end_str = end_date.replace('-', '')
+    code = symbol.split(".")[0]
+    start_str = start_date.replace("-", "")
+    end_str = end_date.replace("-", "")
 
     try:
         df = ak.stock_zh_a_hist(
@@ -50,15 +51,17 @@ async def get_kline_data(
             raise HTTPException(status_code=404, detail=f"No data retrieved for {symbol}")
 
         # akshare returns Chinese column names, rename to English
-        df = df.rename(columns={
-            '日期': 'date',      # Date
-            '开盘': 'open',      # Open
-            '最高': 'high',      # High
-            '最低': 'low',       # Low
-            '收盘': 'close',     # Close
-            '成交量': 'volume',  # Volume
-            '涨跌幅': 'change_pct',  # Change percentage
-        })
+        df = df.rename(
+            columns={
+                "日期": "date",  # Date
+                "开盘": "open",  # Open
+                "最高": "high",  # High
+                "最低": "low",  # Low
+                "收盘": "close",  # Close
+                "成交量": "volume",  # Volume
+                "涨跌幅": "change_pct",  # Change percentage
+            }
+        )
 
         records = []
         dates = []
@@ -66,21 +69,28 @@ async def get_kline_data(
         volumes = []
 
         for _, row in df.iterrows():
-            d = str(row['date'])
+            d = str(row["date"])
             dates.append(d)
-            o = round(float(row['open']), 2)
-            h = round(float(row['high']), 2)
-            low = round(float(row['low']), 2)
-            c = round(float(row['close']), 2)
-            v = int(row['volume'])
-            change = round(float(row.get('change_pct', 0)), 2)
+            o = round(float(row["open"]), 2)
+            h = round(float(row["high"]), 2)
+            low = round(float(row["low"]), 2)
+            c = round(float(row["close"]), 2)
+            v = int(row["volume"])
+            change = round(float(row.get("change_pct", 0)), 2)
 
             ohlc.append([o, c, low, h])
             volumes.append(v)
-            records.append({
-                'date': d, 'open': o, 'high': h, 'low': low,
-                'close': c, 'volume': v, 'change': change,
-            })
+            records.append(
+                {
+                    "date": d,
+                    "open": o,
+                    "high": h,
+                    "low": low,
+                    "close": c,
+                    "volume": v,
+                    "change": change,
+                }
+            )
 
         return {
             "symbol": symbol,

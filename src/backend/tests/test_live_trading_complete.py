@@ -9,11 +9,11 @@ Tests:
     - Live trading data retrieval
     - WebSocket endpoints
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from datetime import datetime
-from fastapi import status
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from fastapi import status
 
 # Valid live trading request
 VALID_LIVE_TRADING_REQUEST = {
@@ -158,7 +158,7 @@ class TestLiveTradingSubmitAPI:
             mock_current_user: Mock current user fixture.
             mock_live_trading_service: Mock live trading service fixture.
         """
-        from app.api.live_trading_complete import submit_live_strategy, ws_manager, MessageType
+        from app.api.live_trading_complete import MessageType, submit_live_strategy, ws_manager
         from app.schemas.live_trading import LiveTradingSubmitRequest
 
         request = LiveTradingSubmitRequest(**VALID_LIVE_TRADING_REQUEST)
@@ -284,8 +284,9 @@ class TestLiveTradingTaskStatusAPI:
             mock_current_user: Mock current user fixture.
             mock_live_trading_service: Mock live trading service fixture.
         """
-        from app.api.live_trading_complete import get_live_task_status
         from fastapi import HTTPException
+
+        from app.api.live_trading_complete import get_live_task_status
 
         mock_live_trading_service.get_task_status = AsyncMock(return_value=None)
 
@@ -339,8 +340,9 @@ class TestLiveTradingControlAPI:
             mock_current_user: Mock current user fixture.
             mock_live_trading_service: Mock live trading service fixture.
         """
-        from app.api.live_trading_complete import stop_live_strategy
         from fastapi import HTTPException
+
+        from app.api.live_trading_complete import stop_live_strategy
 
         mock_live_trading_service.stop_live_trading = AsyncMock(return_value=False)
 
@@ -382,7 +384,7 @@ class TestLiveTradingControlAPI:
             mock_current_user: Mock current user fixture.
             mock_live_trading_service: Mock live trading service fixture.
         """
-        from app.api.live_trading_complete import stop_live_strategy, ws_manager, MessageType
+        from app.api.live_trading_complete import MessageType, stop_live_strategy, ws_manager
 
         mock_live_trading_service.stop_live_trading = AsyncMock(return_value=True)
 
@@ -395,7 +397,7 @@ class TestLiveTradingControlAPI:
 
             # Verify WebSocket notification was sent
             mock_send.assert_called_once_with(
-                f"live:task_123",
+                "live:task_123",
                 {
                     "type": MessageType.PROGRESS,
                     "task_id": "task_123",
@@ -415,8 +417,9 @@ class TestLiveTradingDataAPI:
             mock_current_user: Mock current user fixture.
             mock_live_trading_service: Mock live trading service fixture.
         """
-        from app.api.live_trading_complete import get_live_trading_data
         from fastapi import HTTPException
+
+        from app.api.live_trading_complete import get_live_trading_data
 
         mock_live_trading_service.get_task_status = AsyncMock(return_value=None)
 
@@ -499,7 +502,7 @@ class TestLiveTradingWebSocket:
         Verifies that a WebSocket connection is properly
         established with initial messages sent.
         """
-        from app.api.live_trading_complete import live_trading_websocket, MessageType
+        from app.api.live_trading_complete import MessageType, live_trading_websocket
 
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
@@ -611,8 +614,9 @@ class TestLiveTradingSchemas:
         Verifies that validation errors are raised for
         invalid requests.
         """
-        from app.schemas.live_trading import LiveTradingSubmitRequest
         from pydantic import ValidationError
+
+        from app.schemas.live_trading import LiveTradingSubmitRequest
 
         # Missing required fields
         with pytest.raises(ValidationError):

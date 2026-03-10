@@ -8,7 +8,7 @@ execution is still launched by the API process.
 import logging
 from typing import Any, List, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.db.database import async_session_maker
 from app.models.backtest import BacktestResultModel, BacktestTask
@@ -27,22 +27,24 @@ class BacktestExecutionManager:
         """Return the current active task count for one user."""
         async with async_session_maker() as session:
             result = await session.execute(
-                select(BacktestTask).where(
+                select(func.count())
+                .select_from(BacktestTask)
+                .where(
                     BacktestTask.user_id == user_id,
                     BacktestTask.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]),
                 )
             )
-            return len(result.scalars().all())
+            return int(result.scalar() or 0)
 
     async def get_global_task_count(self) -> int:
         """Return the total active task count across all users."""
         async with async_session_maker() as session:
             result = await session.execute(
-                select(BacktestTask).where(
-                    BacktestTask.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING])
-                )
+                select(func.count())
+                .select_from(BacktestTask)
+                .where(BacktestTask.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING]))
             )
-            return len(result.scalars().all())
+            return int(result.scalar() or 0)
 
     async def can_user_start_task(self, user_id: str) -> bool:
         """Return whether a user is within configured concurrency limits."""
@@ -192,9 +194,11 @@ class BacktestExecutionManager:
         async with async_session_maker() as session:
             query = select(BacktestTask).where(BacktestTask.user_id == user_id)
             total_result = await session.execute(
-                select(BacktestTask).where(BacktestTask.user_id == user_id)
+                select(func.count())
+                .select_from(BacktestTask)
+                .where(BacktestTask.user_id == user_id)
             )
-            total = len(total_result.scalars().all())
+            total = int(total_result.scalar() or 0)
 
             order_column = getattr(BacktestTask, order_by, BacktestTask.created_at)
             query = query.order_by(order_column.desc() if order_desc else order_column.asc())

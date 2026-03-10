@@ -7,6 +7,7 @@ Supports:
 - Strategy monitoring
 - System monitoring
 """
+
 import asyncio
 import json
 import logging
@@ -541,12 +542,17 @@ class MonitoringService:
             rule: The alert rule that was triggered.
         """
         # Update the trigger count and last triggered timestamp.
-        await self.alert_rule_repo.update(rule.id, {
-            "triggered_count": rule.triggered_count + 1,
-            "last_triggered_at": datetime.now(timezone.utc),
-        })
+        await self.alert_rule_repo.update(
+            rule.id,
+            {
+                "triggered_count": rule.triggered_count + 1,
+                "last_triggered_at": datetime.now(timezone.utc),
+            },
+        )
 
-        trigger_config = rule.trigger_config if isinstance(getattr(rule, "trigger_config", None), dict) else {}
+        trigger_config = (
+            rule.trigger_config if isinstance(getattr(rule, "trigger_config", None), dict) else {}
+        )
         trigger_value = await self._get_current_metric_value(rule, trigger_config)
         threshold_value = None
         threshold_value = trigger_config.get("threshold")
@@ -597,11 +603,26 @@ class MonitoringService:
 
         for channel in channels:
             if channel == "email":
-                await self._record_notification(alert.id, channel="email", status="pending", message="email integration not configured")
+                await self._record_notification(
+                    alert.id,
+                    channel="email",
+                    status="pending",
+                    message="email integration not configured",
+                )
             elif channel == "sms":
-                await self._record_notification(alert.id, channel="sms", status="pending", message="sms integration not configured")
+                await self._record_notification(
+                    alert.id,
+                    channel="sms",
+                    status="pending",
+                    message="sms integration not configured",
+                )
             elif channel == "push":
-                await self._record_notification(alert.id, channel="push", status="pending", message="push integration not configured")
+                await self._record_notification(
+                    alert.id,
+                    channel="push",
+                    status="pending",
+                    message="push integration not configured",
+                )
             elif channel == "webhook":
                 await self._send_webhook(rule, alert)
 
@@ -640,7 +661,9 @@ class MonitoringService:
             "title": alert.title,
             "message": alert.message,
             "details": alert.details,
-            "created_at": alert.created_at.isoformat() if getattr(alert, "created_at", None) else None,
+            "created_at": alert.created_at.isoformat()
+            if getattr(alert, "created_at", None)
+            else None,
         }
 
         data = json.dumps(payload).encode("utf-8")
@@ -653,11 +676,17 @@ class MonitoringService:
         try:
             with urllib.request.urlopen(req, timeout=5) as resp:
                 _ = resp.read()  # drain
-            await self._record_notification(alert.id, channel="webhook", status="sent", message="ok")
+            await self._record_notification(
+                alert.id, channel="webhook", status="sent", message="ok"
+            )
         except (urllib.error.URLError, ValueError) as e:
-            await self._record_notification(alert.id, channel="webhook", status="failed", message=str(e))
+            await self._record_notification(
+                alert.id, channel="webhook", status="failed", message=str(e)
+            )
 
-    async def _record_notification(self, alert_id: str, channel: str, status: str, message: str) -> None:
+    async def _record_notification(
+        self, alert_id: str, channel: str, status: str, message: str
+    ) -> None:
         """Persists a notification delivery attempt to the database.
 
         Args:
@@ -734,10 +763,13 @@ class MonitoringService:
         if not alert or alert.user_id != user_id:
             return False
 
-        await self.alert_repo.update(alert_id, {
-            "status": AlertStatus.RESOLVED,
-            "resolved_at": datetime.now(timezone.utc),
-        })
+        await self.alert_repo.update(
+            alert_id,
+            {
+                "status": AlertStatus.RESOLVED,
+                "resolved_at": datetime.now(timezone.utc),
+            },
+        )
 
         return True
 
@@ -755,9 +787,12 @@ class MonitoringService:
         if not alert or alert.user_id != user_id:
             return False
 
-        await self.alert_repo.update(alert_id, {
-            "status": AlertStatus.ACKNOWLEDGED,
-        })
+        await self.alert_repo.update(
+            alert_id,
+            {
+                "status": AlertStatus.ACKNOWLEDGED,
+            },
+        )
 
         return True
 
@@ -841,7 +876,9 @@ class MonitoringService:
             by_type[at] = by_type.get(at, 0) + 1
         return {"by_type": by_type}
 
-    async def _get_current_metric_value(self, rule: AlertRule, config: Dict[str, Any]) -> Optional[float]:
+    async def _get_current_metric_value(
+        self, rule: AlertRule, config: Dict[str, Any]
+    ) -> Optional[float]:
         """Resolves the current numeric metric value for a rule based on its type and config.
 
         Fetches real-time data from paper trading, live trading, or backtest
@@ -934,7 +971,9 @@ class MonitoringService:
             metric = str(config.get("metric", "sharpe_ratio"))
             backtest_task_id = config.get("backtest_task_id")
             if backtest_task_id:
-                result = await self.backtest_service.get_result(backtest_task_id, user_id=rule.user_id)
+                result = await self.backtest_service.get_result(
+                    backtest_task_id, user_id=rule.user_id
+                )
                 if not result:
                     return None
                 if metric == "sharpe_ratio":

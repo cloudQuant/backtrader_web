@@ -214,7 +214,7 @@ pytest tests/test_auth.py -v
 | `DATABASE_TYPE` | `sqlite` | Database type (sqlite/postgresql/mysql) |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./backtrader.db` | Connection URL |
 | `JWT_SECRET_KEY` | (auto) | JWT signing secret |
-| `JWT_EXPIRE_MINUTES` | `1440` | Token TTL in minutes |
+| `JWT_EXPIRE_MINUTES` | `10080` | Token TTL in minutes (7 days) |
 | `DEBUG` | `true` | Debug mode |
 | `SQL_ECHO` | `false` | SQLAlchemy query logging |
 

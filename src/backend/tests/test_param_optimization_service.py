@@ -9,9 +9,9 @@ Tests:
 - _get_optimization_metric method
 - _wait_for_backtest method
 """
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from datetime import datetime
 
 from app.services.optimization_service import OptimizationService
 

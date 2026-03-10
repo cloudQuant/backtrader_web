@@ -1,0 +1,54 @@
+# 策略基本信息
+strategy:
+  name: "配对交易布林策略"
+  description: "基于布林带思想的配对交易策略。使用Z-Score识别价差偏离，在价差异常时进行配对交易，均值回归时平仓。"
+  author: "mean_reversion_strategies"
+
+# 策略参数
+params:
+  lookback: 20
+  entry_zscore: 1.5
+  exit_zscore: 0.2
+  stake: 10
+
+# 数据配置
+data:
+  symbol: "ORCL-NVDA"
+  data_type: "stock"
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001
+# ============================================================
+# CTP 连接配置（用于模拟盘，请填写 CTP 模拟账号）
+# ============================================================
+ctp:
+  broker_id: "3070"
+  investor_id: "333306116"
+  user_id: "333306116"
+  password: "199057"
+  app_id: "client_wtyj_1.0.9.9"
+  auth_code: "VCSX4A2S43I4RN25"
+  user_product_info: "wtpy"
+  interface_product_info: "wtpy"
+  fronts:
+    telecom:
+      td_address: "tcp://101.230.79.235:32205"
+      md_address: "tcp://101.230.79.235:32213"
+
+# ============================================================
+# CTP 模拟盘会话参数
+# ============================================================
+live:
+  symbol: "rb2504"  # CTP仅支持期货，回测为非期货时请按需修改
+  network: "telecom"
+  bar_seconds: 60
+  duration_seconds: 3600
+  session_timeout: 3700
+  min_price_tick: 1.0
+  max_order_size: 1
+  contract_metadata:
+    rb2504:
+      min_price_tick: 1.0
+      max_order_size: 1

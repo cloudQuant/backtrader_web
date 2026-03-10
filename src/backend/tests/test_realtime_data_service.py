@@ -9,8 +9,10 @@ Tests:
 - Get historical market data
 - Update market data cache
 """
-import pytest
 from datetime import datetime
+
+import pytest
+
 from app.services.realtime_data_service import RealTimeDataService
 
 

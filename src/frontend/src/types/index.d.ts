@@ -119,6 +119,10 @@ export interface StrategyTemplate {
   category: string
 }
 
+export type StrategyType = 'backtest' | 'simulate' | 'live'
+
+export type StrategyType = 'backtest' | 'simulate' | 'live'
+
 export interface StrategyListResponse {
   total: number
   items: Strategy[]

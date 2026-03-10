@@ -7,10 +7,11 @@ Tests:
 - Error handling
 """
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
+
+import pandas as pd
 import pytest
 from httpx import AsyncClient
-import pandas as pd
 
 
 @pytest.fixture
@@ -158,7 +159,6 @@ class TestDataAPIRoutes:
 
     async def test_data_routes_registered(self):
         """Test data routes registered"""
-        from app.main import app
         from app.api.data import router as data_router
 
         # Check route exists

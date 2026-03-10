@@ -83,3 +83,7 @@ logs/
 .pytype/
 .ipynb_checkpoints
 cython_debug/
+strategies/simulate/a_td_sequential/config.yaml
+strategies/simulate/a_td_sequential/.env
+# All simulate strategies use .env for credentials
+strategies/simulate/*/.env

@@ -12,6 +12,7 @@ Supported log files:
 - run_info.json: run metadata
 - current_position.json: final positions
 """
+
 import json
 import logging
 import math
@@ -25,6 +26,11 @@ logger = logging.getLogger(__name__)
 
 def find_latest_log_dir(strategy_dir: Path) -> Optional[Path]:
     """Find the latest log directory under the strategy directory.
+
+    Supports two layouts:
+    1. logs/<subdir>/ (e.g. backtest runs) - returns the latest subdir by name.
+    2. logs/ (flat, no subdirs) - returns logs_dir when it contains log files.
+       Used by simulate strategies that write directly to logs/.
 
     Args:
         strategy_dir: The strategy directory path.
@@ -41,7 +47,12 @@ def find_latest_log_dir(strategy_dir: Path) -> Optional[Path]:
         key=lambda d: d.name,
         reverse=True,
     )
-    return subdirs[0] if subdirs else None
+    if subdirs:
+        return subdirs[0]
+    # Fallback: logs written directly in logs/ (no subdirs), e.g. simulate strategies
+    expected = {"value.log", "data.log", "trade.log"}
+    has_logs = any((logs_dir / f).is_file() for f in expected)
+    return logs_dir if has_logs else None
 
 
 def _parse_tsv(filepath: Path) -> List[Dict[str, str]]:
@@ -158,21 +169,23 @@ def parse_trade_log(log_dir: Path) -> List[Dict[str, Any]]:
         if row.get("isclosed") != "1":
             continue
 
-        trades.append({
-            "ref": int(_safe_float(row.get("ref", "0"))),
-            "datetime": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
-            "dtopen": row.get("dtopen", "").split(" ")[0] if row.get("dtopen") else "",
-            "dtclose": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
-            "data_name": row.get("data_name", ""),
-            "direction": "buy" if row.get("long") == "1" else "sell",
-            "size": abs(_safe_float(row.get("size", "0"))),
-            "price": round(_safe_float(row.get("price", "0")), 4),
-            "value": round(abs(_safe_float(row.get("value", "0"))), 2),
-            "commission": round(_safe_float(row.get("commission", "0")), 4),
-            "pnl": round(_safe_float(row.get("pnl", "0")), 2),
-            "pnlcomm": round(_safe_float(row.get("pnlcomm", "0")), 2),
-            "barlen": int(_safe_float(row.get("barlen", "0"))),
-        })
+        trades.append(
+            {
+                "ref": int(_safe_float(row.get("ref", "0"))),
+                "datetime": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
+                "dtopen": row.get("dtopen", "").split(" ")[0] if row.get("dtopen") else "",
+                "dtclose": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
+                "data_name": row.get("data_name", ""),
+                "direction": "buy" if row.get("long") == "1" else "sell",
+                "size": abs(_safe_float(row.get("size", "0"))),
+                "price": round(_safe_float(row.get("price", "0")), 4),
+                "value": round(abs(_safe_float(row.get("value", "0"))), 2),
+                "commission": round(_safe_float(row.get("commission", "0")), 4),
+                "pnl": round(_safe_float(row.get("pnl", "0")), 2),
+                "pnlcomm": round(_safe_float(row.get("pnlcomm", "0")), 2),
+                "barlen": int(_safe_float(row.get("barlen", "0"))),
+            }
+        )
 
     return trades
 
@@ -193,15 +206,17 @@ def parse_order_log(log_dir: Path) -> List[Dict[str, Any]]:
         if row.get("status") != "Completed":
             continue
 
-        orders.append({
-            "ref": int(_safe_float(row.get("ref", "0"))),
-            "type": row.get("ordtype", ""),
-            "size": _safe_float(row.get("size", "0")),
-            "price": round(_safe_float(row.get("executed_price", "0")), 4),
-            "commission": round(_safe_float(row.get("commission", "0")), 4),
-            "dt": row.get("dt", "").split(" ")[0] if row.get("dt") else "",
-            "data_name": row.get("data_name", ""),
-        })
+        orders.append(
+            {
+                "ref": int(_safe_float(row.get("ref", "0"))),
+                "type": row.get("ordtype", ""),
+                "size": _safe_float(row.get("size", "0")),
+                "price": round(_safe_float(row.get("executed_price", "0")), 4),
+                "commission": round(_safe_float(row.get("commission", "0")), 4),
+                "dt": row.get("dt", "").split(" ")[0] if row.get("dt") else "",
+                "data_name": row.get("data_name", ""),
+            }
+        )
 
     return orders
 
@@ -226,7 +241,17 @@ def parse_data_log(log_dir: Path) -> Dict[str, Any]:
         return {"dates": [], "ohlc": [], "volumes": [], "indicators": {}}
 
     # Find indicator columns (non-standard columns)
-    standard_cols = {"log_time", "dt", "data_name", "open", "high", "low", "close", "volume", "openinterest"}
+    standard_cols = {
+        "log_time",
+        "dt",
+        "data_name",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "openinterest",
+    }
     all_cols = set(rows[0].keys()) if rows else set()
     indicator_cols = [c for c in all_cols - standard_cols if c]
 
@@ -278,13 +303,15 @@ def parse_position_log(log_dir: Path) -> List[Dict[str, Any]]:
         dt = row.get("dt", "")
         if " " in dt:
             dt = dt.split(" ")[0]
-        positions.append({
-            "dt": dt,
-            "data_name": row.get("data_name", ""),
-            "size": size,
-            "price": round(price, 4),
-            "market_value": round(abs(size) * price, 2),
-        })
+        positions.append(
+            {
+                "dt": dt,
+                "data_name": row.get("data_name", ""),
+                "size": size,
+                "price": round(price, 4),
+                "market_value": round(abs(size) * price, 2),
+            }
+        )
     return positions
 
 
@@ -307,12 +334,14 @@ def parse_current_position(log_dir: Path) -> List[Dict[str, Any]]:
         for item in data:
             size = _safe_float(str(item.get("size", 0)))
             price = _safe_float(str(item.get("price", 0)))
-            result.append({
-                "data_name": item.get("data_name", ""),
-                "size": size,
-                "price": round(price, 4),
-                "market_value": round(abs(size) * price, 2),
-            })
+            result.append(
+                {
+                    "data_name": item.get("data_name", ""),
+                    "size": size,
+                    "price": round(price, 4),
+                    "market_value": round(abs(size) * price, 2),
+                }
+            )
         return result
     except Exception:
         return []
@@ -369,10 +398,16 @@ def parse_all_logs(strategy_dir: Path) -> Optional[Dict[str, Any]]:
     # Annualized return
     n_days = len(equity)
     n_years = n_days / 252.0 if n_days > 0 else 1.0
-    annual_return = ((final_value / initial_cash) ** (1.0 / n_years) - 1) * 100 if n_years > 0 and initial_cash > 0 else 0.0
+    annual_return = (
+        ((final_value / initial_cash) ** (1.0 / n_years) - 1) * 100
+        if n_years > 0 and initial_cash > 0
+        else 0.0
+    )
 
     # Maximum drawdown
-    max_drawdown = max(value_data.get("drawdown_curve", [0.0])) if value_data.get("drawdown_curve") else 0.0
+    max_drawdown = (
+        max(value_data.get("drawdown_curve", [0.0])) if value_data.get("drawdown_curve") else 0.0
+    )
 
     # Sharpe ratio (simplified calculation)
     if len(equity) > 1:
@@ -383,7 +418,7 @@ def parse_all_logs(strategy_dir: Path) -> Optional[Dict[str, Any]]:
         if returns:
             avg_ret = np.mean(returns)
             std_ret = np.std(returns)
-            sharpe_ratio = (avg_ret / std_ret * (252 ** 0.5)) if std_ret > 0 else 0.0
+            sharpe_ratio = (avg_ret / std_ret * (252**0.5)) if std_ret > 0 else 0.0
         else:
             sharpe_ratio = 0.0
     else:

@@ -11,9 +11,10 @@ Tests:
 - Branch management
 - Helper functions (code diff, params diff)
 """
-import pytest
-from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 class TestVersionControlServiceInitialization:
@@ -161,7 +162,6 @@ class TestToResponse:
     def test_to_response(self):
         """Test conversion to response."""
         from app.services.strategy_version_service import VersionControlService
-        from app.models.strategy_version import StrategyVersion
 
         service = VersionControlService()
 
@@ -319,7 +319,6 @@ class TestUpdateVersion:
     async def test_update_version_success(self):
         """Test successful version update."""
         from app.services.strategy_version_service import VersionControlService
-        from app.schemas.strategy_version import VersionUpdate
 
         service = VersionControlService()
 
@@ -350,7 +349,6 @@ class TestUpdateVersion:
     async def test_update_version_not_found(self):
         """Test updating non-existent version."""
         from app.services.strategy_version_service import VersionControlService
-        from app.schemas.strategy_version import VersionUpdate
 
         service = VersionControlService()
 

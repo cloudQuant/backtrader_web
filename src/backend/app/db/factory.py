@@ -1,6 +1,7 @@
 """
 Database factory - Create Repository based on environment variables.
 """
+
 from typing import Type, TypeVar
 
 from app.config import get_settings
@@ -8,7 +9,7 @@ from app.db.base import BaseRepository
 from app.db.cache import get_cache
 from app.db.sql_repository import SQLRepository
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 def get_repository(model_class: Type[T]) -> BaseRepository[T]:

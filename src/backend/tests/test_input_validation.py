@@ -4,29 +4,29 @@ Tests for input validation utilities.
 import pytest
 
 from app.utils.validation import (
-    detect_sql_injection,
-    sanitize_sql_identifier,
-    detect_xss,
-    sanitize_html,
-    escape_html,
-    detect_path_traversal,
-    sanitize_path,
+    ValidationResult,
     detect_command_injection,
+    detect_path_traversal,
+    detect_sql_injection,
+    detect_xss,
+    escape_html,
     sanitize_command_arg,
-    validate_email,
     sanitize_email,
-    validate_username,
-    sanitize_username,
+    sanitize_html,
+    sanitize_path,
+    sanitize_sql_identifier,
     sanitize_string,
+    sanitize_url,
+    sanitize_username,
+    validate_choice,
+    validate_email,
+    validate_float,
+    validate_integer,
     validate_max_length,
     validate_min_length,
     validate_url,
-    sanitize_url,
-    validate_integer,
-    validate_float,
-    validate_choice,
-    ValidationResult,
     validate_user_input,
+    validate_username,
 )
 
 
@@ -141,7 +141,6 @@ class TestPathTraversalPrevention:
 
     def test_sanitize_path(self):
         """Test path sanitization."""
-        import os
         safe_path = sanitize_path("../../../etc/passwd")
         # The basename should be extracted, so "etc/passwd" -> "passwd"
         assert "/etc/passwd" not in safe_path

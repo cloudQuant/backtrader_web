@@ -3,6 +3,7 @@ Permission dependencies.
 
 Implements role-based permission checks.
 """
+
 from fastapi import Depends, HTTPException, status
 
 from app.models.permission import ROLE_PERMISSIONS, Permission
@@ -36,11 +37,11 @@ def require_permission(permission: Permission):
     Returns:
         A dependency function that checks for the permission.
     """
+
     async def permission_checker(user: User = Depends(get_current_user)) -> User:
         if not has_permission(user, permission):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions"
+                status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions"
             )
         return user
 
@@ -50,6 +51,7 @@ def require_permission(permission: Permission):
 def get_current_user():
     """Return current user (delegates to the implementation in deps.py)."""
     from app.api.deps import get_current_user as _real_get_current_user
+
     return _real_get_current_user()
 
 
@@ -72,6 +74,7 @@ def require_any_permission(*permissions: Permission):
     Returns:
         A dependency function that checks for any of the specified permissions.
     """
+
     async def permission_checker(user: User = Depends(get_current_user)) -> User:
         user_permissions = []
         for role in user.roles:
@@ -81,7 +84,7 @@ def require_any_permission(*permissions: Permission):
         if not has_any:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Insufficient permissions, requires one of: {', '.join([p.value for p in permissions])}"
+                detail=f"Insufficient permissions, requires one of: {', '.join([p.value for p in permissions])}",
             )
         return user
 

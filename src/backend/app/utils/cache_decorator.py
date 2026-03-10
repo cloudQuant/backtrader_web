@@ -4,11 +4,12 @@ Cache decorator for API responses.
 Automatically caches API responses to Redis/Memory cache.
 """
 
-from functools import wraps
-from typing import Callable, Optional, Any, Dict, List
-from app.db.cache import get_cache
-import json
 import hashlib
+import json
+from functools import wraps
+from typing import Any, Callable, List, Optional
+
+from app.db.cache import get_cache
 
 
 def cache_response(

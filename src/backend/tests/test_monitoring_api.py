@@ -9,9 +9,9 @@ Tests:
 - WebSocket endpoints
 """
 from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from httpx import AsyncClient
-
 
 # Valid alert rule creation request
 VALID_ALERT_RULE_REQUEST = {
@@ -41,8 +41,9 @@ class TestAlertRules:
     async def test_create_alert_rule_success(self, client: AsyncClient, auth_headers):
         """Test successful alert rule creation."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
-            from app.schemas.monitoring import AlertType, AlertSeverity, TriggerType
             from datetime import datetime
+
+            from app.schemas.monitoring import AlertSeverity, AlertType, TriggerType
 
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -117,8 +118,9 @@ class TestAlertRules:
     async def test_get_alert_rule_not_implemented(self, client: AsyncClient, auth_headers):
         """Test getting rule details."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
-            from app.schemas.monitoring import AlertType, AlertSeverity, TriggerType
             from datetime import datetime
+
+            from app.schemas.monitoring import AlertSeverity, AlertType, TriggerType
 
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -177,8 +179,9 @@ class TestAlertRules:
     async def test_update_alert_rule_success(self, client: AsyncClient, auth_headers):
         """Test updating alert rule."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
-            from app.schemas.monitoring import AlertType, AlertSeverity, TriggerType
             from datetime import datetime
+
+            from app.schemas.monitoring import AlertSeverity, AlertType, TriggerType
 
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -301,8 +304,9 @@ class TestAlerts:
     async def test_get_alert_not_implemented(self, client: AsyncClient, auth_headers):
         """Test getting alert details."""
         with patch('app.api.monitoring.MonitoringService') as mock_service_class:
-            from app.schemas.monitoring import AlertType, AlertSeverity, AlertStatus
             from datetime import datetime
+
+            from app.schemas.monitoring import AlertSeverity, AlertStatus, AlertType
 
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
@@ -524,9 +528,10 @@ class TestMonitoringWebSocket:
 
     async def test_websocket_connection(self):
         """Test WebSocket connection basic functionality."""
-        from app.api.monitoring import alerts_websocket
-        from unittest.mock import AsyncMock, MagicMock, patch
         import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from app.api.monitoring import alerts_websocket
 
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
@@ -585,7 +590,7 @@ class TestAlertModels:
 
     async def test_alert_enums_exist(self):
         """Test alert enums exist."""
-        from app.models.alerts import AlertType, AlertSeverity, AlertStatus
+        from app.models.alerts import AlertSeverity, AlertStatus, AlertType
 
         assert AlertType is not None
         assert AlertSeverity is not None

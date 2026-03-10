@@ -7,6 +7,7 @@ Includes:
 - Report export
 - WebSocket progress streaming
 """
+
 from functools import lru_cache
 
 from fastapi import (
@@ -55,6 +56,7 @@ def get_report_service():
 
 # ==================== Backtest API ====================
 
+
 @router.post("/run", response_model=BacktestResponse, summary="Run backtest")
 async def run_backtest(
     request: BacktestRequest,
@@ -65,11 +67,14 @@ async def run_backtest(
     result = await service.run_backtest(current_user.sub, request)
 
     # Notify WebSocket clients (if connected)
-    await ws_manager.send_to_task(result.task_id, {
-        "type": "task_created",
-        "task_id": result.task_id,
-        "status": "pending",
-    })
+    await ws_manager.send_to_task(
+        result.task_id,
+        {
+            "type": "task_created",
+            "task_id": result.task_id,
+            "status": "pending",
+        },
+    )
 
     return result
 
@@ -112,7 +117,9 @@ async def list_backtests(
     service: BacktestService = Depends(get_backtest_service),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     offset: int = Query(0, ge=0, description="Offset"),
-    sort_by: str = Query("created_at", description="Sort field: created_at/sharpe_ratio/total_return"),
+    sort_by: str = Query(
+        "created_at", description="Sort field: created_at/sharpe_ratio/total_return"
+    ),
     sort_order: str = Query("desc", description="Sort direction: asc/desc"),
 ):
     """List user's backtest history (enhanced, supports sorting)."""
@@ -145,7 +152,10 @@ async def delete_backtest(
 
 # ==================== Parameter Optimization API ====================
 
-@router.post("/optimization/grid", response_model=OptimizationResult, summary="Grid search optimization")
+
+@router.post(
+    "/optimization/grid", response_model=OptimizationResult, summary="Grid search optimization"
+)
 async def grid_search_optimization(
     request: OptimizationRequest,
     current_user=Depends(get_current_user),
@@ -165,7 +175,9 @@ async def grid_search_optimization(
     return result
 
 
-@router.post("/optimization/bayesian", response_model=OptimizationResult, summary="Bayesian optimization")
+@router.post(
+    "/optimization/bayesian", response_model=OptimizationResult, summary="Bayesian optimization"
+)
 async def bayesian_optimization(
     request: OptimizationRequest,
     current_user=Depends(get_current_user),
@@ -187,6 +199,7 @@ async def bayesian_optimization(
 
 # ==================== Backtest Report Export API ====================
 
+
 @router.get("/{task_id}/report/html", summary="Export HTML report")
 async def get_html_report(
     task_id: str,
@@ -205,20 +218,19 @@ async def get_html_report(
     # Get strategy info
     # TODO: Get from strategy table
     strategy = {
-        'name': f"Strategy {result.strategy_id}",
-        'description': 'Custom strategy',
+        "name": f"Strategy {result.strategy_id}",
+        "description": "Custom strategy",
     }
 
     # Generate HTML report
     html_content = await report_service.generate_html_report(
-        result.model_dump(mode='python'),
-        strategy
+        result.model_dump(mode="python"), strategy
     )
 
     return Response(
         content=html_content,
         media_type="text/html",
-        headers={"Content-Disposition": "attachment; filename=backtest.html"}
+        headers={"Content-Disposition": "attachment; filename=backtest.html"},
     )
 
 
@@ -239,26 +251,25 @@ async def get_pdf_report(
 
     # Get strategy info
     strategy = {
-        'name': f"Strategy {result.strategy_id}",
-        'description': 'Custom strategy',
+        "name": f"Strategy {result.strategy_id}",
+        "description": "Custom strategy",
     }
 
     # Generate PDF report
     try:
         pdf_bytes = await report_service.generate_pdf_report(
-            result.model_dump(mode='python'),
-            strategy
+            result.model_dump(mode="python"), strategy
         )
 
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=backtest.pdf"}
+            headers={"Content-Disposition": "attachment; filename=backtest.pdf"},
         )
     except ImportError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PDF generation not enabled, need to install weasyprint: {e}"
+            detail=f"PDF generation not enabled, need to install weasyprint: {e}",
         )
 
 
@@ -279,30 +290,30 @@ async def get_excel_report(
 
     # Get strategy info
     strategy = {
-        'name': f"Strategy {result.strategy_id}",
-        'description': 'Custom strategy',
+        "name": f"Strategy {result.strategy_id}",
+        "description": "Custom strategy",
     }
 
     # Generate Excel report
     try:
         excel_bytes = await report_service.generate_excel_report(
-            result.model_dump(mode='python'),
-            strategy
+            result.model_dump(mode="python"), strategy
         )
 
         return Response(
             content=excel_bytes,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": "attachment; filename=backtest.xlsx"}
+            headers={"Content-Disposition": "attachment; filename=backtest.xlsx"},
         )
     except ImportError as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Excel export not enabled, need to install pandas and openpyxl: {e}"
+            detail=f"Excel export not enabled, need to install pandas and openpyxl: {e}",
         )
 
 
 # ==================== WebSocket Endpoint ====================
+
 
 @router.websocket("/ws/backtest/{task_id}")
 async def websocket_endpoint(
@@ -345,29 +356,38 @@ async def websocket_endpoint(
             # Send progress update
             if task_status == TaskStatus.RUNNING:
                 progress = await ws_manager.get_connection_count(task_id)
-                await ws_manager.send_to_task(task_id, {
-                    "type": "progress",
-                    "task_id": task_id,
-                    "progress": min(progress * 10, 100),
-                    "data": result.model_dump(mode='python') if result else {},
-                })
+                await ws_manager.send_to_task(
+                    task_id,
+                    {
+                        "type": "progress",
+                        "task_id": task_id,
+                        "progress": min(progress * 10, 100),
+                        "data": result.model_dump(mode="python") if result else {},
+                    },
+                )
 
             # Send completion message
             elif task_status == TaskStatus.COMPLETED and result:
-                await ws_manager.send_to_task(task_id, {
-                    "type": "completed",
-                    "task_id": task_id,
-                    "result": result.model_dump(mode='python'),
-                })
+                await ws_manager.send_to_task(
+                    task_id,
+                    {
+                        "type": "completed",
+                        "task_id": task_id,
+                        "result": result.model_dump(mode="python"),
+                    },
+                )
                 break
 
             # Send failure message
             elif task_status == TaskStatus.FAILED:
-                await ws_manager.send_to_task(task_id, {
-                    "type": "failed",
-                    "task_id": task_id,
-                    "error": result.error_message if result else "Unknown error",
-                })
+                await ws_manager.send_to_task(
+                    task_id,
+                    {
+                        "type": "failed",
+                        "task_id": task_id,
+                        "error": result.error_message if result else "Unknown error",
+                    },
+                )
                 break
 
             # Exit loop if task is completed or failed
@@ -383,5 +403,6 @@ async def websocket_endpoint(
     except Exception as e:
         # Exception disconnect
         import logging
+
         logging.error(f"WebSocket error: {e}")
         ws_manager.disconnect(websocket, task_id, client_id)

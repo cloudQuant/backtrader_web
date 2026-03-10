@@ -1,12 +1,10 @@
 """Log parser service tests."""
-import tempfile
 from pathlib import Path
 
 from app.services.log_parser_service import (
-    parse_value_log,
-    parse_trade_log,
-    parse_data_log,
     find_latest_log_dir,
+    parse_trade_log,
+    parse_value_log,
 )
 
 
@@ -140,3 +138,19 @@ class TestFindLatestLogDir:
         (tmp_path / "logs").mkdir()
         result = find_latest_log_dir(tmp_path)
         assert result is None
+
+    def test_flat_logs_dir(self, tmp_path: Path):
+        """Test flat logs/ with no subdirs (simulate strategy layout).
+
+        Args:
+            tmp_path: Temporary path fixture.
+
+        Returns:
+            None
+        """
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "trade.log").touch()
+        result = find_latest_log_dir(tmp_path)
+        assert result is not None
+        assert result == logs_dir

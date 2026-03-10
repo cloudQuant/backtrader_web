@@ -3,6 +3,7 @@ Paper trading API routes.
 
 Provides a full paper trading workflow: accounts, orders, positions, trades, and WebSocket updates.
 """
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -35,6 +36,7 @@ def get_paper_trading_service():
 
 
 # ==================== Paper Account API ====================
+
 
 @router.post("/accounts", response_model=AccountResponse, summary="Create paper trading account")
 async def create_paper_account(
@@ -89,7 +91,11 @@ async def list_paper_accounts(
     return AccountListResponse(total=total, items=accounts)
 
 
-@router.get("/accounts/{account_id}", response_model=AccountResponse, summary="Get paper trading account details")
+@router.get(
+    "/accounts/{account_id}",
+    response_model=AccountResponse,
+    summary="Get paper trading account details",
+)
 async def get_paper_account(
     account_id: str,
     current_user=Depends(get_current_user),
@@ -112,15 +118,13 @@ async def get_paper_account(
     account = await service.get_account(account_id)
     if not account:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Paper trading account not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Paper trading account not found"
         )
 
     # Check permissions
     if account.user_id != current_user.sub:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No permission to access this account"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this account"
         )
 
     return account
@@ -149,12 +153,13 @@ async def delete_paper_account(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Paper trading account not found or no permission to delete"
+            detail="Paper trading account not found or no permission to delete",
         )
     return {"message": "Account deleted successfully"}
 
 
 # ==================== Paper Order API ====================
+
 
 @router.post("/orders", response_model=OrderResponse, summary="Submit paper trading order")
 async def submit_paper_order(
@@ -220,7 +225,9 @@ async def list_paper_orders(
     return OrderListResponse(total=total, items=orders)
 
 
-@router.get("/orders/{order_id}", response_model=OrderResponse, summary="Get paper trading order details")
+@router.get(
+    "/orders/{order_id}", response_model=OrderResponse, summary="Get paper trading order details"
+)
 async def get_paper_order(
     order_id: str,
     current_user=Depends(get_current_user),
@@ -243,16 +250,14 @@ async def get_paper_order(
     order = await service.get_order(order_id)
     if not order:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Paper trading order not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Paper trading order not found"
         )
 
     # Check permissions
     account = await service.get_account(order.account_id)
     if not account or account.user_id != current_user.sub:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No permission to access this order"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this order"
         )
 
     return order
@@ -282,14 +287,17 @@ async def cancel_paper_order(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Paper trading order not found, already filled, or no permission to cancel"
+            detail="Paper trading order not found, already filled, or no permission to cancel",
         )
     return {"message": "Order has been cancelled"}
 
 
 # ==================== Paper Position API ====================
 
-@router.get("/positions", response_model=PositionListResponse, summary="List paper trading positions")
+
+@router.get(
+    "/positions", response_model=PositionListResponse, summary="List paper trading positions"
+)
 async def list_paper_positions(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
@@ -325,7 +333,11 @@ async def list_paper_positions(
     return PositionListResponse(total=total, items=positions)
 
 
-@router.get("/positions/{position_id}", response_model=PositionResponse, summary="Get paper trading position details")
+@router.get(
+    "/positions/{position_id}",
+    response_model=PositionResponse,
+    summary="Get paper trading position details",
+)
 async def get_paper_position(
     position_id: str,
     current_user=Depends(get_current_user),
@@ -348,22 +360,21 @@ async def get_paper_position(
     position = await service.get_position(position_id)
     if not position:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Paper trading position not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Paper trading position not found"
         )
 
     # Check permissions
     account = await service.get_account(position.account_id)
     if not account or account.user_id != current_user.sub:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No permission to access this position"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this position"
         )
 
     return position
 
 
 # ==================== Paper Trade API ====================
+
 
 @router.get("/trades", response_model=TradeListResponse, summary="List paper trading trades")
 async def list_paper_trades(
@@ -407,6 +418,7 @@ async def list_paper_trades(
 
 # ==================== WebSocket Endpoint ====================
 
+
 @router.websocket("/ws/account/{account_id}")
 async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
     """WebSocket endpoint for paper trading real-time updates.
@@ -449,17 +461,20 @@ async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
 
     try:
         # Send initial account information
-        await ws_manager.send_to_task(f"account:{account_id}", {
-            "type": MessageType.CONNECTED,
-            "account_id": account_id,
-            "message": "Paper trading WebSocket connection successful",
-            "data": {
-                "current_cash": account.current_cash,
-                "total_equity": account.total_equity,
-                "profit_loss": account.profit_loss,
-                "profit_loss_pct": account.profit_loss_pct,
+        await ws_manager.send_to_task(
+            f"account:{account_id}",
+            {
+                "type": MessageType.CONNECTED,
+                "account_id": account_id,
+                "message": "Paper trading WebSocket connection successful",
+                "data": {
+                    "current_cash": account.current_cash,
+                    "total_equity": account.total_equity,
+                    "profit_loss": account.profit_loss,
+                    "profit_loss_pct": account.profit_loss_pct,
+                },
             },
-        })
+        )
 
         # Keep connection alive and push updates
         while True:
@@ -473,5 +488,6 @@ async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
         ws_manager.disconnect(websocket, f"account:{account_id}", client_id)
     except Exception as e:
         import logging
+
         logging.error(f"WebSocket error: {e}")
         ws_manager.disconnect(websocket, f"account:{account_id}", client_id)

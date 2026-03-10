@@ -8,7 +8,9 @@ Tests:
 - Portfolio equity curve
 - Strategy asset allocation
 """
-from unittest.mock import AsyncMock, MagicMock, patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
 import pytest
 from httpx import AsyncClient
 
@@ -51,14 +53,17 @@ class TestPortfolioOverview:
             }
         ]
 
-        with patch('app.services.live_trading_manager.get_live_trading_manager') as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = mock_instances
-            # Mock no log directory
-            with patch('app.services.log_parser_service.find_latest_log_dir', return_value=None):
-                response = await client.get(
-                    "/api/v1/portfolio/overview",
-                    headers=auth_headers
-                )
+        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.list_instances.return_value = mock_instances
+            mock_get_mgr.return_value = mock_mgr
+            # Mock get_strategy_dir and no log directory
+            with patch('app.api.portfolio_api.get_strategy_dir', return_value=Path('/tmp/test_strategy')):
+                with patch('app.services.log_parser_service.find_latest_log_dir', return_value=None):
+                    response = await client.get(
+                        "/api/v1/portfolio/overview",
+                        headers=auth_headers
+                    )
 
         assert response.status_code == 200
         data = response.json()
@@ -269,8 +274,8 @@ class TestPortfolioHelpers:
 
     async def test_safe_round(self):
         """Test safe rounding function."""
+
         from app.api.portfolio_api import _safe_round
-        import math
 
         # Normal values
         assert _safe_round(3.14159) == 3.14

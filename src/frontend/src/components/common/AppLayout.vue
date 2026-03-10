@@ -34,10 +34,14 @@
         </el-menu-item>
         <el-menu-item index="/data">
           <el-icon><Grid /></el-icon>
-          <span>数据查询</span>
+          <span>数据管理</span>
+        </el-menu-item>
+        <el-menu-item index="/simulate">
+          <el-icon><VideoPlay /></el-icon>
+          <span>模拟交易</span>
         </el-menu-item>
         <el-menu-item index="/live-trading">
-          <el-icon><VideoPlay /></el-icon>
+          <el-icon><TrendCharts /></el-icon>
           <span>实盘交易</span>
         </el-menu-item>
         <el-menu-item index="/portfolio">
@@ -55,7 +59,15 @@
     <el-container>
       <!-- 顶部栏 -->
       <el-header class="flex items-center justify-between bg-white border-b px-6">
-        <div class="text-lg font-medium">{{ pageTitle }}</div>
+        <div class="flex items-center gap-4">
+          <div class="text-lg font-medium">{{ pageTitle }}</div>
+          <div v-if="route.path === '/portfolio'">
+            <el-radio-group v-model="portfolioUiStore.tradingType" size="large">
+              <el-radio-button value="simulate">模拟交易</el-radio-button>
+              <el-radio-button value="live">实盘交易</el-radio-button>
+            </el-radio-group>
+          </div>
+        </div>
         
         <div class="flex items-center gap-4">
           <el-tooltip :content="isDark ? '切换亮色模式' : '切换暗色模式'">
@@ -93,6 +105,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import {
   HomeFilled,
   DataLine,
@@ -110,6 +123,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const portfolioUiStore = usePortfolioUiStore()
 
 const currentRoute = computed(() => route.path)
 const user = computed(() => authStore.user)
@@ -134,7 +148,7 @@ const pageTitle = computed(() => {
     '/backtest': '回测分析',
     '/optimization': '参数优化',
     '/strategy': '策略管理',
-    '/data': '数据查询',
+    '/data': '数据管理',
     '/live-trading': '实盘交易',
     '/portfolio': '组合管理',
     '/settings': '系统设置',

@@ -3,6 +3,7 @@ Enhanced backtest schemas.
 
 Includes strict input validation and range checks.
 """
+
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
@@ -26,6 +27,7 @@ def _to_utc(dt: datetime) -> datetime:
 
 class TaskStatus(str, Enum):
     """Task status enum."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -42,13 +44,13 @@ class BacktestRequest(BaseModel):
         min_length=1,
         max_length=100,
         description="Strategy ID",
-        pattern=r'^[a-zA-Z0-9_-]+$'  # Only letters, numbers, underscores, and hyphens
+        pattern=r"^[a-zA-Z0-9_-]+$",  # Only letters, numbers, underscores, and hyphens
     )
 
     symbol: str = Field(
         ...,
         description="Stock code",
-        pattern=r'^\d{6}\.(SH|SZ)$'  # Must be A-share format: 6 digits.SH or .SZ
+        pattern=r"^\d{6}\.(SH|SZ)$",  # Must be A-share format: 6 digits.SH or .SZ
     )
 
     # Date range (with validation)
@@ -68,7 +70,7 @@ class BacktestRequest(BaseModel):
         gt=0,  # Must be greater than 0
         le=10000000,  # Maximum 10 million
         description="Initial capital",
-        examples=[100000, 1000000]
+        examples=[100000, 1000000],
     )
 
     commission: float = Field(
@@ -76,7 +78,7 @@ class BacktestRequest(BaseModel):
         ge=0,  # Must be greater than or equal to 0
         le=0.1,  # Maximum 10%
         description="Commission rate",
-        examples=[0.001, 0.0003, 0.01]
+        examples=[0.001, 0.0003, 0.01],
     )
 
     # Strategy parameters (with type and range validation)
@@ -91,7 +93,7 @@ class BacktestRequest(BaseModel):
         """Ensure start_date is timezone-aware UTC."""
         return _to_utc(v)
 
-    @field_validator('end_date')
+    @field_validator("end_date")
     @classmethod
     def validate_date_range(cls, v: datetime, info) -> datetime:
         """Validate date range.
@@ -108,25 +110,25 @@ class BacktestRequest(BaseModel):
                 or end_date is in the future.
         """
         v = _to_utc(v)
-        start_date = info.data.get('start_date')
+        start_date = info.data.get("start_date")
         if isinstance(start_date, datetime):
             start_date = _to_utc(start_date)
         if start_date and v <= start_date:
-            raise ValueError('end_date must be later than start_date')
+            raise ValueError("end_date must be later than start_date")
 
         # Limit backtest time range (maximum 10 years)
         max_end_date = start_date + timedelta(days=3650) if start_date else None
         if max_end_date and v > max_end_date:
-            raise ValueError('Backtest time range cannot exceed 10 years')
+            raise ValueError("Backtest time range cannot exceed 10 years")
 
         # Cannot use future dates
         now = datetime.now(timezone.utc)
         if v > now:
-            raise ValueError('end_date cannot be a future date')
+            raise ValueError("end_date cannot be a future date")
 
         return v
 
-    @field_validator('params')
+    @field_validator("params")
     @classmethod
     def validate_params(cls, v: Dict[str, Any], info) -> Dict[str, Any]:
         """Validate strategy parameters.
@@ -144,7 +146,7 @@ class BacktestRequest(BaseModel):
         if not v:
             return {}
 
-        strategy_id = info.data.get('strategy_id')
+        strategy_id = info.data.get("strategy_id")
 
         # Get strategy parameter definitions
         param_specs = get_strategy_params(strategy_id)
@@ -152,7 +154,7 @@ class BacktestRequest(BaseModel):
         # Validate each parameter
         for key, value in v.items():
             if key not in param_specs:
-                raise ValueError(f'Unknown parameter: {key}')
+                raise ValueError(f"Unknown parameter: {key}")
 
             spec = param_specs[key]
 
@@ -161,39 +163,39 @@ class BacktestRequest(BaseModel):
 
             if spec_type == "int":
                 if not isinstance(value, int):
-                    raise ValueError(f'{key} must be an integer')
+                    raise ValueError(f"{key} must be an integer")
                 if spec.min is not None and value < spec.min:
-                    raise ValueError(f'{key} must be greater than or equal to {spec.min}')
+                    raise ValueError(f"{key} must be greater than or equal to {spec.min}")
                 if spec.max is not None and value > spec.max:
-                    raise ValueError(f'{key} must be less than or equal to {spec.max}')
+                    raise ValueError(f"{key} must be less than or equal to {spec.max}")
 
             elif spec_type == "float":
                 if not isinstance(value, (int, float)):
-                    raise ValueError(f'{key} must be a number')
+                    raise ValueError(f"{key} must be a number")
                 if spec.min is not None and value < spec.min:
-                    raise ValueError(f'{key} must be greater than or equal to {spec.min}')
+                    raise ValueError(f"{key} must be greater than or equal to {spec.min}")
                 if spec.max is not None and value > spec.max:
-                    raise ValueError(f'{key} must be less than or equal to {spec.max}')
+                    raise ValueError(f"{key} must be less than or equal to {spec.max}")
 
             elif spec_type in {"str", "string"}:
                 if not isinstance(value, str):
-                    raise ValueError(f'{key} must be a string')
+                    raise ValueError(f"{key} must be a string")
                 if spec.options and value not in spec.options:
-                    raise ValueError(f'{key} must be one of: {", ".join(map(str, spec.options))}')
+                    raise ValueError(f"{key} must be one of: {', '.join(map(str, spec.options))}")
 
             elif spec_type in {"bool", "boolean"}:
                 if not isinstance(value, bool):
-                    raise ValueError(f'{key} must be a boolean')
+                    raise ValueError(f"{key} must be a boolean")
 
             # Generic enum-style validation: if options are provided, enforce membership.
             elif spec.options:
                 if value not in spec.options:
-                    raise ValueError(f'{key} must be one of: {", ".join(map(str, spec.options))}')
+                    raise ValueError(f"{key} must be one of: {', '.join(map(str, spec.options))}")
 
         return v
 
-    @model_validator(mode='after')
-    def validate_backtest_days(self) -> 'BacktestRequest':
+    @model_validator(mode="after")
+    def validate_backtest_days(self) -> "BacktestRequest":
         """Validate backtest duration is at least 30 trading days.
 
         Returns:
@@ -205,7 +207,9 @@ class BacktestRequest(BaseModel):
         if self.start_date and self.end_date:
             days = (self.end_date - self.start_date).days
             if days < 30:
-                raise ValueError('Backtest time range cannot be less than 30 days (approximately 20 trading days)')
+                raise ValueError(
+                    "Backtest time range cannot be less than 30 days (approximately 20 trading days)"
+                )
         return self
 
     model_config = ConfigDict(
@@ -228,6 +232,7 @@ class BacktestRequest(BaseModel):
 
 class BacktestResponse(BaseModel):
     """Backtest task response schema."""
+
     task_id: str = Field(..., description="Task ID")
     status: TaskStatus = Field(..., description="Task status")
     message: Optional[str] = Field(None, description="Status message")
@@ -235,8 +240,9 @@ class BacktestResponse(BaseModel):
 
 class TradeRecord(BaseModel):
     """Trade record schema."""
+
     date: datetime
-    type: Literal['buy', 'sell']  # Only allow buy or sell
+    type: Literal["buy", "sell"]  # Only allow buy or sell
     price: float = Field(..., gt=0, description="Trade price")
     size: int = Field(..., gt=0, description="Trade quantity")
     value: float = Field(..., gt=0, description="Trade value")
@@ -245,6 +251,7 @@ class TradeRecord(BaseModel):
 
 class BacktestResult(BaseModel):
     """Backtest result schema."""
+
     task_id: str
     strategy_id: str
     symbol: str
@@ -279,6 +286,7 @@ class BacktestResult(BaseModel):
 
 class BacktestListResponse(BaseModel):
     """Backtest list response schema."""
+
     total: int = Field(..., ge=0, description="Total count")
     items: List[BacktestResult]
 
@@ -291,39 +299,34 @@ class OptimizationRequest(BaseModel):
     backtest_config: BacktestRequest = Field(..., description="Backtest configuration")
 
     # Optimization method
-    method: Literal['grid', 'bayesian'] = Field(
-        default='bayesian',
-        description="Optimization method: grid (grid search) or bayesian (Bayesian optimization)"
+    method: Literal["grid", "bayesian"] = Field(
+        default="bayesian",
+        description="Optimization method: grid (grid search) or bayesian (Bayesian optimization)",
     )
 
     # Optimization objective
-    metric: Literal['sharpe_ratio', 'max_drawdown', 'total_return'] = Field(
-        default='sharpe_ratio',
-        description="Optimization objective: sharpe_ratio, max_drawdown (minimize), total_return"
+    metric: Literal["sharpe_ratio", "max_drawdown", "total_return"] = Field(
+        default="sharpe_ratio",
+        description="Optimization objective: sharpe_ratio, max_drawdown (minimize), total_return",
     )
 
     # Grid search parameters
     param_grid: Optional[Dict[str, List[Any]]] = Field(
-        None,
-        description="Parameter grid (for grid search)"
+        None, description="Parameter grid (for grid search)"
     )
 
     # Bayesian optimization parameters
     param_bounds: Optional[Dict[str, Dict[str, Any]]] = Field(
-        None,
-        description="Parameter bounds (for Bayesian optimization)"
+        None, description="Parameter bounds (for Bayesian optimization)"
     )
 
     # Number of trials
     n_trials: int = Field(
-        default=100,
-        ge=10,
-        le=1000,
-        description="Number of trials (for Bayesian optimization)"
+        default=100, ge=10, le=1000, description="Number of trials (for Bayesian optimization)"
     )
 
-    @model_validator(mode='after')
-    def validate_optimization_config(self) -> 'OptimizationRequest':
+    @model_validator(mode="after")
+    def validate_optimization_config(self) -> "OptimizationRequest":
         """Validate optimization configuration.
 
         Returns:
@@ -332,12 +335,12 @@ class OptimizationRequest(BaseModel):
         Raises:
             ValueError: If required parameters are missing for the chosen method.
         """
-        if self.method == 'grid':
+        if self.method == "grid":
             if not self.param_grid:
-                raise ValueError('Grid search requires param_grid parameter')
-        elif self.method == 'bayesian':
+                raise ValueError("Grid search requires param_grid parameter")
+        elif self.method == "bayesian":
             if not self.param_bounds:
-                raise ValueError('Bayesian optimization requires param_bounds parameter')
+                raise ValueError("Bayesian optimization requires param_bounds parameter")
 
         return self
 
@@ -384,6 +387,7 @@ class OptimizationRequest(BaseModel):
 
 class OptimizationResult(BaseModel):
     """Optimization result schema."""
+
     # Best parameters
     best_params: Dict[str, Any] = Field(..., description="Best parameter combination")
     # Best metrics
@@ -405,9 +409,9 @@ def get_strategy_params(strategy_id: str) -> Dict[str, Any]:
         A dictionary of parameter definitions.
     """
     # Get parameter definitions from strategy templates
-    from app.services.strategy_service import STRATEGY_TEMPLATES
+    from app.services.strategy_service import get_all_strategy_templates
 
-    for template in STRATEGY_TEMPLATES:
+    for template in get_all_strategy_templates():
         if template.id == strategy_id:
             return template.params
 

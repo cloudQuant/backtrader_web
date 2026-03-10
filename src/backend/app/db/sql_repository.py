@@ -154,7 +154,14 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             return result.scalar_one_or_none()
 
     async def exists(self, filters: Optional[Dict[str, Any]] = None) -> bool:
-        return await self.count(filters=filters) > 0
+        """Check existence with LIMIT 1 for early exit (more efficient than full count)."""
+        async with self._session_scope() as session:
+            query = self._apply_filters(
+                select(self.model_class.id).limit(1),
+                filters,
+            )
+            result = await session.execute(query)
+            return result.first() is not None
 
     async def bulk_create(self, entities: List[T]) -> List[T]:
         if not entities:

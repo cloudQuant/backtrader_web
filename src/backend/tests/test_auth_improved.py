@@ -7,10 +7,11 @@ This file demonstrates:
 3. Parametrized tests for validation
 """
 import uuid
+
 import pytest
 from httpx import AsyncClient
 
-from tests.factories import UserFactory, HTTP
+from tests.factories import HTTP, UserFactory
 
 
 class TestRegister:

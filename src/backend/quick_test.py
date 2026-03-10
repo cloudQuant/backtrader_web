@@ -4,8 +4,8 @@ Quick backend test script.
 
 Tests core functionality without dependencies on all modules.
 """
-import sys
 import importlib.util
+import sys
 from pathlib import Path
 
 # Add project path

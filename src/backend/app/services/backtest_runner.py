@@ -24,6 +24,7 @@ class BacktestExecutionRunner:
 
     def schedule(self, task_id: str, execution: Awaitable[None]) -> asyncio.Task:
         """Schedule one local execution coroutine and retain its handle."""
+
         async def _wrapped_execution() -> None:
             try:
                 await execution

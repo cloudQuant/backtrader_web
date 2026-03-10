@@ -12,24 +12,24 @@ Tests:
 - Task cancellation
 - Exception handling
 """
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
 import pytest
 
 from app.services.param_optimization_service import (
-    generate_param_grid,
-    submit_optimization,
-    get_optimization_progress,
-    get_optimization_results,
-    cancel_optimization,
     _get_task,
+    _parse_trial_logs,
+    _run_single_trial,
+    _safe_float,
     _set_task,
     _update_task,
-    _run_single_trial,
-    _parse_trial_logs,
-    _safe_float,
+    cancel_optimization,
+    generate_param_grid,
+    get_optimization_progress,
+    get_optimization_results,
+    submit_optimization,
 )
 
 
@@ -43,12 +43,10 @@ class TestSafeFloat:
 
     def test_safe_float_nan(self):
         """Test NaN handling."""
-        import math
         assert _safe_float(float('nan')) == 0.0
 
     def test_safe_float_inf(self):
         """Test infinity handling."""
-        import math
         assert _safe_float(float('inf')) == 0.0
         assert _safe_float(float('-inf')) == 0.0
 
@@ -307,7 +305,6 @@ class TestSubmitOptimization:
                 mock_isfile.return_value = True
 
                 # Patch threading at the module level since it's imported locally
-                import threading
                 with patch("threading.Thread") as mock_thread:
                     task_id = submit_optimization("test_strategy", param_ranges, n_workers=2)
 
@@ -623,7 +620,6 @@ class TestIntegration:
         }
 
         # Mock the entire workflow
-        import threading
         with patch("app.services.strategy_service.STRATEGIES_DIR", Path("/tmp/strategies")):
             with patch("pathlib.Path.is_file", return_value=True):
                 with patch("threading.Thread") as mock_thread:

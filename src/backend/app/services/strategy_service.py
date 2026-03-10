@@ -1,6 +1,8 @@
 """Strategy service (CRUD + template/config loading)."""
+
 import logging
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -14,13 +16,39 @@ from app.schemas.strategy import (
     StrategyListResponse,
     StrategyResponse,
     StrategyTemplate,
+    StrategyType,
     StrategyUpdate,
 )
 
 logger = logging.getLogger(__name__)
 
-# Strategy directory (project root/strategies)
 STRATEGIES_DIR = Path(__file__).resolve().parents[4] / "strategies"
+
+
+def get_strategy_dir(strategy_id: str) -> Path:
+    """Resolve strategy directory path with path traversal protection.
+
+    strategy_id must be in format \"type/name\" (e.g. simulate/cu_macd_atr) or
+    \"name\" for backtest-style ids. The resolved path is constrained to
+    STRATEGIES_DIR to prevent directory traversal.
+
+    Args:
+        strategy_id: Strategy identifier (e.g. backtest/002_dual_ma).
+
+    Returns:
+        Path to the strategy directory.
+
+    Raises:
+        ValueError: If strategy_id contains path traversal or invalid chars.
+    """
+    if ".." in strategy_id or strategy_id.startswith("/") or "\\" in strategy_id:
+        raise ValueError(f"Invalid strategy_id: {strategy_id}")
+    path = (STRATEGIES_DIR / strategy_id).resolve()
+    try:
+        path.relative_to(STRATEGIES_DIR.resolve())
+    except ValueError:
+        raise ValueError(f"Strategy path escapes base directory: {strategy_id}") from None
+    return path
 
 
 def _infer_category(name: str, description: str) -> str:
@@ -34,15 +62,26 @@ def _infer_category(name: str, description: str) -> str:
         Inferred category string (trend, mean_reversion, volatility, etc.).
     """
     text = (name + description).lower()
-    if any(k in text for k in ["ma", "trend", "supertrend", "turtle",
-                                "breakout", "momentum", "crossover"]):
+    if any(
+        k in text
+        for k in ["ma", "trend", "supertrend", "turtle", "breakout", "momentum", "crossover"]
+    ):
         return "trend"
-    if any(k in text for k in ["rsi", "mean_reversion", "reversal",
-                                "oscillator", "overbought", "oversold",
-                                "kdj", "stochastic"]):
+    if any(
+        k in text
+        for k in [
+            "rsi",
+            "mean_reversion",
+            "reversal",
+            "oscillator",
+            "overbought",
+            "oversold",
+            "kdj",
+            "stochastic",
+        ]
+    ):
         return "mean_reversion"
-    if any(k in text for k in ["boll", "bollinger", "atr", "volatility",
-                                "vix", "chandelier"]):
+    if any(k in text for k in ["boll", "bollinger", "atr", "volatility", "vix", "chandelier"]):
         return "volatility"
     if any(k in text for k in ["arbitrage", "hedge", "long_short", "pair"]):
         return "arbitrage"
@@ -51,20 +90,25 @@ def _infer_category(name: str, description: str) -> str:
     return "custom"
 
 
-def _scan_strategies_folder() -> List[StrategyTemplate]:
+def _scan_strategies_folder(strategy_type: StrategyType) -> List[StrategyTemplate]:
     """Scan strategies/ directory and auto-build strategy template list.
+
+    Args:
+        strategy_type: Type of strategy (backtest/simulate/live).
 
     Returns:
         List of StrategyTemplate objects parsed from strategy directories.
     """
     templates: List[StrategyTemplate] = []
-    if not STRATEGIES_DIR.is_dir():
-        logger.warning(f"Strategy directory does not exist: {STRATEGIES_DIR}")
+
+    target_dir = STRATEGIES_DIR / strategy_type.value
+    if not target_dir.is_dir():
+        logger.warning(f"Strategy directory does not exist: {target_dir}")
         return templates
 
-    for config_path in sorted(STRATEGIES_DIR.glob("*/config.yaml")):
+    for config_path in sorted(target_dir.glob("*/config.yaml")):
         strategy_dir = config_path.parent
-        dir_name = strategy_dir.name  # e.g. "029_macd_kdj"
+        dir_name = strategy_dir.name
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
@@ -74,28 +118,36 @@ def _scan_strategies_folder() -> List[StrategyTemplate]:
             description = strat_info.get("description", "")
             author = strat_info.get("author", "")
 
-            # Read strategy code files
             code_files = list(strategy_dir.glob("strategy_*.py"))
             if not code_files:
                 continue
             code = code_files[0].read_text(encoding="utf-8")
 
-            # Parse parameters
             raw_params = config.get("params") or {}
             params: Dict[str, ParamSpec] = {}
             for k, v in raw_params.items():
-                ptype = "float" if isinstance(v, float) else "int"
+                if isinstance(v, bool):
+                    ptype = "bool"
+                elif isinstance(v, int):
+                    ptype = "int"
+                elif isinstance(v, float):
+                    ptype = "float"
+                else:
+                    ptype = "string"
                 params[k] = ParamSpec(
-                    type=ptype, default=v, description=k,
+                    type=ptype,
+                    default=v,
+                    min=None,
+                    max=None,
+                    options=None,
+                    description=k,
                 )
 
             category = _infer_category(name, description)
 
-            # Read backtest config as additional metadata
             _bt_config = config.get("backtest", {})
             data_config = config.get("data", {})
 
-            # Append author and symbol info to description
             meta_parts = []
             if author:
                 meta_parts.append(f"Author: {author}")
@@ -105,51 +157,98 @@ def _scan_strategies_folder() -> List[StrategyTemplate]:
             if meta_parts:
                 full_desc += " | " + " | ".join(meta_parts)
 
-            templates.append(StrategyTemplate(
-                id=dir_name,
-                name=name,
-                description=full_desc,
-                category=category,
-                code=code,
-                params=params,
-            ))
+            templates.append(
+                StrategyTemplate(
+                    id=f"{strategy_type.value}/{dir_name}",
+                    name=name,
+                    description=full_desc,
+                    category=category,
+                    code=code,
+                    params=params,
+                )
+            )
         except Exception as e:
             logger.warning(f"Failed to scan strategy {dir_name}: {e}")
             continue
 
-    logger.info(f"Loaded {len(templates)} strategy templates from {STRATEGIES_DIR}")
+    logger.info(f"Loaded {len(templates)} strategy templates from {target_dir}")
     return templates
 
 
-# Scan once at startup
-STRATEGY_TEMPLATES: List[StrategyTemplate] = _scan_strategies_folder()
+@lru_cache(maxsize=3)
+def _get_templates_for_type(
+    strategy_type: StrategyType,
+) -> tuple[tuple[StrategyTemplate, ...], Dict[str, StrategyTemplate]]:
+    """Lazily load and cache strategy templates by type.
 
-# Build fast lookup dictionary ID -> template
-_TEMPLATE_MAP: Dict[str, StrategyTemplate] = {t.id: t for t in STRATEGY_TEMPLATES}
+    Returns:
+        Tuple of (templates list, id->template map).
+    """
+    templates = _scan_strategies_folder(strategy_type)
+    template_map = {t.id: t for t in templates}
+    return (tuple(templates), template_map)
 
 
-def get_template_by_id(template_id: str) -> Optional[StrategyTemplate]:
+def _get_template_map(strategy_type: StrategyType) -> Dict[str, StrategyTemplate]:
+    """Get cached template map for a strategy type."""
+    return _get_templates_for_type(strategy_type)[1]
+
+
+def get_all_strategy_templates() -> List[StrategyTemplate]:
+    """Get all strategy templates (backtest + simulate + live). Lazy-loaded."""
+    return (
+        list(_get_templates_for_type(StrategyType.backtest)[0])
+        + list(_get_templates_for_type(StrategyType.simulate)[0])
+        + list(_get_templates_for_type(StrategyType.live)[0])
+    )
+
+
+def get_template_by_id(
+    template_id: str, strategy_type: Optional[StrategyType] = None
+) -> Optional[StrategyTemplate]:
     """Get strategy template by ID.
+
 
     Args:
         template_id: The strategy template identifier.
+        strategy_type: Optional strategy type filter.
 
     Returns:
         StrategyTemplate if found, None otherwise.
     """
-    return _TEMPLATE_MAP.get(template_id)
+    if strategy_type:
+        return _get_template_map(strategy_type).get(template_id)
+
+    for st in (StrategyType.backtest, StrategyType.simulate, StrategyType.live):
+        tpl = _get_template_map(st).get(template_id)
+        if tpl:
+            return tpl
+    return None
 
 
-def get_strategy_readme(template_id: str) -> Optional[str]:
+def get_strategy_readme(
+    template_id: str, strategy_type: Optional[StrategyType] = None
+) -> Optional[str]:
     """Read the strategy's README.md content.
 
     Args:
         template_id: The strategy template identifier.
+        strategy_type: Optional strategy type filter.
 
     Returns:
         README content as string if found, None otherwise.
     """
-    readme_path = STRATEGIES_DIR / template_id / "README.md"
+    try:
+        parts = template_id.split("/", 1)
+        if len(parts) == 2:
+            readme_path = get_strategy_dir(template_id) / "README.md"
+        elif strategy_type:
+            readme_path = get_strategy_dir(f"{strategy_type.value}/{template_id}") / "README.md"
+        else:
+            return None
+    except ValueError:
+        return None
+
     if readme_path.is_file():
         return readme_path.read_text(encoding="utf-8")
     return None
@@ -167,9 +266,7 @@ class StrategyService:
         self.strategy_repo = SQLRepository(Strategy)
 
     async def create_strategy(
-        self,
-        user_id: str,
-        strategy_create: StrategyCreate
+        self, user_id: str, strategy_create: StrategyCreate
     ) -> StrategyResponse:
         """Create a new user strategy.
 
@@ -208,10 +305,7 @@ class StrategyService:
         return self._to_response(strategy)
 
     async def update_strategy(
-        self,
-        strategy_id: str,
-        user_id: str,
-        strategy_update: StrategyUpdate
+        self, strategy_id: str, user_id: str, strategy_update: StrategyUpdate
     ) -> Optional[StrategyResponse]:
         """Update an existing strategy.
 
@@ -236,9 +330,7 @@ class StrategyService:
         if strategy_update.code is not None:
             update_data["code"] = strategy_update.code
         if strategy_update.params is not None:
-            update_data["params"] = {
-                k: v.model_dump() for k, v in strategy_update.params.items()
-            }
+            update_data["params"] = {k: v.model_dump() for k, v in strategy_update.params.items()}
         if strategy_update.category is not None:
             update_data["category"] = strategy_update.category
 
@@ -265,11 +357,7 @@ class StrategyService:
         return await self.strategy_repo.delete(strategy_id)
 
     async def list_strategies(
-        self,
-        user_id: str,
-        limit: int = 20,
-        offset: int = 0,
-        category: str = None
+        self, user_id: str, limit: int = 20, offset: int = 0, category: Optional[str] = None
     ) -> StrategyListResponse:
         """List user strategies with optional filtering.
 
@@ -286,24 +374,37 @@ class StrategyService:
         if category:
             filters["category"] = category
 
-        strategies = await self.strategy_repo.list(
-            filters=filters,
-            skip=offset,
-            limit=limit
-        )
+        strategies = await self.strategy_repo.list(filters=filters, skip=offset, limit=limit)
         total = await self.strategy_repo.count(filters=filters)
 
         items = [self._to_response(s) for s in strategies]
 
         return StrategyListResponse(total=total, items=items)
 
-    async def get_templates(self) -> List[StrategyTemplate]:
+    async def get_templates(
+        self, strategy_type: Optional[StrategyType] = None
+    ) -> List[StrategyTemplate]:
         """Get all available strategy templates.
 
+        Args:
+            strategy_type: Optional filter by strategy type.
+
         Returns:
-            List of all StrategyTemplate objects.
+            List of StrategyTemplate objects.
         """
-        return STRATEGY_TEMPLATES
+        if strategy_type == StrategyType.backtest:
+            return list(_get_templates_for_type(StrategyType.backtest)[0])
+        elif strategy_type == StrategyType.simulate:
+            return list(_get_templates_for_type(StrategyType.simulate)[0])
+        elif strategy_type == StrategyType.live:
+            return list(_get_templates_for_type(StrategyType.live)[0])
+
+        all_templates = (
+            list(_get_templates_for_type(StrategyType.backtest)[0])
+            + list(_get_templates_for_type(StrategyType.simulate)[0])
+            + list(_get_templates_for_type(StrategyType.live)[0])
+        )
+        return all_templates
 
     def _to_response(self, strategy: Strategy) -> StrategyResponse:
         """Convert strategy model to response format.
@@ -322,8 +423,6 @@ class StrategyService:
                 elif isinstance(v, dict):
                     params[k] = ParamSpec(**v)
                 else:
-                    # Be tolerant: some rows may store plain defaults
-                    # instead of full ParamSpec dicts.
                     if isinstance(v, bool):
                         ptype = "bool"
                     elif isinstance(v, int):
@@ -332,7 +431,9 @@ class StrategyService:
                         ptype = "float"
                     else:
                         ptype = "string"
-                    params[k] = ParamSpec(type=ptype, default=v, description=k)
+                    params[k] = ParamSpec(
+                        type=ptype, default=v, min=None, max=None, options=None, description=k
+                    )
 
         return StrategyResponse(
             id=strategy.id,

@@ -3,6 +3,7 @@ Realtime market data API routes.
 
 Supports realtime tick subscription and WebSocket streaming across brokers.
 """
+
 import asyncio
 import logging
 from typing import Optional
@@ -33,6 +34,7 @@ def get_realtime_data_service():
 
 
 # ==================== Realtime Quote Subscription API ====================
+
 
 @router.post("/ticks/subscribe", summary="Subscribe to realtime quotes")
 async def subscribe_realtime_ticks(
@@ -96,6 +98,7 @@ async def unsubscribe_realtime_ticks(
 
 # ==================== Realtime Quote Data API ====================
 
+
 @router.get("/ticks", summary="Get realtime quotes")
 async def get_realtime_ticks(
     current_user=Depends(get_current_user),
@@ -143,7 +146,7 @@ async def get_realtime_ticks_batch(
     Returns:
         A dictionary containing broker_id and list of tick data.
     """
-    symbol_list = symbols.split(',')
+    symbol_list = symbols.split(",")
     ticks = await service.get_ticks(current_user.sub, broker_id, symbol_list)
 
     return {
@@ -153,6 +156,7 @@ async def get_realtime_ticks_batch(
 
 
 # ==================== Historical Quote API ====================
+
 
 @router.get("/ticks/historical", summary="Get historical quotes")
 async def get_historical_ticks(
@@ -189,8 +193,7 @@ async def get_historical_ticks(
         end_dt = datetime.fromisoformat(end_date)
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid date format: {e}"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {e}"
         )
 
     ticks = await service.get_historical_data(
@@ -211,6 +214,7 @@ async def get_historical_ticks(
 
 
 # ==================== WebSocket Real-time Push ====================
+
 
 @router.websocket("/ws/ticks/{broker_id}")
 async def realtime_tick_websocket(
@@ -233,11 +237,14 @@ async def realtime_tick_websocket(
 
     try:
         # Send initial message
-        await ws_manager.send_to_task(f"ticks:{broker_id}", {
-            "type": MessageType.CONNECTED,
-            "broker_id": broker_id,
-            "message": "Realtime quote WebSocket connection successful",
-        })
+        await ws_manager.send_to_task(
+            f"ticks:{broker_id}",
+            {
+                "type": MessageType.CONNECTED,
+                "broker_id": broker_id,
+                "message": "Realtime quote WebSocket connection successful",
+            },
+        )
 
         # Keep connection alive
         while True:

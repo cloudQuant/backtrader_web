@@ -85,19 +85,39 @@ export const portfolioApi = {
     return request.get('/portfolio/overview')
   },
 
+  getSimulationOverview(): Promise<PortfolioOverview> {
+    return request.get('/portfolio/simulation/overview')
+  },
+
   getPositions(): Promise<{ total: number; positions: PositionItem[] }> {
     return request.get('/portfolio/positions')
+  },
+
+  getSimulationPositions(): Promise<{ total: number; positions: PositionItem[] }> {
+    return request.get('/portfolio/simulation/positions')
   },
 
   getTrades(limit = 200): Promise<{ total: number; trades: TradeItem[] }> {
     return request.get('/portfolio/trades', { params: { limit } })
   },
 
+  getSimulationTrades(limit = 200): Promise<{ total: number; trades: TradeItem[] }> {
+    return request.get('/portfolio/simulation/trades', { params: { limit } })
+  },
+
   getEquity(): Promise<PortfolioEquity> {
     return request.get('/portfolio/equity')
   },
 
+  getSimulationEquity(): Promise<PortfolioEquity> {
+    return request.get('/portfolio/simulation/equity')
+  },
+
   getAllocation(): Promise<{ total: number; items: AllocationItem[] }> {
     return request.get('/portfolio/allocation')
+  },
+
+  getSimulationAllocation(): Promise<{ total: number; items: AllocationItem[] }> {
+    return request.get('/portfolio/simulation/allocation')
   },
 }

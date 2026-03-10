@@ -3,6 +3,7 @@ Paper trading service.
 
 Provides a Backtrader-based paper trading environment.
 """
+
 import asyncio
 import logging
 from datetime import datetime, timezone
@@ -212,13 +213,16 @@ class PaperTradingService:
         order.commission = commission
         order.filled_at = datetime.now(timezone.utc)
 
-        await self.order_repo.update(order.id, {
-            "status": order.status,
-            "filled_size": order.filled_size,
-            "avg_fill_price": order.avg_fill_price,
-            "commission": order.commission,
-            "filled_at": order.filled_at,
-        })
+        await self.order_repo.update(
+            order.id,
+            {
+                "status": order.status,
+                "filled_size": order.filled_size,
+                "avg_fill_price": order.avg_fill_price,
+                "commission": order.commission,
+                "filled_at": order.filled_at,
+            },
+        )
 
         # Create trade record
         trade = PaperTrade(
@@ -246,10 +250,13 @@ class PaperTradingService:
         order.status = OrderStatus.REJECTED
         order.rejected_reason = reason
 
-        await self.order_repo.update(order.id, {
-            "status": order.status,
-            "rejected_reason": order.rejected_reason,
-        })
+        await self.order_repo.update(
+            order.id,
+            {
+                "status": order.status,
+                "rejected_reason": order.rejected_reason,
+            },
+        )
 
         # Send order update
         account_id = order.account_id
@@ -266,8 +273,7 @@ class PaperTradingService:
             Position or None.
         """
         positions = await self.position_repo.list(
-            filters={"account_id": account_id, "symbol": symbol},
-            limit=1
+            filters={"account_id": account_id, "symbol": symbol}, limit=1
         )
 
         return positions[0] if positions else None
@@ -332,16 +338,21 @@ class PaperTradingService:
             else:
                 unrealized_pnl = old_market_value - abs(old_size) * new_avg_price
 
-            unrealized_pnl_pct = (unrealized_pnl / abs(new_size * new_avg_price) * 100) if new_avg_price != 0 else 0
+            unrealized_pnl_pct = (
+                (unrealized_pnl / abs(new_size * new_avg_price) * 100) if new_avg_price != 0 else 0
+            )
 
-            await self.position_repo.update(position.id, {
-                "size": new_size,
-                "avg_price": new_avg_price,
-                "market_value": new_market_value,
-                "unrealized_pnl": unrealized_pnl,
-                "unrealized_pnl_pct": unrealized_pnl_pct,
-                "updated_at": datetime.now(timezone.utc),
-            })
+            await self.position_repo.update(
+                position.id,
+                {
+                    "size": new_size,
+                    "avg_price": new_avg_price,
+                    "market_value": new_market_value,
+                    "unrealized_pnl": unrealized_pnl,
+                    "unrealized_pnl_pct": unrealized_pnl_pct,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+            )
 
             # Update trade record PnL (if closing position)
             if (old_size > 0 and new_size <= 0) or (old_size < 0 and new_size >= 0):
@@ -351,15 +362,22 @@ class PaperTradingService:
                 else:
                     pnl = (position.avg_price - price) * abs(old_size)
 
-                pnl_pct = (pnl / (abs(old_size) * position.avg_price) * 100) if position.avg_price != 0 else 0
+                pnl_pct = (
+                    (pnl / (abs(old_size) * position.avg_price) * 100)
+                    if position.avg_price != 0
+                    else 0
+                )
 
                 # Update trade record
                 trade = await self._get_last_trade(order.id)
                 if trade:
-                    await self.trade_repo.update(trade.id, {
-                        "pnl": pnl,
-                        "pnl_pct": pnl_pct,
-                    })
+                    await self.trade_repo.update(
+                        trade.id,
+                        {
+                            "pnl": pnl,
+                            "pnl_pct": pnl_pct,
+                        },
+                    )
 
     async def _update_account(
         self,
@@ -394,13 +412,16 @@ class PaperTradingService:
         account.profit_loss = profit_loss
         account.profit_loss_pct = (profit_loss / account.initial_cash) * 100
 
-        await self.account_repo.update(account.id, {
-            "current_cash": account.current_cash,
-            "total_equity": account.total_equity,
-            "profit_loss": account.profit_loss,
-            "profit_loss_pct": account.profit_loss_pct,
-            "updated_at": datetime.now(timezone.utc),
-        })
+        await self.account_repo.update(
+            account.id,
+            {
+                "current_cash": account.current_cash,
+                "total_equity": account.total_equity,
+                "profit_loss": account.profit_loss,
+                "profit_loss_pct": account.profit_loss_pct,
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
 
         # Send account update
         await self._notify_account_update(account)
@@ -461,9 +482,7 @@ class PaperTradingService:
             sort_by="created_at",
             sort_order="desc",
         )
-        total = await self.account_repo.count(
-            filters={"user_id": user_id, "is_active": True}
-        )
+        total = await self.account_repo.count(filters={"user_id": user_id, "is_active": True})
 
         return accounts, total
 
@@ -697,16 +716,19 @@ class PaperTradingService:
         Args:
             account: Account object.
         """
-        await ws_manager.send_to_task(f"account:{account.id}", {
-            "type": MessageType.PROGRESS,
-            "account_id": account.id,
-            "data": {
-                "current_cash": account.current_cash,
-                "total_equity": account.total_equity,
-                "profit_loss": account.profit_loss,
-                "profit_loss_pct": account.profit_loss_pct,
-            }
-        })
+        await ws_manager.send_to_task(
+            f"account:{account.id}",
+            {
+                "type": MessageType.PROGRESS,
+                "account_id": account.id,
+                "data": {
+                    "current_cash": account.current_cash,
+                    "total_equity": account.total_equity,
+                    "profit_loss": account.profit_loss,
+                    "profit_loss_pct": account.profit_loss_pct,
+                },
+            },
+        )
 
     async def _notify_position_update(self, position: Position) -> None:
         """Send position update notification via WebSocket.
@@ -714,18 +736,21 @@ class PaperTradingService:
         Args:
             position: Position object.
         """
-        await ws_manager.send_to_task(f"position:{position.id}", {
-            "type": MessageType.PROGRESS,
-            "position_id": position.id,
-            "data": {
-                "symbol": position.symbol,
-                "size": position.size,
-                "avg_price": position.avg_price,
-                "market_value": position.market_value,
-                "unrealized_pnl": position.unrealized_pnl,
-                "unrealized_pnl_pct": position.unrealized_pnl_pct,
-            }
-        })
+        await ws_manager.send_to_task(
+            f"position:{position.id}",
+            {
+                "type": MessageType.PROGRESS,
+                "position_id": position.id,
+                "data": {
+                    "symbol": position.symbol,
+                    "size": position.size,
+                    "avg_price": position.avg_price,
+                    "market_value": position.market_value,
+                    "unrealized_pnl": position.unrealized_pnl,
+                    "unrealized_pnl_pct": position.unrealized_pnl_pct,
+                },
+            },
+        )
 
     async def _notify_order_update(self, account_id: str, order: Order) -> None:
         """Send order update notification via WebSocket.
@@ -734,15 +759,18 @@ class PaperTradingService:
             account_id: Account ID.
             order: Order object.
         """
-        await ws_manager.send_to_task(f"account:{account_id}", {
-            "type": MessageType.PROGRESS,
-            "order_id": order.id,
-            "data": {
-                "symbol": order.symbol,
-                "side": order.side,
-                "size": order.size,
-                "price": order.price,
-                "status": order.status,
-                "filled_size": order.filled_size,
-            }
-        })
+        await ws_manager.send_to_task(
+            f"account:{account_id}",
+            {
+                "type": MessageType.PROGRESS,
+                "order_id": order.id,
+                "data": {
+                    "symbol": order.symbol,
+                    "side": order.side,
+                    "size": order.size,
+                    "price": order.price,
+                    "status": order.status,
+                    "filled_size": order.filled_size,
+                },
+            },
+        )

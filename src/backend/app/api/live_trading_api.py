@@ -4,6 +4,7 @@ Live trading instance management API routes.
 This module provides endpoints for managing live trading strategy instances,
 including starting, stopping, and monitoring live trading operations.
 """
+
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,7 +30,7 @@ from app.services.log_parser_service import (
     parse_trade_log,
     parse_value_log,
 )
-from app.services.strategy_service import STRATEGIES_DIR
+from app.services.strategy_service import get_strategy_dir
 
 router = APIRouter()
 
@@ -110,7 +111,9 @@ async def remove_instance(
     return {"message": "Deleted successfully"}
 
 
-@router.get("/{instance_id}", response_model=LiveInstanceInfo, summary="Get live trading instance details")
+@router.get(
+    "/{instance_id}", response_model=LiveInstanceInfo, summary="Get live trading instance details"
+)
 async def get_instance(
     instance_id: str,
     current_user=Depends(get_current_user),
@@ -135,7 +138,9 @@ async def get_instance(
     return inst
 
 
-@router.post("/{instance_id}/start", response_model=LiveInstanceInfo, summary="Start live trading instance")
+@router.post(
+    "/{instance_id}/start", response_model=LiveInstanceInfo, summary="Start live trading instance"
+)
 async def start_instance(
     instance_id: str,
     current_user=Depends(get_current_user),
@@ -160,7 +165,9 @@ async def start_instance(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/{instance_id}/stop", response_model=LiveInstanceInfo, summary="Stop live trading instance")
+@router.post(
+    "/{instance_id}/stop", response_model=LiveInstanceInfo, summary="Stop live trading instance"
+)
 async def stop_instance(
     instance_id: str,
     current_user=Depends(get_current_user),
@@ -185,7 +192,9 @@ async def stop_instance(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/start-all", response_model=LiveBatchResponse, summary="Start all live trading instances")
+@router.post(
+    "/start-all", response_model=LiveBatchResponse, summary="Start all live trading instances"
+)
 async def start_all(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
@@ -199,10 +208,12 @@ async def start_all(
     Returns:
         A summary of the batch start operation.
     """
-    return await mgr.start_all()
+    return await mgr.start_all(user_id=current_user.sub)
 
 
-@router.post("/stop-all", response_model=LiveBatchResponse, summary="Stop all live trading instances")
+@router.post(
+    "/stop-all", response_model=LiveBatchResponse, summary="Stop all live trading instances"
+)
 async def stop_all(
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
@@ -216,17 +227,19 @@ async def stop_all(
     Returns:
         A summary of the batch stop operation.
     """
-    return await mgr.stop_all()
+    return await mgr.stop_all(user_id=current_user.sub)
 
 
 # ==================== Analytics Endpoints ====================
 
-def _get_strategy_log_dir(mgr: LiveTradingManager, instance_id: str) -> Path:
+
+def _get_strategy_log_dir(mgr: LiveTradingManager, instance_id: str, user_id: str) -> Path:
     """Get the latest log directory for a strategy instance.
 
     Args:
         mgr: The live trading manager instance.
         instance_id: The ID of the live trading instance.
+        user_id: User ID for permission check.
 
     Returns:
         The path to the log directory.
@@ -234,17 +247,26 @@ def _get_strategy_log_dir(mgr: LiveTradingManager, instance_id: str) -> Path:
     Raises:
         HTTPException: If the instance or log directory is not found.
     """
-    inst = mgr.get_instance(instance_id)
+    inst = mgr.get_instance(instance_id, user_id=user_id)
     if not inst:
         raise HTTPException(status_code=404, detail="Instance not found")
-    strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
+    try:
+        strategy_dir = get_strategy_dir(inst["strategy_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     log_dir = find_latest_log_dir(strategy_dir)
     if not log_dir:
-        raise HTTPException(status_code=404, detail="No log data available, please run the strategy first")
+        raise HTTPException(
+            status_code=404, detail="No log data available, please run the strategy first"
+        )
     return log_dir
 
 
-@router.get("/{instance_id}/detail", response_model=BacktestDetailResponse, summary="Get live trading analysis details")
+@router.get(
+    "/{instance_id}/detail",
+    response_model=BacktestDetailResponse,
+    summary="Get live trading analysis details",
+)
 async def get_live_detail(
     instance_id: str,
     current_user=Depends(get_current_user),
@@ -263,11 +285,14 @@ async def get_live_detail(
     Raises:
         HTTPException: If the instance or log data is not found.
     """
-    inst = mgr.get_instance(instance_id)
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
     if not inst:
         raise HTTPException(status_code=404, detail="Instance not found")
 
-    strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
+    try:
+        strategy_dir = get_strategy_dir(inst["strategy_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     log_result = parse_all_logs(strategy_dir)
     if not log_result:
         raise HTTPException(status_code=404, detail="No log data available")
@@ -286,37 +311,48 @@ async def get_live_detail(
         val = equity_values[i] if i < len(equity_values) else 0
         c = cash_values[i] if i < len(cash_values) else 0
         pv = val - c
-        equity_curve.append({
-            "date": dt, "total_assets": val, "cash": c,
-            "position_value": round(pv, 2), "benchmark": None,
-        })
+        equity_curve.append(
+            {
+                "date": dt,
+                "total_assets": val,
+                "cash": c,
+                "position_value": round(pv, 2),
+                "benchmark": None,
+            }
+        )
         if val > peak:
             peak = val
         dd_pct = -((peak - val) / peak) if peak > 0 else 0
-        drawdown_curve.append({
-            "date": dt, "drawdown": round(dd_pct, 6),
-            "peak": round(peak, 2), "trough": round(val, 2),
-        })
+        drawdown_curve.append(
+            {
+                "date": dt,
+                "drawdown": round(dd_pct, 6),
+                "peak": round(peak, 2),
+                "trough": round(val, 2),
+            }
+        )
 
     trades = []
     cum_pnl = 0.0
     for i, t in enumerate(trades_raw):
         pnl = t.get("pnlcomm", t.get("pnl", 0))
         cum_pnl += pnl
-        trades.append({
-            "id": i + 1,
-            "datetime": t.get("datetime", t.get("dtclose", "")),
-            "symbol": t.get("data_name", inst["strategy_id"]),
-            "direction": t.get("direction", "long"),
-            "price": t.get("price", 0),
-            "size": t.get("size", 0),
-            "value": t.get("value", 0),
-            "commission": t.get("commission", 0),
-            "pnl": round(pnl, 2),
-            "return_pct": None,
-            "holding_days": t.get("barlen", 0),
-            "cumulative_pnl": round(cum_pnl, 2),
-        })
+        trades.append(
+            {
+                "id": i + 1,
+                "datetime": t.get("datetime", t.get("dtclose", "")),
+                "symbol": t.get("data_name", inst["strategy_id"]),
+                "direction": t.get("direction", "long"),
+                "price": t.get("price", 0),
+                "size": t.get("size", 0),
+                "value": t.get("value", 0),
+                "commission": t.get("commission", 0),
+                "pnl": round(pnl, 2),
+                "return_pct": None,
+                "holding_days": t.get("barlen", 0),
+                "cumulative_pnl": round(cum_pnl, 2),
+            }
+        )
 
     metrics = PerformanceMetrics(
         initial_capital=log_result.get("initial_cash", 100000),
@@ -343,7 +379,11 @@ async def get_live_detail(
     )
 
 
-@router.get("/{instance_id}/kline", response_model=KlineWithSignalsResponse, summary="Get live trading K-line data")
+@router.get(
+    "/{instance_id}/kline",
+    response_model=KlineWithSignalsResponse,
+    summary="Get live trading K-line data",
+)
 async def get_live_kline(
     instance_id: str,
     current_user=Depends(get_current_user),
@@ -362,8 +402,10 @@ async def get_live_kline(
     Raises:
         HTTPException: If the instance or log directory is not found.
     """
-    log_dir = _get_strategy_log_dir(mgr, instance_id)
-    inst = mgr.get_instance(instance_id)
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
 
     kline_data = parse_data_log(log_dir)
     trades_raw = parse_trade_log(log_dir)
@@ -378,14 +420,16 @@ async def get_live_kline(
         if j >= len(ohlc_data):
             break
         row = ohlc_data[j]
-        klines.append({
-            "date": dt,
-            "open": round(row[0], 4),
-            "high": round(row[3], 4),
-            "low": round(row[2], 4),
-            "close": round(row[1], 4),
-            "volume": volumes[j] if j < len(volumes) else 0,
-        })
+        klines.append(
+            {
+                "date": dt,
+                "open": round(row[0], 4),
+                "high": round(row[3], 4),
+                "low": round(row[2], 4),
+                "close": round(row[1], 4),
+                "volume": volumes[j] if j < len(volumes) else 0,
+            }
+        )
 
     # Build K-line close price mapping for signal price lookup
     kline_close_map = {}
@@ -398,20 +442,24 @@ async def get_live_kline(
         is_long = t.get("direction", "buy") == "buy" or t.get("long", True)
         if t.get("dtopen"):
             open_date = t["dtopen"][:10]
-            signals.append({
-                "date": open_date,
-                "type": "buy" if is_long else "sell",
-                "price": kline_close_map.get(open_date, t.get("price", 0)),
-                "reason": "open",
-            })
+            signals.append(
+                {
+                    "date": open_date,
+                    "type": "buy" if is_long else "sell",
+                    "price": kline_close_map.get(open_date, t.get("price", 0)),
+                    "reason": "open",
+                }
+            )
         if t.get("dtclose"):
             close_date = t["dtclose"][:10]
-            signals.append({
-                "date": close_date,
-                "type": "sell" if is_long else "buy",
-                "price": kline_close_map.get(close_date, t.get("price", 0)),
-                "reason": "close",
-            })
+            signals.append(
+                {
+                    "date": close_date,
+                    "type": "sell" if is_long else "buy",
+                    "price": kline_close_map.get(close_date, t.get("price", 0)),
+                    "reason": "close",
+                }
+            )
 
     indicators = log_indicators if log_indicators else {}
 
@@ -423,7 +471,11 @@ async def get_live_kline(
     )
 
 
-@router.get("/{instance_id}/monthly-returns", response_model=MonthlyReturnsResponse, summary="Get live trading monthly returns")
+@router.get(
+    "/{instance_id}/monthly-returns",
+    response_model=MonthlyReturnsResponse,
+    summary="Get live trading monthly returns",
+)
 async def get_live_monthly_returns(
     instance_id: str,
     current_user=Depends(get_current_user),
@@ -442,7 +494,7 @@ async def get_live_monthly_returns(
     Raises:
         HTTPException: If the instance or log directory is not found.
     """
-    log_dir = _get_strategy_log_dir(mgr, instance_id)
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
     value_data = parse_value_log(log_dir)
 
     equity_dates = value_data.get("dates", [])
@@ -487,7 +539,7 @@ async def get_live_monthly_returns(
         year_rets = [r["return_pct"] for r in returns if r["year"] == y]
         total = 1.0
         for r in year_rets:
-            total *= (1 + r)
+            total *= 1 + r
         summary[str(y)] = round(total - 1, 6)
 
     return MonthlyReturnsResponse(

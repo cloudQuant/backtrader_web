@@ -1,6 +1,7 @@
 """
 Backtest analytics API routes.
 """
+
 import csv
 import io
 import json
@@ -51,7 +52,7 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
     try:
         task_repo = SQLRepository(BacktestTask)
         task = await task_repo.get_by_id(task_id)
-        if task and getattr(task, 'log_dir', None):
+        if task and getattr(task, "log_dir", None):
             p = Path(task.log_dir)
             if p.is_dir():
                 return p
@@ -63,9 +64,7 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
 
 
 async def get_backtest_data(
-    task_id: str,
-    backtest_service: BacktestService,
-    user_id: Optional[str] = None
+    task_id: str, backtest_service: BacktestService, user_id: Optional[str] = None
 ) -> Optional[dict]:
     """Load a backtest result with optional user_id authorization.
 
@@ -97,7 +96,7 @@ async def get_backtest_data(
     try:
         if task_log_dir:
             value_data = parse_value_log(task_log_dir)
-            for d, c in zip(value_data.get('dates', []), value_data.get('cash_curve', [])):
+            for d, c in zip(value_data.get("dates", []), value_data.get("cash_curve", [])):
                 real_cash_map[d] = c
     except Exception:
         pass
@@ -113,19 +112,23 @@ async def get_backtest_data(
         cash = real_cash_map.get(date_str, value * 0.3)
         position = value - cash
 
-        equity_curve.append({
-            'date': date_str,
-            'total_assets': round(value, 2),
-            'cash': round(cash, 2),
-            'position_value': round(position, 2),
-        })
+        equity_curve.append(
+            {
+                "date": date_str,
+                "total_assets": round(value, 2),
+                "cash": round(cash, 2),
+                "position_value": round(position, 2),
+            }
+        )
 
-        drawdown_curve.append({
-            'date': date_str,
-            'drawdown': round(dd, 6),
-            'peak': round(peak, 2),
-            'trough': round(value, 2),
-        })
+        drawdown_curve.append(
+            {
+                "date": date_str,
+                "drawdown": round(dd, 6),
+                "peak": round(peak, 2),
+                "trough": round(value, 2),
+            }
+        )
 
     # [B009] Get real K-line data from task-specific log directory
     # (parse in advance for signal price lookup)
@@ -135,20 +138,22 @@ async def get_backtest_data(
     try:
         if task_log_dir:
             kline_data = parse_data_log(task_log_dir)
-            kline_dates = kline_data.get('dates', [])
-            kline_ohlc = kline_data.get('ohlc', [])
-            kline_volumes = kline_data.get('volumes', [])
-            log_indicators = kline_data.get('indicators', {})
+            kline_dates = kline_data.get("dates", [])
+            kline_ohlc = kline_data.get("ohlc", [])
+            kline_volumes = kline_data.get("volumes", [])
+            log_indicators = kline_data.get("indicators", {})
             for j in range(len(kline_dates)):
                 ohlc = kline_ohlc[j] if j < len(kline_ohlc) else [0, 0, 0, 0]
-                klines.append({
-                    'date': kline_dates[j],
-                    'open': round(ohlc[0], 4),
-                    'high': round(ohlc[3], 4),
-                    'low': round(ohlc[2], 4),
-                    'close': round(ohlc[1], 4),
-                    'volume': kline_volumes[j] if j < len(kline_volumes) else 0,
-                })
+                klines.append(
+                    {
+                        "date": kline_dates[j],
+                        "open": round(ohlc[0], 4),
+                        "high": round(ohlc[3], 4),
+                        "low": round(ohlc[2], 4),
+                        "close": round(ohlc[1], 4),
+                        "volume": kline_volumes[j] if j < len(kline_volumes) else 0,
+                    }
+                )
                 kline_close_map[kline_dates[j]] = round(ohlc[1], 4)
     except Exception:
         pass
@@ -163,6 +168,7 @@ async def get_backtest_data(
     if task_log_dir:
         try:
             from app.services.log_parser_service import parse_trade_log
+
             log_trades = parse_trade_log(task_log_dir)
         except Exception:
             log_trades = None
@@ -171,58 +177,64 @@ async def get_backtest_data(
     source_trades = log_trades if log_trades else (result.trades or [])
 
     for i, t in enumerate(source_trades):
-        td = t.model_dump() if hasattr(t, 'model_dump') else (t if isinstance(t, dict) else {})
+        td = t.model_dump() if hasattr(t, "model_dump") else (t if isinstance(t, dict) else {})
         trade = {
-            'id': i + 1,
-            'datetime': td.get('datetime', '') or td.get('dtclose', ''),
-            'symbol': result.symbol,
-            'direction': td.get('direction', 'buy'),
-            'price': td.get('price', 0),
-            'size': td.get('size', 0),
-            'value': td.get('value', 0),
-            'commission': td.get('commission', 0),
-            'pnl': td.get('pnl') or td.get('pnlcomm'),
-            'barlen': td.get('barlen'),
+            "id": i + 1,
+            "datetime": td.get("datetime", "") or td.get("dtclose", ""),
+            "symbol": result.symbol,
+            "direction": td.get("direction", "buy"),
+            "price": td.get("price", 0),
+            "size": td.get("size", 0),
+            "value": td.get("value", 0),
+            "commission": td.get("commission", 0),
+            "pnl": td.get("pnl") or td.get("pnlcomm"),
+            "barlen": td.get("barlen"),
         }
         trades.append(trade)
 
         # Generate open and close signals for each closed trade
         # Prefer K-line close price as signal price, fallback to trade avg price
-        is_long = trade['direction'] == 'buy'
-        dtopen = td.get('dtopen', '') or ''
-        dtclose = td.get('dtclose', '') or trade['datetime'] or ''
+        is_long = trade["direction"] == "buy"
+        dtopen = td.get("dtopen", "") or ""
+        dtclose = td.get("dtclose", "") or trade["datetime"] or ""
         if dtopen:
             open_date = dtopen[:10]
-            signals.append({
-                'date': open_date,
-                'type': 'buy' if is_long else 'sell',
-                'price': kline_close_map.get(open_date, trade['price']),
-                'size': trade['size'],
-            })
+            signals.append(
+                {
+                    "date": open_date,
+                    "type": "buy" if is_long else "sell",
+                    "price": kline_close_map.get(open_date, trade["price"]),
+                    "size": trade["size"],
+                }
+            )
         if dtclose:
             close_date = dtclose[:10]
-            signals.append({
-                'date': close_date,
-                'type': 'sell' if is_long else 'buy',
-                'price': kline_close_map.get(close_date, trade['price']),
-                'size': trade['size'],
-            })
+            signals.append(
+                {
+                    "date": close_date,
+                    "type": "sell" if is_long else "buy",
+                    "price": kline_close_map.get(close_date, trade["price"]),
+                    "size": trade["size"],
+                }
+            )
 
     # Fallback: use equity curve to derive if no log data
     if not klines:
         base_price = 10.0
         for i, date in enumerate(equity_dates):
-            if i > 0 and equity_values[i-1] > 0:
-                change = (equity_values[i] - equity_values[i-1]) / equity_values[i-1]
+            if i > 0 and equity_values[i - 1] > 0:
+                change = (equity_values[i] - equity_values[i - 1]) / equity_values[i - 1]
                 base_price = base_price * (1 + change * 0.5)
-            klines.append({
-                'date': date if isinstance(date, str) else str(date),
-                'open': round(base_price * 0.998, 2),
-                'high': round(base_price * 1.01, 2),
-                'low': round(base_price * 0.99, 2),
-                'close': round(base_price, 2),
-                'volume': 500000,
-            })
+            klines.append(
+                {
+                    "date": date if isinstance(date, str) else str(date),
+                    "open": round(base_price * 0.998, 2),
+                    "high": round(base_price * 1.01, 2),
+                    "low": round(base_price * 0.99, 2),
+                    "close": round(base_price, 2),
+                    "volume": 500000,
+                }
+            )
 
     # Calculate monthly returns
     monthly_returns = {}
@@ -232,7 +244,7 @@ async def get_backtest_data(
 
         for date, value in zip(equity_dates, equity_values):
             try:
-                dt = datetime.strptime(date, '%Y-%m-%d') if isinstance(date, str) else date
+                dt = datetime.strptime(date, "%Y-%m-%d") if isinstance(date, str) else date
                 month_key = (dt.year, dt.month)
 
                 if current_month != month_key:
@@ -250,19 +262,19 @@ async def get_backtest_data(
             monthly_returns[current_month] = round(ret, 6)
 
     return {
-        'task_id': task_id,
-        'strategy_name': result.strategy_id or 'Unknown',
-        'symbol': result.symbol or 'Unknown',
-        'start_date': str(result.start_date)[:10] if result.start_date else '',
-        'end_date': str(result.end_date)[:10] if result.end_date else '',
-        'equity_curve': equity_curve,
-        'drawdown_curve': drawdown_curve,
-        'trades': trades,
-        'signals': signals,
-        'klines': klines,
-        'log_indicators': log_indicators,
-        'monthly_returns': monthly_returns,
-        'created_at': str(result.created_at) if result.created_at else '',
+        "task_id": task_id,
+        "strategy_name": result.strategy_id or "Unknown",
+        "symbol": result.symbol or "Unknown",
+        "start_date": str(result.start_date)[:10] if result.start_date else "",
+        "end_date": str(result.end_date)[:10] if result.end_date else "",
+        "equity_curve": equity_curve,
+        "drawdown_curve": drawdown_curve,
+        "trades": trades,
+        "signals": signals,
+        "klines": klines,
+        "log_indicators": log_indicators,
+        "monthly_returns": monthly_returns,
+        "created_at": str(result.created_at) if result.created_at else "",
     }
 
 
@@ -298,21 +310,21 @@ async def get_backtest_detail(
     metrics = service.calculate_metrics(result)
 
     # Process data
-    equity_curve = service.process_equity_curve(result['equity_curve'])
-    drawdown_curve = service.process_drawdown_curve(result['drawdown_curve'])
-    trades = service.process_trades(result['trades'])
+    equity_curve = service.process_equity_curve(result["equity_curve"])
+    drawdown_curve = service.process_drawdown_curve(result["drawdown_curve"])
+    trades = service.process_trades(result["trades"])
 
     return BacktestDetailResponse(
         task_id=task_id,
-        strategy_name=result['strategy_name'],
-        symbol=result['symbol'],
-        start_date=result['start_date'],
-        end_date=result['end_date'],
+        strategy_name=result["strategy_name"],
+        symbol=result["symbol"],
+        start_date=result["start_date"],
+        end_date=result["end_date"],
         metrics=metrics,
         equity_curve=equity_curve,
         drawdown_curve=drawdown_curve,
         trades=trades,
-        created_at=result['created_at'],
+        created_at=result["created_at"],
     )
 
 
@@ -346,34 +358,34 @@ async def get_kline_with_signals(
     if not result:
         raise HTTPException(status_code=404, detail="Backtest result not found")
 
-    klines = result['klines']
-    signals = result['signals']
+    klines = result["klines"]
+    signals = result["signals"]
 
     # Date filtering
     if start_date:
-        klines = [k for k in klines if k['date'] >= start_date]
-        signals = [s for s in signals if s['date'] >= start_date]
+        klines = [k for k in klines if k["date"] >= start_date]
+        signals = [s for s in signals if s["date"] >= start_date]
     if end_date:
-        klines = [k for k in klines if k['date'] <= end_date]
-        signals = [s for s in signals if s['date'] <= end_date]
+        klines = [k for k in klines if k["date"] <= end_date]
+        signals = [s for s in signals if s["date"] <= end_date]
 
     # Prefer real indicators from logs, fallback to calculated MA
-    log_indicators = result.get('log_indicators', {})
+    log_indicators = result.get("log_indicators", {})
     if log_indicators:
         indicators = log_indicators
     else:
         indicators = service.calculate_indicators(klines)
 
     return KlineWithSignalsResponse(
-        symbol=result['symbol'],
+        symbol=result["symbol"],
         klines=[
             {
-                'date': k['date'],
-                'open': k['open'],
-                'high': k['high'],
-                'low': k['low'],
-                'close': k['close'],
-                'volume': k['volume'],
+                "date": k["date"],
+                "open": k["open"],
+                "high": k["high"],
+                "low": k["low"],
+                "close": k["close"],
+                "volume": k["volume"],
             }
             for k in klines
         ],
@@ -408,7 +420,7 @@ async def get_monthly_returns(
     if not result:
         raise HTTPException(status_code=404, detail="Backtest result not found")
 
-    return service.process_monthly_returns(result['monthly_returns'])
+    return service.process_monthly_returns(result["monthly_returns"])
 
 
 @router.get("/{task_id}/optimization")
@@ -431,7 +443,7 @@ async def get_optimization_results(
     raise HTTPException(
         status_code=404,
         detail="This backtest task has no associated optimization results. "
-               "Please use the 'Parameter Optimization' feature to run optimizations.",
+        "Please use the 'Parameter Optimization' feature to run optimizations.",
     )
 
 
@@ -463,15 +475,25 @@ async def export_backtest_results(
     if not result:
         raise HTTPException(status_code=404, detail="Backtest result not found")
 
-    trades = result['trades']
+    trades = result["trades"]
 
     if format == "csv":
         output = io.StringIO()
         # Handle empty trade records
         fieldnames = (
-            trades[0].keys() if trades
-            else ['id', 'datetime', 'symbol', 'direction', 'price',
-                   'size', 'value', 'commission', 'pnl']
+            trades[0].keys()
+            if trades
+            else [
+                "id",
+                "datetime",
+                "symbol",
+                "direction",
+                "price",
+                "size",
+                "value",
+                "commission",
+                "pnl",
+            ]
         )
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
@@ -480,9 +502,7 @@ async def export_backtest_results(
         return StreamingResponse(
             iter([output.getvalue()]),
             media_type="text/csv",
-            headers={
-                "Content-Disposition": f"attachment; filename=backtest_{task_id}.csv"
-            }
+            headers={"Content-Disposition": f"attachment; filename=backtest_{task_id}.csv"},
         )
 
     elif format == "json":
@@ -503,9 +523,7 @@ async def export_backtest_results(
         return StreamingResponse(
             iter([json.dumps(result_json, ensure_ascii=False, indent=2)]),
             media_type="application/json",
-            headers={
-                "Content-Disposition": f"attachment; filename=backtest_{task_id}.json"
-            }
+            headers={"Content-Disposition": f"attachment; filename=backtest_{task_id}.json"},
         )
 
     raise HTTPException(status_code=400, detail="Unsupported export format")

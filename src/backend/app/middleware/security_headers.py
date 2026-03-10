@@ -15,6 +15,7 @@ Implemented security headers:
 
 Reference: https://owasp.org/www-project-secure-headers/
 """
+
 from fastapi import FastAPI, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -75,18 +76,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Permissions-Policy: restrictive default
         # Controls which browser features can be used
         response.headers["Permissions-Policy"] = (
-            "geolocation=(), "
-            "microphone=(), "
-            "camera=(), "
-            "payment=(), "
-            "usb=()"
+            "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
         )
 
-        # Content-Security-Policy: basic policy
-        # Note: For production, this should be more restrictive
+        # Content-Security-Policy: 分环境
+        # 生产环境已移除 unsafe-eval，降低 XSS 风险；开发环境保留以支持 HMR
+        script_src = (
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            if self.settings.DEBUG
+            else "script-src 'self' 'unsafe-inline'; "
+        )
         csp = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            f"{script_src}"
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https:; "
             "font-src 'self'; "
@@ -103,7 +105,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             if request.url.scheme == "https":
                 # Strict-Transport-Security: max-age=31536000; includeSubDomains
                 # Enforces HTTPS for 1 year
-                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+                response.headers["Strict-Transport-Security"] = (
+                    "max-age=31536000; includeSubDomains"
+                )
 
         # Cache control for sensitive endpoints
         if request.url.path in [

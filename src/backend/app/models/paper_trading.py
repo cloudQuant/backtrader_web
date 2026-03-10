@@ -3,6 +3,7 @@ Paper trading models.
 
 Supports accounts, orders, and position management.
 """
+
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -15,6 +16,7 @@ from app.db.database import Base
 
 class OrderType(str, Enum):
     """Order type enum."""
+
     MARKET = "market"
     LIMIT = "limit"
     STOP = "stop"
@@ -23,12 +25,14 @@ class OrderType(str, Enum):
 
 class OrderSide(str, Enum):
     """Order side enum."""
+
     BUY = "buy"
     SELL = "sell"
 
 
 class OrderStatus(str, Enum):
     """Order status enum."""
+
     PENDING = "pending"
     PARTIAL_FILLED = "partial_filled"
     FILLED = "filled"
@@ -54,6 +58,7 @@ class Account(Base):
         created_at: Account creation timestamp.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "paper_trading_accounts"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -61,14 +66,20 @@ class Account(Base):
     name = Column(String(100), nullable=False)
     initial_cash = Column(Float, default=100000.0, nullable=False)
     current_cash = Column(Float, default=100000.0, nullable=False)
-    total_equity = Column(Float, default=100000.0, nullable=False)  # Total equity (cash + position value)
+    total_equity = Column(
+        Float, default=100000.0, nullable=False
+    )  # Total equity (cash + position value)
     profit_loss = Column(Float, default=0.0, nullable=False)  # Profit/loss
     profit_loss_pct = Column(Float, default=0.0, nullable=False)  # Profit/loss percentage
     commission_rate = Column(Float, default=0.001, nullable=False)  # Commission rate
     slippage_rate = Column(Float, default=0.001, nullable=False)  # Slippage rate
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     user = relationship("User", back_populates="paper_trading_accounts")
@@ -93,19 +104,30 @@ class Position(Base):
         entry_time: Entry time.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "paper_trading_positions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    account_id = Column(String(36), ForeignKey("paper_trading_accounts.id"), nullable=False, index=True)
+    account_id = Column(
+        String(36), ForeignKey("paper_trading_accounts.id"), nullable=False, index=True
+    )
     symbol = Column(String(20), nullable=False, index=True)
-    size = Column(Integer, default=0, nullable=False)  # Position size (positive for long, negative for short)
+    size = Column(
+        Integer, default=0, nullable=False
+    )  # Position size (positive for long, negative for short)
     avg_price = Column(Float, default=0.0, nullable=False)  # Average cost
     market_value = Column(Float, default=0.0, nullable=False)  # Market value
     unrealized_pnl = Column(Float, default=0.0, nullable=False)  # Unrealized profit/loss
-    unrealized_pnl_pct = Column(Float, default=0.0, nullable=False)  # Unrealized profit/loss percentage
+    unrealized_pnl_pct = Column(
+        Float, default=0.0, nullable=False
+    )  # Unrealized profit/loss percentage
     entry_price = Column(Float, default=0.0, nullable=False)  # Entry price
     entry_time = Column(DateTime, nullable=True)  # Entry time
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     account = relationship("Account", back_populates="positions")
@@ -134,10 +156,13 @@ class Order(Base):
         updated_at: Last update timestamp.
         filled_at: Fill timestamp.
     """
+
     __tablename__ = "paper_trading_orders"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    account_id = Column(String(36), ForeignKey("paper_trading_accounts.id"), nullable=False, index=True)
+    account_id = Column(
+        String(36), ForeignKey("paper_trading_accounts.id"), nullable=False, index=True
+    )
     symbol = Column(String(20), nullable=False, index=True)
     order_type = Column(String(20), nullable=False)  # MARKET, LIMIT, STOP, STOP_LIMIT
     side = Column(String(10), nullable=False)  # BUY, SELL
@@ -152,7 +177,11 @@ class Order(Base):
     commission = Column(Float, default=0.0, nullable=False)  # Commission
     slippage = Column(Float, default=0.0, nullable=False)  # Slippage
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
     filled_at = Column(DateTime, nullable=True)  # Fill time
 
     # Relationships
@@ -176,10 +205,13 @@ class PaperTrade(Base):
         pnl_pct: Profit/loss percentage.
         created_at: Trade timestamp.
     """
+
     __tablename__ = "paper_trades"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    account_id = Column(String(36), ForeignKey("paper_trading_accounts.id"), nullable=False, index=True)
+    account_id = Column(
+        String(36), ForeignKey("paper_trading_accounts.id"), nullable=False, index=True
+    )
     order_id = Column(String(36), ForeignKey("paper_trading_orders.id"), nullable=True, index=True)
     symbol = Column(String(20), nullable=False, index=True)
     side = Column(String(10), nullable=False)  # BUY, SELL

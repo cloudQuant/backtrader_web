@@ -18,7 +18,6 @@ Usage:
     users = UserFactory.create_batch(3)
 """
 import uuid
-from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 

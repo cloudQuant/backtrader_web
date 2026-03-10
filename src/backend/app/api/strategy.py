@@ -1,6 +1,7 @@
 """
 Strategy API routes.
 """
+
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -62,57 +63,49 @@ async def list_strategies(
     Returns:
         List of strategies.
     """
-    results = await service.list_strategies(
-        current_user.sub, limit, offset, category
-    )
+    results = await service.list_strategies(current_user.sub, limit, offset, category)
     return results
 
 
 @router.get("/templates", summary="Get strategy templates")
 async def get_templates(
     category: str = Query(None, description="Filter by category"),
+    strategy_type: str = Query(
+        None, description="Filter by strategy type (backtest/simulate/live)"
+    ),
     service: StrategyService = Depends(get_strategy_service),
 ):
     """Get built-in strategy templates (optionally filtered by category).
 
     Args:
         category: Optional category filter.
+        strategy_type: Optional strategy type filter.
         service: Strategy service dependency.
 
     Returns:
         Dictionary containing templates and total count.
     """
-    templates = await service.get_templates()
+    from app.schemas.strategy import StrategyType
+
+    stype = None
+    if strategy_type:
+        try:
+            stype = StrategyType(strategy_type)
+        except ValueError:
+            pass
+
+    templates = await service.get_templates(stype)
     if category:
         templates = [t for t in templates if t.category == category]
     return {"templates": templates, "total": len(templates)}
 
 
-@router.get("/templates/{template_id}", summary="Get strategy template detail")
-async def get_template_detail(template_id: str):
-    """Get a single strategy template (includes code and params).
-
-    Args:
-        template_id: The template ID.
-
-    Returns:
-        The strategy template.
-
-    Raises:
-        HTTPException: If template not found.
-    """
-    template = get_template_by_id(template_id)
-    if not template:
-        raise HTTPException(status_code=404, detail="Strategy template not found")
-    return template
-
-
-@router.get("/templates/{template_id}/readme", summary="Get strategy README documentation")
+@router.get("/templates/{template_id:path}/readme", summary="Get strategy README documentation")
 async def get_template_readme(template_id: str):
     """Get the template README.md content (Markdown).
 
     Args:
-        template_id: The template ID.
+        template_id: The strategy template identifier.
 
     Returns:
         Dictionary containing template_id and README content.
@@ -126,12 +119,12 @@ async def get_template_readme(template_id: str):
     return {"template_id": template_id, "content": readme}
 
 
-@router.get("/templates/{template_id}/config", summary="Get strategy configuration")
+@router.get("/templates/{template_id:path}/config", summary="Get strategy configuration")
 async def get_template_config(template_id: str):
     """Read `config.yaml` for a strategy template.
 
     Args:
-        template_id: The template ID.
+        template_id: The strategy template identifier.
 
     Returns:
         A dict containing:
@@ -161,6 +154,25 @@ async def get_template_config(template_id: str):
         "data": config.get("data", {}),
         "backtest": config.get("backtest", {}),
     }
+
+
+@router.get("/templates/{template_id:path}", summary="Get strategy template detail")
+async def get_template_detail(template_id: str):
+    """Get a single strategy template (includes code and params).
+
+    Args:
+        template_id: The strategy template identifier.
+
+    Returns:
+        The strategy template.
+
+    Raises:
+        HTTPException: If template not found.
+    """
+    template = get_template_by_id(template_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Strategy template not found")
+    return template
 
 
 @router.get("/{strategy_id}", response_model=StrategyResponse, summary="Get strategy detail")
@@ -212,9 +224,7 @@ async def update_strategy(
     Raises:
         HTTPException: If strategy not found or no permission.
     """
-    result = await service.update_strategy(
-        strategy_id, current_user.sub, strategy_update
-    )
+    result = await service.update_strategy(strategy_id, current_user.sub, strategy_update)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

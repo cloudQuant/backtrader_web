@@ -21,8 +21,8 @@ export const useStrategyStore = defineStore('strategy', () => {
     }
   }
 
-  async function fetchTemplates() {
-    const response = await strategyApi.getTemplates()
+  async function fetchTemplates(strategyType?: StrategyType) {
+    const response = await strategyApi.getTemplates(strategyType)
     templates.value = response.templates
   }
 

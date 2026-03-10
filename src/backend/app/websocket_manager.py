@@ -3,6 +3,7 @@ WebSocket real-time push service.
 
 Used for real-time push of backtest progress and logs.
 """
+
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -43,11 +44,14 @@ class ConnectionManager:
         self.active_connections[task_id].append((websocket, client_id))
 
         # Send connection success message
-        await self.send_to_task(task_id, {
-            "type": "connected",
-            "task_id": task_id,
-            "message": "WebSocket connected successfully",
-        })
+        await self.send_to_task(
+            task_id,
+            {
+                "type": "connected",
+                "task_id": task_id,
+                "message": "WebSocket connected successfully",
+            },
+        )
 
         logger.info(f"WebSocket connected: task_id={task_id}, client_id={client_id}")
 
@@ -62,7 +66,8 @@ class ConnectionManager:
         if task_id in self.active_connections:
             # Remove specified client connection
             self.active_connections[task_id] = [
-                (ws, cid) for ws, cid in self.active_connections[task_id]
+                (ws, cid)
+                for ws, cid in self.active_connections[task_id]
                 if ws != websocket and cid != client_id
             ]
 
@@ -91,7 +96,9 @@ class ConnectionManager:
             try:
                 await websocket.send_json(message)
             except Exception as e:
-                logger.error(f"Failed to send message: task_id={task_id}, client_id={client_id}, {e}")
+                logger.error(
+                    f"Failed to send message: task_id={task_id}, client_id={client_id}, {e}"
+                )
                 dead_connections.append((websocket, client_id))
 
         # Remove dead connections
@@ -141,6 +148,7 @@ manager = ConnectionManager()
 # Message type constants
 class MessageType:
     """WebSocket message types."""
+
     CONNECTED = "connected"
     PROGRESS = "progress"
     LOG = "log"
@@ -204,7 +212,11 @@ class ResultMessage:
     ):
         self.task_id = task_id
         self.result = result
-        self.type = MessageType.COMPLETED if result.get('status') == TaskStatus.COMPLETED else MessageType.FAILED
+        self.type = (
+            MessageType.COMPLETED
+            if result.get("status") == TaskStatus.COMPLETED
+            else MessageType.FAILED
+        )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary.

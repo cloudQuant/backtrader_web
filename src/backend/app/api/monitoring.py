@@ -6,6 +6,7 @@ Provides:
 - Alert listing and status updates
 - Real-time notifications via WebSocket
 """
+
 import asyncio
 import logging
 from typing import Optional
@@ -40,6 +41,7 @@ def get_monitoring_service():
 
 
 # ==================== Alert Rule API ====================
+
 
 @router.post("/rules", response_model=AlertRuleResponse, summary="Create alert rule")
 async def create_alert_rule(
@@ -126,7 +128,9 @@ async def get_alert_rule(
     try:
         rule = await service.get_alert_rule(rule_id=rule_id, user_id=current_user.sub)
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this rule")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this rule"
+        )
 
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert rule not found")
@@ -151,7 +155,9 @@ async def update_alert_rule(
     Returns:
         AlertRuleResponse: The updated alert rule details.
     """
-    rule = await service.update_alert_rule(rule_id=rule_id, user_id=current_user.sub, update_data=request.model_dump(exclude_none=True))
+    rule = await service.update_alert_rule(
+        rule_id=rule_id, user_id=current_user.sub, update_data=request.model_dump(exclude_none=True)
+    )
 
     return rule
 
@@ -180,13 +186,14 @@ async def delete_alert_rule(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Alert rule not found or no permission to delete"
+            detail="Alert rule not found or no permission to delete",
         )
 
     return {"message": "Alert rule has been deleted"}
 
 
 # ==================== Alert API ====================
+
 
 @router.get("/", response_model=AlertListResponse, summary="List alerts")
 async def list_alerts(
@@ -249,7 +256,9 @@ async def get_alert(
     try:
         alert = await service.get_alert(alert_id=alert_id, user_id=current_user.sub)
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this alert")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this alert"
+        )
 
     if not alert:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
@@ -279,8 +288,7 @@ async def mark_alert_read(
 
     if not success:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Alert not found or no permission to mark"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found or no permission to mark"
         )
 
     return {"message": "Alert has been marked as read"}
@@ -310,7 +318,7 @@ async def resolve_alert(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Alert not found or no permission to resolve"
+            detail="Alert not found or no permission to resolve",
         )
 
     return {"message": "Alert has been resolved"}
@@ -340,13 +348,14 @@ async def acknowledge_alert(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Alert not found or no permission to acknowledge"
+            detail="Alert not found or no permission to acknowledge",
         )
 
     return {"message": "Alert has been acknowledged"}
 
 
 # ==================== Alert Statistics API ====================
+
 
 @router.get("/statistics/summary", summary="Get alert statistics summary")
 async def get_alert_summary(
@@ -387,20 +396,23 @@ async def get_alerts_by_type(
         HTTPException: If date format is invalid (400).
     """
     from datetime import datetime
+
     try:
         start_dt = datetime.fromisoformat(start_date)
         end_dt = datetime.fromisoformat(end_date)
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid date format: {e}"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {e}"
         )
 
-    stats = await service.get_alerts_by_type(user_id=current_user.sub, start_dt=start_dt, end_dt=end_dt)
+    stats = await service.get_alerts_by_type(
+        user_id=current_user.sub, start_dt=start_dt, end_dt=end_dt
+    )
     return {"start_date": start_date, "end_date": end_date, **stats}
 
 
 # ==================== WebSocket Endpoint ====================
+
 
 @router.websocket("/ws/alerts")
 async def alerts_websocket(
@@ -434,10 +446,13 @@ async def alerts_websocket(
 
     try:
         # Send initial message
-        await ws_manager.send_to_task("alerts:global", {
-            "type": MessageType.CONNECTED,
-            "message": "Alert monitoring WebSocket connection successful",
-        })
+        await ws_manager.send_to_task(
+            "alerts:global",
+            {
+                "type": MessageType.CONNECTED,
+                "message": "Alert monitoring WebSocket connection successful",
+            },
+        )
 
         # Keep connection alive
         while True:

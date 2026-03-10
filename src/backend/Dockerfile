@@ -15,16 +15,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
-COPY requirements.txt .
+# 先复制依赖声明，利用层级缓存（依赖变更频率低）
 COPY pyproject.toml .
+COPY requirements.txt .
 
-# 安装 Python 依赖 (支持开发和生产环境)
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install -e .
-
-# 复制应用代码
+# 复制应用代码（pip install -e 需完整源码）
 COPY . .
+
+# 安装依赖：以 pyproject.toml 为单一来源，extras 覆盖 postgres/redis/backtrader/data(akshare)
+RUN pip install --no-cache-dir -e ".[postgres,redis,backtrader,data]"
 
 # 创建数据目录
 RUN mkdir -p /app/data /app/logs

@@ -13,7 +13,6 @@ Tests the performance metrics calculation functionality including:
 from app.services.analytics_service import AnalyticsService
 from app.services.backtest_analyzers import FincoreAdapter
 
-
 svc = AnalyticsService()
 
 

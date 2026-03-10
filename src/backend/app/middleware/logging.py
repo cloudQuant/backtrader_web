@@ -4,6 +4,7 @@ Logging middleware for FastAPI request/response logging.
 Automatically adds request ID, tracks request duration,
 and logs all requests and responses.
 """
+
 import time
 import uuid
 from typing import Callable
@@ -45,7 +46,9 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.log_body = log_body
         self.log_headers = log_headers
-        self.skip_paths = set(skip_paths or ["/health", "/metrics", "/docs", "/redoc", "/openapi.json"])
+        self.skip_paths = set(
+            skip_paths or ["/health", "/metrics", "/docs", "/redoc", "/openapi.json"]
+        )
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request and log details.

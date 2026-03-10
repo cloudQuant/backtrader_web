@@ -10,6 +10,7 @@ Features:
 - Separate logs for different components
 - Error tracking integration ready
 """
+
 import json
 import sys
 from datetime import datetime
@@ -36,6 +37,7 @@ SENSITIVE_PATTERNS = [
 
 class LogLevel(str, Enum):
     """Log level enumeration."""
+
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
@@ -90,8 +92,7 @@ def _filter_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
             filtered[key] = _filter_sensitive_data(value)
         elif isinstance(value, list):
             filtered[key] = [
-                _filter_sensitive_data(item) if isinstance(item, dict) else item
-                for item in value
+                _filter_sensitive_data(item) if isinstance(item, dict) else item for item in value
             ]
         else:
             filtered[key] = value
@@ -123,12 +124,18 @@ def _serialize_log(record: Dict[str, Any]) -> str:
         log_entry["exception"] = {
             "type": record["exception"].type.__name__,
             "message": str(record["exception"].value),
-            "traceback": record["exception"].traceback if not record["exception"].type.__name__ == "KeyboardInterrupt" else " interrupted",
+            "traceback": record["exception"].traceback
+            if not record["exception"].type.__name__ == "KeyboardInterrupt"
+            else " interrupted",
         }
 
     # Add extra context if present
     if record["extra"]:
-        extra = {k: v for k, v in record["extra"].items() if k not in {"request_id", "user_id", "task_id"}}
+        extra = {
+            k: v
+            for k, v in record["extra"].items()
+            if k not in {"request_id", "user_id", "task_id"}
+        }
         if extra:
             extra_filtered = _filter_sensitive_data(extra)
             log_entry["context"] = extra_filtered
@@ -222,7 +229,9 @@ def setup_logger(
         rotation="00:00",  # Rotate at midnight
         retention="30 days",  # Keep logs for 30 days
         compression="zip",  # Compress rotated logs
-        format=_serialize_log if use_json else (
+        format=_serialize_log
+        if use_json
+        else (
             "{time:YYYY-MM-DD HH:mm:ss} | "
             "{level: <8} | "
             "{name}:{function}:{line} | "
@@ -241,7 +250,9 @@ def setup_logger(
         rotation="00:00",
         retention="90 days",  # Keep error logs longer
         compression="zip",
-        format=_serialize_log if use_json else (
+        format=_serialize_log
+        if use_json
+        else (
             "{time:YYYY-MM-DD HH:mm:ss} | "
             "{level: <8} | "
             "{name}:{function}:{line} | "
@@ -261,7 +272,9 @@ def setup_logger(
         rotation="00:00",
         retention="365 days",  # Keep audit logs for a year
         compression="zip",
-        format=_serialize_log if use_json else (
+        format=_serialize_log
+        if use_json
+        else (
             "{time:YYYY-MM-DD HH:mm:ss} | "
             "{level: <8} | "
             "{name}:{function}:{line} | "
@@ -280,7 +293,9 @@ def setup_logger(
         rotation="00:00",
         retention="60 days",
         compression="zip",
-        format=_serialize_log if use_json else (
+        format=_serialize_log
+        if use_json
+        else (
             "{time:YYYY-MM-DD HH:mm:ss} | "
             "{level: <8} | "
             "task:{extra[task_id]:<12} | "
@@ -315,11 +330,7 @@ def get_logger(name: str = None) -> logger:
     return logger
 
 
-def log_with_context(
-    message: str,
-    level: str = "INFO",
-    **context
-) -> None:
+def log_with_context(message: str, level: str = "INFO", **context) -> None:
     """Log a message with additional context.
 
     Args:

@@ -1,9 +1,12 @@
 # Backtrader Web Backend Dependencies
+# 注意: pyproject.toml 为单一事实来源，本文件用于兼容旧脚本/CI。
+# 安装推荐: pip install -e ".[postgres,redis,backtrader,data]"
 
 # Web框架
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
+slowapi>=0.1.9
 
 # 数据验证
 pydantic>=2.5.0
@@ -27,6 +30,9 @@ redis>=5.0.0
 
 # 回测引擎
 backtrader>=1.9.78.123
+
+# 配置
+PyYAML>=6.0.1
 
 # 数据处理
 pandas>=2.1.0

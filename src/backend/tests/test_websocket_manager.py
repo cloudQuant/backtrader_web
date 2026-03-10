@@ -1,14 +1,14 @@
 """
 WebSocket Connection Manager Tests.
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
+
 from app.websocket_manager import (
     ConnectionManager,
+    LogMessage,
     MessageType,
     ProgressMessage,
     ResultMessage,
-    LogMessage,
 )
 
 

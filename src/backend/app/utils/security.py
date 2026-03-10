@@ -1,6 +1,7 @@
 """
 Security utilities for JWT and password handling.
 """
+
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -32,10 +33,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if the password matches, False otherwise.
     """
-    return bcrypt.checkpw(
-        plain_password.encode('utf-8'),
-        hashed_password.encode('utf-8')
-    )
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
 def get_password_hash(password: str) -> str:
@@ -48,8 +46,8 @@ def get_password_hash(password: str) -> str:
         The bcrypt hashed password as a string.
     """
     salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
 
 
 def validate_password_strength(password: str) -> tuple[bool, list[str]]:
@@ -85,8 +83,14 @@ def validate_password_strength(password: str) -> tuple[bool, list[str]]:
 
     # Check for common passwords
     common_passwords = {
-        "password", "password123", "admin", "12345678",
-        "qwerty", "abc123", "letmein", "welcome"
+        "password",
+        "password123",
+        "admin",
+        "12345678",
+        "qwerty",
+        "abc123",
+        "letmein",
+        "welcome",
     }
     if password.lower() in common_passwords:
         errors.append("Password is too common")
@@ -105,7 +109,7 @@ def hash_token(token: str) -> str:
     Returns:
         The hex digest of the SHA-256 hash.
     """
-    return hashlib.sha256(token.encode('utf-8')).hexdigest()
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 def verify_token_hash(token: str, token_hash: str) -> bool:
@@ -121,10 +125,7 @@ def verify_token_hash(token: str, token_hash: str) -> bool:
     return hash_token(token) == token_hash
 
 
-def create_access_token(
-    data: dict,
-    expires_delta: Optional[timedelta] = None
-) -> str:
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token.
 
     Args:
@@ -143,18 +144,11 @@ def create_access_token(
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.JWT_SECRET_KEY,
-        algorithm=settings.JWT_ALGORITHM
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
 
-def create_refresh_token(
-    data: dict,
-    expires_delta: Optional[timedelta] = None
-) -> str:
+def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT refresh token.
 
     Refresh tokens have longer expiration and are used to obtain new access tokens.
@@ -175,11 +169,7 @@ def create_refresh_token(
         expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(
-        to_encode,
-        settings.JWT_SECRET_KEY,
-        algorithm=settings.JWT_ALGORITHM
-    )
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
     return encoded_jwt
 
 
@@ -202,11 +192,7 @@ def decode_access_token(token: str) -> Optional[dict]:
         The decoded payload, or None if decoding fails.
     """
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         return payload
     except JWTError:
         return None
@@ -222,11 +208,7 @@ def decode_refresh_token(token: str) -> Optional[dict]:
         The decoded payload if valid and of type refresh, None otherwise.
     """
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM]
-        )
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         # Verify it's a refresh token
         if payload.get("token_type") != TOKEN_TYPE_REFRESH:
             return None

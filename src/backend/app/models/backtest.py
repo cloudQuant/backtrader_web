@@ -1,6 +1,7 @@
 """
 Backtest ORM models.
 """
+
 import uuid
 from datetime import datetime, timezone
 
@@ -26,19 +27,26 @@ class BacktestTask(Base):
         created_at: Task creation timestamp.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "backtest_tasks"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     strategy_id = Column(String(36), index=True)
-    strategy_version_id = Column(String(36), ForeignKey("strategy_versions.id"), nullable=True, index=True)
+    strategy_version_id = Column(
+        String(36), ForeignKey("strategy_versions.id"), nullable=True, index=True
+    )
     symbol = Column(String(20), index=True)
     status = Column(String(20), default="pending")  # pending/running/completed/failed/cancelled
     request_data = Column(JSON)  # Request parameters
     error_message = Column(Text, nullable=True)
     log_dir = Column(Text, nullable=True)  # Task-specific log directory path
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     user = relationship("User", back_populates="backtest_tasks")
@@ -66,6 +74,7 @@ class BacktestResultModel(Base):
         trades: Trade records (JSON).
         created_at: Result creation timestamp.
     """
+
     __tablename__ = "backtest_results"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

@@ -11,16 +11,15 @@ Covers remaining gaps in:
 - app/utils/sandbox.py: lines 198-202
   (ValueError re-raise and generic Exception -> RuntimeError)
 """
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
+import pytest
 from httpx import AsyncClient
 
 from app.db.sql_repository import SQLRepository
 from app.models.user import User
 from app.services.strategy_service import _infer_category
 from app.utils.sandbox import StrategySandbox
-
 
 # ==================== strategy_version.py PermissionError handlers ====================
 

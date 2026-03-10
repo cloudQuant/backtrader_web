@@ -8,7 +8,8 @@ Tests:
 - Getting optimization results
 - Canceling optimization tasks
 """
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
+
 import pytest
 from fastapi import HTTPException
 
@@ -96,7 +97,11 @@ class TestOptimizationSubmit:
 
     async def test_submit_optimization_success(self, mock_current_user, mock_strategy_template):
         """Test successful optimization task submission."""
-        from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
+        from app.api.optimization_api import (
+            OptimizationSubmitRequest,
+            ParamRangeSpec,
+            submit_optimization_task,
+        )
 
         request = OptimizationSubmitRequest(
             strategy_id="test_strategy",
@@ -120,7 +125,11 @@ class TestOptimizationSubmit:
 
     async def test_submit_optimization_strategy_not_found(self, mock_current_user):
         """Test when strategy does not exist."""
-        from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
+        from app.api.optimization_api import (
+            OptimizationSubmitRequest,
+            ParamRangeSpec,
+            submit_optimization_task,
+        )
 
         request = OptimizationSubmitRequest(
             strategy_id="nonexistent",
@@ -141,7 +150,11 @@ class TestOptimizationSubmit:
 
     async def test_submit_optimization_empty_grid(self, mock_current_user, mock_strategy_template):
         """Test when parameter grid is empty."""
-        from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
+        from app.api.optimization_api import (
+            OptimizationSubmitRequest,
+            ParamRangeSpec,
+            submit_optimization_task,
+        )
 
         request = OptimizationSubmitRequest(
             strategy_id="test_strategy",
@@ -164,7 +177,11 @@ class TestOptimizationSubmit:
 
     async def test_submit_optimization_value_error(self, mock_current_user, mock_strategy_template):
         """Test when service returns ValueError."""
-        from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
+        from app.api.optimization_api import (
+            OptimizationSubmitRequest,
+            ParamRangeSpec,
+            submit_optimization_task,
+        )
 
         request = OptimizationSubmitRequest(
             strategy_id="test_strategy",
@@ -187,7 +204,11 @@ class TestOptimizationSubmit:
 
     async def test_submit_optimization_default_workers(self, mock_current_user, mock_strategy_template):
         """Test default worker count."""
-        from app.api.optimization_api import submit_optimization_task, OptimizationSubmitRequest, ParamRangeSpec
+        from app.api.optimization_api import (
+            OptimizationSubmitRequest,
+            ParamRangeSpec,
+            submit_optimization_task,
+        )
 
         request = OptimizationSubmitRequest(
             strategy_id="test_strategy",
@@ -394,8 +415,9 @@ class TestOptimizationSchemas:
 
     async def test_optimization_submit_request_validation_n_workers_min(self):
         """Test n_workers minimum value validation."""
-        from app.api.optimization_api import OptimizationSubmitRequest, ParamRangeSpec
         from pydantic import ValidationError
+
+        from app.api.optimization_api import OptimizationSubmitRequest, ParamRangeSpec
 
         with pytest.raises(ValidationError):
             OptimizationSubmitRequest(
@@ -406,8 +428,9 @@ class TestOptimizationSchemas:
 
     async def test_optimization_submit_request_validation_n_workers_max(self):
         """Test n_workers maximum value validation."""
-        from app.api.optimization_api import OptimizationSubmitRequest, ParamRangeSpec
         from pydantic import ValidationError
+
+        from app.api.optimization_api import OptimizationSubmitRequest, ParamRangeSpec
 
         with pytest.raises(ValidationError):
             OptimizationSubmitRequest(

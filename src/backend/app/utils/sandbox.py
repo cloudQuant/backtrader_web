@@ -3,6 +3,7 @@ Strategy execution sandbox.
 
 Safely executes user strategy code in a restricted environment.
 """
+
 import math
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -20,37 +21,37 @@ class StrategySandbox:
 
     # Whitelist of allowed built-in functions and modules
     _ALLOWED_BUILTINS = {
-        '__build_class__': __build_class__,
-        'abs': abs,
-        'all': all,
-        'any': any,
-        'bool': bool,
-        'dict': dict,
-        'float': float,
-        'int': int,
-        'len': len,
-        'list': list,
-        'max': max,
-        'min': min,
-        'pow': pow,
-        'range': range,
-        'round': round,
-        'sorted': sorted,
-        'str': str,
-        'sum': sum,
-        'tuple': tuple,
-        'zip': zip,
-        'enumerate': enumerate,
-        'isinstance': isinstance,
-        'issubclass': issubclass,
-        'type': type,
+        "__build_class__": __build_class__,
+        "abs": abs,
+        "all": all,
+        "any": any,
+        "bool": bool,
+        "dict": dict,
+        "float": float,
+        "int": int,
+        "len": len,
+        "list": list,
+        "max": max,
+        "min": min,
+        "pow": pow,
+        "range": range,
+        "round": round,
+        "sorted": sorted,
+        "str": str,
+        "sum": sum,
+        "tuple": tuple,
+        "zip": zip,
+        "enumerate": enumerate,
+        "isinstance": isinstance,
+        "issubclass": issubclass,
+        "type": type,
     }
 
     # Whitelist of allowed modules
     _ALLOWED_MODULES = {
-        'bt': bt,
-        'datetime': datetime,
-        'math': math,
+        "bt": bt,
+        "datetime": datetime,
+        "math": math,
     }
 
     @classmethod
@@ -64,23 +65,25 @@ class StrategySandbox:
         """
         # Use existing module names to avoid errors when backtrader searches sys.modules
         safe_globals = {
-            '__builtins__': cls._ALLOWED_BUILTINS.copy(),
-            '__name__': 'app.utils.sandbox',
-            '__doc__': None,
-            '__package__': 'app.utils',
-            '__loader__': None,
-            '__spec__': None,
+            "__builtins__": cls._ALLOWED_BUILTINS.copy(),
+            "__name__": "app.utils.sandbox",
+            "__doc__": None,
+            "__package__": "app.utils",
+            "__loader__": None,
+            "__spec__": None,
             **cls._ALLOWED_MODULES,
         }
 
         # Add security restrictions
-        safe_globals['__import__'] = cls._safe_import
-        safe_globals['__print__'] = cls._safe_print
+        safe_globals["__import__"] = cls._safe_import
+        safe_globals["__print__"] = cls._safe_print
 
         return safe_globals
 
     @staticmethod
-    def _safe_import(name: str, globals: Dict = None, locals: Dict = None, fromlist: list = None, level: int = 0):
+    def _safe_import(
+        name: str, globals: Dict = None, locals: Dict = None, fromlist: list = None, level: int = 0
+    ):
         """Safe import function.
 
         Only allows importing whitelisted modules.
@@ -99,19 +102,21 @@ class StrategySandbox:
             ImportError: If the module is not whitelisted.
         """
         # Get base module name (without submodules)
-        module_name = name.split('.')[0]
+        module_name = name.split(".")[0]
 
         # Check whether the base module is explicitly allowed.
         allowed_base_names = StrategySandbox._ALLOWED_MODULES.keys()
         if module_name not in allowed_base_names:
-            raise ImportError(f"Module '{name}' is not allowed. Only: {', '.join(allowed_base_names)}")
+            raise ImportError(
+                f"Module '{name}' is not allowed. Only: {', '.join(allowed_base_names)}"
+            )
 
         # Only allow modules that are pre-imported and explicitly whitelisted.
         imported_module = StrategySandbox._ALLOWED_MODULES[module_name]
 
         # If it's a submodule, also check
-        if '.' in name:
-            parts = name.split('.')
+        if "." in name:
+            parts = name.split(".")
             current = imported_module
             for part in parts[1:]:
                 try:
@@ -161,7 +166,7 @@ class StrategySandbox:
 
         try:
             # Compile code
-            compiled_code = compile(code, '<strategy>', 'exec')
+            compiled_code = compile(code, "<strategy>", "exec")
 
             # Execute code
             exec(compiled_code, safe_globals)
@@ -170,7 +175,7 @@ class StrategySandbox:
             strategy_class = None
             for name, obj in safe_globals.items():
                 # Skip built-in modules and functions
-                if name.startswith('_'):
+                if name.startswith("_"):
                     continue
                 if name in cls._ALLOWED_MODULES:
                     continue
@@ -202,7 +207,9 @@ class StrategySandbox:
 
         # Check for strategy class after exception handling
         if not strategy_class:
-            raise ValueError("No valid Strategy class found in strategy code (must inherit from bt.Strategy)")
+            raise ValueError(
+                "No valid Strategy class found in strategy code (must inherit from bt.Strategy)"
+            )
 
         return strategy_class
 
@@ -224,37 +231,58 @@ class StrategySandbox:
         """
         # List of dangerous modules
         dangerous_modules = [
-            'os', 'sys', 'subprocess', 'shutil', 'pickle',
-            'socket', 'urllib', 'requests', 'http',
-            'eval', 'exec', 'compile', '__import__',
-            'open', 'file', 'input', 'raw_input',
-            'globals', 'locals', 'vars', 'dir',
+            "os",
+            "sys",
+            "subprocess",
+            "shutil",
+            "pickle",
+            "socket",
+            "urllib",
+            "requests",
+            "http",
+            "eval",
+            "exec",
+            "compile",
+            "__import__",
+            "open",
+            "file",
+            "input",
+            "raw_input",
+            "globals",
+            "locals",
+            "vars",
+            "dir",
         ]
 
         # List of dangerous functions
         dangerous_functions = [
-            'eval', 'exec', 'compile',
-            'open', 'file', 'input', 'raw_input',
+            "eval",
+            "exec",
+            "compile",
+            "open",
+            "file",
+            "input",
+            "raw_input",
         ]
 
         # Check for dangerous module imports
         for module in dangerous_modules:
-            if f'import {module}' in code or f'from {module}' in code:
+            if f"import {module}" in code or f"from {module}" in code:
                 raise ValueError(f"Importing dangerous module is not allowed: {module}")
 
         # Check for dangerous function calls
         for func in dangerous_functions:
-            if f'{func}(' in code:
+            if f"{func}(" in code:
                 raise ValueError(f"Using dangerous function is not allowed: {func}")
 
         # Check for double underscore attribute access (may bypass restrictions)
-        if '__' in code:
+        if "__" in code:
             # Check if accessing __builtins__
-            if '__builtins__' in code:
+            if "__builtins__" in code:
                 raise ValueError("Accessing __builtins__ is not allowed")
 
         # Check if trying to modify global namespace
-        if 'globals()[' in code or 'locals()[' in code:
+        if "globals()[" in code or "locals()[" in code:
             raise ValueError("Using globals() or locals() is not allowed")
 
 
@@ -267,10 +295,7 @@ class DockerSandbox:
 
     @staticmethod
     def execute_in_container(
-        code: str,
-        params: Dict,
-        docker_image: str = "backtrader-sandbox:latest",
-        timeout: int = 300
+        code: str, params: Dict, docker_image: str = "backtrader-sandbox:latest", timeout: int = 300
     ) -> Dict[str, Any]:
         """Execute strategy code in a Docker container.
 
@@ -293,36 +318,46 @@ class DockerSandbox:
 
         # Check if Docker is available
         try:
-            subprocess.run(['docker', '--version'], check=True, capture_output=True)
+            subprocess.run(["docker", "--version"], check=True, capture_output=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
             raise RuntimeError("Docker is not available, please install Docker first")
 
         # Create temporary directory
         with tempfile.TemporaryDirectory() as tmpdir:
             # Write strategy code
-            strategy_file = os.path.join(tmpdir, 'strategy.py')
-            with open(strategy_file, 'w', encoding='utf-8') as f:
+            strategy_file = os.path.join(tmpdir, "strategy.py")
+            with open(strategy_file, "w", encoding="utf-8") as f:
                 f.write(code)
 
             # Write parameters
-            params_file = os.path.join(tmpdir, 'params.json')
-            with open(params_file, 'w', encoding='utf-8') as f:
+            params_file = os.path.join(tmpdir, "params.json")
+            with open(params_file, "w", encoding="utf-8") as f:
                 json.dump(params, f)
 
             # Execute in Docker container
-            result = subprocess.run([
-                'docker', 'run',
-                '--rm',  # Remove container after execution
-                '--network=none',  # No network access
-                '--cpus=1.0',  # Limit CPU
-                '--memory=512m',  # Limit memory
-                '--read-only',  # Read-only root filesystem (except /tmp)
-                '--tmpfs', '/tmp:rw,noexec,nosuid,size=100m',  # Temporary filesystem
-                '-v', f'{tmpdir}:/data:ro',  # Read-only mount for strategy and params
-                '-e', 'PYTHONUNBUFFERED=1',  # Unbuffered output
-                docker_image,
-                'python', '/data/strategy.py'
-            ], capture_output=True, timeout=timeout, text=True)
+            result = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",  # Remove container after execution
+                    "--network=none",  # No network access
+                    "--cpus=1.0",  # Limit CPU
+                    "--memory=512m",  # Limit memory
+                    "--read-only",  # Read-only root filesystem (except /tmp)
+                    "--tmpfs",
+                    "/tmp:rw,noexec,nosuid,size=100m",  # Temporary filesystem
+                    "-v",
+                    f"{tmpdir}:/data:ro",  # Read-only mount for strategy and params
+                    "-e",
+                    "PYTHONUNBUFFERED=1",  # Unbuffered output
+                    docker_image,
+                    "python",
+                    "/data/strategy.py",
+                ],
+                capture_output=True,
+                timeout=timeout,
+                text=True,
+            )
 
             if result.returncode != 0:
                 error_msg = result.stderr.strip()
@@ -337,9 +372,7 @@ class DockerSandbox:
 
 # Convenience function
 def execute_strategy_safely(
-    code: str,
-    params: Optional[Dict] = None,
-    use_docker: bool = False
+    code: str, params: Optional[Dict] = None, use_docker: bool = False
 ) -> type:
     """Safely execute strategy code.
 

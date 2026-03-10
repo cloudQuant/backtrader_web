@@ -1,6 +1,7 @@
 """
 Cache layer - Redis is optional, falls back to memory cache if not configured.
 """
+
 import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
@@ -18,6 +19,7 @@ class MemoryCache:
     - Periodic cleanup of expired entries to avoid scanning on every write
     - Uses instance variables instead of class variables to avoid sharing across instances
     """
+
     MAX_ENTRIES = 10000
     CLEANUP_INTERVAL = 300
 
@@ -32,8 +34,7 @@ class MemoryCache:
             return
         self._last_cleanup = now
         expired_keys = [
-            k for k, v in self._cache.items()
-            if v.get("expire_at") and now > v["expire_at"]
+            k for k, v in self._cache.items() if v.get("expire_at") and now > v["expire_at"]
         ]
         for k in expired_keys:
             del self._cache[k]
@@ -112,8 +113,10 @@ class RedisCache:
 
     Suitable for distributed deployment.
     """
+
     def __init__(self, url: str):
         import redis.asyncio as redis
+
         self.redis = redis.from_url(url, decode_responses=True)
 
     async def get(self, key: str) -> Optional[Any]:

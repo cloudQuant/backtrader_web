@@ -7,22 +7,23 @@ Tests:
 - require_any_permission function
 - Common permission check dependencies
 """
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
 from fastapi import HTTPException, status
 
 from app.api.deps_permissions import (
-    has_permission,
-    require_permission,
-    require_any_permission,
     RequireCreateStrategy,
-    RequireUpdateStrategy,
     RequireDeleteStrategy,
-    RequireRunBacktest,
     RequireExportBacktest,
     RequireManageUsers,
+    RequireRunBacktest,
+    RequireUpdateStrategy,
+    has_permission,
+    require_any_permission,
+    require_permission,
 )
-from app.models.permission import Permission, Role, ROLE_PERMISSIONS
+from app.models.permission import Permission, Role
 from app.models.user import User
 
 

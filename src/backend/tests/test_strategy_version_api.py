@@ -8,10 +8,10 @@ Tests:
 - Branch management
 - WebSocket endpoints
 """
-import pytest
-from httpx import AsyncClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from httpx import AsyncClient
 
 # Valid version creation request
 VALID_VERSION_CREATE = {
@@ -364,9 +364,10 @@ class TestStrategyVersionWebSocket:
 
     async def test_websocket_connection(self):
         """Test WebSocket connection - basic test."""
-        from app.api.strategy_version import strategy_version_websocket
-        from unittest.mock import AsyncMock, MagicMock, patch
         import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.api.strategy_version import strategy_version_websocket
 
         # Create mock WebSocket object
         mock_ws = MagicMock()
@@ -403,9 +404,10 @@ class TestStrategyVersionWebSocket:
 
     async def test_websocket_sends_connected_message(self):
         """Test WebSocket sends connected message."""
-        from app.api.strategy_version import strategy_version_websocket
-        from unittest.mock import AsyncMock, MagicMock, patch
         import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from app.api.strategy_version import strategy_version_websocket
 
         # Create mock WebSocket object
         mock_ws = MagicMock()

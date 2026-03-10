@@ -3,6 +3,7 @@ Permission models.
 
 Implements role-based access control (RBAC).
 """
+
 import enum
 
 from sqlalchemy import Column, ForeignKey, String, Table
@@ -38,6 +39,7 @@ class Permission(str, enum.Enum):
 
 class Role(str, enum.Enum):
     """Role enum."""
+
     GUEST = "guest"
     USER = "user"
     PREMIUM = "premium"
@@ -94,8 +96,8 @@ ROLE_PERMISSIONS = {
 
 # User role association table
 user_roles = Table(
-    'user_roles',
+    "user_roles",
     Base.metadata,
-    Column('user_id', String(36), ForeignKey('users.id'), primary_key=True),
-    Column('role', String(20), primary_key=True),
+    Column("user_id", String(36), ForeignKey("users.id"), primary_key=True),
+    Column("role", String(20), primary_key=True),
 )

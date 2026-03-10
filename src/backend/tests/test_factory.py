@@ -1,11 +1,13 @@
 """
 Database factory tests
 """
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from app.db.factory import get_repository
-from app.models.user import User
 from app.db.sql_repository import SQLRepository
+from app.models.user import User
 
 
 class TestGetRepository:

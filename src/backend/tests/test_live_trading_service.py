@@ -9,11 +9,12 @@ Tests:
     - List tasks
     - Error handling (backtrader unavailable)
 """
-import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock, patch
 
-from app.services.live_trading_service import LiveTradingService, BACKTRADER_AVAILABLE
+import pytest
+
+from app.services.live_trading_service import LiveTradingService
 
 
 class TestLiveTradingServiceInitialization:

@@ -1,7 +1,5 @@
 """Strategy API tests."""
-import pytest
 from httpx import AsyncClient
-
 
 SAMPLE_CODE = "import backtrader as bt\nclass TestStrategy(bt.Strategy): pass"
 

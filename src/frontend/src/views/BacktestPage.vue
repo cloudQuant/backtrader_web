@@ -216,6 +216,7 @@ import dayjs from 'dayjs'
 import { exportToCSV, exportToJSON, downloadFile } from '@/utils/exportUtils'
 
 const router = useRouter()
+const route = useRoute()
 const backtestStore = useBacktestStore()
 const strategyStore = useStrategyStore()
 
@@ -438,7 +439,6 @@ onMounted(async () => {
   ])
   
   // Support ?strategy= query param from strategy gallery
-  const route = useRoute()
   const queryStrategy = route.query.strategy as string
   if (queryStrategy) {
     form.strategy_id = queryStrategy

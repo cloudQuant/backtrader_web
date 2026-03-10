@@ -7,6 +7,7 @@ Design:
 - Each worker: write a temporary config.yaml -> run a run.py subprocess -> parse logs -> return metrics.
 - The main process aggregates results and exposes progress queries.
 """
+
 import itertools
 import logging
 import math
@@ -70,6 +71,7 @@ def _update_task(task_id: str, **kwargs):
 
 # ---- Worker (runs in subprocess of ProcessPoolExecutor) ----
 
+
 def _run_single_trial(
     strategy_dir: str,
     params: Dict[str, Any],
@@ -123,19 +125,7 @@ def _run_single_trial(
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
 
-        # Remove assert statements from run.py (they fail when parameters change)
         run_py = trial_dir / "run.py"
-        if run_py.is_file():
-            code = run_py.read_text(encoding="utf-8")
-            lines = code.split("\n")
-            cleaned = []
-            for line in lines:
-                stripped = line.lstrip()
-                if stripped.startswith("assert ") or stripped.startswith("assert("):
-                    cleaned.append(line.replace(stripped, "pass  # assert removed for optimization"))
-                else:
-                    cleaned.append(line)
-            run_py.write_text("\n".join(cleaned), encoding="utf-8")
 
         # Prepare environment: set data directory so run.py can find data files
         project_root = Path(strategy_dir).parent.parent  # strategies/ -> project root
@@ -147,7 +137,7 @@ def _run_single_trial(
 
         # Execute run.py
         proc = subprocess.run(
-            [sys.executable, str(run_py)],
+            [sys.executable, "-O", str(run_py)],
             cwd=str(trial_dir),
             capture_output=True,
             text=True,
@@ -156,7 +146,9 @@ def _run_single_trial(
         )
 
         if proc.returncode != 0:
-            result["error"] = proc.stderr.strip().split("\n")[-1] if proc.stderr else "unknown error"
+            result["error"] = (
+                proc.stderr.strip().split("\n")[-1] if proc.stderr else "unknown error"
+            )
             return result
 
         # Parse logs to extract performance metrics
@@ -248,7 +240,9 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
 
     n_days = len(equity)
     n_years = n_days / 252.0 if n_days > 0 else 1.0
-    annual_return = ((final / initial) ** (1.0 / n_years) - 1) * 100 if n_years > 0 and initial > 0 else 0.0
+    annual_return = (
+        ((final / initial) ** (1.0 / n_years) - 1) * 100 if n_years > 0 and initial > 0 else 0.0
+    )
 
     # drawdown
     peak = 0.0
@@ -262,11 +256,15 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
 
     # sharpe (daily)
     if len(equity) > 1:
-        returns = [(equity[i] - equity[i - 1]) / equity[i - 1] for i in range(1, len(equity)) if equity[i - 1] > 0]
+        returns = [
+            (equity[i] - equity[i - 1]) / equity[i - 1]
+            for i in range(1, len(equity))
+            if equity[i - 1] > 0
+        ]
         if returns:
             avg_r = sum(returns) / len(returns)
             std_r = (sum((r - avg_r) ** 2 for r in returns) / len(returns)) ** 0.5
-            sharpe = (avg_r / std_r * (252 ** 0.5)) if std_r > 0 else 0
+            sharpe = (avg_r / std_r * (252**0.5)) if std_r > 0 else 0
         else:
             sharpe = 0
     else:
@@ -305,6 +303,7 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
 
 
 # ---- Public API ----
+
 
 def generate_param_grid(
     param_ranges: Dict[str, Dict[str, float]],
@@ -368,19 +367,23 @@ def submit_optimization(
         raise ValueError("Parameter grid is empty, please check parameter range settings")
 
     task_id = uuid.uuid4().hex[:8]
-    _set_task(task_id, {
-        "status": "running",
-        "strategy_id": strategy_id,
-        "total": len(grid),
-        "completed": 0,
-        "failed": 0,
-        "results": [],
-        "param_names": list(param_ranges.keys()),
-        "created_at": datetime.now().isoformat(),
-        "n_workers": n_workers,
-    })
+    _set_task(
+        task_id,
+        {
+            "status": "running",
+            "strategy_id": strategy_id,
+            "total": len(grid),
+            "completed": 0,
+            "failed": 0,
+            "results": [],
+            "param_names": list(param_ranges.keys()),
+            "created_at": datetime.now().isoformat(),
+            "n_workers": n_workers,
+        },
+    )
 
     import threading
+
     t = threading.Thread(
         target=_run_optimization_thread,
         args=(task_id, str(strategy_dir), grid, n_workers),
@@ -416,9 +419,7 @@ def _run_optimization_thread(
                 task = _get_task(task_id)
                 if task and task["status"] == "cancelled":
                     break
-                fut = executor.submit(
-                    _run_single_trial, strategy_dir, params, i, tmp_base
-                )
+                fut = executor.submit(_run_single_trial, strategy_dir, params, i, tmp_base)
                 futures[fut] = i
 
             for fut in as_completed(futures):
@@ -490,7 +491,9 @@ def get_optimization_progress(task_id: str) -> Optional[Dict[str, Any]]:
         "total": task["total"],
         "completed": task["completed"],
         "failed": task["failed"],
-        "progress": round((task["completed"] + task["failed"]) / task["total"] * 100, 1) if task["total"] > 0 else 0,
+        "progress": round((task["completed"] + task["failed"]) / task["total"] * 100, 1)
+        if task["total"] > 0
+        else 0,
         "n_workers": task["n_workers"],
         "created_at": task["created_at"],
     }
@@ -541,7 +544,15 @@ def get_optimization_results(task_id: str) -> Optional[Dict[str, Any]]:
         "status": task["status"],
         "strategy_id": task["strategy_id"],
         "param_names": task["param_names"],
-        "metric_names": ["total_return", "annual_return", "sharpe_ratio", "max_drawdown", "total_trades", "win_rate", "final_value"],
+        "metric_names": [
+            "total_return",
+            "annual_return",
+            "sharpe_ratio",
+            "max_drawdown",
+            "total_trades",
+            "win_rate",
+            "final_value",
+        ],
         "total": task["total"],
         "completed": task["completed"],
         "failed": task["failed"],

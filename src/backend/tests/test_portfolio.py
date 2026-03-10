@@ -8,9 +8,10 @@ Tests:
 - GET /api/v1/portfolio/equity - Portfolio equity curve
 - GET /api/v1/portfolio/allocation - Strategy asset allocation
 """
+from unittest.mock import MagicMock, patch
+
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
 
 
 class TestPortfolioAPI:
@@ -188,8 +189,8 @@ class TestPortfolioHelperFunctions:
 
     def test_safe_round_nan_value(self):
         """Test NaN value handling."""
+
         from app.api.portfolio_api import _safe_round
-        import math
         result = _safe_round(float('nan'), 2)
         assert result == 0.0
 
@@ -240,7 +241,6 @@ class TestPortfolioEdgeCases:
 
     async def test_overview_with_empty_instances(self, client: AsyncClient, auth_headers: dict):
         """Test overview with no instances."""
-        from app.services.live_trading_manager import get_live_trading_manager
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
             mock_mgr = MagicMock()
@@ -255,12 +255,11 @@ class TestPortfolioEdgeCases:
 
     async def test_overview_with_no_log_dir(self, client: AsyncClient, auth_headers: dict):
         """Test overview when strategy has no log directory."""
-        from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
             with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
-                with patch('app.api.portfolio_api.STRATEGIES_DIR', Path('/tmp')):
+                with patch('app.api.portfolio_api.get_strategy_dir', return_value=Path('/tmp/test_strategy')):
                     mock_mgr = MagicMock()
                     mock_mgr.list_instances.return_value = [
                         {
@@ -280,7 +279,6 @@ class TestPortfolioEdgeCases:
 
     async def test_positions_with_no_data(self, client: AsyncClient, auth_headers: dict):
         """Test positions with no data."""
-        from app.services.live_trading_manager import get_live_trading_manager
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
             with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
@@ -296,9 +294,7 @@ class TestPortfolioEdgeCases:
 
     async def test_trades_sorting(self, client: AsyncClient, auth_headers: dict):
         """Test trade records sorted by date."""
-        from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
-        from datetime import datetime
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
             with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
@@ -328,7 +324,6 @@ class TestPortfolioEdgeCases:
 
     async def test_trades_limit(self, client: AsyncClient, auth_headers: dict):
         """Test trades limit parameter."""
-        from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
@@ -361,7 +356,6 @@ class TestPortfolioEdgeCases:
 
     async def test_equity_empty_dates(self, client: AsyncClient, auth_headers: dict):
         """Test equity curve with empty date data."""
-        from app.services.live_trading_manager import get_live_trading_manager
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
             with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
@@ -378,7 +372,6 @@ class TestPortfolioEdgeCases:
 
     async def test_allocation_with_zero_total(self, client: AsyncClient, auth_headers: dict):
         """Test allocation when total value is zero."""
-        from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
@@ -409,7 +402,6 @@ class TestPortfolioEdgeCases:
 
     async def test_equity_date_mapping(self, client: AsyncClient, auth_headers: dict):
         """Test date mapping logic."""
-        from app.services.live_trading_manager import get_live_trading_manager
         from pathlib import Path
 
         with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:

@@ -51,6 +51,16 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/DataPage.vue'),
       },
       {
+        path: 'simulate',
+        name: 'Simulate',
+        component: () => import('@/views/SimulatePage.vue'),
+      },
+      {
+        path: 'simulate/:id',
+        name: 'SimulateDetail',
+        component: () => import('@/views/SimulateDetailPage.vue'),
+      },
+      {
         path: 'live-trading',
         name: 'LiveTrading',
         component: () => import('@/views/LiveTradingPage.vue'),

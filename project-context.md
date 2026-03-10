@@ -2322,6 +2322,7 @@ async def get_system_metrics():
 - ⚠️ **不要忽略错误处理** - 参考"错误处理规范"章节
 - ⚠️ **不要硬编码** - 使用配置文件和环境变量
 - ⚠️ **不要绕过沙箱** - 策略代码必须在沙箱中执行
+- ⚠️ **实例 API 必须传 user_id** - 模拟交易/实盘 API 中 `get_instance`、`start_all`、`stop_all`、`_get_strategy_log_dir` 等调用**必须传入 `current_user.sub`**，否则会引发 IDOR 或越权操作
 
 **实现新功能清单:**
 ```

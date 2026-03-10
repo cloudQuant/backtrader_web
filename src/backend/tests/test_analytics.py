@@ -7,11 +7,11 @@ Tests:
 - GET /api/v1/analytics/{task_id}/export - Export backtest results
 - GET /api/v1/analytics/{task_id}/optimization - Get optimization results
 """
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
-from pathlib import Path
-from datetime import datetime
 
 
 @pytest.mark.asyncio
@@ -289,7 +289,6 @@ class TestAnalyticsHelperFunctions:
             None
         """
         from app.api.analytics import _resolve_log_dir
-        from unittest.mock import AsyncMock, Mock, patch
 
         mock_task = Mock()
         mock_task.log_dir = "/path/to/logs"
@@ -310,7 +309,6 @@ class TestAnalyticsHelperFunctions:
             None
         """
         from app.api.analytics import _resolve_log_dir
-        from unittest.mock import AsyncMock, patch
 
         with patch('app.api.analytics.SQLRepository') as MockRepo:
             mock_repo_instance = AsyncMock()
@@ -336,7 +334,6 @@ class TestGetBacktestData:
             None
         """
         from app.api.analytics import get_backtest_data
-        from unittest.mock import AsyncMock
 
         mock_service = AsyncMock()
         mock_service.get_result = AsyncMock(return_value=None)
@@ -351,7 +348,6 @@ class TestGetBacktestData:
             None
         """
         from app.api.analytics import get_backtest_data
-        from unittest.mock import AsyncMock, Mock, patch
 
         mock_result = Mock()
         mock_result.strategy_id = "SMACross"
@@ -385,7 +381,6 @@ class TestGetBacktestData:
             None
         """
         from app.api.analytics import get_backtest_data
-        from unittest.mock import AsyncMock, Mock, patch
 
         mock_result = Mock()
         mock_result.strategy_id = "test_strategy"
@@ -424,7 +419,6 @@ class TestGetBacktestData:
             None
         """
         from app.api.analytics import get_backtest_data
-        from unittest.mock import AsyncMock, Mock, patch
 
         mock_trade = Mock()
         mock_trade.model_dump.return_value = {
@@ -503,9 +497,9 @@ class TestGetBacktestDataExtended:
         Returns:
             None
         """
-        from app.api.analytics import _resolve_log_dir
-        from unittest.mock import AsyncMock, patch, MagicMock
         from pathlib import Path
+
+        from app.api.analytics import _resolve_log_dir
 
         mock_task = MagicMock()
         mock_task.log_dir = "/tmp/test_logs"
@@ -525,9 +519,9 @@ class TestGetBacktestDataExtended:
         Returns:
             None
         """
-        from app.api.analytics import get_backtest_data
-        from unittest.mock import AsyncMock, Mock, patch
         from pathlib import Path
+
+        from app.api.analytics import get_backtest_data
 
         mock_result = Mock()
         mock_result.strategy_id = "test_strategy"
@@ -576,7 +570,6 @@ class TestGetBacktestDataExtended:
             None
         """
         from app.api.analytics import get_backtest_data
-        from unittest.mock import AsyncMock, Mock, patch
 
         mock_result = Mock()
         mock_result.strategy_id = "test_strategy"
@@ -657,9 +650,8 @@ class TestAnalyticsExportWithData:
         Returns:
             None
         """
+
         from app.api.analytics import export_backtest_results
-        from unittest.mock import AsyncMock, Mock, patch
-        from fastapi import Request
 
         mock_result = {
             'task_id': 'task-123',
@@ -705,7 +697,6 @@ class TestAnalyticsExportWithData:
             None
         """
         from app.api.analytics import export_backtest_results
-        from unittest.mock import AsyncMock, Mock, patch
 
         mock_result = {
             'task_id': 'task-123',
@@ -751,7 +742,6 @@ class TestAnalyticsMonthlyReturnsWithData:
             None
         """
         from app.api.analytics import get_backtest_data
-        from unittest.mock import AsyncMock, Mock, patch
 
         # Mock result with invalid date to trigger exception
         mock_result = Mock()

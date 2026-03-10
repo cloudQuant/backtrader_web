@@ -7,20 +7,17 @@ Tests:
 - Request context binding
 - Task context binding
 """
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from app.utils.logger import (
-    setup_logger,
-    get_logger,
-    _filter_sensitive_data,
-    LogLevel,
     LogContext,
+    LogLevel,
+    _filter_sensitive_data,
     bind_request_context,
     bind_task_context,
+    get_logger,
+    setup_logger,
 )
 
 

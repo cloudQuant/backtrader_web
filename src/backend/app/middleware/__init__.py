@@ -1,4 +1,5 @@
 """Middleware package exports."""
+
 from app.middleware.logging import (
     AuditLoggingMiddleware,
     LoggingMiddleware,

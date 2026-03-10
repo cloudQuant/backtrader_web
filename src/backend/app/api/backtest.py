@@ -1,6 +1,7 @@
 """
 Backtest API routes.
 """
+
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -121,8 +122,11 @@ async def list_backtests(
         BacktestListResponse containing total count and list of results.
     """
     results = await service.list_results(
-        current_user.sub, limit, offset,
-        sort_by=sort_by, sort_desc=(sort_order == "desc"),
+        current_user.sub,
+        limit,
+        offset,
+        sort_by=sort_by,
+        sort_desc=(sort_order == "desc"),
     )
     return results
 
@@ -134,6 +138,9 @@ async def cancel_backtest(
     service: BacktestService = Depends(get_backtest_service),
 ):
     """Cancel a running backtest task.
+
+    注意: 取消仅在当前 API 进程持有任务句柄时有效。多实例部署时，
+    若任务由其他实例执行，本接口可能返回失败（任务可能在其他实例运行）。
 
     Args:
         task_id: The unique identifier for the backtest task.
@@ -150,7 +157,10 @@ async def cancel_backtest(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Task not found, unauthorized, or already completed",
+            detail=(
+                "Task not found, unauthorized, already completed, or running on another "
+                "instance (cancellation only works when the task runs in this API process)"
+            ),
         )
     return {"message": "Task cancelled", "task_id": task_id}
 

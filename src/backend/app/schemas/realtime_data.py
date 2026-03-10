@@ -1,6 +1,7 @@
 """
 Realtime market data schemas.
 """
+
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 
 class RealtimeTickSubscribeRequest(BaseModel):
     """Subscribe to realtime ticks."""
+
     symbols: List[str] = Field(
         ...,
         min_length=1,
@@ -22,12 +24,14 @@ class RealtimeTickSubscribeRequest(BaseModel):
 
 class RealtimeTickUnsubscribeRequest(BaseModel):
     """Unsubscribe from realtime ticks."""
+
     symbols: List[str] = Field(..., min_length=1, description="Symbols to unsubscribe from.")
     broker_id: Optional[str] = Field(None, description="Broker id (optional).")
 
 
 class RealtimeHistoricalTickRequest(BaseModel):
     """Fetch historical tick/ohlcv-like data for a symbol."""
+
     broker_id: str = Field(..., description="Broker id.")
     symbol: str = Field(..., description="Symbol (e.g. BTC/USDT).")
     start_date: str = Field(..., description="Start datetime in ISO 8601 format.")
@@ -37,6 +41,7 @@ class RealtimeHistoricalTickRequest(BaseModel):
 
 class RealtimeTick(BaseModel):
     """A single tick (or bar) snapshot."""
+
     symbol: str = Field(..., description="Symbol.")
     timestamp: datetime = Field(..., description="Timestamp.")
     open: float = Field(..., description="Open.")
@@ -56,6 +61,7 @@ RealtimeTickResponse = RealtimeTick
 
 class RealtimeTickUpdate(BaseModel):
     """Realtime tick update message (typically delivered via WebSocket)."""
+
     type: str = Field("tick_update", description="Message type.")
     broker_id: str = Field(..., description="Broker id.")
     symbol: str = Field(..., description="Symbol.")
@@ -65,13 +71,17 @@ class RealtimeTickUpdate(BaseModel):
 
 class RealtimeTickBatchResponse(BaseModel):
     """Batch tick response for a single symbol."""
+
     symbol: str = Field(..., description="Symbol.")
     tick: Optional[RealtimeTick] = Field(None, description="Latest tick (if available).")
-    ticks: Optional[List[RealtimeTick]] = Field(None, description="Historical ticks (if requested).")
+    ticks: Optional[List[RealtimeTick]] = Field(
+        None, description="Historical ticks (if requested)."
+    )
 
 
 class RealtimeTickListResponse(BaseModel):
     """Tick list response."""
+
     total: int = Field(..., ge=0, description="Total number of symbols.")
     symbols: List[str] = Field(..., description="Symbol list.")
     ticks: Dict[str, Any] = Field(..., description="Tick map keyed by symbol.")

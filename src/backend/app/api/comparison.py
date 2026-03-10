@@ -3,6 +3,7 @@ Backtest comparison API routes.
 
 Supports comparing and analyzing multiple backtest results.
 """
+
 import logging
 from typing import Any, Optional
 
@@ -34,6 +35,7 @@ def get_comparison_service():
 
 # ==================== Comparison API ====================
 
+
 @router.post("/", response_model=ComparisonResponse, summary="Create backtest comparison")
 async def create_comparison(
     request: ComparisonCreate,
@@ -63,7 +65,9 @@ async def create_comparison(
     return comparison
 
 
-@router.get("/{comparison_id}", response_model=ComparisonDetail, summary="Get backtest comparison details")
+@router.get(
+    "/{comparison_id}", response_model=ComparisonDetail, summary="Get backtest comparison details"
+)
 async def get_comparison_detail(
     comparison_id: str,
     current_user=Depends(get_current_user),
@@ -86,22 +90,20 @@ async def get_comparison_detail(
     comparison = await service.get_comparison(comparison_id, current_user.sub)
 
     if not comparison:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Comparison not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comparison not found")
 
     # Check permissions
     if comparison.user_id != current_user.sub and not comparison.is_public:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No permission to access this comparison"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this comparison"
         )
 
     return comparison
 
 
-@router.put("/{comparison_id}", response_model=ComparisonResponse, summary="Update backtest comparison")
+@router.put(
+    "/{comparison_id}", response_model=ComparisonResponse, summary="Update backtest comparison"
+)
 async def update_comparison(
     comparison_id: str,
     request: ComparisonUpdate,
@@ -131,7 +133,7 @@ async def update_comparison(
     if not comparison:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Comparison not found or no permission to update"
+            detail="Comparison not found or no permission to update",
         )
 
     return comparison
@@ -161,7 +163,7 @@ async def delete_comparison(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Comparison not found or no permission to delete"
+            detail="Comparison not found or no permission to delete",
         )
 
     return {"message": "Comparison deleted successfully"}
@@ -221,10 +223,7 @@ async def toggle_comparison_favorite(
     comparison = await service.get_comparison(comparison_id, current_user.sub)
 
     if not comparison:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Comparison not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comparison not found")
 
     # Toggle favorite status
     comparison.is_favorite = not comparison.is_favorite
@@ -269,16 +268,12 @@ async def share_comparison(
     comparison = await service.get_comparison(comparison_id, current_user.sub)
 
     if not comparison:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Comparison not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comparison not found")
 
     # Check permissions
     if comparison.user_id != current_user.sub:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No permission to share this comparison"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to share this comparison"
         )
 
     # TODO: Implement share logic
@@ -291,6 +286,7 @@ async def share_comparison(
 
 
 # ==================== Comparison Data API ====================
+
 
 async def _get_comparison_or_404(
     comparison_id: str,
@@ -313,10 +309,7 @@ async def _get_comparison_or_404(
     comparison = await service.get_comparison(comparison_id, user_id)
 
     if not comparison:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Comparison not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comparison not found")
 
     return comparison
 

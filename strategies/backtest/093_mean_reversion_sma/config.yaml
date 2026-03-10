@@ -1,0 +1,53 @@
+# 策略基本信息
+strategy:
+  name: "均值回归SMA策略"
+  description: "基于简单移动平均线的均值回归策略。价格跌破SMA一定幅度时买入，回归至SMA时卖出。"
+  author: "backtrader-strategies-compendium"
+
+# 策略参数
+params:
+  period: 20               # SMA周期
+  order_percentage: 0.95   # 每次使用资金的百分比
+  dip_size: 0.025          # 下跌阈值(2.5%)
+
+# 数据配置
+data:
+  symbol: "ORCL"
+  data_type: "stock"  # bond/stock/future/index
+
+# 回测配置
+backtest:
+  initial_cash: 100000
+  commission: 0.001
+# ============================================================
+# CTP 连接配置（用于模拟盘，请填写 CTP 模拟账号）
+# ============================================================
+ctp:
+  broker_id: "3070"
+  investor_id: "333306116"
+  user_id: "333306116"
+  password: "199057"
+  app_id: "client_wtyj_1.0.9.9"
+  auth_code: "VCSX4A2S43I4RN25"
+  user_product_info: "wtpy"
+  interface_product_info: "wtpy"
+  fronts:
+    telecom:
+      td_address: "tcp://101.230.79.235:32205"
+      md_address: "tcp://101.230.79.235:32213"
+
+# ============================================================
+# CTP 模拟盘会话参数
+# ============================================================
+live:
+  symbol: "rb2504"  # CTP仅支持期货，回测为债券/股票时请按需修改
+  network: "telecom"
+  bar_seconds: 60
+  duration_seconds: 3600
+  session_timeout: 3700
+  min_price_tick: 1.0
+  max_order_size: 1
+  contract_metadata:
+    rb2504:
+      min_price_tick: 1.0
+      max_order_size: 1

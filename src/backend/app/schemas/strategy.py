@@ -1,14 +1,25 @@
 """
 Strategy schemas.
 """
+
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class StrategyType(str, Enum):
+    """Strategy type enumeration."""
+
+    backtest = "backtest"
+    simulate = "simulate"
+    live = "live"
+
+
 class ParamSpec(BaseModel):
     """Parameter specification schema."""
+
     type: str = Field("float", description="Parameter type: int/float/string/enum")
     default: Any = Field(..., description="Default value")
     min: Optional[float] = Field(None, description="Minimum value")
@@ -19,6 +30,7 @@ class ParamSpec(BaseModel):
 
 class StrategyCreate(BaseModel):
     """Strategy creation request schema."""
+
     name: str = Field(..., min_length=1, max_length=100, description="Strategy name")
     description: Optional[str] = Field(None, description="Strategy description")
     code: str = Field(..., description="Strategy code")
@@ -55,6 +67,7 @@ class StrategyCreate(BaseModel):
 
 class StrategyUpdate(BaseModel):
     """Strategy update request schema."""
+
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
     code: Optional[str] = None
@@ -64,6 +77,7 @@ class StrategyUpdate(BaseModel):
 
 class StrategyResponse(BaseModel):
     """Strategy response schema."""
+
     id: str = Field(..., description="Strategy ID")
     user_id: str = Field(..., description="User ID")
     name: str = Field(..., description="Strategy name")
@@ -79,12 +93,14 @@ class StrategyResponse(BaseModel):
 
 class StrategyListResponse(BaseModel):
     """Strategy list response schema."""
+
     total: int
     items: List[StrategyResponse]
 
 
 class StrategyTemplate(BaseModel):
     """Strategy template schema."""
+
     id: str
     name: str
     description: str

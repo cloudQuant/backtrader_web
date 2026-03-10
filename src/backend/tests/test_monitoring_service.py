@@ -17,13 +17,12 @@ Tests:
 - _check_cross_trigger method
 - _trigger_alert method
 """
-import pytest
 from unittest.mock import AsyncMock, Mock, patch
-from datetime import datetime
-import asyncio
 
+import pytest
+
+from app.models.alerts import AlertSeverity, AlertStatus, AlertType
 from app.services.monitoring_service import MonitoringService
-from app.models.alerts import Alert, AlertRule, AlertType, AlertSeverity, AlertStatus
 
 
 class TestMonitoringServiceInitialization:

@@ -1,6 +1,7 @@
 """
 User ORM model.
 """
+
 import uuid
 from datetime import datetime, timezone
 
@@ -22,6 +23,7 @@ class User(Base):
         created_at: Account creation timestamp.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "users"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -30,7 +32,11 @@ class User(Base):
     hashed_password = Column(String(128), nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     strategies = relationship("Strategy", back_populates="user")
@@ -39,7 +45,9 @@ class User(Base):
     paper_trading_accounts = relationship("Account", back_populates="user")
     alerts = relationship("Alert", back_populates="user")
     alert_rules = relationship("AlertRule", back_populates="user")
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship(
+        "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class RefreshToken(Base):
@@ -54,6 +62,7 @@ class RefreshToken(Base):
         revoked_at: Token revocation timestamp (None if active).
         is_revoked: Whether the token has been revoked.
     """
+
     __tablename__ = "refresh_tokens"
 
     id = Column(String(64), primary_key=True)

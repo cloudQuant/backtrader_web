@@ -55,6 +55,7 @@ Backtrader Web 是一个基于 Backtrader 的现代化**量化交易管理平台
 - [敏捷开发](AGILE_DEVELOPMENT.md) - 敏捷流程说明
 - [更新日志](CHANGELOG.md) - 版本更新记录
 - [安全增强记录](SECURITY_ENHANCEMENTS.md) - 安全改进历史
+- [项目改进与优化建议（2026-03）](PROJECT_OPTIMIZATION_RECOMMENDATIONS.md) - 基于代码与配置核对的可落地优化清单
 - [迭代历史](iterations/README.md) - 迭代 45–119 开发记录
 - [迭代115：工程基线治理与质量收敛计划](iterations/迭代115-工程基线治理与质量收敛计划.md) - 面向初级工程师的短周期改进迭代计划
 - [迭代116：开发环境校验与可复现治理](iterations/迭代116-开发环境校验与可复现治理.md) - 开发环境自检与安装入口统一

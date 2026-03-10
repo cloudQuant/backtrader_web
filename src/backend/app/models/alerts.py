@@ -3,6 +3,7 @@ Monitoring and alerting models.
 
 Supports account monitoring, strategy monitoring, and system monitoring.
 """
+
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -15,17 +16,19 @@ from app.db.database import Base
 
 class AlertType(str, Enum):
     """Alert type enum."""
-    ACCOUNT = "account"           # Account alert
-    POSITION = "position"         # Position alert
-    ORDER = "order"               # Order alert
-    STRATEGY = "strategy"         # Strategy alert
-    SYSTEM = "system"             # System alert
-    PERFORMANCE = "performance"   # Performance alert
-    RISK = "risk"                 # Risk alert
+
+    ACCOUNT = "account"  # Account alert
+    POSITION = "position"  # Position alert
+    ORDER = "order"  # Order alert
+    STRATEGY = "strategy"  # Strategy alert
+    SYSTEM = "system"  # System alert
+    PERFORMANCE = "performance"  # Performance alert
+    RISK = "risk"  # Risk alert
 
 
 class AlertSeverity(str, Enum):
     """Alert severity enum."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -34,10 +37,11 @@ class AlertSeverity(str, Enum):
 
 class AlertStatus(str, Enum):
     """Alert status enum."""
-    ACTIVE = "active"           # Active
-    RESOLVED = "resolved"       # Resolved
+
+    ACTIVE = "active"  # Active
+    RESOLVED = "resolved"  # Resolved
     ACKNOWLEDGED = "acknowledged"  # Acknowledged
-    IGNORED = "ignored"         # Ignored
+    IGNORED = "ignored"  # Ignored
 
 
 class Alert(Base):
@@ -67,6 +71,7 @@ class Alert(Base):
         created_at: Creation timestamp.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "alerts"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -75,7 +80,9 @@ class Alert(Base):
     # Alert information
     alert_type = Column(String(20), nullable=False, index=True)  # Alert type
     severity = Column(String(20), default=AlertSeverity.INFO, nullable=False)  # Alert severity
-    status = Column(String(20), default=AlertStatus.ACTIVE, nullable=False, index=True)  # Alert status
+    status = Column(
+        String(20), default=AlertStatus.ACTIVE, nullable=False, index=True
+    )  # Alert status
     title = Column(String(200), nullable=False)  # Alert title
     message = Column(Text, nullable=False)  # Alert message
     details = Column(JSON, nullable=True)  # Additional details (JSON)
@@ -83,9 +90,15 @@ class Alert(Base):
     # Associated objects
     rule_id = Column(String(36), ForeignKey("alert_rules.id"), nullable=True, index=True)
     strategy_id = Column(String(36), ForeignKey("strategies.id"), nullable=True, index=True)
-    backtest_task_id = Column(String(36), ForeignKey("backtest_tasks.id"), nullable=True, index=True)
-    account_id = Column(String(36), ForeignKey("paper_trading_accounts.id"), nullable=True, index=True)
-    position_id = Column(String(36), ForeignKey("paper_trading_positions.id"), nullable=True, index=True)
+    backtest_task_id = Column(
+        String(36), ForeignKey("backtest_tasks.id"), nullable=True, index=True
+    )
+    account_id = Column(
+        String(36), ForeignKey("paper_trading_accounts.id"), nullable=True, index=True
+    )
+    position_id = Column(
+        String(36), ForeignKey("paper_trading_positions.id"), nullable=True, index=True
+    )
     order_id = Column(String(36), ForeignKey("paper_trading_orders.id"), nullable=True, index=True)
 
     # Trigger conditions
@@ -95,10 +108,16 @@ class Alert(Base):
 
     # Meta information
     is_read = Column(Boolean, default=False, nullable=False)  # Whether read
-    is_notification_sent = Column(Boolean, default=False, nullable=False)  # Whether notification sent
+    is_notification_sent = Column(
+        Boolean, default=False, nullable=False
+    )  # Whether notification sent
     resolved_at = Column(DateTime, nullable=True)  # Resolution time
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     user = relationship("User", back_populates="alerts")
@@ -130,6 +149,7 @@ class AlertRule(Base):
         created_at: Creation timestamp.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "alert_rules"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -146,7 +166,9 @@ class AlertRule(Base):
     trigger_config = Column(JSON, nullable=False)  # Trigger configuration
 
     # Notification configuration
-    notification_enabled = Column(Boolean, default=True, nullable=False)  # Whether notifications enabled
+    notification_enabled = Column(
+        Boolean, default=True, nullable=False
+    )  # Whether notifications enabled
     notification_channels = Column(JSON, default=list, nullable=False)  # Notification channels
 
     # Status
@@ -156,7 +178,11 @@ class AlertRule(Base):
 
     # Meta information
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     user = relationship("User", back_populates="alert_rules")
@@ -176,6 +202,7 @@ class AlertNotification(Base):
         sent_at: Send timestamp.
         created_at: Creation timestamp.
     """
+
     __tablename__ = "alert_notifications"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

@@ -22,8 +22,7 @@ class MetricsSource:
 
 
 def calculate_metrics_from_log_data(
-    log_data: Dict[str, Any],
-    use_fincore: bool = False
+    log_data: Dict[str, Any], use_fincore: bool = False
 ) -> Dict[str, Any]:
     """Calculate all performance metrics from parsed log data.
 
@@ -62,6 +61,7 @@ def calculate_metrics_from_log_data(
     if use_fincore:
         try:
             import fincore  # noqa: F401
+
             source = MetricsSource.FINCORE
         except ImportError:
             source = MetricsSource.MANUAL
@@ -246,8 +246,7 @@ def compare_calculation_methods(log_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def validate_calculation_consistency(
-    log_data: Dict[str, Any],
-    max_relative_error: float = 0.01
+    log_data: Dict[str, Any], max_relative_error: float = 0.01
 ) -> bool:
     """Validate that fincore and manual calculations are consistent.
 

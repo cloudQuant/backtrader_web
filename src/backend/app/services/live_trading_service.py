@@ -24,6 +24,7 @@ try:
     from backtrader.feeds.ccxtdata import CCXTData
     from backtrader.observers.broker import BrokerObserver
     from backtrader.stores.ccxtstore import CCXTStore  # noqa: F811
+
     BACKTRADER_AVAILABLE = True
 except Exception as e:
     BACKTRADER_AVAILABLE = False
@@ -128,7 +129,7 @@ class LiveTradingService:
                     api_key=api_key,
                     secret=secret,
                     sandbox=sandbox,
-                    config={"enableRateLimit": True}
+                    config={"enableRateLimit": True},
                 )
 
                 broker = store.getbroker()
@@ -186,6 +187,7 @@ class LiveTradingService:
         """
         # Create temporary module
         import types
+
         module = types.ModuleType(f"strategy_{id(code)}")
         exec(code, module.__dict__)
 
@@ -193,7 +195,7 @@ class LiveTradingService:
         for name, obj in module.__dict__.items():
             if isinstance(obj, type) and issubclass(obj, bt.Strategy):
                 # Set parameters
-                if hasattr(obj, 'params'):
+                if hasattr(obj, "params"):
                     for key, value in params.items():
                         obj.params._get(key).default = value
                 return obj
@@ -268,26 +270,30 @@ class LiveTradingService:
             for data in cerebro.datas:
                 position = cerebro.broker.getposition(data)
                 if position:
-                    positions.append({
-                        "symbol": data._name,
-                        "size": position.size,
-                        "price": position.price,
-                        "pnl": position.pnl,
-                        "pnlcomm": position.pnlcomm,
-                    })
+                    positions.append(
+                        {
+                            "symbol": data._name,
+                            "size": position.size,
+                            "price": position.price,
+                            "pnl": position.pnl,
+                            "pnlcomm": position.pnlcomm,
+                        }
+                    )
 
             # Get orders
             orders = []
             for order in cerebro.broker.orders:
-                orders.append({
-                    "order_id": str(order.ref),
-                    "symbol": order.data._name,
-                    "ordtype": order.ordtypename(),
-                    "side": order.ordtypename(),
-                    "status": order.getstatusname(),
-                    "size": order.size,
-                    "price": order.created.price,
-                })
+                orders.append(
+                    {
+                        "order_id": str(order.ref),
+                        "symbol": order.data._name,
+                        "ordtype": order.ordtypename(),
+                        "side": order.ordtypename(),
+                        "status": order.getstatusname(),
+                        "size": order.size,
+                        "price": order.created.price,
+                    }
+                )
 
             return {
                 "task_id": task_id,

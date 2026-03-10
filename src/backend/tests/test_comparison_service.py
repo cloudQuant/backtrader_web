@@ -16,12 +16,13 @@ Tests:
 - list_comparisons method
 - _to_response method
 """
-import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from datetime import datetime
+from unittest.mock import AsyncMock, Mock
 
+import pytest
+
+from app.models.comparison import ComparisonType
 from app.services.comparison_service import ComparisonService
-from app.models.comparison import Comparison, ComparisonType
 
 
 class TestComparisonServiceInitialization:

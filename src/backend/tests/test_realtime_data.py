@@ -8,9 +8,10 @@ Tests:
 - Batch get real-time market data
 - Get historical market data
 """
+from unittest.mock import AsyncMock, patch
+
 import pytest
 from httpx import AsyncClient
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 @pytest.mark.asyncio

@@ -59,13 +59,9 @@ async def lifespan(app: FastAPI):
     if "change-in-production" in settings.SECRET_KEY or (
         "change-in-production" in settings.JWT_SECRET_KEY
     ):
-        logger.warning(
-            "Using default security key. Set SECRET_KEY / JWT_SECRET_KEY in production."
-        )
+        logger.warning("Using default security key. Set SECRET_KEY / JWT_SECRET_KEY in production.")
     if settings.ADMIN_PASSWORD == "admin123":
-        logger.warning(
-            "Default admin password is admin123. Change ADMIN_PASSWORD in production."
-        )
+        logger.warning("Default admin password is admin123. Change ADMIN_PASSWORD in production.")
     logger.info("Application ready")
     yield
     logger.info("Shutting down Backtrader Web API...")

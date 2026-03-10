@@ -1,6 +1,7 @@
 """
 Backtest analytics service.
 """
+
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -46,8 +47,8 @@ class AnalyticsService:
             PerformanceMetrics: Calculated metrics including returns, drawdown,
                 Sharpe ratio, win rate, and trade statistics.
         """
-        equity_curve = result_data.get('equity_curve', [])
-        trades = result_data.get('trades', [])
+        equity_curve = result_data.get("equity_curve", [])
+        trades = result_data.get("trades", [])
 
         if not equity_curve:
             return PerformanceMetrics(
@@ -58,11 +59,11 @@ class AnalyticsService:
                 max_drawdown=0,
             )
 
-        initial = equity_curve[0].get('total_assets', 0)
-        final = equity_curve[-1].get('total_assets', 0)
+        initial = equity_curve[0].get("total_assets", 0)
+        final = equity_curve[-1].get("total_assets", 0)
 
         # Use FincoreAdapter for calculations
-        equity_values = [e.get('total_assets', 0) for e in equity_curve]
+        equity_values = [e.get("total_assets", 0) for e in equity_curve]
 
         # Total return
         total_return = self.adapter.calculate_total_returns(equity_values)
@@ -75,7 +76,9 @@ class AnalyticsService:
 
         # Sharpe ratio
         returns = self._calculate_daily_returns(equity_curve)
-        sharpe = self.adapter.calculate_sharpe_ratio(returns, risk_free_rate=0.02) if returns else None
+        sharpe = (
+            self.adapter.calculate_sharpe_ratio(returns, risk_free_rate=0.02) if returns else None
+        )
 
         # Trade statistics using FincoreAdapter
         profit_factor = self.adapter.calculate_profit_factor(trades)
@@ -85,10 +88,10 @@ class AnalyticsService:
         win_rate = self.adapter.calculate_win_rate(trades)
 
         # Average win/loss amounts
-        wins = [t for t in trades if (t.get('pnl') or 0) > 0]
-        losses = [t for t in trades if (t.get('pnl') or 0) < 0]
-        avg_win = np.mean([t['pnl'] for t in wins]) if wins else 0
-        avg_loss = abs(np.mean([t['pnl'] for t in losses])) if losses else 0
+        wins = [t for t in trades if (t.get("pnl") or 0) > 0]
+        losses = [t for t in trades if (t.get("pnl") or 0) < 0]
+        avg_win = np.mean([t["pnl"] for t in wins]) if wins else 0
+        avg_loss = abs(np.mean([t["pnl"] for t in losses])) if losses else 0
 
         # Calmar ratio
         calmar = annualized / abs(max_dd) if max_dd != 0 else None
@@ -125,11 +128,11 @@ class AnalyticsService:
         if len(equity_curve) < 2:
             return []
 
-        values = [e['total_assets'] for e in equity_curve]
+        values = [e["total_assets"] for e in equity_curve]
         returns = []
         for i in range(1, len(values)):
-            if values[i-1] > 0:
-                ret = (values[i] - values[i-1]) / values[i-1]
+            if values[i - 1] > 0:
+                ret = (values[i] - values[i - 1]) / values[i - 1]
                 returns.append(ret)
         return returns
 
@@ -146,27 +149,29 @@ class AnalyticsService:
         cumulative_pnl = 0
 
         for i, t in enumerate(raw_trades):
-            pnl = t.get('pnl') or t.get('pnlcomm', 0)
+            pnl = t.get("pnl") or t.get("pnlcomm", 0)
             cumulative_pnl += pnl
 
             # Calculate return percentage
-            value = t.get('value', 0)
+            value = t.get("value", 0)
             return_pct = pnl / value if value else 0
 
-            processed.append(TradeRecord(
-                id=i + 1,
-                datetime=t.get('datetime', ''),
-                symbol=t.get('symbol', 'unknown'),
-                direction=t.get('direction', 'unknown'),
-                price=round(t.get('price', 0), 4),
-                size=abs(t.get('size', 0)),
-                value=round(abs(value), 2),
-                commission=round(t.get('commission', 0), 4),
-                pnl=round(pnl, 2) if pnl else None,
-                return_pct=round(return_pct, 6) if return_pct else None,
-                holding_days=t.get('barlen'),
-                cumulative_pnl=round(cumulative_pnl, 2),
-            ))
+            processed.append(
+                TradeRecord(
+                    id=i + 1,
+                    datetime=t.get("datetime", ""),
+                    symbol=t.get("symbol", "unknown"),
+                    direction=t.get("direction", "unknown"),
+                    price=round(t.get("price", 0), 4),
+                    size=abs(t.get("size", 0)),
+                    value=round(abs(value), 2),
+                    commission=round(t.get("commission", 0), 4),
+                    pnl=round(pnl, 2) if pnl else None,
+                    return_pct=round(return_pct, 6) if return_pct else None,
+                    holding_days=t.get("barlen"),
+                    cumulative_pnl=round(cumulative_pnl, 2),
+                )
+            )
 
         return processed
 
@@ -181,10 +186,10 @@ class AnalyticsService:
         """
         return [
             EquityPoint(
-                date=e.get('date', ''),
-                total_assets=e.get('total_assets', 0),
-                cash=e.get('cash', 0),
-                position_value=e.get('position_value', 0),
+                date=e.get("date", ""),
+                total_assets=e.get("total_assets", 0),
+                cash=e.get("cash", 0),
+                position_value=e.get("position_value", 0),
             )
             for e in raw_curve
         ]
@@ -200,10 +205,10 @@ class AnalyticsService:
         """
         return [
             DrawdownPoint(
-                date=d.get('date', ''),
-                drawdown=d.get('drawdown', 0),
-                peak=d.get('peak', 0),
-                trough=d.get('trough', 0),
+                date=d.get("date", ""),
+                drawdown=d.get("drawdown", 0),
+                peak=d.get("peak", 0),
+                trough=d.get("trough", 0),
             )
             for d in raw_curve
         ]
@@ -219,18 +224,15 @@ class AnalyticsService:
         """
         return [
             TradeSignal(
-                date=s.get('date', ''),
-                type=s.get('type', ''),
-                price=s.get('price', 0),
-                size=s.get('size', 0),
+                date=s.get("date", ""),
+                type=s.get("type", ""),
+                price=s.get("price", 0),
+                size=s.get("size", 0),
             )
             for s in raw_signals
         ]
 
-    def process_monthly_returns(
-        self,
-        raw_returns: Dict
-    ) -> MonthlyReturnsResponse:
+    def process_monthly_returns(self, raw_returns: Dict) -> MonthlyReturnsResponse:
         """Process and format monthly returns data.
 
         Args:
@@ -254,7 +256,7 @@ class AnalyticsService:
             # Compound annual return calculation
             total = 1
             for r in year_returns:
-                total *= (1 + r)
+                total *= 1 + r
             summary[year] = round(total - 1, 6)
 
         return MonthlyReturnsResponse(
@@ -275,18 +277,18 @@ class AnalyticsService:
         if not klines:
             return {}
 
-        closes = [k.get('close', 0) for k in klines]
+        closes = [k.get("close", 0) for k in klines]
 
         def ma(period: int) -> List[Optional[float]]:
             result = [None] * (period - 1)
             for i in range(period - 1, len(closes)):
-                avg = sum(closes[i - period + 1:i + 1]) / period
+                avg = sum(closes[i - period + 1 : i + 1]) / period
                 result.append(round(avg, 4))
             return result
 
         return {
-            'ma5': ma(5),
-            'ma10': ma(10),
-            'ma20': ma(20),
-            'ma60': ma(60) if len(closes) >= 60 else [],
+            "ma5": ma(5),
+            "ma10": ma(10),
+            "ma20": ma(20),
+            "ma60": ma(60) if len(closes) >= 60 else [],
         }

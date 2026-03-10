@@ -49,7 +49,7 @@
             <el-table :data="overview.strategies" stripe size="small" class="w-full">
               <el-table-column prop="strategy_name" label="策略名称" min-width="140">
                 <template #default="{ row }">
-                  <router-link :to="`/live-trading/${row.id}`" class="text-blue-600 hover:underline">
+                  <router-link :to="`/${tradingType}/${row.id}`" class="text-blue-600 hover:underline">
                     {{ row.strategy_name }}
                   </router-link>
                 </template>
@@ -173,7 +173,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, onMounted, watch, nextTick, onBeforeUnmount, computed } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
@@ -185,8 +185,12 @@ import type {
   PortfolioEquity,
   AllocationItem,
 } from '@/api/portfolio'
+import { usePortfolioUiStore } from '@/stores/portfolioUi'
+
+const portfolioUiStore = usePortfolioUiStore()
 
 const loading = ref(true)
+const tradingType = computed(() => portfolioUiStore.tradingType)
 const activeTab = ref('strategies')
 
 const overview = ref<PortfolioOverview>({
@@ -217,8 +221,13 @@ const loadedTabs = ref<Set<string>>(new Set(['strategies']))
 
 async function loadData() {
   loading.value = true
+  loadedTabs.value = new Set(['strategies'])
   try {
-    overview.value = await portfolioApi.getOverview()
+    if (tradingType.value === 'live') {
+      overview.value = await portfolioApi.getOverview()
+    } else {
+      overview.value = await portfolioApi.getSimulationOverview()
+    }
   } catch (e: any) {
     ElMessage.error(e.message || '加载组合数据失败')
   } finally {
@@ -229,16 +238,30 @@ async function loadData() {
 async function loadTabData(tab: string) {
   if (loadedTabs.value.has(tab)) return
   try {
-    if (tab === 'positions') {
-      const pos = await portfolioApi.getPositions()
-      positions.value = pos.positions
-    } else if (tab === 'trades') {
-      const trd = await portfolioApi.getTrades()
-      trades.value = trd.trades
-    } else if (tab === 'equity') {
-      equityData.value = await portfolioApi.getEquity()
-    } else if (tab === 'allocation') {
-      allocationItems.value = (await portfolioApi.getAllocation()).items
+    if (tradingType.value === 'live') {
+      if (tab === 'positions') {
+        const pos = await portfolioApi.getPositions()
+        positions.value = pos.positions
+      } else if (tab === 'trades') {
+        const trd = await portfolioApi.getTrades()
+        trades.value = trd.trades
+      } else if (tab === 'equity') {
+        equityData.value = await portfolioApi.getEquity()
+      } else if (tab === 'allocation') {
+        allocationItems.value = (await portfolioApi.getAllocation()).items
+      }
+    } else {
+      if (tab === 'positions') {
+        const pos = await portfolioApi.getSimulationPositions()
+        positions.value = pos.positions
+      } else if (tab === 'trades') {
+        const trd = await portfolioApi.getSimulationTrades()
+        trades.value = trd.trades
+      } else if (tab === 'equity') {
+        equityData.value = await portfolioApi.getSimulationEquity()
+      } else if (tab === 'allocation') {
+        allocationItems.value = (await portfolioApi.getSimulationAllocation()).items
+      }
     }
     loadedTabs.value.add(tab)
   } catch (e: any) {
@@ -351,6 +374,12 @@ watch(activeTab, async (tab) => {
   } else if (tab === 'allocation') {
     nextTick(() => renderAllocationChart())
   }
+})
+
+// 当头部的交易类型切换时，自动重新加载数据
+watch(tradingType, async () => {
+  activeTab.value = 'strategies'
+  await loadData()
 })
 
 onMounted(() => {

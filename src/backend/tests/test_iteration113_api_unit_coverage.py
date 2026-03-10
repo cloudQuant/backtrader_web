@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -293,7 +292,12 @@ async def test_analytics_get_backtest_data_internal_exception_and_monthly_branch
 @pytest.mark.asyncio
 async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconnect():
     from app.api import backtest_enhanced as bt_api
-    from app.schemas.backtest_enhanced import BacktestRequest, BacktestResponse, BacktestResult, TaskStatus
+    from app.schemas.backtest_enhanced import (
+        BacktestRequest,
+        BacktestResponse,
+        BacktestResult,
+        TaskStatus,
+    )
 
     user = SimpleNamespace(sub="u1")
 

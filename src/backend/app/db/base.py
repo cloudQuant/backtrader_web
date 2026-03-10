@@ -1,10 +1,11 @@
 """
 Repository base class - Unified CRUD interface.
 """
+
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class BaseRepository(ABC, Generic[T]):
@@ -66,10 +67,7 @@ class BaseRepository(ABC, Generic[T]):
 
     @abstractmethod
     async def list(
-        self,
-        filters: Dict[str, Any] = None,
-        skip: int = 0,
-        limit: int = 100
+        self, filters: Dict[str, Any] = None, skip: int = 0, limit: int = 100
     ) -> List[T]:
         """List entities with optional filtering.
 

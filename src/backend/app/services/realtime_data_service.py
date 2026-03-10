@@ -3,6 +3,7 @@ Realtime market data service.
 
 Supports tick subscription and streaming across brokers.
 """
+
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -194,7 +195,9 @@ class RealTimeDataService:
             List of historical data points. Currently returns an empty list
             as the actual data fetching logic is not yet implemented.
         """
-        logger.info(f"Fetching historical data: {symbol} from {start_date} to {end_date}, freq={frequency}")
+        logger.info(
+            f"Fetching historical data: {symbol} from {start_date} to {end_date}, freq={frequency}"
+        )
 
         # TODO: Implement actual historical data fetching logic
         # Currently returns empty list

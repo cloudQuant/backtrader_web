@@ -13,6 +13,7 @@ Usage:
     >>> is_valid = validate_email("user@example.com")
     >>> safe_html = sanitize_html("<script>alert('xss')</script>")
 """
+
 import re
 import urllib.parse
 from html import escape as html_escape
@@ -23,15 +24,13 @@ from typing import Any, List, Optional
 DANGEROUS_SQL_PATTERNS = [
     r"--",  # SQL comment
     r";",  # Statement separator
-    r"/\*", r"\*/",  # Multi-line comment
+    r"/\*",
+    r"\*/",  # Multi-line comment
     r"\b(ALTER|CREATE|DELETE|DROP|EXEC|EXECUTE|INSERT|INTO|UPDATE|UNION|SELECT)\b",
     r"\b(OR|AND)\s+\S+\s*(=|LIKE|IN)",
 ]
 
-DANGEROUS_SQL_REGEX = re.compile(
-    "|".join(DANGEROUS_SQL_PATTERNS),
-    re.IGNORECASE | re.MULTILINE
-)
+DANGEROUS_SQL_REGEX = re.compile("|".join(DANGEROUS_SQL_PATTERNS), re.IGNORECASE | re.MULTILINE)
 
 
 def detect_sql_injection(value: str) -> bool:
@@ -61,7 +60,7 @@ def sanitize_sql_identifier(identifier: str) -> str:
         ValueError: If identifier contains dangerous characters.
     """
     # Only allow alphanumeric characters, underscores, and dots
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_.]*$', identifier):
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.]*$", identifier):
         raise ValueError(f"Invalid SQL identifier: {identifier}")
     return identifier
 
@@ -69,19 +68,41 @@ def sanitize_sql_identifier(identifier: str) -> str:
 # ==================== XSS Prevention ====================
 
 DANGEROUS_HTML_TAGS = {
-    'script', 'iframe', 'object', 'embed', 'form', 'input', 'button',
-    'link', 'meta', 'style', 'applet', 'body', 'onload', 'onerror',
+    "script",
+    "iframe",
+    "object",
+    "embed",
+    "form",
+    "input",
+    "button",
+    "link",
+    "meta",
+    "style",
+    "applet",
+    "body",
+    "onload",
+    "onerror",
 }
 
 DANGEROUS_HTML_EVENTS = {
-    'onload', 'onerror', 'onclick', 'onmouseover', 'onmouseout',
-    'onfocus', 'onblur', 'onchange', 'onsubmit', 'onreset', 'onkeydown',
-    'onkeypress', 'onkeyup', 'onscroll',
+    "onload",
+    "onerror",
+    "onclick",
+    "onmouseover",
+    "onmouseout",
+    "onfocus",
+    "onblur",
+    "onchange",
+    "onsubmit",
+    "onreset",
+    "onkeydown",
+    "onkeypress",
+    "onkeyup",
+    "onscroll",
 }
 
 XSS_PATTERN = re.compile(
-    r'<\s*/?\s*(script|iframe|object|embed|form|input|button|link|meta|style|applet)',
-    re.IGNORECASE
+    r"<\s*/?\s*(script|iframe|object|embed|form|input|button|link|meta|style|applet)", re.IGNORECASE
 )
 
 
@@ -156,18 +177,15 @@ def escape_html(value: Any) -> str:
 # ==================== Path Traversal Prevention ====================
 
 PATH_TRAVERSAL_PATTERNS = [
-    r'\.\./',  # Parent directory traversal
-    r'\.\.\\',  # Parent directory (Windows style)
-    r'~',  # Home directory
-    r'%2e%2e',  # URL encoded parent directory
-    r'%252e',  # Double URL encoded dot
-    r'\x00',  # Null byte
+    r"\.\./",  # Parent directory traversal
+    r"\.\.\\",  # Parent directory (Windows style)
+    r"~",  # Home directory
+    r"%2e%2e",  # URL encoded parent directory
+    r"%252e",  # Double URL encoded dot
+    r"\x00",  # Null byte
 ]
 
-PATH_TRAVERSAL_REGEX = re.compile(
-    "|".join(PATH_TRAVERSAL_PATTERNS),
-    re.IGNORECASE
-)
+PATH_TRAVERSAL_REGEX = re.compile("|".join(PATH_TRAVERSAL_PATTERNS), re.IGNORECASE)
 
 
 def detect_path_traversal(path: str) -> bool:
@@ -187,11 +205,11 @@ def detect_path_traversal(path: str) -> bool:
         return True
 
     # Check for absolute paths (often dangerous)
-    if path.startswith('/') or path.startswith('\\'):
+    if path.startswith("/") or path.startswith("\\"):
         return True
 
     # Check for Windows drive letters
-    if re.match(r'^[A-Za-z]:\\', path):
+    if re.match(r"^[A-Za-z]:\\", path):
         return True
 
     return False
@@ -210,7 +228,7 @@ def sanitize_path(path: str, base_dir: str = "/tmp") -> str:
     import os
 
     # Remove any null bytes
-    path = path.replace('\x00', '')
+    path = path.replace("\x00", "")
 
     # Get the basename (filename only)
     safe_path = os.path.basename(path)
@@ -230,11 +248,25 @@ def sanitize_path(path: str, base_dir: str = "/tmp") -> str:
 
 # ==================== Command Injection Prevention ====================
 
-DANGEROUS_COMMAND_CHARS = [';', '|', '&', '$', '`', '(', ')', '<', '>', '\n', '\r']
+DANGEROUS_COMMAND_CHARS = [";", "|", "&", "$", "`", "(", ")", "<", ">", "\n", "\r"]
 DANGEROUS_COMMANDS = [
-    'curl', 'wget', 'nc', 'netcat', 'telnet', 'ssh',
-    'eval', 'exec', 'system', 'passthru', 'shell_exec',
-    'ping', 'chmod', 'chown', 'rm', 'mv', 'cp',
+    "curl",
+    "wget",
+    "nc",
+    "netcat",
+    "telnet",
+    "ssh",
+    "eval",
+    "exec",
+    "system",
+    "passthru",
+    "shell_exec",
+    "ping",
+    "chmod",
+    "chown",
+    "rm",
+    "mv",
+    "cp",
 ]
 
 
@@ -278,16 +310,14 @@ def sanitize_command_arg(arg: str) -> str:
     """
     # Only allow safe characters: alphanumeric, hyphens, underscores, dots, slashes, colons
     # This is restrictive but safe
-    if not re.match(r'^[a-zA-Z0-9._/\-:\s]+$', arg):
+    if not re.match(r"^[a-zA-Z0-9._/\-:\s]+$", arg):
         raise ValueError(f"Invalid command argument: {arg}")
     return arg
 
 
 # ==================== Email Validation ====================
 
-EMAIL_REGEX = re.compile(
-    r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-)
+EMAIL_REGEX = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 
 def validate_email(email: str) -> bool:
@@ -320,7 +350,7 @@ def sanitize_email(email: str) -> str:
 
 # ==================== Username Validation ====================
 
-USERNAME_REGEX = re.compile(r'^[a-zA-Z0-9_-]{3,50}$')
+USERNAME_REGEX = re.compile(r"^[a-zA-Z0-9_-]{3,50}$")
 
 
 def validate_username(username: str) -> bool:
@@ -350,13 +380,14 @@ def sanitize_username(username: str) -> str:
         return ""
 
     # Remove invalid characters, keep only alphanumeric, underscore, hyphen
-    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', username)
+    sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", username)
 
     # Truncate to max length
     return sanitized[:50]
 
 
 # ==================== General Input Sanitization ====================
+
 
 def sanitize_string(value: Any, max_length: int = 10000) -> str:
     """Sanitize a string input by removing null bytes and limiting length.
@@ -372,7 +403,7 @@ def sanitize_string(value: Any, max_length: int = 10000) -> str:
         value = str(value)
 
     # Remove null bytes
-    value = value.replace('\x00', '')
+    value = value.replace("\x00", "")
 
     # Limit length
     if len(value) > max_length:
@@ -410,6 +441,7 @@ def validate_min_length(value: str, min_length: int) -> bool:
 
 # ==================== URL Validation ====================
 
+
 def validate_url(url: str) -> bool:
     """Validate a URL format.
 
@@ -425,7 +457,7 @@ def validate_url(url: str) -> bool:
     try:
         result = urllib.parse.urlparse(url)
         # Must have scheme and netloc
-        return all([result.scheme, result.netloc]) and result.scheme in ('http', 'https', '')
+        return all([result.scheme, result.netloc]) and result.scheme in ("http", "https", "")
     except Exception:
         return False
 
@@ -449,20 +481,23 @@ def sanitize_url(url: str) -> str:
     parsed = urllib.parse.urlparse(url)
 
     # Check for javascript: protocol
-    if parsed.scheme and parsed.scheme.lower() == 'javascript':
+    if parsed.scheme and parsed.scheme.lower() == "javascript":
         raise ValueError("javascript: protocol is not allowed")
 
     # Rebuild the URL without the fragment if it looks suspicious
-    if parsed.fragment and any(char in parsed.fragment for char in ['<', '>', '"', "'"]):
+    if parsed.fragment and any(char in parsed.fragment for char in ["<", ">", '"', "'"]):
         # Remove the fragment
-        url = url.rsplit('#', 1)[0]
+        url = url.rsplit("#", 1)[0]
 
     return url
 
 
 # ==================== Integer Validation ====================
 
-def validate_integer(value: Any, min_val: Optional[int] = None, max_val: Optional[int] = None) -> bool:
+
+def validate_integer(
+    value: Any, min_val: Optional[int] = None, max_val: Optional[int] = None
+) -> bool:
     """Validate that a value is an integer within optional range.
 
     Args:
@@ -487,7 +522,10 @@ def validate_integer(value: Any, min_val: Optional[int] = None, max_val: Optiona
 
 # ==================== Float Validation ====================
 
-def validate_float(value: Any, min_val: Optional[float] = None, max_val: Optional[float] = None) -> bool:
+
+def validate_float(
+    value: Any, min_val: Optional[float] = None, max_val: Optional[float] = None
+) -> bool:
     """Validate that a value is a float within optional range.
 
     Args:
@@ -512,6 +550,7 @@ def validate_float(value: Any, min_val: Optional[float] = None, max_val: Optiona
 
 # ==================== Choice Validation ====================
 
+
 def validate_choice(value: Any, allowed_choices: List[Any]) -> bool:
     """Validate that a value is in the list of allowed choices.
 
@@ -527,6 +566,7 @@ def validate_choice(value: Any, allowed_choices: List[Any]) -> bool:
 
 # ==================== Composite Validation ====================
 
+
 class ValidationResult:
     """Result of a validation operation."""
 
@@ -534,7 +574,7 @@ class ValidationResult:
         self,
         is_valid: bool,
         errors: Optional[List[str]] = None,
-        warnings: Optional[List[str]] = None
+        warnings: Optional[List[str]] = None,
     ):
         """Initialize validation result.
 
@@ -579,9 +619,7 @@ class ValidationResult:
 
 
 def validate_user_input(
-    data: dict,
-    rules: dict,
-    allow_extra_fields: bool = True
+    data: dict, rules: dict, allow_extra_fields: bool = True
 ) -> ValidationResult:
     """Validate user input based on validation rules.
 

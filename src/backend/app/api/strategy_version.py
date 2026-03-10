@@ -3,6 +3,7 @@ Strategy version control API routes (full version).
 
 Supports versioning, branch management, rollback, and comparisons.
 """
+
 import asyncio
 import logging
 from typing import Optional
@@ -41,6 +42,7 @@ def get_version_control_service():
 
 
 # ==================== Strategy Version API ====================
+
 
 @router.post("/versions", response_model=VersionResponse, summary="Create strategy version")
 async def create_strategy_version(
@@ -82,20 +84,29 @@ async def create_strategy_version(
             is_default=request.is_default,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy"
+        )
 
     # Push version creation notification
-    await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
-        "type": MessageType.PROGRESS,
-        "strategy_id": request.strategy_id,
-        "version_id": version.id,
-        "message": "Strategy version has been created",
-    })
+    await ws_manager.send_to_task(
+        f"strategy:{request.strategy_id}",
+        {
+            "type": MessageType.PROGRESS,
+            "strategy_id": request.strategy_id,
+            "version_id": version.id,
+            "message": "Strategy version has been created",
+        },
+    )
 
     return service._to_response(version)
 
 
-@router.get("/strategies/{strategy_id}/versions", response_model=VersionListResponse, summary="List strategy versions")
+@router.get(
+    "/strategies/{strategy_id}/versions",
+    response_model=VersionListResponse,
+    summary="List strategy versions",
+)
 async def list_strategy_versions(
     strategy_id: str,
     current_user=Depends(get_current_user),
@@ -131,7 +142,9 @@ async def list_strategy_versions(
     return VersionListResponse(total=total, items=versions)
 
 
-@router.get("/versions/{version_id}", response_model=VersionResponse, summary="Get strategy version details")
+@router.get(
+    "/versions/{version_id}", response_model=VersionResponse, summary="Get strategy version details"
+)
 async def get_strategy_version(
     version_id: str,
     current_user=Depends(get_current_user),
@@ -155,21 +168,21 @@ async def get_strategy_version(
 
     if not version:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Strategy version not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Strategy version not found"
         )
 
     # Permission check: versions are owned by the strategy owner (created_by).
     if getattr(version, "created_by", None) != current_user.sub:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No permission to access this version"
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this version"
         )
 
     return service._to_response(version)
 
 
-@router.put("/versions/{version_id}", response_model=VersionResponse, summary="Update strategy version")
+@router.put(
+    "/versions/{version_id}", response_model=VersionResponse, summary="Update strategy version"
+)
 async def update_strategy_version(
     version_id: str,
     request: VersionUpdate,
@@ -195,12 +208,14 @@ async def update_strategy_version(
     Raises:
         HTTPException: If the version does not exist or user lacks permission (404).
     """
-    version = await service.update_version(version_id=version_id, user_id=current_user.sub, update_data=request)
+    version = await service.update_version(
+        version_id=version_id, user_id=current_user.sub, update_data=request
+    )
 
     if not version:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Strategy version not found or no permission to update"
+            detail="Strategy version not found or no permission to update",
         )
 
     return service._to_response(version)
@@ -232,7 +247,7 @@ async def set_version_default(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Strategy version not found or no permission to set"
+            detail="Strategy version not found or no permission to set",
         )
 
     return {"message": "Version has been set as default"}
@@ -264,7 +279,7 @@ async def activate_strategy_version(
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Strategy version not found or no permission to activate"
+            detail="Strategy version not found or no permission to activate",
         )
 
     return {"message": "Version has been activated"}
@@ -272,7 +287,12 @@ async def activate_strategy_version(
 
 # ==================== Version Comparison API ====================
 
-@router.post("/versions/compare", response_model=VersionComparisonResponse, summary="Compare strategy versions")
+
+@router.post(
+    "/versions/compare",
+    response_model=VersionComparisonResponse,
+    summary="Compare strategy versions",
+)
 async def compare_strategy_versions(
     request: VersionComparisonRequest,
     current_user=Depends(get_current_user),
@@ -305,15 +325,20 @@ async def compare_strategy_versions(
             to_version_id=request.to_version_id,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access these versions")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access these versions"
+        )
 
     # Push comparison completion notification
-    await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
-        "type": MessageType.PROGRESS,
-        "strategy_id": request.strategy_id,
-        "comparison_id": comparison.id,
-        "message": "Strategy version comparison completed",
-    })
+    await ws_manager.send_to_task(
+        f"strategy:{request.strategy_id}",
+        {
+            "type": MessageType.PROGRESS,
+            "strategy_id": request.strategy_id,
+            "comparison_id": comparison.id,
+            "message": "Strategy version comparison completed",
+        },
+    )
 
     return {
         "comparison_id": comparison.id,
@@ -329,7 +354,10 @@ async def compare_strategy_versions(
 
 # ==================== Version Rollback API ====================
 
-@router.post("/versions/rollback", response_model=VersionResponse, summary="Rollback strategy version")
+
+@router.post(
+    "/versions/rollback", response_model=VersionResponse, summary="Rollback strategy version"
+)
 async def rollback_strategy_version(
     request: VersionRollbackRequest,
     current_user=Depends(get_current_user),
@@ -361,20 +389,26 @@ async def rollback_strategy_version(
             reason=request.reason,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this version")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this version"
+        )
 
     # Push rollback notification
-    await ws_manager.send_to_task(f"strategy:{request.strategy_id}", {
-        "type": MessageType.PROGRESS,
-        "strategy_id": request.strategy_id,
-        "version_id": new_version.id,
-        "message": "Strategy version has been rolled back",
-    })
+    await ws_manager.send_to_task(
+        f"strategy:{request.strategy_id}",
+        {
+            "type": MessageType.PROGRESS,
+            "strategy_id": request.strategy_id,
+            "version_id": new_version.id,
+            "message": "Strategy version has been rolled back",
+        },
+    )
 
     return service._to_response(new_version)
 
 
 # ==================== Strategy Branch API ====================
+
 
 @router.post("/branches", response_model=BranchResponse, summary="Create strategy branch")
 async def create_strategy_branch(
@@ -413,14 +447,20 @@ async def create_strategy_branch(
             parent_branch=request.parent_branch,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy"
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
     return service.branch_to_response(branch)
 
 
-@router.get("/strategies/{strategy_id}/branches", response_model=BranchListResponse, summary="List strategy branches")
+@router.get(
+    "/strategies/{strategy_id}/branches",
+    response_model=BranchListResponse,
+    summary="List strategy branches",
+)
 async def list_strategy_branches(
     strategy_id: str,
     current_user=Depends(get_current_user),
@@ -451,7 +491,9 @@ async def list_strategy_branches(
             offset=offset,
         )
     except PermissionError:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy"
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
@@ -462,6 +504,7 @@ async def list_strategy_branches(
 
 
 # ==================== WebSocket Endpoint ====================
+
 
 @router.websocket("/ws/strategies/{strategy_id}")
 async def strategy_version_websocket(
@@ -511,11 +554,14 @@ async def strategy_version_websocket(
 
     try:
         # Send initial message
-        await ws_manager.send_to_task(f"strategy:{strategy_id}", {
-            "type": MessageType.CONNECTED,
-            "strategy_id": strategy_id,
-            "message": "Strategy version control WebSocket connection successful",
-        })
+        await ws_manager.send_to_task(
+            f"strategy:{strategy_id}",
+            {
+                "type": MessageType.CONNECTED,
+                "strategy_id": strategy_id,
+                "message": "Strategy version control WebSocket connection successful",
+            },
+        )
 
         # Keep connection alive
         while True:

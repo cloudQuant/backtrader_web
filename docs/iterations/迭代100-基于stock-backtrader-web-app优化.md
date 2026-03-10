@@ -2,7 +2,7 @@
 backtrader已经比较完善了，我想要借鉴量化投资框架中其他项目的优势，继续改进优化backtrader。
 
 > **📋 敏捷开发文档**: 本迭代已转化为独立项目 `backtrader_web`，详细的敏捷开发文档请查看:  
-> **[docs/AGILE_DEVELOPMENT.md](docs/AGILE_DEVELOPMENT.md)**
+> **[docs/AGILE_DEVELOPMENT.md](../AGILE_DEVELOPMENT.md)**
 > 
 > 包含: 产品愿景、用户故事、Sprint规划、技术架构、开发规范等
 

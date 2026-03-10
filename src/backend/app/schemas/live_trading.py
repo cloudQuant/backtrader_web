@@ -1,6 +1,7 @@
 """
 Live trading schemas.
 """
+
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -9,10 +10,13 @@ from pydantic import BaseModel, Field
 
 class LiveTradingSubmitRequest(BaseModel):
     """Live trading strategy submission request schema."""
+
     strategy_name: Optional[str] = Field(None, description="Strategy name (built-in strategies)")
     strategy_code: Optional[str] = Field(None, description="Strategy code")
     exchange: str = Field(..., description="Exchange (binance, okex, huobi, etc.)")
-    symbols: List[str] = Field(..., min_length=1, description="Symbol list (e.g., ['BTC/USDT', 'ETH/USDT'])")
+    symbols: List[str] = Field(
+        ..., min_length=1, description="Symbol list (e.g., ['BTC/USDT', 'ETH/USDT'])"
+    )
     initial_cash: float = Field(100000.0, gt=0, le=10000000, description="Initial capital (USDT)")
     strategy_params: Optional[Dict[str, Any]] = Field(None, description="Strategy parameters")
     timeframe: str = Field("1d", description="Timeframe (1m, 5m, 15m, 30m, 1h, 1d, 1w, 1M)")
@@ -25,6 +29,7 @@ class LiveTradingSubmitRequest(BaseModel):
 
 class LiveTradingTaskResponse(BaseModel):
     """Live trading task response schema."""
+
     task_id: str = Field(..., description="Task ID")
     user_id: str = Field(..., description="User ID")
     status: str = Field(..., description="Task status: running, stopped, error")
@@ -34,12 +39,14 @@ class LiveTradingTaskResponse(BaseModel):
 
 class LiveTradingTaskListResponse(BaseModel):
     """Live trading task list response schema."""
+
     total: int = Field(..., ge=0, description="Total count")
     tasks: List[LiveTradingTaskResponse] = Field(..., description="Task list")
 
 
 class LiveTradingDataResponse(BaseModel):
     """Live trading data response schema."""
+
     task_id: str = Field(..., description="Task ID")
     status: str = Field(..., description="Task status")
     cash: float = Field(..., description="Available cash")
@@ -50,6 +57,7 @@ class LiveTradingDataResponse(BaseModel):
 
 class LiveTradingPosition(BaseModel):
     """Live trading position schema."""
+
     symbol: str = Field(..., description="Symbol code")
     size: float = Field(..., description="Position size (positive for long, negative for short)")
     avg_price: float = Field(..., description="Average cost price")
@@ -60,6 +68,7 @@ class LiveTradingPosition(BaseModel):
 
 class LiveTradingOrder(BaseModel):
     """Live trading order schema."""
+
     order_id: str = Field(..., description="Order ID")
     symbol: str = Field(..., description="Symbol code")
     order_type: str = Field(..., description="Order type")
@@ -73,6 +82,7 @@ class LiveTradingOrder(BaseModel):
 
 class LiveTradingTrade(BaseModel):
     """Live trading trade schema."""
+
     trade_id: str = Field(..., description="Trade ID")
     order_id: str = Field(..., description="Order ID")
     symbol: str = Field(..., description="Symbol code")
@@ -87,6 +97,7 @@ class LiveTradingTrade(BaseModel):
 
 class LiveAccountInfo(BaseModel):
     """Live trading account info schema."""
+
     cash: float = Field(..., description="Available cash")
     value: float = Field(..., description="Total equity")
     available_cash: float = Field(..., description="Available cash (including margin)")
@@ -97,6 +108,7 @@ class LiveAccountInfo(BaseModel):
 
 class LiveTick(BaseModel):
     """Live trading tick schema."""
+
     symbol: str = Field(..., description="Symbol code")
     timestamp: datetime = Field(..., description="Timestamp")
     open: float = Field(..., description="Open price")
@@ -112,6 +124,7 @@ class LiveTick(BaseModel):
 
 class LiveTickUpdate(BaseModel):
     """Live tick update schema."""
+
     type: str = Field("tick_update", description="Message type")
     symbol: str = Field(..., description="Symbol code")
     timestamp: str = Field(..., description="Timestamp (ISO 8601)")
@@ -120,6 +133,7 @@ class LiveTickUpdate(BaseModel):
 
 class LivePositionUpdate(BaseModel):
     """Live position update schema."""
+
     type: str = Field("position_update", description="Message type")
     symbol: str = Field(..., description="Symbol code")
     data: LiveTradingPosition = Field(..., description="Position data")
@@ -127,6 +141,7 @@ class LivePositionUpdate(BaseModel):
 
 class LiveOrderUpdate(BaseModel):
     """Live order update schema."""
+
     type: str = Field("order_update", description="Message type")
     order_id: str = Field(..., description="Order ID")
     data: Dict[str, Any] = Field(..., description="Order data")
@@ -134,6 +149,7 @@ class LiveOrderUpdate(BaseModel):
 
 class LiveTradeUpdate(BaseModel):
     """Live trade update schema."""
+
     type: str = Field("trade_update", description="Message type")
     trade_id: str = Field(..., description="Trade ID")
     data: LiveTradingTrade = Field(..., description="Trade data")
@@ -141,6 +157,7 @@ class LiveTradeUpdate(BaseModel):
 
 class LiveAccountUpdate(BaseModel):
     """Live account update schema."""
+
     type: str = Field("account_update", description="Message type")
     cash: float = Field(..., description="Cash")
     value: float = Field(..., description="Total equity")
@@ -148,6 +165,7 @@ class LiveAccountUpdate(BaseModel):
 
 class LiveSignalUpdate(BaseModel):
     """Strategy signal update schema."""
+
     type: str = Field("signal_update", description="Message type")
     symbol: str = Field(..., description="Symbol code")
     signal: str = Field(..., description="Signal type: buy, sell, close")

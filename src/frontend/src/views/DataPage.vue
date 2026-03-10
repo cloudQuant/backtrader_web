@@ -2,7 +2,7 @@
   <div class="space-y-6">
     <el-card>
       <template #header>
-        <span class="font-bold">数据查询</span>
+        <span class="font-bold">数据管理</span>
       </template>
       
       <el-form :inline="true" :model="queryForm">

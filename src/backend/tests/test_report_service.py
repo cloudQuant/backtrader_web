@@ -8,16 +8,16 @@ Tests:
 - Error handling when dependencies are missing
 - Edge case handling
 """
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
-from datetime import datetime
 
 from app.services.report_service import (
-    ReportService,
     JINJA2_AVAILABLE,
-    WEASYPRINT_AVAILABLE,
-    PANDAS_AVAILABLE,
     OPENPYXL_AVAILABLE,
+    PANDAS_AVAILABLE,
+    WEASYPRINT_AVAILABLE,
+    ReportService,
 )
 
 

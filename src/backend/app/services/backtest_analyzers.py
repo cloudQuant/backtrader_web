@@ -11,7 +11,9 @@ import backtrader as bt
 logger = logging.getLogger(__name__)
 AnalyzerBase = getattr(bt, "Analyzer", object)
 if AnalyzerBase is object:
-    logger.warning("backtrader.Analyzer is unavailable; custom analyzers are running in fallback mode")
+    logger.warning(
+        "backtrader.Analyzer is unavailable; custom analyzers are running in fallback mode"
+    )
 
 
 class DetailedTradeAnalyzer(AnalyzerBase):
@@ -35,20 +37,22 @@ class DetailedTradeAnalyzer(AnalyzerBase):
         """
         if trade.isclosed:
             self.trade_count += 1
-            self.trades.append({
-                'id': self.trade_count,
-                'ref': trade.ref,
-                'datetime': self.datas[0].datetime.datetime(0).strftime('%Y-%m-%d %H:%M:%S'),
-                'symbol': trade.data._name or 'unknown',
-                'direction': 'buy' if trade.history[0].event.size > 0 else 'sell',
-                'size': abs(trade.size),
-                'price': trade.price,
-                'value': abs(trade.value),
-                'commission': trade.commission,
-                'pnl': trade.pnl,
-                'pnlcomm': trade.pnlcomm,
-                'barlen': trade.barlen,
-            })
+            self.trades.append(
+                {
+                    "id": self.trade_count,
+                    "ref": trade.ref,
+                    "datetime": self.datas[0].datetime.datetime(0).strftime("%Y-%m-%d %H:%M:%S"),
+                    "symbol": trade.data._name or "unknown",
+                    "direction": "buy" if trade.history[0].event.size > 0 else "sell",
+                    "size": abs(trade.size),
+                    "price": trade.price,
+                    "value": abs(trade.value),
+                    "commission": trade.commission,
+                    "pnl": trade.pnl,
+                    "pnlcomm": trade.pnlcomm,
+                    "barlen": trade.barlen,
+                }
+            )
 
     def get_analysis(self):
         """Return the analysis results.
@@ -56,7 +60,7 @@ class DetailedTradeAnalyzer(AnalyzerBase):
         Returns:
             A dictionary containing the list of detailed trades.
         """
-        return {'trades': self.trades}
+        return {"trades": self.trades}
 
 
 class EquityCurveAnalyzer(AnalyzerBase):
@@ -83,12 +87,14 @@ class EquityCurveAnalyzer(AnalyzerBase):
         cash = self.strategy.broker.getcash()
         position_value = total - cash
 
-        self.equity_curve.append({
-            'date': dt.strftime('%Y-%m-%d'),
-            'total_assets': round(total, 2),
-            'cash': round(cash, 2),
-            'position_value': round(position_value, 2),
-        })
+        self.equity_curve.append(
+            {
+                "date": dt.strftime("%Y-%m-%d"),
+                "total_assets": round(total, 2),
+                "cash": round(cash, 2),
+                "position_value": round(position_value, 2),
+            }
+        )
 
     def get_analysis(self):
         """Return the analysis results.
@@ -96,7 +102,7 @@ class EquityCurveAnalyzer(AnalyzerBase):
         Returns:
             A dictionary containing the equity curve data.
         """
-        return {'equity_curve': self.equity_curve}
+        return {"equity_curve": self.equity_curve}
 
 
 class TradeSignalAnalyzer(AnalyzerBase):
@@ -117,14 +123,16 @@ class TradeSignalAnalyzer(AnalyzerBase):
             order: The completed order object from backtrader.
         """
         if order.status == order.Completed:
-            signal_type = 'buy' if order.isbuy() else 'sell'
+            signal_type = "buy" if order.isbuy() else "sell"
             dt = self.datas[0].datetime.datetime(0)
-            self.signals.append({
-                'date': dt.strftime('%Y-%m-%d'),
-                'type': signal_type,
-                'price': round(order.executed.price, 4),
-                'size': abs(order.executed.size),
-            })
+            self.signals.append(
+                {
+                    "date": dt.strftime("%Y-%m-%d"),
+                    "type": signal_type,
+                    "price": round(order.executed.price, 4),
+                    "size": abs(order.executed.size),
+                }
+            )
 
     def get_analysis(self):
         """Return the analysis results.
@@ -132,7 +140,7 @@ class TradeSignalAnalyzer(AnalyzerBase):
         Returns:
             A dictionary containing the list of trade signals.
         """
-        return {'signals': self.signals}
+        return {"signals": self.signals}
 
 
 class MonthlyReturnsAnalyzer(AnalyzerBase):
@@ -183,7 +191,7 @@ class MonthlyReturnsAnalyzer(AnalyzerBase):
         Returns:
             A dictionary containing monthly return data.
         """
-        return {'monthly_returns': self.monthly_returns}
+        return {"monthly_returns": self.monthly_returns}
 
 
 class DrawdownAnalyzer(AnalyzerBase):
@@ -213,12 +221,14 @@ class DrawdownAnalyzer(AnalyzerBase):
 
         dd = (current - self.peak) / self.peak if self.peak > 0 else 0
 
-        self.drawdown_curve.append({
-            'date': dt.strftime('%Y-%m-%d'),
-            'drawdown': round(dd, 6),
-            'peak': round(self.peak, 2),
-            'trough': round(current, 2),
-        })
+        self.drawdown_curve.append(
+            {
+                "date": dt.strftime("%Y-%m-%d"),
+                "drawdown": round(dd, 6),
+                "peak": round(self.peak, 2),
+                "trough": round(current, 2),
+            }
+        )
 
     def get_analysis(self):
         """Return the analysis results.
@@ -226,7 +236,7 @@ class DrawdownAnalyzer(AnalyzerBase):
         Returns:
             A dictionary containing the drawdown curve data.
         """
-        return {'drawdown_curve': self.drawdown_curve}
+        return {"drawdown_curve": self.drawdown_curve}
 
 
 def get_all_analyzers():
@@ -236,11 +246,11 @@ def get_all_analyzers():
         A dictionary mapping analyzer names to their classes.
     """
     return {
-        'detailed_trades': DetailedTradeAnalyzer,
-        'equity_curve': EquityCurveAnalyzer,
-        'trade_signals': TradeSignalAnalyzer,
-        'monthly_returns': MonthlyReturnsAnalyzer,
-        'drawdown': DrawdownAnalyzer,
+        "detailed_trades": DetailedTradeAnalyzer,
+        "equity_curve": EquityCurveAnalyzer,
+        "trade_signals": TradeSignalAnalyzer,
+        "monthly_returns": MonthlyReturnsAnalyzer,
+        "drawdown": DrawdownAnalyzer,
     }
 
 
@@ -272,11 +282,7 @@ class FincoreAdapter:
         """
         self.use_fincore = use_fincore
 
-    def calculate_sharpe_ratio(
-        self,
-        returns: list,
-        risk_free_rate: float = 0.0
-    ) -> float:
+    def calculate_sharpe_ratio(self, returns: list, risk_free_rate: float = 0.0) -> float:
         """Calculate Sharpe ratio for a series of returns.
 
         The Sharpe ratio measures the performance of an investment compared
@@ -298,6 +304,7 @@ class FincoreAdapter:
 
         # Use manual calculation for consistency
         import numpy as np
+
         returns_array = np.array(returns)
         excess_returns = returns_array - risk_free_rate
         std_dev = np.std(excess_returns)
@@ -328,6 +335,7 @@ class FincoreAdapter:
 
         # Use manual calculation for consistency
         import numpy as np
+
         equity_array = np.array(equity_curve)
         peak = np.maximum.accumulate(equity_array)
         drawdown = (equity_array - peak) / peak
@@ -359,11 +367,7 @@ class FincoreAdapter:
 
         return float((final_value - initial_value) / initial_value)
 
-    def calculate_annual_returns(
-        self,
-        equity_curve: list,
-        periods_per_year: int = 252
-    ) -> float:
+    def calculate_annual_returns(self, equity_curve: list, periods_per_year: int = 252) -> float:
         """Calculate annualized returns.
 
         Args:
@@ -418,7 +422,7 @@ class FincoreAdapter:
             return 0.0
 
         # Manual calculation (fincore doesn't have win_rate function)
-        winning_trades = sum(1 for t in trades if t.get('pnlcomm', 0) > 0)
+        winning_trades = sum(1 for t in trades if t.get("pnlcomm", 0) > 0)
         total_trades = len(trades)
 
         if total_trades == 0:
@@ -439,14 +443,14 @@ class FincoreAdapter:
         if not trades:
             return 0.0
 
-        winning_trades = [t for t in trades if t.get('pnlcomm', 0) > 0]
-        losing_trades = [t for t in trades if t.get('pnlcomm', 0) < 0]
+        winning_trades = [t for t in trades if t.get("pnlcomm", 0) > 0]
+        losing_trades = [t for t in trades if t.get("pnlcomm", 0) < 0]
 
         if not losing_trades or not winning_trades:
             return 0.0
 
-        avg_win = sum(t.get('pnlcomm', 0) for t in winning_trades) / len(winning_trades)
-        avg_loss = abs(sum(t.get('pnlcomm', 0) for t in losing_trades) / len(losing_trades))
+        avg_win = sum(t.get("pnlcomm", 0) for t in winning_trades) / len(winning_trades)
+        avg_loss = abs(sum(t.get("pnlcomm", 0) for t in losing_trades) / len(losing_trades))
 
         if avg_loss == 0:
             return 0.0
@@ -466,7 +470,7 @@ class FincoreAdapter:
         if not trades:
             return 0.0
 
-        holding_periods = [t.get('barlen', 0) for t in trades if t.get('barlen') is not None]
+        holding_periods = [t.get("barlen", 0) for t in trades if t.get("barlen") is not None]
 
         if not holding_periods:
             return 0.0
@@ -487,7 +491,7 @@ class FincoreAdapter:
         current = 0
 
         for t in trades:
-            pnl = t.get('pnlcomm', 0)
+            pnl = t.get("pnlcomm", 0)
             is_win = pnl > 0
             if is_win == win:
                 current += 1
@@ -510,6 +514,7 @@ class FincoreAdapter:
             return 0.0, 0
 
         import numpy as np
+
         equity_array = np.array(equity_curve)
         peak = equity_array[0]
         max_dd = 0.0

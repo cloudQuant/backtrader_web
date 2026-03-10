@@ -8,16 +8,17 @@ Tests custom Backtrader analyzers:
 - MonthlyReturnsAnalyzer: Calculates monthly returns
 - DrawdownAnalyzer: Tracks drawdown curve
 """
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime
+from unittest.mock import Mock
+
+import pytest
 
 from app.services.backtest_analyzers import (
     DetailedTradeAnalyzer,
-    EquityCurveAnalyzer,
-    TradeSignalAnalyzer,
-    MonthlyReturnsAnalyzer,
     DrawdownAnalyzer,
+    EquityCurveAnalyzer,
+    MonthlyReturnsAnalyzer,
+    TradeSignalAnalyzer,
     get_all_analyzers,
 )
 

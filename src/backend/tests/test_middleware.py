@@ -2,25 +2,22 @@
 Tests for security and exception handling middleware.
 """
 import pytest
-
+from fastapi import FastAPI
 from httpx import AsyncClient
-from fastapi import FastAPI, Request
-from starlette.responses import Response
 
 from app.middleware.exception_handling import (
     ErrorResponse,
     handle_base_app_error,
     handle_generic_exception,
-    handle_validation_error,
     handle_http_exception,
+    handle_validation_error,
     register_exception_handlers,
 )
-from app.middleware.security_headers import SecurityHeadersMiddleware, add_security_headers
+from app.middleware.security_headers import add_security_headers
 from app.utils.exceptions import (
-    UserNotFoundError,
-    ValidationError,
     InvalidInputError,
     MissingConfigError,
+    UserNotFoundError,
 )
 
 
@@ -70,7 +67,6 @@ class TestExceptionHandling:
     @pytest.mark.asyncio
     async def test_handle_base_app_error(self):
         """Test handling of custom application exceptions."""
-        from fastapi import HTTPException
 
         # Create mock request
         class MockURL:
@@ -400,22 +396,24 @@ class TestCustomExceptionIntegration:
     async def test_all_custom_exceptions_can_be_raised(self):
         """Test that all custom exceptions can be instantiated."""
         from app.utils.exceptions import (
-            AuthenticationError, InvalidCredentialsError,
-            InvalidTokenError, TokenExpiredError,
-            InsufficientPermissionsError, UserInactiveError,
-            UserAlreadyExistsError,
-            ValidationError, InvalidInputError,
-            MissingFieldError, PasswordTooWeakError,
-            StrategyError, StrategyNotFoundError,
-            InvalidStrategyCodeError,
-            BacktestError, BacktestNotFoundError,
-            BacktestExecutionError, BacktestTimeoutError,
-            DataError, DataNotFoundError,
-            InvalidDateRangeError,
-            ConfigurationError, MissingConfigError,
-            InvalidConfigError,
-            ExternalServiceError, BrokerConnectionError,
+            BacktestExecutionError,
+            BacktestNotFoundError,
+            BacktestTimeoutError,
+            BrokerConnectionError,
+            DataNotFoundError,
             DataProviderError,
+            InsufficientPermissionsError,
+            InvalidConfigError,
+            InvalidCredentialsError,
+            InvalidDateRangeError,
+            InvalidStrategyCodeError,
+            InvalidTokenError,
+            MissingFieldError,
+            PasswordTooWeakError,
+            StrategyNotFoundError,
+            TokenExpiredError,
+            UserAlreadyExistsError,
+            UserInactiveError,
         )
 
         # Try to instantiate each exception

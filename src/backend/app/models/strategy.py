@@ -1,6 +1,7 @@
 """
 Strategy ORM models.
 """
+
 import uuid
 from datetime import datetime, timezone
 
@@ -24,6 +25,7 @@ class Strategy(Base):
         created_at: Creation timestamp.
         updated_at: Last update timestamp.
     """
+
     __tablename__ = "strategies"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -34,7 +36,11 @@ class Strategy(Base):
     params = Column(JSON, default=dict)  # Parameter definitions
     category = Column(String(50), default="custom", index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     user = relationship("User", back_populates="strategies")

@@ -1,0 +1,648 @@
+"""
+Simulation trading instance management API routes.
+
+This module provides endpoints for managing simulation (paper/live-like) strategy
+instances, including starting, stopping, and analyzing simulated trading runs.
+
+The implementation reuses the existing LiveTradingManager and schemas, since the
+data model for instances is identical to live trading. This keeps the API
+surface consistent with the frontend `simulationApi` while avoiding duplication.
+"""
+
+import logging
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import FileResponse, PlainTextResponse
+
+from app.api.deps import get_current_user
+from app.schemas.analytics import (
+    BacktestDetailResponse,
+    KlineWithSignalsResponse,
+    MonthlyReturnsResponse,
+    PerformanceMetrics,
+)
+from app.schemas.live_trading_instance import (
+    LiveBatchResponse,
+    LiveInstanceCreate,
+    LiveInstanceInfo,
+    LiveInstanceListResponse,
+)
+from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
+from app.services.log_parser_service import (
+    find_latest_log_dir,
+    parse_all_logs,
+    parse_data_log,
+    parse_trade_log,
+    parse_value_log,
+)
+from app.services.strategy_service import get_strategy_dir
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+def _get_manager() -> LiveTradingManager:
+    """Get the manager instance used for simulation trading.
+
+    Currently this reuses the global LiveTradingManager implementation, since the
+    lifecycle and data model are identical for live and simulated instances.
+
+    Returns:
+        The global LiveTradingManager instance.
+    """
+    return get_live_trading_manager()
+
+
+@router.get("/", response_model=LiveInstanceListResponse, summary="List simulation instances")
+async def list_instances(
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """List all simulation trading instances for the current user.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        A list of simulation instances belonging to the user.
+    """
+    instances = mgr.list_instances(user_id=current_user.sub)
+    return {"total": len(instances), "instances": instances}
+
+
+@router.post("/", response_model=LiveInstanceInfo, summary="Add simulation instance")
+async def add_instance(
+    req: LiveInstanceCreate,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Add a new simulation trading instance.
+
+    Args:
+        req: The instance creation request.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        The created instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be created.
+    """
+    try:
+        return mgr.add_instance(req.strategy_id, req.params, user_id=current_user.sub)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.delete("/{instance_id}", summary="Delete simulation instance")
+async def remove_instance(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Delete a simulation trading instance.
+
+    Args:
+        instance_id: The ID of the instance to delete.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        A success message.
+
+    Raises:
+        HTTPException: If the instance is not found.
+    """
+    if not mgr.remove_instance(instance_id, user_id=current_user.sub):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
+    return {"message": "Deleted successfully"}
+
+
+@router.get(
+    "/{instance_id}", response_model=LiveInstanceInfo, summary="Get simulation instance details"
+)
+async def get_instance(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Get details of a specific simulation trading instance.
+
+    Args:
+        instance_id: The ID of the instance.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        The instance information.
+
+    Raises:
+        HTTPException: If the instance is not found.
+    """
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
+    if not inst:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
+    return inst
+
+
+@router.post(
+    "/{instance_id}/start",
+    response_model=LiveInstanceInfo,
+    summary="Start simulation instance",
+)
+async def start_instance(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Start a simulation trading instance.
+
+    Args:
+        instance_id: The ID of the instance to start.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        The updated instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be started.
+    """
+    try:
+        return await mgr.start_instance(instance_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post(
+    "/{instance_id}/stop",
+    response_model=LiveInstanceInfo,
+    summary="Stop simulation instance",
+)
+async def stop_instance(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Stop a simulation trading instance.
+
+    Args:
+        instance_id: The ID of the instance to stop.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        The updated instance information.
+
+    Raises:
+        HTTPException: If the instance cannot be stopped.
+    """
+    try:
+        return await mgr.stop_instance(instance_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post(
+    "/start-all", response_model=LiveBatchResponse, summary="Start all simulation instances"
+)
+async def start_all(
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Start all simulation trading instances for the current user.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        A summary of the batch start operation.
+    """
+    return await mgr.start_all(user_id=current_user.sub)
+
+
+@router.post("/stop-all", response_model=LiveBatchResponse, summary="Stop all simulation instances")
+async def stop_all(
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Stop all simulation trading instances for the current user.
+
+    Args:
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        A summary of the batch stop operation.
+    """
+    return await mgr.stop_all(user_id=current_user.sub)
+
+
+# ==================== Analytics Endpoints ====================
+
+
+def _get_strategy_log_dir(mgr: LiveTradingManager, instance_id: str, user_id: str) -> Path:
+    """Get the latest log directory for a simulation strategy instance.
+
+    Args:
+        mgr: The simulation manager instance.
+        instance_id: The ID of the simulation instance.
+        user_id: User ID for permission check.
+
+    Returns:
+        The path to the log directory.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
+    inst = mgr.get_instance(instance_id, user_id=user_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    try:
+        strategy_dir = get_strategy_dir(inst["strategy_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    log_dir = find_latest_log_dir(strategy_dir)
+    if not log_dir:
+        raise HTTPException(
+            status_code=404,
+            detail="No log data available, please run the strategy first",
+        )
+    return log_dir
+
+
+@router.get(
+    "/{instance_id}/detail",
+    response_model=BacktestDetailResponse,
+    summary="Get simulation analysis details",
+)
+async def get_simulation_detail(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Get detailed analysis for a simulation trading instance.
+
+    Args:
+        instance_id: The ID of the simulation instance.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        Detailed backtest-style analysis including metrics, equity curve, and trades.
+
+    Raises:
+        HTTPException: If the instance or log data is not found.
+    """
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+
+    try:
+        strategy_dir = get_strategy_dir(inst["strategy_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    log_result = parse_all_logs(strategy_dir)
+    if not log_result:
+        raise HTTPException(status_code=404, detail="No log data available")
+
+    equity_dates = log_result.get("equity_dates", [])
+    equity_values = log_result.get("equity_curve", [])
+    cash_values = log_result.get("cash_curve", [])
+    trades_raw = log_result.get("trades", [])
+
+    equity_curve = []
+    drawdown_curve = []
+    peak = 0.0
+    for i, dt in enumerate(equity_dates):
+        val = equity_values[i] if i < len(equity_values) else 0
+        c = cash_values[i] if i < len(cash_values) else 0
+        pv = val - c
+        equity_curve.append(
+            {
+                "date": dt,
+                "total_assets": val,
+                "cash": c,
+                "position_value": round(pv, 2),
+                "benchmark": None,
+            }
+        )
+        if val > peak:
+            peak = val
+        dd_pct = -((peak - val) / peak) if peak > 0 else 0
+        drawdown_curve.append(
+            {
+                "date": dt,
+                "drawdown": round(dd_pct, 6),
+                "peak": round(peak, 2),
+                "trough": round(val, 2),
+            }
+        )
+
+    trades = []
+    cum_pnl = 0.0
+    for i, t in enumerate(trades_raw):
+        pnl = t.get("pnlcomm", t.get("pnl", 0))
+        cum_pnl += pnl
+        trades.append(
+            {
+                "id": i + 1,
+                "datetime": t.get("datetime", t.get("dtclose", "")),
+                "symbol": t.get("data_name", inst["strategy_id"]),
+                "direction": t.get("direction", "long"),
+                "price": t.get("price", 0),
+                "size": t.get("size", 0),
+                "value": t.get("value", 0),
+                "commission": t.get("commission", 0),
+                "pnl": round(pnl, 2),
+                "return_pct": None,
+                "holding_days": t.get("barlen", 0),
+                "cumulative_pnl": round(cum_pnl, 2),
+            }
+        )
+
+    metrics = PerformanceMetrics(
+        initial_capital=log_result.get("initial_cash", 100000),
+        final_assets=log_result.get("final_value", 0),
+        total_return=log_result.get("total_return", 0),
+        annualized_return=log_result.get("annual_return", 0),
+        max_drawdown=log_result.get("max_drawdown", 0),
+        sharpe_ratio=log_result.get("sharpe_ratio", 0),
+        win_rate=log_result.get("win_rate", 0),
+        trade_count=log_result.get("total_trades", 0),
+    )
+
+    return BacktestDetailResponse(
+        task_id=instance_id,
+        strategy_name=inst.get("strategy_name", inst["strategy_id"]),
+        symbol=inst["strategy_id"],
+        start_date=equity_dates[0] if equity_dates else "",
+        end_date=equity_dates[-1] if equity_dates else "",
+        metrics=metrics,
+        equity_curve=equity_curve,
+        drawdown_curve=drawdown_curve,
+        trades=trades,
+        created_at=inst.get("created_at", ""),
+    )
+
+
+@router.get(
+    "/{instance_id}/kline",
+    response_model=KlineWithSignalsResponse,
+    summary="Get simulation K-line data",
+)
+async def get_simulation_kline(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Get K-line data with trading signals for a simulation instance.
+
+    Args:
+        instance_id: The ID of the simulation instance.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        K-line data with buy/sell signals and indicators.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
+
+    kline_data = parse_data_log(log_dir)
+    trades_raw = parse_trade_log(log_dir)
+
+    kline_dates = kline_data.get("dates", [])
+    ohlc_data = kline_data.get("ohlc", [])
+    volumes = kline_data.get("volumes", [])
+    log_indicators = kline_data.get("indicators", {})
+
+    klines = []
+    for j, dt in enumerate(kline_dates):
+        if j >= len(ohlc_data):
+            break
+        row = ohlc_data[j]
+        klines.append(
+            {
+                "date": dt,
+                "open": round(row[0], 4),
+                "high": round(row[3], 4),
+                "low": round(row[2], 4),
+                "close": round(row[1], 4),
+                "volume": volumes[j] if j < len(volumes) else 0,
+            }
+        )
+
+    kline_close_map = {k["date"]: k["close"] for k in klines}
+
+    signals = []
+    for t in trades_raw:
+        is_long = t.get("direction", "buy") == "buy" or t.get("long", True)
+        if t.get("dtopen"):
+            open_date = t["dtopen"][:10]
+            signals.append(
+                {
+                    "date": open_date,
+                    "type": "buy" if is_long else "sell",
+                    "price": kline_close_map.get(open_date, t.get("price", 0)),
+                    "reason": "open",
+                }
+            )
+        if t.get("dtclose"):
+            close_date = t["dtclose"][:10]
+            signals.append(
+                {
+                    "date": close_date,
+                    "type": "sell" if is_long else "buy",
+                    "price": kline_close_map.get(close_date, t.get("price", 0)),
+                    "reason": "close",
+                }
+            )
+
+    indicators = log_indicators if log_indicators else {}
+
+    return KlineWithSignalsResponse(
+        symbol=inst["strategy_id"] if inst else "",
+        klines=klines,
+        signals=signals,
+        indicators=indicators,
+    )
+
+
+@router.get(
+    "/{instance_id}/monthly-returns",
+    response_model=MonthlyReturnsResponse,
+    summary="Get simulation monthly returns",
+)
+async def get_simulation_monthly_returns(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Get monthly returns for a simulation trading instance.
+
+    Args:
+        instance_id: The ID of the simulation instance.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        Monthly returns data with yearly summaries.
+
+    Raises:
+        HTTPException: If the instance or log directory is not found.
+    """
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
+    value_data = parse_value_log(log_dir)
+
+    equity_dates = value_data.get("dates", [])
+    equity_values = value_data.get("equity_curve", [])
+
+    monthly_returns = {}
+    current_month = None
+    month_start_value = 0.0
+
+    for i, dt in enumerate(equity_dates):
+        value = equity_values[i] if i < len(equity_values) else 0
+        try:
+            month_key = dt[:7]
+            if month_key != current_month:
+                if current_month and month_start_value > 0:
+                    ret = (equity_values[i - 1] - month_start_value) / month_start_value
+                    monthly_returns[current_month] = round(ret, 6)
+                month_start_value = value
+                current_month = month_key
+        except (IndexError, KeyError, TypeError, ValueError) as e:
+            logger.debug("Skip invalid equity entry at index %s: %s", i, e)
+            continue
+
+    if current_month and month_start_value > 0 and equity_values:
+        ret = (equity_values[-1] - month_start_value) / month_start_value
+        monthly_returns[current_month] = round(ret, 6)
+
+    returns = []
+    years_set = set()
+    for ym, ret in monthly_returns.items():
+        parts = ym.split("-")
+        y, m = int(parts[0]), int(parts[1])
+        years_set.add(y)
+        returns.append({"year": y, "month": m, "return_pct": ret})
+
+    years = sorted(years_set)
+
+    summary = {}
+    for y in years:
+        year_rets = [r["return_pct"] for r in returns if r["year"] == y]
+        total = 1.0
+        for r in year_rets:
+            total *= 1 + r
+        summary[str(y)] = round(total - 1, 6)
+
+    return MonthlyReturnsResponse(
+        returns=returns,
+        years=years,
+        summary=summary,
+    )
+
+
+# ==================== Log Endpoints ====================
+
+_ALLOWED_LOG_EXTENSIONS = {".log", ".yaml", ".yml", ".json"}
+
+
+def _safe_log_filename(filename: str) -> bool:
+    """Check that filename is safe (no path traversal, allowed extension)."""
+    if not filename or ".." in filename or "/" in filename or "\\" in filename:
+        return False
+    p = Path(filename)
+    return p.suffix.lower() in _ALLOWED_LOG_EXTENSIONS or filename in (
+        "current_position.yaml",
+        "run_info.json",
+    )
+
+
+@router.get(
+    "/{instance_id}/logs",
+    summary="List simulation log files",
+)
+async def list_simulation_logs(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """List log files available for a simulation instance.
+
+    Returns:
+        List of {name, size} for each log file in the strategy's log directory.
+    """
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
+    files = []
+    for f in sorted(log_dir.iterdir()):
+        if f.is_file() and _safe_log_filename(f.name):
+            try:
+                size = f.stat().st_size
+            except OSError:
+                size = 0
+            files.append({"name": f.name, "size": size})
+    return {"files": files}
+
+
+@router.get(
+    "/{instance_id}/logs/{filename}",
+    response_class=PlainTextResponse,
+    summary="Get simulation log content",
+)
+async def get_simulation_log(
+    instance_id: str,
+    filename: str,
+    tail: int | None = Query(default=None, ge=1, le=50000, description="Return last N lines"),
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Get content of a log file. Use tail param for large files."""
+    if not _safe_log_filename(filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
+    filepath = log_dir / filename
+    if not filepath.is_file() or not filepath.resolve().is_relative_to(log_dir.resolve()):
+        raise HTTPException(status_code=404, detail="Log file not found")
+    try:
+        content = filepath.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        logger.warning("Failed to read log %s: %s", filepath, e)
+        raise HTTPException(status_code=500, detail="Failed to read log file") from e
+    if tail is not None:
+        lines = content.splitlines()
+        content = "\n".join(lines[-tail:]) if len(lines) > tail else content
+    return PlainTextResponse(content)
+
+
+@router.get(
+    "/{instance_id}/logs/{filename}/download",
+    response_class=FileResponse,
+    summary="Download simulation log file",
+)
+async def download_simulation_log(
+    instance_id: str,
+    filename: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Download a log file."""
+    if not _safe_log_filename(filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
+    filepath = log_dir / filename
+    if not filepath.is_file() or not filepath.resolve().is_relative_to(log_dir.resolve()):
+        raise HTTPException(status_code=404, detail="Log file not found")
+    return FileResponse(path=filepath, filename=filename, media_type="text/plain")

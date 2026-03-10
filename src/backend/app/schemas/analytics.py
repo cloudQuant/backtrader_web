@@ -1,6 +1,7 @@
 """
 Backtest analytics schemas.
 """
+
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -8,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class PerformanceMetrics(BaseModel):
     """Performance metrics schema."""
+
     initial_capital: float = Field(..., description="Initial capital")
     final_assets: float = Field(..., description="Final assets")
     total_return: float = Field(..., description="Total return")
@@ -55,6 +57,7 @@ class PerformanceMetrics(BaseModel):
 
 class EquityPoint(BaseModel):
     """Equity curve point schema."""
+
     date: str
     total_assets: float
     cash: float
@@ -76,6 +79,7 @@ class EquityPoint(BaseModel):
 
 class DrawdownPoint(BaseModel):
     """Drawdown point schema."""
+
     date: str
     drawdown: float
     peak: float
@@ -95,6 +99,7 @@ class DrawdownPoint(BaseModel):
 
 class TradeRecord(BaseModel):
     """Trade record schema."""
+
     id: int
     datetime: str
     symbol: str
@@ -130,6 +135,7 @@ class TradeRecord(BaseModel):
 
 class TradeSignal(BaseModel):
     """Trade signal schema."""
+
     date: str
     type: str
     price: float
@@ -151,6 +157,7 @@ class TradeSignal(BaseModel):
 
 class KlineData(BaseModel):
     """K-line data schema."""
+
     date: str
     open: float
     high: float
@@ -176,6 +183,7 @@ class KlineData(BaseModel):
 
 class MonthlyReturn(BaseModel):
     """Monthly return schema."""
+
     year: int
     month: int
     return_pct: float
@@ -193,6 +201,7 @@ class MonthlyReturn(BaseModel):
 
 class OptimizationResultItem(BaseModel):
     """Single parameter optimization result schema."""
+
     params: Dict[str, Any]
     total_return: float
     max_drawdown: float
@@ -218,6 +227,7 @@ class OptimizationResultItem(BaseModel):
 
 class BacktestDetailResponse(BaseModel):
     """Backtest detail response schema."""
+
     task_id: str
     strategy_name: str
     symbol: str
@@ -232,6 +242,7 @@ class BacktestDetailResponse(BaseModel):
 
 class KlineWithSignalsResponse(BaseModel):
     """K-line with signals response schema."""
+
     symbol: str
     klines: List[KlineData]
     signals: List[TradeSignal]
@@ -240,6 +251,7 @@ class KlineWithSignalsResponse(BaseModel):
 
 class OptimizationResponse(BaseModel):
     """Parameter optimization response schema."""
+
     task_id: str
     parameters: List[str]
     results: List[OptimizationResultItem]
@@ -248,6 +260,7 @@ class OptimizationResponse(BaseModel):
 
 class MonthlyReturnsResponse(BaseModel):
     """Monthly returns response schema."""
+
     returns: List[MonthlyReturn]
     years: List[int]
     summary: Dict[int, float]

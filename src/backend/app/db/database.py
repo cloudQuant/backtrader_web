@@ -1,6 +1,7 @@
 """
 Database connection management.
 """
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -25,6 +26,7 @@ async_session_maker = async_sessionmaker(
 
 class Base(DeclarativeBase):
     """ORM base class."""
+
     pass
 
 
@@ -57,9 +59,7 @@ async def create_default_admin():
 
     async with async_session_maker() as session:
         # Check if admin account already exists
-        result = await session.execute(
-            select(User).where(User.username == settings.ADMIN_USERNAME)
-        )
+        result = await session.execute(select(User).where(User.username == settings.ADMIN_USERNAME))
         existing_user = result.scalar_one_or_none()
 
         if not existing_user:

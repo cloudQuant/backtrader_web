@@ -130,7 +130,11 @@ def test_backtest_request_validate_params_generic_options_branch():
 def test_get_strategy_params_found_and_not_found(monkeypatch):
     """Test get_strategy_params with found and not found cases."""
     dummy = SimpleNamespace(id="t1", params={"p": ParamSpec(type="int", default=1)})
-    monkeypatch.setattr("app.services.strategy_service.STRATEGY_TEMPLATES", [dummy], raising=True)
+    monkeypatch.setattr(
+        "app.services.strategy_service.get_all_strategy_templates",
+        lambda: [dummy],
+        raising=True,
+    )
 
     assert "p" in get_strategy_params("t1")
     assert get_strategy_params("missing") == {}

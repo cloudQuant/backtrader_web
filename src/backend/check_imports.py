@@ -2,8 +2,8 @@
 """
 Check backend code imports.
 """
-import sys
 import importlib.util
+import sys
 from pathlib import Path
 
 # Add project path

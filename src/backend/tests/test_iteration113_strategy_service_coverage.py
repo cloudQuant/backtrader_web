@@ -1,63 +1,69 @@
 from __future__ import annotations
 
-from pathlib import Path
+from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
-from datetime import datetime, timezone
 
 
 def test_scan_strategies_folder_when_dir_missing(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
     from app.services import strategy_service as ss
 
     monkeypatch.setattr(ss, "STRATEGIES_DIR", tmp_path / "missing", raising=True)
-    assert ss._scan_strategies_folder() == []
+    assert ss._scan_strategies_folder(StrategyType.backtest) == []
 
 
 def test_scan_strategies_folder_skips_when_no_code_files(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
     from app.services import strategy_service as ss
 
     strategies_dir = tmp_path / "strategies"
-    s1 = strategies_dir / "s1"
+    backtest_dir = strategies_dir / "backtest"
+    s1 = backtest_dir / "s1"
     s1.mkdir(parents=True)
     (s1 / "config.yaml").write_text("strategy:\n  name: s1\n", encoding="utf-8")
     monkeypatch.setattr(ss, "STRATEGIES_DIR", strategies_dir, raising=True)
 
     # No strategy_*.py -> continue branch.
-    assert ss._scan_strategies_folder() == []
+    assert ss._scan_strategies_folder(StrategyType.backtest) == []
 
 
 def test_scan_strategies_folder_handles_bad_yaml(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
     from app.services import strategy_service as ss
 
     strategies_dir = tmp_path / "strategies"
-    s1 = strategies_dir / "s1"
+    backtest_dir = strategies_dir / "backtest"
+    s1 = backtest_dir / "s1"
     s1.mkdir(parents=True)
     (s1 / "config.yaml").write_text(":\n:bad\n", encoding="utf-8")
     (s1 / "strategy_x.py").write_text("print('x')\n", encoding="utf-8")
     monkeypatch.setattr(ss, "STRATEGIES_DIR", strategies_dir, raising=True)
 
-    assert ss._scan_strategies_folder() == []
+    assert ss._scan_strategies_folder(StrategyType.backtest) == []
 
 
 def test_get_strategy_readme_reads_file(monkeypatch, tmp_path):
+    from app.schemas.strategy import StrategyType
     from app.services import strategy_service as ss
 
     strategies_dir = tmp_path / "strategies"
-    s1 = strategies_dir / "s1"
-    s1.mkdir(parents=True)
-    (s1 / "README.md").write_text("# hi\n", encoding="utf-8")
+    backtest_s1 = strategies_dir / "backtest" / "s1"
+    backtest_s1.mkdir(parents=True)
+    (backtest_s1 / "README.md").write_text("# hi\n", encoding="utf-8")
     monkeypatch.setattr(ss, "STRATEGIES_DIR", strategies_dir, raising=True)
 
-    assert ss.get_strategy_readme("s1") == "# hi\n"
+    assert ss.get_strategy_readme("backtest/s1") == "# hi\n"
+    assert ss.get_strategy_readme("s1", strategy_type=StrategyType.backtest) == "# hi\n"
     assert ss.get_strategy_readme("missing") is None
 
 
 @pytest.mark.asyncio
 async def test_strategy_service_update_strategy_field_branches(monkeypatch):
+    from app.schemas.strategy import ParamSpec, StrategyUpdate
     from app.services.strategy_service import StrategyService
-    from app.schemas.strategy import StrategyUpdate, ParamSpec
 
     svc = StrategyService()
     svc.strategy_repo = AsyncMock()

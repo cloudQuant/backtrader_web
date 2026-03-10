@@ -121,8 +121,8 @@ async def test_monitoring_send_notification_and_webhook_paths():
 
 @pytest.mark.asyncio
 async def test_monitoring_summary_and_metric_value_sources():
-    from app.services.monitoring_service import MonitoringService
     from app.models.alerts import AlertType
+    from app.services.monitoring_service import MonitoringService
 
     svc = MonitoringService()
 
@@ -190,8 +190,8 @@ async def test_monitoring_summary_and_metric_value_sources():
 @pytest.mark.asyncio
 async def test_monitoring_remaining_branches_for_full_coverage():
     """Cover remaining small branches in monitoring_service for 100% app/* coverage."""
-    from app.services.monitoring_service import MonitoringService
     from app.models.alerts import AlertType
+    from app.services.monitoring_service import MonitoringService
 
     svc = MonitoringService()
 
@@ -279,9 +279,9 @@ async def test_monitoring_remaining_branches_for_full_coverage():
 @pytest.mark.asyncio
 async def test_strategy_version_service_additional_coverage():
     """Cover new permission branches, existing-branch early return, and performance diff."""
-    from app.services.strategy_version_service import VersionControlService
-    from app.models.backtest import BacktestTask, BacktestResultModel
     from app.db import database as db
+    from app.models.backtest import BacktestResultModel, BacktestTask
+    from app.services.strategy_version_service import VersionControlService
 
     svc = VersionControlService()
 

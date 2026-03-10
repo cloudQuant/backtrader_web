@@ -19,7 +19,7 @@ class TestSettingsValidation:
         assert settings.DEBUG is True
         assert settings.DATABASE_TYPE == "sqlite"
         assert settings.PORT == 8000
-        assert settings.JWT_EXPIRE_MINUTES == 1440
+        assert settings.JWT_EXPIRE_MINUTES == 10080
 
     def test_secret_key_validation_default_in_production(self):
         """Test that default secret key is rejected in production."""

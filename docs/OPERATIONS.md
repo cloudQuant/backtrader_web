@@ -2,6 +2,26 @@
 
 This guide covers system administration, maintenance, and troubleshooting for the Backtrader Web platform.
 
+## Task Execution Model and Multi-Instance Limits
+
+### 当前架构说明
+
+- **回测任务**：任务状态持久化在数据库中，但实际执行由当前 API 进程在本地调度（`asyncio.create_task`）。
+- **参数优化任务**：使用进程内全局状态，进程重启后丢失，不支持水平扩展。
+- **取消操作**：仅当任务在当前 API 进程内运行时有效。多 worker / 多实例部署时，若任务由其他实例执行，取消请求会失败。
+
+### 部署建议
+
+| 部署模式 | 支持情况 | 说明 |
+|----------|----------|------|
+| 单实例单进程 | ✅ 推荐 | 回测取消、优化任务可预期 |
+| 多 worker (同机) | ⚠️ 部分支持 | 取消可能失败，优化任务可能分布在不同 worker |
+| 多实例 (水平扩展) | ⚠️ 受限 | 取消仅对任务所在实例有效，优化任务不可跨实例 |
+
+### 演进方向
+
+如需多实例可靠取消与任务持久化，建议引入 Redis/RabbitMQ 任务队列，由独立 worker 进程执行任务。
+
 ## Health Monitoring
 
 ### Health Check Endpoints

@@ -1,6 +1,7 @@
 """
 Authentication service.
 """
+
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -181,7 +182,7 @@ class AuthService:
                 "sub": user.id,
                 "username": user.username,
             },
-            expires_delta=timedelta(minutes=settings.JWT_EXPIRE_MINUTES)
+            expires_delta=timedelta(minutes=settings.JWT_EXPIRE_MINUTES),
         )
 
         return Token(
@@ -190,10 +191,7 @@ class AuthService:
             expires_in=settings.JWT_EXPIRE_MINUTES * 60,
         )
 
-    async def login_with_refresh(
-        self,
-        user_login: UserLogin
-    ) -> Optional[RefreshTokenResponse]:
+    async def login_with_refresh(self, user_login: UserLogin) -> Optional[RefreshTokenResponse]:
         """Authenticate a user and generate JWT tokens with refresh token.
 
         Args:
@@ -238,10 +236,7 @@ class AuthService:
             expires_in=settings.JWT_EXPIRE_MINUTES * 60,
         )
 
-    async def refresh_tokens(
-        self,
-        request: RefreshTokenRequest
-    ) -> Optional[RefreshTokenResponse]:
+    async def refresh_tokens(self, request: RefreshTokenRequest) -> Optional[RefreshTokenResponse]:
         """Refresh access token using refresh token.
 
         Args:
@@ -332,12 +327,7 @@ class AuthService:
         async with unit_of_work() as session:
             return await self._revoke_all_user_tokens_in_session(session, user_id)
 
-    async def change_password(
-        self,
-        user_id: str,
-        old_password: str,
-        new_password: str
-    ) -> bool:
+    async def change_password(self, user_id: str, old_password: str, new_password: str) -> bool:
         """Change user password and revoke all refresh tokens.
 
         Args:

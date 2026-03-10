@@ -4,6 +4,7 @@ Live trading instance manager.
 Manages strategy instances (CRUD/start/stop). Uses a JSON file for persistence and runs strategies
 in subprocesses.
 """
+
 import asyncio
 import json
 import logging
@@ -14,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from app.services.strategy_service import STRATEGIES_DIR, get_template_by_id
+from app.services.strategy_service import get_strategy_dir, get_template_by_id
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,8 @@ def _save_instances(data: Dict[str, dict]):
 def _find_latest_log_dir(strategy_dir: Path) -> Optional[str]:
     """Find the latest log directory for a strategy.
 
+    Supports logs/<subdir>/ or flat logs/ (no subdirs) for simulate strategies.
+
     Args:
         strategy_dir: The strategy directory path.
 
@@ -59,10 +62,17 @@ def _find_latest_log_dir(strategy_dir: Path) -> Optional[str]:
     logs_dir = strategy_dir / "logs"
     if not logs_dir.is_dir():
         return None
-    subdirs = sorted(logs_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
-    for d in subdirs:
-        if d.is_dir():
-            return str(d)
+    subdirs = sorted(
+        [d for d in logs_dir.iterdir() if d.is_dir()],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if subdirs:
+        return str(subdirs[0])
+    # Fallback: flat logs/ (no subdirs), e.g. simulate strategies
+    expected = {"value.log", "data.log", "trade.log"}
+    if any((logs_dir / f).is_file() for f in expected):
+        return str(logs_dir)
     return None
 
 
@@ -77,6 +87,7 @@ def _is_pid_alive(pid: int) -> bool:
     """
     try:
         import os
+
         os.kill(pid, 0)
         return True
     except (OSError, ProcessLookupError):
@@ -125,27 +136,35 @@ class LiveTradingManager:
             A list of instance dictionaries.
         """
         instances = _load_instances()
-        result = []
+        changed = False
+        # Refresh status for ALL instances (before user filter)
         for iid, inst in instances.items():
-            # Filter by user
-            if user_id and inst.get("user_id") and inst["user_id"] != user_id:
-                continue
-            # Real-time status refresh
+            inst["id"] = iid
             if inst.get("status") == "running":
                 pid = inst.get("pid")
                 if not pid or not _is_pid_alive(pid):
                     inst["status"] = "stopped"
                     inst["pid"] = None
-            inst["id"] = iid
-            # Latest log directory
-            strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
-            inst["log_dir"] = _find_latest_log_dir(strategy_dir)
+                    changed = True
+        if changed:
+            _save_instances(instances)
+
+        result = []
+        for iid, inst in instances.items():
+            if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+                continue
+            try:
+                strategy_dir = get_strategy_dir(inst["strategy_id"])
+            except ValueError:
+                inst["log_dir"] = None
+            else:
+                inst["log_dir"] = _find_latest_log_dir(strategy_dir)
             result.append(inst)
-        # Save refreshed status
-        _save_instances({r["id"]: {k: v for k, v in r.items()} for r in result})
         return result
 
-    def add_instance(self, strategy_id: str, params: Optional[Dict[str, Any]] = None, user_id: str = None) -> dict:
+    def add_instance(
+        self, strategy_id: str, params: Optional[Dict[str, Any]] = None, user_id: str = None
+    ) -> dict:
         """Add a new live trading instance.
 
         Args:
@@ -159,7 +178,10 @@ class LiveTradingManager:
         Raises:
             ValueError: If the strategy doesn't exist or lacks run.py.
         """
-        strategy_dir = STRATEGIES_DIR / strategy_id
+        try:
+            strategy_dir = get_strategy_dir(strategy_id)
+        except ValueError:
+            raise ValueError(f"Invalid strategy_id: {strategy_id}") from None
         if not (strategy_dir / "run.py").is_file():
             raise ValueError(f"Strategy {strategy_id} does not exist or lacks run.py")
 
@@ -228,8 +250,11 @@ class LiveTradingManager:
             if user_id and inst.get("user_id") and inst["user_id"] != user_id:
                 return None
             inst["id"] = instance_id
-            strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
-            inst["log_dir"] = _find_latest_log_dir(strategy_dir)
+            try:
+                strategy_dir = get_strategy_dir(inst["strategy_id"])
+                inst["log_dir"] = _find_latest_log_dir(strategy_dir)
+            except ValueError:
+                inst["log_dir"] = None
         return inst
 
     # ---- Start/Stop ----
@@ -254,14 +279,18 @@ class LiveTradingManager:
         if inst["status"] == "running" and inst.get("pid") and _is_pid_alive(inst["pid"]):
             raise ValueError("Strategy is already running")
 
-        strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
+        try:
+            strategy_dir = get_strategy_dir(inst["strategy_id"])
+        except ValueError as e:
+            raise ValueError(f"Invalid strategy_id: {inst['strategy_id']}") from e
         run_py = strategy_dir / "run.py"
         if not run_py.is_file():
             raise ValueError(f"run.py does not exist: {run_py}")
 
         # Start subprocess
         proc = await asyncio.create_subprocess_exec(
-            sys.executable, str(run_py),
+            sys.executable,
+            str(run_py),
             cwd=str(strategy_dir),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -321,8 +350,11 @@ class LiveTradingManager:
         inst["id"] = instance_id
         return inst
 
-    async def start_all(self) -> dict:
-        """Start all stopped instances.
+    async def start_all(self, user_id: str = None) -> dict:
+        """Start all stopped instances, optionally filtered by user.
+
+        Args:
+            user_id: Optional user ID to limit operations to that user's instances.
 
         Returns:
             A dictionary with success/failed counts and details.
@@ -332,6 +364,8 @@ class LiveTradingManager:
         failed = 0
         details = []
         for iid, inst in instances.items():
+            if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+                continue
             if inst["status"] == "running" and inst.get("pid") and _is_pid_alive(inst["pid"]):
                 continue
             try:
@@ -343,8 +377,11 @@ class LiveTradingManager:
                 details.append({"id": iid, "strategy_id": inst["strategy_id"], "result": str(e)})
         return {"success": success, "failed": failed, "details": details}
 
-    async def stop_all(self) -> dict:
-        """Stop all running instances.
+    async def stop_all(self, user_id: str = None) -> dict:
+        """Stop all running instances, optionally filtered by user.
+
+        Args:
+            user_id: Optional user ID to limit operations to that user's instances.
 
         Returns:
             A dictionary with success/failed counts and details.
@@ -354,6 +391,8 @@ class LiveTradingManager:
         failed = 0
         details = []
         for iid, inst in instances.items():
+            if user_id and inst.get("user_id") and inst["user_id"] != user_id:
+                continue
             if inst["status"] != "running":
                 continue
             try:
@@ -397,8 +436,11 @@ class LiveTradingManager:
                 inst["pid"] = None
                 inst["stopped_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 # Refresh log directory
-                strategy_dir = STRATEGIES_DIR / inst["strategy_id"]
-                inst["log_dir"] = _find_latest_log_dir(strategy_dir)
+                try:
+                    strategy_dir = get_strategy_dir(inst["strategy_id"])
+                    inst["log_dir"] = _find_latest_log_dir(strategy_dir)
+                except ValueError:
+                    inst["log_dir"] = None
                 instances[instance_id] = inst
                 _save_instances(instances)
             self._processes.pop(instance_id, None)
@@ -411,6 +453,7 @@ class LiveTradingManager:
             pid: The process ID to kill.
         """
         import os
+
         try:
             os.kill(pid, signal.SIGTERM)
         except (OSError, ProcessLookupError):

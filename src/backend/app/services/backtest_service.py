@@ -62,6 +62,36 @@ class BacktestService:
         self.task_manager = task_manager or BacktestExecutionManager()
         self.task_runner = task_runner or BacktestExecutionRunner()
 
+    @staticmethod
+    def _build_backtest_result(
+        task: BacktestTask, result_model: Optional[BacktestResultModel]
+    ) -> BacktestResult:
+        return BacktestResult(
+            task_id=task.id,
+            strategy_id=task.strategy_id,
+            symbol=task.symbol,
+            start_date=(
+                task.request_data.get("start_date") if task.request_data else datetime.now()
+            ),
+            end_date=(task.request_data.get("end_date") if task.request_data else datetime.now()),
+            status=TaskStatus(task.status),
+            total_return=result_model.total_return if result_model else 0,
+            annual_return=result_model.annual_return if result_model else 0,
+            sharpe_ratio=result_model.sharpe_ratio if result_model else 0,
+            max_drawdown=result_model.max_drawdown if result_model else 0,
+            win_rate=result_model.win_rate if result_model else 0,
+            metrics_source=getattr(result_model, "metrics_source", None) or "manual",
+            total_trades=result_model.total_trades if result_model else 0,
+            profitable_trades=result_model.profitable_trades if result_model else 0,
+            losing_trades=result_model.losing_trades if result_model else 0,
+            equity_curve=result_model.equity_curve if result_model else [],
+            equity_dates=result_model.equity_dates if result_model else [],
+            drawdown_curve=result_model.drawdown_curve if result_model else [],
+            trades=result_model.trades if result_model else [],
+            created_at=task.created_at,
+            error_message=task.error_message,
+        )
+
     async def run_backtest(self, user_id: str, request: BacktestRequest) -> BacktestResponse:
         """Run a backtest asynchronously.
 
@@ -80,7 +110,9 @@ class BacktestService:
 
         # Execution is still owned by the current API process. The database stores
         # task state, while the runner keeps process-local cancellation handles.
-        self.task_runner.schedule(str(task.id), self._execute_backtest(str(task.id), user_id, request))
+        self.task_runner.schedule(
+            str(task.id), self._execute_backtest(str(task.id), user_id, request)
+        )
 
         return BacktestResponse(
             task_id=str(task.id),
@@ -157,10 +189,6 @@ class BacktestService:
                     config_path.read_text(encoding="utf-8") if config_path.is_file() else None
                 )
                 self._write_temp_config(config_path, request, original_text)
-
-            # [B005] Remove assert statements from run.py
-            tmp_run_py = task_work_dir / "run.py"
-            self._strip_asserts(tmp_run_py)
 
             await ws_manager.send_to_task(
                 task_id,
@@ -380,7 +408,7 @@ class BacktestService:
 
         def _run():
             proc = subprocess.Popen(
-                [python_exec, str(run_py)],
+                [python_exec, "-O", str(run_py)],
                 cwd=str(work_dir),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -557,13 +585,17 @@ class BacktestService:
         )
         total = await self.task_repo.count(filters={"user_id": user_id})
 
-        # OPT-05: Batch fetch all results to avoid N+1 queries
-        # Use the original get_result method to maintain backward compatibility
-        items = []
-        for task in tasks:
-            result = await self.get_result(task.id)
-            if result:
-                items.append(result)
+        task_ids = [str(task.id) for task in tasks]
+        result_models = (
+            await self.result_repo.list(filters={"task_id": task_ids}, limit=len(task_ids) or 1)
+            if task_ids
+            else []
+        )
+        result_by_task_id = {str(r.task_id): r for r in result_models}
+
+        items = [
+            self._build_backtest_result(task, result_by_task_id.get(str(task.id))) for task in tasks
+        ]
 
         return BacktestListResponse(total=total, items=items)
 

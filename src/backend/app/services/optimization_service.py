@@ -3,6 +3,7 @@ Optimization service.
 
 Supports grid search and Bayesian optimization.
 """
+
 import asyncio
 import itertools
 import logging
@@ -44,9 +45,7 @@ class OptimizationService:
         self.cache = get_cache()
 
     async def run_grid_search(
-        self,
-        user_id: str,
-        request: OptimizationRequest
+        self, user_id: str, request: OptimizationRequest
     ) -> OptimizationResult:
         """Run grid search optimization.
 
@@ -70,7 +69,7 @@ class OptimizationService:
 
         # Iterate through all parameter combinations
         for i, params in enumerate(param_combinations):
-            logger.info(f"Optimization progress: {i+1}/{len(param_combinations)}")
+            logger.info(f"Optimization progress: {i + 1}/{len(param_combinations)}")
 
             # Create backtest request
             backtest_request = request.backtest_config.model_copy()
@@ -87,16 +86,18 @@ class OptimizationService:
 
                 if result.status == TaskStatus.COMPLETED:
                     # Record result
-                    results.append({
-                        'params': params,
-                        'metrics': {
-                            'sharpe_ratio': result.sharpe_ratio,
-                            'total_return': result.total_return,
-                            'max_drawdown': result.max_drawdown,
-                            'annual_return': result.annual_return,
-                            'win_rate': result.win_rate,
+                    results.append(
+                        {
+                            "params": params,
+                            "metrics": {
+                                "sharpe_ratio": result.sharpe_ratio,
+                                "total_return": result.total_return,
+                                "max_drawdown": result.max_drawdown,
+                                "annual_return": result.annual_return,
+                                "win_rate": result.win_rate,
+                            },
                         }
-                    })
+                    )
                     completed_count += 1
                 else:
                     logger.warning(f"Backtest failed: {backtest_response.task_id}")
@@ -110,23 +111,21 @@ class OptimizationService:
         # Sort by optimization metric
         results.sort(
             key=lambda x: self._get_optimization_metric(x, request.metric),
-            reverse=True  # Maximize metric
+            reverse=True,  # Maximize metric
         )
 
         # Return best result
         best_result = results[0] if results else None
 
         return OptimizationResult(
-            best_params=best_result['params'] if best_result else {},
-            best_metrics=best_result['metrics'] if best_result else {},
+            best_params=best_result["params"] if best_result else {},
+            best_metrics=best_result["metrics"] if best_result else {},
             all_results=results,
             n_trials=completed_count,
         )
 
     async def run_bayesian_optimization(
-        self,
-        user_id: str,
-        request: OptimizationRequest
+        self, user_id: str, request: OptimizationRequest
     ) -> OptimizationResult:
         """Run Bayesian optimization.
 
@@ -163,12 +162,12 @@ class OptimizationService:
             # Get parameters from trial
             params = {}
             for key, bounds in request.param_bounds.items():
-                if bounds.get('type') == 'int':
-                    params[key] = trial.suggest_int(key, bounds['min'], bounds['max'])
-                elif bounds.get('type') == 'float':
-                    params[key] = trial.suggest_float(key, bounds['min'], bounds['max'])
-                elif bounds.get('type') == 'categorical':
-                    params[key] = trial.suggest_categorical(key, bounds['choices'])
+                if bounds.get("type") == "int":
+                    params[key] = trial.suggest_int(key, bounds["min"], bounds["max"])
+                elif bounds.get("type") == "float":
+                    params[key] = trial.suggest_float(key, bounds["min"], bounds["max"])
+                elif bounds.get("type") == "categorical":
+                    params[key] = trial.suggest_categorical(key, bounds["choices"])
 
             # Create backtest request
             backtest_request = request.backtest_config.model_copy()
@@ -178,31 +177,38 @@ class OptimizationService:
             # Use synchronous mode or asyncio event loop
             try:
                 result = asyncio.run_coroutine_threadsafe(
-                    self._run_single_backtest(user_id, backtest_request),
-                    asyncio.get_event_loop()
+                    self._run_single_backtest(user_id, backtest_request), asyncio.get_event_loop()
                 ).result()
 
                 if result.status == TaskStatus.COMPLETED:
                     # Return metric based on optimization target
-                    if request.metric == 'sharpe_ratio':
+                    if request.metric == "sharpe_ratio":
                         return -result.sharpe_ratio  # Maximize Sharpe ratio
-                    elif request.metric == 'max_drawdown':
+                    elif request.metric == "max_drawdown":
                         return result.max_drawdown  # Minimize max drawdown
-                    elif request.metric == 'total_return':
+                    elif request.metric == "total_return":
                         return -result.total_return  # Maximize total return
                     else:
                         return -result.sharpe_ratio
                 else:
                     # If backtest fails, return worst value
-                    return float('-inf') if request.metric in ['sharpe_ratio', 'total_return'] else float('inf')
+                    return (
+                        float("-inf")
+                        if request.metric in ["sharpe_ratio", "total_return"]
+                        else float("inf")
+                    )
 
             except Exception as e:
                 logger.error(f"Trial failed: {params}, {e}")
                 # Return worst value
-                return float('-inf') if request.metric in ['sharpe_ratio', 'total_return'] else float('inf')
+                return (
+                    float("-inf")
+                    if request.metric in ["sharpe_ratio", "total_return"]
+                    else float("inf")
+                )
 
         # Create Study
-        study = optuna.create_study(direction='minimize')
+        study = optuna.create_study(direction="minimize")
 
         # Run optimization
         logger.info(f"Starting {request.n_trials} trials")
@@ -213,7 +219,7 @@ class OptimizationService:
         best_value = study.best_trial.value
 
         # Convert negative values back to positive
-        if request.metric in ['sharpe_ratio', 'total_return']:
+        if request.metric in ["sharpe_ratio", "total_return"]:
             best_value = -best_value
 
         # Run backtest with best parameters to get complete results
@@ -225,13 +231,17 @@ class OptimizationService:
         all_results = []
         for trial in study.trials:
             params = trial.params
-            value = -trial.value if request.metric in ['sharpe_ratio', 'total_return'] else trial.value
-            all_results.append({
-                'params': params,
-                'metrics': {
-                    request.metric: value,
+            value = (
+                -trial.value if request.metric in ["sharpe_ratio", "total_return"] else trial.value
+            )
+            all_results.append(
+                {
+                    "params": params,
+                    "metrics": {
+                        request.metric: value,
+                    },
                 }
-            })
+            )
 
         logger.info(f"Bayesian optimization completed: Best metric = {best_value}")
 
@@ -242,11 +252,7 @@ class OptimizationService:
             n_trials=request.n_trials,
         )
 
-    async def _run_single_backtest(
-        self,
-        user_id: str,
-        request: BacktestRequest
-    ) -> BacktestResult:
+    async def _run_single_backtest(self, user_id: str, request: BacktestRequest) -> BacktestResult:
         """Run a single backtest (helper method).
 
         Note: Must wait for backtest to complete before retrieving results.
@@ -263,8 +269,7 @@ class OptimizationService:
         return result
 
     def _generate_param_combinations(
-        self,
-        param_grid: Dict[str, List[Any]]
+        self, param_grid: Dict[str, List[Any]]
     ) -> List[Dict[str, Any]]:
         """Generate parameter combinations (Cartesian product).
 
@@ -283,11 +288,7 @@ class OptimizationService:
         # Convert to list of dictionaries
         return [dict(zip(keys, combo)) for combo in combinations]
 
-    def _get_optimization_metric(
-        self,
-        result: Dict[str, Any],
-        metric: str
-    ) -> float:
+    def _get_optimization_metric(self, result: Dict[str, Any], metric: str) -> float:
         """Get the value of the optimization metric.
 
         Args:
@@ -297,22 +298,18 @@ class OptimizationService:
         Returns:
             float: The metric value, adjusted for maximization.
         """
-        metrics = result.get('metrics', {})
+        metrics = result.get("metrics", {})
 
-        if metric == 'sharpe_ratio':
-            return metrics.get('sharpe_ratio', float('-inf'))
-        elif metric == 'max_drawdown':
-            return -metrics.get('max_drawdown', float('inf'))  # Minimize max drawdown
-        elif metric == 'total_return':
-            return metrics.get('total_return', float('-inf'))
+        if metric == "sharpe_ratio":
+            return metrics.get("sharpe_ratio", float("-inf"))
+        elif metric == "max_drawdown":
+            return -metrics.get("max_drawdown", float("inf"))  # Minimize max drawdown
+        elif metric == "total_return":
+            return metrics.get("total_return", float("-inf"))
         else:
-            return metrics.get('sharpe_ratio', float('-inf'))
+            return metrics.get("sharpe_ratio", float("-inf"))
 
-    async def _wait_for_backtest(
-        self,
-        task_id: str,
-        timeout: int = 600
-    ) -> BacktestResult:
+    async def _wait_for_backtest(self, task_id: str, timeout: int = 600) -> BacktestResult:
         """Wait for backtest to complete.
 
         Args:

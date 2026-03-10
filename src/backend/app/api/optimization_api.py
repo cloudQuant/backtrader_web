@@ -8,6 +8,7 @@ Provides:
 - POST /cancel/{task_id}: cancel a task
 - GET  /strategy-params/{strategy_id}: fetch default params
 """
+
 import logging
 from typing import Dict
 
@@ -29,6 +30,7 @@ router = APIRouter()
 
 # ---- Schemas ----
 
+
 class ParamRangeSpec(BaseModel):
     """Specification for a parameter range in optimization.
 
@@ -38,6 +40,7 @@ class ParamRangeSpec(BaseModel):
         step: Step size for incrementing the value.
         type: Data type (int or float).
     """
+
     start: float
     end: float
     step: float
@@ -52,6 +55,7 @@ class OptimizationSubmitRequest(BaseModel):
         param_ranges: Dictionary mapping parameter names to their range specs.
         n_workers: Number of parallel worker processes (1-32).
     """
+
     strategy_id: str
     param_ranges: Dict[str, ParamRangeSpec]
     n_workers: int = Field(default=4, ge=1, le=32)
@@ -65,12 +69,14 @@ class OptimizationSubmitResponse(BaseModel):
         total_combinations: Total number of parameter combinations to test.
         message: Human-readable status message.
     """
+
     task_id: str
     total_combinations: int
     message: str
 
 
 # ---- Endpoints ----
+
 
 @router.get("/strategy-params/{strategy_id}", summary="Get strategy default parameters")
 async def get_strategy_params(
@@ -95,17 +101,21 @@ async def get_strategy_params(
 
     params = []
     for name, spec in tpl.params.items():
-        params.append({
-            "name": name,
-            "type": spec.type,
-            "default": spec.default,
-            "description": spec.description or name,
-        })
+        params.append(
+            {
+                "name": name,
+                "type": spec.type,
+                "default": spec.default,
+                "description": spec.description or name,
+            }
+        )
 
     return {"strategy_id": strategy_id, "strategy_name": tpl.name, "params": params}
 
 
-@router.post("/submit", response_model=OptimizationSubmitResponse, summary="Submit optimization task")
+@router.post(
+    "/submit", response_model=OptimizationSubmitResponse, summary="Submit optimization task"
+)
 async def submit_optimization_task(
     request: OptimizationSubmitRequest,
     current_user=Depends(get_current_user),
@@ -144,7 +154,9 @@ async def submit_optimization_task(
     # Pre-calculate combination count
     grid = generate_param_grid(param_ranges)
     if not grid:
-        raise HTTPException(status_code=400, detail="Parameter grid is empty, please check parameter ranges")
+        raise HTTPException(
+            status_code=400, detail="Parameter grid is empty, please check parameter ranges"
+        )
 
     try:
         task_id = submit_optimization(
