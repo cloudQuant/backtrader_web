@@ -105,6 +105,51 @@ class TestLiveTradingList:
         assert ctp["params"]["gateway"]["provider"] == "ctp_gateway"
         assert ctp["params"]["gateway"]["exchange_type"] == "CTP"
 
+    async def test_list_gateway_presets_binance_has_metadata(
+        self, client: AsyncClient, auth_headers
+    ):
+        response = await client.get("/api/v1/live-trading/presets", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        bn = next(p for p in data["presets"] if p["id"] == "binance_swap_gateway")
+        assert bn["description"] == "Binance SWAP gateway preset for perpetual futures trading."
+        assert len(bn["editable_fields"]) == 3
+        field_keys = [f["key"] for f in bn["editable_fields"]]
+        assert field_keys == ["account_id", "api_key", "secret_key"]
+        assert bn["params"]["gateway"]["exchange_type"] == "BINANCE"
+        assert bn["params"]["gateway"]["asset_type"] == "SWAP"
+
+    async def test_list_gateway_presets_okx_has_metadata(
+        self, client: AsyncClient, auth_headers
+    ):
+        response = await client.get("/api/v1/live-trading/presets", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        okx = next(p for p in data["presets"] if p["id"] == "okx_swap_gateway")
+        assert okx["description"] == "OKX SWAP gateway preset for perpetual futures trading."
+        assert len(okx["editable_fields"]) == 4
+        field_keys = [f["key"] for f in okx["editable_fields"]]
+        assert field_keys == ["account_id", "api_key", "secret_key", "passphrase"]
+        assert okx["params"]["gateway"]["exchange_type"] == "OKX"
+        assert okx["params"]["gateway"]["asset_type"] == "SWAP"
+        assert "passphrase" in okx["params"]["gateway"]
+
+    async def test_list_gateway_presets_total_includes_all_five(
+        self, client: AsyncClient, auth_headers
+    ):
+        response = await client.get("/api/v1/live-trading/presets", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] >= 5
+        ids = {p["id"] for p in data["presets"]}
+        assert {
+            "ctp_futures_gateway",
+            "ib_web_stock_gateway",
+            "ib_web_futures_gateway",
+            "binance_swap_gateway",
+            "okx_swap_gateway",
+        }.issubset(ids)
+
     async def test_live_instance_create_schema_example_exposes_ib_web_gateway(self):
         schema = LiveInstanceCreate.model_json_schema()
         example = schema["example"]

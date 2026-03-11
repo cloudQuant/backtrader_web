@@ -265,6 +265,85 @@ class LiveTradingManager:
                     }
                 },
             },
+            {
+                "description": "Binance SWAP gateway preset for perpetual futures trading.",
+                "id": "binance_swap_gateway",
+                "name": "Binance SWAP Gateway",
+                "editable_fields": [
+                    {
+                        "key": "account_id",
+                        "label": "账户标识",
+                        "input_type": "string",
+                        "placeholder": "自定义账户标识",
+                    },
+                    {
+                        "key": "api_key",
+                        "label": "API Key",
+                        "input_type": "string",
+                        "placeholder": "Binance API Key",
+                    },
+                    {
+                        "key": "secret_key",
+                        "label": "Secret Key",
+                        "input_type": "string",
+                        "placeholder": "Binance Secret Key",
+                    },
+                ],
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "provider": "gateway",
+                        "exchange_type": "BINANCE",
+                        "asset_type": "SWAP",
+                        "account_id": "",
+                        "api_key": "",
+                        "secret_key": "",
+                    }
+                },
+            },
+            {
+                "description": "OKX SWAP gateway preset for perpetual futures trading.",
+                "id": "okx_swap_gateway",
+                "name": "OKX SWAP Gateway",
+                "editable_fields": [
+                    {
+                        "key": "account_id",
+                        "label": "账户标识",
+                        "input_type": "string",
+                        "placeholder": "自定义账户标识",
+                    },
+                    {
+                        "key": "api_key",
+                        "label": "API Key",
+                        "input_type": "string",
+                        "placeholder": "OKX API Key",
+                    },
+                    {
+                        "key": "secret_key",
+                        "label": "Secret Key",
+                        "input_type": "string",
+                        "placeholder": "OKX Secret Key",
+                    },
+                    {
+                        "key": "passphrase",
+                        "label": "Passphrase",
+                        "input_type": "string",
+                        "placeholder": "OKX Passphrase",
+                    },
+                ],
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "provider": "gateway",
+                        "exchange_type": "OKX",
+                        "asset_type": "SWAP",
+                        "account_id": "",
+                        "api_key": "",
+                        "secret_key": "",
+                        "passphrase": "",
+                    }
+                },
+            },
         ]
 
     def add_instance(
