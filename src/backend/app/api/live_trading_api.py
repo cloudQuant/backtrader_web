@@ -18,6 +18,7 @@ from app.schemas.analytics import (
 )
 from app.schemas.live_trading_instance import (
     LiveBatchResponse,
+    LiveGatewayPresetListResponse,
     LiveInstanceCreate,
     LiveInstanceInfo,
     LiveInstanceListResponse,
@@ -60,6 +61,37 @@ async def list_instances(
     """
     instances = mgr.list_instances(user_id=current_user.sub)
     return {"total": len(instances), "instances": instances}
+
+
+@router.get(
+    "/presets",
+    response_model=LiveGatewayPresetListResponse,
+    summary="List live trading gateway presets",
+)
+async def list_gateway_presets(
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    presets = mgr.get_gateway_presets()
+    return {"total": len(presets), "presets": presets}
+
+
+@router.get(
+    "/gateways/health",
+    summary="Get health status of all active gateways",
+)
+async def get_gateway_health(
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Return health snapshots for all active gateway runtimes.
+
+    Returns:
+        A list of gateway health snapshots with state, connection,
+        heartbeat, tick/order counts, and recent errors.
+    """
+    gateways = mgr.get_gateway_health()
+    return {"total": len(gateways), "gateways": gateways}
 
 
 @router.post("/", response_model=LiveInstanceInfo, summary="Add live trading instance")

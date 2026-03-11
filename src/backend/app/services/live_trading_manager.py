@@ -171,6 +171,26 @@ class LiveTradingManager:
             result.append(inst)
         return result
 
+    def get_gateway_health(self) -> list[dict[str, Any]]:
+        """Return health snapshots for all active gateways.
+
+        Returns:
+            A list of dicts, one per gateway, each containing the gateway key
+            and its health snapshot from GatewayRuntime.health.
+        """
+        results: list[dict[str, Any]] = []
+        for key, state in self._gateways.items():
+            runtime = state.get("runtime")
+            if runtime is None:
+                continue
+            health = getattr(runtime, "health", None)
+            snap: dict[str, Any] = health.snapshot() if health is not None else {}
+            snap["gateway_key"] = key
+            snap["ref_count"] = state.get("ref_count", 0)
+            snap["instances"] = sorted(state.get("instances", set()))
+            results.append(snap)
+        return results
+
     def get_gateway_presets(self) -> list[dict[str, Any]]:
         return [
             {

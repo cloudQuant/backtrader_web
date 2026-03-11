@@ -150,6 +150,14 @@ class TestLiveTradingList:
             "okx_swap_gateway",
         }.issubset(ids)
 
+    async def test_gateway_health_empty(self, client: AsyncClient, auth_headers):
+        """Gateway health returns empty list when no gateways are active."""
+        response = await client.get("/api/v1/live-trading/gateways/health", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 0
+        assert data["gateways"] == []
+
     async def test_live_instance_create_schema_example_exposes_ib_web_gateway(self):
         schema = LiveInstanceCreate.model_json_schema()
         example = schema["example"]
