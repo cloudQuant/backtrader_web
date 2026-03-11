@@ -48,6 +48,34 @@ export interface LiveGatewayPresetListResponse {
   presets: LiveGatewayPresetInfo[]
 }
 
+export interface GatewayHealthInfo {
+  gateway_key: string
+  state: string
+  is_healthy: boolean
+  market_connection: string
+  trade_connection: string
+  uptime_sec: number
+  last_heartbeat: number | null
+  heartbeat_age_sec: number | null
+  last_tick_time: number | null
+  last_order_time: number | null
+  strategy_count: number
+  symbol_count: number
+  tick_count: number
+  order_count: number
+  recent_errors: { timestamp: number; source: string; message: string }[]
+  ref_count: number
+  instances: string[]
+  exchange?: string
+  asset_type?: string
+  account_id?: string
+}
+
+export interface GatewayHealthListResponse {
+  total: number
+  gateways: GatewayHealthInfo[]
+}
+
 export const liveTradingApi = {
   list(): Promise<LiveInstanceListResponse> {
     return request.get('/live-trading/')
@@ -83,5 +111,9 @@ export const liveTradingApi = {
 
   stopAll(): Promise<LiveBatchResponse> {
     return request.post('/live-trading/stop-all')
+  },
+
+  listGatewayHealth(): Promise<GatewayHealthListResponse> {
+    return request.get('/live-trading/gateways/health')
   },
 }

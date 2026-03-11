@@ -1,7 +1,10 @@
 <template>
   <el-container class="min-h-screen">
     <!-- 侧边栏 -->
-    <el-aside width="220px" class="bg-slate-900">
+    <el-aside
+      width="220px"
+      class="bg-slate-900"
+    >
       <div class="p-4">
         <h1 class="text-xl font-bold text-white flex items-center gap-2">
           <el-icon><TrendCharts /></el-icon>
@@ -44,6 +47,10 @@
           <el-icon><TrendCharts /></el-icon>
           <span>实盘交易</span>
         </el-menu-item>
+        <el-menu-item index="/gateways">
+          <el-icon><Monitor /></el-icon>
+          <span>Gateway 状态</span>
+        </el-menu-item>
         <el-menu-item index="/portfolio">
           <el-icon><TrendCharts /></el-icon>
           <span>组合管理</span>
@@ -60,18 +67,30 @@
       <!-- 顶部栏 -->
       <el-header class="flex items-center justify-between bg-white border-b px-6">
         <div class="flex items-center gap-4">
-          <div class="text-lg font-medium">{{ pageTitle }}</div>
+          <div class="text-lg font-medium">
+            {{ pageTitle }}
+          </div>
           <div v-if="route.path === '/portfolio'">
-            <el-radio-group v-model="portfolioUiStore.tradingType" size="large">
-              <el-radio-button value="simulate">模拟交易</el-radio-button>
-              <el-radio-button value="live">实盘交易</el-radio-button>
+            <el-radio-group
+              v-model="portfolioUiStore.tradingType"
+              size="large"
+            >
+              <el-radio-button value="simulate">
+                模拟交易
+              </el-radio-button>
+              <el-radio-button value="live">
+                实盘交易
+              </el-radio-button>
             </el-radio-group>
           </div>
         </div>
         
         <div class="flex items-center gap-4">
           <el-tooltip :content="isDark ? '切换亮色模式' : '切换暗色模式'">
-            <el-button circle @click="toggleTheme">
+            <el-button
+              circle
+              @click="toggleTheme"
+            >
               <el-icon><Sunny v-if="isDark" /><Moon v-else /></el-icon>
             </el-button>
           </el-tooltip>
@@ -85,8 +104,15 @@
             </span>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="profile">个人设置</el-dropdown-item>
-                <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+                <el-dropdown-item command="profile">
+                  个人设置
+                </el-dropdown-item>
+                <el-dropdown-item
+                  command="logout"
+                  divided
+                >
+                  退出登录
+                </el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
@@ -118,6 +144,7 @@ import {
   Moon,
   VideoPlay,
   MagicStick,
+  Monitor,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -150,6 +177,7 @@ const pageTitle = computed(() => {
     '/strategy': '策略管理',
     '/data': '数据管理',
     '/live-trading': '实盘交易',
+    '/gateways': 'Gateway 状态',
     '/portfolio': '组合管理',
     '/settings': '系统设置',
   }

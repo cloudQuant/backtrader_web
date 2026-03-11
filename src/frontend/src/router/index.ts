@@ -71,6 +71,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/LiveTradingDetailPage.vue'),
       },
       {
+        path: 'gateways',
+        name: 'Gateways',
+        component: () => import('@/views/GatewayStatusPage.vue'),
+      },
+      {
         path: 'portfolio',
         name: 'Portfolio',
         component: () => import('@/views/PortfolioPage.vue'),
