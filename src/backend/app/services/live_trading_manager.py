@@ -8,23 +8,29 @@ in subprocesses.
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from app.services.strategy_service import get_strategy_dir, get_template_by_id
+import yaml
+
+from app.services.strategy_service import STRATEGIES_DIR, get_template_by_id
 
 logger = logging.getLogger(__name__)
 
-# Persistence file
+_WORKSPACE_DIR = Path(__file__).resolve().parents[5]
+_BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
+_BT_API_PY_DIR = _WORKSPACE_DIR / "bt_api_py"
 _DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
 
 
-def _load_instances() -> Dict[str, dict]:
+def _load_instances() -> dict[str, dict]:
     """Load instances from the JSON file.
 
     Returns:
@@ -38,7 +44,7 @@ def _load_instances() -> Dict[str, dict]:
     return {}
 
 
-def _save_instances(data: Dict[str, dict]):
+def _save_instances(data: dict[str, dict]) -> None:
     """Save instances to the JSON file.
 
     Args:
@@ -48,7 +54,7 @@ def _save_instances(data: Dict[str, dict]):
     _INSTANCES_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
 
 
-def _find_latest_log_dir(strategy_dir: Path) -> Optional[str]:
+def _find_latest_log_dir(strategy_dir: Path) -> str | None:
     """Find the latest log directory for a strategy.
 
     Supports logs/<subdir>/ or flat logs/ (no subdirs) for simulate strategies.
@@ -102,11 +108,14 @@ class LiveTradingManager:
     """
 
     def __init__(self):
-        self._processes: Dict[str, asyncio.subprocess.Process] = {}
+        self._processes: dict[str, asyncio.subprocess.Process] = {}
+        self._gateways: dict[str, dict[str, Any]] = {}
+        self._instance_gateways: dict[str, str] = {}
+        self._stopping_instances: set[str] = set()
         # Sync process status on startup
         self._sync_status_on_boot()
 
-    def _sync_status_on_boot(self):
+    def _sync_status_on_boot(self) -> None:
         """Check if previously running instances are still running on startup.
 
         Updates the status of instances that were marked as 'running'
@@ -114,7 +123,7 @@ class LiveTradingManager:
         """
         instances = _load_instances()
         changed = False
-        for iid, inst in instances.items():
+        for _iid, inst in instances.items():
             if inst.get("status") == "running":
                 pid = inst.get("pid")
                 if not pid or not _is_pid_alive(pid):
@@ -126,7 +135,7 @@ class LiveTradingManager:
 
     # ---- CRUD ----
 
-    def list_instances(self, user_id: str = None) -> List[dict]:
+    def list_instances(self, user_id: str = None) -> list[dict]:
         """List live trading instances, optionally filtered by user.
 
         Args:
@@ -150,11 +159,11 @@ class LiveTradingManager:
             _save_instances(instances)
 
         result = []
-        for iid, inst in instances.items():
+        for _iid, inst in instances.items():
             if user_id and inst.get("user_id") and inst["user_id"] != user_id:
                 continue
             try:
-                strategy_dir = get_strategy_dir(inst["strategy_id"])
+                strategy_dir = self._resolve_strategy_dir(inst["strategy_id"])
             except ValueError:
                 inst["log_dir"] = None
             else:
@@ -162,8 +171,104 @@ class LiveTradingManager:
             result.append(inst)
         return result
 
+    def get_gateway_presets(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "description": "Shared CTP gateway preset for domestic futures accounts.",
+                "id": "ctp_futures_gateway",
+                "name": "CTP Futures Gateway",
+                "editable_fields": [
+                    {
+                        "key": "account_id",
+                        "label": "账户",
+                        "input_type": "string",
+                        "placeholder": "请输入期货账户",
+                    }
+                ],
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "provider": "ctp_gateway",
+                        "exchange_type": "CTP",
+                        "asset_type": "FUTURE",
+                        "account_id": "",
+                    }
+                },
+            },
+            {
+                "description": "IB Web preset for US stock trading via gateway mode.",
+                "id": "ib_web_stock_gateway",
+                "name": "IB Web Stock Gateway",
+                "editable_fields": [
+                    {
+                        "key": "account_id",
+                        "label": "账户",
+                        "input_type": "string",
+                        "placeholder": "如 DU123456",
+                    },
+                    {
+                        "key": "base_url",
+                        "label": "Base URL",
+                        "input_type": "string",
+                        "placeholder": "如 https://localhost:5000",
+                    },
+                    {
+                        "key": "verify_ssl",
+                        "label": "SSL校验",
+                        "input_type": "boolean",
+                    },
+                ],
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "provider": "gateway",
+                        "exchange_type": "IB_WEB",
+                        "asset_type": "STK",
+                        "account_id": "DU123456",
+                        "base_url": "https://localhost:5000",
+                        "verify_ssl": False,
+                    }
+                },
+            },
+            {
+                "description": "IB Web preset for futures trading via gateway mode.",
+                "id": "ib_web_futures_gateway",
+                "name": "IB Web Futures Gateway",
+                "editable_fields": [
+                    {
+                        "key": "account_id",
+                        "label": "账户",
+                        "input_type": "string",
+                        "placeholder": "如 DU123456",
+                    },
+                    {
+                        "key": "base_url",
+                        "label": "Base URL",
+                        "input_type": "string",
+                        "placeholder": "如 https://localhost:5000",
+                    },
+                    {
+                        "key": "verify_ssl",
+                        "label": "SSL校验",
+                        "input_type": "boolean",
+                    },
+                ],
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "provider": "gateway",
+                        "exchange_type": "IB_WEB",
+                        "asset_type": "FUT",
+                        "account_id": "DU123456",
+                        "base_url": "https://localhost:5000",
+                        "verify_ssl": False,
+                    }
+                },
+            },
+        ]
+
     def add_instance(
-        self, strategy_id: str, params: Optional[Dict[str, Any]] = None, user_id: str = None
+        self, strategy_id: str, params: dict[str, Any] | None = None, user_id: str = None
     ) -> dict:
         """Add a new live trading instance.
 
@@ -179,7 +284,7 @@ class LiveTradingManager:
             ValueError: If the strategy doesn't exist or lacks run.py.
         """
         try:
-            strategy_dir = get_strategy_dir(strategy_id)
+            strategy_dir = self._resolve_strategy_dir(strategy_id)
         except ValueError:
             raise ValueError(f"Invalid strategy_id: {strategy_id}") from None
         if not (strategy_dir / "run.py").is_file():
@@ -232,9 +337,10 @@ class LiveTradingManager:
         del instances[instance_id]
         _save_instances(instances)
         self._processes.pop(instance_id, None)
+        self._release_gateway_for_instance(instance_id)
         return True
 
-    def get_instance(self, instance_id: str, user_id: str = None) -> Optional[dict]:
+    def get_instance(self, instance_id: str, user_id: str = None) -> dict | None:
         """Get a live trading instance by ID.
 
         Args:
@@ -251,7 +357,7 @@ class LiveTradingManager:
                 return None
             inst["id"] = instance_id
             try:
-                strategy_dir = get_strategy_dir(inst["strategy_id"])
+                strategy_dir = self._resolve_strategy_dir(inst["strategy_id"])
                 inst["log_dir"] = _find_latest_log_dir(strategy_dir)
             except ValueError:
                 inst["log_dir"] = None
@@ -280,21 +386,26 @@ class LiveTradingManager:
             raise ValueError("Strategy is already running")
 
         try:
-            strategy_dir = get_strategy_dir(inst["strategy_id"])
+            strategy_dir = self._resolve_strategy_dir(inst["strategy_id"])
         except ValueError as e:
             raise ValueError(f"Invalid strategy_id: {inst['strategy_id']}") from e
         run_py = strategy_dir / "run.py"
         if not run_py.is_file():
             raise ValueError(f"run.py does not exist: {run_py}")
 
-        # Start subprocess
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            str(run_py),
-            cwd=str(strategy_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        env = self._build_subprocess_env(instance_id, inst, strategy_dir)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                str(run_py),
+                cwd=str(strategy_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+        except Exception:
+            self._release_gateway_for_instance(instance_id)
+            raise
         self._processes[instance_id] = proc
 
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -327,6 +438,7 @@ class LiveTradingManager:
         if instance_id not in instances:
             raise ValueError("Instance does not exist")
         inst = instances[instance_id]
+        self._stopping_instances.add(instance_id)
 
         pid = inst.get("pid")
         if pid and _is_pid_alive(pid):
@@ -347,6 +459,7 @@ class LiveTradingManager:
         inst["stopped_at"] = now
         instances[instance_id] = inst
         _save_instances(instances)
+        self._release_gateway_for_instance(instance_id)
         inst["id"] = instance_id
         return inst
 
@@ -418,10 +531,14 @@ class LiveTradingManager:
         except Exception:
             pass
         finally:
+            was_stopping = instance_id in self._stopping_instances
             instances = _load_instances()
             if instance_id in instances:
                 inst = instances[instance_id]
-                if proc.returncode != 0:
+                if was_stopping:
+                    inst["status"] = "stopped"
+                    inst["error"] = None
+                elif proc.returncode != 0:
                     stderr = ""
                     if proc.stderr:
                         try:
@@ -433,17 +550,20 @@ class LiveTradingManager:
                     inst["error"] = stderr or f"Process exit code: {proc.returncode}"
                 else:
                     inst["status"] = "stopped"
+                    inst["error"] = None
                 inst["pid"] = None
                 inst["stopped_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 # Refresh log directory
                 try:
-                    strategy_dir = get_strategy_dir(inst["strategy_id"])
+                    strategy_dir = self._resolve_strategy_dir(inst["strategy_id"])
                     inst["log_dir"] = _find_latest_log_dir(strategy_dir)
                 except ValueError:
                     inst["log_dir"] = None
                 instances[instance_id] = inst
                 _save_instances(instances)
             self._processes.pop(instance_id, None)
+            self._stopping_instances.discard(instance_id)
+            self._release_gateway_for_instance(instance_id)
 
     @staticmethod
     def _kill_pid(pid: int):
@@ -459,9 +579,359 @@ class LiveTradingManager:
         except (OSError, ProcessLookupError):
             pass
 
+    def _build_subprocess_env(
+        self, instance_id: str, instance: dict[str, Any], strategy_dir: Path
+    ) -> dict[str, str]:
+        env = dict(os.environ)
+        python_paths = [str(_BT_API_PY_DIR)] if _BT_API_PY_DIR.is_dir() else []
+        if python_paths:
+            existing = env.get("PYTHONPATH", "")
+            env["PYTHONPATH"] = os.pathsep.join(python_paths + ([existing] if existing else []))
+        gateway = self._acquire_gateway_for_instance(instance_id, instance, strategy_dir)
+        if gateway is None:
+            return env
+        config = gateway["config"]
+        env["BT_STORE_PROVIDER"] = "ctp_gateway"
+        env["BT_GATEWAY_START_LOCAL_RUNTIME"] = "0"
+        env["BT_GATEWAY_COMMAND_ENDPOINT"] = config.command_endpoint
+        env["BT_GATEWAY_EVENT_ENDPOINT"] = config.event_endpoint
+        env["BT_GATEWAY_MARKET_ENDPOINT"] = config.market_endpoint
+        env["BT_GATEWAY_ACCOUNT_ID"] = config.account_id
+        env["BT_GATEWAY_EXCHANGE_TYPE"] = config.exchange_type
+        env["BT_GATEWAY_ASSET_TYPE"] = config.asset_type
+        return env
+
+    def _acquire_gateway_for_instance(
+        self, instance_id: str, instance: dict[str, Any], strategy_dir: Path
+    ) -> dict[str, Any] | None:
+        gateway_params = self._get_gateway_params(instance)
+        if not gateway_params.get("enabled"):
+            return None
+        launch = self._build_gateway_launch(instance, strategy_dir, gateway_params)
+        key = launch["config"].runtime_name
+        state = self._gateways.get(key)
+        if state is None:
+            runtime = launch["runtime_cls"](launch["config"], **launch["runtime_kwargs"])
+            runtime.start_in_thread()
+            state = {
+                "config": launch["config"],
+                "runtime": runtime,
+                "instances": set(),
+                "ref_count": 0,
+                "lock": threading.Lock(),
+            }
+            self._gateways[key] = state
+        state["instances"].add(instance_id)
+        state["ref_count"] += 1
+        self._instance_gateways[instance_id] = key
+        return state
+
+    def _release_gateway_for_instance(self, instance_id: str) -> None:
+        key = self._instance_gateways.pop(instance_id, None)
+        if not key:
+            return
+        state = self._gateways.get(key)
+        if state is None:
+            return
+        state["instances"].discard(instance_id)
+        state["ref_count"] = max(int(state.get("ref_count", 0)) - 1, 0)
+        if state["ref_count"] > 0:
+            return
+        runtime = state.get("runtime")
+        if runtime is not None:
+            runtime.stop()
+        self._gateways.pop(key, None)
+
+    def _get_gateway_params(self, instance: dict[str, Any]) -> dict[str, Any]:
+        params = instance.get("params") or {}
+        if not isinstance(params, dict):
+            return {"enabled": False}
+        gateway = params.get("gateway") or {}
+        if not isinstance(gateway, dict):
+            gateway = {}
+        provider = str(gateway.get("provider") or params.get("provider") or "").strip().lower()
+        exchange_type = self._normalize_gateway_exchange_type(
+            gateway.get("exchange_type")
+            or gateway.get("exchange")
+            or params.get("exchange_type")
+            or params.get("exchange"),
+            provider,
+        )
+        enabled = (
+            bool(gateway.get("enabled"))
+            or provider in {"ctp_gateway", "gateway"}
+            or provider.endswith("_gateway")
+        )
+        return {
+            "enabled": enabled,
+            "provider": provider or "ctp",
+            "exchange_type": exchange_type,
+            "transport": str(gateway.get("transport") or "ipc"),
+            "asset_type": self._normalize_gateway_asset_type(
+                exchange_type, gateway.get("asset_type") or params.get("asset_type")
+            ),
+            "account_id": str(gateway.get("account_id") or ""),
+            "base_dir": str(gateway.get("base_dir") or ""),
+            "base_url": str(gateway.get("base_url") or ""),
+            "access_token": str(gateway.get("access_token") or ""),
+            "verify_ssl": gateway.get("verify_ssl"),
+            "cookie_source": str(gateway.get("cookie_source") or ""),
+            "cookie_browser": str(gateway.get("cookie_browser") or ""),
+            "cookie_path": str(gateway.get("cookie_path") or ""),
+            "cookies": gateway.get("cookies"),
+        }
+
+    def _build_gateway_launch(
+        self, instance: dict[str, Any], strategy_dir: Path, gateway_params: dict[str, Any]
+    ) -> dict[str, Any]:
+        config_data = self._load_strategy_config(strategy_dir)
+        env_data = self._load_strategy_env(strategy_dir)
+        gateway_config_cls, gateway_runtime_cls = self._import_gateway_runtime_classes()
+        strategy_gateway = dict(config_data.get("gateway", {}) or {})
+        exchange_type = self._normalize_gateway_exchange_type(
+            gateway_params.get("exchange_type")
+            or strategy_gateway.get("exchange_type")
+            or strategy_gateway.get("exchange"),
+            str(gateway_params.get("provider") or ""),
+        )
+        if exchange_type == "IB_WEB":
+            runtime_kwargs = self._build_ib_web_gateway_runtime_kwargs(
+                config_data=config_data,
+                env_data=env_data,
+                gateway_params=gateway_params,
+            )
+        else:
+            runtime_kwargs = self._build_ctp_gateway_runtime_kwargs(
+                config_data=config_data,
+                env_data=env_data,
+                gateway_params=gateway_params,
+            )
+        return {
+            "config": gateway_config_cls.from_kwargs(**runtime_kwargs),
+            "runtime_cls": gateway_runtime_cls,
+            "runtime_kwargs": runtime_kwargs,
+        }
+
+    def _build_ctp_gateway_runtime_kwargs(
+        self,
+        config_data: dict[str, Any],
+        env_data: dict[str, str],
+        gateway_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        ctp = dict(config_data.get("ctp", {}) or {})
+        live = dict(config_data.get("live", {}) or {})
+        fronts = dict(ctp.get("fronts", {}) or {})
+        network = str(live.get("network") or "simnow")
+        front = dict(fronts.get(network) or fronts.get("telecom") or fronts.get("simnow") or {})
+        investor_id = (
+            env_data.get("CTP_INVESTOR_ID")
+            or env_data.get("CTP_USER_ID")
+            or ctp.get("investor_id", "")
+            or ctp.get("user_id", "")
+        )
+        broker_id = env_data.get("CTP_BROKER_ID") or ctp.get("broker_id", "")
+        password = env_data.get("CTP_PASSWORD") or ctp.get("password", "")
+        app_id = env_data.get("CTP_APP_ID") or ctp.get("app_id", "simnow_client_test")
+        auth_code = env_data.get("CTP_AUTH_CODE") or ctp.get("auth_code", "0000000000000000")
+        td_address = front.get("td_address", "")
+        md_address = front.get("md_address", "")
+        account_id = gateway_params.get("account_id") or investor_id
+        if not all([account_id, investor_id, broker_id, password, td_address, md_address]):
+            raise ValueError("CTP gateway requires complete CTP credentials and front addresses")
+        return {
+            "exchange_type": "CTP",
+            "asset_type": self._normalize_gateway_asset_type(
+                "CTP", gateway_params.get("asset_type")
+            ),
+            "account_id": account_id,
+            "transport": gateway_params.get("transport") or "ipc",
+            "gateway_base_dir": gateway_params.get("base_dir") or "",
+            "md_address": md_address,
+            "td_address": td_address,
+            "broker_id": broker_id,
+            "investor_id": investor_id,
+            "user_id": investor_id,
+            "password": password,
+            "app_id": app_id,
+            "auth_code": auth_code,
+        }
+
+    def _build_ib_web_gateway_runtime_kwargs(
+        self,
+        config_data: dict[str, Any],
+        env_data: dict[str, str],
+        gateway_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        ib_web = dict(config_data.get("ib_web", {}) or {})
+        account_id = (
+            gateway_params.get("account_id")
+            or env_data.get("IB_WEB_ACCOUNT_ID")
+            or ib_web.get("account_id", "")
+        )
+        if not account_id:
+            raise ValueError("IB_WEB gateway requires account_id")
+        base_url = (
+            gateway_params.get("base_url")
+            or env_data.get("IB_WEB_BASE_URL")
+            or ib_web.get("base_url")
+            or "https://localhost:5000"
+        )
+        access_token = (
+            gateway_params.get("access_token")
+            or env_data.get("IB_WEB_ACCESS_TOKEN")
+            or ib_web.get("access_token", "")
+        )
+        verify_ssl_value = gateway_params.get("verify_ssl")
+        if verify_ssl_value is None:
+            verify_ssl_value = env_data.get("IB_WEB_VERIFY_SSL", ib_web.get("verify_ssl"))
+        verify_ssl = self._coerce_bool(
+            verify_ssl_value,
+            default=False,
+        )
+        timeout = self._coerce_float(
+            env_data.get("IB_WEB_TIMEOUT", ib_web.get("timeout")),
+            default=10.0,
+        )
+        cookie_source = (
+            gateway_params.get("cookie_source")
+            or env_data.get("IB_WEB_COOKIE_SOURCE")
+            or ib_web.get("cookie_source", "")
+        )
+        cookie_browser = (
+            gateway_params.get("cookie_browser")
+            or env_data.get("IB_WEB_COOKIE_BROWSER")
+            or ib_web.get("cookie_browser")
+            or "chrome"
+        )
+        cookie_path = (
+            gateway_params.get("cookie_path")
+            or env_data.get("IB_WEB_COOKIE_PATH")
+            or ib_web.get("cookie_path")
+            or "/sso"
+        )
+        cookies = gateway_params.get("cookies") or self._parse_json_dict(
+            env_data.get("IB_WEB_COOKIES_JSON")
+        )
+        if cookies is None and isinstance(ib_web.get("cookies"), dict):
+            cookies = ib_web.get("cookies")
+        runtime_kwargs = {
+            "exchange_type": "IB_WEB",
+            "asset_type": self._normalize_gateway_asset_type(
+                "IB_WEB",
+                gateway_params.get("asset_type") or ib_web.get("asset_type"),
+            ),
+            "account_id": account_id,
+            "transport": gateway_params.get("transport") or "ipc",
+            "gateway_base_dir": gateway_params.get("base_dir") or "",
+            "base_url": base_url,
+            "verify_ssl": verify_ssl,
+            "timeout": timeout,
+        }
+        if access_token:
+            runtime_kwargs["access_token"] = access_token
+        if cookie_source:
+            runtime_kwargs["cookie_source"] = cookie_source
+        if cookie_browser:
+            runtime_kwargs["cookie_browser"] = cookie_browser
+        if cookie_path:
+            runtime_kwargs["cookie_path"] = cookie_path
+        if cookies:
+            runtime_kwargs["cookies"] = cookies
+        return runtime_kwargs
+
+    def _normalize_gateway_exchange_type(self, value: Any, provider: str = "") -> str:
+        text = str(value or "").strip().upper()
+        provider_text = str(provider or "").strip().lower()
+        if text in {"IB", "IB_WEB", "IBWEB"} or provider_text.startswith("ib_web"):
+            return "IB_WEB"
+        if text in {"CTP", ""}:
+            return "CTP"
+        return text
+
+    def _normalize_gateway_asset_type(self, exchange_type: str, value: Any) -> str:
+        text = str(value or "").strip().upper()
+        if exchange_type == "IB_WEB":
+            if text in {"", "STOCK", "STK", "EQUITY"}:
+                return "STK"
+            if text in {"FUT", "FUTURE"}:
+                return "FUT"
+        if exchange_type == "CTP":
+            if text in {"", "FUT", "FUTURE"}:
+                return "FUTURE"
+        return text or "FUTURE"
+
+    def _coerce_bool(self, value: Any, default: bool = False) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
+
+    def _coerce_float(self, value: Any, default: float = 0.0) -> float:
+        if value in {None, ""}:
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _parse_json_dict(self, value: Any) -> dict[str, Any] | None:
+        if isinstance(value, dict):
+            return value
+        if not value:
+            return None
+        try:
+            parsed = json.loads(str(value))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+        return None
+
+    def _import_gateway_runtime_classes(self):
+        if _BT_API_PY_DIR.is_dir() and str(_BT_API_PY_DIR) not in sys.path:
+            sys.path.insert(0, str(_BT_API_PY_DIR))
+        from bt_api_py.gateway.config import GatewayConfig
+        from bt_api_py.gateway.runtime import GatewayRuntime
+
+        return GatewayConfig, GatewayRuntime
+
+    def _load_strategy_config(self, strategy_dir: Path) -> dict[str, Any]:
+        config_path = strategy_dir / "config.yaml"
+        if not config_path.is_file():
+            return {}
+        with config_path.open("r", encoding="utf-8") as handle:
+            return yaml.safe_load(handle) or {}
+
+    def _load_strategy_env(self, strategy_dir: Path) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for candidate in (strategy_dir / ".env", _BACKTRADER_WEB_DIR / ".env"):
+            if not candidate.is_file():
+                continue
+            with candidate.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    text = line.strip()
+                    if not text or text.startswith("#") or "=" not in text:
+                        continue
+                    key, _, value = text.partition("=")
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and key not in result:
+                        result[key] = value
+        return result
+
+    def _resolve_strategy_dir(self, strategy_id: str) -> Path:
+        text = str(strategy_id or "")
+        if ".." in text or text.startswith("/") or "\\" in text:
+            raise ValueError(f"Invalid strategy_id: {strategy_id}")
+        path = STRATEGIES_DIR / text
+        if isinstance(STRATEGIES_DIR, Path):
+            return path.resolve()
+        return path
+
 
 # Global singleton
-_manager: Optional[LiveTradingManager] = None
+_manager: LiveTradingManager | None = None
 
 
 def get_live_trading_manager() -> LiveTradingManager:

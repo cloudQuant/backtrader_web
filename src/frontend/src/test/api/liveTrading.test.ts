@@ -15,6 +15,31 @@ describe('liveTradingApi', () => {
     expect(request.get).toHaveBeenCalledWith('/live-trading/')
   })
 
+  it('listPresets', async () => {
+    vi.mocked(request.get).mockResolvedValue({ total: 2, presets: [] })
+    await liveTradingApi.listPresets()
+    expect(request.get).toHaveBeenCalledWith('/live-trading/presets')
+  })
+
+  it('listPresets returns preset metadata', async () => {
+    const mockPreset = {
+      id: 'ib_web_stock_gateway',
+      name: 'IB Web Stock Gateway',
+      description: 'IB Web preset for US stock trading.',
+      editable_fields: [
+        { key: 'account_id', label: '账户', input_type: 'string', placeholder: '如 DU123456' },
+        { key: 'verify_ssl', label: 'SSL校验', input_type: 'boolean', placeholder: null },
+      ],
+      params: { gateway: { provider: 'gateway' } },
+    }
+    vi.mocked(request.get).mockResolvedValue({ total: 1, presets: [mockPreset] })
+    const result = await liveTradingApi.listPresets()
+    expect(result.presets[0].description).toBe('IB Web preset for US stock trading.')
+    expect(result.presets[0].editable_fields).toHaveLength(2)
+    expect(result.presets[0].editable_fields[0].key).toBe('account_id')
+    expect(result.presets[0].editable_fields[1].input_type).toBe('boolean')
+  })
+
   it('add', async () => {
     vi.mocked(request.post).mockResolvedValue({ id: 'i1' })
     await liveTradingApi.add('s1', { period: 20 })

@@ -10,7 +10,7 @@ export interface LiveInstanceInfo {
   status: 'running' | 'stopped' | 'error'
   pid: number | null
   error: string | null
-  params: Record<string, any>
+  params: Record<string, unknown>
   created_at: string
   started_at: string | null
   stopped_at: string | null
@@ -28,12 +28,36 @@ export interface LiveBatchResponse {
   details: { id: string; strategy_id: string; result: string }[]
 }
 
+export interface LiveGatewayPresetInfo {
+  description?: string | null
+  id: string
+  name: string
+  params: Record<string, unknown>
+  editable_fields: LiveGatewayPresetFieldInfo[]
+}
+
+export interface LiveGatewayPresetFieldInfo {
+  key: string
+  label: string
+  input_type: 'string' | 'boolean'
+  placeholder?: string | null
+}
+
+export interface LiveGatewayPresetListResponse {
+  total: number
+  presets: LiveGatewayPresetInfo[]
+}
+
 export const liveTradingApi = {
   list(): Promise<LiveInstanceListResponse> {
     return request.get('/live-trading/')
   },
 
-  add(strategy_id: string, params?: Record<string, any>): Promise<LiveInstanceInfo> {
+  listPresets(): Promise<LiveGatewayPresetListResponse> {
+    return request.get('/live-trading/presets')
+  },
+
+  add(strategy_id: string, params?: Record<string, unknown>): Promise<LiveInstanceInfo> {
     return request.post('/live-trading/', { strategy_id, params })
   },
 
