@@ -6,7 +6,7 @@ Supports exporting professional reports in HTML/PDF/Excel formats.
 
 import io
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any
 
 try:
     from jinja2 import Template
@@ -48,8 +48,8 @@ class ReportService:
 
     async def generate_html_report(
         self,
-        result: Dict[str, Any],
-        strategy: Dict[str, Any],
+        result: dict[str, Any],
+        strategy: dict[str, Any],
     ) -> str:
         """Generate an HTML report from backtest results.
 
@@ -336,8 +336,8 @@ class ReportService:
 
     async def generate_pdf_report(
         self,
-        result: Dict[str, Any],
-        strategy: Dict[str, Any],
+        result: dict[str, Any],
+        strategy: dict[str, Any],
     ) -> bytes:
         """Generate a PDF report from backtest results.
 
@@ -364,8 +364,8 @@ class ReportService:
 
     async def generate_excel_report(
         self,
-        result: Dict[str, Any],
-        strategy: Dict[str, Any],
+        result: dict[str, Any],
+        strategy: dict[str, Any],
     ) -> bytes:
         """Generate an Excel report from backtest results.
 

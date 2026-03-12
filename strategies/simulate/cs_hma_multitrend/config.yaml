@@ -21,6 +21,14 @@ symbol:
 # 策略参数
 # ============================================================
 params:
+  stake: 10
+  fast: 10
+  mid1: 20
+  mid2: 30
+  mid3: 50
+  atr_period: 14
+  adx_period: 14
+  adx_threshold: 0.0
 
 # ============================================================
 # 数据配置
@@ -67,14 +75,14 @@ ctp:
 # CTP 模拟盘会话参数
 # ============================================================
 live:
-  symbol: "cs2509"
+  symbol: "cs2609"
   network: "telecom"
   bar_seconds: 15
-  duration_seconds: 3600
-  session_timeout: 3700
+  duration_seconds: 86400
+  session_timeout: 86500
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    cs2509:
+    cs2609:
       min_price_tick: 1.0
       max_order_size: 1

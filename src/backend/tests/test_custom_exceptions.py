@@ -65,17 +65,14 @@ class TestBaseAppError:
         assert result == {
             "error": "BaseAppError",
             "message": "Test error",
-            "details": {"key": "value"}
+            "details": {"key": "value"},
         }
 
     def test_to_dict_no_details(self):
         """Test to_dict without details."""
         error = BaseAppError("Test error")
         result = error.to_dict()
-        assert result == {
-            "error": "BaseAppError",
-            "message": "Test error"
-        }
+        assert result == {"error": "BaseAppError", "message": "Test error"}
 
 
 class TestAuthenticationErrors:
@@ -125,10 +122,7 @@ class TestAuthenticationErrors:
 
     def test_insufficient_permissions_error(self):
         """Test InsufficientPermissionsError."""
-        error = InsufficientPermissionsError(
-            required_permission="write:users",
-            resource="users"
-        )
+        error = InsufficientPermissionsError(required_permission="write:users", resource="users")
         assert "Insufficient permissions" in error.message
         assert error.details["required_permission"] == "write:users"
         assert error.details["resource"] == "users"
@@ -147,9 +141,7 @@ class TestValidationErrors:
     def test_invalid_input_error(self):
         """Test InvalidInputError."""
         error = InvalidInputError(
-            message="Invalid email format",
-            field="email",
-            value="not-an-email"
+            message="Invalid email format", field="email", value="not-an-email"
         )
         assert "Invalid email format" in error.message
         assert error.details["field"] == "email"
@@ -180,11 +172,7 @@ class TestStrategyErrors:
 
     def test_invalid_strategy_code_error(self):
         """Test InvalidStrategyCodeError."""
-        error = InvalidStrategyCodeError(
-            message="Syntax error",
-            line=42,
-            error="unexpected indent"
-        )
+        error = InvalidStrategyCodeError(message="Syntax error", line=42, error="unexpected indent")
         assert "Syntax error" in error.message
         assert error.details["line"] == 42
         assert error.details["error"] == "unexpected indent"
@@ -202,9 +190,7 @@ class TestBacktestErrors:
     def test_backtest_execution_error(self):
         """Test BacktestExecutionError."""
         error = BacktestExecutionError(
-            message="Execution failed",
-            task_id="task-123",
-            logs="Error: division by zero"
+            message="Execution failed", task_id="task-123", logs="Error: division by zero"
         )
         assert "Execution failed" in error.message
         assert error.details["task_id"] == "task-123"
@@ -221,9 +207,7 @@ class TestBacktestErrors:
         """Test that long logs are truncated."""
         long_logs = "Error: " + "x" * 600
         error = BacktestExecutionError(
-            message="Execution failed",
-            task_id="task-123",
-            logs=long_logs
+            message="Execution failed", task_id="task-123", logs=long_logs
         )
         assert len(error.details["logs"]) <= 500 + 10  # Account for "Error: " prefix
 
@@ -241,9 +225,7 @@ class TestDataErrors:
     def test_invalid_date_range_error(self):
         """Test InvalidDateRangeError."""
         error = InvalidDateRangeError(
-            reason="End date before start date",
-            start_date="2024-12-31",
-            end_date="2024-01-01"
+            reason="End date before start date", start_date="2024-12-31", end_date="2024-01-01"
         )
         assert "Invalid date range" in error.message
         assert error.details["reason"] == "End date before start date"
@@ -261,9 +243,7 @@ class TestConfigurationErrors:
     def test_invalid_config_error(self):
         """Test InvalidConfigError."""
         error = InvalidConfigError(
-            setting="LOG_LEVEL",
-            value="INVALID",
-            reason="Must be DEBUG, INFO, WARNING, or ERROR"
+            setting="LOG_LEVEL", value="INVALID", reason="Must be DEBUG, INFO, WARNING, or ERROR"
         )
         assert "LOG_LEVEL" in error.message
         assert error.details["setting"] == "LOG_LEVEL"
@@ -276,20 +256,14 @@ class TestExternalServiceErrors:
 
     def test_broker_connection_error(self):
         """Test BrokerConnectionError."""
-        error = BrokerConnectionError(
-            broker="Binance",
-            reason="Connection timeout"
-        )
+        error = BrokerConnectionError(broker="Binance", reason="Connection timeout")
         assert "Binance" in error.message
         assert error.details["service"] == "Binance"
         assert error.details["reason"] == "Connection timeout"
 
     def test_data_provider_error(self):
         """Test DataProviderError."""
-        error = DataProviderError(
-            provider="AkShare",
-            reason="Service unavailable"
-        )
+        error = DataProviderError(provider="AkShare", reason="Service unavailable")
         assert "AkShare" in error.message
         assert error.details["service"] == "AkShare"
         assert error.details["reason"] == "Service unavailable"
@@ -342,15 +316,36 @@ class TestExceptionHierarchy:
     def test_all_custom_errors_inherit_from_base(self):
         """Test that all custom errors inherit from BaseAppError."""
         custom_errors = [
-            AuthenticationError, InvalidCredentialsError, UserNotFoundError,
-            UserAlreadyExistsError, InvalidTokenError, TokenExpiredError,
-            InsufficientPermissionsError, UserInactiveError,
-            ValidationError, InvalidInputError, MissingFieldError, PasswordTooWeakError,
-            StrategyError, StrategyNotFoundError, InvalidStrategyCodeError,
-            BacktestError, BacktestNotFoundError, BacktestExecutionError,
-            BacktestTimeoutError, DataError, DataNotFoundError, InvalidDateRangeError,
-            ConfigurationError, MissingConfigError, InvalidConfigError,
-            ExternalServiceError, BrokerConnectionError, DataProviderError,
+            AuthenticationError,
+            InvalidCredentialsError,
+            UserNotFoundError,
+            UserAlreadyExistsError,
+            InvalidTokenError,
+            TokenExpiredError,
+            InsufficientPermissionsError,
+            UserInactiveError,
+            ValidationError,
+            InvalidInputError,
+            MissingFieldError,
+            PasswordTooWeakError,
+            StrategyError,
+            StrategyNotFoundError,
+            InvalidStrategyCodeError,
+            BacktestError,
+            BacktestNotFoundError,
+            BacktestExecutionError,
+            BacktestTimeoutError,
+            DataError,
+            DataNotFoundError,
+            InvalidDateRangeError,
+            ConfigurationError,
+            MissingConfigError,
+            InvalidConfigError,
+            ExternalServiceError,
+            BrokerConnectionError,
+            DataProviderError,
         ]
         for error_class in custom_errors:
-            assert issubclass(error_class, BaseAppError), f"{error_class} should inherit from BaseAppError"
+            assert issubclass(error_class, BaseAppError), (
+                f"{error_class} should inherit from BaseAppError"
+            )

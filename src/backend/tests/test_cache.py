@@ -1,4 +1,5 @@
 """Cache layer tests."""
+
 from datetime import datetime, timedelta
 
 from app.db.cache import MemoryCache, get_cache

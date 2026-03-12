@@ -1,6 +1,7 @@
 """
 Security utilities tests - JWT and password handling.
 """
+
 from datetime import timedelta
 
 from app.utils.security import (

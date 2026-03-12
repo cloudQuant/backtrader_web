@@ -17,8 +17,9 @@ Usage:
     # Create multiple
     users = UserFactory.create_batch(3)
 """
+
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class BaseFactory:
@@ -35,7 +36,7 @@ class BaseFactory:
         return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
     @classmethod
-    def _generate_email(cls, username: Optional[str] = None) -> str:
+    def _generate_email(cls, username: str | None = None) -> str:
         """Generate a unique email address."""
         if username:
             return f"{username}@test.example.com"
@@ -46,7 +47,7 @@ class UserFactory(BaseFactory):
     """Factory for user-related test data."""
 
     @staticmethod
-    def create(**overrides) -> Dict[str, Any]:
+    def create(**overrides) -> dict[str, Any]:
         """
         Create user registration data with sensible defaults.
 
@@ -73,7 +74,7 @@ class UserFactory(BaseFactory):
         return defaults
 
     @staticmethod
-    def create_batch(count: int, **common_overrides) -> List[Dict[str, Any]]:
+    def create_batch(count: int, **common_overrides) -> list[dict[str, Any]]:
         """
         Create multiple user data objects.
 
@@ -91,7 +92,7 @@ class StrategyFactory(BaseFactory):
     """Factory for strategy-related test data."""
 
     @staticmethod
-    def create(**overrides) -> Dict[str, Any]:
+    def create(**overrides) -> dict[str, Any]:
         """
         Create strategy data with sensible defaults.
 
@@ -116,7 +117,7 @@ class BacktestRequestFactory(BaseFactory):
     """Factory for backtest request test data."""
 
     @staticmethod
-    def create(**overrides) -> Dict[str, Any]:
+    def create(**overrides) -> dict[str, Any]:
         """
         Create backtest request data with sensible defaults.
 
@@ -150,7 +151,7 @@ class AccountFactory(BaseFactory):
     """Factory for paper trading account test data."""
 
     @staticmethod
-    def create(**overrides) -> Dict[str, Any]:
+    def create(**overrides) -> dict[str, Any]:
         """
         Create paper trading account data with sensible defaults.
 
@@ -174,7 +175,7 @@ class AlertRuleFactory(BaseFactory):
     """Factory for alert rule test data."""
 
     @staticmethod
-    def create(**overrides) -> Dict[str, Any]:
+    def create(**overrides) -> dict[str, Any]:
         """
         Create alert rule data with sensible defaults.
 
@@ -202,7 +203,7 @@ class ComparisonFactory(BaseFactory):
     """Factory for comparison test data."""
 
     @staticmethod
-    def create(**overrides) -> Dict[str, Any]:
+    def create(**overrides) -> dict[str, Any]:
         """
         Create comparison data with sensible defaults.
 
@@ -239,11 +240,7 @@ class HTTP:
 
 
 # Assertion Helpers
-def assert_response_status(
-    response,
-    expected_status: int,
-    message: Optional[str] = None
-) -> None:
+def assert_response_status(response, expected_status: int, message: str | None = None) -> None:
     """
     Assert HTTP response status with detailed error message.
 
@@ -281,7 +278,7 @@ def assert_response_has_fields(response, *fields: str) -> None:
         raise AssertionError(f"Response missing fields: {missing}\nGot: {list(data.keys())}")
 
 
-def assert_validation_error(response, expected_field: Optional[str] = None) -> None:
+def assert_validation_error(response, expected_field: str | None = None) -> None:
     """
     Assert response is a validation error (422) with optional field check.
 
@@ -292,12 +289,14 @@ def assert_validation_error(response, expected_field: Optional[str] = None) -> N
     Raises:
         AssertionError: If not a validation error or field mismatch
     """
-    assert response.status_code == HTTP.UNPROCESSABLE_ENTITY, \
+    assert response.status_code == HTTP.UNPROCESSABLE_ENTITY, (
         f"Expected 422, got {response.status_code}: {response.text}"
+    )
 
     if expected_field:
         detail = response.json().get("detail", [])
         if isinstance(detail, list) and len(detail) > 0:
             locations = detail[0].get("loc", [])
-            assert expected_field in str(locations), \
+            assert expected_field in str(locations), (
                 f"Expected field '{expected_field}' in error location, got {locations}"
+            )

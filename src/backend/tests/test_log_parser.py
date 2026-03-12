@@ -1,4 +1,5 @@
 """Log parser service tests."""
+
 from pathlib import Path
 
 from app.services.log_parser_service import (
@@ -23,9 +24,7 @@ class TestParseValueLog:
         log_dir = tmp_path / "log_20240101"
         log_dir.mkdir()
         (log_dir / "value.log").write_text(
-            "datetime\tvalue\tcash\n"
-            "2024-01-01\t100000.0\t50000.0\n"
-            "2024-01-02\t101000.0\t49000.0\n"
+            "datetime\tvalue\tcash\n2024-01-01\t100000.0\t50000.0\n2024-01-02\t101000.0\t49000.0\n"
         )
         result = parse_value_log(log_dir)
         assert "dates" in result

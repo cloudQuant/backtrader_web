@@ -3,8 +3,12 @@
     <el-card class="w-96 shadow-2xl">
       <template #header>
         <div class="text-center">
-          <h1 class="text-2xl font-bold text-gray-800">Backtrader Web</h1>
-          <p class="text-gray-500 mt-2">量化交易回测平台</p>
+          <h1 class="text-2xl font-bold text-gray-800">
+            Backtrader Web
+          </h1>
+          <p class="text-gray-500 mt-2">
+            量化交易回测平台
+          </p>
         </div>
       </template>
       
@@ -49,7 +53,10 @@
       
       <div class="text-center text-gray-500">
         还没有账号？
-        <router-link to="/register" class="text-blue-500 hover:underline">
+        <router-link
+          to="/register"
+          class="text-blue-500 hover:underline"
+        >
           立即注册
         </router-link>
       </div>

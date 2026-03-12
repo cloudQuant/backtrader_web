@@ -5,7 +5,7 @@ module.exports = {
   },
   extends: [
     'eslint:recommended',
-    'plugin:vue/vue3-essential'
+    'plugin:vue/vue3-recommended'
   ],
   parser: 'vue-eslint-parser',  // Vue文件解析器
   parserOptions: {
@@ -38,10 +38,24 @@ module.exports = {
         'plugin:@typescript-eslint/recommended'
       ],
       rules: {
-        '@typescript-eslint/no-explicit-any': 'off',
-        '@typescript-eslint/no-unused-vars': 'off',
-        '@typescript-eslint/ban-types': 'off'  // 允许Function类型
+        '@typescript-eslint/no-explicit-any': 'warn',
+        '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+        '@typescript-eslint/ban-types': 'off',
+        '@typescript-eslint/consistent-type-imports': [
+          'warn',
+          { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
+        ],
       }
-    }
+    },
+    {
+      files: ['**/test/**/*', '**/*.test.ts', '**/*.test.tsx', '**/stubs.ts'],
+      rules: {
+        'vue/one-component-per-file': 'off',
+        'vue/require-prop-types': 'off',
+        'vue/require-default-prop': 'off',
+        '@typescript-eslint/no-explicit-any': 'off',
+        '@typescript-eslint/consistent-type-imports': 'off',
+      },
+    },
   ]
 }

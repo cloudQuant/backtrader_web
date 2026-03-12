@@ -3,7 +3,7 @@ Repository base class - Unified CRUD interface.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -29,7 +29,7 @@ class BaseRepository(ABC, Generic[T]):
         pass  # pragma: no cover
 
     @abstractmethod
-    async def get_by_id(self, id: str) -> Optional[T]:
+    async def get_by_id(self, id: str) -> T | None:
         """Get entity by ID.
 
         Args:
@@ -41,7 +41,7 @@ class BaseRepository(ABC, Generic[T]):
         pass  # pragma: no cover
 
     @abstractmethod
-    async def update(self, id: str, entity: Dict[str, Any]) -> Optional[T]:
+    async def update(self, id: str, entity: dict[str, Any]) -> T | None:
         """Update an entity.
 
         Args:
@@ -67,8 +67,8 @@ class BaseRepository(ABC, Generic[T]):
 
     @abstractmethod
     async def list(
-        self, filters: Dict[str, Any] = None, skip: int = 0, limit: int = 100
-    ) -> List[T]:
+        self, filters: dict[str, Any] = None, skip: int = 0, limit: int = 100
+    ) -> list[T]:
         """List entities with optional filtering.
 
         Args:
@@ -82,7 +82,7 @@ class BaseRepository(ABC, Generic[T]):
         pass  # pragma: no cover
 
     @abstractmethod
-    async def count(self, filters: Dict[str, Any] = None) -> int:
+    async def count(self, filters: dict[str, Any] = None) -> int:
         """Count entities with optional filtering.
 
         Args:

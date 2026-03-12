@@ -185,11 +185,11 @@ class TestCalculateWinRate:
         """Test win rate with more winning trades."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100},  # Win
-            {'pnlcomm': 50},   # Win
-            {'pnlcomm': -30},  # Loss
-            {'pnlcomm': 75},   # Win
-            {'pnlcomm': -20},  # Loss
+            {"pnlcomm": 100},  # Win
+            {"pnlcomm": 50},  # Win
+            {"pnlcomm": -30},  # Loss
+            {"pnlcomm": 75},  # Win
+            {"pnlcomm": -20},  # Loss
         ]
         result = adapter.calculate_win_rate(trades)
 
@@ -200,9 +200,9 @@ class TestCalculateWinRate:
         """Test win rate with all winning trades."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100},
-            {'pnlcomm': 50},
-            {'pnlcomm': 75},
+            {"pnlcomm": 100},
+            {"pnlcomm": 50},
+            {"pnlcomm": 75},
         ]
         result = adapter.calculate_win_rate(trades)
 
@@ -212,9 +212,9 @@ class TestCalculateWinRate:
         """Test win rate with all losing trades."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': -100},
-            {'pnlcomm': -50},
-            {'pnlcomm': -30},
+            {"pnlcomm": -100},
+            {"pnlcomm": -50},
+            {"pnlcomm": -30},
         ]
         result = adapter.calculate_win_rate(trades)
 
@@ -231,14 +231,14 @@ class TestCalculateWinRate:
         """Test win rate with trades missing pnlcomm field."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100},
-            {'other_field': 50},  # Missing pnlcomm, defaults to 0
-            {'pnlcomm': -30},
+            {"pnlcomm": 100},
+            {"other_field": 50},  # Missing pnlcomm, defaults to 0
+            {"pnlcomm": -30},
         ]
         result = adapter.calculate_win_rate(trades)
 
         # 1 win (100 > 0) out of 3 trades
-        assert result == pytest.approx(1/3, rel=1e-6)
+        assert result == pytest.approx(1 / 3, rel=1e-6)
 
 
 class TestFallbackLogic:
@@ -279,15 +279,15 @@ class TestBackwardCompatibility:
         analyzers = get_all_analyzers()
 
         # Should include all original analyzers
-        assert 'detailed_trades' in analyzers
-        assert 'equity_curve' in analyzers
-        assert 'trade_signals' in analyzers
-        assert 'monthly_returns' in analyzers
-        assert 'drawdown' in analyzers
+        assert "detailed_trades" in analyzers
+        assert "equity_curve" in analyzers
+        assert "trade_signals" in analyzers
+        assert "monthly_returns" in analyzers
+        assert "drawdown" in analyzers
 
         # Verify the classes are unchanged
-        assert analyzers['detailed_trades'].__name__ == 'DetailedTradeAnalyzer'
-        assert analyzers['equity_curve'].__name__ == 'EquityCurveAnalyzer'
+        assert analyzers["detailed_trades"].__name__ == "DetailedTradeAnalyzer"
+        assert analyzers["equity_curve"].__name__ == "EquityCurveAnalyzer"
 
     def test_adapter_does_not_break_existing_analyzers(self):
         """Test that adding adapter doesn't break existing analyzer imports."""

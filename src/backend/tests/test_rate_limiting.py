@@ -218,7 +218,7 @@ class TestRateLimiting:
         # Attempt to login 11 times (exceeds limit of 10/minute)
         login_data = {"username": "login_rl_test", "password": "Test@12345"}
         responses = []
-        for i in range(11):
+        for _ in range(11):
             response = await client.post("/api/v1/auth/login", json=login_data)
             responses.append(response)
 

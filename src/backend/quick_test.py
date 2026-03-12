@@ -4,6 +4,7 @@ Quick backend test script.
 
 Tests core functionality without dependencies on all modules.
 """
+
 import importlib.util
 import sys
 from pathlib import Path
@@ -12,9 +13,9 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-print("="*70)
+print("=" * 70)
 print("🚀 Quick Backend Test")
-print("="*70)
+print("=" * 70)
 print()
 
 # Test 1: Python version
@@ -60,9 +61,9 @@ for module_name in modules_to_import:
         print(f"  ✗ {module_name}: {e}")
 
 print()
-print("="*70)
+print("=" * 70)
 print("✅ Quick Test Complete!")
-print("="*70)
+print("=" * 70)
 print()
 print("Next Steps:")
 print("1. If files are missing, create them")

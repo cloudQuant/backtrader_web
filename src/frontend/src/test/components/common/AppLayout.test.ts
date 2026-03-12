@@ -240,7 +240,7 @@ describe('AppLayout', () => {
   describe('主题切换', () => {
     it('默认应该是亮色主题', async () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
-      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      mount(AppLayout, { global: getGlobalConfig() })
       expect(localStorageMock.getItem('theme') !== 'dark').toBe(true)
     })
 

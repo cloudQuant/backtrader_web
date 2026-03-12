@@ -9,9 +9,14 @@
             {{ healthyCount }} 健康 / {{ gateways.length }} 总计
           </el-tag>
         </div>
-        <el-button :loading="loading" @click="fetchHealth">
-          <el-icon><Refresh /></el-icon>刷新
-        </el-button>
+        <div class="flex gap-2">
+          <el-button type="primary" @click="showConnectDialog = true">
+            <el-icon><Connection /></el-icon>连接 Gateway
+          </el-button>
+          <el-button :loading="loading" @click="fetchHealth">
+            <el-icon><Refresh /></el-icon>刷新
+          </el-button>
+        </div>
       </div>
     </el-card>
 
@@ -36,9 +41,23 @@
                 <CircleCheckFilled v-if="gw.is_healthy" />
                 <CircleCloseFilled v-else />
               </el-icon>
-              <span class="font-bold text-base">{{ gw.gateway_key }}</span>
+              <span class="font-bold text-base">{{ gw.strategy_name || gw.gateway_key }}</span>
+              <el-tag v-if="gw.gateway_key.startsWith('direct:')" size="small" type="warning" effect="plain">直连</el-tag>
             </div>
-            <el-tag :type="stateTagType(gw.state)" size="small">{{ gw.state }}</el-tag>
+            <div class="flex items-center gap-2">
+              <el-tag :type="stateTagType(gw.state)" size="small">{{ gw.state }}</el-tag>
+              <el-popconfirm
+                v-if="gw.gateway_key.startsWith('manual:')"
+                title="确定断开此 Gateway？"
+                @confirm="handleDisconnect(gw.gateway_key)"
+              >
+                <template #reference>
+                  <el-button type="danger" size="small" plain :loading="disconnecting === gw.gateway_key">
+                    断开
+                  </el-button>
+                </template>
+              </el-popconfirm>
+            </div>
           </div>
         </template>
 
@@ -145,17 +164,103 @@
         </template>
       </el-card>
     </div>
+
+    <!-- Connect Gateway Dialog -->
+    <el-dialog v-model="showConnectDialog" title="连接 Gateway" width="560px">
+      <el-form :model="connectForm" label-width="100px">
+        <el-form-item label="交易所" required>
+          <el-select v-model="connectForm.exchange_type" placeholder="选择交易所" class="w-full" @change="onExchangeChange">
+            <el-option label="CTP (国内期货)" value="CTP" />
+            <el-option label="IB Web (美股)" value="IB_WEB" />
+            <el-option label="Binance (币安)" value="BINANCE" />
+            <el-option label="OKX (欧意)" value="OKX" />
+          </el-select>
+        </el-form-item>
+
+        <!-- CTP Fields -->
+        <template v-if="connectForm.exchange_type === 'CTP'">
+          <el-form-item label="经纪商ID" required>
+            <el-input v-model="connectForm.credentials.broker_id" placeholder="如 9999" />
+          </el-form-item>
+          <el-form-item label="账户" required>
+            <el-input v-model="connectForm.credentials.user_id" placeholder="投资者代码" />
+          </el-form-item>
+          <el-form-item label="密码" required>
+            <el-input v-model="connectForm.credentials.password" type="password" show-password placeholder="交易密码" />
+          </el-form-item>
+          <el-form-item label="交易前置">
+            <el-input v-model="connectForm.credentials.td_front" placeholder="tcp://180.168.146.187:10201" />
+          </el-form-item>
+          <el-form-item label="行情前置">
+            <el-input v-model="connectForm.credentials.md_front" placeholder="tcp://180.168.146.187:10211" />
+          </el-form-item>
+          <el-form-item label="AppID">
+            <el-input v-model="connectForm.credentials.app_id" placeholder="simnow_client_test" />
+          </el-form-item>
+          <el-form-item label="认证码">
+            <el-input v-model="connectForm.credentials.auth_code" placeholder="0000000000000000" />
+          </el-form-item>
+        </template>
+
+        <!-- IB Web Fields -->
+        <template v-if="connectForm.exchange_type === 'IB_WEB'">
+          <el-form-item label="账户ID" required>
+            <el-input v-model="connectForm.credentials.account_id" placeholder="如 DU123456" />
+          </el-form-item>
+          <el-form-item label="Base URL">
+            <el-input v-model="connectForm.credentials.base_url" placeholder="https://localhost:5000" />
+          </el-form-item>
+          <el-form-item label="Access Token">
+            <el-input v-model="connectForm.credentials.access_token" placeholder="可选" />
+          </el-form-item>
+          <el-form-item label="SSL校验">
+            <el-switch v-model="connectForm.credentials.verify_ssl" />
+          </el-form-item>
+        </template>
+
+        <!-- Binance Fields -->
+        <template v-if="connectForm.exchange_type === 'BINANCE'">
+          <el-form-item label="API Key" required>
+            <el-input v-model="connectForm.credentials.api_key" placeholder="Binance API Key" />
+          </el-form-item>
+          <el-form-item label="Secret Key" required>
+            <el-input v-model="connectForm.credentials.secret_key" type="password" show-password placeholder="Binance Secret Key" />
+          </el-form-item>
+        </template>
+
+        <!-- OKX Fields -->
+        <template v-if="connectForm.exchange_type === 'OKX'">
+          <el-form-item label="API Key" required>
+            <el-input v-model="connectForm.credentials.api_key" placeholder="OKX API Key" />
+          </el-form-item>
+          <el-form-item label="Secret Key" required>
+            <el-input v-model="connectForm.credentials.secret_key" type="password" show-password placeholder="OKX Secret Key" />
+          </el-form-item>
+          <el-form-item label="Passphrase" required>
+            <el-input v-model="connectForm.credentials.passphrase" type="password" show-password placeholder="OKX Passphrase" />
+          </el-form-item>
+        </template>
+      </el-form>
+      <template #footer>
+        <el-button @click="showConnectDialog = false">取消</el-button>
+        <el-button type="primary" :loading="connecting" :disabled="!connectForm.exchange_type" @click="handleConnect">
+          连接
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import {
   Refresh,
   Loading,
   CircleCheckFilled,
   CircleCloseFilled,
+  Connection,
 } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { liveTradingApi } from '@/api/liveTrading'
 import type { GatewayHealthInfo } from '@/api/liveTrading'
 
@@ -165,6 +270,57 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const healthyCount = computed(() => gateways.value.filter((g) => g.is_healthy).length)
 
+// ---- Connect Dialog ----
+const showConnectDialog = ref(false)
+const connecting = ref(false)
+const disconnecting = ref<string | null>(null)
+
+const connectForm = reactive<{
+  exchange_type: string
+  credentials: Record<string, unknown>
+}>({
+  exchange_type: '',
+  credentials: {},
+})
+
+function onExchangeChange() {
+  connectForm.credentials = {}
+}
+
+async function handleConnect() {
+  if (!connectForm.exchange_type) return
+  connecting.value = true
+  try {
+    const res = await liveTradingApi.connectGateway({
+      exchange_type: connectForm.exchange_type,
+      credentials: { ...connectForm.credentials },
+    })
+    ElMessage.success(res.message || '连接成功')
+    showConnectDialog.value = false
+    connectForm.exchange_type = ''
+    connectForm.credentials = {}
+    await fetchHealth()
+  } catch {
+    // Error already shown by Axios interceptor
+  } finally {
+    connecting.value = false
+  }
+}
+
+async function handleDisconnect(gatewayKey: string) {
+  disconnecting.value = gatewayKey
+  try {
+    const res = await liveTradingApi.disconnectGateway(gatewayKey)
+    ElMessage.success(res.message || '已断开')
+    await fetchHealth()
+  } catch {
+    // Error already shown by Axios interceptor
+  } finally {
+    disconnecting.value = null
+  }
+}
+
+// ---- Health Fetch ----
 async function fetchHealth() {
   loading.value = true
   try {

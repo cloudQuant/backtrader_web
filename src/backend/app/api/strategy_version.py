@@ -6,7 +6,6 @@ Supports versioning, branch management, rollback, and comparisons.
 
 import asyncio
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -111,8 +110,8 @@ async def list_strategy_versions(
     strategy_id: str,
     current_user=Depends(get_current_user),
     service: VersionControlService = Depends(get_version_control_service),
-    branch: Optional[str] = Query(None, description="Branch name"),
-    status: Optional[str] = Query(None, description="Version status"),
+    branch: str | None = Query(None, description="Branch name"),
+    status: str | None = Query(None, description="Version status"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):

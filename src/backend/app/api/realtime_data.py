@@ -6,7 +6,6 @@ Supports realtime tick subscription and WebSocket streaming across brokers.
 
 import asyncio
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -103,8 +102,8 @@ async def unsubscribe_realtime_ticks(
 async def get_realtime_ticks(
     current_user=Depends(get_current_user),
     service: RealTimeDataService = Depends(get_realtime_data_service),
-    broker_id: Optional[str] = Query(None, description="Broker ID"),
-    symbol: Optional[str] = Query(None, description="Trading symbol"),
+    broker_id: str | None = Query(None, description="Broker ID"),
+    symbol: str | None = Query(None, description="Trading symbol"),
 ):
     """Get the latest tick data (single symbol or all subscribed symbols).
 

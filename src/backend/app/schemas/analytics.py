@@ -2,7 +2,7 @@
 Backtest analytics schemas.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,9 +16,9 @@ class PerformanceMetrics(BaseModel):
     annualized_return: float = Field(..., description="Annualized return")
     max_drawdown: float = Field(..., description="Maximum drawdown")
     max_drawdown_duration: int = Field(0, description="Maximum drawdown duration (days)")
-    sharpe_ratio: Optional[float] = Field(None, description="Sharpe ratio")
-    sortino_ratio: Optional[float] = Field(None, description="Sortino ratio")
-    calmar_ratio: Optional[float] = Field(None, description="Calmar ratio")
+    sharpe_ratio: float | None = Field(None, description="Sharpe ratio")
+    sortino_ratio: float | None = Field(None, description="Sortino ratio")
+    calmar_ratio: float | None = Field(None, description="Calmar ratio")
     win_rate: float = Field(0, description="Win rate")
     profit_factor: float = Field(0, description="Profit factor")
     trade_count: int = Field(0, description="Trade count")
@@ -62,7 +62,7 @@ class EquityPoint(BaseModel):
     total_assets: float
     cash: float
     position_value: float
-    benchmark: Optional[float] = None
+    benchmark: float | None = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -108,9 +108,9 @@ class TradeRecord(BaseModel):
     size: int
     value: float
     commission: float
-    pnl: Optional[float] = None
-    return_pct: Optional[float] = None
-    holding_days: Optional[int] = None
+    pnl: float | None = None
+    return_pct: float | None = None
+    holding_days: int | None = None
     cumulative_pnl: float = 0
 
     model_config = ConfigDict(
@@ -139,8 +139,8 @@ class TradeSignal(BaseModel):
     date: str
     type: str
     price: float
-    size: Optional[float] = 0
-    reason: Optional[str] = None
+    size: float | None = 0
+    reason: str | None = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -164,7 +164,7 @@ class KlineData(BaseModel):
     low: float
     close: float
     volume: float
-    change_pct: Optional[float] = None
+    change_pct: float | None = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -202,10 +202,10 @@ class MonthlyReturn(BaseModel):
 class OptimizationResultItem(BaseModel):
     """Single parameter optimization result schema."""
 
-    params: Dict[str, Any]
+    params: dict[str, Any]
     total_return: float
     max_drawdown: float
-    sharpe_ratio: Optional[float]
+    sharpe_ratio: float | None
     trade_count: int
     rank: int = 0
     is_best: bool = False
@@ -234,9 +234,9 @@ class BacktestDetailResponse(BaseModel):
     start_date: str
     end_date: str
     metrics: PerformanceMetrics
-    equity_curve: List[EquityPoint]
-    drawdown_curve: List[DrawdownPoint]
-    trades: List[TradeRecord]
+    equity_curve: list[EquityPoint]
+    drawdown_curve: list[DrawdownPoint]
+    trades: list[TradeRecord]
     created_at: str
 
 
@@ -244,23 +244,23 @@ class KlineWithSignalsResponse(BaseModel):
     """K-line with signals response schema."""
 
     symbol: str
-    klines: List[KlineData]
-    signals: List[TradeSignal]
-    indicators: Dict[str, List[Optional[float]]]
+    klines: list[KlineData]
+    signals: list[TradeSignal]
+    indicators: dict[str, list[float | None]]
 
 
 class OptimizationResponse(BaseModel):
     """Parameter optimization response schema."""
 
     task_id: str
-    parameters: List[str]
-    results: List[OptimizationResultItem]
-    best: Optional[OptimizationResultItem] = None
+    parameters: list[str]
+    results: list[OptimizationResultItem]
+    best: OptimizationResultItem | None = None
 
 
 class MonthlyReturnsResponse(BaseModel):
     """Monthly returns response schema."""
 
-    returns: List[MonthlyReturn]
-    years: List[int]
-    summary: Dict[int, float]
+    returns: list[MonthlyReturn]
+    years: list[int]
+    summary: dict[int, float]

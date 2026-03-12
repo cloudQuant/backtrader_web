@@ -1,5 +1,8 @@
 <template>
-  <div ref="chartRef" class="w-full h-full"></div>
+  <div
+    ref="chartRef"
+    class="w-full h-full"
+  />
 </template>
 
 <script setup lang="ts">

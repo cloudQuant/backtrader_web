@@ -92,7 +92,9 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
 
     # Cleanup finally: simulate shutil.rmtree raising to cover exception swallow.
     with patch("app.services.strategy_service.STRATEGIES_DIR", strategies_dir):
-        with patch.object(svc, "_run_strategy_subprocess", AsyncMock(side_effect=RuntimeError("x"))):
+        with patch.object(
+            svc, "_run_strategy_subprocess", AsyncMock(side_effect=RuntimeError("x"))
+        ):
             svc.task_manager.update_task_status = AsyncMock()
             with patch("app.services.backtest_service.ws_manager") as mock_ws:
                 mock_ws.send_to_task = AsyncMock()
@@ -134,16 +136,18 @@ async def test_comparison_service_update_comparison_with_description_and_backtes
         update=AsyncMock(return_value=SimpleNamespace(id="c1", user_id="u1", type="equity")),
     )
     svc.backtest_service = SimpleNamespace(
-        get_result=AsyncMock(return_value=SimpleNamespace(
-            strategy_id="s1",
-            total_return=1.0,
-            sharpe_ratio=1.0,
-            max_drawdown=-1.0,
-            win_rate=50.0,
-            equity_curve=[1.0],
-            equity_dates=["2026-01-01"],
-            drawdown_curve=[0.0],
-        ))
+        get_result=AsyncMock(
+            return_value=SimpleNamespace(
+                strategy_id="s1",
+                total_return=1.0,
+                sharpe_ratio=1.0,
+                max_drawdown=-1.0,
+                win_rate=50.0,
+                equity_curve=[1.0],
+                equity_dates=["2026-01-01"],
+                drawdown_curve=[0.0],
+            )
+        )
     )
     svc._generate_comparison_data = AsyncMock(return_value={"ok": True})
     svc._to_response = MagicMock(return_value={"id": "c1"})
@@ -165,7 +169,11 @@ async def test_live_trading_manager_missing_branches(tmp_path: Path, monkeypatch
     assert m._find_latest_log_dir(sdir) is None
 
     # list_instances refresh running->stopped if pid dead
-    monkeypatch.setattr(m, "_load_instances", lambda: {"iid": {"strategy_id": "s1", "status": "running", "pid": None, "user_id": "u1"}})
+    monkeypatch.setattr(
+        m,
+        "_load_instances",
+        lambda: {"iid": {"strategy_id": "s1", "status": "running", "pid": None, "user_id": "u1"}},
+    )
     monkeypatch.setattr(m, "_save_instances", lambda _data: None)
     monkeypatch.setattr(m, "_is_pid_alive", lambda _pid: False)
     with patch.object(m, "STRATEGIES_DIR", tmp_path):
@@ -181,7 +189,11 @@ async def test_live_trading_manager_missing_branches(tmp_path: Path, monkeypatch
 
     fake_proc.wait = _wait_raises
     monkeypatch.setattr(mgr, "_processes", {"iid": fake_proc})
-    monkeypatch.setattr(m, "_load_instances", lambda: {"iid": {"strategy_id": "s1", "status": "running", "pid": 123, "user_id": "u1"}})
+    monkeypatch.setattr(
+        m,
+        "_load_instances",
+        lambda: {"iid": {"strategy_id": "s1", "status": "running", "pid": 123, "user_id": "u1"}},
+    )
     monkeypatch.setattr(m, "_save_instances", lambda _data: None)
     monkeypatch.setattr(m, "_is_pid_alive", lambda _pid: True)
     monkeypatch.setattr(mgr, "_kill_pid", MagicMock())
@@ -189,7 +201,14 @@ async def test_live_trading_manager_missing_branches(tmp_path: Path, monkeypatch
     assert fake_proc.kill.called
 
     # start_all: skip already running & alive
-    monkeypatch.setattr(m, "_load_instances", lambda: {"a": {"strategy_id": "s1", "status": "running", "pid": 1}, "b": {"strategy_id": "s1", "status": "stopped", "pid": None}})
+    monkeypatch.setattr(
+        m,
+        "_load_instances",
+        lambda: {
+            "a": {"strategy_id": "s1", "status": "running", "pid": 1},
+            "b": {"strategy_id": "s1", "status": "stopped", "pid": None},
+        },
+    )
     monkeypatch.setattr(m, "_is_pid_alive", lambda _pid: True)
 
     started = []
@@ -204,7 +223,14 @@ async def test_live_trading_manager_missing_branches(tmp_path: Path, monkeypatch
     assert all(d["id"] != "a" for d in res["details"] if d["result"] == "started")
 
     # stop_all: skip non-running; raise for one -> failed path
-    monkeypatch.setattr(m, "_load_instances", lambda: {"a": {"strategy_id": "s1", "status": "stopped"}, "b": {"strategy_id": "s1", "status": "running"}})
+    monkeypatch.setattr(
+        m,
+        "_load_instances",
+        lambda: {
+            "a": {"strategy_id": "s1", "status": "stopped"},
+            "b": {"strategy_id": "s1", "status": "running"},
+        },
+    )
 
     async def _stop_instance(iid):
         raise RuntimeError("nope")
@@ -225,7 +251,9 @@ async def test_live_trading_manager_missing_branches(tmp_path: Path, monkeypatch
         async def wait(self):
             raise RuntimeError("wait fail")
 
-    monkeypatch.setattr(m, "_load_instances", lambda: {"iid": {"strategy_id": "s1", "status": "running"}})
+    monkeypatch.setattr(
+        m, "_load_instances", lambda: {"iid": {"strategy_id": "s1", "status": "running"}}
+    )
     monkeypatch.setattr(m, "_save_instances", lambda _data: None)
     with patch.object(m, "STRATEGIES_DIR", tmp_path):
         await mgr._wait_process("iid", _BadProc())
@@ -249,9 +277,17 @@ async def test_monitoring_service_missing_branches(monkeypatch):
         raise asyncio.CancelledError()
 
     import asyncio
+
     monkeypatch.setattr(asyncio, "sleep", _sleep_cancel)
 
-    rule = SimpleNamespace(id="r2", is_active=True, alert_type=AlertType.SYSTEM, trigger_type="manual", trigger_config={}, triggered_count=0)
+    rule = SimpleNamespace(
+        id="r2",
+        is_active=True,
+        alert_type=AlertType.SYSTEM,
+        trigger_type="manual",
+        trigger_config={},
+        triggered_count=0,
+    )
     svc.alert_rule_repo.get_by_id = AsyncMock(return_value=rule)
     svc._check_trigger = AsyncMock(return_value=True)
     svc._trigger_alert = AsyncMock()
@@ -274,7 +310,13 @@ async def test_monitoring_service_missing_branches(monkeypatch):
     # POSITION threshold condition gt branch
     rule.alert_type = AlertType.POSITION
     rule.trigger_type = "threshold"
-    rule.trigger_config = {"current_value": 2.0, "threshold": 1.0, "condition": "gt", "metric": "unrealized_pnl", "symbol": "X"}
+    rule.trigger_config = {
+        "current_value": 2.0,
+        "threshold": 1.0,
+        "condition": "gt",
+        "metric": "unrealized_pnl",
+        "symbol": "X",
+    }
     ok = await svc._check_threshold_trigger(rule, rule.trigger_config)
     assert ok is True
 
@@ -286,7 +328,9 @@ async def test_optimization_service_missing_branches(monkeypatch):
     from app.services.optimization_service import OptimizationService
 
     svc = _new_service_without_init(OptimizationService)
-    svc.backtest_service = SimpleNamespace(run_backtest=AsyncMock(), get_task_status=AsyncMock(), get_result=AsyncMock())
+    svc.backtest_service = SimpleNamespace(
+        run_backtest=AsyncMock(), get_task_status=AsyncMock(), get_result=AsyncMock()
+    )
 
     # run_grid_search: backtest completed not satisfied -> warning branch line 98
     bt_req = BacktestRequest(
@@ -337,8 +381,24 @@ async def test_optimization_service_missing_branches(monkeypatch):
     dummy_optuna = types.SimpleNamespace(create_study=lambda direction: DummyStudy())
     monkeypatch.setitem(sys.modules, "optuna", dummy_optuna)
 
-    completed = SimpleNamespace(status=TaskStatus.COMPLETED, sharpe_ratio=2.0, total_return=3.0, max_drawdown=-4.0, annual_return=0.0, win_rate=0.0, error_message="")
-    failed = SimpleNamespace(status=TaskStatus.FAILED, sharpe_ratio=0.0, total_return=0.0, max_drawdown=0.0, annual_return=0.0, win_rate=0.0, error_message="err")
+    completed = SimpleNamespace(
+        status=TaskStatus.COMPLETED,
+        sharpe_ratio=2.0,
+        total_return=3.0,
+        max_drawdown=-4.0,
+        annual_return=0.0,
+        win_rate=0.0,
+        error_message="",
+    )
+    failed = SimpleNamespace(
+        status=TaskStatus.FAILED,
+        sharpe_ratio=0.0,
+        total_return=0.0,
+        max_drawdown=0.0,
+        annual_return=0.0,
+        win_rate=0.0,
+        error_message="err",
+    )
 
     svc._run_single_backtest = AsyncMock(return_value=completed)
 
@@ -350,13 +410,31 @@ async def test_optimization_service_missing_branches(monkeypatch):
 
         return _run_coroutine_threadsafe
 
-    req2 = OptimizationRequest(strategy_id="s", backtest_config=bt_req, param_grid={"p": [1]}, metric="max_drawdown", param_bounds={"p": {"type": "int", "min": 1, "max": 2}}, n_trials=10)
-    with patch("asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)):
+    req2 = OptimizationRequest(
+        strategy_id="s",
+        backtest_config=bt_req,
+        param_grid={"p": [1]},
+        metric="max_drawdown",
+        param_bounds={"p": {"type": "int", "min": 1, "max": 2}},
+        n_trials=10,
+    )
+    with patch(
+        "asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)
+    ):
         await OptimizationService.run_bayesian_optimization(svc, "u", req2)
 
     # COMPLETED + total_return (lines 177-178)
-    req3 = OptimizationRequest(strategy_id="s", backtest_config=bt_req, param_grid={"p": [1]}, metric="total_return", param_bounds={"p": {"type": "int", "min": 1, "max": 2}}, n_trials=10)
-    with patch("asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)):
+    req3 = OptimizationRequest(
+        strategy_id="s",
+        backtest_config=bt_req,
+        param_grid={"p": [1]},
+        metric="total_return",
+        param_bounds={"p": {"type": "int", "min": 1, "max": 2}},
+        n_trials=10,
+    )
+    with patch(
+        "asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)
+    ):
         await OptimizationService.run_bayesian_optimization(svc, "u", req3)
 
     # COMPLETED + fallback metric (lines 179-180)
@@ -367,16 +445,27 @@ async def test_optimization_service_missing_branches(monkeypatch):
         param_bounds={"p": {"type": "int", "min": 1, "max": 2}},
         n_trials=10,
     )
-    with patch("asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)):
+    with patch(
+        "asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)
+    ):
         await OptimizationService.run_bayesian_optimization(svc, "u", req4)
 
     # FAILED -> worst value return (lines 182-183)
-    req5 = OptimizationRequest(strategy_id="s", backtest_config=bt_req, param_grid={"p": [1]}, metric="sharpe_ratio", param_bounds={"p": {"type": "int", "min": 1, "max": 2}}, n_trials=10)
+    req5 = OptimizationRequest(
+        strategy_id="s",
+        backtest_config=bt_req,
+        param_grid={"p": [1]},
+        metric="sharpe_ratio",
+        param_bounds={"p": {"type": "int", "min": 1, "max": 2}},
+        n_trials=10,
+    )
     with patch("asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(failed)):
         await OptimizationService.run_bayesian_optimization(svc, "u", req5)
 
     # _wait_for_backtest: loop returns COMPLETED path (line 330)
-    svc.backtest_service.get_task_status = AsyncMock(side_effect=[TaskStatus.PENDING, TaskStatus.COMPLETED])
+    svc.backtest_service.get_task_status = AsyncMock(
+        side_effect=[TaskStatus.PENDING, TaskStatus.COMPLETED]
+    )
     svc.backtest_service.get_result = AsyncMock(return_value=completed)
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     got = await OptimizationService._wait_for_backtest(svc, "t", timeout=2)
@@ -470,7 +559,9 @@ async def test_paper_trading_service_missing_branches():
     from app.services.paper_trading_service import PaperTradingService
 
     svc = _new_service_without_init(PaperTradingService)
-    svc.position_repo = SimpleNamespace(update=AsyncMock(), create=AsyncMock(), list=AsyncMock(return_value=[]))
+    svc.position_repo = SimpleNamespace(
+        update=AsyncMock(), create=AsyncMock(), list=AsyncMock(return_value=[])
+    )
     svc.trade_repo = SimpleNamespace(update=AsyncMock())
     svc.order_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="o1")))
     svc.account_repo = SimpleNamespace(update=AsyncMock())
@@ -490,15 +581,23 @@ async def test_paper_trading_service_missing_branches():
     )
 
     # Existing short position; sell more -> new_size negative => unrealized_pnl short branch.
-    pos = SimpleNamespace(id="p1", account_id="a1", symbol="X", size=-1, avg_price=10.0, market_value=-10.0)
+    pos = SimpleNamespace(
+        id="p1", account_id="a1", symbol="X", size=-1, avg_price=10.0, market_value=-10.0
+    )
     svc._get_position = AsyncMock(return_value=pos)
-    order_sell = SimpleNamespace(id="o1", account_id="a1", symbol="X", side=OrderSide.SELL, size=1, status="filled")
+    order_sell = SimpleNamespace(
+        id="o1", account_id="a1", symbol="X", side=OrderSide.SELL, size=1, status="filled"
+    )
     await PaperTradingService._update_position(svc, account, order_sell, price=9.0, commission=0.0)
 
     # Close short: buy enough -> realized pnl short close branch.
-    pos2 = SimpleNamespace(id="p2", account_id="a1", symbol="X", size=-2, avg_price=10.0, market_value=-20.0)
+    pos2 = SimpleNamespace(
+        id="p2", account_id="a1", symbol="X", size=-2, avg_price=10.0, market_value=-20.0
+    )
     svc._get_position = AsyncMock(return_value=pos2)
-    order_buy = SimpleNamespace(id="o2", account_id="a1", symbol="X", side=OrderSide.BUY, size=2, status="filled")
+    order_buy = SimpleNamespace(
+        id="o2", account_id="a1", symbol="X", side=OrderSide.BUY, size=2, status="filled"
+    )
     await PaperTradingService._update_position(svc, account, order_buy, price=8.0, commission=0.0)
 
     got = await PaperTradingService.get_order(svc, "o1")
@@ -543,7 +642,9 @@ async def test_strategy_version_service_missing_branches(monkeypatch):
     from app.services.strategy_version_service import VersionControlService
 
     svc = _new_service_without_init(VersionControlService)
-    svc.strategy_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1")))
+    svc.strategy_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1"))
+    )
     svc.version_repo = SimpleNamespace(create=AsyncMock(), list=AsyncMock(), update=AsyncMock())
     svc.branch_repo = SimpleNamespace(get_by_id=AsyncMock(), create=AsyncMock(), update=AsyncMock())
 
@@ -572,13 +673,24 @@ async def test_strategy_version_service_missing_branches(monkeypatch):
     assert getattr(args[0], "parent_version_id", None) == "v_last"
 
     # update_version: params/description/tags/status/changelog branches
-    version_obj = SimpleNamespace(id="v1", strategy_id="s1", status=VersionStatus.DRAFT, changelog=None, is_active=True, is_default=False, created_by="u1")
+    version_obj = SimpleNamespace(
+        id="v1",
+        strategy_id="s1",
+        status=VersionStatus.DRAFT,
+        changelog=None,
+        is_active=True,
+        is_default=False,
+        created_by="u1",
+    )
     svc.version_repo.get_by_id = AsyncMock(return_value=version_obj)
     svc.version_repo.update = AsyncMock(return_value=version_obj)
     from app.services.strategy_version_service import ws_manager
+
     monkeypatch.setattr(ws_manager, "send_to_task", AsyncMock())
 
-    upd = VersionUpdate(params={"p": 1}, description="d", tags=["t"], status=VersionStatus.STABLE, changelog="cl")
+    upd = VersionUpdate(
+        params={"p": 1}, description="d", tags=["t"], status=VersionStatus.STABLE, changelog="cl"
+    )
     got = await VersionControlService.update_version(svc, "v1", "u1", upd)
     assert got.id == "v1"
     upd_dict = svc.version_repo.update.call_args.args[1]
@@ -594,7 +706,9 @@ async def test_strategy_version_service_missing_branches(monkeypatch):
     assert cur.id == "vcur"
 
     # _unset_default_versions loop (line 683)
-    svc.version_repo.list = AsyncMock(return_value=[SimpleNamespace(id="v1"), SimpleNamespace(id="v2")])
+    svc.version_repo.list = AsyncMock(
+        return_value=[SimpleNamespace(id="v1"), SimpleNamespace(id="v2")]
+    )
     await VersionControlService._unset_default_versions(svc, "s1", "main")
     assert svc.version_repo.update.called
 
@@ -715,28 +829,30 @@ def test_live_trading_service_import_and_run_branches(tmp_path: Path, monkeypatc
     monkeypatch.setattr(mod.threading, "Thread", _DeferredThread)
 
     svc.tasks = {}
-    task_id = asyncio.run(svc.submit_live_strategy(
-        user_id="u1",
-        strategy_code=(
-            "import backtrader as bt\n"
-            "class PObj:\n"
-            "  def __init__(self):\n"
-            "    self.default = None\n"
-            "class Params:\n"
-            "  def __init__(self):\n"
-            "    self._m = {'p': PObj()}\n"
-            "  def _get(self, k):\n"
-            "    return self._m[k]\n"
-            "class S(bt.Strategy):\n"
-            "  params = Params()\n"
-        ),
-        exchange="binance",
-        symbols=["BTC/USDT"],
-        api_key="k",
-        secret="s",
-        strategy_params={"p": 1},
-        sandbox=False,
-    ))
+    task_id = asyncio.run(
+        svc.submit_live_strategy(
+            user_id="u1",
+            strategy_code=(
+                "import backtrader as bt\n"
+                "class PObj:\n"
+                "  def __init__(self):\n"
+                "    self.default = None\n"
+                "class Params:\n"
+                "  def __init__(self):\n"
+                "    self._m = {'p': PObj()}\n"
+                "  def _get(self, k):\n"
+                "    return self._m[k]\n"
+                "class S(bt.Strategy):\n"
+                "  params = Params()\n"
+            ),
+            exchange="binance",
+            symbols=["BTC/USDT"],
+            api_key="k",
+            secret="s",
+            strategy_params={"p": 1},
+            sandbox=False,
+        )
+    )
     assert task_id in svc.tasks
     assert len(targets) == 1
     targets[0]()  # run inline after task record exists

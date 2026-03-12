@@ -646,3 +646,207 @@ async def download_simulation_log(
     if not filepath.is_file() or not filepath.resolve().is_relative_to(log_dir.resolve()):
         raise HTTPException(status_code=404, detail="Log file not found")
     return FileResponse(path=filepath, filename=filename, media_type="text/plain")
+
+
+# ==================== Config Management Endpoints ====================
+
+
+def _get_strategy_config_path(
+    mgr: LiveTradingManager, instance_id: str, user_id: str
+) -> Path:
+    """Resolve the config.yaml path for a simulation instance.
+
+    Args:
+        mgr: The simulation manager instance.
+        instance_id: The ID of the simulation instance.
+        user_id: User ID for permission check.
+
+    Returns:
+        Path to the config.yaml file.
+
+    Raises:
+        HTTPException: If the instance is not found or config file doesn't exist.
+    """
+    inst = mgr.get_instance(instance_id, user_id=user_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    try:
+        strategy_dir = get_strategy_dir(inst["strategy_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return strategy_dir / "config.yaml"
+
+
+@router.get(
+    "/{instance_id}/config",
+    summary="Get simulation instance config",
+)
+async def get_instance_config(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Get the full config.yaml content for a simulation instance.
+
+    Args:
+        instance_id: The ID of the simulation instance.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        The parsed YAML config as a dict, plus the raw YAML text.
+
+    Raises:
+        HTTPException: If the instance or config file is not found.
+    """
+    import yaml as _yaml
+
+    config_path = _get_strategy_config_path(mgr, instance_id, current_user.sub)
+    if not config_path.is_file():
+        raise HTTPException(status_code=404, detail="Config file not found")
+
+    try:
+        raw = config_path.read_text(encoding="utf-8")
+        parsed = _yaml.safe_load(raw) or {}
+    except Exception as e:
+        logger.warning("Failed to read config %s: %s", config_path, e)
+        raise HTTPException(status_code=500, detail="Failed to read config") from e
+
+    return {"config": parsed, "raw": raw}
+
+
+@router.put(
+    "/{instance_id}/config",
+    summary="Update simulation instance config",
+)
+async def update_instance_config(
+    instance_id: str,
+    body: dict,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Update the config.yaml for a simulation instance.
+
+    Accepts either raw YAML text (field ``raw``) or a parsed config dict
+    (field ``config``).  When ``raw`` is provided it is written directly;
+    otherwise the ``config`` dict is serialised to YAML.
+
+    Args:
+        instance_id: The ID of the simulation instance.
+        body: Request body with ``raw`` (string) or ``config`` (dict).
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        Success message.
+
+    Raises:
+        HTTPException: If the instance is not found or write fails.
+    """
+    import yaml as _yaml
+
+    config_path = _get_strategy_config_path(mgr, instance_id, current_user.sub)
+
+    raw_text = body.get("raw")
+    config_dict = body.get("config")
+
+    if raw_text is not None:
+        content = str(raw_text)
+    elif config_dict is not None:
+        try:
+            content = _yaml.dump(
+                config_dict, default_flow_style=False, allow_unicode=True, sort_keys=False
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid config: {e}") from e
+    else:
+        raise HTTPException(status_code=400, detail="Provide 'raw' or 'config' in body")
+
+    # Validate YAML before writing
+    try:
+        _yaml.safe_load(content)
+    except _yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}") from e
+
+    try:
+        config_path.write_text(content, encoding="utf-8")
+    except OSError as e:
+        logger.warning("Failed to write config %s: %s", config_path, e)
+        raise HTTPException(status_code=500, detail="Failed to write config") from e
+
+    return {"message": "Config updated successfully"}
+
+
+# ==================== Log Clearing Endpoints ====================
+
+
+@router.delete(
+    "/{instance_id}/logs/{filename}",
+    summary="Clear a simulation log file",
+)
+async def clear_simulation_log(
+    instance_id: str,
+    filename: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Clear (truncate) a single log file for a simulation instance.
+
+    Args:
+        instance_id: The ID of the simulation instance.
+        filename: The log file to clear.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        Success message.
+
+    Raises:
+        HTTPException: If the file is invalid or not found.
+    """
+    if not _safe_log_filename(filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
+    filepath = log_dir / filename
+    if not filepath.is_file() or not filepath.resolve().is_relative_to(log_dir.resolve()):
+        raise HTTPException(status_code=404, detail="Log file not found")
+    try:
+        filepath.write_text("", encoding="utf-8")
+    except OSError as e:
+        logger.warning("Failed to clear log %s: %s", filepath, e)
+        raise HTTPException(status_code=500, detail="Failed to clear log") from e
+    return {"message": f"Log file '{filename}' cleared"}
+
+
+@router.delete(
+    "/{instance_id}/logs",
+    summary="Clear all simulation log files",
+)
+async def clear_all_simulation_logs(
+    instance_id: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Clear (truncate) all log files for a simulation instance.
+
+    Args:
+        instance_id: The ID of the simulation instance.
+        current_user: The authenticated user.
+        mgr: The simulation manager instance.
+
+    Returns:
+        Summary of cleared files.
+
+    Raises:
+        HTTPException: If the log directory is not found.
+    """
+    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
+    cleared = []
+    for f in sorted(log_dir.iterdir()):
+        if f.is_file() and _safe_log_filename(f.name):
+            try:
+                f.write_text("", encoding="utf-8")
+                cleared.append(f.name)
+            except OSError as e:
+                logger.warning("Failed to clear log %s: %s", f, e)
+    return {"message": f"Cleared {len(cleared)} log files", "cleared": cleared}

@@ -9,6 +9,7 @@ Tests:
     - List tasks
     - Error handling (backtrader unavailable)
 """
+
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -67,23 +68,32 @@ class TestSubmitLiveStrategy:
         mock_cerebro = MagicMock()
         mock_strategy = MagicMock()
         mock_store = MagicMock()
-        mock_broker = MagicMock()
+        MagicMock()
         mock_data = MagicMock()
 
         mock_bt = MagicMock()
         mock_bt.Cerebro = MagicMock(return_value=mock_cerebro)
-        mock_bt.Strategy = type('Strategy', (), {})
+        mock_bt.Strategy = type("Strategy", (), {})
 
         # Need to mock the imports at module level
         with patch("app.services.live_trading_service.BACKTRADER_AVAILABLE", True):
             # Mock the imports that happen at function execution time
-            with patch.dict("sys.modules", {
-                "backtrader": mock_bt,
-                "backtrader.brokers.ccxtbroker": MagicMock(CCXTBroker=MagicMock, CCXTStore=MagicMock),
-                "backtrader.feeds.ccxtdata": MagicMock(CCXTData=MagicMock(return_value=mock_data)),
-                "backtrader.observers.broker": MagicMock(BrokerObserver=MagicMock),
-                "backtrader.stores.ccxtstore": MagicMock(CCXTStore=MagicMock(return_value=mock_store)),
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "backtrader": mock_bt,
+                    "backtrader.brokers.ccxtbroker": MagicMock(
+                        CCXTBroker=MagicMock, CCXTStore=MagicMock
+                    ),
+                    "backtrader.feeds.ccxtdata": MagicMock(
+                        CCXTData=MagicMock(return_value=mock_data)
+                    ),
+                    "backtrader.observers.broker": MagicMock(BrokerObserver=MagicMock),
+                    "backtrader.stores.ccxtstore": MagicMock(
+                        CCXTStore=MagicMock(return_value=mock_store)
+                    ),
+                },
+            ):
                 with patch.object(service, "_load_strategy_from_code", return_value=mock_strategy):
                     with patch("threading.Thread") as mock_thread:
                         task_id = await service.submit_live_strategy(
@@ -112,21 +122,30 @@ class TestSubmitLiveStrategy:
         mock_cerebro = MagicMock()
         mock_strategy = MagicMock()
         mock_store = MagicMock()
-        mock_broker = MagicMock()
+        MagicMock()
         mock_data = MagicMock()
 
         mock_bt = MagicMock()
         mock_bt.Cerebro = MagicMock(return_value=mock_cerebro)
-        mock_bt.Strategy = type('Strategy', (), {})
+        mock_bt.Strategy = type("Strategy", (), {})
 
         with patch("app.services.live_trading_service.BACKTRADER_AVAILABLE", True):
-            with patch.dict("sys.modules", {
-                "backtrader": mock_bt,
-                "backtrader.brokers.ccxtbroker": MagicMock(CCXTBroker=MagicMock, CCXTStore=MagicMock),
-                "backtrader.feeds.ccxtdata": MagicMock(CCXTData=MagicMock(return_value=mock_data)),
-                "backtrader.observers.broker": MagicMock(BrokerObserver=MagicMock),
-                "backtrader.stores.ccxtstore": MagicMock(CCXTStore=MagicMock(return_value=mock_store)),
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "backtrader": mock_bt,
+                    "backtrader.brokers.ccxtbroker": MagicMock(
+                        CCXTBroker=MagicMock, CCXTStore=MagicMock
+                    ),
+                    "backtrader.feeds.ccxtdata": MagicMock(
+                        CCXTData=MagicMock(return_value=mock_data)
+                    ),
+                    "backtrader.observers.broker": MagicMock(BrokerObserver=MagicMock),
+                    "backtrader.stores.ccxtstore": MagicMock(
+                        CCXTStore=MagicMock(return_value=mock_store)
+                    ),
+                },
+            ):
                 with patch.object(service, "_load_strategy_from_code", return_value=mock_strategy):
                     with patch("threading.Thread"):
                         task_id = await service.submit_live_strategy(
@@ -160,13 +179,14 @@ class TestLoadStrategyFromCode:
         service = LiveTradingService()
 
         # Mock backtrader Strategy
-        mock_strategy_base = type('Strategy', (), {})
+        mock_strategy_base = type("Strategy", (), {})
         mock_backtrader = MagicMock(Strategy=mock_strategy_base)
 
         # Mock backtrader at sys.modules level so the import in the code works
         with patch.dict("sys.modules", {"backtrader": mock_backtrader}):
             # Also patch bt at module level
             import app.services.live_trading_service as live_service_module
+
             with patch.object(live_service_module, "bt", mock_backtrader, create=True):
                 code = """
 import backtrader as bt
@@ -186,11 +206,12 @@ class TestStrategy(bt.Strategy):
         """
         service = LiveTradingService()
 
-        mock_strategy_base = type('Strategy', (), {})
+        mock_strategy_base = type("Strategy", (), {})
         mock_backtrader = MagicMock(Strategy=mock_strategy_base)
 
         with patch.dict("sys.modules", {"backtrader": mock_backtrader}):
             import app.services.live_trading_service as live_service_module
+
             with patch.object(live_service_module, "bt", mock_backtrader, create=True):
                 # Use code without params - just test the basic loading
                 code = """
@@ -211,11 +232,12 @@ class TestStrategy(bt.Strategy):
         """
         service = LiveTradingService()
 
-        mock_strategy_base = type('Strategy', (), {})
+        mock_strategy_base = type("Strategy", (), {})
         mock_backtrader = MagicMock(Strategy=mock_strategy_base)
 
         with patch.dict("sys.modules", {"backtrader": mock_backtrader}):
             import app.services.live_trading_service as live_service_module
+
             with patch.object(live_service_module, "bt", mock_backtrader, create=True):
                 code = "print('hello world')"
 
@@ -513,13 +535,18 @@ class TestErrorHandling:
         # This test verifies that errors in the background thread
         # are properly caught and stored
         with patch("app.services.live_trading_service.BACKTRADER_AVAILABLE", True):
-            with patch.dict("sys.modules", {
-                "backtrader": MagicMock(Cerebro=MagicMock(side_effect=Exception("Test error"))),
-                "backtrader.brokers.ccxtbroker": MagicMock(CCXTBroker=MagicMock, CCXTStore=MagicMock),
-                "backtrader.feeds.ccxtdata": MagicMock(CCXTData=MagicMock),
-                "backtrader.observers.broker": MagicMock(BrokerObserver=MagicMock),
-                "backtrader.stores.ccxtstore": MagicMock(CCXTStore=MagicMock),
-            }):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "backtrader": MagicMock(Cerebro=MagicMock(side_effect=Exception("Test error"))),
+                    "backtrader.brokers.ccxtbroker": MagicMock(
+                        CCXTBroker=MagicMock, CCXTStore=MagicMock
+                    ),
+                    "backtrader.feeds.ccxtdata": MagicMock(CCXTData=MagicMock),
+                    "backtrader.observers.broker": MagicMock(BrokerObserver=MagicMock),
+                    "backtrader.stores.ccxtstore": MagicMock(CCXTStore=MagicMock),
+                },
+            ):
                 with patch.object(service, "_load_strategy_from_code", return_value=MagicMock):
                     with patch("threading.Thread") as mock_thread:
                         # Simulate thread starting

@@ -21,6 +21,9 @@ symbol:
 # 策略参数
 # ============================================================
 params:
+  stake: 10
+  period: 20
+  atr_mult: 2.0
 
 # ============================================================
 # 数据配置
@@ -75,10 +78,6 @@ live:
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    SR2509:
-      min_price_tick: 1.0
-      max_order_size: 1
-
     SR2609:
       min_price_tick: 1.0
       max_order_size: 1

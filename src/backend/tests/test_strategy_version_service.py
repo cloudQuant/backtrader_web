@@ -11,6 +11,7 @@ Tests:
 - Branch management
 - Helper functions (code diff, params diff)
 """
+
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -340,7 +341,7 @@ class TestUpdateVersion:
         update_data.changelog = None
 
         # Mock ws_manager.send_to_task as async
-        with patch('app.services.strategy_version_service.ws_manager') as mock_ws:
+        with patch("app.services.strategy_version_service.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
             result = await service.update_version("ver_123", "user_123", update_data)
 
@@ -400,9 +401,7 @@ class TestCompareVersions:
         service.comparison_repo = AsyncMock()
         service.comparison_repo.create = AsyncMock(return_value=mock_comparison)
 
-        result = await service.compare_versions(
-            "user_123", "strat_123", "ver_1", "ver_2"
-        )
+        result = await service.compare_versions("user_123", "strat_123", "ver_1", "ver_2")
 
         assert result is not None
 
@@ -416,9 +415,7 @@ class TestCompareVersions:
         service.version_repo.get_by_id = AsyncMock(return_value=None)
 
         with pytest.raises(ValueError, match="Version not found"):
-            await service.compare_versions(
-                "user_123", "strat_123", "nonexistent1", "nonexistent2"
-            )
+            await service.compare_versions("user_123", "strat_123", "nonexistent1", "nonexistent2")
 
 
 @pytest.mark.asyncio
@@ -538,9 +535,9 @@ class TestRollbackVersion:
         service.strategy_repo = AsyncMock()
         service.strategy_repo.get_by_id = AsyncMock(return_value=mock_strategy)
 
-        with patch.object(service, '_get_current_version', return_value=mock_current_version):
-            with patch.object(service, '_get_next_version_number', return_value=3):
-                with patch.object(service, '_unset_active_versions'):
+        with patch.object(service, "_get_current_version", return_value=mock_current_version):
+            with patch.object(service, "_get_next_version_number", return_value=3):
+                with patch.object(service, "_unset_active_versions"):
                     result = await service.rollback_version(
                         "user_123", "strat_123", "target_ver", "Bug fix"
                     )
@@ -557,6 +554,4 @@ class TestRollbackVersion:
         service.version_repo.get_by_id = AsyncMock(return_value=None)
 
         with pytest.raises(ValueError, match="Target version not found"):
-            await service.rollback_version(
-                "user_123", "strat_123", "nonexistent", "test"
-            )
+            await service.rollback_version("user_123", "strat_123", "nonexistent", "test")

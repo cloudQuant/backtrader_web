@@ -16,7 +16,7 @@ import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from loguru import logger
 
@@ -67,7 +67,7 @@ class LogContext:
         pass
 
 
-def _filter_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
+def _filter_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
     """Filter sensitive data from log entries.
 
     Args:
@@ -99,7 +99,7 @@ def _filter_sensitive_data(data: Dict[str, Any]) -> Dict[str, Any]:
     return filtered
 
 
-def _serialize_log(record: Dict[str, Any]) -> str:
+def _serialize_log(record: dict[str, Any]) -> str:
     """Serialize log record to JSON format for structured logging.
 
     Args:
@@ -182,7 +182,7 @@ def setup_logger(
     logger.remove()
 
     # Function to safely get extra values
-    def formatter_extra(record: Dict[str, Any]) -> Dict[str, Any]:
+    def formatter_extra(record: dict[str, Any]) -> dict[str, Any]:
         """Safely extract extra fields from log record."""
         return record.get("extra", {})
 
@@ -207,7 +207,7 @@ def setup_logger(
         )
 
     # Patch logger to always have request_id
-    def patch_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    def patch_record(record: dict[str, Any]) -> dict[str, Any]:
         """Ensure record has default values for optional fields."""
         if "request_id" not in record["extra"]:
             record["extra"]["request_id"] = "N/A"
@@ -353,7 +353,13 @@ class AuditLogger:
         """Initialize audit logger."""
         self.logger = logger.bind(tags=["audit"])
 
-    def log_login(self, user_id: str, success: bool, ip: str = None, details: str = None):
+    def log_login(
+        self,
+        user_id: str,
+        success: bool,
+        ip: str | None = None,
+        details: str | None = None,
+    ) -> None:
         """Log login attempt.
 
         Args:
@@ -374,7 +380,7 @@ class AuditLogger:
         else:
             self.logger.warning(message, user_id=user_id, event="login_failed", ip=ip)
 
-    def log_logout(self, user_id: str):
+    def log_logout(self, user_id: str) -> None:
         """Log logout event.
 
         Args:
@@ -382,7 +388,7 @@ class AuditLogger:
         """
         self.logger.info(f"User logged out: {user_id}", user_id=user_id, event="logout")
 
-    def log_permission_denied(self, user_id: str, resource: str, action: str):
+    def log_permission_denied(self, user_id: str, resource: str, action: str) -> None:
         """Log permission denied event.
 
         Args:
@@ -398,7 +404,7 @@ class AuditLogger:
             action=action,
         )
 
-    def log_strategy_access(self, user_id: str, strategy_id: str, action: str):
+    def log_strategy_access(self, user_id: str, strategy_id: str, action: str) -> None:
         """Log strategy access event.
 
         Args:
@@ -414,7 +420,7 @@ class AuditLogger:
             action=action,
         )
 
-    def log_backtest_start(self, user_id: str, task_id: str, strategy_id: str):
+    def log_backtest_start(self, user_id: str, task_id: str, strategy_id: str) -> None:
         """Log backtest start event.
 
         Args:
@@ -430,7 +436,9 @@ class AuditLogger:
             strategy_id=strategy_id,
         )
 
-    def log_backtest_complete(self, user_id: str, task_id: str, duration: float, success: bool):
+    def log_backtest_complete(
+        self, user_id: str, task_id: str, duration: float, success: bool
+    ) -> None:
         """Log backtest completion event.
 
         Args:

@@ -4,7 +4,7 @@ Strategy schemas.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -22,19 +22,19 @@ class ParamSpec(BaseModel):
 
     type: str = Field("float", description="Parameter type: int/float/string/enum")
     default: Any = Field(..., description="Default value")
-    min: Optional[float] = Field(None, description="Minimum value")
-    max: Optional[float] = Field(None, description="Maximum value")
-    options: Optional[List[Any]] = Field(None, description="Enum options")
-    description: Optional[str] = Field(None, description="Parameter description")
+    min: float | None = Field(None, description="Minimum value")
+    max: float | None = Field(None, description="Maximum value")
+    options: list[Any] | None = Field(None, description="Enum options")
+    description: str | None = Field(None, description="Parameter description")
 
 
 class StrategyCreate(BaseModel):
     """Strategy creation request schema."""
 
     name: str = Field(..., min_length=1, max_length=100, description="Strategy name")
-    description: Optional[str] = Field(None, description="Strategy description")
+    description: str | None = Field(None, description="Strategy description")
     code: str = Field(..., description="Strategy code")
-    params: Dict[str, ParamSpec] = Field(default_factory=dict, description="Parameter definitions")
+    params: dict[str, ParamSpec] = Field(default_factory=dict, description="Parameter definitions")
     category: str = Field("custom", description="Strategy category")
 
     model_config = ConfigDict(
@@ -68,11 +68,11 @@ class StrategyCreate(BaseModel):
 class StrategyUpdate(BaseModel):
     """Strategy update request schema."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=100)
-    description: Optional[str] = None
-    code: Optional[str] = None
-    params: Optional[Dict[str, ParamSpec]] = None
-    category: Optional[str] = None
+    name: str | None = Field(None, min_length=1, max_length=100)
+    description: str | None = None
+    code: str | None = None
+    params: dict[str, ParamSpec] | None = None
+    category: str | None = None
 
 
 class StrategyResponse(BaseModel):
@@ -81,9 +81,9 @@ class StrategyResponse(BaseModel):
     id: str = Field(..., description="Strategy ID")
     user_id: str = Field(..., description="User ID")
     name: str = Field(..., description="Strategy name")
-    description: Optional[str] = Field(None, description="Strategy description")
+    description: str | None = Field(None, description="Strategy description")
     code: str = Field(..., description="Strategy code")
-    params: Dict[str, ParamSpec] = Field(default_factory=dict, description="Parameter definitions")
+    params: dict[str, ParamSpec] = Field(default_factory=dict, description="Parameter definitions")
     category: str = Field(..., description="Strategy category")
     created_at: datetime = Field(..., description="Creation time")
     updated_at: datetime = Field(..., description="Update time")
@@ -95,7 +95,7 @@ class StrategyListResponse(BaseModel):
     """Strategy list response schema."""
 
     total: int
-    items: List[StrategyResponse]
+    items: list[StrategyResponse]
 
 
 class StrategyTemplate(BaseModel):
@@ -105,5 +105,5 @@ class StrategyTemplate(BaseModel):
     name: str
     description: str
     code: str
-    params: Dict[str, ParamSpec]
+    params: dict[str, ParamSpec]
     category: str

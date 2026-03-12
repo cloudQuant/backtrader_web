@@ -1,6 +1,7 @@
 """
 Tests for security and exception handling middleware.
 """
+
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
@@ -26,11 +27,7 @@ class TestErrorResponse:
 
     def test_to_dict_basic(self):
         """Test basic error response conversion."""
-        error = ErrorResponse(
-            status_code=404,
-            error="NOT_FOUND",
-            message="Resource not found"
-        )
+        error = ErrorResponse(status_code=404, error="NOT_FOUND", message="Resource not found")
         result = error.to_dict()
         assert result == {
             "error": "NOT_FOUND",
@@ -43,7 +40,7 @@ class TestErrorResponse:
             status_code=400,
             error="VALIDATION_ERROR",
             message="Validation failed",
-            details={"field": "username"}
+            details={"field": "username"},
         )
         result = error.to_dict()
         assert "details" in result
@@ -52,10 +49,7 @@ class TestErrorResponse:
     def test_to_dict_with_request_id(self):
         """Test error response with request ID."""
         error = ErrorResponse(
-            status_code=500,
-            error="SERVER_ERROR",
-            message="Internal error",
-            request_id="req-123"
+            status_code=500, error="SERVER_ERROR", message="Internal error", request_id="req-123"
         )
         result = error.to_dict()
         assert result["request_id"] == "req-123"
@@ -133,7 +127,7 @@ class TestExceptionHandling:
             assert "VALIDATION_ERROR" in content
             assert "username" in content
         else:
-            assert False, "ValidationError should have been raised"
+            raise AssertionError("ValidationError should have been raised")
 
     @pytest.mark.asyncio
     async def test_handle_http_exception(self):
@@ -170,6 +164,7 @@ class TestExceptionHandling:
     @pytest.mark.asyncio
     async def test_handle_generic_exception(self):
         """Test handling of generic exceptions."""
+
         # Create mock request
         class MockURL:
             def __init__(self):
@@ -228,6 +223,7 @@ class TestSecurityHeadersMiddleware:
 
         # Create test client
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
 
         response = client.get("/test")
@@ -253,6 +249,7 @@ class TestSecurityHeadersMiddleware:
         add_security_headers(app)
 
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
 
         response = client.get("/api/v1/auth/login")
@@ -275,6 +272,7 @@ class TestSecurityHeadersMiddleware:
         add_security_headers(app)
 
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
 
         # In debug mode (default for tests), HSTS should not be added
@@ -294,6 +292,7 @@ class TestSecurityHeadersMiddleware:
         add_security_headers(app)
 
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
 
         response = client.get("/test")
@@ -315,6 +314,7 @@ class TestSecurityHeadersMiddleware:
         add_security_headers(app)
 
         from fastapi.testclient import TestClient
+
         client = TestClient(app)
 
         response = client.get("/test")
@@ -344,6 +344,7 @@ class TestMiddlewareIntegration:
         add_security_headers(app)
 
         from fastapi.testclient import TestClient
+
         test_client = TestClient(app)
 
         # Normal request should have security headers
@@ -382,11 +383,14 @@ class TestCustomExceptionIntegration:
     async def test_validation_error_in_api(self, client: AsyncClient):
         """Test validation error in API context."""
         # Test with actual API endpoint
-        response = await client.post("/api/v1/auth/register", json={
-            "username": "ab",  # Too short
-            "email": "test@example.com",
-            "password": "Test@123"
-        })
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "username": "ab",  # Too short
+                "email": "test@example.com",
+                "password": "Test@123",
+            },
+        )
 
         # Should get validation error (422)
         # or success (if validation is lenient)

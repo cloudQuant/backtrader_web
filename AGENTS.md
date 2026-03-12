@@ -29,6 +29,7 @@ ruff format src/backend                 # Format
 npm install              # Install dependencies
 npm run dev              # Development server
 npm run build            # Production build
+npm run typecheck        # TypeScript type check (vue-tsc)
 npm run test             # Unit tests
 npm run test -- --coverage   # Tests with coverage
 npm run test:e2e         # E2E tests (requires running app)

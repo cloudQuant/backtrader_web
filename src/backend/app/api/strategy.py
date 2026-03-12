@@ -144,7 +144,7 @@ async def get_template_config(template_id: str):
     if not config_path.is_file():
         raise HTTPException(status_code=404, detail="Strategy configuration file not found")
 
-    with open(config_path, "r", encoding="utf-8") as f:
+    with open(config_path, encoding="utf-8") as f:
         config = _yaml.safe_load(f) or {}
 
     return {

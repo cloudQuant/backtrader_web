@@ -7,7 +7,7 @@ Supports grid search and Bayesian optimization.
 import asyncio
 import itertools
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from app.db.cache import get_cache
 from app.db.sql_repository import SQLRepository
@@ -269,8 +269,8 @@ class OptimizationService:
         return result
 
     def _generate_param_combinations(
-        self, param_grid: Dict[str, List[Any]]
-    ) -> List[Dict[str, Any]]:
+        self, param_grid: dict[str, list[Any]]
+    ) -> list[dict[str, Any]]:
         """Generate parameter combinations (Cartesian product).
 
         Args:
@@ -286,9 +286,9 @@ class OptimizationService:
         combinations = list(itertools.product(*values))
 
         # Convert to list of dictionaries
-        return [dict(zip(keys, combo)) for combo in combinations]
+        return [dict(zip(keys, combo, strict=False)) for combo in combinations]
 
-    def _get_optimization_metric(self, result: Dict[str, Any], metric: str) -> float:
+    def _get_optimization_metric(self, result: dict[str, Any], metric: str) -> float:
         """Get the value of the optimization metric.
 
         Args:

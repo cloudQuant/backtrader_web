@@ -4,7 +4,7 @@ Backtest schemas.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,7 +28,7 @@ class BacktestRequest(BaseModel):
     end_date: datetime = Field(..., description="End date")
     initial_cash: float = Field(100000.0, description="Initial cash")
     commission: float = Field(0.001, description="Commission rate")
-    params: Dict[str, Any] = Field(default_factory=dict, description="Strategy parameters")
+    params: dict[str, Any] = Field(default_factory=dict, description="Strategy parameters")
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -50,25 +50,25 @@ class BacktestResponse(BaseModel):
 
     task_id: str = Field(..., description="Task ID")
     status: TaskStatus = Field(..., description="Task status")
-    message: Optional[str] = Field(None, description="Status message")
+    message: str | None = Field(None, description="Status message")
 
 
 class TradeRecord(BaseModel):
     """Trade record schema."""
 
-    datetime: Optional[str] = None
-    date: Optional[str] = None
-    dtopen: Optional[str] = None
-    dtclose: Optional[str] = None
-    direction: Optional[str] = None
-    type: Optional[str] = None
+    datetime: str | None = None
+    date: str | None = None
+    dtopen: str | None = None
+    dtclose: str | None = None
+    direction: str | None = None
+    type: str | None = None
     price: float = 0
     size: float = 0
     value: float = 0
     commission: float = 0
-    pnl: Optional[float] = None
-    pnlcomm: Optional[float] = None
-    barlen: Optional[int] = None
+    pnl: float | None = None
+    pnlcomm: float | None = None
+    barlen: int | None = None
 
 
 class BacktestResult(BaseModel):
@@ -95,16 +95,16 @@ class BacktestResult(BaseModel):
     losing_trades: int = Field(0, description="Losing trades")
 
     # Equity curve data
-    equity_curve: List[float] = Field(default_factory=list, description="Equity curve")
-    equity_dates: List[str] = Field(default_factory=list, description="Date sequence")
-    drawdown_curve: List[float] = Field(default_factory=list, description="Drawdown curve")
+    equity_curve: list[float] = Field(default_factory=list, description="Equity curve")
+    equity_dates: list[str] = Field(default_factory=list, description="Date sequence")
+    drawdown_curve: list[float] = Field(default_factory=list, description="Drawdown curve")
 
     # Trade records
-    trades: List[TradeRecord] = Field(default_factory=list, description="Trade records")
+    trades: list[TradeRecord] = Field(default_factory=list, description="Trade records")
 
     # Meta info
     created_at: datetime
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -113,4 +113,4 @@ class BacktestListResponse(BaseModel):
     """Backtest list response schema."""
 
     total: int
-    items: List[BacktestResult]
+    items: list[BacktestResult]

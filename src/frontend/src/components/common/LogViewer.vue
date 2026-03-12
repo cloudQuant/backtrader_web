@@ -15,9 +15,16 @@
           :value="f.name"
         />
       </el-select>
-      <el-radio-group v-model="displayMode" size="small">
-        <el-radio-button value="raw">原始</el-radio-button>
-        <el-radio-button value="formatted">格式化</el-radio-button>
+      <el-radio-group
+        v-model="displayMode"
+        size="small"
+      >
+        <el-radio-button value="raw">
+          原始
+        </el-radio-button>
+        <el-radio-button value="formatted">
+          格式化
+        </el-radio-button>
       </el-radio-group>
       <el-input
         v-model="searchText"
@@ -29,14 +36,58 @@
           <el-icon><Search /></el-icon>
         </template>
       </el-input>
-      <el-select v-model="tailLines" class="w-32" @change="loadLog">
-        <el-option label="全部" :value="null" />
-        <el-option label="最近 500 行" :value="500" />
-        <el-option label="最近 1000 行" :value="1000" />
-        <el-option label="最近 5000 行" :value="5000" />
+      <el-select
+        v-model="tailLines"
+        class="w-32"
+        @change="loadLog"
+      >
+        <el-option
+          label="全部"
+          :value="null"
+        />
+        <el-option
+          label="最近 500 行"
+          :value="500"
+        />
+        <el-option
+          label="最近 1000 行"
+          :value="1000"
+        />
+        <el-option
+          label="最近 5000 行"
+          :value="5000"
+        />
       </el-select>
-      <el-button :icon="Refresh" @click="loadLog" :loading="loading">刷新</el-button>
-      <el-button :icon="Download" @click="downloadLog">下载</el-button>
+      <el-button
+        :icon="Refresh"
+        :loading="loading"
+        @click="loadLog"
+      >
+        刷新
+      </el-button>
+      <el-button
+        :icon="Download"
+        @click="downloadLog"
+      >
+        下载
+      </el-button>
+      <el-button
+        :icon="Delete"
+        type="warning"
+        plain
+        :disabled="!selectedFile"
+        @click="handleClearCurrentLog"
+      >
+        清空当前
+      </el-button>
+      <el-button
+        :icon="Delete"
+        type="danger"
+        plain
+        @click="handleClearAllLogs"
+      >
+        清空全部
+      </el-button>
     </div>
 
     <!-- 日志内容 -->
@@ -45,26 +96,43 @@
       :class="displayMode === 'raw' ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-200'"
       :style="{ height: viewerHeight + 'px' }"
     >
-      <div v-if="loading" class="p-4 text-center text-gray-400">
-        <el-icon class="is-loading text-2xl"><Loading /></el-icon>
+      <div
+        v-if="loading"
+        class="p-4 text-center text-gray-400"
+      >
+        <el-icon class="is-loading text-2xl">
+          <Loading />
+        </el-icon>
         <span class="ml-2">加载中...</span>
       </div>
-      <div v-else-if="error" class="p-4 text-red-400">{{ error }}</div>
-      <div v-else-if="!selectedFile" class="p-4 text-gray-400">
+      <div
+        v-else-if="error"
+        class="p-4 text-red-400"
+      >
+        {{ error }}
+      </div>
+      <div
+        v-else-if="!selectedFile"
+        class="p-4 text-gray-400"
+      >
         请选择要查看的日志文件
       </div>
       <!-- 原始模式 -->
       <pre
         v-else-if="displayMode === 'raw'"
-        class="p-4 m-0 whitespace-pre-wrap break-words"
         ref="contentRef"
+        class="p-4 m-0 whitespace-pre-wrap break-words"
       ><span
         v-for="(line, i) in displayLines"
         :key="i"
         :class="{ 'bg-yellow-800/50': searchText && lineMatchesSearch(line) }"
       >{{ String(i + 1).padStart(6) }} | {{ line }}</span></pre>
       <!-- 格式化模式 -->
-      <div v-else class="p-4 space-y-1.5" ref="contentRef">
+      <div
+        v-else
+        ref="contentRef"
+        class="p-4 space-y-1.5"
+      >
         <div
           v-for="(item, i) in formattedEntries"
           :key="i"
@@ -94,7 +162,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { Search, Refresh, Download, Loading } from '@element-plus/icons-vue'
+import { Search, Refresh, Download, Loading, Delete } from '@element-plus/icons-vue'
+import { ElMessageBox, ElMessage } from 'element-plus'
 import { simulationApi } from '@/api/simulation'
 
 const props = defineProps<{
@@ -155,6 +224,66 @@ function formatLogLine(line: string): FormattedEntry {
       const provider = obj.provider ? String(obj.provider) : ''
       const errorCode = obj.error_code ? String(obj.error_code) : ''
       const errorMsg = obj.error_msg ? String(obj.error_msg) : ''
+
+      // Tick 行情日志 (tick.log)
+      if (eventType === 'tick') {
+        const symbol = String(obj.symbol || obj.instrument_id || '')
+        const tickPrice = obj.price != null ? Number(obj.price) : null
+        const tickVol = obj.volume != null ? Number(obj.volume) : null
+        const bid = obj.bid_price != null ? Number(obj.bid_price) : null
+        const ask = obj.ask_price != null ? Number(obj.ask_price) : null
+        const bidVol = obj.bid_volume != null ? Number(obj.bid_volume) : null
+        const askVol = obj.ask_volume != null ? Number(obj.ask_volume) : null
+        const oi = obj.openinterest != null ? Number(obj.openinterest) : null
+        const parts: string[] = []
+        if (symbol) parts.push(`品种:${symbol}`)
+        if (tickPrice != null) parts.push(`价格:${tickPrice}`)
+        if (tickVol != null) parts.push(`量:${tickVol}`)
+        if (bid != null) parts.push(`买:${bid}`)
+        if (bidVol != null) parts.push(`买量:${bidVol}`)
+        if (ask != null) parts.push(`卖:${ask}`)
+        if (askVol != null) parts.push(`卖量:${askVol}`)
+        if (oi != null) parts.push(`持仓:${oi}`)
+        if (strategyName) parts.push(`策略:${strategyName}`)
+        return {
+          raw: line,
+          text: parts.join(' | '),
+          time,
+          badge: 'TICK',
+          badgeClass: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/50 dark:text-cyan-200',
+          levelClass: 'border-cyan-400 bg-cyan-50/30 dark:bg-cyan-900/10',
+        }
+      }
+
+      // Bar K线日志 (bar.log)
+      if (eventType === 'bar') {
+        const symbol = String(obj.symbol || obj.instrument_id || '')
+        const o = obj.open != null ? Number(obj.open) : null
+        const h = obj.high != null ? Number(obj.high) : null
+        const l = obj.low != null ? Number(obj.low) : null
+        const c = obj.close != null ? Number(obj.close) : null
+        const v = obj.volume != null ? Number(obj.volume) : null
+        const oi = obj.openinterest != null ? Number(obj.openinterest) : null
+        const interval = obj.interval || obj.period || ''
+        const parts: string[] = []
+        if (symbol) parts.push(`品种:${symbol}`)
+        if (interval) parts.push(`周期:${interval}`)
+        if (o != null) parts.push(`O:${o}`)
+        if (h != null) parts.push(`H:${h}`)
+        if (l != null) parts.push(`L:${l}`)
+        if (c != null) parts.push(`C:${c}`)
+        if (v != null) parts.push(`V:${v}`)
+        if (oi != null) parts.push(`持仓:${oi}`)
+        if (strategyName) parts.push(`策略:${strategyName}`)
+        return {
+          raw: line,
+          text: parts.join(' | '),
+          time,
+          badge: 'BAR',
+          badgeClass: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200',
+          levelClass: 'border-indigo-400 bg-indigo-50/30 dark:bg-indigo-900/10',
+        }
+      }
 
       // 系统事件日志 (system.log)
       if (eventType) {
@@ -342,6 +471,43 @@ async function downloadLog() {
     await simulationApi.downloadLog(props.instanceId, selectedFile.value)
   } catch {
     // Error handled by API interceptor
+  }
+}
+
+async function handleClearCurrentLog() {
+  if (!selectedFile.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定要清空日志文件 "${selectedFile.value}" 吗？`,
+      '清空当前日志',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+    )
+    await simulationApi.clearLog(props.instanceId, selectedFile.value)
+    ElMessage.success('日志已清空')
+    await loadLog()
+    await loadFiles()
+  } catch (e: unknown) {
+    if (e !== 'cancel' && (e as { toString?: () => string })?.toString?.() !== 'cancel') {
+      ElMessage.error('清空日志失败')
+    }
+  }
+}
+
+async function handleClearAllLogs() {
+  try {
+    await ElMessageBox.confirm(
+      '确定要清空所有日志文件吗？此操作不可恢复。',
+      '清空全部日志',
+      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+    )
+    const res = await simulationApi.clearAllLogs(props.instanceId)
+    ElMessage.success(res.message || '全部日志已清空')
+    await loadLog()
+    await loadFiles()
+  } catch (e: unknown) {
+    if (e !== 'cancel' && (e as { toString?: () => string })?.toString?.() !== 'cancel') {
+      ElMessage.error('清空日志失败')
+    }
   }
 }
 

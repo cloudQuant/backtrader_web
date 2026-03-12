@@ -21,6 +21,12 @@ symbol:
 # 策略参数
 # ============================================================
 params:
+  stake: 10
+  rsi_period: 10
+  rsi_buy: 50
+  rsi_sell: 45
+  stop_loss: 0.005
+  take_profit: 0.005
 
 # ============================================================
 # 数据配置
@@ -75,10 +81,6 @@ live:
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    OI2509:
-      min_price_tick: 1.0
-      max_order_size: 1
-
     OI2609:
       min_price_tick: 1.0
       max_order_size: 1

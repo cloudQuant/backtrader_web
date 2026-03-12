@@ -155,15 +155,19 @@ async def test_backtest_api_success_paths(client: AsyncClient, auth_headers: dic
         svc.list_results = AsyncMock(return_value=BacktestListResponse(total=0, items=[]))
         mock_cls.return_value = svc
 
-        run = await client.post("/api/v1/backtest/run", headers=auth_headers, json={
-            "strategy_id": "001_ma_cross",
-            "symbol": "000001.SZ",
-            "start_date": "2023-01-01T00:00:00",
-            "end_date": "2023-06-30T00:00:00",
-            "initial_cash": 100000,
-            "commission": 0.001,
-            "params": {},
-        })
+        run = await client.post(
+            "/api/v1/backtest/run",
+            headers=auth_headers,
+            json={
+                "strategy_id": "001_ma_cross",
+                "symbol": "000001.SZ",
+                "start_date": "2023-01-01T00:00:00",
+                "end_date": "2023-06-30T00:00:00",
+                "initial_cash": 100000,
+                "commission": 0.001,
+                "params": {},
+            },
+        )
         assert run.status_code == 200
 
         r1 = await client.get("/api/v1/backtest/t1", headers=auth_headers)

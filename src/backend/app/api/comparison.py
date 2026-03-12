@@ -5,7 +5,7 @@ Supports comparing and analyzing multiple backtest results.
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -175,7 +175,7 @@ async def list_comparisons(
     service: ComparisonService = Depends(get_comparison_service),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    is_public: Optional[bool] = Query(None, description="Filter by public status"),
+    is_public: bool | None = Query(None, description="Filter by public status"),
 ):
     """Get the list of backtest comparisons.
 

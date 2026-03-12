@@ -6,15 +6,27 @@
         <span class="font-bold">个人信息</span>
       </template>
       
-      <el-form :model="userForm" label-width="100px">
+      <el-form
+        :model="userForm"
+        label-width="100px"
+      >
         <el-form-item label="用户名">
-          <el-input v-model="userForm.username" disabled />
+          <el-input
+            v-model="userForm.username"
+            disabled
+          />
         </el-form-item>
         <el-form-item label="邮箱">
-          <el-input v-model="userForm.email" disabled />
+          <el-input
+            v-model="userForm.email"
+            disabled
+          />
         </el-form-item>
         <el-form-item label="注册时间">
-          <el-input v-model="userForm.createdAt" disabled />
+          <el-input
+            v-model="userForm.createdAt"
+            disabled
+          />
         </el-form-item>
       </el-form>
     </el-card>
@@ -25,18 +37,38 @@
         <span class="font-bold">修改密码</span>
       </template>
       
-      <el-form :model="passwordForm" label-width="100px">
+      <el-form
+        :model="passwordForm"
+        label-width="100px"
+      >
         <el-form-item label="当前密码">
-          <el-input v-model="passwordForm.oldPassword" type="password" show-password />
+          <el-input
+            v-model="passwordForm.oldPassword"
+            type="password"
+            show-password
+          />
         </el-form-item>
         <el-form-item label="新密码">
-          <el-input v-model="passwordForm.newPassword" type="password" show-password />
+          <el-input
+            v-model="passwordForm.newPassword"
+            type="password"
+            show-password
+          />
         </el-form-item>
         <el-form-item label="确认新密码">
-          <el-input v-model="passwordForm.confirmPassword" type="password" show-password />
+          <el-input
+            v-model="passwordForm.confirmPassword"
+            type="password"
+            show-password
+          />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" @click="changePassword">修改密码</el-button>
+          <el-button
+            type="primary"
+            @click="changePassword"
+          >
+            修改密码
+          </el-button>
         </el-form-item>
       </el-form>
     </el-card>

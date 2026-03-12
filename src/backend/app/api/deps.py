@@ -2,8 +2,6 @@
 API dependencies.
 """
 
-from typing import Optional
-
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -44,8 +42,8 @@ async def get_current_user(
 
 async def get_current_user_optional(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
-) -> Optional[TokenPayload]:
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+) -> TokenPayload | None:
     """Optionally return the current user (None if not authenticated).
 
     Args:

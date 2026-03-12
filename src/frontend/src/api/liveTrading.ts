@@ -69,11 +69,23 @@ export interface GatewayHealthInfo {
   exchange?: string
   asset_type?: string
   account_id?: string
+  strategy_name?: string
 }
 
 export interface GatewayHealthListResponse {
   total: number
   gateways: GatewayHealthInfo[]
+}
+
+export interface GatewayConnectRequest {
+  exchange_type: string
+  credentials: Record<string, unknown>
+}
+
+export interface GatewayConnectResponse {
+  gateway_key: string
+  status: string
+  message: string
 }
 
 export const liveTradingApi = {
@@ -115,5 +127,25 @@ export const liveTradingApi = {
 
   listGatewayHealth(): Promise<GatewayHealthListResponse> {
     return request.get('/live-trading/gateways/health')
+  },
+
+  connectGateway(data: GatewayConnectRequest): Promise<GatewayConnectResponse> {
+    return request.post('/live-trading/gateways/connect', data)
+  },
+
+  disconnectGateway(gatewayKey: string): Promise<GatewayConnectResponse> {
+    return request.post('/live-trading/gateways/disconnect', null, { params: { gateway_key: gatewayKey } })
+  },
+
+  listConnectedGateways(): Promise<{ total: number; gateways: { gateway_key: string; exchange_type: string; account_id: string; has_runtime: boolean }[] }> {
+    return request.get('/live-trading/gateways/connected')
+  },
+
+  queryGatewayAccount(gatewayKey: string): Promise<Record<string, unknown>> {
+    return request.get(`/live-trading/gateways/${encodeURIComponent(gatewayKey)}/account`)
+  },
+
+  queryGatewayPositions(gatewayKey: string): Promise<{ total: number; positions: Record<string, unknown>[] }> {
+    return request.get(`/live-trading/gateways/${encodeURIComponent(gatewayKey)}/positions`)
   },
 }

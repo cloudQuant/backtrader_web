@@ -8,7 +8,6 @@ import json
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -64,8 +63,8 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
 
 
 async def get_backtest_data(
-    task_id: str, backtest_service: BacktestService, user_id: Optional[str] = None
-) -> Optional[dict]:
+    task_id: str, backtest_service: BacktestService, user_id: str | None = None
+) -> dict | None:
     """Load a backtest result with optional user_id authorization.
 
     Args:
@@ -96,14 +95,16 @@ async def get_backtest_data(
     try:
         if task_log_dir:
             value_data = parse_value_log(task_log_dir)
-            for d, c in zip(value_data.get("dates", []), value_data.get("cash_curve", [])):
+            for d, c in zip(
+                value_data.get("dates", []), value_data.get("cash_curve", []), strict=False
+            ):
                 real_cash_map[d] = c
     except Exception:
         pass
 
     peak = equity_values[0] if equity_values else 0
 
-    for i, (date, value) in enumerate(zip(equity_dates, equity_values)):
+    for _i, (date, value) in enumerate(zip(equity_dates, equity_values, strict=False)):
         if value > peak:
             peak = value
         dd = (value - peak) / peak if peak > 0 else 0
@@ -242,7 +243,7 @@ async def get_backtest_data(
         month_start_value = equity_values[0]
         current_month = None
 
-        for date, value in zip(equity_dates, equity_values):
+        for date, value in zip(equity_dates, equity_values, strict=False):
             try:
                 dt = datetime.strptime(date, "%Y-%m-%d") if isinstance(date, str) else date
                 month_key = (dt.year, dt.month)
@@ -331,8 +332,8 @@ async def get_backtest_detail(
 @router.get("/{task_id}/kline", response_model=KlineWithSignalsResponse)
 async def get_kline_with_signals(
     task_id: str,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     current_user=Depends(get_current_user),
     service: AnalyticsService = Depends(get_analytics_service),
     backtest_service: BacktestService = Depends(get_backtest_service),

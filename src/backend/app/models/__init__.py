@@ -7,6 +7,7 @@ schema creation helpers and tests can safely call ``create_all()``.
 from app.models.alerts import Alert, AlertNotification, AlertRule
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.models.comparison import Comparison, ComparisonShare
+from app.models.optimization import OptimizationTask
 from app.models.paper_trading import Account, Order, PaperTrade, Position
 from app.models.permission import Permission, Role, user_roles
 from app.models.strategy import Strategy
@@ -21,6 +22,7 @@ from app.models.user import RefreshToken, User
 __all__ = [
     "Account",
     "Alert",
+    "OptimizationTask",
     "AlertNotification",
     "AlertRule",
     "BacktestResultModel",

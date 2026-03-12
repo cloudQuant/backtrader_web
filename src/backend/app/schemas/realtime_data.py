@@ -3,7 +3,7 @@ Realtime market data schemas.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -11,12 +11,12 @@ from pydantic import BaseModel, Field
 class RealtimeTickSubscribeRequest(BaseModel):
     """Subscribe to realtime ticks."""
 
-    symbols: List[str] = Field(
+    symbols: list[str] = Field(
         ...,
         min_length=1,
         description="Symbols to subscribe to (e.g. ['BTC/USDT', 'ETH/USDT']).",
     )
-    broker_id: Optional[str] = Field(
+    broker_id: str | None = Field(
         None,
         description="Broker id (optional). If omitted, the default broker is used.",
     )
@@ -25,8 +25,8 @@ class RealtimeTickSubscribeRequest(BaseModel):
 class RealtimeTickUnsubscribeRequest(BaseModel):
     """Unsubscribe from realtime ticks."""
 
-    symbols: List[str] = Field(..., min_length=1, description="Symbols to unsubscribe from.")
-    broker_id: Optional[str] = Field(None, description="Broker id (optional).")
+    symbols: list[str] = Field(..., min_length=1, description="Symbols to unsubscribe from.")
+    broker_id: str | None = Field(None, description="Broker id (optional).")
 
 
 class RealtimeHistoricalTickRequest(BaseModel):
@@ -49,10 +49,10 @@ class RealtimeTick(BaseModel):
     low: float = Field(..., description="Low.")
     close: float = Field(..., description="Close.")
     volume: float = Field(..., description="Volume.")
-    bid: Optional[float] = Field(None, description="Best bid price.")
-    ask: Optional[float] = Field(None, description="Best ask price.")
-    bid_size: Optional[float] = Field(None, description="Best bid size.")
-    ask_size: Optional[float] = Field(None, description="Best ask size.")
+    bid: float | None = Field(None, description="Best bid price.")
+    ask: float | None = Field(None, description="Best ask price.")
+    bid_size: float | None = Field(None, description="Best bid size.")
+    ask_size: float | None = Field(None, description="Best ask size.")
 
 
 # Alias used by the API for backwards compatibility.
@@ -73,15 +73,13 @@ class RealtimeTickBatchResponse(BaseModel):
     """Batch tick response for a single symbol."""
 
     symbol: str = Field(..., description="Symbol.")
-    tick: Optional[RealtimeTick] = Field(None, description="Latest tick (if available).")
-    ticks: Optional[List[RealtimeTick]] = Field(
-        None, description="Historical ticks (if requested)."
-    )
+    tick: RealtimeTick | None = Field(None, description="Latest tick (if available).")
+    ticks: list[RealtimeTick] | None = Field(None, description="Historical ticks (if requested).")
 
 
 class RealtimeTickListResponse(BaseModel):
     """Tick list response."""
 
     total: int = Field(..., ge=0, description="Total number of symbols.")
-    symbols: List[str] = Field(..., description="Symbol list.")
-    ticks: Dict[str, Any] = Field(..., description="Tick map keyed by symbol.")
+    symbols: list[str] = Field(..., description="Symbol list.")
+    ticks: dict[str, Any] = Field(..., description="Tick map keyed by symbol.")

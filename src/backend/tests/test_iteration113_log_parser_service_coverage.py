@@ -16,10 +16,7 @@ def test_log_parser_parses_and_hits_edge_branches(tmp_path):
     # value.log: includes an empty line to hit _parse_tsv skip, and dt with time to hit split.
     _write(
         log_dir / "value.log",
-        "dt\tvalue\tcash\n"
-        "\n"
-        "2023-01-01 00:00:00\t100\t100\n"
-        "2023-01-02\t0\t0\n",
+        "dt\tvalue\tcash\n\n2023-01-01 00:00:00\t100\t100\n2023-01-02\t0\t0\n",
     )
 
     # trade.log: includes an open trade to hit isclosed != 1 continue.
@@ -33,8 +30,7 @@ def test_log_parser_parses_and_hits_edge_branches(tmp_path):
     # data.log: dt with time to hit split.
     _write(
         log_dir / "data.log",
-        "dt\topen\thigh\tlow\tclose\tvolume\n"
-        "2023-01-01 00:00:00\t1\t1\t1\t1\t1\n",
+        "dt\topen\thigh\tlow\tclose\tvolume\n2023-01-01 00:00:00\t1\t1\t1\t1\t1\n",
     )
 
     v = lps.parse_value_log(log_dir)
@@ -70,4 +66,3 @@ def test_parse_all_logs_sharpe_ratio_empty_and_single_point(tmp_path):
     res2 = lps.parse_all_logs(strategy_dir)
     assert res2 is not None
     assert res2["sharpe_ratio"] == 0.0
-

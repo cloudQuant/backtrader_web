@@ -90,3 +90,38 @@ class LiveBatchResponse(BaseModel):
     success: int = 0
     failed: int = 0
     details: list[dict[str, str]] = Field(default_factory=list)
+
+
+class GatewayConnectRequest(BaseModel):
+    """Request schema for manually connecting a gateway."""
+
+    exchange_type: str = Field(..., description="Exchange type: CTP, IB_WEB, BINANCE, OKX")
+    credentials: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Exchange-specific credentials (e.g. broker_id, user_id, password for CTP)",
+    )
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "exchange_type": "CTP",
+                "credentials": {
+                    "broker_id": "9999",
+                    "user_id": "123456",
+                    "password": "secret",
+                    "td_front": "tcp://180.168.146.187:10201",
+                    "md_front": "tcp://180.168.146.187:10211",
+                    "app_id": "simnow_client_test",
+                    "auth_code": "0000000000000000",
+                },
+            }
+        }
+    )
+
+
+class GatewayConnectResponse(BaseModel):
+    """Response schema for gateway connect/disconnect."""
+
+    gateway_key: str = Field(..., description="Unique gateway key")
+    status: str = Field(..., description="connected / disconnected / error")
+    message: str = Field("", description="Status message")

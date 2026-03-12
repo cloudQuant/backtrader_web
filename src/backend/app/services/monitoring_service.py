@@ -14,7 +14,7 @@ import logging
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.db.sql_repository import SQLRepository
 from app.models.alerts import (
@@ -57,9 +57,9 @@ class MonitoringService:
         #
         # Note: this is intentionally kept in-memory; for production usage you would
         # likely want a proper scheduler and persistent state.
-        self._monitoring_tasks: Dict[str, asyncio.Task] = {}
+        self._monitoring_tasks: dict[str, asyncio.Task] = {}
         self._running = False
-        self._trigger_state: Dict[str, Any] = {}
+        self._trigger_state: dict[str, Any] = {}
 
     async def create_alert_rule(
         self,
@@ -69,9 +69,9 @@ class MonitoringService:
         alert_type: str,
         severity: str,
         trigger_type: str,
-        trigger_config: Dict[str, Any],
+        trigger_config: dict[str, Any],
         notification_enabled: bool = True,
-        notification_channels: Optional[List[str]] = None,
+        notification_channels: list[str] | None = None,
     ) -> AlertRule:
         """Creates a new alert rule and starts monitoring if enabled.
 
@@ -116,8 +116,8 @@ class MonitoringService:
         self,
         rule_id: str,
         user_id: str,
-        update_data: Dict[str, Any],
-    ) -> Optional[AlertRule]:
+        update_data: dict[str, Any],
+    ) -> AlertRule | None:
         """Updates an existing alert rule and manages monitoring state.
 
         Stops monitoring if the rule becomes inactive and starts monitoring
@@ -179,10 +179,10 @@ class MonitoringService:
     async def list_alert_rules(
         self,
         user_id: str,
-        alert_type: Optional[str] = None,
-        severity: Optional[str] = None,
-        is_active: Optional[bool] = None,
-    ) -> tuple[List[AlertRule], int]:
+        alert_type: str | None = None,
+        severity: str | None = None,
+        is_active: bool | None = None,
+    ) -> tuple[list[AlertRule], int]:
         """Lists alert rules for a user with optional filters.
 
         Args:
@@ -214,7 +214,7 @@ class MonitoringService:
 
         return rules, total
 
-    async def get_alert_rule(self, rule_id: str, user_id: str) -> Optional[AlertRule]:
+    async def get_alert_rule(self, rule_id: str, user_id: str) -> AlertRule | None:
         """Retrieves a single alert rule by ID with permission check.
 
         Args:
@@ -237,13 +237,13 @@ class MonitoringService:
     async def list_alerts(
         self,
         user_id: str,
-        alert_type: Optional[str] = None,
-        severity: Optional[str] = None,
-        status: Optional[str] = None,
-        is_read: Optional[bool] = None,
+        alert_type: str | None = None,
+        severity: str | None = None,
+        status: str | None = None,
+        is_read: bool | None = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> tuple[List[Alert], int]:
+    ) -> tuple[list[Alert], int]:
         """Lists alerts for a user with optional filters and pagination.
 
         Args:
@@ -282,7 +282,7 @@ class MonitoringService:
 
         return alerts, total
 
-    async def get_alert(self, alert_id: str, user_id: str) -> Optional[Alert]:
+    async def get_alert(self, alert_id: str, user_id: str) -> Alert | None:
         """Retrieves a single alert by ID with permission check.
 
         Args:
@@ -415,7 +415,7 @@ class MonitoringService:
         else:
             return False
 
-    async def _check_threshold_trigger(self, rule: AlertRule, config: Dict[str, Any]) -> bool:
+    async def _check_threshold_trigger(self, rule: AlertRule, config: dict[str, Any]) -> bool:
         """Evaluates a threshold-based trigger condition.
 
         Compares the current metric value against a configured threshold
@@ -444,7 +444,7 @@ class MonitoringService:
 
         return self._compare(current_value, threshold, config.get("condition", "lt"))
 
-    async def _check_rate_trigger(self, rule: AlertRule, config: Dict[str, Any]) -> bool:
+    async def _check_rate_trigger(self, rule: AlertRule, config: dict[str, Any]) -> bool:
         """Evaluates a rate-of-change trigger condition.
 
         Calculates the change between the current metric value and the
@@ -491,7 +491,7 @@ class MonitoringService:
 
         return self._compare(change, float(threshold), config.get("condition", "gt"))
 
-    async def _check_cross_trigger(self, rule: AlertRule, config: Dict[str, Any]) -> bool:
+    async def _check_cross_trigger(self, rule: AlertRule, config: dict[str, Any]) -> bool:
         """Evaluates a cross-over trigger condition based on two values.
 
         Detects when the difference between two values crosses zero in the
@@ -796,7 +796,7 @@ class MonitoringService:
 
         return True
 
-    async def get_alert_summary(self, user_id: str, recent_limit: int = 10) -> Dict[str, Any]:
+    async def get_alert_summary(self, user_id: str, recent_limit: int = 10) -> dict[str, Any]:
         """Builds a lightweight alert summary for a user.
 
         Provides counts of alerts grouped by type, severity, and status,
@@ -816,9 +816,9 @@ class MonitoringService:
         """
         alerts, total = await self.list_alerts(user_id=user_id, limit=1000, offset=0)
 
-        by_type: Dict[str, int] = {}
-        by_severity: Dict[str, int] = {}
-        by_status: Dict[str, int] = {}
+        by_type: dict[str, int] = {}
+        by_severity: dict[str, int] = {}
+        by_status: dict[str, int] = {}
         for a in alerts:
             at = getattr(a, "alert_type", None)
             sev = getattr(a, "severity", None)
@@ -853,7 +853,7 @@ class MonitoringService:
         user_id: str,
         start_dt: datetime,
         end_dt: datetime,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Computes alert counts grouped by type for a given time range.
 
         Args:
@@ -865,7 +865,7 @@ class MonitoringService:
             A dictionary containing alert counts by type under the key "by_type".
         """
         alerts, _ = await self.list_alerts(user_id=user_id, limit=5000, offset=0)
-        by_type: Dict[str, int] = {}
+        by_type: dict[str, int] = {}
         for a in alerts:
             created_at = getattr(a, "created_at", None)
             if not created_at:
@@ -877,8 +877,8 @@ class MonitoringService:
         return {"by_type": by_type}
 
     async def _get_current_metric_value(
-        self, rule: AlertRule, config: Dict[str, Any]
-    ) -> Optional[float]:
+        self, rule: AlertRule, config: dict[str, Any]
+    ) -> float | None:
         """Resolves the current numeric metric value for a rule based on its type and config.
 
         Fetches real-time data from paper trading, live trading, or backtest

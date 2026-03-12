@@ -61,7 +61,9 @@ async def test_comparison_api_happy_and_error_branches():
     svc = _Svc()
 
     # create
-    req = SimpleNamespace(name="n", description=None, backtest_task_ids=["t1", "t2"], type="metrics")
+    req = SimpleNamespace(
+        name="n", description=None, backtest_task_ids=["t1", "t2"], type="metrics"
+    )
     assert await comparison_api.create_comparison(req, current_user=user, service=svc) is cmp_obj
 
     # detail: 404
@@ -75,20 +77,27 @@ async def test_comparison_api_happy_and_error_branches():
     assert e.value.status_code == 403
 
     # detail: success
-    assert await comparison_api.get_comparison_detail("c1", current_user=user, service=svc) is cmp_obj
+    assert (
+        await comparison_api.get_comparison_detail("c1", current_user=user, service=svc) is cmp_obj
+    )
 
     # update: 404
     with pytest.raises(HTTPException) as e:
-        await comparison_api.update_comparison("missing", SimpleNamespace(model_dump=lambda **k: {}), current_user=user, service=svc)
+        await comparison_api.update_comparison(
+            "missing", SimpleNamespace(model_dump=lambda **k: {}), current_user=user, service=svc
+        )
     assert e.value.status_code == 404
 
     # update: success
-    assert await comparison_api.update_comparison(
-        "c1",
-        SimpleNamespace(model_dump=lambda **k: {"name": "new"}),
-        current_user=user,
-        service=svc,
-    ) is cmp_obj
+    assert (
+        await comparison_api.update_comparison(
+            "c1",
+            SimpleNamespace(model_dump=lambda **k: {"name": "new"}),
+            current_user=user,
+            service=svc,
+        )
+        is cmp_obj
+    )
 
     # delete: 404
     with pytest.raises(HTTPException) as e:
@@ -96,10 +105,14 @@ async def test_comparison_api_happy_and_error_branches():
     assert e.value.status_code == 404
 
     # delete: success
-    assert (await comparison_api.delete_comparison("c1", current_user=user, service=svc))["message"] == "Comparison deleted successfully"
+    assert (await comparison_api.delete_comparison("c1", current_user=user, service=svc))[
+        "message"
+    ] == "Comparison deleted successfully"
 
     # list
-    out = await comparison_api.list_comparisons(current_user=user, service=svc, limit=20, offset=0, is_public=None)
+    out = await comparison_api.list_comparisons(
+        current_user=user, service=svc, limit=20, offset=0, is_public=None
+    )
     assert out.total == 1
 
     # toggle favorite
@@ -109,18 +122,30 @@ async def test_comparison_api_happy_and_error_branches():
 
     # share: 403 when not owner
     with pytest.raises(HTTPException) as e:
-        await comparison_api.share_comparison("c1", {"shared_with_user_ids": ["u3"]}, current_user=other_user, service=svc)
+        await comparison_api.share_comparison(
+            "c1", {"shared_with_user_ids": ["u3"]}, current_user=other_user, service=svc
+        )
     assert e.value.status_code == 403
 
     # share: ok
-    resp = await comparison_api.share_comparison("c1", {"shared_with_user_ids": ["u3"]}, current_user=user, service=svc)
+    resp = await comparison_api.share_comparison(
+        "c1", {"shared_with_user_ids": ["u3"]}, current_user=user, service=svc
+    )
     assert resp["message"] == "Comparison shared successfully"
 
     # data endpoints
-    assert (await comparison_api.get_metrics_comparison("c1", current_user=user, service=svc))["metrics_comparison"] == {"a": 1}
-    assert (await comparison_api.get_equity_comparison("c1", current_user=user, service=svc))["equity_comparison"] == {"b": 2}
-    assert (await comparison_api.get_trades_comparison("c1", current_user=user, service=svc))["trades_comparison"] == {"c": 3}
-    assert (await comparison_api.get_drawdown_comparison("c1", current_user=user, service=svc))["drawdown_comparison"] == {"d": 4}
+    assert (await comparison_api.get_metrics_comparison("c1", current_user=user, service=svc))[
+        "metrics_comparison"
+    ] == {"a": 1}
+    assert (await comparison_api.get_equity_comparison("c1", current_user=user, service=svc))[
+        "equity_comparison"
+    ] == {"b": 2}
+    assert (await comparison_api.get_trades_comparison("c1", current_user=user, service=svc))[
+        "trades_comparison"
+    ] == {"c": 3}
+    assert (await comparison_api.get_drawdown_comparison("c1", current_user=user, service=svc))[
+        "drawdown_comparison"
+    ] == {"d": 4}
 
 
 @pytest.mark.asyncio
@@ -185,11 +210,15 @@ async def test_analytics_api_detail_kline_monthly_export_and_error():
         return fake_result if task_id == "t1" else None
 
     with patch.object(analytics_api, "get_backtest_data", side_effect=_fake_get_backtest_data):
-        detail = await analytics_api.get_backtest_detail("t1", current_user=user, service=svc, backtest_service=object())
+        detail = await analytics_api.get_backtest_detail(
+            "t1", current_user=user, service=svc, backtest_service=object()
+        )
         assert detail.task_id == "t1"
 
         with pytest.raises(HTTPException) as e:
-            await analytics_api.get_backtest_detail("missing", current_user=user, service=svc, backtest_service=object())
+            await analytics_api.get_backtest_detail(
+                "missing", current_user=user, service=svc, backtest_service=object()
+            )
         assert e.value.status_code == 404
 
         kline = await analytics_api.get_kline_with_signals(
@@ -218,7 +247,9 @@ async def test_analytics_api_detail_kline_monthly_export_and_error():
             )
         assert kline2.indicators == {"x": [1.0]}
 
-        monthly = await analytics_api.get_monthly_returns("t1", current_user=user, service=svc, backtest_service=object())
+        monthly = await analytics_api.get_monthly_returns(
+            "t1", current_user=user, service=svc, backtest_service=object()
+        )
         assert monthly == {"years": [], "returns": []}
 
         csv_resp = await analytics_api.export_backtest_results(
@@ -260,7 +291,9 @@ async def test_analytics_get_backtest_data_internal_exception_and_monthly_branch
             raise RuntimeError("boom")
 
     monkeypatch.setattr(analytics_api, "SQLRepository", _RepoBoom, raising=True)
-    monkeypatch.setattr(analytics_api, "find_latest_log_dir", lambda p: Path("/tmp/fallback"), raising=True)
+    monkeypatch.setattr(
+        analytics_api, "find_latest_log_dir", lambda p: Path("/tmp/fallback"), raising=True
+    )
     out = await analytics_api._resolve_log_dir("t1", "s1")
     assert isinstance(out, Path)
 
@@ -280,9 +313,17 @@ async def test_analytics_get_backtest_data_internal_exception_and_monthly_branch
             )
 
     svc = _BacktestSvc()
-    monkeypatch.setattr(analytics_api, "_resolve_log_dir", AsyncMock(return_value=Path("/tmp/logs")), raising=True)
-    monkeypatch.setattr(analytics_api, "parse_value_log", Mock(side_effect=RuntimeError("parse boom")), raising=True)
-    monkeypatch.setattr("app.services.log_parser_service.parse_trade_log", Mock(side_effect=RuntimeError("trade boom")), raising=True)
+    monkeypatch.setattr(
+        analytics_api, "_resolve_log_dir", AsyncMock(return_value=Path("/tmp/logs")), raising=True
+    )
+    monkeypatch.setattr(
+        analytics_api, "parse_value_log", Mock(side_effect=RuntimeError("parse boom")), raising=True
+    )
+    monkeypatch.setattr(
+        "app.services.log_parser_service.parse_trade_log",
+        Mock(side_effect=RuntimeError("trade boom")),
+        raising=True,
+    )
 
     data = await analytics_api.get_backtest_data("t1", svc, user_id="u1")
     assert data is not None
@@ -385,10 +426,14 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
         await bt_api.delete_backtest("missing", current_user=user, service=svc)
     assert e.value.status_code == 404
 
-    pdf = await bt_api.get_pdf_report("t1", current_user=user, backtest_service=svc, report_service=report)
+    pdf = await bt_api.get_pdf_report(
+        "t1", current_user=user, backtest_service=svc, report_service=report
+    )
     assert pdf.media_type == "application/pdf"
 
-    excel = await bt_api.get_excel_report("t1", current_user=user, backtest_service=svc, report_service=report)
+    excel = await bt_api.get_excel_report(
+        "t1", current_user=user, backtest_service=svc, report_service=report
+    )
     assert "spreadsheetml" in excel.media_type
 
     # Optimization method checks.
@@ -402,20 +447,28 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
             return {"ok": True}
 
     with pytest.raises(HTTPException) as e:
-        await bt_api.grid_search_optimization(SimpleNamespace(method="nope"), current_user=user, service=_OptSvc())
+        await bt_api.grid_search_optimization(
+            SimpleNamespace(method="nope"), current_user=user, service=_OptSvc()
+        )
     assert e.value.status_code == 400
 
     with pytest.raises(HTTPException) as e:
-        await bt_api.bayesian_optimization(SimpleNamespace(method="nope"), current_user=user, service=_OptSvc())
+        await bt_api.bayesian_optimization(
+            SimpleNamespace(method="nope"), current_user=user, service=_OptSvc()
+        )
     assert e.value.status_code == 400
 
-    assert await bt_api.bayesian_optimization(opt_req, current_user=user, service=_OptSvc()) == {"ok": True}
+    assert await bt_api.bayesian_optimization(opt_req, current_user=user, service=_OptSvc()) == {
+        "ok": True
+    }
 
     # WebSocket disconnect branch.
     ws = object()
-    with patch.object(bt_api.ws_manager, "connect", new=AsyncMock()), \
-        patch.object(bt_api.ws_manager, "disconnect") as disc, \
-        patch.object(bt_api, "get_backtest_service", return_value=svc):
+    with (
+        patch.object(bt_api.ws_manager, "connect", new=AsyncMock()),
+        patch.object(bt_api.ws_manager, "disconnect") as disc,
+        patch.object(bt_api, "get_backtest_service", return_value=svc),
+    ):
         svc.get_task_status = AsyncMock(side_effect=WebSocketDisconnect())  # type: ignore[method-assign]
         await bt_api.websocket_endpoint(ws, "t1")
         disc.assert_called()

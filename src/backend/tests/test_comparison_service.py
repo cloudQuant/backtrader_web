@@ -16,6 +16,7 @@ Tests:
 - list_comparisons method
 - _to_response method
 """
+
 from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 
@@ -78,9 +79,7 @@ class TestCreateComparison:
         service.comparison_repo.create = AsyncMock(return_value=mock_comparison)
 
         result = await service.create_comparison(
-            user_id="user_123",
-            name="Test Comparison",
-            backtest_task_ids=["task1", "task2"]
+            user_id="user_123", name="Test Comparison", backtest_task_ids=["task1", "task2"]
         )
 
         assert result is not None
@@ -94,9 +93,7 @@ class TestCreateComparison:
 
         with pytest.raises(ValueError) as exc_info:
             await service.create_comparison(
-                user_id="user_123",
-                name="Test Comparison",
-                backtest_task_ids=["invalid_task"]
+                user_id="user_123", name="Test Comparison", backtest_task_ids=["invalid_task"]
             )
 
         assert "not found" in str(exc_info.value)
@@ -138,12 +135,10 @@ class TestGenerateComparisonData:
                 "equity_dates": ["2024-01-01", "2024-01-02"],
                 "drawdown_curve": [0, -0.01],
                 "trades": [],
-            }
+            },
         }
 
-        result = await service._generate_comparison_data(
-            backtest_results, ComparisonType.METRICS
-        )
+        result = await service._generate_comparison_data(backtest_results, ComparisonType.METRICS)
 
         assert "metrics_comparison" in result
         assert "best_metrics" in result
@@ -160,9 +155,7 @@ class TestGenerateComparisonData:
             }
         }
 
-        result = await service._generate_comparison_data(
-            backtest_results, ComparisonType.EQUITY
-        )
+        result = await service._generate_comparison_data(backtest_results, ComparisonType.EQUITY)
 
         assert "equity_comparison" in result
         assert "dates" in result["equity_comparison"]
@@ -181,9 +174,7 @@ class TestGenerateComparisonData:
             }
         }
 
-        result = await service._generate_comparison_data(
-            backtest_results, ComparisonType.TRADES
-        )
+        result = await service._generate_comparison_data(backtest_results, ComparisonType.TRADES)
 
         assert "trades_comparison" in result
         assert "trade_counts" in result["trades_comparison"]
@@ -200,9 +191,7 @@ class TestGenerateComparisonData:
             }
         }
 
-        result = await service._generate_comparison_data(
-            backtest_results, ComparisonType.DRAWDOWN
-        )
+        result = await service._generate_comparison_data(backtest_results, ComparisonType.DRAWDOWN)
 
         assert "drawdown_comparison" in result
         assert "max_drawdowns" in result["drawdown_comparison"]
@@ -230,7 +219,7 @@ class TestCompareMetrics:
                 "sharpe_ratio": 1.2,
                 "max_drawdown": -0.08,
                 "win_rate": 0.55,
-            }
+            },
         }
 
         result = service._compare_metrics(backtest_results)
@@ -265,7 +254,7 @@ class TestFindBestMetrics:
                 "sharpe_ratio": 1.3,
                 "max_drawdown": -0.08,
                 "win_rate": 0.65,
-            }
+            },
         }
 
         result = service._find_best_metrics(backtest_results)
@@ -311,7 +300,7 @@ class TestCompareEquity:
             "task2": {
                 "equity_curve": [100000, 102000, 101000],
                 "equity_dates": ["2024-01-01", "2024-01-02", "2024-01-03"],
-            }
+            },
         }
 
         result = service._compare_equity(backtest_results)
@@ -334,7 +323,7 @@ class TestCompareEquity:
             "task2": {
                 "equity_curve": [100000, 102000],
                 "equity_dates": ["2024-01-01", "2024-01-02"],
-            }
+            },
         }
 
         result = service._compare_equity(backtest_results)
@@ -364,7 +353,7 @@ class TestCompareTrades:
                 "profitable_trades": 22,
                 "losing_trades": 18,
                 "win_rate": 0.55,
-            }
+            },
         }
 
         result = service._compare_trades(backtest_results)
@@ -392,7 +381,7 @@ class TestCompareDrawdown:
             "task2": {
                 "max_drawdown": -0.08,
                 "drawdown_curve": [0, -0.03, -0.08, -0.05],
-            }
+            },
         }
 
         result = service._compare_drawdown(backtest_results)

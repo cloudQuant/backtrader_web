@@ -24,18 +24,39 @@ def create_sample_log_data() -> dict:
     """
     # Create a realistic equity curve
     equity = [
-        100000, 100200, 100500, 100100, 100800,
-        101200, 100900, 101500, 102000, 101800,
-        102500, 103000, 102700, 103200, 103800,
+        100000,
+        100200,
+        100500,
+        100100,
+        100800,
+        101200,
+        100900,
+        101500,
+        102000,
+        101800,
+        102500,
+        103000,
+        102700,
+        103200,
+        103800,
     ]
 
     # Create sample trades
     trades = [
-        {"pnlcomm": 200}, {"pnlcomm": 300}, {"pnlcomm": -400},
-        {"pnlcomm": 700}, {"pnlcomm": 400}, {"pnlcomm": -300},
-        {"pnlcomm": 600}, {"pnlcomm": 500}, {"pnlcomm": -200},
-        {"pnlcomm": 700}, {"pnlcomm": 500}, {"pnlcomm": -300},
-        {"pnlcomm": 500}, {"pnlcomm": 600},
+        {"pnlcomm": 200},
+        {"pnlcomm": 300},
+        {"pnlcomm": -400},
+        {"pnlcomm": 700},
+        {"pnlcomm": 400},
+        {"pnlcomm": -300},
+        {"pnlcomm": 600},
+        {"pnlcomm": 500},
+        {"pnlcomm": -200},
+        {"pnlcomm": 700},
+        {"pnlcomm": 500},
+        {"pnlcomm": -300},
+        {"pnlcomm": 500},
+        {"pnlcomm": 600},
     ]
 
     return {"equity_curve": equity, "trades": trades}
@@ -104,8 +125,8 @@ class TestFincoreVsManualConsistency:
         log_data = create_sample_log_data()
         comparison = compare_calculation_methods(log_data)
 
-        manual_sharpe = comparison["manual"]["sharpe_ratio"]
-        fincore_sharpe = comparison["fincore"]["sharpe_ratio"]
+        comparison["manual"]["sharpe_ratio"]
+        comparison["fincore"]["sharpe_ratio"]
         rel_error = comparison["relative_errors"]["sharpe_ratio"]
 
         # Values should be close (within 0.01% as per AC)
@@ -116,8 +137,8 @@ class TestFincoreVsManualConsistency:
         log_data = create_sample_log_data()
         comparison = compare_calculation_methods(log_data)
 
-        manual_dd = comparison["manual"]["max_drawdown"]
-        fincore_dd = comparison["fincore"]["max_drawdown"]
+        comparison["manual"]["max_drawdown"]
+        comparison["fincore"]["max_drawdown"]
         rel_error = comparison["relative_errors"]["max_drawdown"]
 
         # Drawdown should be very close (same calculation logic)
@@ -128,8 +149,8 @@ class TestFincoreVsManualConsistency:
         log_data = create_sample_log_data()
         comparison = compare_calculation_methods(log_data)
 
-        manual_return = comparison["manual"]["total_return"]
-        fincore_return = comparison["fincore"]["total_return"]
+        comparison["manual"]["total_return"]
+        comparison["fincore"]["total_return"]
         rel_error = comparison["relative_errors"]["total_return"]
 
         # Should be identical (same formula)
@@ -140,8 +161,8 @@ class TestFincoreVsManualConsistency:
         log_data = create_sample_log_data()
         comparison = compare_calculation_methods(log_data)
 
-        manual_annual = comparison["manual"]["annual_return"]
-        fincore_annual = comparison["fincore"]["annual_return"]
+        comparison["manual"]["annual_return"]
+        comparison["fincore"]["annual_return"]
         rel_error = comparison["relative_errors"]["annual_return"]
 
         # Should be very close
@@ -152,8 +173,8 @@ class TestFincoreVsManualConsistency:
         log_data = create_sample_log_data()
         comparison = compare_calculation_methods(log_data)
 
-        manual_wr = comparison["manual"]["win_rate"]
-        fincore_wr = comparison["fincore"]["win_rate"]
+        comparison["manual"]["win_rate"]
+        comparison["fincore"]["win_rate"]
         rel_error = comparison["relative_errors"]["win_rate"]
 
         # Should be identical (same counting logic)
@@ -179,10 +200,7 @@ class TestFincoreIntegrationEdgeCases:
 
     def test_single_day_equity(self):
         """Test with only one day of equity data."""
-        log_data = {
-            "equity_curve": [100000],
-            "trades": []
-        }
+        log_data = {"equity_curve": [100000], "trades": []}
 
         result = calculate_metrics_from_log_data(log_data, use_fincore=True)
 
@@ -193,10 +211,7 @@ class TestFincoreIntegrationEdgeCases:
 
     def test_constant_equity(self):
         """Test with constant equity (no change)."""
-        log_data = {
-            "equity_curve": [100000, 100000, 100000, 100000],
-            "trades": []
-        }
+        log_data = {"equity_curve": [100000, 100000, 100000, 100000], "trades": []}
 
         result_manual = calculate_metrics_from_log_data(log_data, use_fincore=False)
         result_fincore = calculate_metrics_from_log_data(log_data, use_fincore=True)
@@ -212,10 +227,7 @@ class TestFincoreIntegrationEdgeCases:
             {"pnlcomm": 200},
             {"pnlcomm": 150},
         ]
-        log_data = {
-            "equity_curve": [100000, 100100, 100300, 100450],
-            "trades": trades
-        }
+        log_data = {"equity_curve": [100000, 100100, 100300, 100450], "trades": trades}
 
         result = calculate_metrics_from_log_data(log_data, use_fincore=True)
 
@@ -231,10 +243,7 @@ class TestFincoreIntegrationEdgeCases:
             {"pnlcomm": -200},
             {"pnlcomm": -150},
         ]
-        log_data = {
-            "equity_curve": [100000, 99900, 99700, 99550],
-            "trades": trades
-        }
+        log_data = {"equity_curve": [100000, 99900, 99700, 99550], "trades": trades}
 
         result = calculate_metrics_from_log_data(log_data, use_fincore=True)
 
@@ -254,7 +263,7 @@ class TestFincoreIntegrationEdgeCases:
                 {"pnlcomm": -15000},
                 {"pnlcomm": -10000},
                 {"pnlcomm": 5000},
-            ]
+            ],
         }
 
         comparison = compare_calculation_methods(log_data)
@@ -279,14 +288,17 @@ class TestFincoreIntegrationRealisticScenarios:
     def test_profitable_strategy(self):
         """Test metrics for a profitable strategy."""
         # Simulate a profitable strategy with some volatility
-        equity = [
-            100000, 100500, 101200, 100800, 102500,
-            103000, 102200, 104000, 105500, 106800
-        ]
+        equity = [100000, 100500, 101200, 100800, 102500, 103000, 102200, 104000, 105500, 106800]
         trades = [
-            {"pnlcomm": 500}, {"pnlcomm": 700}, {"pnlcomm": -400},
-            {"pnlcomm": 1700}, {"pnlcomm": 500}, {"pnlcomm": -800},
-            {"pnlcomm": 1800}, {"pnlcomm": 1500}, {"pnlcomm": 1300},
+            {"pnlcomm": 500},
+            {"pnlcomm": 700},
+            {"pnlcomm": -400},
+            {"pnlcomm": 1700},
+            {"pnlcomm": 500},
+            {"pnlcomm": -800},
+            {"pnlcomm": 1800},
+            {"pnlcomm": 1500},
+            {"pnlcomm": 1300},
         ]
 
         log_data = {"equity_curve": equity, "trades": trades}
@@ -303,14 +315,17 @@ class TestFincoreIntegrationRealisticScenarios:
     def test_volatile_strategy(self):
         """Test metrics for a highly volatile strategy."""
         # Create volatile equity curve
-        equity = [
-            100000, 95000, 108000, 92000, 105000,
-            98000, 112000, 89000, 103000, 97000
-        ]
+        equity = [100000, 95000, 108000, 92000, 105000, 98000, 112000, 89000, 103000, 97000]
         trades = [
-            {"pnlcomm": -5000}, {"pnlcomm": 13000}, {"pnlcomm": -16000},
-            {"pnlcomm": 13000}, {"pnlcomm": -7000}, {"pnlcomm": 14000},
-            {"pnlcomm": -23000}, {"pnlcomm": 14000}, {"pnlcomm": -6000},
+            {"pnlcomm": -5000},
+            {"pnlcomm": 13000},
+            {"pnlcomm": -16000},
+            {"pnlcomm": 13000},
+            {"pnlcomm": -7000},
+            {"pnlcomm": 14000},
+            {"pnlcomm": -23000},
+            {"pnlcomm": 14000},
+            {"pnlcomm": -6000},
         ]
 
         log_data = {"equity_curve": equity, "trades": trades}
@@ -335,7 +350,7 @@ class TestFincoreIntegrationRealisticScenarios:
 
         # Generate corresponding trades
         trades = []
-        for i in range(50):
+        for _i in range(50):
             pnl = np.random.normal(100, 500)
             trades.append({"pnlcomm": pnl})
 

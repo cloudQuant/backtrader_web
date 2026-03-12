@@ -3,7 +3,6 @@ Authentication service.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,7 +47,7 @@ class AuthService:
         self.user_repo = SQLRepository(User)
         self.refresh_token_repo = SQLRepository(RefreshToken)
 
-    def _get_user_repo(self, session: Optional[AsyncSession] = None) -> SQLRepository[User]:
+    def _get_user_repo(self, session: AsyncSession | None = None) -> SQLRepository[User]:
         """Return a user repository bound to the requested session scope."""
         if session is None or not isinstance(self.user_repo, SQLRepository):
             return self.user_repo
@@ -56,7 +55,7 @@ class AuthService:
 
     def _get_refresh_token_repo(
         self,
-        session: Optional[AsyncSession] = None,
+        session: AsyncSession | None = None,
     ) -> SQLRepository[RefreshToken]:
         """Return a refresh-token repository bound to the requested session scope."""
         if session is None or not isinstance(self.refresh_token_repo, SQLRepository):
@@ -119,7 +118,7 @@ class AuthService:
         await session.flush()
         return len(tokens)
 
-    async def register(self, user_create: UserCreate) -> Optional[UserResponse]:
+    async def register(self, user_create: UserCreate) -> UserResponse | None:
         """Register a new user.
 
         Args:
@@ -157,7 +156,7 @@ class AuthService:
             created_at=user.created_at,
         )
 
-    async def login(self, user_login: UserLogin) -> Optional[Token]:
+    async def login(self, user_login: UserLogin) -> Token | None:
         """Authenticate a user and generate JWT token.
 
         Args:
@@ -191,7 +190,7 @@ class AuthService:
             expires_in=settings.JWT_EXPIRE_MINUTES * 60,
         )
 
-    async def login_with_refresh(self, user_login: UserLogin) -> Optional[RefreshTokenResponse]:
+    async def login_with_refresh(self, user_login: UserLogin) -> RefreshTokenResponse | None:
         """Authenticate a user and generate JWT tokens with refresh token.
 
         Args:
@@ -236,7 +235,7 @@ class AuthService:
             expires_in=settings.JWT_EXPIRE_MINUTES * 60,
         )
 
-    async def refresh_tokens(self, request: RefreshTokenRequest) -> Optional[RefreshTokenResponse]:
+    async def refresh_tokens(self, request: RefreshTokenRequest) -> RefreshTokenResponse | None:
         """Refresh access token using refresh token.
 
         Args:
@@ -357,7 +356,7 @@ class AuthService:
 
         return True
 
-    async def get_user_by_id(self, user_id: str) -> Optional[UserResponse]:
+    async def get_user_by_id(self, user_id: str) -> UserResponse | None:
         """Get user by ID.
 
         Args:

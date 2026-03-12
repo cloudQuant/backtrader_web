@@ -9,7 +9,6 @@ Provides:
 
 import asyncio
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -80,9 +79,9 @@ async def create_alert_rule(
 async def list_alert_rules(
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-    alert_type: Optional[str] = Query(None, description="Alert type filter"),
-    severity: Optional[str] = Query(None, description="Alert severity filter"),
-    is_active: Optional[bool] = Query(None, description="Active status filter"),
+    alert_type: str | None = Query(None, description="Alert type filter"),
+    severity: str | None = Query(None, description="Alert severity filter"),
+    is_active: bool | None = Query(None, description="Active status filter"),
 ):
     """Get the current user's alert rule list.
 
@@ -199,10 +198,10 @@ async def delete_alert_rule(
 async def list_alerts(
     current_user=Depends(get_current_user),
     service: MonitoringService = Depends(get_monitoring_service),
-    alert_type: Optional[str] = Query(None, description="Alert type filter"),
-    severity: Optional[str] = Query(None, description="Alert severity filter"),
-    status: Optional[str] = Query(None, description="Alert status filter"),
-    is_read: Optional[bool] = Query(None, description="Read status filter"),
+    alert_type: str | None = Query(None, description="Alert type filter"),
+    severity: str | None = Query(None, description="Alert severity filter"),
+    status: str | None = Query(None, description="Alert status filter"),
+    is_read: bool | None = Query(None, description="Read status filter"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):

@@ -1,6 +1,7 @@
 """
 Tests for environment variable validation.
 """
+
 import os
 
 import pytest
@@ -24,8 +25,8 @@ class TestSettingsValidation:
     def test_secret_key_validation_default_in_production(self):
         """Test that default secret key is rejected in production."""
         # Simulate production environment
-        os.environ['DEBUG'] = 'false'
-        os.environ['SECRET_KEY'] = 'your-secret-key-change-in-production'
+        os.environ["DEBUG"] = "false"
+        os.environ["SECRET_KEY"] = "your-secret-key-change-in-production"
 
         with pytest.raises(ValidationError) as exc_info:
             Settings()
@@ -33,8 +34,8 @@ class TestSettingsValidation:
         assert "Default secret key detected" in str(exc_info.value)
 
         # Cleanup
-        del os.environ['DEBUG']
-        del os.environ['SECRET_KEY']
+        del os.environ["DEBUG"]
+        del os.environ["SECRET_KEY"]
 
     def test_secret_key_length_validation(self):
         """Test that short secret keys are rejected."""
@@ -45,8 +46,8 @@ class TestSettingsValidation:
 
     def test_jwt_secret_key_validation_default_in_production(self):
         """Test that default JWT secret is rejected in production."""
-        os.environ['DEBUG'] = 'false'
-        os.environ['JWT_SECRET_KEY'] = 'your-jwt-secret-change-in-production'
+        os.environ["DEBUG"] = "false"
+        os.environ["JWT_SECRET_KEY"] = "your-jwt-secret-change-in-production"
 
         with pytest.raises(ValidationError) as exc_info:
             Settings()
@@ -54,34 +55,34 @@ class TestSettingsValidation:
         assert "Default secret key detected" in str(exc_info.value)
 
         # Cleanup
-        del os.environ['DEBUG']
-        del os.environ['JWT_SECRET_KEY']
+        del os.environ["DEBUG"]
+        del os.environ["JWT_SECRET_KEY"]
 
     def test_custom_secret_key_passes_in_production(self):
         """Test that custom secret keys pass validation in production."""
-        os.environ['DEBUG'] = 'false'
-        os.environ['SECRET_KEY'] = 'a' * 32
-        os.environ['JWT_SECRET_KEY'] = 'b' * 32
+        os.environ["DEBUG"] = "false"
+        os.environ["SECRET_KEY"] = "a" * 32
+        os.environ["JWT_SECRET_KEY"] = "b" * 32
 
         settings = Settings()
-        assert settings.SECRET_KEY == 'a' * 32
-        assert settings.JWT_SECRET_KEY == 'b' * 32
+        assert settings.SECRET_KEY == "a" * 32
+        assert settings.JWT_SECRET_KEY == "b" * 32
 
         # Cleanup
-        del os.environ['DEBUG']
-        del os.environ['SECRET_KEY']
-        del os.environ['JWT_SECRET_KEY']
+        del os.environ["DEBUG"]
+        del os.environ["SECRET_KEY"]
+        del os.environ["JWT_SECRET_KEY"]
 
     def test_database_type_validation(self):
         """Test that only supported database types are accepted."""
         # Valid types should work
-        for db_type in ['sqlite', 'postgresql', 'mysql']:
+        for db_type in ["sqlite", "postgresql", "mysql"]:
             settings = Settings(DATABASE_TYPE=db_type)
             assert settings.DATABASE_TYPE == db_type.lower()
 
         # Invalid type should fail
         with pytest.raises(ValidationError) as exc_info:
-            Settings(DATABASE_TYPE='mongodb')
+            Settings(DATABASE_TYPE="mongodb")
 
         assert "Unsupported DATABASE_TYPE" in str(exc_info.value)
 
@@ -137,6 +138,7 @@ class TestSettingsValidation:
     def test_admin_password_warning(self):
         """Test that using default admin password triggers warning."""
         import warnings
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             Settings(ADMIN_PASSWORD="admin123")
@@ -148,6 +150,7 @@ class TestSettingsValidation:
     def test_custom_admin_password_no_warning(self):
         """Test that custom admin password doesn't trigger warning."""
         import warnings
+
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             Settings(ADMIN_PASSWORD="SecurePass@123!")
@@ -169,7 +172,10 @@ class TestSettingsValidation:
         # The model_config is a SettingsConfigDict instance
         assert settings.model_config is not None
         # Check that env_file was configured (it's in the model config)
-        assert "env_file" in str(settings.model_config).lower() or ".env" in str(settings.model_config).lower()
+        assert (
+            "env_file" in str(settings.model_config).lower()
+            or ".env" in str(settings.model_config).lower()
+        )
 
 
 class TestSettingsInProduction:
@@ -177,7 +183,7 @@ class TestSettingsInProduction:
 
     def test_production_requires_secure_secrets(self):
         """Test that production environment enforces secure secrets."""
-        os.environ['DEBUG'] = 'false'
+        os.environ["DEBUG"] = "false"
 
         # Should fail with default secret
         with pytest.raises(ValidationError):
@@ -189,11 +195,11 @@ class TestSettingsInProduction:
         assert settings.SECRET_KEY == secure_secret
 
         # Cleanup
-        del os.environ['DEBUG']
+        del os.environ["DEBUG"]
 
     def test_production_with_custom_short_secret_fails(self):
         """Test that even custom secrets must be long enough in production."""
-        os.environ['DEBUG'] = 'false'
+        os.environ["DEBUG"] = "false"
         short_secret = "a" * 20  # Only 20 characters
 
         with pytest.raises(ValidationError) as exc_info:
@@ -202,7 +208,7 @@ class TestSettingsInProduction:
         assert "at least 32 characters" in str(exc_info.value)
 
         # Cleanup
-        del os.environ['DEBUG']
+        del os.environ["DEBUG"]
 
 
 class TestSettingsSecurityDefaults:
@@ -239,7 +245,7 @@ class TestSettingsIntegration:
             DATABASE_TYPE="sqlite",
             HOST="localhost",
             PORT=8000,
-            CORS_ORIGINS="http://localhost:3000"
+            CORS_ORIGINS="http://localhost:3000",
         )
         assert settings.DEBUG is True
         assert settings.DATABASE_TYPE == "sqlite"
@@ -252,7 +258,7 @@ class TestSettingsIntegration:
             JWT_SECRET_KEY="staging-jwt-secret-key-at-least-32-chars",
             DATABASE_TYPE="postgresql",
             DATABASE_URL="postgresql://user:pass@localhost/backtrader_staging",
-            PORT=8000
+            PORT=8000,
         )
         assert settings.DEBUG is False
         assert settings.DATABASE_TYPE == "postgresql"

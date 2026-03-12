@@ -6,6 +6,7 @@ Tests:
 - Data format validation
 - Error handling
 """
+
 import sys
 from unittest.mock import patch
 
@@ -17,15 +18,17 @@ from httpx import AsyncClient
 @pytest.fixture
 def mock_akshare_response():
     """Mock akshare response data - using Chinese column names as returned by akshare"""
-    df = pd.DataFrame({
-        '日期': ['2024-01-01', '2024-01-02', '2024-01-03'],
-        '开盘': [10.0, 10.3, 10.5],
-        '最高': [10.5, 10.8, 11.0],
-        '最低': [9.8, 10.0, 10.2],
-        '收盘': [10.3, 10.6, 10.8],
-        '成交量': [1000000, 1200000, 1500000],
-        '涨跌幅': [2.5, 1.5, 2.0],
-    })
+    df = pd.DataFrame(
+        {
+            "日期": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "开盘": [10.0, 10.3, 10.5],
+            "最高": [10.5, 10.8, 11.0],
+            "最低": [9.8, 10.0, 10.2],
+            "收盘": [10.3, 10.6, 10.8],
+            "成交量": [1000000, 1200000, 1500000],
+            "涨跌幅": [2.5, 1.5, 2.0],
+        }
+    )
     return df
 
 
@@ -37,7 +40,7 @@ class TestKlineData:
         """Test authentication required"""
         response = await client.get(
             "/api/v1/data/kline",
-            params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"}
+            params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
         )
         # API may return 401 or 403
         assert response.status_code in [401, 403]
@@ -48,8 +51,11 @@ class TestKlineData:
         # Validation error - missing required parameters or not authenticated
         assert response.status_code in [401, 403, 422]
 
-    async def test_get_kline_with_auth(self, client: AsyncClient, auth_headers, mock_akshare_response, monkeypatch):
+    async def test_get_kline_with_auth(
+        self, client: AsyncClient, auth_headers, mock_akshare_response, monkeypatch
+    ):
         """Test authenticated K-line query"""
+
         # Avoid network dependency: stub akshare import used by the endpoint.
         class _DummyAk:
             @staticmethod
@@ -60,11 +66,13 @@ class TestKlineData:
         response = await client.get(
             "/api/v1/data/kline",
             params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
-            headers=auth_headers
+            headers=auth_headers,
         )
         assert response.status_code == 200
 
-    async def test_get_kline_different_periods(self, client: AsyncClient, auth_headers, mock_akshare_response, monkeypatch):
+    async def test_get_kline_different_periods(
+        self, client: AsyncClient, auth_headers, mock_akshare_response, monkeypatch
+    ):
         """Test different periods"""
         periods = ["daily", "weekly", "monthly"]
 
@@ -78,7 +86,7 @@ class TestKlineData:
         for period in periods:
             response = await client.get(
                 f"/api/v1/data/kline?symbol=000001.SZ&start_date=2024-01-01&end_date=2024-01-31&period={period}",
-                headers=auth_headers
+                headers=auth_headers,
             )
             assert response.status_code == 200
 
@@ -91,21 +99,21 @@ class TestDataHelpers:
         """Test date parsing"""
         # Test API internal date conversion logic
         start_date = "2024-01-01"
-        start_str = start_date.replace('-', '')
+        start_str = start_date.replace("-", "")
         assert start_str == "20240101"
 
         end_date = "2024-12-31"
-        end_str = end_date.replace('-', '')
+        end_str = end_date.replace("-", "")
         assert end_str == "20241231"
 
     async def test_symbol_parsing(self):
         """Test stock code parsing"""
         symbol = "000001.SZ"
-        code = symbol.split('.')[0]
+        code = symbol.split(".")[0]
         assert code == "000001"
 
         symbol = "600000.SH"
-        code = symbol.split('.')[0]
+        code = symbol.split(".")[0]
         assert code == "600000"
 
 
@@ -115,14 +123,9 @@ class TestDataValidation:
 
     async def test_valid_stock_codes(self):
         """Test valid stock code formats"""
-        valid_codes = [
-            "000001.SZ",
-            "600000.SH",
-            "300001.SZ",
-            "688001.SH"
-        ]
+        valid_codes = ["000001.SZ", "600000.SH", "300001.SZ", "688001.SH"]
         for code in valid_codes:
-            parts = code.split('.')
+            parts = code.split(".")
             assert len(parts) == 2
             assert parts[1] in ["SZ", "SH"]
 
@@ -136,7 +139,7 @@ class TestDataValidation:
             try:
                 datetime.strptime(date_str, "%Y-%m-%d")
             except ValueError:
-                assert False, f"Invalid date format: {date_str}"
+                raise AssertionError(f"Invalid date format: {date_str}")
             else:
                 assert True
 
@@ -163,7 +166,7 @@ class TestDataAPIRoutes:
 
         # Check route exists
         assert data_router is not None
-        assert hasattr(data_router, 'routes')
+        assert hasattr(data_router, "routes")
 
     async def test_kline_endpoint_exists(self):
         """Test K-line endpoint exists"""
@@ -187,7 +190,7 @@ class TestDataModels:
             "kline": {
                 "dates": ["2024-01-01", "2024-01-02"],
                 "ohlc": [[10.0, 10.5, 9.8, 10.3], [10.3, 10.8, 10.0, 10.6]],
-                "volumes": [1000000, 1200000]
+                "volumes": [1000000, 1200000],
             },
             "records": [
                 {
@@ -197,9 +200,9 @@ class TestDataModels:
                     "low": 9.8,
                     "close": 10.3,
                     "volume": 1000000,
-                    "change": 2.5
+                    "change": 2.5,
                 }
-            ]
+            ],
         }
 
         # Verify response structure
@@ -216,15 +219,21 @@ class TestDataModels:
 class TestKlineDataWithMock:
     """K-line data tests - using mock akshare"""
 
-    async def test_get_kline_success_with_mock(self, client: AsyncClient, auth_headers, mock_akshare_response):
+    async def test_get_kline_success_with_mock(
+        self, client: AsyncClient, auth_headers, mock_akshare_response
+    ):
         """Test successful K-line data retrieval - using mock"""
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
-                headers=auth_headers
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 200
             data = response.json()
@@ -238,41 +247,58 @@ class TestKlineDataWithMock:
 
     async def test_get_kline_empty_dataframe(self, client: AsyncClient, auth_headers):
         """Test empty DataFrame case"""
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             # Return empty DataFrame
             mock_ak.return_value = pd.DataFrame()
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
-                headers=auth_headers
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 404
             assert "No data retrieved" in response.json()["detail"]
 
     async def test_get_kline_exception_handling(self, client: AsyncClient, auth_headers):
         """Test exception handling"""
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             # Simulate network error
             mock_ak.side_effect = Exception("Network error")
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
-                headers=auth_headers
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 500
-            assert "Query failed" in response.json()["detail"] or "query failed" in response.json()["detail"]
+            assert (
+                "Query failed" in response.json()["detail"]
+                or "query failed" in response.json()["detail"]
+            )
 
-    async def test_get_kline_data_transformation(self, client: AsyncClient, auth_headers, mock_akshare_response):
+    async def test_get_kline_data_transformation(
+        self, client: AsyncClient, auth_headers, mock_akshare_response
+    ):
         """Test data transformation logic"""
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
-                headers=auth_headers
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 200
             data = response.json()
@@ -301,9 +327,11 @@ class TestKlineDataWithMock:
             assert "volume" in first_record
             assert "change" in first_record
 
-    async def test_get_kline_with_weekly_period(self, client: AsyncClient, auth_headers, mock_akshare_response):
+    async def test_get_kline_with_weekly_period(
+        self, client: AsyncClient, auth_headers, mock_akshare_response
+    ):
         """Test weekly data"""
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
             response = await client.get(
@@ -312,17 +340,19 @@ class TestKlineDataWithMock:
                     "symbol": "000001.SZ",
                     "start_date": "2024-01-01",
                     "end_date": "2024-01-31",
-                    "period": "weekly"
+                    "period": "weekly",
                 },
-                headers=auth_headers
+                headers=auth_headers,
             )
             assert response.status_code == 200
             # Verify akshare was called correctly
             mock_ak.assert_called_once()
 
-    async def test_get_kline_with_monthly_period(self, client: AsyncClient, auth_headers, mock_akshare_response):
+    async def test_get_kline_with_monthly_period(
+        self, client: AsyncClient, auth_headers, mock_akshare_response
+    ):
         """Test monthly data"""
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
             response = await client.get(
@@ -331,63 +361,81 @@ class TestKlineDataWithMock:
                     "symbol": "000001.SZ",
                     "start_date": "2024-01-01",
                     "end_date": "2024-12-31",
-                    "period": "monthly"
+                    "period": "monthly",
                 },
-                headers=auth_headers
+                headers=auth_headers,
             )
             assert response.status_code == 200
 
-    async def test_get_kline_symbol_parsing(self, client: AsyncClient, auth_headers, mock_akshare_response):
+    async def test_get_kline_symbol_parsing(
+        self, client: AsyncClient, auth_headers, mock_akshare_response
+    ):
         """Test stock code parsing"""
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "600000.SH", "start_date": "2024-01-01", "end_date": "2024-01-31"},
-                headers=auth_headers
+                params={
+                    "symbol": "600000.SH",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 200
             # Verify akshare was called with correct code (without suffix)
             call_args = mock_ak.call_args
-            assert call_args.kwargs['symbol'] == '600000'
+            assert call_args.kwargs["symbol"] == "600000"
 
-    async def test_get_kline_date_format_conversion(self, client: AsyncClient, auth_headers, mock_akshare_response):
+    async def test_get_kline_date_format_conversion(
+        self, client: AsyncClient, auth_headers, mock_akshare_response
+    ):
         """Test date format conversion"""
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = mock_akshare_response
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
-                headers=auth_headers
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 200
             # Verify date format was converted correctly
             call_args = mock_ak.call_args
-            assert call_args.kwargs['start_date'] == '20240101'
-            assert call_args.kwargs['end_date'] == '20240131'
+            assert call_args.kwargs["start_date"] == "20240101"
+            assert call_args.kwargs["end_date"] == "20240131"
 
     async def test_get_kline_column_rename(self, client: AsyncClient, auth_headers):
         """Test column renaming"""
         # Create DataFrame with Chinese column names (as returned by akshare)
-        df = pd.DataFrame({
-            '日期': ['2024-01-01'],
-            '开盘': [10.0],
-            '最高': [10.5],
-            '最低': [9.8],
-            '收盘': [10.3],
-            '成交量': [1000000],
-            '涨跌幅': [2.5],
-        })
+        df = pd.DataFrame(
+            {
+                "日期": ["2024-01-01"],
+                "开盘": [10.0],
+                "最高": [10.5],
+                "最低": [9.8],
+                "收盘": [10.3],
+                "成交量": [1000000],
+                "涨跌幅": [2.5],
+            }
+        )
 
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = df
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-31"},
-                headers=auth_headers
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-31",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 200
             data = response.json()
@@ -406,23 +454,29 @@ class TestKlineDataEdgeCases:
 
     async def test_get_kline_single_record(self, client: AsyncClient, auth_headers):
         """Test single record case"""
-        df = pd.DataFrame({
-            '日期': ['2024-01-01'],
-            '开盘': [10.0],
-            '最高': [10.5],
-            '最低': [9.8],
-            '收盘': [10.3],
-            '成交量': [1000000],
-            '涨跌幅': [2.5],
-        })
+        df = pd.DataFrame(
+            {
+                "日期": ["2024-01-01"],
+                "开盘": [10.0],
+                "最高": [10.5],
+                "最低": [9.8],
+                "收盘": [10.3],
+                "成交量": [1000000],
+                "涨跌幅": [2.5],
+            }
+        )
 
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = df
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-01"},
-                headers=auth_headers
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-01",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 200
             data = response.json()
@@ -431,23 +485,29 @@ class TestKlineDataEdgeCases:
 
     async def test_get_kline_missing_change_pct(self, client: AsyncClient, auth_headers):
         """Test missing change percentage column case"""
-        df = pd.DataFrame({
-            '日期': ['2024-01-01'],
-            '开盘': [10.0],
-            '最高': [10.5],
-            '最低': [9.8],
-            '收盘': [10.3],
-            '成交量': [1000000],
-            # Missing change_pct column
-        })
+        df = pd.DataFrame(
+            {
+                "日期": ["2024-01-01"],
+                "开盘": [10.0],
+                "最高": [10.5],
+                "最低": [9.8],
+                "收盘": [10.3],
+                "成交量": [1000000],
+                # Missing change_pct column
+            }
+        )
 
-        with patch('akshare.stock_zh_a_hist') as mock_ak:
+        with patch("akshare.stock_zh_a_hist") as mock_ak:
             mock_ak.return_value = df
 
             response = await client.get(
                 "/api/v1/data/kline",
-                params={"symbol": "000001.SZ", "start_date": "2024-01-01", "end_date": "2024-01-01"},
-                headers=auth_headers
+                params={
+                    "symbol": "000001.SZ",
+                    "start_date": "2024-01-01",
+                    "end_date": "2024-01-01",
+                },
+                headers=auth_headers,
             )
             assert response.status_code == 200
             data = response.json()

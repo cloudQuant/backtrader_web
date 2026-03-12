@@ -21,6 +21,10 @@ symbol:
 # 策略参数
 # ============================================================
 params:
+  stake: 10
+  period: 20
+  oversold: -100
+  overbought: 100
 
 # ============================================================
 # 数据配置
@@ -70,15 +74,11 @@ live:
   symbol: "TA2609"
   network: "telecom"
   bar_seconds: 15
-  duration_seconds: 3600
-  session_timeout: 3700
+  duration_seconds: 86400
+  session_timeout: 86500
   min_price_tick: 2.0
   max_order_size: 1
   contract_metadata:
-    TA2509:
-      min_price_tick: 2.0
-      max_order_size: 1
-
     TA2609:
       min_price_tick: 1.0
       max_order_size: 1

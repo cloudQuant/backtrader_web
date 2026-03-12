@@ -41,6 +41,7 @@ class User(Base):
     # Relationships
     strategies = relationship("Strategy", back_populates="user")
     backtest_tasks = relationship("BacktestTask", back_populates="user")
+    optimization_tasks = relationship("OptimizationTask", back_populates="user")
     comparisons = relationship("Comparison", back_populates="user")
     paper_trading_accounts = relationship("Account", back_populates="user")
     alerts = relationship("Alert", back_populates="user")

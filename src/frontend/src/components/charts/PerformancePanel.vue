@@ -1,6 +1,8 @@
 <template>
   <div class="performance-panel">
-    <h3 class="text-lg font-semibold mb-4">绩效概览</h3>
+    <h3 class="text-lg font-semibold mb-4">
+      绩效概览
+    </h3>
     
     <!-- 主要指标 -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">

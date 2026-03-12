@@ -2,8 +2,8 @@
 Session provider and unit-of-work helpers for database transactions.
 """
 
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

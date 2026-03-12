@@ -65,7 +65,9 @@ async def test_redis_cache_get_set_branches(monkeypatch):
     # Patch redis.asyncio.from_url used inside RedisCache.__init__
     import redis.asyncio as redis_asyncio
 
-    monkeypatch.setattr(redis_asyncio, "from_url", lambda *_args, **_kwargs: FakeRedis(), raising=True)
+    monkeypatch.setattr(
+        redis_asyncio, "from_url", lambda *_args, **_kwargs: FakeRedis(), raising=True
+    )
 
     cache = RedisCache("redis://localhost:6379/0")
     assert await cache.get("k") == {"a": 1}
@@ -84,7 +86,9 @@ def test_get_cache_uses_redis_when_configured(monkeypatch):
     import app.db.cache as cache_module
 
     cache_module._cache_instance = None
-    monkeypatch.setattr(cache_module, "get_settings", lambda: SimpleNamespace(REDIS_URL="redis://x"), raising=True)
+    monkeypatch.setattr(
+        cache_module, "get_settings", lambda: SimpleNamespace(REDIS_URL="redis://x"), raising=True
+    )
 
     # Avoid touching a real Redis client, patch the RedisCache class constructor.
     class DummyRedisCache:
@@ -96,4 +100,3 @@ def test_get_cache_uses_redis_when_configured(monkeypatch):
     cache = cache_module.get_cache()
     assert isinstance(cache, DummyRedisCache)
     assert cache.url == "redis://x"
-

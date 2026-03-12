@@ -1,4 +1,5 @@
 """Strategy API tests."""
+
 from httpx import AsyncClient
 
 SAMPLE_CODE = "import backtrader as bt\nclass TestStrategy(bt.Strategy): pass"
@@ -17,13 +18,17 @@ class TestStrategyCreate:
         Returns:
             None
         """
-        resp = await client.post("/api/v1/strategy/", headers=auth_headers, json={
-            "name": "Test Strategy",
-            "description": "Test strategy description",
-            "code": SAMPLE_CODE,
-            "params": {},
-            "category": "custom",
-        })
+        resp = await client.post(
+            "/api/v1/strategy/",
+            headers=auth_headers,
+            json={
+                "name": "Test Strategy",
+                "description": "Test strategy description",
+                "code": SAMPLE_CODE,
+                "params": {},
+                "category": "custom",
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert data["name"] == "Test Strategy"
@@ -39,9 +44,13 @@ class TestStrategyCreate:
         Returns:
             None
         """
-        resp = await client.post("/api/v1/strategy/", json={
-            "name": "NoAuth", "code": SAMPLE_CODE,
-        })
+        resp = await client.post(
+            "/api/v1/strategy/",
+            json={
+                "name": "NoAuth",
+                "code": SAMPLE_CODE,
+            },
+        )
         assert resp.status_code == 401  # Unauthorized when no token provided
 
     async def test_create_empty_name(self, client: AsyncClient, auth_headers: dict):
@@ -54,9 +63,14 @@ class TestStrategyCreate:
         Returns:
             None
         """
-        resp = await client.post("/api/v1/strategy/", headers=auth_headers, json={
-            "name": "", "code": SAMPLE_CODE,
-        })
+        resp = await client.post(
+            "/api/v1/strategy/",
+            headers=auth_headers,
+            json={
+                "name": "",
+                "code": SAMPLE_CODE,
+            },
+        )
         assert resp.status_code == 422
 
 
@@ -73,9 +87,14 @@ class TestStrategyList:
         Returns:
             None
         """
-        await client.post("/api/v1/strategy/", headers=auth_headers, json={
-            "name": "List Strategy", "code": SAMPLE_CODE,
-        })
+        await client.post(
+            "/api/v1/strategy/",
+            headers=auth_headers,
+            json={
+                "name": "List Strategy",
+                "code": SAMPLE_CODE,
+            },
+        )
         resp = await client.get("/api/v1/strategy/", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
@@ -92,12 +111,24 @@ class TestStrategyList:
         Returns:
             None
         """
-        await client.post("/api/v1/strategy/", headers=auth_headers, json={
-            "name": "Trend Strategy", "code": SAMPLE_CODE, "category": "trend",
-        })
-        await client.post("/api/v1/strategy/", headers=auth_headers, json={
-            "name": "Mean Reversion", "code": SAMPLE_CODE, "category": "mean_reversion",
-        })
+        await client.post(
+            "/api/v1/strategy/",
+            headers=auth_headers,
+            json={
+                "name": "Trend Strategy",
+                "code": SAMPLE_CODE,
+                "category": "trend",
+            },
+        )
+        await client.post(
+            "/api/v1/strategy/",
+            headers=auth_headers,
+            json={
+                "name": "Mean Reversion",
+                "code": SAMPLE_CODE,
+                "category": "mean_reversion",
+            },
+        )
         resp = await client.get("/api/v1/strategy/?category=trend", headers=auth_headers)
         assert resp.status_code == 200
 
@@ -146,9 +177,14 @@ class TestStrategyCRUD:
         Returns:
             None
         """
-        create_resp = await client.post("/api/v1/strategy/", headers=auth_headers, json={
-            "name": "Get Strategy", "code": SAMPLE_CODE,
-        })
+        create_resp = await client.post(
+            "/api/v1/strategy/",
+            headers=auth_headers,
+            json={
+                "name": "Get Strategy",
+                "code": SAMPLE_CODE,
+            },
+        )
         sid = create_resp.json()["id"]
         resp = await client.get(f"/api/v1/strategy/{sid}", headers=auth_headers)
         assert resp.status_code == 200
@@ -177,13 +213,22 @@ class TestStrategyCRUD:
         Returns:
             None
         """
-        create_resp = await client.post("/api/v1/strategy/", headers=auth_headers, json={
-            "name": "Update Strategy", "code": SAMPLE_CODE,
-        })
+        create_resp = await client.post(
+            "/api/v1/strategy/",
+            headers=auth_headers,
+            json={
+                "name": "Update Strategy",
+                "code": SAMPLE_CODE,
+            },
+        )
         sid = create_resp.json()["id"]
-        resp = await client.put(f"/api/v1/strategy/{sid}", headers=auth_headers, json={
-            "name": "Updated Strategy",
-        })
+        resp = await client.put(
+            f"/api/v1/strategy/{sid}",
+            headers=auth_headers,
+            json={
+                "name": "Updated Strategy",
+            },
+        )
         assert resp.status_code == 200
         assert resp.json()["name"] == "Updated Strategy"
 
@@ -197,9 +242,13 @@ class TestStrategyCRUD:
         Returns:
             None
         """
-        resp = await client.put("/api/v1/strategy/nonexistent-id", headers=auth_headers, json={
-            "name": "Update Nonexistent",
-        })
+        resp = await client.put(
+            "/api/v1/strategy/nonexistent-id",
+            headers=auth_headers,
+            json={
+                "name": "Update Nonexistent",
+            },
+        )
         assert resp.status_code == 404
 
     async def test_delete_strategy(self, client: AsyncClient, auth_headers: dict):
@@ -212,9 +261,14 @@ class TestStrategyCRUD:
         Returns:
             None
         """
-        create_resp = await client.post("/api/v1/strategy/", headers=auth_headers, json={
-            "name": "Delete Strategy", "code": SAMPLE_CODE,
-        })
+        create_resp = await client.post(
+            "/api/v1/strategy/",
+            headers=auth_headers,
+            json={
+                "name": "Delete Strategy",
+                "code": SAMPLE_CODE,
+            },
+        )
         sid = create_resp.json()["id"]
         resp = await client.delete(f"/api/v1/strategy/{sid}", headers=auth_headers)
         assert resp.status_code == 200

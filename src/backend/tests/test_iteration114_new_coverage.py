@@ -43,20 +43,32 @@ async def test_monitoring_triggers_rate_and_cross_and_threshold_branches():
     assert await svc._check_rate_trigger(rule, {"threshold": 0.1}) is False
     # 2) prev == 0, pct change => inf, condition gt => True
     svc._get_current_metric_value = AsyncMock(return_value=1.0)
-    assert await svc._check_rate_trigger(rule, {"threshold": 0.1, "condition": "gt", "mode": "pct"}) is True
+    assert (
+        await svc._check_rate_trigger(rule, {"threshold": 0.1, "condition": "gt", "mode": "pct"})
+        is True
+    )
     # 3) abs mode path (no trigger)
     svc._get_current_metric_value = AsyncMock(return_value=1.5)
-    assert await svc._check_rate_trigger(rule, {"threshold": 10.0, "condition": "gt", "mode": "abs"}) is False
+    assert (
+        await svc._check_rate_trigger(rule, {"threshold": 10.0, "condition": "gt", "mode": "abs"})
+        is False
+    )
 
     # Cross trigger:
     # 1) first call stores diff and returns False
     assert await svc._check_cross_trigger(rule, {"value1": "0", "value2": "1"}) is False
     # 2) crosses up (prev <=0, diff > 0)
-    assert await svc._check_cross_trigger(rule, {"value1": "2", "value2": "1", "direction": "up"}) is True
+    assert (
+        await svc._check_cross_trigger(rule, {"value1": "2", "value2": "1", "direction": "up"})
+        is True
+    )
     # 3) crosses down
     rule2 = SimpleNamespace(id="r2")
     assert await svc._check_cross_trigger(rule2, {"value1": "1", "value2": "0"}) is False
-    assert await svc._check_cross_trigger(rule2, {"value1": "-1", "value2": "0", "direction": "down"}) is True
+    assert (
+        await svc._check_cross_trigger(rule2, {"value1": "-1", "value2": "0", "direction": "down"})
+        is True
+    )
     # 4) float conversion error path
     assert await svc._check_cross_trigger(rule, {"value1": None, "value2": "0"}) is False
 
@@ -88,6 +100,7 @@ async def test_monitoring_send_notification_and_webhook_paths():
     )
 
     with patch("app.services.monitoring_service.urllib.request.urlopen") as mock_urlopen:
+
         class _Resp:
             def __enter__(self):  # noqa: D401
                 return self
@@ -112,9 +125,14 @@ async def test_monitoring_send_notification_and_webhook_paths():
 
     # _send_webhook: urlopen error -> record failed
     svc._record_notification.reset_mock()
-    rule_err = SimpleNamespace(trigger_config={"webhook": {"url": "http://example.invalid/webhook"}})
+    rule_err = SimpleNamespace(
+        trigger_config={"webhook": {"url": "http://example.invalid/webhook"}}
+    )
     from urllib.error import URLError
-    with patch("app.services.monitoring_service.urllib.request.urlopen", side_effect=URLError("boom")):
+
+    with patch(
+        "app.services.monitoring_service.urllib.request.urlopen", side_effect=URLError("boom")
+    ):
         await svc._send_webhook(rule_err, alert)
     svc._record_notification.assert_awaited()
 
@@ -128,16 +146,42 @@ async def test_monitoring_summary_and_metric_value_sources():
 
     now = datetime.now(timezone.utc)
     alerts = [
-        SimpleNamespace(id="a1", alert_type="account", severity="warning", status="active", title="t1", message="m1", created_at=now),
-        SimpleNamespace(id="a2", alert_type="account", severity="error", status="resolved", title="t2", message="m2", created_at=now - timedelta(days=10)),
-        SimpleNamespace(id="a3", alert_type="system", severity="warning", status="active", title="t3", message="m3", created_at=None),
+        SimpleNamespace(
+            id="a1",
+            alert_type="account",
+            severity="warning",
+            status="active",
+            title="t1",
+            message="m1",
+            created_at=now,
+        ),
+        SimpleNamespace(
+            id="a2",
+            alert_type="account",
+            severity="error",
+            status="resolved",
+            title="t2",
+            message="m2",
+            created_at=now - timedelta(days=10),
+        ),
+        SimpleNamespace(
+            id="a3",
+            alert_type="system",
+            severity="warning",
+            status="active",
+            title="t3",
+            message="m3",
+            created_at=None,
+        ),
     ]
     svc.list_alerts = AsyncMock(return_value=(alerts, len(alerts)))
     summary = await svc.get_alert_summary(user_id="u1", recent_limit=2)
     assert summary["total_alerts"] == 3
     assert len(summary["recent"]) == 2
 
-    stats = await svc.get_alerts_by_type(user_id="u1", start_dt=now - timedelta(days=1), end_dt=now + timedelta(days=1))
+    stats = await svc.get_alerts_by_type(
+        user_id="u1", start_dt=now - timedelta(days=1), end_dt=now + timedelta(days=1)
+    )
     assert stats["by_type"].get("account") == 1
 
     # _get_current_metric_value: manual current_value success + parse error.
@@ -150,15 +194,32 @@ async def test_monitoring_summary_and_metric_value_sources():
     assert await svc._get_current_metric_value(bad_rule, {}) is None
 
     # account: paper trading account path
-    svc.paper_trading_service = SimpleNamespace(get_account=AsyncMock(return_value=SimpleNamespace(current_cash=123.0, total_equity=456.0)))
-    assert await svc._get_current_metric_value(rule, {"account_id": "acc1", "metric": "cash"}) == 123.0
-    assert await svc._get_current_metric_value(rule, {"account_id": "acc1", "metric": "equity"}) == 456.0
-    assert await svc._get_current_metric_value(rule, {"account_id": "acc1", "metric": "unknown"}) is None
+    svc.paper_trading_service = SimpleNamespace(
+        get_account=AsyncMock(return_value=SimpleNamespace(current_cash=123.0, total_equity=456.0))
+    )
+    assert (
+        await svc._get_current_metric_value(rule, {"account_id": "acc1", "metric": "cash"}) == 123.0
+    )
+    assert (
+        await svc._get_current_metric_value(rule, {"account_id": "acc1", "metric": "equity"})
+        == 456.0
+    )
+    assert (
+        await svc._get_current_metric_value(rule, {"account_id": "acc1", "metric": "unknown"})
+        is None
+    )
 
     # account: live trading path
-    svc.live_trading_service = SimpleNamespace(get_task_status=AsyncMock(return_value={"cash": 10.0, "value": 20.0}))
-    assert await svc._get_current_metric_value(rule, {"live_task_id": "t1", "metric": "cash"}) == 10.0
-    assert await svc._get_current_metric_value(rule, {"live_task_id": "t1", "metric": "equity"}) == 20.0
+    svc.live_trading_service = SimpleNamespace(
+        get_task_status=AsyncMock(return_value={"cash": 10.0, "value": 20.0})
+    )
+    assert (
+        await svc._get_current_metric_value(rule, {"live_task_id": "t1", "metric": "cash"}) == 10.0
+    )
+    assert (
+        await svc._get_current_metric_value(rule, {"live_task_id": "t1", "metric": "equity"})
+        == 20.0
+    )
 
     # position: missing symbol
     pos_rule = SimpleNamespace(alert_type=AlertType.POSITION, user_id="u1")
@@ -166,25 +227,85 @@ async def test_monitoring_summary_and_metric_value_sources():
 
     # position: paper positions path
     svc.paper_trading_service = SimpleNamespace(
-        list_positions=AsyncMock(return_value=([SimpleNamespace(market_value=100.0, unrealized_pnl=5.0, unrealized_pnl_pct=0.05)], 1)),
+        list_positions=AsyncMock(
+            return_value=(
+                [SimpleNamespace(market_value=100.0, unrealized_pnl=5.0, unrealized_pnl_pct=0.05)],
+                1,
+            )
+        ),
         get_account=AsyncMock(),
     )
-    assert await svc._get_current_metric_value(pos_rule, {"account_id": "acc1", "symbol": "BTC/USDT", "metric": "market_value"}) == 100.0
-    assert await svc._get_current_metric_value(pos_rule, {"account_id": "acc1", "symbol": "BTC/USDT", "metric": "unrealized_pnl"}) == 5.0
-    assert await svc._get_current_metric_value(pos_rule, {"account_id": "acc1", "symbol": "BTC/USDT", "metric": "unrealized_pnl_pct"}) == 0.05
+    assert (
+        await svc._get_current_metric_value(
+            pos_rule, {"account_id": "acc1", "symbol": "BTC/USDT", "metric": "market_value"}
+        )
+        == 100.0
+    )
+    assert (
+        await svc._get_current_metric_value(
+            pos_rule, {"account_id": "acc1", "symbol": "BTC/USDT", "metric": "unrealized_pnl"}
+        )
+        == 5.0
+    )
+    assert (
+        await svc._get_current_metric_value(
+            pos_rule, {"account_id": "acc1", "symbol": "BTC/USDT", "metric": "unrealized_pnl_pct"}
+        )
+        == 0.05
+    )
 
     # position: live positions path
-    svc.live_trading_service = SimpleNamespace(get_task_status=AsyncMock(return_value={"positions": [{"symbol": "BTC/USDT", "size": 2, "price": 50}]}))
-    assert await svc._get_current_metric_value(pos_rule, {"live_task_id": "t1", "symbol": "BTC/USDT", "metric": "market_value"}) == 100.0
+    svc.live_trading_service = SimpleNamespace(
+        get_task_status=AsyncMock(
+            return_value={"positions": [{"symbol": "BTC/USDT", "size": 2, "price": 50}]}
+        )
+    )
+    assert (
+        await svc._get_current_metric_value(
+            pos_rule, {"live_task_id": "t1", "symbol": "BTC/USDT", "metric": "market_value"}
+        )
+        == 100.0
+    )
 
     # strategy: backtest metrics path + unknown metric
     strat_rule = SimpleNamespace(alert_type=AlertType.STRATEGY, user_id="u1")
-    svc.backtest_service = SimpleNamespace(get_result=AsyncMock(return_value=SimpleNamespace(sharpe_ratio=1.1, total_return=2.2, max_drawdown=3.3, win_rate=4.4)))
-    assert await svc._get_current_metric_value(strat_rule, {"backtest_task_id": "bt1", "metric": "sharpe_ratio"}) == 1.1
-    assert await svc._get_current_metric_value(strat_rule, {"backtest_task_id": "bt1", "metric": "total_return"}) == 2.2
-    assert await svc._get_current_metric_value(strat_rule, {"backtest_task_id": "bt1", "metric": "max_drawdown"}) == 3.3
-    assert await svc._get_current_metric_value(strat_rule, {"backtest_task_id": "bt1", "metric": "win_rate"}) == 4.4
-    assert await svc._get_current_metric_value(strat_rule, {"backtest_task_id": "bt1", "metric": "unknown"}) is None
+    svc.backtest_service = SimpleNamespace(
+        get_result=AsyncMock(
+            return_value=SimpleNamespace(
+                sharpe_ratio=1.1, total_return=2.2, max_drawdown=3.3, win_rate=4.4
+            )
+        )
+    )
+    assert (
+        await svc._get_current_metric_value(
+            strat_rule, {"backtest_task_id": "bt1", "metric": "sharpe_ratio"}
+        )
+        == 1.1
+    )
+    assert (
+        await svc._get_current_metric_value(
+            strat_rule, {"backtest_task_id": "bt1", "metric": "total_return"}
+        )
+        == 2.2
+    )
+    assert (
+        await svc._get_current_metric_value(
+            strat_rule, {"backtest_task_id": "bt1", "metric": "max_drawdown"}
+        )
+        == 3.3
+    )
+    assert (
+        await svc._get_current_metric_value(
+            strat_rule, {"backtest_task_id": "bt1", "metric": "win_rate"}
+        )
+        == 4.4
+    )
+    assert (
+        await svc._get_current_metric_value(
+            strat_rule, {"backtest_task_id": "bt1", "metric": "unknown"}
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -209,7 +330,10 @@ async def test_monitoring_remaining_branches_for_full_coverage():
     assert await svc._check_rate_trigger(rule, {"threshold": 0.5, "condition": "gt"}) is True
 
     # _check_cross_trigger: rule_id missing branch (after float parsing)
-    assert await svc._check_cross_trigger(SimpleNamespace(id=None), {"value1": "1", "value2": "0"}) is False
+    assert (
+        await svc._check_cross_trigger(SimpleNamespace(id=None), {"value1": "1", "value2": "0"})
+        is False
+    )
 
     # _send_webhook: headers update branch
     svc._record_notification = AsyncMock()
@@ -223,8 +347,11 @@ async def test_monitoring_remaining_branches_for_full_coverage():
         details={},
         created_at=datetime.now(timezone.utc),
     )
-    rule = SimpleNamespace(trigger_config={"webhook": {"url": "http://example.invalid", "headers": {"X-Test": "1"}}})
+    rule = SimpleNamespace(
+        trigger_config={"webhook": {"url": "http://example.invalid", "headers": {"X-Test": "1"}}}
+    )
     with patch("app.services.monitoring_service.urllib.request.urlopen") as mock_urlopen:
+
         class _Resp:
             def __enter__(self):
                 return self
@@ -249,31 +376,78 @@ async def test_monitoring_remaining_branches_for_full_coverage():
 
     # _get_current_metric_value: live status missing + unknown metric in live status
     svc.live_trading_service = SimpleNamespace(get_task_status=AsyncMock(return_value=None))
-    assert await svc._get_current_metric_value(acct_rule, {"live_task_id": "t1", "metric": "cash"}) is None
-    svc.live_trading_service = SimpleNamespace(get_task_status=AsyncMock(return_value={"cash": 1.0, "value": 2.0}))
-    assert await svc._get_current_metric_value(acct_rule, {"live_task_id": "t1", "metric": "unknown"}) is None
+    assert (
+        await svc._get_current_metric_value(acct_rule, {"live_task_id": "t1", "metric": "cash"})
+        is None
+    )
+    svc.live_trading_service = SimpleNamespace(
+        get_task_status=AsyncMock(return_value={"cash": 1.0, "value": 2.0})
+    )
+    assert (
+        await svc._get_current_metric_value(acct_rule, {"live_task_id": "t1", "metric": "unknown"})
+        is None
+    )
 
     # _get_current_metric_value: position no positions + unknown metric
     pos_rule = SimpleNamespace(alert_type=AlertType.POSITION, user_id="u1")
     svc.paper_trading_service = SimpleNamespace(list_positions=AsyncMock(return_value=([], 0)))
-    assert await svc._get_current_metric_value(pos_rule, {"account_id": "acc", "symbol": "BTC/USDT"}) is None
-    svc.paper_trading_service = SimpleNamespace(
-        list_positions=AsyncMock(return_value=([SimpleNamespace(market_value=1.0, unrealized_pnl=0.0, unrealized_pnl_pct=0.0)], 1))
+    assert (
+        await svc._get_current_metric_value(pos_rule, {"account_id": "acc", "symbol": "BTC/USDT"})
+        is None
     )
-    assert await svc._get_current_metric_value(pos_rule, {"account_id": "acc", "symbol": "BTC/USDT", "metric": "unknown"}) is None
+    svc.paper_trading_service = SimpleNamespace(
+        list_positions=AsyncMock(
+            return_value=(
+                [SimpleNamespace(market_value=1.0, unrealized_pnl=0.0, unrealized_pnl_pct=0.0)],
+                1,
+            )
+        )
+    )
+    assert (
+        await svc._get_current_metric_value(
+            pos_rule, {"account_id": "acc", "symbol": "BTC/USDT", "metric": "unknown"}
+        )
+        is None
+    )
 
     # _get_current_metric_value: live positions status missing + non-market_value metric return
     svc.live_trading_service = SimpleNamespace(get_task_status=AsyncMock(return_value=None))
-    assert await svc._get_current_metric_value(pos_rule, {"live_task_id": "t1", "symbol": "BTC/USDT"}) is None
-    svc.live_trading_service = SimpleNamespace(get_task_status=AsyncMock(return_value={"positions": [{"symbol": "BTC/USDT", "size": 2, "price": 50}]}))
-    assert await svc._get_current_metric_value(pos_rule, {"live_task_id": "t1", "symbol": "BTC/USDT", "metric": "unrealized_pnl"}) == 100.0
-    svc.live_trading_service = SimpleNamespace(get_task_status=AsyncMock(return_value={"positions": [{"symbol": "ETH/USDT", "size": 1, "price": 10}]}))
-    assert await svc._get_current_metric_value(pos_rule, {"live_task_id": "t1", "symbol": "BTC/USDT", "metric": "market_value"}) is None
+    assert (
+        await svc._get_current_metric_value(pos_rule, {"live_task_id": "t1", "symbol": "BTC/USDT"})
+        is None
+    )
+    svc.live_trading_service = SimpleNamespace(
+        get_task_status=AsyncMock(
+            return_value={"positions": [{"symbol": "BTC/USDT", "size": 2, "price": 50}]}
+        )
+    )
+    assert (
+        await svc._get_current_metric_value(
+            pos_rule, {"live_task_id": "t1", "symbol": "BTC/USDT", "metric": "unrealized_pnl"}
+        )
+        == 100.0
+    )
+    svc.live_trading_service = SimpleNamespace(
+        get_task_status=AsyncMock(
+            return_value={"positions": [{"symbol": "ETH/USDT", "size": 1, "price": 10}]}
+        )
+    )
+    assert (
+        await svc._get_current_metric_value(
+            pos_rule, {"live_task_id": "t1", "symbol": "BTC/USDT", "metric": "market_value"}
+        )
+        is None
+    )
 
     # _get_current_metric_value: backtest result missing
     strat_rule = SimpleNamespace(alert_type=AlertType.STRATEGY, user_id="u1")
     svc.backtest_service = SimpleNamespace(get_result=AsyncMock(return_value=None))
-    assert await svc._get_current_metric_value(strat_rule, {"backtest_task_id": "bt1", "metric": "sharpe_ratio"}) is None
+    assert (
+        await svc._get_current_metric_value(
+            strat_rule, {"backtest_task_id": "bt1", "metric": "sharpe_ratio"}
+        )
+        is None
+    )
 
 
 @pytest.mark.asyncio
@@ -286,53 +460,91 @@ async def test_strategy_version_service_additional_coverage():
     svc = VersionControlService()
 
     # _require_strategy_owner: permission error path
-    svc.strategy_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="other")))
+    svc.strategy_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="other"))
+    )
     with pytest.raises(PermissionError):
         await svc._require_strategy_owner("s1", "u1")
 
     # list_versions: happy path with filters + response mapping
-    svc.strategy_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1")))
+    svc.strategy_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1"))
+    )
     svc.version_repo = SimpleNamespace(
-        list=AsyncMock(return_value=[SimpleNamespace(
-            id="v1",
-            strategy_id="s1",
-            version_number=1,
-            version_name="v1",
-            branch="dev",
-            status="draft",
-            tags=[],
-            description=None,
-            params={},
-            is_active=True,
-            is_default=False,
-            is_current=True,
-            parent_version_id=None,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )]),
+        list=AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    id="v1",
+                    strategy_id="s1",
+                    version_number=1,
+                    version_name="v1",
+                    branch="dev",
+                    status="draft",
+                    tags=[],
+                    description=None,
+                    params={},
+                    is_active=True,
+                    is_default=False,
+                    is_current=True,
+                    parent_version_id=None,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                )
+            ]
+        ),
         count=AsyncMock(return_value=1),
     )
-    items, total = await svc.list_versions(user_id="u1", strategy_id="s1", branch="dev", status="draft", limit=10, offset=0)
+    items, total = await svc.list_versions(
+        user_id="u1", strategy_id="s1", branch="dev", status="draft", limit=10, offset=0
+    )
     assert total == 1
     assert items[0]["id"] == "v1"
 
     # update_version unauthorized returns None
-    svc.version_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="v2", created_by="x")), update=AsyncMock())
-    assert await svc.update_version("v2", "u1", SimpleNamespace(code=None, params=None, description=None, tags=None, status=None, changelog=None)) is None
+    svc.version_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id="v2", created_by="x")),
+        update=AsyncMock(),
+    )
+    assert (
+        await svc.update_version(
+            "v2",
+            "u1",
+            SimpleNamespace(
+                code=None, params=None, description=None, tags=None, status=None, changelog=None
+            ),
+        )
+        is None
+    )
 
     # set_version_default / activate_version unauthorized
-    svc.version_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="v2", created_by="x")), update=AsyncMock(), list=AsyncMock(return_value=[]))
+    svc.version_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id="v2", created_by="x")),
+        update=AsyncMock(),
+        list=AsyncMock(return_value=[]),
+    )
     assert await svc.set_version_default("v2", "u1") is False
     assert await svc.activate_version("v2", "u1") is False
 
     # compare_versions forbidden
-    svc.version_repo = SimpleNamespace(get_by_id=AsyncMock(side_effect=[SimpleNamespace(created_by="x"), SimpleNamespace(created_by="u1")]))
+    svc.version_repo = SimpleNamespace(
+        get_by_id=AsyncMock(
+            side_effect=[SimpleNamespace(created_by="x"), SimpleNamespace(created_by="u1")]
+        )
+    )
     with pytest.raises(PermissionError):
         await svc.compare_versions("u1", "s1", "a", "b")
 
     # rollback_version: missing current version
-    svc.strategy_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1")))
-    svc.version_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="t1", created_by="u1", version_name="v1", code="x", params={})))
+    svc.strategy_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1"))
+    )
+    svc.version_repo = SimpleNamespace(
+        get_by_id=AsyncMock(
+            return_value=SimpleNamespace(
+                id="t1", created_by="u1", version_name="v1", code="x", params={}
+            )
+        )
+    )
     svc._get_current_version = AsyncMock(return_value=None)
     with pytest.raises(ValueError):
         await svc.rollback_version("u1", "s1", "t1", "r")
@@ -343,14 +555,20 @@ async def test_strategy_version_service_additional_coverage():
         await svc.rollback_version("u1", "s1", "t1", "r")
 
     # rollback_version: target version forbidden
-    svc.version_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="t1", created_by="x")))
+    svc.version_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id="t1", created_by="x"))
+    )
     with pytest.raises(PermissionError):
         await svc.rollback_version("u1", "s1", "t1", "r")
 
     # create_branch: existing branch early return
     svc.branch_repo = SimpleNamespace(list=AsyncMock(return_value=[SimpleNamespace(id="b1")]))
-    svc.strategy_repo = SimpleNamespace(get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1")))
-    b = await svc.create_branch(user_id="u1", strategy_id="s1", branch_name="dev", parent_branch=None)
+    svc.strategy_repo = SimpleNamespace(
+        get_by_id=AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1"))
+    )
+    b = await svc.create_branch(
+        user_id="u1", strategy_id="s1", branch_name="dev", parent_branch=None
+    )
     assert b.id == "b1"
 
     # _generate_performance_diff: available True + diff computed

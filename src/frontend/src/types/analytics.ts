@@ -78,7 +78,7 @@ export interface MonthlyReturn {
 }
 
 export interface OptimizationResultItem {
-  params: Record<string, any>
+  params: Record<string, unknown>
   total_return: number
   max_drawdown: number
   sharpe_ratio: number | null

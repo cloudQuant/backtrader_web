@@ -5,7 +5,6 @@ Security utilities for JWT and password handling.
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 
 import bcrypt
 from jose import JWTError, jwt
@@ -125,7 +124,7 @@ def verify_token_hash(token: str, token_hash: str) -> bool:
     return hash_token(token) == token_hash
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create a JWT access token.
 
     Args:
@@ -148,7 +147,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return encoded_jwt
 
 
-def create_refresh_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> str:
     """Create a JWT refresh token.
 
     Refresh tokens have longer expiration and are used to obtain new access tokens.
@@ -182,7 +181,7 @@ def generate_refresh_token_id() -> str:
     return secrets.token_urlsafe(32)
 
 
-def decode_access_token(token: str) -> Optional[dict]:
+def decode_access_token(token: str) -> dict | None:
     """Decode a JWT token.
 
     Args:
@@ -198,7 +197,7 @@ def decode_access_token(token: str) -> Optional[dict]:
         return None
 
 
-def decode_refresh_token(token: str) -> Optional[dict]:
+def decode_refresh_token(token: str) -> dict | None:
     """Decode and validate a refresh token.
 
     Args:

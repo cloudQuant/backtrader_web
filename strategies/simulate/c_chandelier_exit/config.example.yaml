@@ -21,7 +21,11 @@ symbol:
 # 策略参数
 # ============================================================
 params:
-
+  stake: 10
+  sma_fast: 8
+  sma_slow: 15
+  ce_period: 22
+  ce_mult: 3
 # ============================================================
 # 数据配置
 # ============================================================
@@ -75,10 +79,6 @@ live:
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    c2509:
-      min_price_tick: 1.0
-      max_order_size: 1
-
     c2609:
       min_price_tick: 1.0
       max_order_size: 1

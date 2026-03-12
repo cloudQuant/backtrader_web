@@ -23,4 +23,3 @@ async def test_get_user_by_id_missing_returns_none():
     svc.user_repo.get_by_id = AsyncMock(return_value=None)
 
     assert await svc.get_user_by_id("missing") is None
-

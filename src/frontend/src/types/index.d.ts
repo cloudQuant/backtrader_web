@@ -121,8 +121,6 @@ export interface StrategyTemplate {
 
 export type StrategyType = 'backtest' | 'simulate' | 'live'
 
-export type StrategyType = 'backtest' | 'simulate' | 'live'
-
 export interface StrategyListResponse {
   total: number
   items: Strategy[]
@@ -152,6 +150,25 @@ export interface KlineData {
   dates: string[]
   ohlc: number[][] // [open, close, low, high]
   volumes: number[]
+}
+
+/** Single kline record from /data/kline API (flat for table display). */
+export interface KlineRecord {
+  date: string
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  change?: number
+}
+
+/** Response from /data/kline API. */
+export interface KlineResponse {
+  symbol: string
+  count: number
+  kline: KlineData
+  records: KlineRecord[]
 }
 
 export interface Signal {

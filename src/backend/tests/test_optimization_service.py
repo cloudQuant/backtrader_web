@@ -12,6 +12,7 @@ Tests:
 - Task cancellation
 - Exception handling
 """
+
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -43,12 +44,12 @@ class TestSafeFloat:
 
     def test_safe_float_nan(self):
         """Test NaN handling."""
-        assert _safe_float(float('nan')) == 0.0
+        assert _safe_float(float("nan")) == 0.0
 
     def test_safe_float_inf(self):
         """Test infinity handling."""
-        assert _safe_float(float('inf')) == 0.0
-        assert _safe_float(float('-inf')) == 0.0
+        assert _safe_float(float("inf")) == 0.0
+        assert _safe_float(float("-inf")) == 0.0
 
     def test_safe_float_invalid(self):
         """Test invalid value handling."""
@@ -110,9 +111,7 @@ class TestGenerateParamGrid:
 
     def test_single_param_float(self):
         """Test single float parameter."""
-        param_ranges = {
-            "fast_period": {"start": 5, "end": 15, "step": 5, "type": "float"}
-        }
+        param_ranges = {"fast_period": {"start": 5, "end": 15, "step": 5, "type": "float"}}
         result = generate_param_grid(param_ranges)
 
         assert len(result) == 3
@@ -122,9 +121,7 @@ class TestGenerateParamGrid:
 
     def test_single_param_int(self):
         """Test single integer parameter."""
-        param_ranges = {
-            "period": {"start": 10, "end": 30, "step": 10, "type": "int"}
-        }
+        param_ranges = {"period": {"start": 10, "end": 30, "step": 10, "type": "int"}}
         result = generate_param_grid(param_ranges)
 
         assert len(result) == 3
@@ -150,9 +147,7 @@ class TestGenerateParamGrid:
 
     def test_default_type_is_float(self):
         """Test default type is float."""
-        param_ranges = {
-            "period": {"start": 1.5, "end": 3.5, "step": 1}
-        }
+        param_ranges = {"period": {"start": 1.5, "end": 3.5, "step": 1}}
         result = generate_param_grid(param_ranges)
 
         # Default is float, so should be 1.5, 2.5, 3.5
@@ -168,9 +163,7 @@ class TestGenerateParamGrid:
 
     def test_step_larger_than_range(self):
         """Test step larger than range."""
-        param_ranges = {
-            "period": {"start": 10, "end": 15, "step": 100}
-        }
+        param_ranges = {"period": {"start": 10, "end": 15, "step": 100}}
         result = generate_param_grid(param_ranges)
 
         # Should at least include the start value
@@ -192,6 +185,7 @@ class TestParseTrialLogs:
     def teardown_method(self):
         """Clean up temporary directory."""
         import shutil
+
         if self.tmp_dir.exists():
             shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
@@ -208,17 +202,16 @@ class TestParseTrialLogs:
         result = _parse_trial_logs(self.tmp_dir)
 
         assert result is not None
-        assert result["total_return"] == pytest.approx(5.0, rel=0.1)  # (105000 - 100000) / 100000 * 100
+        assert result["total_return"] == pytest.approx(
+            5.0, rel=0.1
+        )  # (105000 - 100000) / 100000 * 100
         assert result["final_value"] == 105000
 
     def test_parse_trade_log(self):
         """Test parsing trade.log."""
         # Create value.log for basic metrics
         value_path = self.log_subdir / "value.log"
-        value_path.write_text(
-            "log_time\tdt\tvalue\tcash\n"
-            "1\t2024-01-01\t100000\t100000\n"
-        )
+        value_path.write_text("log_time\tdt\tvalue\tcash\n1\t2024-01-01\t100000\t100000\n")
 
         # Create trade.log
         trade_path = self.log_subdir / "trade.log"
@@ -243,6 +236,7 @@ class TestParseTrialLogs:
             assert result is None
         finally:
             import shutil
+
             shutil.rmtree(empty_dir, ignore_errors=True)
 
     def test_empty_log_files(self):
@@ -279,7 +273,9 @@ class TestParseTrialLogs:
         value_path = self.log_subdir / "value.log"
         # Create steadily increasing equity for positive Sharpe
         values = [100000 + i * 500 for i in range(10)]
-        lines = ["log_time\tdt\tvalue\tcash"] + [f"{i}\t2024-01-0{i}\t{v}\t{v}" for i, v in enumerate(values)]
+        lines = ["log_time\tdt\tvalue\tcash"] + [
+            f"{i}\t2024-01-0{i}\t{v}\t{v}" for i, v in enumerate(values)
+        ]
         value_path.write_text("\n".join(lines))
 
         result = _parse_trial_logs(self.tmp_dir)
@@ -338,15 +334,18 @@ class TestGetOptimizationProgress:
     def test_get_progress_existing_task(self):
         """Test getting existing task progress."""
         task_id = "progress_test"
-        _set_task(task_id, {
-            "status": "running",
-            "strategy_id": "test_strategy",
-            "total": 100,
-            "completed": 50,
-            "failed": 5,
-            "n_workers": 4,
-            "created_at": "2024-01-01T00:00:00",
-        })
+        _set_task(
+            task_id,
+            {
+                "status": "running",
+                "strategy_id": "test_strategy",
+                "total": 100,
+                "completed": 50,
+                "failed": 5,
+                "n_workers": 4,
+                "created_at": "2024-01-01T00:00:00",
+            },
+        )
 
         progress = get_optimization_progress(task_id)
 
@@ -366,15 +365,18 @@ class TestGetOptimizationProgress:
     def test_get_progress_zero_total(self):
         """Test progress when total is 0."""
         task_id = "zero_total"
-        _set_task(task_id, {
-            "status": "running",
-            "strategy_id": "test_strategy",
-            "total": 0,
-            "completed": 0,
-            "failed": 0,
-            "n_workers": 2,
-            "created_at": "2024-01-01T00:00:00",
-        })
+        _set_task(
+            task_id,
+            {
+                "status": "running",
+                "strategy_id": "test_strategy",
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "n_workers": 2,
+                "created_at": "2024-01-01T00:00:00",
+            },
+        )
 
         progress = get_optimization_progress(task_id)
 
@@ -388,40 +390,43 @@ class TestGetOptimizationResults:
     def test_get_results_with_successful_trials(self):
         """Test getting results with successful trials."""
         task_id = "results_test"
-        _set_task(task_id, {
-            "status": "completed",
-            "strategy_id": "test_strategy",
-            "param_names": ["fast", "slow"],
-            "total": 2,
-            "completed": 2,
-            "failed": 0,
-            "results": [
-                {
-                    "params": {"fast": 5, "slow": 20},
-                    "metrics": {
-                        "total_return": 10.5,
-                        "annual_return": 12.3,
-                        "sharpe_ratio": 1.5,
-                        "max_drawdown": 5.0,
-                        "total_trades": 100,
-                        "win_rate": 60.0,
-                        "final_value": 110500,
-                    }
-                },
-                {
-                    "params": {"fast": 10, "slow": 20},
-                    "metrics": {
-                        "total_return": 8.0,
-                        "annual_return": 9.5,
-                        "sharpe_ratio": 1.2,
-                        "max_drawdown": 6.0,
-                        "total_trades": 80,
-                        "win_rate": 55.0,
-                        "final_value": 108000,
-                    }
-                },
-            ]
-        })
+        _set_task(
+            task_id,
+            {
+                "status": "completed",
+                "strategy_id": "test_strategy",
+                "param_names": ["fast", "slow"],
+                "total": 2,
+                "completed": 2,
+                "failed": 0,
+                "results": [
+                    {
+                        "params": {"fast": 5, "slow": 20},
+                        "metrics": {
+                            "total_return": 10.5,
+                            "annual_return": 12.3,
+                            "sharpe_ratio": 1.5,
+                            "max_drawdown": 5.0,
+                            "total_trades": 100,
+                            "win_rate": 60.0,
+                            "final_value": 110500,
+                        },
+                    },
+                    {
+                        "params": {"fast": 10, "slow": 20},
+                        "metrics": {
+                            "total_return": 8.0,
+                            "annual_return": 9.5,
+                            "sharpe_ratio": 1.2,
+                            "max_drawdown": 6.0,
+                            "total_trades": 80,
+                            "win_rate": 55.0,
+                            "final_value": 108000,
+                        },
+                    },
+                ],
+            },
+        )
 
         results = get_optimization_results(task_id)
 
@@ -434,28 +439,31 @@ class TestGetOptimizationResults:
     def test_get_results_sorts_by_annual_return(self):
         """Test results sorted by annual return."""
         task_id = "sort_test"
-        _set_task(task_id, {
-            "status": "completed",
-            "strategy_id": "test_strategy",
-            "param_names": ["period"],
-            "total": 3,
-            "completed": 3,
-            "failed": 0,
-            "results": [
-                {
-                    "params": {"period": 10},
-                    "metrics": {"annual_return": 5.0, "total_return": 3.0}
-                },
-                {
-                    "params": {"period": 20},
-                    "metrics": {"annual_return": 15.0, "total_return": 10.0}
-                },
-                {
-                    "params": {"period": 30},
-                    "metrics": {"annual_return": 10.0, "total_return": 7.0}
-                },
-            ]
-        })
+        _set_task(
+            task_id,
+            {
+                "status": "completed",
+                "strategy_id": "test_strategy",
+                "param_names": ["period"],
+                "total": 3,
+                "completed": 3,
+                "failed": 0,
+                "results": [
+                    {
+                        "params": {"period": 10},
+                        "metrics": {"annual_return": 5.0, "total_return": 3.0},
+                    },
+                    {
+                        "params": {"period": 20},
+                        "metrics": {"annual_return": 15.0, "total_return": 10.0},
+                    },
+                    {
+                        "params": {"period": 30},
+                        "metrics": {"annual_return": 10.0, "total_return": 7.0},
+                    },
+                ],
+            },
+        )
 
         results = get_optimization_results(task_id)
 
@@ -468,15 +476,18 @@ class TestGetOptimizationResults:
     def test_get_results_empty(self):
         """Test getting empty results."""
         task_id = "empty_results"
-        _set_task(task_id, {
-            "status": "completed",
-            "strategy_id": "test_strategy",
-            "param_names": [],
-            "total": 0,
-            "completed": 0,
-            "failed": 0,
-            "results": []
-        })
+        _set_task(
+            task_id,
+            {
+                "status": "completed",
+                "strategy_id": "test_strategy",
+                "param_names": [],
+                "total": 0,
+                "completed": 0,
+                "failed": 0,
+                "results": [],
+            },
+        )
 
         results = get_optimization_results(task_id)
 
@@ -522,6 +533,7 @@ class TestRunSingleTrial:
     def teardown_method(self):
         """Clean up temporary directory."""
         import shutil
+
         if self.tmp_dir.exists():
             shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
@@ -536,20 +548,13 @@ class TestRunSingleTrial:
         config_path.write_text("strategy:\n  name: Test\n")
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(
-                returncode=0,
-                stderr="",
-                stdout="success"
-            )
+            mock_run.return_value = Mock(returncode=0, stderr="", stdout="success")
 
             with patch("app.services.param_optimization_service._parse_trial_logs") as mock_parse:
                 mock_parse.return_value = {"total_return": 10.0}
 
                 result = _run_single_trial(
-                    str(self.strategy_dir),
-                    {"period": 20},
-                    0,
-                    str(self.tmp_dir / "tmp_base")
+                    str(self.strategy_dir), {"period": 20}, 0, str(self.tmp_dir / "tmp_base")
                 )
 
                 assert result["success"] is True
@@ -561,17 +566,10 @@ class TestRunSingleTrial:
         run_py.write_text("print('error')")
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = Mock(
-                returncode=1,
-                stderr="Test error message",
-                stdout=""
-            )
+            mock_run.return_value = Mock(returncode=1, stderr="Test error message", stdout="")
 
             result = _run_single_trial(
-                str(self.strategy_dir),
-                {"period": 20},
-                0,
-                str(self.tmp_dir / "tmp_base")
+                str(self.strategy_dir), {"period": 20}, 0, str(self.tmp_dir / "tmp_base")
             )
 
             assert result["success"] is False
@@ -592,12 +590,11 @@ result = 1
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = Mock(returncode=0, stderr="", stdout="")
 
-            with patch("app.services.param_optimization_service._parse_trial_logs", return_value={}):
+            with patch(
+                "app.services.param_optimization_service._parse_trial_logs", return_value={}
+            ):
                 _run_single_trial(
-                    str(self.strategy_dir),
-                    {"period": 20},
-                    0,
-                    str(self.tmp_dir / "tmp_base")
+                    str(self.strategy_dir), {"period": 20}, 0, str(self.tmp_dir / "tmp_base")
                 )
 
                 # Check that the trial directory was modified
@@ -615,14 +612,12 @@ class TestIntegration:
 
     def test_full_optimization_workflow(self):
         """Test complete optimization workflow."""
-        param_ranges = {
-            "period": {"start": 10, "end": 20, "step": 5, "type": "int"}
-        }
+        param_ranges = {"period": {"start": 10, "end": 20, "step": 5, "type": "int"}}
 
         # Mock the entire workflow
         with patch("app.services.strategy_service.STRATEGIES_DIR", Path("/tmp/strategies")):
             with patch("pathlib.Path.is_file", return_value=True):
-                with patch("threading.Thread") as mock_thread:
+                with patch("threading.Thread"):
                     # Submit optimization
                     task_id = submit_optimization("test_strategy", param_ranges)
 
@@ -632,24 +627,27 @@ class TestIntegration:
                     assert progress["progress"] == 50.0
 
                     # Get results (simulate some results)
-                    _set_task(task_id, {
-                        "status": "completed",
-                        "strategy_id": "test_strategy",
-                        "param_names": ["period"],
-                        "total": 2,
-                        "completed": 2,
-                        "failed": 0,
-                        "results": [
-                            {
-                                "params": {"period": 10},
-                                "metrics": {"annual_return": 10.0, "total_return": 8.0}
-                            },
-                            {
-                                "params": {"period": 15},
-                                "metrics": {"annual_return": 12.0, "total_return": 10.0}
-                            },
-                        ]
-                    })
+                    _set_task(
+                        task_id,
+                        {
+                            "status": "completed",
+                            "strategy_id": "test_strategy",
+                            "param_names": ["period"],
+                            "total": 2,
+                            "completed": 2,
+                            "failed": 0,
+                            "results": [
+                                {
+                                    "params": {"period": 10},
+                                    "metrics": {"annual_return": 10.0, "total_return": 8.0},
+                                },
+                                {
+                                    "params": {"period": 15},
+                                    "metrics": {"annual_return": 12.0, "total_return": 10.0},
+                                },
+                            ],
+                        },
+                    )
                     results = get_optimization_results(task_id)
                     assert results["best"]["period"] == 15
 

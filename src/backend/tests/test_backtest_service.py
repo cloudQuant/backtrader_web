@@ -62,7 +62,9 @@ class TestBacktestServiceHelpers:
         config_path = tmp_path / "config.yaml"
         svc._write_temp_config(
             config_path,
-            make_request(symbol="600519.SH", initial_cash=200000, commission=0.002, params={"period": 30}),
+            make_request(
+                symbol="600519.SH", initial_cash=200000, commission=0.002, params={"period": 30}
+            ),
             None,
         )
         content = config_path.read_text(encoding="utf-8")
@@ -106,7 +108,9 @@ class TestRunBacktest:
     async def test_run_backtest_propagates_task_limit_errors(self):
         task_manager = MagicMock(spec=BacktestExecutionManager)
         task_manager.create_task = AsyncMock(side_effect=ValueError("limit reached"))
-        svc = BacktestService(task_manager=task_manager, task_runner=MagicMock(spec=BacktestExecutionRunner))
+        svc = BacktestService(
+            task_manager=task_manager, task_runner=MagicMock(spec=BacktestExecutionRunner)
+        )
 
         with pytest.raises(ValueError, match="limit reached"):
             await svc.run_backtest("user1", make_request())

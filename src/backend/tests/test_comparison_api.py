@@ -11,6 +11,7 @@ Tests:
 - Sharing comparisons
 - Getting comparison data (metrics, equity curves, trades, drawdowns)
 """
+
 import pytest
 from httpx import AsyncClient
 
@@ -23,10 +24,7 @@ class TestComparisonCreate:
         """Test that authentication is required."""
         response = await client.post(
             "/api/v1/comparisons/",
-            json={
-                "name": "Test Comparison",
-                "backtest_task_ids": ["task1", "task2"]
-            }
+            json={"name": "Test Comparison", "backtest_task_ids": ["task1", "task2"]},
         )
         # API may return 401 or 403
         assert response.status_code in [401, 403]
@@ -39,8 +37,8 @@ class TestComparisonCreate:
             headers=auth_headers,
             json={
                 "name": "Test Comparison",
-                "backtest_task_ids": ["task1"]  # Fewer than 2
-            }
+                "backtest_task_ids": ["task1"],  # Fewer than 2
+            },
         )
         # Should return validation error 422
         assert response.status_code in [400, 422]
@@ -52,18 +50,13 @@ class TestComparisonGetDetail:
 
     async def test_get_comparison_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
-        response = await client.get(
-            "/api/v1/comparisons/comp_123"
-        )
+        response = await client.get("/api/v1/comparisons/comp_123")
         # API may return 401 or 403
         assert response.status_code in [401, 403]
 
     async def test_get_comparison_not_found(self, client: AsyncClient, auth_headers):
         """Test getting a non-existent comparison."""
-        response = await client.get(
-            "/api/v1/comparisons/non_existent",
-            headers=auth_headers
-        )
+        response = await client.get("/api/v1/comparisons/non_existent", headers=auth_headers)
         assert response.status_code in [404, 400]
 
 
@@ -73,10 +66,7 @@ class TestComparisonUpdate:
 
     async def test_update_comparison_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
-        response = await client.put(
-            "/api/v1/comparisons/comp_123",
-            json={"name": "Updated Name"}
-        )
+        response = await client.put("/api/v1/comparisons/comp_123", json={"name": "Updated Name"})
         # API may return 401 or 403
         assert response.status_code in [401, 403]
 
@@ -87,9 +77,7 @@ class TestComparisonDelete:
 
     async def test_delete_comparison_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
-        response = await client.delete(
-            "/api/v1/comparisons/comp_123"
-        )
+        response = await client.delete("/api/v1/comparisons/comp_123")
         # API may return 401 or 403
         assert response.status_code in [401, 403]
 
@@ -106,10 +94,7 @@ class TestComparisonList:
 
     async def test_list_comparisons_with_auth(self, client: AsyncClient, auth_headers):
         """Test list request with authentication."""
-        response = await client.get(
-            "/api/v1/comparisons/",
-            headers=auth_headers
-        )
+        response = await client.get("/api/v1/comparisons/", headers=auth_headers)
         # 200 or empty list
         assert response.status_code in [200, 404]
 
@@ -153,8 +138,8 @@ class TestComparisonService:
 
         service = ComparisonService()
         assert service is not None
-        assert hasattr(service, 'comparison_repo')
-        assert hasattr(service, 'backtest_service')
+        assert hasattr(service, "comparison_repo")
+        assert hasattr(service, "backtest_service")
 
     async def test_compare_metrics_helper(self):
         """Test metrics comparison calculation helper function."""
@@ -172,7 +157,7 @@ class TestComparisonService:
                 "sharpe_ratio": 1.2,
                 "max_drawdown": -6.5,
                 "win_rate": 0.55,
-            }
+            },
         }
 
         # Simple data structure validation
@@ -198,9 +183,9 @@ class TestComparisonModels:
         from app.models.comparison import ComparisonType
 
         # Check enum values
-        assert hasattr(ComparisonType, 'METRICS')
-        assert hasattr(ComparisonType, 'EQUITY')
-        assert hasattr(ComparisonType, 'TRADES')
+        assert hasattr(ComparisonType, "METRICS")
+        assert hasattr(ComparisonType, "EQUITY")
+        assert hasattr(ComparisonType, "TRADES")
 
 
 @pytest.mark.asyncio

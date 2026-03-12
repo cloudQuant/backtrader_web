@@ -68,17 +68,19 @@ async def test_strategy_service_update_strategy_field_branches(monkeypatch):
     svc = StrategyService()
     svc.strategy_repo = AsyncMock()
     svc.strategy_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="s1", user_id="u1"))
-    svc.strategy_repo.update = AsyncMock(return_value=SimpleNamespace(
-        id="s1",
-        user_id="u1",
-        name="n",
-        description="d",
-        code="c",
-        params={"p": {"type": "int", "default": 1}},
-        category="cat",
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-    ))
+    svc.strategy_repo.update = AsyncMock(
+        return_value=SimpleNamespace(
+            id="s1",
+            user_id="u1",
+            name="n",
+            description="d",
+            code="c",
+            params={"p": {"type": "int", "default": 1}},
+            category="cat",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+    )
 
     upd = StrategyUpdate(
         name="n",

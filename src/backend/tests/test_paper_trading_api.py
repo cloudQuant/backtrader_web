@@ -8,6 +8,7 @@ Tests all paper trading API endpoints:
 - Trade Management: list
 - WebSocket endpoints
 """
+
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -46,6 +47,7 @@ def mock_paper_trading_service():
 
 
 # ==================== Account API Tests ====================
+
 
 @pytest.mark.asyncio
 class TestPaperTradingAccountsAPI:
@@ -86,9 +88,7 @@ class TestPaperTradingAccountsAPI:
         mock_paper_trading_service.create_account = AsyncMock(return_value=mock_response)
 
         result = await create_paper_account(
-            request=request,
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            request=request, current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         assert result.id == "acc_123"
@@ -105,7 +105,9 @@ class TestPaperTradingAccountsAPI:
             slippage_rate=0.001,
         )
 
-    async def test_create_account_with_defaults(self, mock_current_user, mock_paper_trading_service):
+    async def test_create_account_with_defaults(
+        self, mock_current_user, mock_paper_trading_service
+    ):
         """Test account creation with default parameter values.
 
         Args:
@@ -118,16 +120,14 @@ class TestPaperTradingAccountsAPI:
         request = AccountCreate(name="Default Account")
 
         await create_paper_account(
-            request=request,
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            request=request, current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         # Verify default values are used
         call_args = mock_paper_trading_service.create_account.call_args
-        assert call_args.kwargs['initial_cash'] == 100000.0
-        assert call_args.kwargs['commission_rate'] == 0.001
-        assert call_args.kwargs['slippage_rate'] == 0.001
+        assert call_args.kwargs["initial_cash"] == 100000.0
+        assert call_args.kwargs["commission_rate"] == 0.001
+        assert call_args.kwargs["slippage_rate"] == 0.001
 
     async def test_list_accounts_empty(self, mock_current_user, mock_paper_trading_service):
         """Test listing accounts when no accounts exist.
@@ -141,22 +141,19 @@ class TestPaperTradingAccountsAPI:
         mock_paper_trading_service.list_accounts = AsyncMock(return_value=([], 0))
 
         result = await list_paper_accounts(
-            current_user=mock_current_user,
-            service=mock_paper_trading_service,
-            limit=20,
-            offset=0
+            current_user=mock_current_user, service=mock_paper_trading_service, limit=20, offset=0
         )
 
         assert result.total == 0
         assert result.items == []
 
         mock_paper_trading_service.list_accounts.assert_called_once_with(
-            user_id="test_user_123",
-            limit=20,
-            offset=0
+            user_id="test_user_123", limit=20, offset=0
         )
 
-    async def test_list_accounts_with_pagination(self, mock_current_user, mock_paper_trading_service):
+    async def test_list_accounts_with_pagination(
+        self, mock_current_user, mock_paper_trading_service
+    ):
         """Test listing accounts with pagination support.
 
         Args:
@@ -201,10 +198,7 @@ class TestPaperTradingAccountsAPI:
         mock_paper_trading_service.list_accounts = AsyncMock(return_value=(mock_accounts, 2))
 
         result = await list_paper_accounts(
-            current_user=mock_current_user,
-            service=mock_paper_trading_service,
-            limit=10,
-            offset=0
+            current_user=mock_current_user, service=mock_paper_trading_service, limit=10, offset=0
         )
 
         assert result.total == 2
@@ -227,7 +221,7 @@ class TestPaperTradingAccountsAPI:
             await get_paper_account(
                 account_id="nonexistent",
                 current_user=mock_current_user,
-                service=mock_paper_trading_service
+                service=mock_paper_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
@@ -255,7 +249,7 @@ class TestPaperTradingAccountsAPI:
             await get_paper_account(
                 account_id="acc_other",
                 current_user=mock_current_user,
-                service=mock_paper_trading_service
+                service=mock_paper_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
@@ -288,9 +282,7 @@ class TestPaperTradingAccountsAPI:
         mock_paper_trading_service.get_account = AsyncMock(return_value=mock_account)
 
         result = await get_paper_account(
-            account_id="acc_123",
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            account_id="acc_123", current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         assert result.id == "acc_123"
@@ -308,9 +300,7 @@ class TestPaperTradingAccountsAPI:
         mock_paper_trading_service.delete_account = AsyncMock(return_value=True)
 
         result = await delete_paper_account(
-            account_id="acc_123",
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            account_id="acc_123", current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         assert result == {"message": "Account deleted successfully"}
@@ -336,13 +326,14 @@ class TestPaperTradingAccountsAPI:
             await delete_paper_account(
                 account_id="nonexistent",
                 current_user=mock_current_user,
-                service=mock_paper_trading_service
+                service=mock_paper_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
 
 # ==================== Order API Tests ====================
+
 
 @pytest.mark.asyncio
 class TestPaperTradingOrdersAPI:
@@ -389,9 +380,7 @@ class TestPaperTradingOrdersAPI:
         mock_paper_trading_service.submit_order = AsyncMock(return_value=mock_response)
 
         result = await submit_paper_order(
-            request=request,
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            request=request, current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         assert result.id == "order_123"
@@ -443,9 +432,7 @@ class TestPaperTradingOrdersAPI:
         mock_paper_trading_service.submit_order = AsyncMock(return_value=mock_response)
 
         result = await submit_paper_order(
-            request=request,
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            request=request, current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         assert result.side == "sell"
@@ -493,9 +480,7 @@ class TestPaperTradingOrdersAPI:
         mock_paper_trading_service.submit_order = AsyncMock(return_value=mock_response)
 
         result = await submit_paper_order(
-            request=request,
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            request=request, current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         assert result.stop_price == 9.5
@@ -518,7 +503,7 @@ class TestPaperTradingOrdersAPI:
             symbol=None,
             status=None,
             limit=20,
-            offset=0
+            offset=0,
         )
 
         assert result.total == 0
@@ -526,7 +511,7 @@ class TestPaperTradingOrdersAPI:
 
         # Verify filters include user_id
         call_kwargs = mock_paper_trading_service.list_orders.call_args.kwargs
-        assert call_kwargs['filters']['user_id'] == "test_user_123"
+        assert call_kwargs["filters"]["user_id"] == "test_user_123"
 
     async def test_list_orders_with_filters(self, mock_current_user, mock_paper_trading_service):
         """Test listing orders with filter parameters.
@@ -546,16 +531,16 @@ class TestPaperTradingOrdersAPI:
             symbol="000001.SZ",
             status="pending",
             limit=10,
-            offset=0
+            offset=0,
         )
 
         # Verify filters are built correctly
         call_kwargs = mock_paper_trading_service.list_orders.call_args.kwargs
-        filters = call_kwargs['filters']
-        assert filters['user_id'] == "test_user_123"
-        assert filters['account_id'] == "acc_123"
-        assert filters['symbol'] == "000001.SZ"
-        assert filters['status'] == "pending"
+        filters = call_kwargs["filters"]
+        assert filters["user_id"] == "test_user_123"
+        assert filters["account_id"] == "acc_123"
+        assert filters["symbol"] == "000001.SZ"
+        assert filters["status"] == "pending"
 
     async def test_get_order_not_found(self, mock_current_user, mock_paper_trading_service):
         """Test getting a non-existent order returns 404.
@@ -574,7 +559,7 @@ class TestPaperTradingOrdersAPI:
             await get_paper_order(
                 order_id="nonexistent",
                 current_user=mock_current_user,
-                service=mock_paper_trading_service
+                service=mock_paper_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
@@ -607,7 +592,7 @@ class TestPaperTradingOrdersAPI:
             await get_paper_order(
                 order_id="order_123",
                 current_user=mock_current_user,
-                service=mock_paper_trading_service
+                service=mock_paper_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
@@ -651,9 +636,7 @@ class TestPaperTradingOrdersAPI:
         mock_paper_trading_service.get_account = AsyncMock(return_value=mock_account)
 
         result = await get_paper_order(
-            order_id="order_123",
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            order_id="order_123", current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         assert result.id == "order_123"
@@ -671,9 +654,7 @@ class TestPaperTradingOrdersAPI:
         mock_paper_trading_service.cancel_order = AsyncMock(return_value=True)
 
         result = await cancel_paper_order(
-            order_id="order_123",
-            current_user=mock_current_user,
-            service=mock_paper_trading_service
+            order_id="order_123", current_user=mock_current_user, service=mock_paper_trading_service
         )
 
         assert result == {"message": "Order has been cancelled"}
@@ -699,13 +680,14 @@ class TestPaperTradingOrdersAPI:
             await cancel_paper_order(
                 order_id="nonexistent",
                 current_user=mock_current_user,
-                service=mock_paper_trading_service
+                service=mock_paper_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
 
 
 # ==================== Position API Tests ====================
+
 
 @pytest.mark.asyncio
 class TestPaperTradingPositionsAPI:
@@ -728,7 +710,7 @@ class TestPaperTradingPositionsAPI:
             account_id=None,
             symbol=None,
             limit=20,
-            offset=0
+            offset=0,
         )
 
         assert result.total == 0
@@ -736,7 +718,7 @@ class TestPaperTradingPositionsAPI:
 
         # Verify filters include user_id
         call_kwargs = mock_paper_trading_service.list_positions.call_args.kwargs
-        assert call_kwargs['filters']['user_id'] == "test_user_123"
+        assert call_kwargs["filters"]["user_id"] == "test_user_123"
 
     async def test_list_positions_with_data(self, mock_current_user, mock_paper_trading_service):
         """Test listing positions with data.
@@ -771,14 +753,16 @@ class TestPaperTradingPositionsAPI:
             account_id="acc_123",
             symbol=None,
             limit=20,
-            offset=0
+            offset=0,
         )
 
         assert result.total == 1
         assert len(result.items) == 1
         assert result.items[0].symbol == "000001.SZ"
 
-    async def test_list_positions_with_symbol_filter(self, mock_current_user, mock_paper_trading_service):
+    async def test_list_positions_with_symbol_filter(
+        self, mock_current_user, mock_paper_trading_service
+    ):
         """Test listing positions filtered by symbol.
 
         Args:
@@ -795,11 +779,11 @@ class TestPaperTradingPositionsAPI:
             account_id=None,
             symbol="600000.SH",
             limit=20,
-            offset=0
+            offset=0,
         )
 
         call_kwargs = mock_paper_trading_service.list_positions.call_args.kwargs
-        assert call_kwargs['filters']['symbol'] == "600000.SH"
+        assert call_kwargs["filters"]["symbol"] == "600000.SH"
 
     async def test_get_position_not_found(self, mock_current_user, mock_paper_trading_service):
         """Test getting a non-existent position returns 404.
@@ -818,7 +802,7 @@ class TestPaperTradingPositionsAPI:
             await get_paper_position(
                 position_id="nonexistent",
                 current_user=mock_current_user,
-                service=mock_paper_trading_service
+                service=mock_paper_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
@@ -852,7 +836,7 @@ class TestPaperTradingPositionsAPI:
             await get_paper_position(
                 position_id="pos_123",
                 current_user=mock_current_user,
-                service=mock_paper_trading_service
+                service=mock_paper_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
@@ -891,7 +875,7 @@ class TestPaperTradingPositionsAPI:
         result = await get_paper_position(
             position_id="pos_123",
             current_user=mock_current_user,
-            service=mock_paper_trading_service
+            service=mock_paper_trading_service,
         )
 
         assert result.id == "pos_123"
@@ -899,6 +883,7 @@ class TestPaperTradingPositionsAPI:
 
 
 # ==================== Trade API Tests ====================
+
 
 @pytest.mark.asyncio
 class TestPaperTradingTradesAPI:
@@ -922,7 +907,7 @@ class TestPaperTradingTradesAPI:
             symbol=None,
             side=None,
             limit=20,
-            offset=0
+            offset=0,
         )
 
         assert result.total == 0
@@ -930,7 +915,7 @@ class TestPaperTradingTradesAPI:
 
         # Verify filters include user_id
         call_kwargs = mock_paper_trading_service.list_trades.call_args.kwargs
-        assert call_kwargs['filters']['user_id'] == "test_user_123"
+        assert call_kwargs["filters"]["user_id"] == "test_user_123"
 
     async def test_list_trades_with_data(self, mock_current_user, mock_paper_trading_service):
         """Test listing trades with data.
@@ -967,7 +952,7 @@ class TestPaperTradingTradesAPI:
             symbol=None,
             side=None,
             limit=20,
-            offset=0
+            offset=0,
         )
 
         assert result.total == 1
@@ -992,19 +977,20 @@ class TestPaperTradingTradesAPI:
             symbol="000001.SZ",
             side="buy",
             limit=10,
-            offset=0
+            offset=0,
         )
 
         # Verify filters are built correctly
         call_kwargs = mock_paper_trading_service.list_trades.call_args.kwargs
-        filters = call_kwargs['filters']
-        assert filters['user_id'] == "test_user_123"
-        assert filters['account_id'] == "acc_123"
-        assert filters['symbol'] == "000001.SZ"
-        assert filters['side'] == "buy"
+        filters = call_kwargs["filters"]
+        assert filters["user_id"] == "test_user_123"
+        assert filters["account_id"] == "acc_123"
+        assert filters["symbol"] == "000001.SZ"
+        assert filters["side"] == "buy"
 
 
 # ==================== WebSocket Tests ====================
+
 
 @pytest.mark.asyncio
 class TestPaperTradingWebSocket:
@@ -1017,7 +1003,7 @@ class TestPaperTradingWebSocket:
         mock_ws = MagicMock()
         mock_ws.close = AsyncMock()
 
-        with patch('app.api.paper_trading.PaperTradingService') as mock_service_class:
+        with patch("app.api.paper_trading.PaperTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_account = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -1042,18 +1028,18 @@ class TestPaperTradingWebSocket:
             profit_loss_pct=5.0,
         )
 
-        with patch('app.api.paper_trading.PaperTradingService') as mock_service_class:
+        with patch("app.api.paper_trading.PaperTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_account = AsyncMock(return_value=mock_account)
             mock_service_class.return_value = mock_service
 
-            with patch('app.websocket_manager.manager') as mock_mgr:
+            with patch("app.websocket_manager.manager") as mock_mgr:
                 mock_mgr.connect = AsyncMock()
                 mock_mgr.send_to_task = AsyncMock()
                 mock_mgr.disconnect = MagicMock()
 
                 # Make the loop exit after one iteration
-                with patch('asyncio.sleep', side_effect=[None, Exception("Exit")]):
+                with patch("asyncio.sleep", side_effect=[None, Exception("Exit")]):
                     try:
                         await websocket_account_endpoint(mock_ws, "acc_123")
                     except Exception:
@@ -1082,18 +1068,18 @@ class TestPaperTradingWebSocket:
             profit_loss_pct=0.0,
         )
 
-        with patch('app.api.paper_trading.PaperTradingService') as mock_service_class:
+        with patch("app.api.paper_trading.PaperTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_account = AsyncMock(return_value=mock_account)
             mock_service_class.return_value = mock_service
 
-            with patch('app.websocket_manager.manager') as mock_mgr:
+            with patch("app.websocket_manager.manager") as mock_mgr:
                 mock_mgr.connect = AsyncMock()
                 mock_mgr.send_to_task = AsyncMock()
                 mock_mgr.disconnect = MagicMock()
 
                 # Make sleep raise WebSocketDisconnect
-                with patch('asyncio.sleep', side_effect=WebSocketDisconnect()):
+                with patch("asyncio.sleep", side_effect=WebSocketDisconnect()):
                     await websocket_account_endpoint(mock_ws, "acc_123")
 
                 # Verify disconnect was called
@@ -1101,6 +1087,7 @@ class TestPaperTradingWebSocket:
 
 
 # ==================== Schema Tests ====================
+
 
 @pytest.mark.asyncio
 class TestPaperTradingSchemas:
@@ -1187,6 +1174,7 @@ class TestPaperTradingSchemas:
 
 # ==================== Router Tests ====================
 
+
 @pytest.mark.asyncio
 class TestPaperTradingRouter:
     """Test paper trading router configuration."""
@@ -1196,7 +1184,7 @@ class TestPaperTradingRouter:
         from app.api.paper_trading import router
 
         assert router is not None
-        assert hasattr(router, 'routes')
+        assert hasattr(router, "routes")
 
     async def test_router_endpoint_count(self):
         """Test router has expected number of endpoints."""
@@ -1210,7 +1198,7 @@ class TestPaperTradingRouter:
         """Test router has account-related endpoints."""
         from app.api.paper_trading import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path')]
+        routes = [route for route in router.routes if hasattr(route, "path")]
         account_routes = [r for r in routes if "/accounts" in r.path]
         assert len(account_routes) > 0
 
@@ -1218,12 +1206,13 @@ class TestPaperTradingRouter:
         """Test router has WebSocket endpoint."""
         from app.api.paper_trading import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path')]
+        routes = [route for route in router.routes if hasattr(route, "path")]
         ws_routes = [r for r in routes if "/ws/" in r.path]
         assert len(ws_routes) > 0
 
 
 # ==================== Dependency Tests ====================
+
 
 @pytest.mark.asyncio
 class TestPaperTradingDependencies:

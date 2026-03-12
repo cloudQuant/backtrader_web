@@ -19,7 +19,10 @@ export const useSimulationStore = defineStore('simulation', () => {
     }
   }
 
-  async function addInstance(strategy_id: string, params?: Record<string, any>) {
+  async function addInstance(
+    strategy_id: string,
+    params?: Record<string, unknown>
+  ) {
     const instance = await simulationApi.add(strategy_id, params)
     instances.value.unshift(instance)
     return instance

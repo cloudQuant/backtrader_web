@@ -3,7 +3,7 @@ Live trading schemas.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -11,17 +11,17 @@ from pydantic import BaseModel, Field
 class LiveTradingSubmitRequest(BaseModel):
     """Live trading strategy submission request schema."""
 
-    strategy_name: Optional[str] = Field(None, description="Strategy name (built-in strategies)")
-    strategy_code: Optional[str] = Field(None, description="Strategy code")
+    strategy_name: str | None = Field(None, description="Strategy name (built-in strategies)")
+    strategy_code: str | None = Field(None, description="Strategy code")
     exchange: str = Field(..., description="Exchange (binance, okex, huobi, etc.)")
-    symbols: List[str] = Field(
+    symbols: list[str] = Field(
         ..., min_length=1, description="Symbol list (e.g., ['BTC/USDT', 'ETH/USDT'])"
     )
     initial_cash: float = Field(100000.0, gt=0, le=10000000, description="Initial capital (USDT)")
-    strategy_params: Optional[Dict[str, Any]] = Field(None, description="Strategy parameters")
+    strategy_params: dict[str, Any] | None = Field(None, description="Strategy parameters")
     timeframe: str = Field("1d", description="Timeframe (1m, 5m, 15m, 30m, 1h, 1d, 1w, 1M)")
-    start_date: Optional[datetime] = Field(None, description="Start time")
-    end_date: Optional[datetime] = Field(None, description="End time")
+    start_date: datetime | None = Field(None, description="Start time")
+    end_date: datetime | None = Field(None, description="End time")
     api_key: str = Field(..., description="API Key")
     secret: str = Field(..., description="Secret Key")
     sandbox: bool = Field(False, description="Whether to use test environment")
@@ -33,7 +33,7 @@ class LiveTradingTaskResponse(BaseModel):
     task_id: str = Field(..., description="Task ID")
     user_id: str = Field(..., description="User ID")
     status: str = Field(..., description="Task status: running, stopped, error")
-    config: Dict[str, Any] = Field(..., description="Task configuration")
+    config: dict[str, Any] = Field(..., description="Task configuration")
     created_at: datetime = Field(..., description="Creation time")
 
 
@@ -41,7 +41,7 @@ class LiveTradingTaskListResponse(BaseModel):
     """Live trading task list response schema."""
 
     total: int = Field(..., ge=0, description="Total count")
-    tasks: List[LiveTradingTaskResponse] = Field(..., description="Task list")
+    tasks: list[LiveTradingTaskResponse] = Field(..., description="Task list")
 
 
 class LiveTradingDataResponse(BaseModel):
@@ -51,8 +51,8 @@ class LiveTradingDataResponse(BaseModel):
     status: str = Field(..., description="Task status")
     cash: float = Field(..., description="Available cash")
     value: float = Field(..., description="Total equity")
-    positions: List[Dict[str, Any]] = Field(..., description="Position list")
-    orders: List[Dict[str, Any]] = Field(..., description="Order list")
+    positions: list[dict[str, Any]] = Field(..., description="Position list")
+    orders: list[dict[str, Any]] = Field(..., description="Order list")
 
 
 class LiveTradingPosition(BaseModel):
@@ -74,7 +74,7 @@ class LiveTradingOrder(BaseModel):
     order_type: str = Field(..., description="Order type")
     side: str = Field(..., description="Order side")
     size: float = Field(..., description="Order quantity")
-    price: Optional[float] = Field(None, description="Limit order price")
+    price: float | None = Field(None, description="Limit order price")
     status: str = Field(..., description="Order status")
     filled_size: float = Field(..., description="Filled quantity")
     created_at: datetime = Field(..., description="Creation time")
@@ -116,10 +116,10 @@ class LiveTick(BaseModel):
     low: float = Field(..., description="Low price")
     close: float = Field(..., description="Close price")
     volume: float = Field(..., description="Volume")
-    bid: Optional[float] = Field(None, description="Bid price")
-    ask: Optional[float] = Field(None, description="Ask price")
-    bid_size: Optional[float] = Field(None, description="Bid size")
-    ask_size: Optional[float] = Field(None, description="Ask size")
+    bid: float | None = Field(None, description="Bid price")
+    ask: float | None = Field(None, description="Ask price")
+    bid_size: float | None = Field(None, description="Bid size")
+    ask_size: float | None = Field(None, description="Ask size")
 
 
 class LiveTickUpdate(BaseModel):
@@ -144,7 +144,7 @@ class LiveOrderUpdate(BaseModel):
 
     type: str = Field("order_update", description="Message type")
     order_id: str = Field(..., description="Order ID")
-    data: Dict[str, Any] = Field(..., description="Order data")
+    data: dict[str, Any] = Field(..., description="Order data")
 
 
 class LiveTradeUpdate(BaseModel):
@@ -169,4 +169,4 @@ class LiveSignalUpdate(BaseModel):
     type: str = Field("signal_update", description="Message type")
     symbol: str = Field(..., description="Symbol code")
     signal: str = Field(..., description="Signal type: buy, sell, close")
-    data: Dict[str, Any] = Field(..., description="Signal data")
+    data: dict[str, Any] = Field(..., description="Signal data")

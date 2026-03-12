@@ -8,6 +8,7 @@ Tests:
 - GET /api/v1/portfolio/equity - Portfolio equity curve
 - GET /api/v1/portfolio/allocation - Strategy asset allocation
 """
+
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -106,9 +107,7 @@ class TestPortfolioTradesDetailed:
     async def test_trades_limit_parameter(self, client: AsyncClient, auth_headers: dict):
         """Test trades limit parameter."""
         resp = await client.get(
-            "/api/v1/portfolio/trades",
-            headers=auth_headers,
-            params={"limit": 10}
+            "/api/v1/portfolio/trades", headers=auth_headers, params={"limit": 10}
         )
         if resp.status_code == 200:
             data = resp.json()
@@ -184,6 +183,7 @@ class TestPortfolioHelperFunctions:
     def test_safe_round_normal_value(self):
         """Test rounding normal values."""
         from app.api.portfolio_api import _safe_round
+
         result = _safe_round(123.456, 2)
         assert result == 123.46
 
@@ -191,24 +191,28 @@ class TestPortfolioHelperFunctions:
         """Test NaN value handling."""
 
         from app.api.portfolio_api import _safe_round
-        result = _safe_round(float('nan'), 2)
+
+        result = _safe_round(float("nan"), 2)
         assert result == 0.0
 
     def test_safe_round_inf_value(self):
         """Test infinity value handling."""
         from app.api.portfolio_api import _safe_round
-        result = _safe_round(float('inf'), 2)
+
+        result = _safe_round(float("inf"), 2)
         assert result == 0.0
 
     def test_safe_round_negative_inf_value(self):
         """Test negative infinity value handling."""
         from app.api.portfolio_api import _safe_round
-        result = _safe_round(float('-inf'), 2)
+
+        result = _safe_round(float("-inf"), 2)
         assert result == 0.0
 
     def test_safe_round_negative_value(self):
         """Test rounding negative values."""
         from app.api.portfolio_api import _safe_round
+
         result = _safe_round(-123.456, 2)
         assert result == -123.46
 
@@ -223,7 +227,7 @@ class TestPortfolioManagerIntegration:
 
         manager = _get_manager()
         assert manager is not None
-        assert hasattr(manager, 'list_instances')
+        assert hasattr(manager, "list_instances")
 
     async def test_manager_list_instances(self):
         """Test manager listing instances."""
@@ -242,7 +246,7 @@ class TestPortfolioEdgeCases:
     async def test_overview_with_empty_instances(self, client: AsyncClient, auth_headers: dict):
         """Test overview with no instances."""
 
-        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
+        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.list_instances.return_value = []
             mock_get_mgr.return_value = mock_mgr
@@ -257,16 +261,19 @@ class TestPortfolioEdgeCases:
         """Test overview when strategy has no log directory."""
         from pathlib import Path
 
-        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
-            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
-                with patch('app.api.portfolio_api.get_strategy_dir', return_value=Path('/tmp/test_strategy')):
+        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
+            with patch("app.api.portfolio_api.find_latest_log_dir", return_value=None):
+                with patch(
+                    "app.api.portfolio_api.get_strategy_dir",
+                    return_value=Path("/tmp/test_strategy"),
+                ):
                     mock_mgr = MagicMock()
                     mock_mgr.list_instances.return_value = [
                         {
                             "id": "inst_1",
                             "strategy_id": "test_strategy",
                             "strategy_name": "Test Strategy",
-                            "status": "running"
+                            "status": "running",
                         }
                     ]
                     mock_get_mgr.return_value = mock_mgr
@@ -280,8 +287,8 @@ class TestPortfolioEdgeCases:
     async def test_positions_with_no_data(self, client: AsyncClient, auth_headers: dict):
         """Test positions with no data."""
 
-        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
-            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
+        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
+            with patch("app.api.portfolio_api.find_latest_log_dir", return_value=None):
                 mock_mgr = MagicMock()
                 mock_mgr.list_instances.return_value = []
                 mock_get_mgr.return_value = mock_mgr
@@ -296,9 +303,9 @@ class TestPortfolioEdgeCases:
         """Test trade records sorted by date."""
         from pathlib import Path
 
-        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
-            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
-                with patch('app.api.portfolio_api.parse_trade_log') as mock_parse:
+        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
+            with patch("app.api.portfolio_api.find_latest_log_dir", return_value=Path("/tmp/test")):
+                with patch("app.api.portfolio_api.parse_trade_log") as mock_parse:
                     # Mock trades with different close dates
                     mock_parse.return_value = [
                         {"dtclose": "2023-01-02", "pnlcomm": 100},
@@ -311,7 +318,7 @@ class TestPortfolioEdgeCases:
                             "id": "inst_1",
                             "strategy_id": "test_strategy",
                             "strategy_name": "Test Strategy",
-                            "status": "running"
+                            "status": "running",
                         }
                     ]
                     mock_get_mgr.return_value = mock_mgr
@@ -326,13 +333,12 @@ class TestPortfolioEdgeCases:
         """Test trades limit parameter."""
         from pathlib import Path
 
-        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
-            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
-                with patch('app.api.portfolio_api.parse_trade_log') as mock_parse:
+        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
+            with patch("app.api.portfolio_api.find_latest_log_dir", return_value=Path("/tmp/test")):
+                with patch("app.api.portfolio_api.parse_trade_log") as mock_parse:
                     # Mock many trades
                     mock_parse.return_value = [
-                        {"dtclose": f"2023-01-{i:02d}", "pnlcomm": i * 10}
-                        for i in range(1, 31)
+                        {"dtclose": f"2023-01-{i:02d}", "pnlcomm": i * 10} for i in range(1, 31)
                     ]
                     mock_mgr = MagicMock()
                     mock_mgr.list_instances.return_value = [
@@ -340,14 +346,13 @@ class TestPortfolioEdgeCases:
                             "id": "inst_1",
                             "strategy_id": "test_strategy",
                             "strategy_name": "Test Strategy",
-                            "status": "running"
+                            "status": "running",
                         }
                     ]
                     mock_get_mgr.return_value = mock_mgr
 
                     resp = await client.get(
-                        "/api/v1/portfolio/trades?limit=5",
-                        headers=auth_headers
+                        "/api/v1/portfolio/trades?limit=5", headers=auth_headers
                     )
                     if resp.status_code == 200:
                         data = resp.json()
@@ -357,8 +362,8 @@ class TestPortfolioEdgeCases:
     async def test_equity_empty_dates(self, client: AsyncClient, auth_headers: dict):
         """Test equity curve with empty date data."""
 
-        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
-            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=None):
+        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
+            with patch("app.api.portfolio_api.find_latest_log_dir", return_value=None):
                 mock_mgr = MagicMock()
                 mock_mgr.list_instances.return_value = []
                 mock_get_mgr.return_value = mock_mgr
@@ -374,22 +379,18 @@ class TestPortfolioEdgeCases:
         """Test allocation when total value is zero."""
         from pathlib import Path
 
-        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
-            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
-                with patch('app.api.portfolio_api.parse_value_log') as mock_parse:
+        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
+            with patch("app.api.portfolio_api.find_latest_log_dir", return_value=Path("/tmp/test")):
+                with patch("app.api.portfolio_api.parse_value_log") as mock_parse:
                     # Mock empty equity curve
-                    mock_parse.return_value = {
-                        "dates": [],
-                        "equity_curve": [],
-                        "cash_curve": []
-                    }
+                    mock_parse.return_value = {"dates": [], "equity_curve": [], "cash_curve": []}
                     mock_mgr = MagicMock()
                     mock_mgr.list_instances.return_value = [
                         {
                             "id": "inst_1",
                             "strategy_id": "test_strategy",
                             "strategy_name": "Test Strategy",
-                            "status": "running"
+                            "status": "running",
                         }
                     ]
                     mock_get_mgr.return_value = mock_mgr
@@ -404,21 +405,21 @@ class TestPortfolioEdgeCases:
         """Test date mapping logic."""
         from pathlib import Path
 
-        with patch('app.api.portfolio_api.get_live_trading_manager') as mock_get_mgr:
-            with patch('app.api.portfolio_api.find_latest_log_dir', return_value=Path('/tmp/test')):
-                with patch('app.api.portfolio_api.parse_value_log') as mock_parse:
+        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
+            with patch("app.api.portfolio_api.find_latest_log_dir", return_value=Path("/tmp/test")):
+                with patch("app.api.portfolio_api.parse_value_log") as mock_parse:
                     # Mock different date ranges for different strategies
                     mock_parse.side_effect = [
                         {
                             "dates": ["2023-01-01", "2023-01-02", "2023-01-03"],
                             "equity_curve": [10000, 10100, 10200],
-                            "cash_curve": [5000, 5100, 5200]
+                            "cash_curve": [5000, 5100, 5200],
                         },
                         {
                             "dates": ["2023-01-02", "2023-01-03", "2023-01-04"],
                             "equity_curve": [20000, 20100, 20200],
-                            "cash_curve": [10000, 10100, 10200]
-                        }
+                            "cash_curve": [10000, 10100, 10200],
+                        },
                     ]
                     mock_mgr = MagicMock()
                     mock_mgr.list_instances.return_value = [
@@ -426,14 +427,14 @@ class TestPortfolioEdgeCases:
                             "id": "inst_1",
                             "strategy_id": "strategy_1",
                             "strategy_name": "Strategy 1",
-                            "status": "running"
+                            "status": "running",
                         },
                         {
                             "id": "inst_2",
                             "strategy_id": "strategy_2",
                             "strategy_name": "Strategy 2",
-                            "status": "running"
-                        }
+                            "status": "running",
+                        },
                     ]
                     mock_get_mgr.return_value = mock_mgr
 
@@ -458,7 +459,7 @@ class TestPortfolioRouter:
         from app.api.portfolio_api import router
 
         assert router is not None
-        assert hasattr(router, 'routes')
+        assert hasattr(router, "routes")
 
     async def test_router_endpoints(self):
         """Test router endpoints."""

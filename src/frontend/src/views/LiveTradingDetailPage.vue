@@ -1,15 +1,32 @@
 <template>
   <div class="backtest-result-page p-6">
     <!-- 加载状态 -->
-    <div v-if="loading" class="flex justify-center items-center h-64">
-      <el-icon class="is-loading text-4xl text-blue-500"><Loading /></el-icon>
+    <div
+      v-if="loading"
+      class="flex justify-center items-center h-64"
+    >
+      <el-icon class="is-loading text-4xl text-blue-500">
+        <Loading />
+      </el-icon>
     </div>
     
     <!-- 错误状态 -->
-    <div v-else-if="error" class="text-center py-12">
-      <el-icon class="text-5xl text-red-400 mb-4"><CircleCloseFilled /></el-icon>
-      <p class="text-gray-500">{{ error }}</p>
-      <el-button class="mt-4" @click="loadData">重试</el-button>
+    <div
+      v-else-if="error"
+      class="text-center py-12"
+    >
+      <el-icon class="text-5xl text-red-400 mb-4">
+        <CircleCloseFilled />
+      </el-icon>
+      <p class="text-gray-500">
+        {{ error }}
+      </p>
+      <el-button
+        class="mt-4"
+        @click="loadData"
+      >
+        重试
+      </el-button>
     </div>
     
     <!-- 内容 -->
@@ -17,14 +34,19 @@
       <!-- 顶部标题和操作 -->
       <div class="flex justify-between items-center mb-6">
         <div>
-          <h2 class="text-2xl font-bold">实盘策略分析</h2>
+          <h2 class="text-2xl font-bold">
+            实盘策略分析
+          </h2>
           <p class="text-gray-500 mt-1">
             {{ detail.strategy_name }} | {{ detail.symbol }} | 
             {{ detail.start_date }} - {{ detail.end_date }}
           </p>
         </div>
         <div class="flex gap-2">
-          <el-button type="primary" @click="handleBack">
+          <el-button
+            type="primary"
+            @click="handleBack"
+          >
             <el-icon><Back /></el-icon>返回
           </el-button>
         </div>
@@ -36,8 +58,14 @@
       </el-card>
       
       <!-- 图表区域 -->
-      <el-tabs v-model="activeTab" class="mb-6">
-        <el-tab-pane label="K线图" name="kline">
+      <el-tabs
+        v-model="activeTab"
+        class="mb-6"
+      >
+        <el-tab-pane
+          label="K线图"
+          name="kline"
+        >
           <el-card v-show="activeTab === 'kline'">
             <TradeSignalChart
               :klines="klineData?.klines || []"
@@ -48,7 +76,10 @@
           </el-card>
         </el-tab-pane>
         
-        <el-tab-pane label="资金曲线" name="equity">
+        <el-tab-pane
+          label="资金曲线"
+          name="equity"
+        >
           <el-card v-show="activeTab === 'equity'">
             <EquityCurve
               :data="detail.equity_curve"
@@ -62,8 +93,14 @@
           </el-card>
         </el-tab-pane>
         
-        <el-tab-pane label="收益分析" name="analysis">
-          <div v-show="activeTab === 'analysis'" class="space-y-4">
+        <el-tab-pane
+          label="收益分析"
+          name="analysis"
+        >
+          <div
+            v-show="activeTab === 'analysis'"
+            class="space-y-4"
+          >
             <el-card>
               <ReturnHeatmap
                 :returns="monthlyReturns?.returns || []"
@@ -73,7 +110,9 @@
             </el-card>
             <el-card>
               <div class="p-4">
-                <h4 class="text-md font-medium mb-3">年度收益汇总</h4>
+                <h4 class="text-md font-medium mb-3">
+                  年度收益汇总
+                </h4>
                 <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 max-h-48 overflow-y-auto">
                   <div 
                     v-for="(ret, year) in monthlyReturns?.summary" 
@@ -81,7 +120,10 @@
                     class="flex justify-between items-center px-3 py-2 bg-gray-50 rounded text-sm"
                   >
                     <span class="font-medium mr-2">{{ year }}</span>
-                    <span :class="ret >= 0 ? 'text-green-600' : 'text-red-600'" class="whitespace-nowrap">
+                    <span
+                      :class="ret >= 0 ? 'text-green-600' : 'text-red-600'"
+                      class="whitespace-nowrap"
+                    >
                       {{ ret >= 0 ? '+' : '' }}{{ (ret * 100).toFixed(2) }}%
                     </span>
                   </div>
@@ -91,7 +133,10 @@
           </div>
         </el-tab-pane>
         
-        <el-tab-pane label="交易记录" name="trades">
+        <el-tab-pane
+          label="交易记录"
+          name="trades"
+        >
           <el-card>
             <TradeRecordsTable :trades="detail.trades" />
           </el-card>
@@ -116,7 +161,7 @@ import type {
   KlineWithSignalsResponse,
   MonthlyReturnsResponse,
 } from '@/types/analytics'
-import request from '@/api/index'
+import request, { getErrorMessage } from '@/api'
 
 const route = useRoute()
 const router = useRouter()
@@ -149,8 +194,8 @@ async function loadData() {
     detail.value = detailRes
     klineData.value = klineRes
     monthlyReturns.value = returnsRes
-  } catch (e: any) {
-    error.value = e.message || '加载失败'
+  } catch (e: unknown) {
+    error.value = getErrorMessage(e, '加载失败')
   } finally {
     loading.value = false
   }

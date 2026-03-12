@@ -6,8 +6,10 @@ Design:
 - Evaluate combinations in parallel via concurrent.futures.ProcessPoolExecutor.
 - Each worker: write a temporary config.yaml -> run a run.py subprocess -> parse logs -> return metrics.
 - The main process aggregates results and exposes progress queries.
+- Task state is persisted to DB for multi-instance support and restart resilience.
 """
 
+import asyncio
 import itertools
 import logging
 import math
@@ -21,19 +23,23 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
+
+from app.services.optimization_execution_manager import (
+    get_optimization_execution_manager,
+)
 
 logger = logging.getLogger(__name__)
 
 # ---- Global State ----
 
-_tasks: Dict[str, Dict[str, Any]] = {}
+_tasks: dict[str, dict[str, Any]] = {}
 _tasks_lock = Lock()
 
 
-def _get_task(task_id: str) -> Optional[Dict[str, Any]]:
+def _get_task(task_id: str) -> dict[str, Any] | None:
     """Get a task by ID from the global task registry.
 
     Args:
@@ -46,7 +52,7 @@ def _get_task(task_id: str) -> Optional[Dict[str, Any]]:
         return _tasks.get(task_id)
 
 
-def _set_task(task_id: str, data: Dict[str, Any]):
+def _set_task(task_id: str, data: dict[str, Any]):
     """Set a task in the global task registry.
 
     Args:
@@ -69,15 +75,20 @@ def _update_task(task_id: str, **kwargs):
             _tasks[task_id].update(kwargs)
 
 
+def _run_async(coro):
+    """Run async coroutine from sync context (e.g. background thread)."""
+    return asyncio.run(coro)
+
+
 # ---- Worker (runs in subprocess of ProcessPoolExecutor) ----
 
 
 def _run_single_trial(
     strategy_dir: str,
-    params: Dict[str, Any],
+    params: dict[str, Any],
     trial_index: int,
     tmp_base: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run a single backtest trial in an isolated process.
 
     To avoid conflicts from multiple processes writing to the same logs/
@@ -100,7 +111,7 @@ def _run_single_trial(
     """
     strategy_path = Path(strategy_dir)
     trial_dir = Path(tmp_base) / f"trial_{trial_index}"
-    result: Dict[str, Any] = {"params": params, "trial_index": trial_index, "success": False}
+    result: dict[str, Any] = {"params": params, "trial_index": trial_index, "success": False}
 
     try:
         # Copy strategy directory to temporary location
@@ -115,7 +126,7 @@ def _run_single_trial(
         config_path = trial_dir / "config.yaml"
         config: dict = {}
         if config_path.is_file():
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
 
         if "params" not in config:
@@ -172,7 +183,7 @@ def _run_single_trial(
     return result
 
 
-def _safe_float(val, default=0.0):
+def _safe_float(val: Any, default: float = 0.0) -> float:
     """Convert a value to float, handling NaN and infinity.
 
     Args:
@@ -191,7 +202,7 @@ def _safe_float(val, default=0.0):
         return default
 
 
-def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
+def _parse_trial_logs(trial_dir: Path) -> dict[str, float] | None:
     """Extract core performance metrics from a trial's logs directory.
 
     Args:
@@ -227,7 +238,7 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
     value_path = log_dir / "value.log"
     equity = []
     if value_path.is_file():
-        with open(value_path, "r", encoding="utf-8") as f:
+        with open(value_path, encoding="utf-8") as f:
             _header = f.readline()
             for line in f:
                 parts = line.strip().split("\t")
@@ -275,7 +286,7 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
     total_trades = 0
     win_trades = 0
     if trade_path.is_file():
-        with open(trade_path, "r", encoding="utf-8") as f:
+        with open(trade_path, encoding="utf-8") as f:
             header_line = f.readline().strip()
             headers = header_line.split("\t")
             isclosed_idx = headers.index("isclosed") if "isclosed" in headers else -1
@@ -306,8 +317,8 @@ def _parse_trial_logs(trial_dir: Path) -> Optional[Dict[str, float]]:
 
 
 def generate_param_grid(
-    param_ranges: Dict[str, Dict[str, float]],
-) -> List[Dict[str, Any]]:
+    param_ranges: dict[str, dict[str, float]],
+) -> list[dict[str, Any]]:
     """Generate a Cartesian product parameter grid from range specifications.
 
     Args:
@@ -335,13 +346,15 @@ def generate_param_grid(
         value_lists.append(vals)
 
     combos = list(itertools.product(*value_lists))
-    return [dict(zip(keys, combo)) for combo in combos]
+    return [dict(zip(keys, combo, strict=False)) for combo in combos]
 
 
 def submit_optimization(
     strategy_id: str,
-    param_ranges: Dict[str, Dict[str, float]],
+    param_ranges: dict[str, dict[str, float]],
     n_workers: int = 4,
+    task_id: str | None = None,
+    persist_to_db: bool = True,
 ) -> str:
     """Submit an optimization task to run asynchronously.
 
@@ -349,6 +362,8 @@ def submit_optimization(
         strategy_id: The strategy identifier to optimize.
         param_ranges: Dictionary mapping parameter names to range specifications.
         n_workers: Number of parallel worker processes to use.
+        task_id: Optional task ID (e.g. from DB). If not provided, generates one.
+        persist_to_db: If True and task_id is from DB, persist results to DB on completion.
 
     Returns:
         The task ID for tracking optimization progress.
@@ -366,7 +381,7 @@ def submit_optimization(
     if not grid:
         raise ValueError("Parameter grid is empty, please check parameter range settings")
 
-    task_id = uuid.uuid4().hex[:8]
+    task_id = task_id or uuid.uuid4().hex[:8]
     _set_task(
         task_id,
         {
@@ -386,7 +401,7 @@ def submit_optimization(
 
     t = threading.Thread(
         target=_run_optimization_thread,
-        args=(task_id, str(strategy_dir), grid, n_workers),
+        args=(task_id, str(strategy_dir), grid, n_workers, persist_to_db),
         daemon=True,
     )
     t.start()
@@ -397,8 +412,9 @@ def submit_optimization(
 def _run_optimization_thread(
     task_id: str,
     strategy_dir: str,
-    grid: List[Dict[str, Any]],
+    grid: list[dict[str, Any]],
     n_workers: int,
+    persist_to_db: bool = True,
 ):
     """Run multiprocess optimization in a background thread.
 
@@ -407,26 +423,38 @@ def _run_optimization_thread(
         strategy_dir: Path to the strategy directory.
         grid: List of parameter combinations to evaluate.
         n_workers: Number of parallel worker processes.
+        persist_to_db: If True, persist final state to DB on completion.
     """
-    tmp_base = tempfile.mkdtemp(prefix=f"opt_{task_id}_")
-    all_results: List[Dict[str, Any]] = []
+
+    def _check_cancelled() -> bool:
+        """Check in-memory first, then DB for cross-instance cancel."""
+        task = _get_task(task_id)
+        if task and task.get("status") == "cancelled":
+            return True
+        if persist_to_db:
+            try:
+                mgr = get_optimization_execution_manager()
+                if _run_async(mgr.is_cancelled(task_id)):
+                    _update_task(task_id, status="cancelled")
+                    return True
+            except Exception as e:
+                logger.debug("DB cancel check failed: %s", e)
+        return False
+
+    tmp_base = tempfile.mkdtemp(prefix=f"opt_{task_id[:8]}_")
+    all_results: list[dict[str, Any]] = []
 
     try:
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
             futures = {}
             for i, params in enumerate(grid):
-                # Check cancellation flag before submitting
-                task = _get_task(task_id)
-                if task and task["status"] == "cancelled":
+                if _check_cancelled():
                     break
                 fut = executor.submit(_run_single_trial, strategy_dir, params, i, tmp_base)
                 futures[fut] = i
 
             for fut in as_completed(futures):
-                # Check cancellation flag when collecting results
-                task = _get_task(task_id)
-                if task and task["status"] == "cancelled":
-                    # Try to cancel remaining futures
+                if _check_cancelled():
                     for pending_fut in futures:
                         pending_fut.cancel()
                     break
@@ -446,15 +474,82 @@ def _run_optimization_thread(
 
                 _update_task(task_id, results=list(all_results))
 
+                # Incremental persist to DB for restart resilience (every 5 trials)
+                if persist_to_db and len(all_results) % 5 == 0 and len(all_results) > 0:
+                    try:
+                        mgr = get_optimization_execution_manager()
+                        task = _get_task(task_id)
+                        if task:
+                            _run_async(
+                                mgr.update_progress(
+                                    task_id,
+                                    completed=task.get("completed", 0),
+                                    failed=task.get("failed", 0),
+                                    results=task.get("results", []),
+                                )
+                            )
+                    except Exception as e:
+                        logger.debug("Incremental DB persist failed: %s", e)
+
         # Only mark completed if not cancelled
         task = _get_task(task_id)
-        if task and task["status"] != "cancelled":
+        final_status = "cancelled" if (task and task.get("status") == "cancelled") else "completed"
+        if task and task.get("status") != "cancelled":
             _update_task(task_id, status="completed", results=all_results)
-        logger.info(f"Optimization completed {task_id}: {len(all_results)}/{len(grid)} successful")
+            final_status = "completed"
+
+        # Persist to DB
+        if persist_to_db and final_status != "cancelled":
+            try:
+                mgr = get_optimization_execution_manager()
+                _run_async(
+                    mgr.update_progress(
+                        task_id,
+                        completed=len(all_results),
+                        failed=task["failed"] if task else 0,
+                        results=all_results,
+                        status=final_status,
+                    )
+                )
+            except Exception as e:
+                logger.warning("Failed to persist optimization results to DB: %s", e)
+
+        if final_status == "cancelled":
+            if persist_to_db:
+                try:
+                    mgr = get_optimization_execution_manager()
+                    task = _get_task(task_id)
+                    _run_async(
+                        mgr.update_progress(
+                            task_id,
+                            completed=task.get("completed", 0) if task else 0,
+                            failed=task.get("failed", 0) if task else 0,
+                            results=task.get("results", []) if task else [],
+                            status="cancelled",
+                        )
+                    )
+                except Exception as e:
+                    logger.debug("Failed to persist cancel to DB: %s", e)
+
+        logger.info(
+            "Optimization %s %s: %s/%s successful",
+            task_id,
+            final_status,
+            len(all_results),
+            len(grid),
+        )
 
     except Exception as e:
-        logger.error(f"Optimization task failed {task_id}: {e}")
+        logger.error("Optimization task failed %s: %s", task_id, e)
         _update_task(task_id, status="error", error=str(e))
+        if persist_to_db:
+            try:
+                mgr = get_optimization_execution_manager()
+                _run_async(
+                    mgr.update_progress(task_id, 0, 0, [], status="error", error_message=str(e))
+                )
+            except Exception as pe:
+                logger.warning("Failed to persist error to DB: %s", pe)
     finally:
         try:
             shutil.rmtree(tmp_base, ignore_errors=True)
@@ -462,8 +557,10 @@ def _run_optimization_thread(
             pass
 
 
-def get_optimization_progress(task_id: str) -> Optional[Dict[str, Any]]:
-    """Get the progress of an optimization task.
+def get_optimization_progress(
+    task_id: str, user_id: str | None = None, use_db: bool = True
+) -> dict[str, Any] | None:
+    """Get the progress of an optimization task. Checks DB first, then in-memory.
 
     Args:
         task_id: The optimization task identifier.
@@ -481,6 +578,28 @@ def get_optimization_progress(task_id: str) -> Optional[Dict[str, Any]]:
         - created_at: ISO format creation timestamp
         Returns None if task not found.
     """
+    # Check DB first (for persisted tasks)
+    if use_db:
+        try:
+            mgr = get_optimization_execution_manager()
+            db_task = _run_async(mgr.get_task(task_id, user_id=user_id))
+            if db_task:
+                total = db_task.total or 0
+                done = (db_task.completed or 0) + (db_task.failed or 0)
+                return {
+                    "task_id": task_id,
+                    "status": db_task.status,
+                    "strategy_id": db_task.strategy_id,
+                    "total": total,
+                    "completed": db_task.completed or 0,
+                    "failed": db_task.failed or 0,
+                    "progress": round(done / total * 100, 1) if total > 0 else 0,
+                    "n_workers": db_task.n_workers or 4,
+                    "created_at": db_task.created_at.isoformat() if db_task.created_at else "",
+                }
+        except Exception as e:
+            logger.debug("DB progress lookup failed: %s", e)
+
     task = _get_task(task_id)
     if not task:
         return None
@@ -499,30 +618,44 @@ def get_optimization_progress(task_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def get_optimization_results(task_id: str) -> Optional[Dict[str, Any]]:
-    """Get the results of a completed optimization task.
+def get_optimization_results(
+    task_id: str, user_id: str | None = None, use_db: bool = True
+) -> dict[str, Any] | None:
+    """Get the results of a completed optimization task. Checks DB first, then in-memory.
 
     Args:
         task_id: The optimization task identifier.
 
     Returns:
-        Dictionary containing optimization results with keys:
-        - task_id: The task identifier
-        - status: Current status
-        - strategy_id: The strategy that was optimized
-        - param_names: List of parameter names
-        - metric_names: List of metric names returned
-        - total: Total number of trials
-        - completed: Number of completed trials
-        - failed: Number of failed trials
-        - rows: List of result dictionaries sorted by annual_return (descending)
-        - best: Best parameter combination (first row)
-        Returns None if task not found.
+        Dictionary containing optimization results, or None if task not found.
     """
+    # Check DB first (for persisted tasks)
+    if use_db:
+        try:
+            mgr = get_optimization_execution_manager()
+            db_task = _run_async(mgr.get_task(task_id, user_id=user_id))
+            if db_task and db_task.results is not None:
+                task_dict = {
+                    "status": db_task.status,
+                    "strategy_id": db_task.strategy_id,
+                    "param_names": list((db_task.param_ranges or {}).keys()),
+                    "total": db_task.total,
+                    "completed": db_task.completed,
+                    "failed": db_task.failed,
+                    "results": db_task.results,
+                }
+                return _build_results_response(task_dict, task_id)
+        except Exception as e:
+            logger.debug("DB results lookup failed: %s", e)
+
     task = _get_task(task_id)
     if not task:
         return None
+    return _build_results_response(task, task_id)
 
+
+def _build_results_response(task: dict[str, Any], task_id: str) -> dict[str, Any]:
+    """Build the optimization results response dict from task data."""
     results = task.get("results", [])
 
     # Build table-formatted data
@@ -561,15 +694,29 @@ def get_optimization_results(task_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def cancel_optimization(task_id: str) -> bool:
-    """Cancel an optimization task (marks status, does not force-kill subprocesses).
+def cancel_optimization(task_id: str, user_id: str | None = None, use_db: bool = True) -> bool:
+    """Cancel an optimization task (marks status in-memory and optionally DB).
 
     Args:
         task_id: The optimization task identifier.
+        user_id: Optional user ID for ownership check when updating DB.
+        use_db: If True, attempt DB update (via _run_async). Set False when
+            caller (e.g. API) will handle DB update with await to avoid
+            nested event loop issues.
 
     Returns:
         True if task was found and marked for cancellation, False otherwise.
     """
+    if use_db:
+        try:
+            mgr = get_optimization_execution_manager()
+            if _run_async(mgr.set_cancelled(task_id, user_id)):
+                _update_task(task_id, status="cancelled")
+                return True
+        except Exception as e:
+            logger.debug("DB cancel failed: %s", e)
+
+    # Update in-memory
     task = _get_task(task_id)
     if not task:
         return False

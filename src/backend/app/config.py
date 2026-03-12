@@ -3,7 +3,6 @@ Configuration management - Load configuration from environment variables.
 """
 
 import os
-from typing import Optional
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,15 +52,15 @@ class Settings(BaseSettings):
     )
 
     # Optional: Document database
-    DOCUMENT_DB_TYPE: Optional[str] = Field(default=None, description="Document database type")
-    DOCUMENT_DB_URL: Optional[str] = Field(default=None, description="Document database URL")
+    DOCUMENT_DB_TYPE: str | None = Field(default=None, description="Document database type")
+    DOCUMENT_DB_URL: str | None = Field(default=None, description="Document database URL")
 
     # Optional: Timeseries database
-    TIMESERIES_DB_TYPE: Optional[str] = Field(default=None, description="Timeseries database type")
-    TIMESERIES_DB_URL: Optional[str] = Field(default=None, description="Timeseries database URL")
+    TIMESERIES_DB_TYPE: str | None = Field(default=None, description="Timeseries database type")
+    TIMESERIES_DB_URL: str | None = Field(default=None, description="Timeseries database URL")
 
     # Optional: Redis cache
-    REDIS_URL: Optional[str] = Field(default=None, description="Redis cache URL")
+    REDIS_URL: str | None = Field(default=None, description="Redis cache URL")
 
     # JWT settings
     JWT_SECRET_KEY: str = Field(
@@ -269,7 +268,7 @@ class Settings(BaseSettings):
 
 
 # Use simple cache to avoid lru_cache issues in pydantic-settings v2
-_settings: Optional[Settings] = None
+_settings: Settings | None = None
 
 
 def get_settings() -> Settings:

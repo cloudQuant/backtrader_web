@@ -13,6 +13,7 @@ Tests:
 - Slippage calculation
 - Price simulation
 """
+
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -54,12 +55,8 @@ class TestCreateAccount:
         service.account_repo = AsyncMock()
         service.account_repo.create = AsyncMock(return_value=mock_account)
 
-        with patch.object(service, '_notify_account_update', new_callable=AsyncMock):
-            result = await service.create_account(
-                "user_123",
-                "Test Account",
-                100000.0
-            )
+        with patch.object(service, "_notify_account_update", new_callable=AsyncMock):
+            result = await service.create_account("user_123", "Test Account", 100000.0)
 
             assert result is not None
             assert result.id == "acc_123"
@@ -74,13 +71,13 @@ class TestCreateAccount:
         service.account_repo = AsyncMock()
         service.account_repo.create = AsyncMock(return_value=mock_account)
 
-        with patch.object(service, '_notify_account_update', new_callable=AsyncMock):
+        with patch.object(service, "_notify_account_update", new_callable=AsyncMock):
             result = await service.create_account(
                 "user_123",
                 "Test Account",
                 initial_cash=200000.0,
                 commission_rate=0.0005,
-                slippage_rate=0.0005
+                slippage_rate=0.0005,
             )
 
             assert result is not None
@@ -95,7 +92,7 @@ class TestCreateAccount:
         service.account_repo = AsyncMock()
         service.account_repo.create = AsyncMock(return_value=mock_account)
 
-        with patch.object(service, '_notify_account_update', new_callable=AsyncMock) as mock_notify:
+        with patch.object(service, "_notify_account_update", new_callable=AsyncMock) as mock_notify:
             await service.create_account("user_123", "Test Account")
             assert mock_notify.called
 
@@ -120,14 +117,9 @@ class TestSubmitOrder:
         service.order_repo = AsyncMock()
         service.order_repo.create = AsyncMock(return_value=mock_order)
 
-        with patch.object(service, '_notify_order_update', new_callable=AsyncMock):
+        with patch.object(service, "_notify_order_update", new_callable=AsyncMock):
             result = await service.submit_order(
-                "acc_123",
-                "BTC/USDT",
-                "market",
-                "buy",
-                10,
-                price=50000.0
+                "acc_123", "BTC/USDT", "market", "buy", 10, price=50000.0
             )
 
             assert result is not None
@@ -140,13 +132,7 @@ class TestSubmitOrder:
         service.account_repo.get_by_id = AsyncMock(return_value=None)
 
         with pytest.raises(ValueError, match="Account not found"):
-            await service.submit_order(
-                "nonexistent_acc",
-                "BTC/USDT",
-                "market",
-                "buy",
-                10
-            )
+            await service.submit_order("nonexistent_acc", "BTC/USDT", "market", "buy", 10)
 
     async def test_submit_order_with_stop_limit(self):
         """Test submitting stop-loss and take-profit orders."""
@@ -164,7 +150,7 @@ class TestSubmitOrder:
         service.order_repo = AsyncMock()
         service.order_repo.create = AsyncMock(return_value=mock_order)
 
-        with patch.object(service, '_notify_order_update', new_callable=AsyncMock):
+        with patch.object(service, "_notify_order_update", new_callable=AsyncMock):
             result = await service.submit_order(
                 "acc_123",
                 "BTC/USDT",
@@ -173,7 +159,7 @@ class TestSubmitOrder:
                 10,
                 price=49000.0,
                 stop_price=48000.0,
-                limit_price=51000.0
+                limit_price=51000.0,
             )
 
             assert result is not None
@@ -205,10 +191,10 @@ class TestProcessOrder:
         service.order_repo = AsyncMock()
         service.order_repo.get_by_id = AsyncMock(return_value=mock_order)
 
-        with patch.object(service, '_get_simulated_price', return_value=50000.0):
-            with patch.object(service, '_fill_order', new_callable=AsyncMock):
-                with patch.object(service, '_update_position', new_callable=AsyncMock):
-                    with patch.object(service, '_update_account', new_callable=AsyncMock):
+        with patch.object(service, "_get_simulated_price", return_value=50000.0):
+            with patch.object(service, "_fill_order", new_callable=AsyncMock):
+                with patch.object(service, "_update_position", new_callable=AsyncMock):
+                    with patch.object(service, "_update_account", new_callable=AsyncMock):
                         await service._process_order("order_123", "acc_123", mock_account)
 
     async def test_process_order_order_not_found(self):
@@ -221,7 +207,7 @@ class TestProcessOrder:
         service.order_repo = AsyncMock()
         service.order_repo.get_by_id = AsyncMock(return_value=None)
 
-        with patch.object(service, '_get_simulated_price', return_value=50000.0):
+        with patch.object(service, "_get_simulated_price", return_value=50000.0):
             await service._process_order("nonexistent_order", "acc_123", mock_account)
             # Should not raise exception, only log
 
@@ -247,8 +233,8 @@ class TestProcessOrder:
         service.order_repo.get_by_id = AsyncMock(return_value=mock_order)
         service.order_repo.update = AsyncMock()
 
-        with patch.object(service, '_get_simulated_price', return_value=50000.0):
-            with patch.object(service, '_reject_order', new_callable=AsyncMock) as mock_reject:
+        with patch.object(service, "_get_simulated_price", return_value=50000.0):
+            with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
                 await service._process_order("order_123", "acc_123", mock_account)
                 assert mock_reject.called
 
@@ -274,8 +260,8 @@ class TestProcessOrder:
         service.position_repo = AsyncMock()
         service.position_repo.list = AsyncMock(return_value=[])
 
-        with patch.object(service, '_get_simulated_price', return_value=50000.0):
-            with patch.object(service, '_reject_order', new_callable=AsyncMock) as mock_reject:
+        with patch.object(service, "_get_simulated_price", return_value=50000.0):
+            with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
                 await service._process_order("order_123", "acc_123", mock_account)
                 assert mock_reject.called
 
@@ -326,7 +312,7 @@ class TestRejectOrder:
         service.order_repo = AsyncMock()
         service.order_repo.update = AsyncMock()
 
-        with patch.object(service, '_notify_order_update', new_callable=AsyncMock):
+        with patch.object(service, "_notify_order_update", new_callable=AsyncMock):
             await service._reject_order(mock_order, "Insufficient funds")
 
         assert mock_order.status == OrderStatus.REJECTED
@@ -453,8 +439,8 @@ class TestUpdateAccount:
         service.account_repo = AsyncMock()
         service.account_repo.update = AsyncMock()
 
-        with patch.object(service, '_notify_account_update', new_callable=AsyncMock):
-            with patch.object(service, '_notify_position_update', new_callable=AsyncMock):
+        with patch.object(service, "_notify_account_update", new_callable=AsyncMock):
+            with patch.object(service, "_notify_position_update", new_callable=AsyncMock):
                 await service._update_account(mock_account, mock_order, 50000.0, 50.0)
 
     async def test_update_account_sell(self):
@@ -480,8 +466,8 @@ class TestUpdateAccount:
         service.account_repo = AsyncMock()
         service.account_repo.update = AsyncMock()
 
-        with patch.object(service, '_notify_account_update', new_callable=AsyncMock):
-            with patch.object(service, '_notify_position_update', new_callable=AsyncMock):
+        with patch.object(service, "_notify_account_update", new_callable=AsyncMock):
+            with patch.object(service, "_notify_position_update", new_callable=AsyncMock):
                 await service._update_account(mock_account, mock_order, 50000.0, 50.0)
 
 
@@ -678,7 +664,7 @@ class TestCancelOrder:
         service.account_repo.get_by_id = AsyncMock(return_value=mock_account)
         service.order_repo.update = AsyncMock()
 
-        with patch.object(service, '_notify_order_update', new_callable=AsyncMock):
+        with patch.object(service, "_notify_order_update", new_callable=AsyncMock):
             result = await service.cancel_order("order_123", "user_123")
 
             assert result is True
@@ -780,7 +766,7 @@ class TestCalculateSlippage:
             market_price=50000.0,
             slippage_rate=0.001,
             side="buy",
-            order_type="market"
+            order_type="market",
         )
 
         assert slippage == 50.0  # 50000 * 0.001
@@ -794,7 +780,7 @@ class TestCalculateSlippage:
             market_price=50000.0,
             slippage_rate=0.001,
             side="sell",
-            order_type="market"
+            order_type="market",
         )
 
         assert slippage == -50.0  # -50000 * 0.001
@@ -808,7 +794,7 @@ class TestCalculateSlippage:
             market_price=50000.0,
             slippage_rate=0.001,
             side="buy",
-            order_type="limit"
+            order_type="limit",
         )
 
         assert slippage == 50.0  # Market price * slippage rate
@@ -822,7 +808,7 @@ class TestCalculateSlippage:
             market_price=50000.0,
             slippage_rate=0.001,
             side="buy",
-            order_type="limit"
+            order_type="limit",
         )
 
         assert slippage == 0.0
@@ -836,7 +822,7 @@ class TestCalculateSlippage:
             market_price=50000.0,
             slippage_rate=0.001,
             side="sell",
-            order_type="limit"
+            order_type="limit",
         )
 
         assert slippage == -50.0
@@ -850,7 +836,7 @@ class TestCalculateSlippage:
             market_price=50000.0,
             slippage_rate=0.001,
             side="buy",
-            order_type="stop"
+            order_type="stop",
         )
 
         assert slippage == 0.0
@@ -900,7 +886,7 @@ class TestWebSocketNotifications:
         mock_account.profit_loss = 0.0
         mock_account.profit_loss_pct = 0.0
 
-        with patch('app.services.paper_trading_service.ws_manager') as mock_ws:
+        with patch("app.services.paper_trading_service.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
             await service._notify_account_update(mock_account)
             assert mock_ws.send_to_task.called
@@ -918,7 +904,7 @@ class TestWebSocketNotifications:
         mock_position.unrealized_pnl = 0.0
         mock_position.unrealized_pnl_pct = 0.0
 
-        with patch('app.services.paper_trading_service.ws_manager') as mock_ws:
+        with patch("app.services.paper_trading_service.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
             await service._notify_position_update(mock_position)
             assert mock_ws.send_to_task.called
@@ -937,7 +923,7 @@ class TestWebSocketNotifications:
         mock_order.status = OrderStatus.FILLED
         mock_order.filled_size = 10
 
-        with patch('app.services.paper_trading_service.ws_manager') as mock_ws:
+        with patch("app.services.paper_trading_service.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
             await service._notify_order_update("acc_123", mock_order)
             assert mock_ws.send_to_task.called

@@ -7,7 +7,6 @@ Provides a Backtrader-based paper trading environment.
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
 
 from app.db.sql_repository import SQLRepository
 from app.models.paper_trading import (
@@ -91,9 +90,9 @@ class PaperTradingService:
         order_type: str,
         side: str,
         size: int,
-        price: Optional[float] = None,
-        stop_price: Optional[float] = None,
-        limit_price: Optional[float] = None,
+        price: float | None = None,
+        stop_price: float | None = None,
+        limit_price: float | None = None,
     ) -> Order:
         """Submit a paper trading order.
 
@@ -262,7 +261,7 @@ class PaperTradingService:
         account_id = order.account_id
         await self._notify_order_update(account_id, order)
 
-    async def _get_position(self, account_id: str, symbol: str) -> Optional[Position]:
+    async def _get_position(self, account_id: str, symbol: str) -> Position | None:
         """Get position by account and symbol.
 
         Args:
@@ -430,7 +429,7 @@ class PaperTradingService:
         for position in positions:
             await self._notify_position_update(position)
 
-    async def _get_last_trade(self, order_id: str) -> Optional[PaperTrade]:
+    async def _get_last_trade(self, order_id: str) -> PaperTrade | None:
         """Get the last trade for an order.
 
         Args:
@@ -448,7 +447,7 @@ class PaperTradingService:
 
         return trades[0] if trades else None
 
-    async def get_account(self, account_id: str) -> Optional[Account]:
+    async def get_account(self, account_id: str) -> Account | None:
         """Get account by ID.
 
         Args:
@@ -464,7 +463,7 @@ class PaperTradingService:
         user_id: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> tuple[List[Account], int]:
+    ) -> tuple[list[Account], int]:
         """List user's paper trading accounts.
 
         Args:
@@ -486,7 +485,7 @@ class PaperTradingService:
 
         return accounts, total
 
-    async def get_order(self, order_id: str) -> Optional[Order]:
+    async def get_order(self, order_id: str) -> Order | None:
         """Get order by ID.
 
         Args:
@@ -504,7 +503,7 @@ class PaperTradingService:
         offset: int = 0,
         sort_by: str = "created_at",
         sort_order: str = "desc",
-    ) -> tuple[List[Order], int]:
+    ) -> tuple[list[Order], int]:
         """List orders with filtering.
 
         Args:
@@ -535,7 +534,7 @@ class PaperTradingService:
         offset: int = 0,
         sort_by: str = "created_at",
         sort_order: str = "desc",
-    ) -> tuple[List[Position], int]:
+    ) -> tuple[list[Position], int]:
         """List positions with filtering.
 
         Args:
@@ -566,7 +565,7 @@ class PaperTradingService:
         offset: int = 0,
         sort_by: str = "created_at",
         sort_order: str = "desc",
-    ) -> tuple[List[PaperTrade], int]:
+    ) -> tuple[list[PaperTrade], int]:
         """List trades with filtering.
 
         Args:
@@ -639,7 +638,7 @@ class PaperTradingService:
 
         return True
 
-    async def get_position(self, position_id: str) -> Optional[Position]:
+    async def get_position(self, position_id: str) -> Position | None:
         """Get position by ID.
 
         Args:
@@ -652,7 +651,7 @@ class PaperTradingService:
 
     def _calculate_slippage(
         self,
-        order_price: Optional[float],
+        order_price: float | None,
         market_price: float,
         slippage_rate: float,
         side: str,

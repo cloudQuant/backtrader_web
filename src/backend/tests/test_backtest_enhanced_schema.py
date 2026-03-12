@@ -49,7 +49,9 @@ def test_backtest_request_rejects_range_more_than_10_years():
                 end_date="2011-01-02T00:00:00",
             )
         )
-    assert "10" in str(e.value) and ("year" in str(e.value).lower() or "range" in str(e.value).lower())
+    assert "10" in str(e.value) and (
+        "year" in str(e.value).lower() or "range" in str(e.value).lower()
+    )
 
 
 def test_backtest_request_rejects_future_end_date():
@@ -76,7 +78,10 @@ def test_backtest_request_rejects_too_short_period():
 
 def test_backtest_request_validate_params_unknown_param():
     """Test that unknown parameters are rejected."""
-    with patch("app.schemas.backtest_enhanced.get_strategy_params", return_value={"period": ParamSpec(type="int", default=10)}):
+    with patch(
+        "app.schemas.backtest_enhanced.get_strategy_params",
+        return_value={"period": ParamSpec(type="int", default=10)},
+    ):
         with pytest.raises(ValidationError) as e:
             BacktestRequest(**_base_payload(params={"unknown": 1}))
         assert "unknown" in str(e.value).lower() or "extra" in str(e.value).lower()
@@ -93,7 +98,9 @@ def test_backtest_request_validate_params_type_and_bounds():
 
     with patch("app.schemas.backtest_enhanced.get_strategy_params", return_value=specs):
         # Valid request
-        BacktestRequest(**_base_payload(params={"period": 10, "ratio": 0.7, "mode": "a", "enabled": True}))
+        BacktestRequest(
+            **_base_payload(params={"period": 10, "ratio": 0.7, "mode": "a", "enabled": True})
+        )
 
         # Invalid requests
         with pytest.raises(ValidationError):

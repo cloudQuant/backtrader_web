@@ -77,9 +77,6 @@ live:
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    rb2510:
-      min_price_tick: 1.0
-      max_order_size: 1
     rb2610:
       min_price_tick: 1.0
       max_order_size: 1

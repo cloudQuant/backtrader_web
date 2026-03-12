@@ -9,6 +9,7 @@ Tests:
 - Backtest service task limits and cancel cleanup exceptions
 - Strategy version service create version and update version branches
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -53,8 +54,13 @@ async def test_monitoring_service_monitor_task_cancel_and_error_and_threshold_br
 
     # CancelledError branch in _monitor_task.
     svc._check_trigger = AsyncMock(return_value=False)
-    with patch("app.services.monitoring_service.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError())), \
-        patch("app.services.monitoring_service.ws_manager.send_to_task", new=AsyncMock()):
+    with (
+        patch(
+            "app.services.monitoring_service.asyncio.sleep",
+            new=AsyncMock(side_effect=asyncio.CancelledError()),
+        ),
+        patch("app.services.monitoring_service.ws_manager.send_to_task", new=AsyncMock()),
+    ):
         await svc._monitor_task("r1")
 
     # Exception branch in _monitor_task.
@@ -66,10 +72,16 @@ async def test_monitoring_service_monitor_task_cancel_and_error_and_threshold_br
         await svc._monitor_task("r1")
 
     # Threshold trigger else branches (ACCOUNT + POSITION) and notification/websocket push.
-    rule_acc = SimpleNamespace(alert_type=AlertType.ACCOUNT, trigger_config={"current_value": 1.0, "threshold": 1.0, "condition": "eq"})
+    rule_acc = SimpleNamespace(
+        alert_type=AlertType.ACCOUNT,
+        trigger_config={"current_value": 1.0, "threshold": 1.0, "condition": "eq"},
+    )
     assert await svc._check_threshold_trigger(rule_acc, rule_acc.trigger_config) is True
 
-    rule_pos = SimpleNamespace(alert_type=AlertType.POSITION, trigger_config={"current_value": 1.0, "threshold": 1.0, "condition": "eq"})
+    rule_pos = SimpleNamespace(
+        alert_type=AlertType.POSITION,
+        trigger_config={"current_value": 1.0, "threshold": 1.0, "condition": "eq"},
+    )
     assert await svc._check_threshold_trigger(rule_pos, rule_pos.trigger_config) is True
 
     with patch("app.services.monitoring_service.ws_manager.send_to_task", new=AsyncMock()):
@@ -95,19 +107,23 @@ async def test_optimization_service_bayesian_objective_and_exception_paths(monke
     svc = OptimizationService()
 
     # Patch _run_single_backtest (used after best_params).
-    best_result = SimpleNamespace(status=TaskStatus.COMPLETED, sharpe_ratio=2.0, total_return=3.0, max_drawdown=1.0)
+    best_result = SimpleNamespace(
+        status=TaskStatus.COMPLETED, sharpe_ratio=2.0, total_return=3.0, max_drawdown=1.0
+    )
     svc._run_single_backtest = AsyncMock(return_value=best_result)  # type: ignore[method-assign]
 
     # Patch asyncio.run_coroutine_threadsafe to avoid deadlock and to close the coro.
     def _fake_rcts(coro, loop):
         coro.close()
         fut = Mock()
-        fut.result = Mock(return_value=SimpleNamespace(
-            status=TaskStatus.COMPLETED,
-            sharpe_ratio=1.0,
-            total_return=2.0,
-            max_drawdown=0.5,
-        ))
+        fut.result = Mock(
+            return_value=SimpleNamespace(
+                status=TaskStatus.COMPLETED,
+                sharpe_ratio=1.0,
+                total_return=2.0,
+                max_drawdown=0.5,
+            )
+        )
         return fut
 
     # Dummy optuna implementation.
@@ -157,8 +173,16 @@ async def test_optimization_service_bayesian_objective_and_exception_paths(monke
         backtest_config=SimpleNamespace(model_copy=lambda: SimpleNamespace(params={})),
     )
 
-    with patch("app.services.optimization_service.asyncio.run_coroutine_threadsafe", side_effect=_fake_rcts), \
-        patch("app.services.optimization_service.asyncio.get_event_loop", new=lambda: asyncio.get_running_loop()):
+    with (
+        patch(
+            "app.services.optimization_service.asyncio.run_coroutine_threadsafe",
+            side_effect=_fake_rcts,
+        ),
+        patch(
+            "app.services.optimization_service.asyncio.get_event_loop",
+            new=lambda: asyncio.get_running_loop(),
+        ),
+    ):
         result = await svc.run_bayesian_optimization("u1", request)
         assert result.best_params
 
@@ -167,8 +191,16 @@ async def test_optimization_service_bayesian_objective_and_exception_paths(monke
         coro.close()
         raise RuntimeError("boom")
 
-    with patch("app.services.optimization_service.asyncio.run_coroutine_threadsafe", side_effect=_fake_rcts_boom), \
-        patch("app.services.optimization_service.asyncio.get_event_loop", new=lambda: asyncio.get_running_loop()):
+    with (
+        patch(
+            "app.services.optimization_service.asyncio.run_coroutine_threadsafe",
+            side_effect=_fake_rcts_boom,
+        ),
+        patch(
+            "app.services.optimization_service.asyncio.get_event_loop",
+            new=lambda: asyncio.get_running_loop(),
+        ),
+    ):
         request.metric = "max_drawdown"
         out = await svc.run_bayesian_optimization("u1", request)
         assert out.n_trials == 1
@@ -179,17 +211,20 @@ def test_param_optimization_service_run_optimization_thread_paths(tmp_path, monk
 
     # Seed a running task.
     task_id = "t1"
-    pos._set_task(task_id, {
-        "status": "running",
-        "strategy_id": "s1",
-        "total": 2,
-        "completed": 0,
-        "failed": 0,
-        "results": [],
-        "param_names": ["p"],
-        "created_at": datetime.now().isoformat(),
-        "n_workers": 1,
-    })
+    pos._set_task(
+        task_id,
+        {
+            "status": "running",
+            "strategy_id": "s1",
+            "total": 2,
+            "completed": 0,
+            "failed": 0,
+            "results": [],
+            "param_names": ["p"],
+            "created_at": datetime.now().isoformat(),
+            "n_workers": 1,
+        },
+    )
 
     # Fake future objects.
     class _Future:
@@ -250,20 +285,32 @@ def test_param_optimization_service_worker_and_log_parser_branches(tmp_path, mon
     tmp_base.mkdir()
 
     # Non-zero subprocess returncode path + logs_dir cleanup.
-    monkeypatch.setattr(pos.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 1, stdout="", stderr="fail"))
+    monkeypatch.setattr(
+        pos.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 1, stdout="", stderr="fail"),
+    )
     out = pos._run_single_trial(str(strategy_dir), {"p": 1}, 0, str(tmp_base))
     assert out["success"] is False
 
     # Exception path.
-    monkeypatch.setattr(pos.shutil, "copytree", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("copy boom")))
+    monkeypatch.setattr(
+        pos.shutil, "copytree", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("copy boom"))
+    )
     out2 = pos._run_single_trial(str(strategy_dir), {"p": 1}, 1, str(tmp_base))
     assert "error" in out2
 
     # Cleanup exception path.
     monkeypatch.setattr(pos.shutil, "copytree", __import__("shutil").copytree)
-    monkeypatch.setattr(pos.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout="", stderr=""))
+    monkeypatch.setattr(
+        pos.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 0, stdout="", stderr=""),
+    )
     # Make rmtree raise in finally.
-    monkeypatch.setattr(pos.shutil, "rmtree", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("rm boom")))
+    monkeypatch.setattr(
+        pos.shutil, "rmtree", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("rm boom"))
+    )
     out3 = pos._run_single_trial(str(strategy_dir), {"p": 1}, 2, str(tmp_base))
     assert out3["success"] in {False, True}
 
@@ -275,7 +322,9 @@ def test_param_optimization_service_worker_and_log_parser_branches(tmp_path, mon
     # _parse_trial_logs: returns empty => sharpe=0 branch.
     log_dir = trial_dir / "logs" / "x"
     log_dir.mkdir(parents=True)
-    (log_dir / "value.log").write_text("h\n0\t2020-01-01\t0\t0\n0\t2020-01-02\t0\t0\n", encoding="utf-8")
+    (log_dir / "value.log").write_text(
+        "h\n0\t2020-01-01\t0\t0\n0\t2020-01-02\t0\t0\n", encoding="utf-8"
+    )
     m = pos._parse_trial_logs(trial_dir)
     assert m is not None
     assert m["sharpe_ratio"] == 0
@@ -324,8 +373,10 @@ async def test_backtest_service_task_limits_and_cancel_cleanup_excepts(monkeypat
     svc.task_manager.delete_task_and_result = AsyncMock(return_value=True)
     svc.cache.delete = AsyncMock()
 
-    with patch("app.services.backtest_service.Path.is_dir", return_value=True), \
-        patch("app.services.backtest_service.shutil.rmtree", side_effect=RuntimeError("rm boom")):
+    with (
+        patch("app.services.backtest_service.Path.is_dir", return_value=True),
+        patch("app.services.backtest_service.shutil.rmtree", side_effect=RuntimeError("rm boom")),
+    ):
         assert await svc.delete_result("t2", "u1") is True
 
 
@@ -347,12 +398,29 @@ async def test_strategy_version_service_create_version_and_update_version_branch
 
     svc.version_repo = AsyncMock()
     svc.version_repo.list = AsyncMock(return_value=[])
-    svc.version_repo.create = AsyncMock(side_effect=lambda v: SimpleNamespace(**{**v.__dict__, "id": "v1"}))
+    svc.version_repo.create = AsyncMock(
+        side_effect=lambda v: SimpleNamespace(**{**v.__dict__, "id": "v1"})
+    )
 
     v = await svc.create_version("u1", "s1", "v1.0.0", code="x=1", params={"a": 1}, is_default=True)
     assert v.id == "v1"
 
     # update_version raises if not DRAFT.
-    svc.version_repo.get_by_id = AsyncMock(return_value=SimpleNamespace(id="v2", status=VersionStatus.STABLE, strategy_id="s1", is_active=True, is_default=False, created_by="u1"))
+    svc.version_repo.get_by_id = AsyncMock(
+        return_value=SimpleNamespace(
+            id="v2",
+            status=VersionStatus.STABLE,
+            strategy_id="s1",
+            is_active=True,
+            is_default=False,
+            created_by="u1",
+        )
+    )
     with pytest.raises(ValueError, match="Can only update"):
-        await svc.update_version("v2", "u1", SimpleNamespace(code=None, params=None, description=None, tags=None, status=None, changelog=None))
+        await svc.update_version(
+            "v2",
+            "u1",
+            SimpleNamespace(
+                code=None, params=None, description=None, tags=None, status=None, changelog=None
+            ),
+        )

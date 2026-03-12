@@ -4,7 +4,7 @@ Cache layer - Redis is optional, falls back to memory cache if not configured.
 
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.config import get_settings
 
@@ -24,7 +24,7 @@ class MemoryCache:
     CLEANUP_INTERVAL = 300
 
     def __init__(self):
-        self._cache: Dict[str, Dict[str, Any]] = {}
+        self._cache: dict[str, dict[str, Any]] = {}
         self._last_cleanup: datetime = datetime.now()
 
     def _cleanup_expired(self):
@@ -39,7 +39,7 @@ class MemoryCache:
         for k in expired_keys:
             del self._cache[k]
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Get cached value.
 
         Args:
@@ -119,7 +119,7 @@ class RedisCache:
 
         self.redis = redis.from_url(url, decode_responses=True)
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Get cached value.
 
         Args:

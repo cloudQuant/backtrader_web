@@ -1,7 +1,9 @@
 <template>
   <div class="trade-signal-chart">
     <div class="flex justify-between items-center mb-4">
-      <h4 class="text-md font-medium">K线图与交易信号</h4>
+      <h4 class="text-md font-medium">
+        K线图与交易信号
+      </h4>
       <div class="flex gap-2">
         <el-button-group size="small">
           <el-button 
@@ -13,12 +15,18 @@
             {{ p.label }}
           </el-button>
         </el-button-group>
-        <el-button size="small" @click="handleExport">
+        <el-button
+          size="small"
+          @click="handleExport"
+        >
           <el-icon><Download /></el-icon>
         </el-button>
       </div>
     </div>
-    <div ref="chartRef" :style="{ height: computedHeight + 'px' }"></div>
+    <div
+      ref="chartRef"
+      :style="{ height: computedHeight + 'px' }"
+    />
   </div>
 </template>
 
@@ -26,6 +34,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
+import type { AxisLinkXAxisIndex } from '@/types/charts'
 import type { KlineData, TradeSignal } from '@/types/analytics'
 
 const props = withDefaults(defineProps<{
@@ -36,6 +45,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   klines: () => [],
   signals: () => [],
+  indicators: () => ({}),
   height: 600,
 })
 
@@ -182,10 +192,10 @@ function renderChart() {
   else if (numSub === 2) { mainH = available * 0.48; volH = available * 0.12; subH = available * 0.40 / 2 }
   else { mainH = available * 0.40; volH = available * 0.10; subH = (available * 0.50) / numSub }
 
-  const grids: any[] = []
-  const xAxes: any[] = []
-  const yAxes: any[] = []
-  const titles: any[] = []
+  const grids: echarts.GridComponentOption[] = []
+  const xAxes: echarts.XAXisComponentOption[] = []
+  const yAxes: echarts.YAXisComponentOption[] = []
+  const titles: echarts.TitleComponentOption[] = []
   let curTop = legendH
 
   // Grid 0 — 主图（K线 + 同量级指标）
@@ -214,7 +224,7 @@ function renderChart() {
   }
 
   // ---------- 系列 ----------
-  const series: any[] = []
+  const series: echarts.SeriesOption[] = []
   const legendData: string[] = ['日K']
   const legendSelected: Record<string, boolean> = {}
   const maColors = ['#f5a623', '#7b68ee', '#20b2aa', '#ff6347', '#9370db', '#e6550d']
@@ -245,7 +255,7 @@ function renderChart() {
   const volSeriesIdx = series.length
   series.push({
     name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
-    itemStyle: { color: (params: any) => params.data[2] === 1 ? '#ec0000' : '#00da3c' },
+    itemStyle: { color: (params: { data?: unknown[] }) => (params.data?.[2] === 1 ? '#ec0000' : '#00da3c') },
   })
 
   // 副图指标
@@ -279,7 +289,7 @@ function renderChart() {
       trigger: 'axis', axisPointer: { type: 'cross' },
       backgroundColor: 'rgba(255, 255, 255, 0.9)', borderWidth: 1, borderColor: '#ccc', padding: 10, textStyle: { color: '#333' },
     },
-    axisPointer: { link: [{ xAxisIndex: 'all' as any }], label: { backgroundColor: '#777' } },
+    axisPointer: { link: [{ xAxisIndex: 'all' as AxisLinkXAxisIndex }], label: { backgroundColor: '#777' } },
     visualMap: { show: false, seriesIndex: volSeriesIdx, dimension: 2, pieces: [{ value: 1, color: '#ec0000' }, { value: -1, color: '#00da3c' }] },
     grid: grids,
     xAxis: xAxes,
@@ -298,7 +308,7 @@ function renderChart() {
 
   // 监听 legend 点击事件，仅副图指标切换时重绘布局（移除/添加网格）
   chartInstance.off('legendselectchanged')
-  chartInstance.on('legendselectchanged', (params: any) => {
+  chartInstance.on('legendselectchanged', (params: { selected?: Record<string, boolean> }) => {
     const selected: Record<string, boolean> = params.selected
     let needRerender = false
     for (const [name, visible] of Object.entries(selected)) {

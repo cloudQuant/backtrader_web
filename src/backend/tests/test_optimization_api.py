@@ -8,7 +8,8 @@ Tests:
 - Getting optimization results
 - Canceling optimization tasks
 """
-from unittest.mock import MagicMock, patch
+
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -37,6 +38,7 @@ def mock_strategy_template():
 
 # ==================== Get Strategy Parameters Tests ====================
 
+
 @pytest.mark.asyncio
 class TestOptimizationStrategyParams:
     """Tests for getting strategy parameters."""
@@ -45,10 +47,11 @@ class TestOptimizationStrategyParams:
         """Test successful strategy parameter retrieval."""
         from app.api.optimization_api import get_strategy_params
 
-        with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
+        with patch(
+            "app.api.optimization_api.get_template_by_id", return_value=mock_strategy_template
+        ):
             result = await get_strategy_params(
-                strategy_id="test_strategy",
-                current_user=mock_current_user
+                strategy_id="test_strategy", current_user=mock_current_user
             )
 
             assert result["strategy_id"] == "test_strategy"
@@ -61,12 +64,9 @@ class TestOptimizationStrategyParams:
         """Test when strategy does not exist."""
         from app.api.optimization_api import get_strategy_params
 
-        with patch('app.api.optimization_api.get_template_by_id', return_value=None):
+        with patch("app.api.optimization_api.get_template_by_id", return_value=None):
             with pytest.raises(HTTPException) as exc_info:
-                await get_strategy_params(
-                    strategy_id="nonexistent",
-                    current_user=mock_current_user
-                )
+                await get_strategy_params(strategy_id="nonexistent", current_user=mock_current_user)
 
             assert exc_info.value.status_code == 404
             assert "not found" in exc_info.value.detail
@@ -80,16 +80,16 @@ class TestOptimizationStrategyParams:
         tpl.name = "No Params Strategy"
         tpl.params = {}
 
-        with patch('app.api.optimization_api.get_template_by_id', return_value=tpl):
+        with patch("app.api.optimization_api.get_template_by_id", return_value=tpl):
             result = await get_strategy_params(
-                strategy_id="no_params_strategy",
-                current_user=mock_current_user
+                strategy_id="no_params_strategy", current_user=mock_current_user
             )
 
             assert result["params"] == []
 
 
 # ==================== Submit Optimization Task Tests ====================
+
 
 @pytest.mark.asyncio
 class TestOptimizationSubmit:
@@ -111,17 +111,30 @@ class TestOptimizationSubmit:
             n_workers=4,
         )
 
-        with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
-            with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}, {"fast": 10}, {"fast": 15}]):
-                with patch('app.api.optimization_api.submit_optimization', return_value="task_123"):
-                    result = await submit_optimization_task(
-                        request=request,
-                        current_user=mock_current_user
-                    )
+        mock_db_task = MagicMock()
+        mock_db_task.id = "task_123"
 
-                    assert result.task_id == "task_123"
-                    assert result.total_combinations == 3
-                    assert "submitted" in result.message.lower()
+        with patch(
+            "app.api.optimization_api.get_template_by_id", return_value=mock_strategy_template
+        ):
+            with patch(
+                "app.services.param_optimization_service.generate_param_grid",
+                return_value=[{"fast": 5}, {"fast": 10}, {"fast": 15}],
+            ):
+                with patch(
+                    "app.api.optimization_api.get_optimization_execution_manager"
+                ) as mock_get_mgr:
+                    mock_mgr = AsyncMock()
+                    mock_mgr.create_task = AsyncMock(return_value=mock_db_task)
+                    mock_get_mgr.return_value = mock_mgr
+                    with patch("app.api.optimization_api.submit_optimization"):
+                        result = await submit_optimization_task(
+                            request=request, current_user=mock_current_user
+                        )
+
+                        assert result.task_id == "task_123"
+                        assert result.total_combinations == 3
+                        assert "submitted" in result.message.lower()
 
     async def test_submit_optimization_strategy_not_found(self, mock_current_user):
         """Test when strategy does not exist."""
@@ -138,12 +151,9 @@ class TestOptimizationSubmit:
             },
         )
 
-        with patch('app.api.optimization_api.get_template_by_id', return_value=None):
+        with patch("app.api.optimization_api.get_template_by_id", return_value=None):
             with pytest.raises(HTTPException) as exc_info:
-                await submit_optimization_task(
-                    request=request,
-                    current_user=mock_current_user
-                )
+                await submit_optimization_task(request=request, current_user=mock_current_user)
 
             assert exc_info.value.status_code == 404
             assert "not found" in exc_info.value.detail
@@ -163,17 +173,26 @@ class TestOptimizationSubmit:
             },
         )
 
-        with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
-            with patch('app.services.strategy_service.get_template_by_id', return_value=mock_strategy_template):
-                with patch('app.services.param_optimization_service.generate_param_grid', return_value=[]):
+        with patch(
+            "app.api.optimization_api.get_template_by_id", return_value=mock_strategy_template
+        ):
+            with patch(
+                "app.services.strategy_service.get_template_by_id",
+                return_value=mock_strategy_template,
+            ):
+                with patch(
+                    "app.services.param_optimization_service.generate_param_grid", return_value=[]
+                ):
                     with pytest.raises(HTTPException) as exc_info:
                         await submit_optimization_task(
-                            request=request,
-                            current_user=mock_current_user
+                            request=request, current_user=mock_current_user
                         )
 
                     assert exc_info.value.status_code == 400
-                    assert "empty" in exc_info.value.detail.lower() or "parameter" in exc_info.value.detail.lower()
+                    assert (
+                        "empty" in exc_info.value.detail.lower()
+                        or "parameter" in exc_info.value.detail.lower()
+                    )
 
     async def test_submit_optimization_value_error(self, mock_current_user, mock_strategy_template):
         """Test when service returns ValueError."""
@@ -190,19 +209,28 @@ class TestOptimizationSubmit:
             },
         )
 
-        with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
-            with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}]):
-                with patch('app.api.optimization_api.submit_optimization', side_effect=ValueError("Invalid parameters")):
+        with patch(
+            "app.api.optimization_api.get_template_by_id", return_value=mock_strategy_template
+        ):
+            with patch(
+                "app.services.param_optimization_service.generate_param_grid",
+                return_value=[{"fast": 5}],
+            ):
+                with patch(
+                    "app.api.optimization_api.submit_optimization",
+                    side_effect=ValueError("Invalid parameters"),
+                ):
                     with pytest.raises(HTTPException) as exc_info:
                         await submit_optimization_task(
-                            request=request,
-                            current_user=mock_current_user
+                            request=request, current_user=mock_current_user
                         )
 
                     assert exc_info.value.status_code == 400
                     assert "Invalid parameters" in exc_info.value.detail
 
-    async def test_submit_optimization_default_workers(self, mock_current_user, mock_strategy_template):
+    async def test_submit_optimization_default_workers(
+        self, mock_current_user, mock_strategy_template
+    ):
         """Test default worker count."""
         from app.api.optimization_api import (
             OptimizationSubmitRequest,
@@ -218,20 +246,25 @@ class TestOptimizationSubmit:
             # n_workers defaults to 4
         )
 
-        with patch('app.api.optimization_api.get_template_by_id', return_value=mock_strategy_template):
-            with patch('app.services.param_optimization_service.generate_param_grid', return_value=[{"fast": 5}]):
-                with patch('app.api.optimization_api.submit_optimization', return_value="task_123") as mock_submit:
-                    await submit_optimization_task(
-                        request=request,
-                        current_user=mock_current_user
-                    )
+        with patch(
+            "app.api.optimization_api.get_template_by_id", return_value=mock_strategy_template
+        ):
+            with patch(
+                "app.services.param_optimization_service.generate_param_grid",
+                return_value=[{"fast": 5}],
+            ):
+                with patch(
+                    "app.api.optimization_api.submit_optimization", return_value="task_123"
+                ) as mock_submit:
+                    await submit_optimization_task(request=request, current_user=mock_current_user)
 
                     # Verify n_workers=4 was passed
                     call_kwargs = mock_submit.call_args.kwargs
-                    assert call_kwargs['n_workers'] == 4
+                    assert call_kwargs["n_workers"] == 4
 
 
 # ==================== Query Optimization Progress Tests ====================
+
 
 @pytest.mark.asyncio
 class TestOptimizationProgress:
@@ -249,11 +282,10 @@ class TestOptimizationProgress:
             "progress": 50.0,
         }
 
-        with patch('app.api.optimization_api.get_optimization_progress', return_value=mock_progress):
-            result = await get_progress(
-                task_id="task_123",
-                current_user=mock_current_user
-            )
+        with patch(
+            "app.api.optimization_api.get_optimization_progress", return_value=mock_progress
+        ):
+            result = await get_progress(task_id="task_123", current_user=mock_current_user)
 
             assert result["task_id"] == "task_123"
             assert result["status"] == "running"
@@ -263,18 +295,16 @@ class TestOptimizationProgress:
         """Test when task does not exist."""
         from app.api.optimization_api import get_progress
 
-        with patch('app.api.optimization_api.get_optimization_progress', return_value=None):
+        with patch("app.api.optimization_api.get_optimization_progress", return_value=None):
             with pytest.raises(HTTPException) as exc_info:
-                await get_progress(
-                    task_id="nonexistent",
-                    current_user=mock_current_user
-                )
+                await get_progress(task_id="nonexistent", current_user=mock_current_user)
 
             assert exc_info.value.status_code == 404
             assert "not found" in exc_info.value.detail
 
 
 # ==================== Get Optimization Results Tests ====================
+
 
 @pytest.mark.asyncio
 class TestOptimizationResults:
@@ -292,11 +322,8 @@ class TestOptimizationResults:
             "all_results": [],
         }
 
-        with patch('app.api.optimization_api.get_optimization_results', return_value=mock_results):
-            result = await get_results(
-                task_id="task_123",
-                current_user=mock_current_user
-            )
+        with patch("app.api.optimization_api.get_optimization_results", return_value=mock_results):
+            result = await get_results(task_id="task_123", current_user=mock_current_user)
 
             assert result["task_id"] == "task_123"
             assert result["status"] == "completed"
@@ -306,18 +333,18 @@ class TestOptimizationResults:
         """Test when task does not exist."""
         from app.api.optimization_api import get_results
 
-        with patch('app.services.param_optimization_service.get_optimization_results', return_value=None):
+        with patch(
+            "app.services.param_optimization_service.get_optimization_results", return_value=None
+        ):
             with pytest.raises(HTTPException) as exc_info:
-                await get_results(
-                    task_id="nonexistent",
-                    current_user=mock_current_user
-                )
+                await get_results(task_id="nonexistent", current_user=mock_current_user)
 
             assert exc_info.value.status_code == 404
             assert "not found" in exc_info.value.detail
 
 
 # ==================== Cancel Optimization Task Tests ====================
+
 
 @pytest.mark.asyncio
 class TestOptimizationCancel:
@@ -327,11 +354,8 @@ class TestOptimizationCancel:
         """Test successful task cancellation."""
         from app.api.optimization_api import cancel_task
 
-        with patch('app.api.optimization_api.cancel_optimization', return_value=True):
-            result = await cancel_task(
-                task_id="task_123",
-                current_user=mock_current_user
-            )
+        with patch("app.api.optimization_api.cancel_optimization", return_value=True):
+            result = await cancel_task(task_id="task_123", current_user=mock_current_user)
 
             assert result["message"] == "Cancellation requested"
             assert result["task_id"] == "task_123"
@@ -340,18 +364,18 @@ class TestOptimizationCancel:
         """Test when task does not exist."""
         from app.api.optimization_api import cancel_task
 
-        with patch('app.services.param_optimization_service.cancel_optimization', return_value=False):
+        with patch(
+            "app.services.param_optimization_service.cancel_optimization", return_value=False
+        ):
             with pytest.raises(HTTPException) as exc_info:
-                await cancel_task(
-                    task_id="nonexistent",
-                    current_user=mock_current_user
-                )
+                await cancel_task(task_id="nonexistent", current_user=mock_current_user)
 
             assert exc_info.value.status_code == 404
             assert "not found" in exc_info.value.detail
 
 
 # ==================== Schema Tests ====================
+
 
 @pytest.mark.asyncio
 class TestOptimizationSchemas:
@@ -361,12 +385,7 @@ class TestOptimizationSchemas:
         """Test parameter range schema."""
         from app.api.optimization_api import ParamRangeSpec
 
-        spec = ParamRangeSpec(
-            start=5,
-            end=15,
-            step=5,
-            type="int"
-        )
+        spec = ParamRangeSpec(start=5, end=15, step=5, type="int")
         assert spec.start == 5
         assert spec.end == 15
         assert spec.step == 5
@@ -393,9 +412,7 @@ class TestOptimizationSchemas:
         from app.api.optimization_api import OptimizationSubmitResponse
 
         response = OptimizationSubmitResponse(
-            task_id="task_123",
-            total_combinations=100,
-            message="Optimization task submitted"
+            task_id="task_123", total_combinations=100, message="Optimization task submitted"
         )
         assert response.task_id == "task_123"
         assert response.total_combinations == 100
@@ -442,6 +459,7 @@ class TestOptimizationSchemas:
 
 # ==================== Router Tests ====================
 
+
 @pytest.mark.asyncio
 class TestOptimizationRouter:
     """Tests for optimization router."""
@@ -451,7 +469,7 @@ class TestOptimizationRouter:
         from app.api.optimization_api import router
 
         assert router is not None
-        assert hasattr(router, 'routes')
+        assert hasattr(router, "routes")
 
     async def test_router_endpoint_count(self):
         """Test router endpoint count."""
@@ -465,7 +483,7 @@ class TestOptimizationRouter:
         """Test that strategy params endpoint exists."""
         from app.api.optimization_api import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path')]
+        routes = [route for route in router.routes if hasattr(route, "path")]
         params_routes = [r for r in routes if "/strategy-params/" in r.path]
         assert len(params_routes) > 0
 
@@ -473,7 +491,9 @@ class TestOptimizationRouter:
         """Test that submit endpoint exists."""
         from app.api.optimization_api import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path') and hasattr(route, 'methods')]
+        routes = [
+            route for route in router.routes if hasattr(route, "path") and hasattr(route, "methods")
+        ]
         submit_routes = [r for r in routes if "/submit" in r.path and "POST" in r.methods]
         assert len(submit_routes) > 0
 
@@ -481,7 +501,7 @@ class TestOptimizationRouter:
         """Test that progress endpoint exists."""
         from app.api.optimization_api import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path')]
+        routes = [route for route in router.routes if hasattr(route, "path")]
         progress_routes = [r for r in routes if "/progress/" in r.path]
         assert len(progress_routes) > 0
 
@@ -489,7 +509,7 @@ class TestOptimizationRouter:
         """Test that results endpoint exists."""
         from app.api.optimization_api import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path')]
+        routes = [route for route in router.routes if hasattr(route, "path")]
         results_routes = [r for r in routes if "/results/" in r.path]
         assert len(results_routes) > 0
 
@@ -497,12 +517,15 @@ class TestOptimizationRouter:
         """Test that cancel endpoint exists."""
         from app.api.optimization_api import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path') and hasattr(route, 'methods')]
+        routes = [
+            route for route in router.routes if hasattr(route, "path") and hasattr(route, "methods")
+        ]
         cancel_routes = [r for r in routes if "/cancel/" in r.path and "POST" in r.methods]
         assert len(cancel_routes) > 0
 
 
 # ==================== Service Function Tests ====================
+
 
 @pytest.mark.asyncio
 class TestOptimizationService:
@@ -514,7 +537,7 @@ class TestOptimizationService:
 
         param_ranges = {
             "fast": {"start": 5, "end": 15, "step": 5, "type": "int"},
-            "slow": {"start": 20, "end": 30, "step": 5, "type": "int"}
+            "slow": {"start": 20, "end": 30, "step": 5, "type": "int"},
         }
 
         grid = generate_param_grid(param_ranges)

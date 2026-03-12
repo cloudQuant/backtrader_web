@@ -1,4 +1,5 @@
 """Backtest API tests."""
+
 from httpx import AsyncClient
 
 
@@ -15,15 +16,19 @@ class TestBacktestRun:
         Returns:
             None
         """
-        resp = await client.post("/api/v1/backtest/run", headers=auth_headers, json={
-            "strategy_id": "001_ma_cross",
-            "symbol": "000001.SZ",
-            "start_date": "2023-01-01",
-            "end_date": "2023-06-30",
-            "initial_cash": 100000,
-            "commission": 0.001,
-            "params": {},
-        })
+        resp = await client.post(
+            "/api/v1/backtest/run",
+            headers=auth_headers,
+            json={
+                "strategy_id": "001_ma_cross",
+                "symbol": "000001.SZ",
+                "start_date": "2023-01-01",
+                "end_date": "2023-06-30",
+                "initial_cash": 100000,
+                "commission": 0.001,
+                "params": {},
+            },
+        )
         assert resp.status_code == 200
         data = resp.json()
         assert "task_id" in data
@@ -37,12 +42,15 @@ class TestBacktestRun:
         Returns:
             None
         """
-        resp = await client.post("/api/v1/backtest/run", json={
-            "strategy_id": "001_ma_cross",
-            "symbol": "000001.SZ",
-            "start_date": "2023-01-01",
-            "end_date": "2023-06-30",
-        })
+        resp = await client.post(
+            "/api/v1/backtest/run",
+            json={
+                "strategy_id": "001_ma_cross",
+                "symbol": "000001.SZ",
+                "start_date": "2023-01-01",
+                "end_date": "2023-06-30",
+            },
+        )
         assert resp.status_code == 401  # Unauthorized when no token provided
 
 
@@ -130,7 +138,9 @@ class TestBacktestResult:
         Returns:
             None
         """
-        resp = await client.post("/api/v1/backtest/nonexistent-task-id/cancel", headers=auth_headers)
+        resp = await client.post(
+            "/api/v1/backtest/nonexistent-task-id/cancel", headers=auth_headers
+        )
         assert resp.status_code == 400
 
     async def test_delete_nonexistent(self, client: AsyncClient, auth_headers: dict):

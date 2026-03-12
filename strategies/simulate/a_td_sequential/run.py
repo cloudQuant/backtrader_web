@@ -80,7 +80,7 @@ def build_ctp_store_config(config: dict) -> dict:
         fronts.get(network) or fronts.get("telecom") or fronts.get("simnow") or {}
     )
     inv = os.environ.get("CTP_INVESTOR_ID") or os.environ.get("CTP_USER_ID") or ctp.get("investor_id", "") or ctp.get("user_id", "")
-    return {
+    store_config = {
         "td_address": front.get("td_address", ""),
         "md_address": front.get("md_address", ""),
         "broker_id": os.environ.get("CTP_BROKER_ID") or ctp.get("broker_id", ""),
@@ -90,6 +90,26 @@ def build_ctp_store_config(config: dict) -> dict:
         "app_id": os.environ.get("CTP_APP_ID") or ctp.get("app_id", ""),
         "auth_code": os.environ.get("CTP_AUTH_CODE") or ctp.get("auth_code", ""),
     }
+    if get_store_provider(config) == "ctp_gateway":
+        store_config.update(
+            {
+                "gateway_start_local_runtime": os.environ.get("BT_GATEWAY_START_LOCAL_RUNTIME", "0")
+                not in {"0", "false", "False"},
+                "gateway_command_endpoint": os.environ.get("BT_GATEWAY_COMMAND_ENDPOINT", ""),
+                "gateway_event_endpoint": os.environ.get("BT_GATEWAY_EVENT_ENDPOINT", ""),
+                "gateway_market_endpoint": os.environ.get("BT_GATEWAY_MARKET_ENDPOINT", ""),
+                "account_id": os.environ.get("BT_GATEWAY_ACCOUNT_ID", inv),
+                "exchange_type": os.environ.get("BT_GATEWAY_EXCHANGE_TYPE", "CTP"),
+                "asset_type": os.environ.get("BT_GATEWAY_ASSET_TYPE", "FUTURE"),
+            }
+        )
+    return store_config
+
+
+def get_store_provider(config: dict) -> str:
+    gateway = dict(config.get("gateway", {}) or {})
+    provider = os.environ.get("BT_STORE_PROVIDER") or gateway.get("provider") or "ctp"
+    return str(provider).strip().lower() or "ctp"
 
 
 def check_tcp_connectivity(address: str, timeout: int = 5) -> bool:
@@ -114,7 +134,7 @@ def check_tcp_connectivity(address: str, timeout: int = 5) -> bool:
 def run_ctp_session(config: dict):
     """使用 BtApiStore/BtApiFeed/BtApiBroker 连接 CTP,运行模拟盘."""
     live = dict(config.get("live", {}) or {})
-    symbol = live.get("symbol", "rb2505")
+    symbol = live.get("symbol", "rb2610")
     bar_seconds = int(live.get("bar_seconds", 60))
     run_seconds = int(live.get("duration_seconds", 3600))
     session_timeout = int(live.get("session_timeout", run_seconds + 100))
@@ -125,7 +145,7 @@ def run_ctp_session(config: dict):
     contract_metadata[symbol] = symbol_rules
 
     store_cfg = build_ctp_store_config(config)
-    store = BtApiStore(provider="ctp", **store_cfg)
+    store = BtApiStore(provider=get_store_provider(config), **store_cfg)
     store.start()
     try:
         broker = BtApiBroker(store=store, contract_metadata=contract_metadata)

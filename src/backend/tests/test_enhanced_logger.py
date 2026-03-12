@@ -7,6 +7,7 @@ Tests:
 - Request context binding
 - Task context binding
 """
+
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -41,13 +42,7 @@ class TestSensitiveDataFiltering:
 
     def test_filter_nested_dict(self):
         """Test filtering in nested dictionaries."""
-        data = {
-            "user": "john",
-            "credentials": {
-                "password": "secret",
-                "token": "abc123"
-            }
-        }
+        data = {"user": "john", "credentials": {"password": "secret", "token": "abc123"}}
         filtered = _filter_sensitive_data(data)
         assert filtered["user"] == "john"
         # 'credentials' key contains 'credential' pattern, so entire nested dict is masked
@@ -58,10 +53,7 @@ class TestSensitiveDataFiltering:
         """Test filtering with safe nested keys."""
         data = {
             "user": "john",
-            "config": {
-                "password": "secret123",
-                "api_url": "https://api.example.com"
-            }
+            "config": {"password": "secret123", "api_url": "https://api.example.com"},
         }
         filtered = _filter_sensitive_data(data)
         assert filtered["user"] == "john"
@@ -71,12 +63,7 @@ class TestSensitiveDataFiltering:
 
     def test_filter_list_of_dicts(self):
         """Test filtering in list of dictionaries."""
-        data = {
-            "users": [
-                {"name": "Alice", "secret": "pass1"},
-                {"name": "Bob", "secret": "pass2"}
-            ]
-        }
+        data = {"users": [{"name": "Alice", "secret": "pass1"}, {"name": "Bob", "secret": "pass2"}]}
         filtered = _filter_sensitive_data(data)
         assert filtered["users"][0]["name"] == "Alice"
         # Secret values longer than 4 chars get partial masking
@@ -209,12 +196,14 @@ class TestAuditLogger:
     def test_audit_logger_initialization(self):
         """Test audit logger can be initialized."""
         from app.utils.logger import AuditLogger
+
         audit = AuditLogger()
         assert audit.logger is not None
 
     def test_audit_logger_has_required_methods(self):
         """Test audit logger has required methods."""
         from app.utils.logger import AuditLogger
+
         audit = AuditLogger()
         assert hasattr(audit, "log_login")
         assert hasattr(audit, "log_logout")

@@ -21,6 +21,12 @@ symbol:
 # 策略参数
 # ============================================================
 params:
+  stake: 10
+  tenkan: 9
+  kijun: 26
+  senkou: 52
+  senkou_lead: 26
+  chikou: 26
 
 # ============================================================
 # 数据配置
@@ -75,10 +81,6 @@ live:
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    m2509:
-      min_price_tick: 1.0
-      max_order_size: 1
-
     m2609:
       min_price_tick: 1.0
       max_order_size: 1

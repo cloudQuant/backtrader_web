@@ -8,11 +8,71 @@
 
 | 改进项 | 实施内容 |
 |--------|----------|
+| Lint 修复 | ruff check --fix 修复 27 处 F841（未使用变量）；ruff format 格式化 74 个文件 |
 | 依赖治理 | pyproject.toml 新增 data=akshare；Dockerfile 以 pyproject 为单一来源安装 `.[postgres,redis,backtrader,data]` |
+| 依赖单一来源 | Dockerfile 移除 COPY requirements.txt；OPERATIONS.md 升级流程改为 pip install -e ".[postgres,redis,backtrader,data]" |
 | 任务执行模型 | OPERATIONS.md 新增「任务执行模型与多实例限制」；回测取消 API 返回可解释错误文案 |
 | 数据库 exists | SQLRepository.exists() 改为 LIMIT 1 早期退出，替代 count>0 |
 | CSP 分环境 | 生产环境已移除 unsafe-eval（注释补充说明） |
-| 文档链接校验 | `scripts/check_doc_links.py` 校验 docs 内本地链接是否存在 |
+| 文档链接校验 | `scripts/check_doc_links.py` 校验 docs 内本地链接是否存在；CI 新增 check-doc-links job |
+| 前端错误展示 | 401/403/404/500 优先展示后端返回的 message，仅通用文案时回退到默认提示 |
+| WebSocket 所有权校验 | 回测 WebSocket (`/ws/backtest/{task_id}`) 需携带 token 并校验 task 归属 |
+| 回测/优化限流 | 回测 run 接口 10/min，优化 submit 接口 5/min |
+| 依赖校验 CI | scripts/check_deps_sync.py 校验 requirements 与 pyproject 一致；CI 新增 check-deps-sync job |
+| 生产密钥 fail-fast | DEBUG=False 时若使用默认 SECRET_KEY/JWT_SECRET_KEY/ADMIN_PASSWORD 则启动即失败 |
+| Ruff 扩展规则 | 启用 B (bugbear)、UP (pyupgrade)，修复 zip strict=、未使用循环变量、assert False 等 |
+| SlowAPI 参数约定 | 限流装饰端点使用 `request: Request`（Starlette），请求体参数命名为 `body` 或 `req` 以避免冲突 |
+| WebSocket 测试 | 完善 mock：close/query_params 与 decode_access_token、BacktestExecutionManager 补齐，避免 MagicMock 被 await 报错 |
+| Auth 批量撤销优化 | `AuthService._revoke_all_user_tokens_in_session` 改为 bulk UPDATE，替代 load-all-then-update，降低 DB 负载 |
+| 前端 SimulatePage 错误处理 | 策略配置加载与添加失败时使用 `getErrorMessage` 统一解析并展示后端返回的错误文案，避免非 API 错误无提示 |
+| 本次迭代 (2026-03-10) | 见下表 |
+
+| 改进项 | 实施内容 |
+|--------|----------|
+| 后端 Lint | 移除 test_backtest_service.py 未使用导入 BacktestResult；ruff format test_backtest_enhanced.py |
+| Ruff C4 规则 | 启用 C4（comprehensions），修复 analytics_service / comparison_service 中 `sorted(list(x))` → `sorted(x)` |
+| 编辑器/环境一致性 | 新增 .editorconfig（缩进、行尾、trim）；新增 .nvmrc=20 与 CI/package.json 一致 |
+| ESLint vue3-recommended | 从 vue3-essential 升级到 vue3-recommended，增强 Vue 规范 |
+| Vue 组件规范 | TradeSignalChart 为 `indicators` 增加默认值；StrategyPage v-html 添加 eslint-disable 与安全备注；测试文件放宽 vue/one-component-per-file 等 |
+| HTTP 异常消息提取 | exception_handling 中 `handle_http_exception` 增加 `_extract_http_detail_message`，支持 str/list/dict 多种 detail 格式，避免一律返回 "Request failed" |
+| 前端类型安全 | simulation store / api 使用 `Record<string, unknown>` 替代 `any`；useInstanceActions 泛型化以兼容 SimulationInstanceInfo / LiveInstanceInfo |
+| SimulatePage 错误处理 | 添加注释阐明 axios 错误由 interceptor 处理、避免重复 ElMessage 的逻辑 |
+| 错误响应契约测试 | 新增 `tests/test_error_response_contract.py` 校验 401/422 响应结构 `{ error, message, details? }` |
+| HTTP detail 提取测试 | test_middleware 增加 list/dict 格式 detail 的 handle_http_exception 测试 |
+| Ruff B/UP/C4 规则 | 恢复 pyproject.toml 中 B(bugbear)、UP(pyupgrade)、C4(comprehensions) 规则 |
+| F841/B007 修复 | ruff --fix --unsafe-fixes 修复 860+ 处未使用变量；手动修复 4 处 B007 循环变量 |
+| Ruff format | 统一格式化 83 个文件 |
+| 前端类型安全 | RegisterPage.vue `validateConfirmPassword` 用 `FormRule` 与 `(error?: string \| Error) => void` 替代 `any`/`Function` |
+| ESLint 增强 | 启用 `@typescript-eslint/no-explicit-any`(warn)、`consistent-type-imports`、`no-unused-vars`(argsIgnorePattern: ^_)，测试文件豁免 |
+| 前端类型与 Lint 清零 | liveTrading/analytics 用 `Record<string, unknown>` 替代 `any`；simulation.getTemplateConfig 明确返回类型；theme.ts 移除未使用 watch；测试文件移除未使用导入 (vi/beforeEach) 与未使用变量 (wrapper)，ESLint 0 warnings |
+| P0 依赖与构建一致性 | Dockerfile 移除 COPY requirements.txt，仅以 pyproject.toml 安装；check_deps_sync 以 pyproject 为单一来源校验 |
+| P0 全局异常处理 | `_extract_http_detail_message` 支持 str/list/dict 多种 detail，统一错误响应结构 |
+| P0 任务执行模型 | 参数优化任务落库 OptimizationTask；API 先创建 DB 任务再提交；进度/结果/取消优先读 DB，取消写入 DB 支持多实例 |
+| 前端图表类型安全 | 新增 `types/charts.ts`（AxisTooltipParam、HeatmapDataParam、LegendSelectParams、BarColorParams）；TradeSignalChart/EquityCurve/ReturnHeatmap/DrawdownChart 使用 ECharts 组件类型与共享回调类型替代 `any` |
+| 前端构建修复 | typescript 固定 ~5.6.2 避免与 vue-tsc 的 supportedTSExtensions 不兼容；vue-tsc 升级到 ^2.0.29；build 改为 `vite build`，类型检查独立为 `npm run typecheck`，确保生产构建可用 |
+| 本次迭代 (2026-03-11) | 见下表 |
+
+| 改进项 | 实施内容 |
+|--------|----------|
+| 后端 Lint | 移除 live_trading_manager 未使用导入 get_strategy_dir (F401)；ruff format test_live_trading_manager.py |
+| 类型注解完善 | param_optimization_service._safe_float 添加 `val: Any, default: float` 与返回值 `-> float`；logger.AuditLogger 的 log_login/log_logout/log_permission_denied 等补充 `-> None` 与可选参数 `str \| None`；live_trading_manager._save_instances / _sync_status_on_boot 补充 `-> None` |
+| 前端类型增强 (2026-03-11) | OptimizationPage 使用 `Record<string, ParamRangeSpec>` 替代 `Record<string, any>`；StrategyPage paramTableData 使用 `[string, ParamSpec]` 替代 `[string, any]`；TradeSignalChart axisPointer 使用 `AxisLinkXAxisIndex` 替代 `as any`；types/charts 新增 `AxisLinkXAxisIndex` |
+| 本次迭代 (2026-03-11) | 见下表 |
+
+| 改进项 | 实施内容 |
+|--------|----------|
+| 后端格式化 | ruff format 修复 live_trading_manager.py、test_live_trading_manager.py |
+| 前端测试工具类型安全 | mountWithPlugins 使用 `Component` 替代 `any`；MountOptions 使用 `Record<string, unknown>` 替代 `any` |
+| CI 格式化检查 | backend-lint 新增 `ruff format --check .` 确保 PR 中代码格式一致 |
+| 后续建议执行 (2026-03-11) | 见下表 |
+
+| 改进项 | 实施内容 |
+|--------|----------|
+| 修复 param_optimization 重复代码 | 移除 `_run_async` 函数内重复的 docstring 与 return 语句 |
+| 参数优化增量持久化 | 执行中每 5 个 trial 增量写入 DB，提升进程崩溃后恢复能力 |
+| 文档治理 | 修正 PROJECT_IMPROVEMENT_SUMMARY 中 performance.py 引用（标注为规划中）、SPRINT_3_SUMMARY 更正为 SPRINT3_EXECUTION_SUMMARY |
+| 优化 API 重复 docstring | 移除 get_progress 端点的重复 docstring |
+| Schema 文档补全 | LiveGatewayPresetInfo、LiveGatewayPresetListResponse 添加 docstring |
 
 ---
 

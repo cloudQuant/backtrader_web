@@ -5,7 +5,7 @@ Used for real-time push of backtest progress and logs.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import WebSocket
 
@@ -25,7 +25,7 @@ class ConnectionManager:
     def __init__(self):
         # Task ID to WebSocket connection list mapping
         # key: task_id, value: list of (websocket, client_id)
-        self.active_connections: Dict[str, List[tuple]] = {}
+        self.active_connections: dict[str, list[tuple]] = {}
 
     async def connect(self, websocket: WebSocket, task_id: str, client_id: str):
         """Establish a WebSocket connection.
@@ -77,7 +77,7 @@ class ConnectionManager:
 
         logger.info(f"WebSocket disconnected: task_id={task_id}, client_id={client_id}")
 
-    async def send_to_task(self, task_id: str, message: Dict[str, Any]):
+    async def send_to_task(self, task_id: str, message: dict[str, Any]):
         """Send a message to all connections for a specific task.
 
         Args:
@@ -107,7 +107,7 @@ class ConnectionManager:
 
         logger.debug(f"Sent message to task {task_id}: {message.get('type')}")
 
-    async def broadcast(self, message: Dict[str, Any]):
+    async def broadcast(self, message: dict[str, Any]):
         """Broadcast a message to all connected clients.
 
         Args:
@@ -173,7 +173,7 @@ class ProgressMessage:
         task_id: str,
         progress: int,
         message: str = "",
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
     ):
         self.task_id = task_id
         self.progress = progress
@@ -181,7 +181,7 @@ class ProgressMessage:
         self.data = data or {}
         self.type = MessageType.PROGRESS
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary.
 
         Returns:
@@ -208,7 +208,7 @@ class ResultMessage:
     def __init__(
         self,
         task_id: str,
-        result: Dict[str, Any],
+        result: dict[str, Any],
     ):
         self.task_id = task_id
         self.result = result
@@ -218,7 +218,7 @@ class ResultMessage:
             else MessageType.FAILED
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary.
 
         Returns:
@@ -247,7 +247,7 @@ class LogMessage:
         task_id: str,
         level: str,
         message: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
     ):
         self.task_id = task_id
         self.level = level  # info, warning, error
@@ -255,7 +255,7 @@ class LogMessage:
         self.data = data or {}
         self.type = MessageType.LOG
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary.
 
         Returns:

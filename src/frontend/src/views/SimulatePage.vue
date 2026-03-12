@@ -4,8 +4,13 @@
     <el-card>
       <div class="flex justify-between items-center">
         <div class="flex items-center gap-3">
-          <h3 class="text-lg font-bold">模拟交易</h3>
-          <el-tag :type="runningCount > 0 ? 'success' : 'info'" size="small">
+          <h3 class="text-lg font-bold">
+            模拟交易
+          </h3>
+          <el-tag
+            :type="runningCount > 0 ? 'success' : 'info'"
+            size="small"
+          >
             {{ runningCount }} 运行中 / {{ visibleInstances.length }} 总计
           </el-tag>
         </div>
@@ -30,14 +35,27 @@
             content="SimNow 单账号仅支持 1–2 个并发连接，建议分批启动"
             placement="bottom"
           >
-            <el-button type="success" @click="handleStartAll" :loading="batchLoading" :disabled="instances.length === 0">
+            <el-button
+              type="success"
+              :loading="batchLoading"
+              :disabled="instances.length === 0"
+              @click="handleStartAll"
+            >
               <el-icon><VideoPlay /></el-icon>一键启动
             </el-button>
           </el-tooltip>
-          <el-button type="danger" @click="handleStopAll" :loading="batchLoading" :disabled="runningCount === 0">
+          <el-button
+            type="danger"
+            :loading="batchLoading"
+            :disabled="runningCount === 0"
+            @click="handleStopAll"
+          >
             <el-icon><VideoPause /></el-icon>一键停止
           </el-button>
-          <el-button type="primary" @click="showAddDialog = true">
+          <el-button
+            type="primary"
+            @click="showAddDialog = true"
+          >
             <el-icon><Plus /></el-icon>添加策略
           </el-button>
         </div>
@@ -45,17 +63,28 @@
     </el-card>
 
     <!-- 策略列表 -->
-    <div v-if="loading" class="flex justify-center py-12">
-      <el-icon class="is-loading text-4xl text-blue-500"><Loading /></el-icon>
+    <div
+      v-if="loading"
+      class="flex justify-center py-12"
+    >
+      <el-icon class="is-loading text-4xl text-blue-500">
+        <Loading />
+      </el-icon>
     </div>
 
-    <div v-else-if="visibleInstances.length === 0" class="text-center py-12">
+    <div
+      v-else-if="visibleInstances.length === 0"
+      class="text-center py-12"
+    >
       <el-empty description="暂无模拟策略，点击右上角添加" />
     </div>
 
     <div v-else>
       <!-- 卡片视图 -->
-      <div v-if="viewMode === 'card'" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div
+        v-if="viewMode === 'card'"
+        class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+      >
         <el-card
           v-for="inst in visibleInstances"
           :key="inst.id"
@@ -65,7 +94,9 @@
         >
           <div class="flex justify-between items-start mb-3">
             <div>
-              <h4 class="text-md font-bold">{{ inst.strategy_name || formatStrategyId(inst.strategy_id) }}</h4>
+              <h4 class="text-md font-bold">
+                {{ inst.strategy_name || formatStrategyId(inst.strategy_id) }}
+              </h4>
               <span class="text-xs text-gray-400">{{ formatStrategyId(inst.strategy_id) }}</span>
             </div>
             <el-tag
@@ -76,12 +107,22 @@
             </el-tag>
           </div>
 
-          <div v-if="inst.error" class="text-sm text-red-500 truncate mb-4" :title="inst.error">
+          <div
+            v-if="inst.error"
+            class="text-sm text-red-500 truncate mb-4"
+            :title="inst.error"
+          >
             错误: {{ inst.error }}
           </div>
-          <div v-else class="mb-4" />
+          <div
+            v-else
+            class="mb-4"
+          />
 
-          <div class="flex gap-2" @click.stop>
+          <div
+            class="flex gap-2"
+            @click.stop
+          >
             <el-button
               v-if="inst.status !== 'running'"
               type="success"
@@ -100,10 +141,18 @@
             >
               <el-icon><VideoPause /></el-icon>停止
             </el-button>
-            <el-button size="small" @click="goToDetail(inst)">
+            <el-button
+              size="small"
+              @click="goToDetail(inst)"
+            >
               <el-icon><View /></el-icon>分析
             </el-button>
-            <el-button size="small" @click="openDetail(inst)">详情</el-button>
+            <el-button
+              size="small"
+              @click="openDetail(inst)"
+            >
+              详情
+            </el-button>
             <el-popconfirm
               title="确定要删除该策略实例吗？"
               @confirm="handleRemove(inst)"
@@ -125,18 +174,34 @@
 
       <!-- 列表视图 -->
       <el-card v-else>
-        <el-table :data="visibleInstances" stripe size="small" class="w-full">
-          <el-table-column prop="strategy_name" label="策略名称" min-width="160">
+        <el-table
+          :data="visibleInstances"
+          stripe
+          size="small"
+          class="w-full"
+        >
+          <el-table-column
+            prop="strategy_name"
+            label="策略名称"
+            min-width="160"
+          >
             <template #default="{ row }">
               {{ row.strategy_name || formatStrategyId(row.strategy_id) }}
             </template>
           </el-table-column>
-          <el-table-column label="策略ID" min-width="160">
+          <el-table-column
+            label="策略ID"
+            min-width="160"
+          >
             <template #default="{ row }">
               {{ formatStrategyId(row.strategy_id) }}
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="100" align="center">
+          <el-table-column
+            label="状态"
+            width="100"
+            align="center"
+          >
             <template #default="{ row }">
               <el-tag
                 :type="row.status === 'running' ? 'success' : row.status === 'error' ? 'danger' : 'info'"
@@ -146,7 +211,11 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="260" align="center">
+          <el-table-column
+            label="操作"
+            width="260"
+            align="center"
+          >
             <template #default="{ row }">
               <div class="flex flex-wrap items-center justify-center gap-1">
                 <el-button
@@ -167,8 +236,20 @@
                 >
                   停止
                 </el-button>
-                <el-button size="small" link @click="goToDetail(row)">分析</el-button>
-                <el-button size="small" link @click="openDetail(row)">详情</el-button>
+                <el-button
+                  size="small"
+                  link
+                  @click="goToDetail(row)"
+                >
+                  分析
+                </el-button>
+                <el-button
+                  size="small"
+                  link
+                  @click="openDetail(row)"
+                >
+                  详情
+                </el-button>
                 <el-popconfirm
                   title="确定要删除该策略实例吗？"
                   @confirm="handleRemove(row)"
@@ -192,11 +273,17 @@
     </div>
 
     <!-- 实例时间日志对话框 -->
-    <el-dialog v-model="detailDialogVisible" title="实例时间日志" width="520px">
+    <el-dialog
+      v-model="detailDialogVisible"
+      title="实例时间日志"
+      width="520px"
+    >
       <div v-if="detailInstance">
         <div class="mb-3 text-sm text-gray-600">
           <div>策略：{{ detailInstance.strategy_name || formatStrategyId(detailInstance.strategy_id) }}</div>
-          <div class="text-xs text-gray-400 mt-1">ID：{{ detailInstance.id }}</div>
+          <div class="text-xs text-gray-400 mt-1">
+            ID：{{ detailInstance.id }}
+          </div>
         </div>
         <el-table
           :data="detailTimeline"
@@ -204,19 +291,38 @@
           border
           class="w-full"
         >
-          <el-table-column prop="label" label="事件" width="120" />
-          <el-table-column prop="time" label="时间" />
+          <el-table-column
+            prop="label"
+            label="事件"
+            width="120"
+          />
+          <el-table-column
+            prop="time"
+            label="时间"
+          />
         </el-table>
       </div>
       <template #footer>
-        <el-button @click="detailDialogVisible = false">关闭</el-button>
+        <el-button @click="detailDialogVisible = false">
+          关闭
+        </el-button>
       </template>
     </el-dialog>
 
     <!-- 添加策略对话框 -->
-    <el-dialog v-model="showAddDialog" title="添加模拟策略" width="600px">
-      <el-form :model="addForm" label-width="100px">
-        <el-form-item label="选择策略" required>
+    <el-dialog
+      v-model="showAddDialog"
+      title="添加模拟策略"
+      width="600px"
+    >
+      <el-form
+        :model="addForm"
+        label-width="100px"
+      >
+        <el-form-item
+          label="选择策略"
+          required
+        >
           <el-select
             v-model="addForm.strategy_id"
             placeholder="请选择策略"
@@ -233,17 +339,29 @@
           </el-select>
         </el-form-item>
 
-        <el-form-item v-if="strategyConfig" label="策略说明">
+        <el-form-item
+          v-if="strategyConfig"
+          label="策略说明"
+        >
           <div class="text-gray-500 text-sm">
             <span v-if="strategyConfig.strategy.description">{{ strategyConfig.strategy.description }}</span>
-            <span v-if="strategyConfig.strategy.author" class="ml-2 text-gray-400">— {{ strategyConfig.strategy.author }}</span>
+            <span
+              v-if="strategyConfig.strategy.author"
+              class="ml-2 text-gray-400"
+            >— {{ strategyConfig.strategy.author }}</span>
           </div>
         </el-form-item>
 
         <template v-if="Object.keys(dynamicParams).length > 0">
-          <el-divider content-position="left">策略参数</el-divider>
+          <el-divider content-position="left">
+            策略参数
+          </el-divider>
           <el-row :gutter="20">
-            <el-col :span="12" v-for="(val, key) in dynamicParams" :key="key">
+            <el-col
+              v-for="(val, key) in dynamicParams"
+              :key="key"
+              :span="12"
+            >
               <el-form-item :label="String(key)">
                 <el-input-number
                   v-if="typeof val === 'number'"
@@ -263,8 +381,14 @@
         </template>
       </el-form>
       <template #footer>
-        <el-button @click="showAddDialog = false">取消</el-button>
-        <el-button type="primary" :loading="addLoading" @click="handleAdd">
+        <el-button @click="showAddDialog = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="addLoading"
+          @click="handleAdd"
+        >
           确定
         </el-button>
       </template>
@@ -273,14 +397,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/api'
 import { strategyApi } from '@/api/strategy'
 import { useSimulationStore } from '@/stores/simulation'
 import { useStrategyStore } from '@/stores/strategy'
 import type { SimulationInstanceInfo } from '@/api/simulation'
 import type { StrategyConfig } from '@/types'
+import {
+  useInstanceActions,
+  statusLabel,
+  formatStrategyId,
+} from '@/composables/useInstanceActions'
 
 const router = useRouter()
 const simulationStore = useSimulationStore()
@@ -288,19 +418,27 @@ const strategyStore = useStrategyStore()
 
 const loading = ref(false)
 const viewMode = ref<'card' | 'list'>('card')
-const batchLoading = ref(false)
 const showAddDialog = ref(false)
 const addLoading = ref(false)
-const actionLoading = ref<Record<string, string>>({})
 const detailDialogVisible = ref(false)
 const detailInstance = ref<SimulationInstanceInfo | null>(null)
 
 const strategyConfig = ref<StrategyConfig | null>(null)
-const dynamicParams = reactive<Record<string, any>>({})
+const dynamicParams = reactive<Record<string, unknown>>({})
 
 const addForm = reactive({
   strategy_id: '',
 })
+
+const { actionLoading, batchLoading, handleStart, handleStop, handleRemove, handleStartAll, handleStopAll } =
+  useInstanceActions<SimulationInstanceInfo>({
+    start: (id) => simulationStore.startInstance(id),
+    stop: (id) => simulationStore.stopInstance(id),
+    remove: (id) => simulationStore.removeInstance(id),
+    startAll: () => simulationStore.startAll(),
+    stopAll: () => simulationStore.stopAll(),
+    loadData: () => simulationStore.fetchInstances(),
+  })
 
 const instances = computed(() => simulationStore.instances)
 const visibleInstances = computed(() =>
@@ -308,12 +446,6 @@ const visibleInstances = computed(() =>
 )
 const templates = computed(() => strategyStore.templates)
 const runningCount = computed(() => visibleInstances.value.filter(i => i.status === 'running').length)
-
-function formatStrategyId(id?: string) {
-  if (!id) return ''
-  const idx = id.indexOf('/')
-  return idx !== -1 ? id.slice(idx + 1) : id
-}
 
 const detailTimeline = computed(() => {
   if (!detailInstance.value) return []
@@ -333,6 +465,8 @@ const detailTimeline = computed(() => {
   return rows
 })
 
+let _pollTimer: ReturnType<typeof setInterval> | null = null
+
 onMounted(async () => {
   loading.value = true
   try {
@@ -342,6 +476,17 @@ onMounted(async () => {
     ])
   } finally {
     loading.value = false
+  }
+  // Poll every 5 s so externally-started/stopped strategies are detected
+  _pollTimer = setInterval(() => {
+    simulationStore.fetchInstances()
+  }, 5000)
+})
+
+onUnmounted(() => {
+  if (_pollTimer) {
+    clearInterval(_pollTimer)
+    _pollTimer = null
   }
 })
 
@@ -360,8 +505,8 @@ async function onStrategyChange(strategyId: string) {
         dynamicParams[k] = v
       })
     }
-  } catch {
-    ElMessage.warning('无法加载策略配置，将使用默认参数')
+  } catch (e) {
+    ElMessage.warning(getErrorMessage(e, '无法加载策略配置，将使用默认参数'))
     strategyConfig.value = null
   }
 }
@@ -378,90 +523,19 @@ async function handleAdd() {
     showAddDialog.value = false
     addForm.strategy_id = ''
     Object.keys(dynamicParams).forEach(k => delete dynamicParams[k])
+  } catch (e) {
+    // Axios errors are already handled by api interceptor; only show for non-axios errors
+    const isAxiosError = e && typeof e === 'object' && 'response' in e
+    if (!isAxiosError) {
+      ElMessage.error(getErrorMessage(e, '添加策略失败'))
+    }
   } finally {
     addLoading.value = false
   }
 }
 
-async function handleStart(inst: SimulationInstanceInfo) {
-  actionLoading.value[inst.id] = 'start'
-  try {
-    await simulationStore.startInstance(inst.id)
-    ElMessage.success('启动成功')
-  } catch {
-    ElMessage.error('启动失败')
-  } finally {
-    actionLoading.value[inst.id] = ''
-  }
-}
-
-async function handleStop(inst: SimulationInstanceInfo) {
-  actionLoading.value[inst.id] = 'stop'
-  try {
-    await simulationStore.stopInstance(inst.id)
-    ElMessage.success('停止成功')
-  } catch {
-    ElMessage.error('停止失败')
-  } finally {
-    actionLoading.value[inst.id] = ''
-  }
-}
-
-async function handleRemove(inst: SimulationInstanceInfo) {
-  actionLoading.value[inst.id] = 'remove'
-  try {
-    await simulationStore.removeInstance(inst.id)
-    ElMessage.success('删除成功')
-  } catch {
-    ElMessage.error('删除失败')
-  } finally {
-    actionLoading.value[inst.id] = ''
-  }
-}
-
-async function handleStartAll() {
-  batchLoading.value = true
-  try {
-    const response = await simulationStore.startAll()
-    if (response.success > 0) {
-      ElMessage.success(`成功启动 ${response.success} 个策略`)
-    }
-    if (response.failed > 0) {
-      ElMessage.warning(
-        `${response.failed} 个策略启动失败。SimNow 单账号仅支持 1-2 个并发连接，建议分批启动。`
-      )
-    }
-  } finally {
-    batchLoading.value = false
-  }
-}
-
-async function handleStopAll() {
-  batchLoading.value = true
-  try {
-    const response = await simulationStore.stopAll()
-    if (response.success > 0) {
-      ElMessage.success(`成功停止 ${response.success} 个策略`)
-    }
-    if (response.failed > 0) {
-      ElMessage.warning(`${response.failed} 个策略停止失败`)
-    }
-  } finally {
-    batchLoading.value = false
-  }
-}
-
 function goToDetail(inst: SimulationInstanceInfo) {
   router.push(`/simulate/${inst.id}`)
-}
-
-function statusLabel(status: string) {
-  const labels: Record<string, string> = {
-    running: '运行中',
-    stopped: '已停止',
-    error: '异常',
-  }
-  return labels[status] || status
 }
 
 function openDetail(inst: SimulationInstanceInfo) {

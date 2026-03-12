@@ -17,7 +17,7 @@ Usage:
 import re
 import urllib.parse
 from html import escape as html_escape
-from typing import Any, List, Optional
+from typing import Any
 
 # ==================== SQL Injection Prevention ====================
 
@@ -134,7 +134,7 @@ def detect_xss(value: str) -> bool:
     return False
 
 
-def sanitize_html(value: str, allowed_tags: Optional[List[str]] = None) -> str:
+def sanitize_html(value: str, allowed_tags: list[str] | None = None) -> str:
     """Sanitize HTML input to prevent XSS attacks.
 
     This function escapes HTML entities and removes potentially dangerous content.
@@ -495,9 +495,7 @@ def sanitize_url(url: str) -> str:
 # ==================== Integer Validation ====================
 
 
-def validate_integer(
-    value: Any, min_val: Optional[int] = None, max_val: Optional[int] = None
-) -> bool:
+def validate_integer(value: Any, min_val: int | None = None, max_val: int | None = None) -> bool:
     """Validate that a value is an integer within optional range.
 
     Args:
@@ -523,9 +521,7 @@ def validate_integer(
 # ==================== Float Validation ====================
 
 
-def validate_float(
-    value: Any, min_val: Optional[float] = None, max_val: Optional[float] = None
-) -> bool:
+def validate_float(value: Any, min_val: float | None = None, max_val: float | None = None) -> bool:
     """Validate that a value is a float within optional range.
 
     Args:
@@ -551,7 +547,7 @@ def validate_float(
 # ==================== Choice Validation ====================
 
 
-def validate_choice(value: Any, allowed_choices: List[Any]) -> bool:
+def validate_choice(value: Any, allowed_choices: list[Any]) -> bool:
     """Validate that a value is in the list of allowed choices.
 
     Args:
@@ -573,8 +569,8 @@ class ValidationResult:
     def __init__(
         self,
         is_valid: bool,
-        errors: Optional[List[str]] = None,
-        warnings: Optional[List[str]] = None,
+        errors: list[str] | None = None,
+        warnings: list[str] | None = None,
     ):
         """Initialize validation result.
 

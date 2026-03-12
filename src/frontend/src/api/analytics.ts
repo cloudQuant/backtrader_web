@@ -45,7 +45,7 @@ export const analyticsApi = {
       params: { format },
       responseType: 'blob',
     })
-    const blob = new Blob([response as any])
+    const blob = response instanceof Blob ? response : new Blob([response as BlobPart])
     const link = document.createElement('a')
     link.href = URL.createObjectURL(blob)
     link.download = `backtest_${taskId}.${format}`

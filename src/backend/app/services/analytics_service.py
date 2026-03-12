@@ -2,8 +2,6 @@
 Backtest analytics service.
 """
 
-from typing import Dict, List, Optional
-
 import numpy as np
 
 from app.schemas.analytics import (
@@ -34,7 +32,7 @@ class AnalyticsService:
         """
         self.adapter = FincoreAdapter(use_fincore=use_fincore)
 
-    def calculate_metrics(self, result_data: Dict) -> PerformanceMetrics:
+    def calculate_metrics(self, result_data: dict) -> PerformanceMetrics:
         """Calculate performance metrics from backtest results.
 
         Uses FincoreAdapter for standardized metric calculations.
@@ -116,7 +114,7 @@ class AnalyticsService:
             max_consecutive_losses=max_losses,
         )
 
-    def _calculate_daily_returns(self, equity_curve: List[Dict]) -> List[float]:
+    def _calculate_daily_returns(self, equity_curve: list[dict]) -> list[float]:
         """Calculate daily returns from equity curve.
 
         Args:
@@ -136,7 +134,7 @@ class AnalyticsService:
                 returns.append(ret)
         return returns
 
-    def process_trades(self, raw_trades: List[Dict]) -> List[TradeRecord]:
+    def process_trades(self, raw_trades: list[dict]) -> list[TradeRecord]:
         """Process and format trade records.
 
         Args:
@@ -175,7 +173,7 @@ class AnalyticsService:
 
         return processed
 
-    def process_equity_curve(self, raw_curve: List[Dict]) -> List[EquityPoint]:
+    def process_equity_curve(self, raw_curve: list[dict]) -> list[EquityPoint]:
         """Process and format equity curve data.
 
         Args:
@@ -194,7 +192,7 @@ class AnalyticsService:
             for e in raw_curve
         ]
 
-    def process_drawdown_curve(self, raw_curve: List[Dict]) -> List[DrawdownPoint]:
+    def process_drawdown_curve(self, raw_curve: list[dict]) -> list[DrawdownPoint]:
         """Process and format drawdown curve data.
 
         Args:
@@ -213,7 +211,7 @@ class AnalyticsService:
             for d in raw_curve
         ]
 
-    def process_signals(self, raw_signals: List[Dict]) -> List[TradeSignal]:
+    def process_signals(self, raw_signals: list[dict]) -> list[TradeSignal]:
         """Process and format trade signals.
 
         Args:
@@ -232,7 +230,7 @@ class AnalyticsService:
             for s in raw_signals
         ]
 
-    def process_monthly_returns(self, raw_returns: Dict) -> MonthlyReturnsResponse:
+    def process_monthly_returns(self, raw_returns: dict) -> MonthlyReturnsResponse:
         """Process and format monthly returns data.
 
         Args:
@@ -261,11 +259,11 @@ class AnalyticsService:
 
         return MonthlyReturnsResponse(
             returns=sorted(returns, key=lambda x: (x.year, x.month)),
-            years=sorted(list(years)),
+            years=sorted(years),
             summary=summary,
         )
 
-    def calculate_indicators(self, klines: List[Dict]) -> Dict[str, List[Optional[float]]]:
+    def calculate_indicators(self, klines: list[dict]) -> dict[str, list[float | None]]:
         """Calculate technical indicators from K-line data.
 
         Args:
@@ -279,7 +277,7 @@ class AnalyticsService:
 
         closes = [k.get("close", 0) for k in klines]
 
-        def ma(period: int) -> List[Optional[float]]:
+        def ma(period: int) -> list[float | None]:
             result = [None] * (period - 1)
             for i in range(period - 1, len(closes)):
                 avg = sum(closes[i - period + 1 : i + 1]) / period

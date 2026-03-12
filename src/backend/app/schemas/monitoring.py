@@ -4,7 +4,7 @@ Monitoring and alerting schemas.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -52,13 +52,13 @@ class AlertCreate(BaseModel):
     """Create an alert rule request payload."""
 
     name: str = Field(..., min_length=1, max_length=200, description="Rule name.")
-    description: Optional[str] = Field(None, description="Rule description.")
+    description: str | None = Field(None, description="Rule description.")
     alert_type: AlertType = Field(..., description="Alert type.")
     severity: AlertSeverity = Field(AlertSeverity.WARNING, description="Alert severity.")
     trigger_type: TriggerType = Field(..., description="Trigger type.")
-    trigger_config: Dict[str, Any] = Field(..., description="Trigger configuration.")
+    trigger_config: dict[str, Any] = Field(..., description="Trigger configuration.")
     notification_enabled: bool = Field(True, description="Whether notifications are enabled.")
-    notification_channels: Optional[List[str]] = Field(
+    notification_channels: list[str] | None = Field(
         None, description="Notification channels (e.g. ['web', 'email'])."
     )
 
@@ -66,14 +66,14 @@ class AlertCreate(BaseModel):
 class AlertUpdate(BaseModel):
     """Update an alert rule request payload."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=200, description="Rule name.")
-    description: Optional[str] = Field(None, description="Rule description.")
-    severity: Optional[AlertSeverity] = Field(None, description="Alert severity.")
-    notification_enabled: Optional[bool] = Field(
+    name: str | None = Field(None, min_length=1, max_length=200, description="Rule name.")
+    description: str | None = Field(None, description="Rule description.")
+    severity: AlertSeverity | None = Field(None, description="Alert severity.")
+    notification_enabled: bool | None = Field(
         None, description="Whether notifications are enabled."
     )
-    notification_channels: Optional[List[str]] = Field(None, description="Notification channels.")
-    is_active: Optional[bool] = Field(None, description="Whether the rule is active.")
+    notification_channels: list[str] | None = Field(None, description="Notification channels.")
+    is_active: bool | None = Field(None, description="Whether the rule is active.")
 
 
 class AlertRuleResponse(BaseModel):
@@ -82,16 +82,16 @@ class AlertRuleResponse(BaseModel):
     id: str = Field(..., description="Rule id.")
     user_id: str = Field(..., description="Owner user id.")
     name: str = Field(..., description="Rule name.")
-    description: Optional[str] = Field(None, description="Rule description.")
+    description: str | None = Field(None, description="Rule description.")
     alert_type: AlertType = Field(..., description="Alert type.")
     severity: AlertSeverity = Field(..., description="Alert severity.")
     trigger_type: TriggerType = Field(..., description="Trigger type.")
-    trigger_config: Dict[str, Any] = Field(..., description="Trigger configuration.")
+    trigger_config: dict[str, Any] = Field(..., description="Trigger configuration.")
     notification_enabled: bool = Field(..., description="Whether notifications are enabled.")
-    notification_channels: List[str] = Field(..., description="Notification channels.")
+    notification_channels: list[str] = Field(..., description="Notification channels.")
     is_active: bool = Field(..., description="Whether the rule is active.")
     triggered_count: int = Field(..., ge=0, description="Trigger count.")
-    last_triggered_at: Optional[datetime] = Field(None, description="Last triggered time.")
+    last_triggered_at: datetime | None = Field(None, description="Last triggered time.")
     created_at: datetime = Field(..., description="Created at.")
     updated_at: datetime = Field(..., description="Updated at.")
 
@@ -100,7 +100,7 @@ class AlertRuleListResponse(BaseModel):
     """Alert rule list response."""
 
     total: int = Field(..., ge=0, description="Total count.")
-    items: List[AlertRuleResponse] = Field(..., description="Items.")
+    items: list[AlertRuleResponse] = Field(..., description="Items.")
 
 
 class AlertResponse(BaseModel):
@@ -113,15 +113,15 @@ class AlertResponse(BaseModel):
     status: AlertStatus = Field(..., description="Alert status.")
     title: str = Field(..., description="Alert title.")
     message: str = Field(..., description="Alert message.")
-    details: Optional[Dict[str, Any]] = Field(None, description="Additional details.")
-    strategy_id: Optional[str] = Field(None, description="Related strategy id (if any).")
-    backtest_task_id: Optional[str] = Field(None, description="Related backtest task id (if any).")
-    account_id: Optional[str] = Field(None, description="Related paper account id (if any).")
-    position_id: Optional[str] = Field(None, description="Related paper position id (if any).")
-    order_id: Optional[str] = Field(None, description="Related paper order id (if any).")
+    details: dict[str, Any] | None = Field(None, description="Additional details.")
+    strategy_id: str | None = Field(None, description="Related strategy id (if any).")
+    backtest_task_id: str | None = Field(None, description="Related backtest task id (if any).")
+    account_id: str | None = Field(None, description="Related paper account id (if any).")
+    position_id: str | None = Field(None, description="Related paper position id (if any).")
+    order_id: str | None = Field(None, description="Related paper order id (if any).")
     is_read: bool = Field(..., description="Whether the alert is read.")
     is_notification_sent: bool = Field(..., description="Whether notifications were sent.")
-    resolved_at: Optional[datetime] = Field(None, description="Resolved at (if any).")
+    resolved_at: datetime | None = Field(None, description="Resolved at (if any).")
     created_at: datetime = Field(..., description="Created at.")
     updated_at: datetime = Field(..., description="Updated at.")
 
@@ -130,7 +130,7 @@ class AlertListResponse(BaseModel):
     """Alert list response."""
 
     total: int = Field(..., ge=0, description="Total count.")
-    items: List[AlertResponse] = Field(..., description="Items.")
+    items: list[AlertResponse] = Field(..., description="Items.")
 
 
 class AccountAlertConfig(BaseModel):
@@ -165,10 +165,10 @@ class StrategyAlertConfig(BaseModel):
 class AlertNotificationConfig(BaseModel):
     """Notification config (legacy shape, used in some clients)."""
 
-    email: Optional[bool] = Field(None, description="Whether to send email.")
-    sms: Optional[bool] = Field(None, description="Whether to send SMS.")
-    push: Optional[bool] = Field(None, description="Whether to send push notification.")
-    webhook: Optional[str] = Field(None, description="Webhook URL.")
+    email: bool | None = Field(None, description="Whether to send email.")
+    sms: bool | None = Field(None, description="Whether to send SMS.")
+    push: bool | None = Field(None, description="Whether to send push notification.")
+    webhook: str | None = Field(None, description="Webhook URL.")
 
 
 class WebhookConfig(BaseModel):
@@ -176,7 +176,7 @@ class WebhookConfig(BaseModel):
 
     url: str = Field(..., description="Webhook URL.")
     method: str = Field("POST", description="HTTP method.")
-    headers: Optional[Dict[str, str]] = Field(None, description="Optional headers.")
+    headers: dict[str, str] | None = Field(None, description="Optional headers.")
 
 
 # Aliases kept for API compatibility.

@@ -66,6 +66,19 @@ function extractApiErrorMessage(payload: unknown): string {
   return '请求失败'
 }
 
+/** Extract user-friendly error message from caught unknown. Use in catch blocks instead of (e: any). */
+export function getErrorMessage(e: unknown, fallback: string): string {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const ax = e as { response?: { data?: unknown } }
+    if (ax.response?.data) {
+      const msg = extractApiErrorMessage(ax.response.data)
+      if (msg !== '请求失败') return msg
+    }
+  }
+  if (e instanceof Error) return e.message || fallback
+  return fallback
+}
+
 // 创建axios实例
 const api: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
@@ -97,19 +110,21 @@ api.interceptors.response.use(
   (error: AxiosError) => {
     const status = error.response?.status
     const data = error.response?.data
+    const msg = extractApiErrorMessage(data)
+    const isGenericMsg = msg === '请求失败'
 
     if (status === 401) {
       clearAccessToken()
       dispatchAuthExpired()
-      ElMessage.error('登录已过期，请重新登录')
+      ElMessage.error(isGenericMsg ? '登录已过期，请重新登录' : msg)
     } else if (status === 403) {
-      ElMessage.error('没有权限访问')
+      ElMessage.error(isGenericMsg ? '没有权限访问' : msg)
     } else if (status === 404) {
-      ElMessage.error('资源不存在')
+      ElMessage.error(isGenericMsg ? '资源不存在' : msg)
     } else if (status === 500) {
-      ElMessage.error('服务器错误')
+      ElMessage.error(isGenericMsg ? '服务器错误' : msg)
     } else {
-      ElMessage.error(extractApiErrorMessage(data))
+      ElMessage.error(msg)
     }
 
     return Promise.reject(error)

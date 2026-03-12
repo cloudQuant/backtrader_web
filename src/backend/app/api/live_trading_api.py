@@ -17,6 +17,8 @@ from app.schemas.analytics import (
     PerformanceMetrics,
 )
 from app.schemas.live_trading_instance import (
+    GatewayConnectRequest,
+    GatewayConnectResponse,
     LiveBatchResponse,
     LiveGatewayPresetListResponse,
     LiveInstanceCreate,
@@ -92,6 +94,89 @@ async def get_gateway_health(
     """
     gateways = mgr.get_gateway_health()
     return {"total": len(gateways), "gateways": gateways}
+
+
+@router.post(
+    "/gateways/connect",
+    response_model=GatewayConnectResponse,
+    summary="Manually connect a gateway",
+)
+async def connect_gateway(
+    req: GatewayConnectRequest,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Manually connect a gateway with provided credentials.
+
+    Supports CTP, IB_WEB, BINANCE, and OKX exchange types.
+    """
+    result = mgr.connect_gateway(req.exchange_type, req.credentials)
+    if result["status"] == "error":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+    return result
+
+
+@router.post(
+    "/gateways/disconnect",
+    response_model=GatewayConnectResponse,
+    summary="Disconnect a manually-started gateway",
+)
+async def disconnect_gateway(
+    gateway_key: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Disconnect a manually-started gateway by its key."""
+    result = mgr.disconnect_gateway(gateway_key)
+    if result["status"] == "error":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
+    return result
+
+
+@router.get(
+    "/gateways/connected",
+    summary="List manually connected gateways",
+)
+async def list_connected_gateways(
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """List all manually connected gateways with basic info."""
+    gateways = mgr.list_connected_gateways()
+    return {"total": len(gateways), "gateways": gateways}
+
+
+@router.get(
+    "/gateways/{gateway_key}/account",
+    summary="Query account info from a connected gateway",
+)
+async def query_gateway_account(
+    gateway_key: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Query account info from a connected gateway."""
+    result = mgr.query_gateway_account(gateway_key)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Gateway '{gateway_key}' not found or has no runtime",
+        )
+    return result
+
+
+@router.get(
+    "/gateways/{gateway_key}/positions",
+    summary="Query positions from a connected gateway",
+)
+async def query_gateway_positions(
+    gateway_key: str,
+    current_user=Depends(get_current_user),
+    mgr: LiveTradingManager = Depends(_get_manager),
+):
+    """Query positions from a connected gateway."""
+    positions = mgr.query_gateway_positions(gateway_key)
+    return {"total": len(positions), "positions": positions}
 
 
 @router.post("/", response_model=LiveInstanceInfo, summary="Add live trading instance")

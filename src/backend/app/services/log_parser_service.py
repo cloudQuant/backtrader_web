@@ -17,14 +17,14 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
-def find_latest_log_dir(strategy_dir: Path) -> Optional[Path]:
+def find_latest_log_dir(strategy_dir: Path) -> Path | None:
     """Find the latest log directory under the strategy directory.
 
     Supports two layouts:
@@ -55,7 +55,7 @@ def find_latest_log_dir(strategy_dir: Path) -> Optional[Path]:
     return logs_dir if has_logs else None
 
 
-def _parse_tsv(filepath: Path) -> List[Dict[str, str]]:
+def _parse_tsv(filepath: Path) -> list[dict[str, str]]:
     """Parse a tab-separated log file and return a list of dictionaries.
 
     Args:
@@ -69,7 +69,7 @@ def _parse_tsv(filepath: Path) -> List[Dict[str, str]]:
         return []
 
     rows = []
-    with open(filepath, "r", encoding="utf-8") as f:
+    with open(filepath, encoding="utf-8") as f:
         header_line = f.readline().strip()
         if not header_line:
             return []
@@ -108,7 +108,7 @@ def _safe_float(val: str, default: float = 0.0) -> float:
         return default
 
 
-def parse_value_log(log_dir: Path) -> Dict[str, Any]:
+def parse_value_log(log_dir: Path) -> dict[str, Any]:
     """Parse value.log and return equity curve data.
 
     Args:
@@ -151,7 +151,7 @@ def parse_value_log(log_dir: Path) -> Dict[str, Any]:
     }
 
 
-def parse_trade_log(log_dir: Path) -> List[Dict[str, Any]]:
+def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
     """Parse trade.log and return a list of trade records.
 
     Only returns closed trades (isclosed=1).
@@ -190,7 +190,7 @@ def parse_trade_log(log_dir: Path) -> List[Dict[str, Any]]:
     return trades
 
 
-def parse_order_log(log_dir: Path) -> List[Dict[str, Any]]:
+def parse_order_log(log_dir: Path) -> list[dict[str, Any]]:
     """Parse order.log and return a list of completed orders.
 
     Args:
@@ -221,7 +221,7 @@ def parse_order_log(log_dir: Path) -> List[Dict[str, Any]]:
     return orders
 
 
-def parse_data_log(log_dir: Path) -> Dict[str, Any]:
+def parse_data_log(log_dir: Path) -> dict[str, Any]:
     """Parse data.log and return OHLCV + indicator data.
 
     Returns kline format data for frontend charts.
@@ -258,7 +258,7 @@ def parse_data_log(log_dir: Path) -> Dict[str, Any]:
     dates = []
     ohlc = []
     volumes = []
-    indicators: Dict[str, List[float]] = {col: [] for col in indicator_cols}
+    indicators: dict[str, list[float]] = {col: [] for col in indicator_cols}
 
     for row in rows:
         dt = row.get("dt", "")
@@ -284,7 +284,7 @@ def parse_data_log(log_dir: Path) -> Dict[str, Any]:
     }
 
 
-def parse_position_log(log_dir: Path) -> List[Dict[str, Any]]:
+def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
     """Parse position.log and return a list of daily position snapshots.
 
     Each record contains: {dt, data_name, size, price}.
@@ -315,7 +315,7 @@ def parse_position_log(log_dir: Path) -> List[Dict[str, Any]]:
     return positions
 
 
-def parse_current_position(log_dir: Path) -> List[Dict[str, Any]]:
+def parse_current_position(log_dir: Path) -> list[dict[str, Any]]:
     """Parse current_position.json and return the final position list.
 
     Args:
@@ -328,7 +328,7 @@ def parse_current_position(log_dir: Path) -> List[Dict[str, Any]]:
     if not fp.is_file():
         return []
     try:
-        with open(fp, "r", encoding="utf-8") as f:
+        with open(fp, encoding="utf-8") as f:
             data = json.load(f)
         result = []
         for item in data:
@@ -347,7 +347,7 @@ def parse_current_position(log_dir: Path) -> List[Dict[str, Any]]:
         return []
 
 
-def parse_run_info(log_dir: Path) -> Dict[str, Any]:
+def parse_run_info(log_dir: Path) -> dict[str, Any]:
     """Parse run_info.json.
 
     Args:
@@ -360,13 +360,13 @@ def parse_run_info(log_dir: Path) -> Dict[str, Any]:
     if not info_path.is_file():
         return {}
     try:
-        with open(info_path, "r", encoding="utf-8") as f:
+        with open(info_path, encoding="utf-8") as f:
             return json.load(f)
     except Exception:
         return {}
 
 
-def parse_all_logs(strategy_dir: Path) -> Optional[Dict[str, Any]]:
+def parse_all_logs(strategy_dir: Path) -> dict[str, Any] | None:
     """Parse the latest logs under the strategy directory and return complete backtest results.
 
     Args:

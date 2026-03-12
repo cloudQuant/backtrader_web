@@ -10,6 +10,7 @@ Tests the performance metrics calculation functionality including:
 - Trade and equity curve processing
 - Technical indicator calculation
 """
+
 from app.services.analytics_service import AnalyticsService
 from app.services.backtest_analyzers import FincoreAdapter
 
@@ -145,8 +146,23 @@ class TestProcessTrades:
     def test_basic(self):
         """Test basic trade processing."""
         raw = [
-            {"datetime": "2024-01-01", "direction": "buy", "price": 10, "size": 100, "value": 1000, "pnl": 50, "barlen": 3},
-            {"datetime": "2024-01-05", "direction": "sell", "price": 11, "size": 100, "value": 1100, "pnl": -20},
+            {
+                "datetime": "2024-01-01",
+                "direction": "buy",
+                "price": 10,
+                "size": 100,
+                "value": 1000,
+                "pnl": 50,
+                "barlen": 3,
+            },
+            {
+                "datetime": "2024-01-05",
+                "direction": "sell",
+                "price": 11,
+                "size": 100,
+                "value": 1100,
+                "pnl": -20,
+            },
         ]
         result = svc.process_trades(raw)
         assert len(result) == 2
@@ -160,7 +176,9 @@ class TestProcessEquityCurve:
 
     def test_basic(self):
         """Test basic equity curve processing."""
-        raw = [{"date": "2024-01-01", "total_assets": 100000, "cash": 50000, "position_value": 50000}]
+        raw = [
+            {"date": "2024-01-01", "total_assets": 100000, "cash": 50000, "position_value": 50000}
+        ]
         result = svc.process_equity_curve(raw)
         assert len(result) == 1
         assert result[0].total_assets == 100000

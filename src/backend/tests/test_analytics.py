@@ -7,6 +7,7 @@ Tests:
 - GET /api/v1/analytics/{task_id}/export - Export backtest results
 - GET /api/v1/analytics/{task_id}/optimization - Get optimization results
 """
+
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -41,7 +42,9 @@ class TestAnalyticsDetailEndpoint:
         Returns:
             None
         """
-        resp = await client.get("/api/v1/analytics/nonexistent-task-id/detail", headers=auth_headers)
+        resp = await client.get(
+            "/api/v1/analytics/nonexistent-task-id/detail", headers=auth_headers
+        )
         assert resp.status_code in [404, 500]  # May be 404 or 500 (database error)
 
     async def test_get_backtest_detail_success(self, client: AsyncClient, auth_headers: dict):
@@ -90,7 +93,7 @@ class TestAnalyticsKlineEndpoint:
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers,
-            params={"start_date": "2024-01-01", "end_date": "2024-12-31"}
+            params={"start_date": "2024-01-01", "end_date": "2024-12-31"},
         )
         assert resp.status_code in [200, 404, 500]
 
@@ -107,7 +110,7 @@ class TestAnalyticsKlineEndpoint:
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers,
-            params={"start_date": "2024-01-01"}
+            params={"start_date": "2024-01-01"},
         )
         assert resp.status_code in [200, 404, 500]
 
@@ -124,7 +127,7 @@ class TestAnalyticsKlineEndpoint:
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers,
-            params={"end_date": "2024-12-31"}
+            params={"end_date": "2024-12-31"},
         )
         assert resp.status_code in [200, 404, 500]
 
@@ -156,7 +159,9 @@ class TestAnalyticsMonthlyReturnsEndpoint:
         Returns:
             None
         """
-        resp = await client.get("/api/v1/analytics/nonexistent/monthly-returns", headers=auth_headers)
+        resp = await client.get(
+            "/api/v1/analytics/nonexistent/monthly-returns", headers=auth_headers
+        )
         assert resp.status_code in [200, 404, 500]
 
 
@@ -187,10 +192,7 @@ class TestAnalyticsExportEndpoint:
         Returns:
             None
         """
-        resp = await client.get(
-            "/api/v1/analytics/task-123/export",
-            headers=auth_headers
-        )
+        resp = await client.get("/api/v1/analytics/task-123/export", headers=auth_headers)
         assert resp.status_code in [200, 404, 500]
 
     async def test_export_csv_format(self, client: AsyncClient, auth_headers: dict):
@@ -204,9 +206,7 @@ class TestAnalyticsExportEndpoint:
             None
         """
         resp = await client.get(
-            "/api/v1/analytics/task-123/export",
-            headers=auth_headers,
-            params={"format": "csv"}
+            "/api/v1/analytics/task-123/export", headers=auth_headers, params={"format": "csv"}
         )
         assert resp.status_code in [200, 404, 500]
 
@@ -221,9 +221,7 @@ class TestAnalyticsExportEndpoint:
             None
         """
         resp = await client.get(
-            "/api/v1/analytics/task-123/export",
-            headers=auth_headers,
-            params={"format": "json"}
+            "/api/v1/analytics/task-123/export", headers=auth_headers, params={"format": "json"}
         )
         assert resp.status_code in [200, 404, 500]
 
@@ -238,9 +236,7 @@ class TestAnalyticsExportEndpoint:
             None
         """
         resp = await client.get(
-            "/api/v1/analytics/task-123/export",
-            headers=auth_headers,
-            params={"format": "xml"}
+            "/api/v1/analytics/task-123/export", headers=auth_headers, params={"format": "xml"}
         )
         # Should return 400 if data found, otherwise 404 or 500
         assert resp.status_code in [400, 404, 500]
@@ -293,7 +289,7 @@ class TestAnalyticsHelperFunctions:
         mock_task = Mock()
         mock_task.log_dir = "/path/to/logs"
 
-        with patch('app.api.analytics.SQLRepository') as MockRepo:
+        with patch("app.api.analytics.SQLRepository") as MockRepo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_by_id = AsyncMock(return_value=mock_task)
             MockRepo.return_value = mock_repo_instance
@@ -310,15 +306,15 @@ class TestAnalyticsHelperFunctions:
         """
         from app.api.analytics import _resolve_log_dir
 
-        with patch('app.api.analytics.SQLRepository') as MockRepo:
+        with patch("app.api.analytics.SQLRepository") as MockRepo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_by_id = AsyncMock(return_value=None)
             MockRepo.return_value = mock_repo_instance
 
-            with patch('app.api.analytics.find_latest_log_dir') as mock_find:
+            with patch("app.api.analytics.find_latest_log_dir") as mock_find:
                 mock_find.return_value = None  # None means no directory
 
-                result = await _resolve_log_dir("task-123", "test_strategy")
+                await _resolve_log_dir("task-123", "test_strategy")
                 # Function should not raise exception
                 assert True
 
@@ -364,15 +360,15 @@ class TestGetBacktestData:
         mock_service = AsyncMock()
         mock_service.get_result = AsyncMock(return_value=mock_result)
 
-        with patch('app.api.analytics._resolve_log_dir', new_callable=AsyncMock) as mock_resolve:
+        with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = None
 
             result = await get_backtest_data("task-123", mock_service)
 
             assert result is not None
-            assert result['task_id'] == "task-123"
-            assert result['strategy_name'] == "SMACross"
-            assert result['symbol'] == "BTC/USDT"
+            assert result["task_id"] == "task-123"
+            assert result["strategy_name"] == "SMACross"
+            assert result["symbol"] == "BTC/USDT"
 
     async def test_get_backtest_data_with_cash_curve(self):
         """Test getting cash curve from logs.
@@ -398,19 +394,19 @@ class TestGetBacktestData:
 
         # Mock log dir with cash data
         mock_log_dir = Path("/tmp/logs")
-        with patch('app.api.analytics._resolve_log_dir', new_callable=AsyncMock) as mock_resolve:
+        with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = mock_log_dir
 
-            with patch('app.api.analytics.parse_value_log') as mock_parse:
+            with patch("app.api.analytics.parse_value_log") as mock_parse:
                 mock_parse.return_value = {
-                    'dates': ['2024-01-01', '2024-01-02'],
-                    'cash_curve': [30000, 30500]
+                    "dates": ["2024-01-01", "2024-01-02"],
+                    "cash_curve": [30000, 30500],
                 }
 
                 result = await get_backtest_data("task-123", mock_service)
                 assert result is not None
-                assert 'equity_curve' in result
-                assert len(result['equity_curve']) == 2
+                assert "equity_curve" in result
+                assert len(result["equity_curve"]) == 2
 
     async def test_get_backtest_data_with_trades(self):
         """Test data with trade records.
@@ -422,16 +418,16 @@ class TestGetBacktestData:
 
         mock_trade = Mock()
         mock_trade.model_dump.return_value = {
-            'datetime': '2024-01-01T10:00:00',
-            'dtopen': '2024-01-01T09:30:00',
-            'dtclose': '2024-01-01T15:00:00',
-            'direction': 'buy',
-            'price': 10.0,
-            'size': 100,
-            'value': 1000,
-            'commission': 1.0,
-            'pnlcomm': 50.0,
-            'barlen': 1,
+            "datetime": "2024-01-01T10:00:00",
+            "dtopen": "2024-01-01T09:30:00",
+            "dtclose": "2024-01-01T15:00:00",
+            "direction": "buy",
+            "price": 10.0,
+            "size": 100,
+            "value": 1000,
+            "commission": 1.0,
+            "pnlcomm": 50.0,
+            "barlen": 1,
         }
 
         mock_result = Mock()
@@ -449,13 +445,13 @@ class TestGetBacktestData:
         mock_service = AsyncMock()
         mock_service.get_result = AsyncMock(return_value=mock_result)
 
-        with patch('app.api.analytics._resolve_log_dir', new_callable=AsyncMock) as mock_resolve:
+        with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = None
 
             result = await get_backtest_data("task-123", mock_service)
             assert result is not None
-            assert 'trades' in result
-            assert len(result['trades']) == 1
+            assert "trades" in result
+            assert len(result["trades"]) == 1
 
 
 @pytest.mark.asyncio
@@ -504,12 +500,12 @@ class TestGetBacktestDataExtended:
         mock_task = MagicMock()
         mock_task.log_dir = "/tmp/test_logs"
 
-        with patch('app.api.analytics.SQLRepository') as MockRepo:
+        with patch("app.api.analytics.SQLRepository") as MockRepo:
             mock_repo_instance = AsyncMock()
             mock_repo_instance.get_by_id = AsyncMock(return_value=mock_task)
             MockRepo.return_value = mock_repo_instance
 
-            with patch('pathlib.Path.is_dir', return_value=True):
+            with patch("pathlib.Path.is_dir", return_value=True):
                 result = await _resolve_log_dir("task-123", "test_strategy")
                 assert result == Path("/tmp/test_logs")
 
@@ -539,29 +535,29 @@ class TestGetBacktestDataExtended:
 
         mock_log_dir = Path("/tmp/logs")
 
-        with patch('app.api.analytics._resolve_log_dir', new_callable=AsyncMock) as mock_resolve:
+        with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = mock_log_dir
 
             # Mock parse_data_log to return kline data
-            with patch('app.api.analytics.parse_data_log') as mock_parse_data:
+            with patch("app.api.analytics.parse_data_log") as mock_parse_data:
                 mock_parse_data.return_value = {
-                    'dates': ['2024-01-01', '2024-01-02'],
-                    'ohlc': [[10.0, 10.3, 9.8, 10.5], [10.3, 10.8, 10.0, 10.6]],
-                    'volumes': [1000000, 1200000],
-                    'indicators': {'ma5': [10.1, 10.4], 'ma10': [10.2, 10.3]}
+                    "dates": ["2024-01-01", "2024-01-02"],
+                    "ohlc": [[10.0, 10.3, 9.8, 10.5], [10.3, 10.8, 10.0, 10.6]],
+                    "volumes": [1000000, 1200000],
+                    "indicators": {"ma5": [10.1, 10.4], "ma10": [10.2, 10.3]},
                 }
 
-                with patch('app.api.analytics.parse_value_log', return_value={}):
+                with patch("app.api.analytics.parse_value_log", return_value={}):
                     result = await get_backtest_data("task-123", mock_service)
 
                     assert result is not None
-                    assert 'klines' in result
-                    assert len(result['klines']) == 2
-                    assert result['klines'][0]['open'] == 10.0
-                    assert result['klines'][0]['close'] == 10.3
-                    assert result['klines'][0]['high'] == 10.5
-                    assert result['klines'][0]['low'] == 9.8
-                    assert 'log_indicators' in result
+                    assert "klines" in result
+                    assert len(result["klines"]) == 2
+                    assert result["klines"][0]["open"] == 10.0
+                    assert result["klines"][0]["close"] == 10.3
+                    assert result["klines"][0]["high"] == 10.5
+                    assert result["klines"][0]["low"] == 9.8
+                    assert "log_indicators" in result
 
     async def test_get_backtest_data_with_parse_exception(self):
         """Test K-line data parsing exception handling.
@@ -585,26 +581,28 @@ class TestGetBacktestDataExtended:
         mock_service = AsyncMock()
         mock_service.get_result = AsyncMock(return_value=mock_result)
 
-        with patch('app.api.analytics._resolve_log_dir', new_callable=AsyncMock) as mock_resolve:
+        with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = Path("/tmp/logs")
 
             # Mock parse_data_log to raise exception
-            with patch('app.api.analytics.parse_data_log', side_effect=Exception("Parse error")):
-                with patch('app.api.analytics.parse_value_log', return_value={}):
+            with patch("app.api.analytics.parse_data_log", side_effect=Exception("Parse error")):
+                with patch("app.api.analytics.parse_value_log", return_value={}):
                     result = await get_backtest_data("task-123", mock_service)
 
                     # Should handle exception gracefully - klines will be computed from service
                     assert result is not None
-                    assert 'klines' in result
+                    assert "klines" in result
                     # log_indicators should be empty due to exception
-                    assert result.get('log_indicators') == {}
+                    assert result.get("log_indicators") == {}
 
 
 @pytest.mark.asyncio
 class TestAnalyticsKlineWithFilters:
     """Tests for K-line data with filters and indicators."""
 
-    async def test_get_kline_with_date_filters_and_signals(self, client: AsyncClient, auth_headers: dict):
+    async def test_get_kline_with_date_filters_and_signals(
+        self, client: AsyncClient, auth_headers: dict
+    ):
         """Test date filtering and signal filtering.
 
         Args:
@@ -617,12 +615,14 @@ class TestAnalyticsKlineWithFilters:
         resp = await client.get(
             "/api/v1/analytics/task-123/kline",
             headers=auth_headers,
-            params={"start_date": "2024-01-01", "end_date": "2024-12-31"}
+            params={"start_date": "2024-01-01", "end_date": "2024-12-31"},
         )
         # May return 404 (no data) or 500
         assert resp.status_code in [200, 404, 500]
 
-    async def test_get_kline_returns_indicators_from_log(self, client: AsyncClient, auth_headers: dict):
+    async def test_get_kline_returns_indicators_from_log(
+        self, client: AsyncClient, auth_headers: dict
+    ):
         """Test returning indicators from logs.
 
         Args:
@@ -633,10 +633,7 @@ class TestAnalyticsKlineWithFilters:
             None
         """
         # Test endpoint prioritizes indicators from logs
-        resp = await client.get(
-            "/api/v1/analytics/task-123/kline",
-            headers=auth_headers
-        )
+        resp = await client.get("/api/v1/analytics/task-123/kline", headers=auth_headers)
         assert resp.status_code in [200, 404, 500]
 
 
@@ -654,21 +651,19 @@ class TestAnalyticsExportWithData:
         from app.api.analytics import export_backtest_results
 
         mock_result = {
-            'task_id': 'task-123',
-            'strategy_name': 'test_strategy',
-            'symbol': '000001.SZ',
-            'start_date': '2024-01-01',
-            'end_date': '2024-12-31',
-            'trades': [
-                {'date': '2024-01-01', 'direction': 'buy', 'price': 10.0, 'size': 100}
-            ],
-            'equity_curve': [],
-            'drawdown_curve': [],
-            'monthly_returns': {},
-            'created_at': '2024-01-01',
+            "task_id": "task-123",
+            "strategy_name": "test_strategy",
+            "symbol": "000001.SZ",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "trades": [{"date": "2024-01-01", "direction": "buy", "price": 10.0, "size": 100}],
+            "equity_curve": [],
+            "drawdown_curve": [],
+            "monthly_returns": {},
+            "created_at": "2024-01-01",
         }
 
-        with patch('app.api.analytics.get_backtest_data', new_callable=AsyncMock) as mock_get:
+        with patch("app.api.analytics.get_backtest_data", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = mock_result
 
             # Mock current_user
@@ -676,19 +671,19 @@ class TestAnalyticsExportWithData:
             mock_user.username = "test_user"
 
             # Mock services
-            with patch('app.api.analytics.get_analytics_service'):
-                with patch('app.api.analytics.get_backtest_service'):
+            with patch("app.api.analytics.get_analytics_service"):
+                with patch("app.api.analytics.get_backtest_service"):
                     result = await export_backtest_results(
                         task_id="task-123",
                         format="csv",
                         current_user=mock_user,
                         service=Mock(),
-                        backtest_service=AsyncMock()
+                        backtest_service=AsyncMock(),
                     )
 
                     # Should return StreamingResponse
                     assert result is not None
-                    assert hasattr(result, 'body_iterator')
+                    assert hasattr(result, "body_iterator")
 
     async def test_export_json_format_with_data(self):
         """Test JSON format export with data.
@@ -699,36 +694,36 @@ class TestAnalyticsExportWithData:
         from app.api.analytics import export_backtest_results
 
         mock_result = {
-            'task_id': 'task-123',
-            'strategy_name': 'test_strategy',
-            'symbol': '000001.SZ',
-            'start_date': '2024-01-01',
-            'end_date': '2024-12-31',
-            'trades': [],
-            'equity_curve': [],
-            'drawdown_curve': [],
-            'monthly_returns': {},
-            'created_at': '2024-01-01',
+            "task_id": "task-123",
+            "strategy_name": "test_strategy",
+            "symbol": "000001.SZ",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "trades": [],
+            "equity_curve": [],
+            "drawdown_curve": [],
+            "monthly_returns": {},
+            "created_at": "2024-01-01",
         }
 
-        with patch('app.api.analytics.get_backtest_data', new_callable=AsyncMock) as mock_get:
+        with patch("app.api.analytics.get_backtest_data", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = mock_result
 
             mock_user = Mock()
             mock_user.username = "test_user"
 
-            with patch('app.api.analytics.get_analytics_service'):
-                with patch('app.api.analytics.get_backtest_service'):
+            with patch("app.api.analytics.get_analytics_service"):
+                with patch("app.api.analytics.get_backtest_service"):
                     result = await export_backtest_results(
                         task_id="task-123",
                         format="json",
                         current_user=mock_user,
                         service=Mock(),
-                        backtest_service=AsyncMock()
+                        backtest_service=AsyncMock(),
                     )
 
                     assert result is not None
-                    assert hasattr(result, 'body_iterator')
+                    assert hasattr(result, "body_iterator")
 
 
 @pytest.mark.asyncio
@@ -760,11 +755,11 @@ class TestAnalyticsMonthlyReturnsWithData:
         mock_service = AsyncMock()
         mock_service.get_result = AsyncMock(return_value=mock_result)
 
-        with patch('app.api.analytics._resolve_log_dir', new_callable=AsyncMock) as mock_resolve:
+        with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = None
 
             result = await get_backtest_data("task-123", mock_service)
 
             # Should handle invalid date gracefully
             assert result is not None
-            assert 'monthly_returns' in result
+            assert "monthly_returns" in result

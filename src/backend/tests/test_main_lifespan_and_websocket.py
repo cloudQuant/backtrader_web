@@ -13,7 +13,9 @@ async def test_lifespan_runs_startup_and_shutdown(monkeypatch):
 
     # Force warnings to trigger.
     monkeypatch.setattr(main_module.settings, "SECRET_KEY", "change-in-production", raising=False)
-    monkeypatch.setattr(main_module.settings, "JWT_SECRET_KEY", "change-in-production", raising=False)
+    monkeypatch.setattr(
+        main_module.settings, "JWT_SECRET_KEY", "change-in-production", raising=False
+    )
     monkeypatch.setattr(main_module.settings, "ADMIN_PASSWORD", "admin123", raising=False)
 
     logs = {"info": 0, "warning": 0}
@@ -64,8 +66,9 @@ async def test_health_check_connected_branch(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    monkeypatch.setattr("app.db.database.async_session_maker", lambda: FakeSessionCtx(), raising=True)
+    monkeypatch.setattr(
+        "app.db.database.async_session_maker", lambda: FakeSessionCtx(), raising=True
+    )
 
     data = await main_module.health_check()
     assert data["database"] == "connected"
-

@@ -74,17 +74,30 @@ async def test_live_trading_api_detail_kline_monthly_returns_branches():
 
     # get_live_kline: cover break when ohlc shorter than dates + signal creation.
     with patch.object(api, "_get_strategy_log_dir", return_value=Path("/tmp/fake")):
-        with patch.object(api, "parse_data_log", return_value={
-            "dates": ["2026-01-01", "2026-01-02"],
-            "ohlc": [
-                [1.0, 1.1, 0.9, 1.2],
-            ],
-            "volumes": [],
-            "indicators": {},
-        }):
-            with patch.object(api, "parse_trade_log", return_value=[
-                {"direction": "buy", "dtopen": "2026-01-01T00:00:00", "dtclose": "2026-01-02T00:00:00", "price": 1.1},
-            ]):
+        with patch.object(
+            api,
+            "parse_data_log",
+            return_value={
+                "dates": ["2026-01-01", "2026-01-02"],
+                "ohlc": [
+                    [1.0, 1.1, 0.9, 1.2],
+                ],
+                "volumes": [],
+                "indicators": {},
+            },
+        ):
+            with patch.object(
+                api,
+                "parse_trade_log",
+                return_value=[
+                    {
+                        "direction": "buy",
+                        "dtopen": "2026-01-01T00:00:00",
+                        "dtclose": "2026-01-02T00:00:00",
+                        "price": 1.1,
+                    },
+                ],
+            ):
                 kline = await api.get_live_kline("iid", current_user=user, mgr=mgr)
                 assert kline.symbol == "s1"
                 assert len(kline.klines) == 1  # break executed
@@ -92,7 +105,9 @@ async def test_live_trading_api_detail_kline_monthly_returns_branches():
 
     # get_live_monthly_returns: cover dt slicing exception path.
     with patch.object(api, "_get_strategy_log_dir", return_value=Path("/tmp/fake")):
-        with patch.object(api, "parse_value_log", return_value={"dates": [None], "equity_curve": [100000.0]}):
+        with patch.object(
+            api, "parse_value_log", return_value={"dates": [None], "equity_curve": [100000.0]}
+        ):
             mr = await api.get_live_monthly_returns("iid", current_user=user, mgr=mgr)
             assert mr.returns == []
 
@@ -111,25 +126,39 @@ async def test_portfolio_api_overview_positions_equity_missing_branches(tmp_path
     fake_log_dir.mkdir(parents=True)
 
     with patch.object(api, "find_latest_log_dir", return_value=fake_log_dir):
-        with patch.object(api, "parse_value_log", return_value={
-            "equity_curve": [100.0, 110.0],
-            "cash_curve": [50.0, 55.0],
-        }):
+        with patch.object(
+            api,
+            "parse_value_log",
+            return_value={
+                "equity_curve": [100.0, 110.0],
+                "cash_curve": [50.0, 55.0],
+            },
+        ):
             with patch.object(api, "parse_trade_log", return_value=[{"pnlcomm": 1.0}]):
-                overview = await api.get_portfolio_overview(current_user=SimpleNamespace(sub="u1"), mgr=mgr)
+                overview = await api.get_portfolio_overview(
+                    current_user=SimpleNamespace(sub="u1"), mgr=mgr
+                )
                 assert overview["strategy_count"] == 1
                 assert overview["total_assets"] == 110.0
 
     with patch.object(api, "find_latest_log_dir", return_value=fake_log_dir):
-        with patch.object(api, "parse_current_position", return_value=[
-            {"data_name": "BTC/USDT", "size": 1, "price": 1.0, "market_value": 1.0},
-        ]):
-            positions = await api.get_portfolio_positions(current_user=SimpleNamespace(sub="u1"), mgr=mgr)
+        with patch.object(
+            api,
+            "parse_current_position",
+            return_value=[
+                {"data_name": "BTC/USDT", "size": 1, "price": 1.0, "market_value": 1.0},
+            ],
+        ):
+            positions = await api.get_portfolio_positions(
+                current_user=SimpleNamespace(sub="u1"), mgr=mgr
+            )
             assert positions["total"] == 1
 
     # equity: cover "if not dates: continue" branch
     with patch.object(api, "find_latest_log_dir", return_value=fake_log_dir):
-        with patch.object(api, "parse_value_log", return_value={"dates": [], "equity_curve": [], "cash_curve": []}):
+        with patch.object(
+            api, "parse_value_log", return_value={"dates": [], "equity_curve": [], "cash_curve": []}
+        ):
             equity = await api.get_portfolio_equity(current_user=SimpleNamespace(sub="u1"), mgr=mgr)
             assert equity["dates"] == []
 
@@ -191,7 +220,9 @@ async def test_strategy_templates_and_config_missing_branches(tmp_path: Path):
             await api.get_template_config("t1")
         assert ei.value.status_code == 404
 
-        (strategies_dir / "t1" / "config.yaml").write_text("strategy:\n  name: T1\nparams:\n  p: 1\n")
+        (strategies_dir / "t1" / "config.yaml").write_text(
+            "strategy:\n  name: T1\nparams:\n  p: 1\n"
+        )
         cfg = await api.get_template_config("t1")
         assert cfg["strategy"]["name"] == "T1"
 
@@ -211,8 +242,11 @@ async def test_strategy_version_api_ws_notifications_and_returns(monkeypatch):
 
     user = SimpleNamespace(sub="u1")
 
-    version = SimpleNamespace(id="v1", strategy_id="u1", status="draft", is_active=True, is_default=False, created_by="u1")
+    version = SimpleNamespace(
+        id="v1", strategy_id="u1", status="draft", is_active=True, is_default=False, created_by="u1"
+    )
     from datetime import datetime
+
     comparison = SimpleNamespace(
         id="c1",
         strategy_id="s1",
@@ -235,7 +269,16 @@ async def test_strategy_version_api_ws_notifications_and_returns(monkeypatch):
     )
 
     created = await api.create_strategy_version(
-        VersionCreate(strategy_id="s1", version_name="v1.0", code="x", params={}, branch="main", tags=[], changelog="", is_default=False),
+        VersionCreate(
+            strategy_id="s1",
+            version_name="v1.0",
+            code="x",
+            params={},
+            branch="main",
+            tags=[],
+            changelog="",
+            is_default=False,
+        ),
         current_user=user,
         service=service,
     )
@@ -253,7 +296,9 @@ async def test_strategy_version_api_ws_notifications_and_returns(monkeypatch):
     assert updated["id"] == "v1"
 
     compared = await api.compare_strategy_versions(
-        VersionComparisonRequest(strategy_id="s1", from_version_id="a", to_version_id="b", comparison_type="code"),
+        VersionComparisonRequest(
+            strategy_id="s1", from_version_id="a", to_version_id="b", comparison_type="code"
+        ),
         current_user=user,
         service=service,
     )

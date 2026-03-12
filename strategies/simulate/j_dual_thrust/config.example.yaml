@@ -21,6 +21,9 @@ symbol:
 # 策略参数
 # ============================================================
 params:
+  look_back_days: 10
+  k1: 0.5
+  k2: 0.5
 
 # ============================================================
 # 数据配置
@@ -75,10 +78,6 @@ live:
   min_price_tick: 0.5
   max_order_size: 1
   contract_metadata:
-    j2509:
-      min_price_tick: 0.5
-      max_order_size: 1
-
     j2609:
       min_price_tick: 1.0
       max_order_size: 1

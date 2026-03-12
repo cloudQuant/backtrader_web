@@ -1,6 +1,7 @@
 """
 Tests for input validation utilities.
 """
+
 import pytest
 
 from app.utils.validation import (
@@ -381,10 +382,7 @@ class TestValidationResult:
 
     def test_to_dict_with_warnings(self):
         """Test to_dict includes warnings."""
-        result = ValidationResult(
-            is_valid=True,
-            warnings=["Warning 1", "Warning 2"]
-        )
+        result = ValidationResult(is_valid=True, warnings=["Warning 1", "Warning 2"])
         dict_result = result.to_dict()
         assert dict_result["warnings"] == ["Warning 1", "Warning 2"]
 

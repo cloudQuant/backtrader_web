@@ -3,7 +3,7 @@ Strategy versioning schemas.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -16,24 +16,24 @@ class VersionCreate(BaseModel):
         ..., min_length=1, max_length=50, description="Version name (e.g., v1.0.0)"
     )
     code: str = Field(..., min_length=1, description="Strategy code")
-    params: Optional[Dict[str, Any]] = Field(None, description="Default parameters")
+    params: dict[str, Any] | None = Field(None, description="Default parameters")
     branch: str = Field("main", min_length=1, max_length=50, description="Branch name")
-    tags: Optional[List[str]] = Field(None, description="Version tags")
-    changelog: Optional[str] = Field(None, description="Change log")
+    tags: list[str] | None = Field(None, description="Version tags")
+    changelog: str | None = Field(None, description="Change log")
     is_default: bool = Field(False, description="Set as default version")
 
 
 class VersionUpdate(BaseModel):
     """Strategy version update request schema."""
 
-    code: Optional[str] = Field(None, min_length=1, description="Strategy code")
-    params: Optional[Dict[str, Any]] = Field(None, description="Default parameters")
-    description: Optional[str] = Field(None, description="Version description")
-    tags: Optional[List[str]] = Field(None, description="Version tags")
-    status: Optional[str] = Field(
+    code: str | None = Field(None, min_length=1, description="Strategy code")
+    params: dict[str, Any] | None = Field(None, description="Default parameters")
+    description: str | None = Field(None, description="Version description")
+    tags: list[str] | None = Field(None, description="Version tags")
+    status: str | None = Field(
         None, description="Version status: draft, stable, deprecated, archived"
     )
-    changelog: Optional[str] = Field(
+    changelog: str | None = Field(
         None, description="Change log (optional, usually filled when publishing stable)"
     )
 
@@ -47,12 +47,12 @@ class VersionResponse(BaseModel):
     version_name: str = Field(..., description="Version name")
     branch: str = Field(..., description="Branch name")
     status: str = Field(..., description="Version status: draft, stable, deprecated, archived")
-    tags: List[str] = Field(..., description="Version tags")
-    description: Optional[str] = Field(None, description="Version description")
+    tags: list[str] = Field(..., description="Version tags")
+    description: str | None = Field(None, description="Version description")
     is_active: bool = Field(..., description="Whether the version is active")
     is_default: bool = Field(..., description="Whether the version is default")
     is_current: bool = Field(..., description="Whether the version is current (branch head)")
-    parent_version_id: Optional[str] = Field(None, description="Parent version ID")
+    parent_version_id: str | None = Field(None, description="Parent version ID")
     created_at: datetime = Field(..., description="Creation time")
     updated_at: datetime = Field(..., description="Update time")
 
@@ -61,7 +61,7 @@ class VersionListResponse(BaseModel):
     """Strategy version list response schema."""
 
     total: int = Field(..., ge=0, description="Total count")
-    items: List[VersionResponse] = Field(..., description="Version list")
+    items: list[VersionResponse] = Field(..., description="Version list")
 
 
 class VersionComparisonRequest(BaseModel):
@@ -84,9 +84,9 @@ class VersionComparisonResponse(BaseModel):
     strategy_id: str = Field(..., description="Strategy ID")
     from_version_id: str = Field(..., description="Source version ID")
     to_version_id: str = Field(..., description="Target version ID")
-    code_diff: Optional[str] = Field(None, description="Code difference (Unified diff)")
-    params_diff: Optional[Dict[str, Any]] = Field(None, description="Parameter difference")
-    performance_diff: Optional[Dict[str, Any]] = Field(
+    code_diff: str | None = Field(None, description="Code difference (Unified diff)")
+    params_diff: dict[str, Any] | None = Field(None, description="Parameter difference")
+    performance_diff: dict[str, Any] | None = Field(
         None, description="Performance difference (requires backtest results)"
     )
     created_at: datetime = Field(..., description="Comparison creation time")
@@ -115,7 +115,7 @@ class BranchCreate(BaseModel):
         pattern=r"^[a-zA-Z0-9/_-]+$",
         description="Branch name (e.g., feature/new-indicator)",
     )
-    parent_branch: Optional[str] = Field(None, description="Parent branch name (e.g., main)")
+    parent_branch: str | None = Field(None, description="Parent branch name (e.g., main)")
 
 
 class BranchResponse(BaseModel):
@@ -124,9 +124,9 @@ class BranchResponse(BaseModel):
     branch_id: str = Field(..., description="Branch ID")
     strategy_id: str = Field(..., description="Strategy ID")
     branch_name: str = Field(..., description="Branch name")
-    parent_branch: Optional[str] = Field(None, description="Parent branch")
+    parent_branch: str | None = Field(None, description="Parent branch")
     version_count: int = Field(..., ge=0, description="Number of versions on the branch")
-    last_version_id: Optional[str] = Field(None, description="Latest version ID on the branch")
+    last_version_id: str | None = Field(None, description="Latest version ID on the branch")
     is_default: bool = Field(..., description="Whether the branch is default")
     created_at: datetime = Field(..., description="Creation time")
 
@@ -135,4 +135,4 @@ class BranchListResponse(BaseModel):
     """Strategy branch list response schema."""
 
     total: int = Field(..., ge=0, description="Total count")
-    items: List[BranchResponse] = Field(..., description="Branch list")
+    items: list[BranchResponse] = Field(..., description="Branch list")

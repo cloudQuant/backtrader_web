@@ -10,12 +10,14 @@ Provides:
 """
 
 import logging
-from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user
+from app.services.param_optimization_service import (
+    _build_results_response as _build_optimization_results_response,
+)
 from app.services.param_optimization_service import (
     cancel_optimization,
     get_optimization_progress,
@@ -57,7 +59,7 @@ class OptimizationSubmitRequest(BaseModel):
     """
 
     strategy_id: str
-    param_ranges: Dict[str, ParamRangeSpec]
+    param_ranges: dict[str, ParamRangeSpec]
     n_workers: int = Field(default=4, ge=1, le=32)
 
 
@@ -158,11 +160,28 @@ async def submit_optimization_task(
             status_code=400, detail="Parameter grid is empty, please check parameter ranges"
         )
 
+    from app.services.optimization_execution_manager import (
+        get_optimization_execution_manager,
+    )
+
     try:
-        task_id = submit_optimization(
+        # Create persisted task in DB first
+        mgr = get_optimization_execution_manager()
+        db_task = await mgr.create_task(
+            user_id=current_user.sub,
+            strategy_id=request.strategy_id,
+            total=len(grid),
+            param_ranges=param_ranges,
+            n_workers=request.n_workers,
+        )
+        task_id = db_task.id
+
+        submit_optimization(
             strategy_id=request.strategy_id,
             param_ranges=param_ranges,
             n_workers=request.n_workers,
+            task_id=task_id,
+            persist_to_db=True,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -181,6 +200,9 @@ async def get_progress(
 ):
     """Return current progress of an optimization task.
 
+    Task may be in DB (persisted) or in-memory. Ownership is enforced via user_id.
+    Uses results endpoint for data access control.
+
     Args:
         task_id: The unique identifier of the optimization task.
         current_user: The authenticated user.
@@ -191,7 +213,27 @@ async def get_progress(
     Raises:
         HTTPException: If the task does not exist (404).
     """
-    progress = get_optimization_progress(task_id)
+    from app.services.optimization_execution_manager import (
+        get_optimization_execution_manager,
+    )
+
+    mgr = get_optimization_execution_manager()
+    db_task = await mgr.get_task(task_id, user_id=current_user.sub)
+    if db_task:
+        total = db_task.total or 0
+        done = (db_task.completed or 0) + (db_task.failed or 0)
+        return {
+            "task_id": task_id,
+            "status": db_task.status,
+            "strategy_id": db_task.strategy_id,
+            "total": total,
+            "completed": db_task.completed or 0,
+            "failed": db_task.failed or 0,
+            "progress": round(done / total * 100, 1) if total > 0 else 0,
+            "n_workers": db_task.n_workers or 4,
+            "created_at": db_task.created_at.isoformat() if db_task.created_at else "",
+        }
+    progress = get_optimization_progress(task_id, user_id=current_user.sub, use_db=False)
     if not progress:
         raise HTTPException(status_code=404, detail="Optimization task not found")
     return progress
@@ -214,7 +256,25 @@ async def get_results(
     Raises:
         HTTPException: If the task does not exist (404).
     """
-    results = get_optimization_results(task_id)
+    from app.services.optimization_execution_manager import (
+        get_optimization_execution_manager,
+    )
+
+    mgr = get_optimization_execution_manager()
+    db_task = await mgr.get_task(task_id, user_id=current_user.sub)
+    if db_task and db_task.results is not None:
+        task_dict = {
+            "status": db_task.status,
+            "strategy_id": db_task.strategy_id,
+            "param_names": list((db_task.param_ranges or {}).keys()),
+            "total": db_task.total,
+            "completed": db_task.completed,
+            "failed": db_task.failed,
+            "results": db_task.results,
+        }
+        results = _build_optimization_results_response(task_dict, task_id)
+        return results
+    results = get_optimization_results(task_id, user_id=current_user.sub, use_db=False)
     if not results:
         raise HTTPException(status_code=404, detail="Optimization task not found")
     return results
@@ -227,6 +287,9 @@ async def cancel_task(
 ):
     """Cancel a running optimization task.
 
+    Cancellation is persisted to DB for cross-instance visibility. If the task
+    runs on another instance, it will stop when it checks the DB.
+
     Args:
         task_id: The unique identifier of the optimization task.
         current_user: The authenticated user.
@@ -237,7 +300,13 @@ async def cancel_task(
     Raises:
         HTTPException: If the task does not exist (404).
     """
-    ok = cancel_optimization(task_id)
-    if not ok:
+    from app.services.optimization_execution_manager import (
+        get_optimization_execution_manager,
+    )
+
+    mgr = get_optimization_execution_manager()
+    ok_db = await mgr.set_cancelled(task_id, user_id=current_user.sub)
+    ok_mem = cancel_optimization(task_id, user_id=current_user.sub, use_db=False)
+    if not ok_db and not ok_mem:
         raise HTTPException(status_code=404, detail="Optimization task not found")
     return {"message": "Cancellation requested", "task_id": task_id}

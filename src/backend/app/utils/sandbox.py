@@ -6,7 +6,7 @@ Safely executes user strategy code in a restricted environment.
 
 import math
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 import backtrader as bt
 
@@ -55,7 +55,7 @@ class StrategySandbox:
     }
 
     @classmethod
-    def _create_safe_globals(cls) -> Dict[str, Any]:
+    def _create_safe_globals(cls) -> dict[str, Any]:
         """Create a safe global namespace.
 
         Only includes whitelisted built-in functions and modules.
@@ -82,7 +82,7 @@ class StrategySandbox:
 
     @staticmethod
     def _safe_import(
-        name: str, globals: Dict = None, locals: Dict = None, fromlist: list = None, level: int = 0
+        name: str, globals: dict = None, locals: dict = None, fromlist: list = None, level: int = 0
     ):
         """Safe import function.
 
@@ -139,7 +139,7 @@ class StrategySandbox:
         pass
 
     @classmethod
-    def execute_strategy_code(cls, code: str, params: Optional[Dict] = None) -> type:
+    def execute_strategy_code(cls, code: str, params: dict | None = None) -> type:
         """Safely execute strategy code.
 
         Args:
@@ -295,8 +295,8 @@ class DockerSandbox:
 
     @staticmethod
     def execute_in_container(
-        code: str, params: Dict, docker_image: str = "backtrader-sandbox:latest", timeout: int = 300
-    ) -> Dict[str, Any]:
+        code: str, params: dict, docker_image: str = "backtrader-sandbox:latest", timeout: int = 300
+    ) -> dict[str, Any]:
         """Execute strategy code in a Docker container.
 
         Args:
@@ -372,7 +372,7 @@ class DockerSandbox:
 
 # Convenience function
 def execute_strategy_safely(
-    code: str, params: Optional[Dict] = None, use_docker: bool = False
+    code: str, params: dict | None = None, use_docker: bool = False
 ) -> type:
     """Safely execute strategy code.
 

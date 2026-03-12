@@ -1,6 +1,7 @@
 """
 Database factory tests
 """
+
 from unittest.mock import patch
 
 import pytest

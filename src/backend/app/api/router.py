@@ -27,6 +27,15 @@ api_router.include_router(portfolio_router, prefix="/portfolio", tags=["Portfoli
 api_router.include_router(optimization_router, prefix="/optimization", tags=["Optimization"])
 api_router.include_router(simulation_router, prefix="/simulation", tags=["Simulation"])
 
+try:
+    from app.api.auto_trading import router as auto_trading_router
+
+    api_router.include_router(
+        auto_trading_router, prefix="/auto-trading", tags=["Auto Trading"]
+    )
+except ImportError:
+    pass
+
 # Optional/extended routers (previously duplicated in main.py)
 try:
     from app.api.backtest_enhanced import router as backtest_enhanced_router

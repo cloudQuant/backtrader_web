@@ -10,7 +10,7 @@ export interface SimulationInstanceInfo {
   status: 'running' | 'stopped' | 'error'
   pid: number | null
   error: string | null
-  params: Record<string, any>
+  params: Record<string, unknown>
   created_at: string
   started_at: string | null
   stopped_at: string | null
@@ -33,7 +33,7 @@ export const simulationApi = {
     return request.get('/simulation/')
   },
 
-  add(strategy_id: string, params?: Record<string, any>): Promise<SimulationInstanceInfo> {
+  add(strategy_id: string, params?: Record<string, unknown>): Promise<SimulationInstanceInfo> {
     return request.post('/simulation/', { strategy_id, params })
   },
 
@@ -61,7 +61,7 @@ export const simulationApi = {
     return request.post('/simulation/stop-all')
   },
 
-  getTemplateConfig(id: string): Promise<any> {
+  getTemplateConfig(id: string): Promise<Record<string, unknown>> {
     return request.get(`/strategy/templates/${id}/config`)
   },
 
@@ -89,5 +89,27 @@ export const simulationApi = {
     a.download = filename
     a.click()
     URL.revokeObjectURL(url)
+  },
+
+  getConfig(instanceId: string): Promise<{ config: Record<string, unknown>; raw: string }> {
+    return request.get(`/simulation/${instanceId}/config`)
+  },
+
+  updateConfig(
+    instanceId: string,
+    payload: { raw?: string; config?: Record<string, unknown> }
+  ): Promise<{ message: string }> {
+    return request.put(`/simulation/${instanceId}/config`, payload)
+  },
+
+  clearLog(
+    instanceId: string,
+    filename: string
+  ): Promise<{ message: string }> {
+    return request.delete(`/simulation/${instanceId}/logs/${encodeURIComponent(filename)}`)
+  },
+
+  clearAllLogs(instanceId: string): Promise<{ message: string; cleared: string[] }> {
+    return request.delete(`/simulation/${instanceId}/logs`)
   },
 }

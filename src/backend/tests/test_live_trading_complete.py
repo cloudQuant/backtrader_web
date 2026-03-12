@@ -9,6 +9,7 @@ Tests:
     - Live trading data retrieval
     - WebSocket endpoints
 """
+
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -51,12 +52,14 @@ def mock_live_trading_service():
     service.list_tasks = AsyncMock(return_value=([], 0))
     service.get_task_status = AsyncMock(return_value=None)
     service.stop_live_trading = AsyncMock(return_value=True)
-    service.get_task_data = AsyncMock(return_value={
-        "cash": 10000.0,
-        "value": 15000.0,
-        "positions": [],
-        "orders": [],
-    })
+    service.get_task_data = AsyncMock(
+        return_value={
+            "cash": 10000.0,
+            "value": 15000.0,
+            "positions": [],
+            "orders": [],
+        }
+    )
     return service
 
 
@@ -76,13 +79,11 @@ class TestLiveTradingSubmitAPI:
 
         request = LiveTradingSubmitRequest(**VALID_LIVE_TRADING_REQUEST)
 
-        with patch('app.api.live_trading_complete.ws_manager') as mock_ws:
+        with patch("app.api.live_trading_complete.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
 
             result = await submit_live_strategy(
-                request=request,
-                current_user=mock_current_user,
-                service=mock_live_trading_service
+                request=request, current_user=mock_current_user, service=mock_live_trading_service
             )
 
             assert result.task_id == "task_123"
@@ -112,7 +113,9 @@ class TestLiveTradingSubmitAPI:
                 sandbox=True,
             )
 
-    async def test_submit_live_strategy_with_full_params(self, mock_current_user, mock_live_trading_service):
+    async def test_submit_live_strategy_with_full_params(
+        self, mock_current_user, mock_live_trading_service
+    ):
         """Test submission with full parameters.
 
         Args:
@@ -140,18 +143,18 @@ class TestLiveTradingSubmitAPI:
         request = LiveTradingSubmitRequest(**full_request)
         mock_live_trading_service.start_live_trading = AsyncMock(return_value="task_full_123")
 
-        with patch('app.api.live_trading_complete.ws_manager') as mock_ws:
+        with patch("app.api.live_trading_complete.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
 
             result = await submit_live_strategy(
-                request=request,
-                current_user=mock_current_user,
-                service=mock_live_trading_service
+                request=request, current_user=mock_current_user, service=mock_live_trading_service
             )
 
             assert result.task_id == "task_full_123"
 
-    async def test_submit_live_strategy_sends_websocket_notification(self, mock_current_user, mock_live_trading_service):
+    async def test_submit_live_strategy_sends_websocket_notification(
+        self, mock_current_user, mock_live_trading_service
+    ):
         """Test WebSocket notification sent after submission.
 
         Args:
@@ -163,11 +166,9 @@ class TestLiveTradingSubmitAPI:
 
         request = LiveTradingSubmitRequest(**VALID_LIVE_TRADING_REQUEST)
 
-        with patch.object(ws_manager, 'send_to_task') as mock_send:
-            result = await submit_live_strategy(
-                request=request,
-                current_user=mock_current_user,
-                service=mock_live_trading_service
+        with patch.object(ws_manager, "send_to_task") as mock_send:
+            await submit_live_strategy(
+                request=request, current_user=mock_current_user, service=mock_live_trading_service
             )
 
             # Verify WebSocket notification was sent
@@ -178,7 +179,7 @@ class TestLiveTradingSubmitAPI:
                     "task_id": "task_123",
                     "message": "Live trading strategy has been submitted",
                     "data": request.model_dump(),
-                }
+                },
             )
 
 
@@ -198,10 +199,7 @@ class TestLiveTradingTasksAPI:
         mock_live_trading_service.list_tasks = AsyncMock(return_value=([], 0))
 
         result = await list_live_tasks(
-            current_user=mock_current_user,
-            service=mock_live_trading_service,
-            limit=20,
-            offset=0
+            current_user=mock_current_user, service=mock_live_trading_service, limit=20, offset=0
         )
 
         assert result.total == 0
@@ -223,23 +221,20 @@ class TestLiveTradingTasksAPI:
                 user_id="user_1",
                 status="running",
                 config={"strategy_name": "SMACross"},
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
             LiveTradingTaskResponse(
                 task_id="task_2",
                 user_id="user_1",
                 status="stopped",
                 config={"strategy_name": "BBreakout"},
-                created_at=datetime.now()
+                created_at=datetime.now(),
             ),
         ]
         mock_live_trading_service.list_tasks = AsyncMock(return_value=(mock_tasks, 2))
 
         result = await list_live_tasks(
-            current_user=mock_current_user,
-            service=mock_live_trading_service,
-            limit=10,
-            offset=0
+            current_user=mock_current_user, service=mock_live_trading_service, limit=10, offset=0
         )
 
         assert result.total == 2
@@ -247,7 +242,9 @@ class TestLiveTradingTasksAPI:
         assert result.tasks[0].task_id == "task_1"
         assert result.tasks[1].task_id == "task_2"
 
-    async def test_list_live_tasks_with_pagination(self, mock_current_user, mock_live_trading_service):
+    async def test_list_live_tasks_with_pagination(
+        self, mock_current_user, mock_live_trading_service
+    ):
         """Test pagination.
 
         Args:
@@ -258,18 +255,13 @@ class TestLiveTradingTasksAPI:
 
         mock_live_trading_service.list_tasks = AsyncMock(return_value=([], 0))
 
-        result = await list_live_tasks(
-            current_user=mock_current_user,
-            service=mock_live_trading_service,
-            limit=10,
-            offset=5
+        await list_live_tasks(
+            current_user=mock_current_user, service=mock_live_trading_service, limit=10, offset=5
         )
 
         # Verify service was called with correct pagination
         mock_live_trading_service.list_tasks.assert_called_once_with(
-            user_id="test_user_123",
-            limit=10,
-            offset=5
+            user_id="test_user_123", limit=10, offset=5
         )
 
 
@@ -277,7 +269,9 @@ class TestLiveTradingTasksAPI:
 class TestLiveTradingTaskStatusAPI:
     """Tests for live trading task status API."""
 
-    async def test_get_live_task_status_not_found(self, mock_current_user, mock_live_trading_service):
+    async def test_get_live_task_status_not_found(
+        self, mock_current_user, mock_live_trading_service
+    ):
         """Test task not found.
 
         Args:
@@ -294,7 +288,7 @@ class TestLiveTradingTaskStatusAPI:
             await get_live_task_status(
                 task_id="nonexistent",
                 current_user=mock_current_user,
-                service=mock_live_trading_service
+                service=mock_live_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
@@ -315,14 +309,12 @@ class TestLiveTradingTaskStatusAPI:
             user_id="test_user_123",
             status="running",
             config={"strategy_name": "SMACross"},
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         mock_live_trading_service.get_task_status = AsyncMock(return_value=mock_task)
 
         result = await get_live_task_status(
-            task_id="task_123",
-            current_user=mock_current_user,
-            service=mock_live_trading_service
+            task_id="task_123", current_user=mock_current_user, service=mock_live_trading_service
         )
 
         assert result.task_id == "task_123"
@@ -350,7 +342,7 @@ class TestLiveTradingControlAPI:
             await stop_live_strategy(
                 task_id="nonexistent",
                 current_user=mock_current_user,
-                service=mock_live_trading_service
+                service=mock_live_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
@@ -366,18 +358,20 @@ class TestLiveTradingControlAPI:
 
         mock_live_trading_service.stop_live_trading = AsyncMock(return_value=True)
 
-        with patch('app.api.live_trading_complete.ws_manager') as mock_ws:
+        with patch("app.api.live_trading_complete.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
 
             result = await stop_live_strategy(
                 task_id="task_123",
                 current_user=mock_current_user,
-                service=mock_live_trading_service
+                service=mock_live_trading_service,
             )
 
             assert result == {"message": "Live trading task has been stopped"}
 
-    async def test_stop_live_strategy_sends_websocket_notification(self, mock_current_user, mock_live_trading_service):
+    async def test_stop_live_strategy_sends_websocket_notification(
+        self, mock_current_user, mock_live_trading_service
+    ):
         """Test WebSocket notification sent after stopping.
 
         Args:
@@ -388,11 +382,11 @@ class TestLiveTradingControlAPI:
 
         mock_live_trading_service.stop_live_trading = AsyncMock(return_value=True)
 
-        with patch.object(ws_manager, 'send_to_task') as mock_send:
+        with patch.object(ws_manager, "send_to_task") as mock_send:
             await stop_live_strategy(
                 task_id="task_123",
                 current_user=mock_current_user,
-                service=mock_live_trading_service
+                service=mock_live_trading_service,
             )
 
             # Verify WebSocket notification was sent
@@ -402,7 +396,7 @@ class TestLiveTradingControlAPI:
                     "type": MessageType.PROGRESS,
                     "task_id": "task_123",
                     "message": "Live trading task has been stopped",
-                }
+                },
             )
 
 
@@ -427,7 +421,7 @@ class TestLiveTradingDataAPI:
             await get_live_trading_data(
                 task_id="nonexistent",
                 current_user=mock_current_user,
-                service=mock_live_trading_service
+                service=mock_live_trading_service,
             )
 
         assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
@@ -442,17 +436,17 @@ class TestLiveTradingDataAPI:
         from app.api.live_trading_complete import get_live_trading_data
 
         mock_live_trading_service.get_task_status = AsyncMock(return_value={"status": "running"})
-        mock_live_trading_service.get_task_data = AsyncMock(return_value={
-            "cash": 5000.0,
-            "value": 15000.0,
-            "positions": [{"symbol": "BTC/USDT", "quantity": 0.5}],
-            "orders": [{"order_id": "order_1", "status": "filled"}],
-        })
+        mock_live_trading_service.get_task_data = AsyncMock(
+            return_value={
+                "cash": 5000.0,
+                "value": 15000.0,
+                "positions": [{"symbol": "BTC/USDT", "quantity": 0.5}],
+                "orders": [{"order_id": "order_1", "status": "filled"}],
+            }
+        )
 
         result = await get_live_trading_data(
-            task_id="task_123",
-            current_user=mock_current_user,
-            service=mock_live_trading_service
+            task_id="task_123", current_user=mock_current_user, service=mock_live_trading_service
         )
 
         assert result.task_id == "task_123"
@@ -462,7 +456,9 @@ class TestLiveTradingDataAPI:
         assert len(result.positions) == 1
         assert len(result.orders) == 1
 
-    async def test_get_live_data_with_object_status(self, mock_current_user, mock_live_trading_service):
+    async def test_get_live_data_with_object_status(
+        self, mock_current_user, mock_live_trading_service
+    ):
         """Test when status is an object.
 
         Args:
@@ -476,17 +472,17 @@ class TestLiveTradingDataAPI:
         mock_status.status = "running"
         mock_live_trading_service.get_task_status = AsyncMock(return_value=mock_status)
 
-        mock_live_trading_service.get_task_data = AsyncMock(return_value={
-            "cash": 10000.0,
-            "value": 20000.0,
-            "positions": [],
-            "orders": [],
-        })
+        mock_live_trading_service.get_task_data = AsyncMock(
+            return_value={
+                "cash": 10000.0,
+                "value": 20000.0,
+                "positions": [],
+                "orders": [],
+            }
+        )
 
         result = await get_live_trading_data(
-            task_id="task_123",
-            current_user=mock_current_user,
-            service=mock_live_trading_service
+            task_id="task_123", current_user=mock_current_user, service=mock_live_trading_service
         )
 
         assert result.status == "running"
@@ -507,13 +503,13 @@ class TestLiveTradingWebSocket:
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
 
-        with patch('app.api.live_trading_complete.ws_manager') as mock_mgr:
+        with patch("app.api.live_trading_complete.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
 
             # Make the loop run once then exit
-            with patch('asyncio.sleep', side_effect=[None, Exception("Exit")]):
+            with patch("asyncio.sleep", side_effect=[None, Exception("Exit")]):
                 try:
                     await live_trading_websocket(mock_ws, "task_123")
                 except Exception:
@@ -540,12 +536,12 @@ class TestLiveTradingWebSocket:
         mock_ws.accept = AsyncMock()
         mock_ws.id = 12345
 
-        with patch('app.api.live_trading_complete.ws_manager') as mock_mgr:
+        with patch("app.api.live_trading_complete.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
 
-            with patch('asyncio.sleep', side_effect=Exception("Exit")):
+            with patch("asyncio.sleep", side_effect=Exception("Exit")):
                 try:
                     await live_trading_websocket(mock_ws, "task_123")
                 except Exception:
@@ -566,7 +562,7 @@ class TestLiveTradingWebSocket:
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock(side_effect=Exception("Connection error"))
 
-        with patch('app.api.live_trading_complete.ws_manager') as mock_mgr:
+        with patch("app.api.live_trading_complete.ws_manager") as mock_mgr:
             mock_mgr.disconnect = MagicMock()
 
             try:
@@ -651,7 +647,7 @@ class TestLiveTradingSchemas:
             user_id="user_123",
             status="running",
             config={"strategy_name": "SMACross"},
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
         assert response.task_id == "task_123"
         assert response.status == "running"
@@ -670,7 +666,7 @@ class TestLiveTradingSchemas:
             cash=10000.0,
             value=15000.0,
             positions=[],
-            orders=[]
+            orders=[],
         )
         assert response.task_id == "task_123"
         assert response.cash == 10000.0
@@ -689,7 +685,7 @@ class TestLiveTradingRouter:
         from app.api.live_trading_complete import router
 
         assert router is not None
-        assert hasattr(router, 'routes')
+        assert hasattr(router, "routes")
 
     async def test_router_endpoint_count(self):
         """Test router endpoint count.
@@ -711,7 +707,7 @@ class TestLiveTradingRouter:
         """
         from app.api.live_trading_complete import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path')]
+        routes = [route for route in router.routes if hasattr(route, "path")]
         submit_routes = [r for r in routes if "/live/submit" in r.path]
         assert len(submit_routes) > 0
 
@@ -723,6 +719,6 @@ class TestLiveTradingRouter:
         """
         from app.api.live_trading_complete import router
 
-        routes = [route for route in router.routes if hasattr(route, 'path')]
+        routes = [route for route in router.routes if hasattr(route, "path")]
         ws_routes = [r for r in routes if "/ws/live/" in r.path]
         assert len(ws_routes) > 0

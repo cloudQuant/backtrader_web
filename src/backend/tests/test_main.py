@@ -11,6 +11,7 @@ Tests:
 - Rate limiting configuration
 - Lifespan lifecycle
 """
+
 import pytest
 from httpx import AsyncClient
 
@@ -90,7 +91,7 @@ class TestHealthCheck:
 
         # This test is hard to implement due to the way FastAPI handles dependencies
         # The health check should work regardless
-        resp = await app.client.get("/health") if hasattr(app, 'client') else None
+        resp = await app.client.get("/health") if hasattr(app, "client") else None
         if resp:
             assert resp.status_code == 200
 
@@ -146,18 +147,18 @@ class TestCORSConfig:
         from app.main import app
 
         # Check if CORS middleware exists
-        cors_middlewares = [
-            m for m in app.user_middleware
-            if m.cls == CORSMiddleware
-        ]
+        cors_middlewares = [m for m in app.user_middleware if m.cls == CORSMiddleware]
         assert len(cors_middlewares) > 0
 
     async def test_cors_headers(self, client: AsyncClient):
         """Test CORS response headers."""
-        resp = await client.options("/", headers={
-            "Origin": "http://localhost:3000",
-            "Access-Control-Request-Method": "GET",
-        })
+        resp = await client.options(
+            "/",
+            headers={
+                "Origin": "http://localhost:3000",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
         # Should have CORS related response headers
         assert resp.status_code in [200, 405]  # 405 for method not allowed in OPTIONS
 
@@ -213,7 +214,7 @@ class TestWebSocketEndpoint:
         """Test that WebSocket routes exist."""
         from app.main import app
 
-        routes = [route for route in app.routes if hasattr(route, 'path')]
+        routes = [route for route in app.routes if hasattr(route, "path")]
         ws_routes = [r for r in routes if r.path.startswith("/ws/")]
         assert len(ws_routes) > 0
 
@@ -221,11 +222,8 @@ class TestWebSocketEndpoint:
         """Test the backtest WebSocket route."""
         from app.main import app
 
-        routes = [route for route in app.routes if hasattr(route, 'path')]
-        ws_backtest_routes = [
-            r for r in routes
-            if "/ws/backtest/" in r.path
-        ]
+        routes = [route for route in app.routes if hasattr(route, "path")]
+        ws_backtest_routes = [r for r in routes if "/ws/backtest/" in r.path]
         assert len(ws_backtest_routes) > 0
 
 
@@ -237,7 +235,7 @@ class TestMainEntry:
         from app import main
 
         assert main is not None
-        assert hasattr(main, 'app')
+        assert hasattr(main, "app")
 
     def test_settings_loaded(self):
         """Test that settings are loaded."""
@@ -255,7 +253,7 @@ class TestAppIntegration:
         """Test that API router is included."""
         from app.main import app
 
-        routes = [route for route in app.routes if hasattr(route, 'path')]
+        routes = [route for route in app.routes if hasattr(route, "path")]
         api_routes = [r for r in routes if r.path.startswith("/api/v1")]
         assert len(api_routes) > 0
 
@@ -288,9 +286,9 @@ class TestLoggerSetup:
 
         assert logger is not None
         # Check logger has basic functionality
-        assert hasattr(logger, 'info')
-        assert hasattr(logger, 'warning')
-        assert hasattr(logger, 'error')
+        assert hasattr(logger, "info")
+        assert hasattr(logger, "warning")
+        assert hasattr(logger, "error")
 
 
 class TestWebSocketManager:
@@ -301,5 +299,5 @@ class TestWebSocketManager:
         from app.main import ws_manager
 
         assert ws_manager is not None
-        assert hasattr(ws_manager, 'connect')
-        assert hasattr(ws_manager, 'disconnect')
+        assert hasattr(ws_manager, "connect")
+        assert hasattr(ws_manager, "disconnect")

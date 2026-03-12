@@ -10,7 +10,7 @@ Aggregates data across live trading strategy instances:
 
 import logging
 import math
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import APIRouter, Depends
 
@@ -296,7 +296,7 @@ async def get_portfolio_equity(
     instances = mgr.list_instances()
 
     # Each strategy's date -> value mapping
-    strategy_curves: List[Dict[str, Any]] = []
+    strategy_curves: list[dict[str, Any]] = []
     all_dates_set: set = set()
 
     for inst in instances:

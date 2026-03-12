@@ -3,7 +3,6 @@ Authentication schemas.
 """
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -65,7 +64,7 @@ class TokenPayload(BaseModel):
 
     sub: str = Field(..., description="User ID")
     username: str = Field(..., description="Username")
-    exp: Optional[int] = Field(None, description="Expiration timestamp")
+    exp: int | None = Field(None, description="Expiration timestamp")
     token_type: str = Field("access", description="Token type: access or refresh")
 
 

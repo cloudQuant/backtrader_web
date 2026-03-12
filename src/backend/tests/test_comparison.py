@@ -11,6 +11,7 @@ Tests:
 - Share comparison
 - Get comparison data (metrics, equity curve, trades, drawdown)
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -23,10 +24,10 @@ class TestComparisonCreate:
 
     async def test_create_comparison_requires_auth(self, client: AsyncClient):
         """Test authentication required"""
-        resp = await client.post("/api/v1/comparisons/", json={
-            "name": "Test Comparison",
-            "backtest_task_ids": ["task1", "task2"]
-        })
+        resp = await client.post(
+            "/api/v1/comparisons/",
+            json={"name": "Test Comparison", "backtest_task_ids": ["task1", "task2"]},
+        )
         assert resp.status_code in [401, 403]
 
     async def test_create_comparison_success(self, client: AsyncClient, auth_headers: dict):
@@ -35,12 +36,16 @@ class TestComparisonCreate:
         # that backtest tasks exist in the database. Without real tasks, it fails.
         # The ValueError might propagate through ASGITransport.
         try:
-            resp = await client.post("/api/v1/comparisons/", headers=auth_headers, json={
-                "name": "Test Comparison",
-                "description": "Test description",
-                "type": "performance",
-                "backtest_task_ids": ["task1", "task2"]
-            })
+            resp = await client.post(
+                "/api/v1/comparisons/",
+                headers=auth_headers,
+                json={
+                    "name": "Test Comparison",
+                    "description": "Test description",
+                    "type": "performance",
+                    "backtest_task_ids": ["task1", "task2"],
+                },
+            )
             # May return 500 (service error due to non-existent tasks) or 422 (validation)
             assert resp.status_code in [200, 201, 422, 500]
         except ValueError as e:
@@ -49,10 +54,9 @@ class TestComparisonCreate:
 
     async def test_create_comparison_invalid_data(self, client: AsyncClient, auth_headers: dict):
         """Test creating comparison with invalid data"""
-        resp = await client.post("/api/v1/comparisons/", headers=auth_headers, json={
-            "name": "",
-            "backtest_task_ids": []
-        })
+        resp = await client.post(
+            "/api/v1/comparisons/", headers=auth_headers, json={"name": "", "backtest_task_ids": []}
+        )
         assert resp.status_code == 422
 
 
@@ -67,7 +71,7 @@ class TestComparisonDetail:
 
     async def test_get_comparison_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test comparison not found"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -79,7 +83,7 @@ class TestComparisonDetail:
         """Test unauthorized access"""
         # Note: This test checks the 403 (forbidden) response
         # If the comparison doesn't exist or user_id check fails differently, we accept 404
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -94,7 +98,7 @@ class TestComparisonDetail:
 
     async def test_get_comparison_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful comparison retrieval"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -120,19 +124,21 @@ class TestComparisonUpdate:
 
     async def test_update_comparison_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test updating non-existent comparison"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.update_comparison = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
 
-            resp = await client.put("/api/v1/comparisons/nonexistent", headers=auth_headers, json={
-                "name": "Updated name"
-            })
+            resp = await client.put(
+                "/api/v1/comparisons/nonexistent",
+                headers=auth_headers,
+                json={"name": "Updated name"},
+            )
             assert resp.status_code == 404
 
     async def test_update_comparison_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful comparison update"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -142,9 +148,9 @@ class TestComparisonUpdate:
             mock_service.update_comparison = AsyncMock(return_value=mock_comparison)
             mock_service_class.return_value = mock_service
 
-            resp = await client.put("/api/v1/comparisons/comp123", headers=auth_headers, json={
-                "name": "Updated name"
-            })
+            resp = await client.put(
+                "/api/v1/comparisons/comp123", headers=auth_headers, json={"name": "Updated name"}
+            )
             assert resp.status_code in [200, 404]
 
 
@@ -159,7 +165,7 @@ class TestComparisonDelete:
 
     async def test_delete_comparison_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test deleting non-existent comparison"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.delete_comparison = AsyncMock(return_value=False)
             mock_service_class.return_value = mock_service
@@ -169,7 +175,7 @@ class TestComparisonDelete:
 
     async def test_delete_comparison_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful comparison deletion"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.delete_comparison = AsyncMock(return_value=True)
             mock_service_class.return_value = mock_service
@@ -189,7 +195,7 @@ class TestComparisonList:
 
     async def test_list_comparisons_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful comparison listing"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_comparisons = AsyncMock(return_value=([], 0))
             mock_service_class.return_value = mock_service
@@ -199,7 +205,7 @@ class TestComparisonList:
 
     async def test_list_comparisons_with_pagination(self, client: AsyncClient, auth_headers: dict):
         """Test pagination parameters"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_comparisons = AsyncMock(return_value=([], 0))
             mock_service_class.return_value = mock_service
@@ -209,7 +215,7 @@ class TestComparisonList:
 
     async def test_list_comparisons_public_filter(self, client: AsyncClient, auth_headers: dict):
         """Test public filter parameter"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_comparisons = AsyncMock(return_value=([], 0))
             mock_service_class.return_value = mock_service
@@ -229,17 +235,19 @@ class TestComparisonToggleFavorite:
 
     async def test_toggle_favorite_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test toggling non-existent comparison"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
 
-            resp = await client.post("/api/v1/comparisons/nonexistent/toggle-favorite", headers=auth_headers)
+            resp = await client.post(
+                "/api/v1/comparisons/nonexistent/toggle-favorite", headers=auth_headers
+            )
             assert resp.status_code == 404
 
     async def test_toggle_favorite_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful favorite toggle"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -256,7 +264,9 @@ class TestComparisonToggleFavorite:
             mock_service.update_comparison = AsyncMock(return_value=mock_updated)
             mock_service_class.return_value = mock_service
 
-            resp = await client.post("/api/v1/comparisons/comp123/toggle-favorite", headers=auth_headers)
+            resp = await client.post(
+                "/api/v1/comparisons/comp123/toggle-favorite", headers=auth_headers
+            )
             assert resp.status_code in [200, 404]
 
 
@@ -271,20 +281,22 @@ class TestComparisonShare:
 
     async def test_share_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test sharing non-existent comparison"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
 
-            resp = await client.post("/api/v1/comparisons/nonexistent/share", headers=auth_headers, json={
-                "shared_with_user_ids": []
-            })
+            resp = await client.post(
+                "/api/v1/comparisons/nonexistent/share",
+                headers=auth_headers,
+                json={"shared_with_user_ids": []},
+            )
             assert resp.status_code == 404
 
     async def test_share_unauthorized(self, client: AsyncClient, auth_headers: dict):
         """Test unauthorized sharing"""
         # Note: This test checks the 403 (forbidden) response
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -293,14 +305,16 @@ class TestComparisonShare:
             mock_service.get_comparison = AsyncMock(return_value=mock_comparison)
             mock_service_class.return_value = mock_service
 
-            resp = await client.post("/api/v1/comparisons/comp123/share", headers=auth_headers, json={
-                "shared_with_user_ids": []
-            })
+            resp = await client.post(
+                "/api/v1/comparisons/comp123/share",
+                headers=auth_headers,
+                json={"shared_with_user_ids": []},
+            )
             assert resp.status_code in [403, 404]
 
     async def test_share_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful sharing"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -309,9 +323,11 @@ class TestComparisonShare:
             mock_service.get_comparison = AsyncMock(return_value=mock_comparison)
             mock_service_class.return_value = mock_service
 
-            resp = await client.post("/api/v1/comparisons/comp123/share", headers=auth_headers, json={
-                "shared_with_user_ids": ["user2", "user3"]
-            })
+            resp = await client.post(
+                "/api/v1/comparisons/comp123/share",
+                headers=auth_headers,
+                json={"shared_with_user_ids": ["user2", "user3"]},
+            )
             assert resp.status_code in [200, 404]
 
 
@@ -326,7 +342,7 @@ class TestComparisonMetrics:
 
     async def test_get_metrics_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test comparison not found"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -336,7 +352,7 @@ class TestComparisonMetrics:
 
     async def test_get_metrics_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful metrics retrieval"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -361,7 +377,7 @@ class TestComparisonEquity:
 
     async def test_get_equity_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test comparison not found"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -371,7 +387,7 @@ class TestComparisonEquity:
 
     async def test_get_equity_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful equity curve retrieval"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -396,7 +412,7 @@ class TestComparisonTrades:
 
     async def test_get_trades_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test comparison not found"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -406,7 +422,7 @@ class TestComparisonTrades:
 
     async def test_get_trades_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful trades retrieval"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -431,17 +447,19 @@ class TestComparisonDrawdown:
 
     async def test_get_drawdown_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test comparison not found"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_comparison = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
 
-            resp = await client.get("/api/v1/comparisons/nonexistent/drawdown", headers=auth_headers)
+            resp = await client.get(
+                "/api/v1/comparisons/nonexistent/drawdown", headers=auth_headers
+            )
             assert resp.status_code == 404
 
     async def test_get_drawdown_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful drawdown retrieval"""
-        with patch('app.services.comparison_service.ComparisonService') as mock_service_class:
+        with patch("app.services.comparison_service.ComparisonService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="comp123",
@@ -463,8 +481,8 @@ class TestComparisonServiceSingleton:
         """Test ComparisonService singleton"""
         from app.api.comparison import get_comparison_service
 
-        svc1 = get_comparison_service()
-        svc2 = get_comparison_service()
+        get_comparison_service()
+        get_comparison_service()
         # Function creates new instance each time, so they should be different objects
         # but the function itself is callable
         assert callable(get_comparison_service)

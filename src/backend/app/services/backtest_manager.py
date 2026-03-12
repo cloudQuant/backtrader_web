@@ -6,7 +6,7 @@ execution is still launched by the API process.
 """
 
 import logging
-from typing import Any, List, Optional
+from typing import Any
 
 from sqlalchemy import delete, func, select
 
@@ -91,7 +91,7 @@ class BacktestExecutionManager:
         logger.info("Created backtest task %s for user %s", task.id, user_id)
         return task
 
-    async def get_task(self, task_id: str, user_id: Optional[str] = None) -> Optional[BacktestTask]:
+    async def get_task(self, task_id: str, user_id: str | None = None) -> BacktestTask | None:
         """Return one task, optionally enforcing ownership."""
         async with async_session_maker() as session:
             task = await session.get(BacktestTask, task_id)
@@ -103,9 +103,9 @@ class BacktestExecutionManager:
         self,
         task_id: str,
         status: TaskStatus,
-        error_message: Optional[str] = None,
-        log_dir: Optional[str] = None,
-    ) -> Optional[BacktestTask]:
+        error_message: str | None = None,
+        log_dir: str | None = None,
+    ) -> BacktestTask | None:
         """Update task status and optional error or log path."""
         async with async_session_maker() as session:
             task = await session.get(BacktestTask, task_id)
@@ -126,10 +126,10 @@ class BacktestExecutionManager:
         self,
         task_id: str,
         metrics: dict[str, Any],
-        equity_curve: List[float],
-        equity_dates: List[str],
-        drawdown_curve: List[float],
-        trades: List[dict[str, Any]],
+        equity_curve: list[float],
+        equity_dates: list[str],
+        drawdown_curve: list[float],
+        trades: list[dict[str, Any]],
         metrics_source: str = "manual",
     ) -> BacktestResultModel:
         """Create and persist one backtest result."""
@@ -158,7 +158,7 @@ class BacktestExecutionManager:
         logger.info("Created backtest result for task %s", task_id)
         return result
 
-    async def get_result(self, task_id: str) -> Optional[BacktestResultModel]:
+    async def get_result(self, task_id: str) -> BacktestResultModel | None:
         """Return the stored result for one task."""
         async with async_session_maker() as session:
             result = await session.execute(
@@ -189,7 +189,7 @@ class BacktestExecutionManager:
         offset: int = 0,
         order_by: str = "created_at",
         order_desc: bool = True,
-    ) -> tuple[List[BacktestTask], int]:
+    ) -> tuple[list[BacktestTask], int]:
         """List persisted tasks for one user."""
         async with async_session_maker() as session:
             query = select(BacktestTask).where(BacktestTask.user_id == user_id)

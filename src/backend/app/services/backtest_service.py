@@ -13,7 +13,6 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
 
 from app.db.cache import get_cache
 from app.db.sql_repository import SQLRepository
@@ -44,8 +43,8 @@ class BacktestService:
 
     def __init__(
         self,
-        task_manager: Optional[BacktestExecutionManager] = None,
-        task_runner: Optional[BacktestExecutionRunner] = None,
+        task_manager: BacktestExecutionManager | None = None,
+        task_runner: BacktestExecutionRunner | None = None,
     ) -> None:
         """Initialize the BacktestService.
 
@@ -64,7 +63,7 @@ class BacktestService:
 
     @staticmethod
     def _build_backtest_result(
-        task: BacktestTask, result_model: Optional[BacktestResultModel]
+        task: BacktestTask, result_model: BacktestResultModel | None
     ) -> BacktestResult:
         return BacktestResult(
             task_id=task.id,
@@ -317,7 +316,7 @@ class BacktestService:
         return bool(request.params) or request.initial_cash != 100000 or request.commission != 0.001
 
     def _write_temp_config(
-        self, config_path: Path, request: BacktestRequest, original_text: Optional[str]
+        self, config_path: Path, request: BacktestRequest, original_text: str | None
     ) -> None:
         """Write custom parameters from frontend to temporary config.yaml.
 
@@ -378,9 +377,9 @@ class BacktestService:
     async def _run_strategy_subprocess(
         self,
         work_dir: Path,
-        original_strategy_dir: Optional[str] = None,
-        task_id: Optional[str] = None,
-    ) -> Dict[str, str]:
+        original_strategy_dir: str | None = None,
+        task_id: str | None = None,
+    ) -> dict[str, str]:
         """Run the strategy's run.py via subprocess with PID tracking for cancellation.
 
         Args:
@@ -435,9 +434,7 @@ class BacktestService:
 
         return {"stdout": stdout, "stderr": stderr}
 
-    async def get_result(
-        self, task_id: str, user_id: Optional[str] = None
-    ) -> Optional[BacktestResult]:
+    async def get_result(self, task_id: str, user_id: str | None = None) -> BacktestResult | None:
         """Get backtest result by task ID with optional user authorization.
 
         Args:
@@ -535,9 +532,7 @@ class BacktestService:
         )
         return True
 
-    async def get_task_status(
-        self, task_id: str, user_id: Optional[str] = None
-    ) -> Optional[TaskStatus]:
+    async def get_task_status(self, task_id: str, user_id: str | None = None) -> TaskStatus | None:
         """Get task status with optional user authorization.
 
         Args:

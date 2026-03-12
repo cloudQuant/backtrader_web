@@ -17,6 +17,7 @@ Tests:
 - _check_cross_trigger method
 - _trigger_alert method
 """
+
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -56,7 +57,7 @@ class TestCreateAlertRule:
         service.alert_rule_repo.create = AsyncMock(return_value=mock_rule)
         service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
 
-        with patch.object(service, '_start_monitoring', new_callable=AsyncMock) as mock_start:
+        with patch.object(service, "_start_monitoring", new_callable=AsyncMock) as mock_start:
             result = await service.create_alert_rule(
                 user_id="user_123",
                 name="Test Rule",
@@ -64,7 +65,7 @@ class TestCreateAlertRule:
                 alert_type=AlertType.ACCOUNT.value,
                 severity=AlertSeverity.WARNING.value,
                 trigger_type="threshold",
-                trigger_config={"threshold": 0.1}
+                trigger_config={"threshold": 0.1},
             )
 
             assert result is not None
@@ -82,7 +83,7 @@ class TestCreateAlertRule:
         service.alert_rule_repo.create = AsyncMock(return_value=mock_rule)
         service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
 
-        with patch.object(service, '_start_monitoring', new_callable=AsyncMock):
+        with patch.object(service, "_start_monitoring", new_callable=AsyncMock):
             result = await service.create_alert_rule(
                 user_id="user_123",
                 name="Test Rule",
@@ -92,7 +93,7 @@ class TestCreateAlertRule:
                 trigger_type="threshold",
                 trigger_config={"threshold": 0.1},
                 notification_enabled=True,
-                notification_channels=["email", "sms"]
+                notification_channels=["email", "sms"],
             )
 
             assert result is not None
@@ -151,7 +152,7 @@ class TestUpdateAlertRule:
         service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
         service.alert_rule_repo.update = AsyncMock(return_value=mock_rule)
 
-        with patch.object(service, '_stop_monitoring', new_callable=AsyncMock) as mock_stop:
+        with patch.object(service, "_stop_monitoring", new_callable=AsyncMock) as mock_stop:
             update_data = {"is_active": False}
 
             result = await service.update_alert_rule("rule_123", "user_123", update_data)
@@ -174,7 +175,7 @@ class TestUpdateAlertRule:
         # After update, get_by_id for _start_monitoring returns activated rule
         service.alert_rule_repo.update = AsyncMock(return_value=mock_rule)
 
-        with patch.object(service, '_start_monitoring', new_callable=AsyncMock) as mock_start:
+        with patch.object(service, "_start_monitoring", new_callable=AsyncMock):
             # Need to mock the return differently for update vs get_by_id
             async def mock_get_by_id(rid):
                 mock_r = Mock()
@@ -210,7 +211,7 @@ class TestDeleteAlertRule:
         service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
         service.alert_rule_repo.delete = AsyncMock(return_value=True)
 
-        with patch.object(service, '_stop_monitoring', new_callable=AsyncMock):
+        with patch.object(service, "_stop_monitoring", new_callable=AsyncMock):
             result = await service.delete_alert_rule("rule_123", "user_123")
 
             assert result is True
@@ -272,7 +273,7 @@ class TestListAlertRules:
             user_id="user_123",
             alert_type=AlertType.ACCOUNT.value,
             severity=AlertSeverity.WARNING.value,
-            is_active=True
+            is_active=True,
         )
 
         assert rules == []
@@ -313,7 +314,7 @@ class TestListAlerts:
             status=AlertStatus.ACTIVE.value,
             is_read=False,
             limit=10,
-            offset=0
+            offset=0,
         )
 
         assert alerts == []
@@ -537,7 +538,9 @@ class TestCheckTrigger:
         mock_rule.trigger_config = {"threshold": 0.1}
         mock_rule.alert_type = AlertType.ACCOUNT
 
-        with patch.object(service, '_check_threshold_trigger', new_callable=AsyncMock, return_value=True):
+        with patch.object(
+            service, "_check_threshold_trigger", new_callable=AsyncMock, return_value=True
+        ):
             result = await service._check_trigger(mock_rule)
 
             assert result is True
@@ -550,7 +553,9 @@ class TestCheckTrigger:
         mock_rule.trigger_type = "rate"
         mock_rule.trigger_config = {}
 
-        with patch.object(service, '_check_rate_trigger', new_callable=AsyncMock, return_value=False):
+        with patch.object(
+            service, "_check_rate_trigger", new_callable=AsyncMock, return_value=False
+        ):
             result = await service._check_trigger(mock_rule)
 
             assert result is False
@@ -563,7 +568,9 @@ class TestCheckTrigger:
         mock_rule.trigger_type = "cross"
         mock_rule.trigger_config = {}
 
-        with patch.object(service, '_check_cross_trigger', new_callable=AsyncMock, return_value=False):
+        with patch.object(
+            service, "_check_cross_trigger", new_callable=AsyncMock, return_value=False
+        ):
             result = await service._check_trigger(mock_rule)
 
             assert result is False
@@ -603,11 +610,7 @@ class TestCheckThresholdTrigger:
         mock_rule = Mock()
         mock_rule.alert_type = AlertType.ACCOUNT
 
-        config = {
-            "current_value": 0.05,
-            "threshold": 0.1,
-            "condition": "lt"
-        }
+        config = {"current_value": 0.05, "threshold": 0.1, "condition": "lt"}
 
         result = await service._check_threshold_trigger(mock_rule, config)
 
@@ -620,11 +623,7 @@ class TestCheckThresholdTrigger:
         mock_rule = Mock()
         mock_rule.alert_type = AlertType.ACCOUNT
 
-        config = {
-            "current_value": 0.15,
-            "threshold": 0.1,
-            "condition": "gt"
-        }
+        config = {"current_value": 0.15, "threshold": 0.1, "condition": "gt"}
 
         result = await service._check_threshold_trigger(mock_rule, config)
 
@@ -637,11 +636,7 @@ class TestCheckThresholdTrigger:
         mock_rule = Mock()
         mock_rule.alert_type = AlertType.POSITION
 
-        config = {
-            "current_value": -500,
-            "threshold": -300,
-            "condition": "lt"
-        }
+        config = {"current_value": -500, "threshold": -300, "condition": "lt"}
 
         result = await service._check_threshold_trigger(mock_rule, config)
 
@@ -654,11 +649,7 @@ class TestCheckThresholdTrigger:
         mock_rule = Mock()
         mock_rule.alert_type = AlertType.ACCOUNT
 
-        config = {
-            "current_value": 0.15,
-            "threshold": 0.1,
-            "condition": "lt"
-        }
+        config = {"current_value": 0.15, "threshold": 0.1, "condition": "lt"}
 
         result = await service._check_threshold_trigger(mock_rule, config)
 
@@ -779,8 +770,8 @@ class TestTriggerAlert:
         service.alert_repo.create = AsyncMock(return_value=mock_alert)
 
         # Patch notification methods
-        with patch.object(service, '_send_notification', new_callable=AsyncMock):
-            with patch.object(service, '_send_websocket_alert', new_callable=AsyncMock):
+        with patch.object(service, "_send_notification", new_callable=AsyncMock):
+            with patch.object(service, "_send_websocket_alert", new_callable=AsyncMock):
                 await service._trigger_alert(mock_rule)
 
 
@@ -799,8 +790,9 @@ class TestStartStopMonitoring:
         service.alert_rule_repo = AsyncMock()
         service.alert_rule_repo.get_by_id = AsyncMock(return_value=mock_rule)
 
-        with patch('asyncio.create_task') as mock_create_task:
+        with patch("asyncio.create_task") as mock_create_task:
             mock_task = Mock()
+
             # _start_monitoring schedules _monitor_task via asyncio.create_task; when patched,
             # close the coroutine to avoid "coroutine was never awaited" warnings.
             def _create_task(coro):

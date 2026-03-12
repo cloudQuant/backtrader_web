@@ -1,6 +1,7 @@
 """
 Tests for refresh token functionality.
 """
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -81,6 +82,7 @@ class TestRefreshTokenService:
     async def test_refresh_token_rotation(self, setup_db):
         """Test that refresh token rotation works (old token revoked, new one created)."""
         import asyncio
+
         service = AuthService()
 
         # Create a test user

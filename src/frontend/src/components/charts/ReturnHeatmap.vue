@@ -1,7 +1,12 @@
 <template>
   <div class="return-heatmap">
-    <h4 class="text-md font-medium mb-4">月度收益热力图</h4>
-    <div ref="chartRef" :style="{ height: height + 'px' }"></div>
+    <h4 class="text-md font-medium mb-4">
+      月度收益热力图
+    </h4>
+    <div
+      ref="chartRef"
+      :style="{ height: height + 'px' }"
+    />
   </div>
 </template>
 
@@ -63,11 +68,11 @@ function renderChart() {
   const option: echarts.EChartsOption = {
     tooltip: {
       position: 'top',
-      formatter: (params: any) => {
-        const year = props.years[params.data[1]]
-        const month = months[params.data[0]]
-        const value = params.data[2]
-        return `${year}年${month}: ${value}%`
+      formatter: (params: { data?: [number, number, number | string] }) => {
+        const year = props.years[params.data?.[1] ?? 0]
+        const month = months[params.data?.[0] ?? 0]
+        const value = params.data?.[2]
+        return `${year}年${month}: ${value ?? ''}%`
       },
     },
     grid: {
@@ -104,7 +109,7 @@ function renderChart() {
         data: data,
         label: {
           show: true,
-          formatter: (params: any) => `${params.data[2]}%`,
+          formatter: (params: { data?: [number, number, number | string] }) => `${params.data?.[2]}%`,
           fontSize: 9,
         },
         emphasis: {

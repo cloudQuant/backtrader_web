@@ -21,6 +21,12 @@ symbol:
 # 策略参数
 # ============================================================
 params:
+  stake: 10
+  bb_period: 20
+  bb_devfactor: 2.0
+  rsi_period: 14
+  rsi_oversold: 30
+  rsi_overbought: 70
 
 # ============================================================
 # 数据配置
@@ -70,15 +76,11 @@ live:
   symbol: "p2609"
   network: "telecom"
   bar_seconds: 5
-  duration_seconds: 3600
-  session_timeout: 3700
+  duration_seconds: 86400
+  session_timeout: 86500
   min_price_tick: 2.0
   max_order_size: 1
   contract_metadata:
-    p2509:
-      min_price_tick: 2.0
-      max_order_size: 1
-
     p2609:
       min_price_tick: 1.0
       max_order_size: 1

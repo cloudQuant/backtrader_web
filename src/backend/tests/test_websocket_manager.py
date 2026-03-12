@@ -1,6 +1,7 @@
 """
 WebSocket Connection Manager Tests.
 """
+
 from unittest.mock import AsyncMock
 
 from app.websocket_manager import (

@@ -2,15 +2,28 @@
   <div class="metric-card bg-white rounded-lg border p-4 hover:shadow-md transition-shadow">
     <div class="flex items-center justify-between mb-2">
       <span class="text-gray-500 text-sm">{{ title }}</span>
-      <el-tooltip v-if="tooltip" :content="tooltip" placement="top">
-        <el-icon class="text-gray-400 cursor-help"><QuestionFilled /></el-icon>
+      <el-tooltip
+        v-if="tooltip"
+        :content="tooltip"
+        placement="top"
+      >
+        <el-icon class="text-gray-400 cursor-help">
+          <QuestionFilled />
+        </el-icon>
       </el-tooltip>
     </div>
     <div class="flex items-end gap-2">
-      <span class="text-2xl font-bold" :class="valueColorClass">
+      <span
+        class="text-2xl font-bold"
+        :class="valueColorClass"
+      >
         {{ formattedValue }}
       </span>
-      <span v-if="change !== undefined" class="text-sm mb-1" :class="changeColorClass">
+      <span
+        v-if="change !== undefined"
+        class="text-sm mb-1"
+        :class="changeColorClass"
+      >
         {{ changeText }}
       </span>
     </div>

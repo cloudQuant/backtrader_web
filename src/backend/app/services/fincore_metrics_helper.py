@@ -7,7 +7,7 @@ across the platform.
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from app.services.backtest_analyzers import FincoreAdapter
 
@@ -22,8 +22,8 @@ class MetricsSource:
 
 
 def calculate_metrics_from_log_data(
-    log_data: Dict[str, Any], use_fincore: bool = False
-) -> Dict[str, Any]:
+    log_data: dict[str, Any], use_fincore: bool = False
+) -> dict[str, Any]:
     """Calculate all performance metrics from parsed log data.
 
     This function provides a unified interface for calculating performance
@@ -100,7 +100,7 @@ def calculate_metrics_from_log_data(
     }
 
 
-def _calculate_total_return(adapter: FincoreAdapter, equity: List[float]) -> float:
+def _calculate_total_return(adapter: FincoreAdapter, equity: list[float]) -> float:
     """Calculate total return using the adapter.
 
     Args:
@@ -117,7 +117,7 @@ def _calculate_total_return(adapter: FincoreAdapter, equity: List[float]) -> flo
     return round(result * 100, 4)  # Convert to percentage
 
 
-def _calculate_annual_return(adapter: FincoreAdapter, equity: List[float]) -> float:
+def _calculate_annual_return(adapter: FincoreAdapter, equity: list[float]) -> float:
     """Calculate annualized return using the adapter.
 
     Args:
@@ -134,7 +134,7 @@ def _calculate_annual_return(adapter: FincoreAdapter, equity: List[float]) -> fl
     return round(result * 100, 4)  # Convert to percentage
 
 
-def _calculate_sharpe_ratio(adapter: FincoreAdapter, equity: List[float]) -> float:
+def _calculate_sharpe_ratio(adapter: FincoreAdapter, equity: list[float]) -> float:
     """Calculate Sharpe ratio using the adapter.
 
     Args:
@@ -160,7 +160,7 @@ def _calculate_sharpe_ratio(adapter: FincoreAdapter, equity: List[float]) -> flo
     return round(result, 4)
 
 
-def _calculate_max_drawdown(adapter: FincoreAdapter, equity: List[float]) -> float:
+def _calculate_max_drawdown(adapter: FincoreAdapter, equity: list[float]) -> float:
     """Calculate maximum drawdown using the adapter.
 
     Args:
@@ -177,7 +177,7 @@ def _calculate_max_drawdown(adapter: FincoreAdapter, equity: List[float]) -> flo
     return round(result * 100, 4)  # Convert to percentage
 
 
-def _calculate_win_rate(adapter: FincoreAdapter, trades: List[Dict[str, Any]]) -> float:
+def _calculate_win_rate(adapter: FincoreAdapter, trades: list[dict[str, Any]]) -> float:
     """Calculate win rate using the adapter.
 
     Args:
@@ -201,7 +201,7 @@ def _calculate_win_rate(adapter: FincoreAdapter, trades: List[Dict[str, Any]]) -
     return round((winning_trades / total_trades) * 100, 2)  # Convert to percentage
 
 
-def compare_calculation_methods(log_data: Dict[str, Any]) -> Dict[str, Any]:
+def compare_calculation_methods(log_data: dict[str, Any]) -> dict[str, Any]:
     """Compare metrics calculated by fincore vs manual methods.
 
     This function calculates metrics using both fincore and manual methods
@@ -246,7 +246,7 @@ def compare_calculation_methods(log_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def validate_calculation_consistency(
-    log_data: Dict[str, Any], max_relative_error: float = 0.01
+    log_data: dict[str, Any], max_relative_error: float = 0.01
 ) -> bool:
     """Validate that fincore and manual calculations are consistent.
 

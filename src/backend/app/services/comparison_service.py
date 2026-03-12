@@ -6,7 +6,7 @@ Supports comparing and analyzing multiple backtest results.
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.db.sql_repository import SQLRepository
 from app.models.comparison import Comparison, ComparisonType
@@ -41,8 +41,8 @@ class ComparisonService:
         self,
         user_id: str,
         name: str,
-        backtest_task_ids: List[str],
-        description: Optional[str] = None,
+        backtest_task_ids: list[str],
+        description: str | None = None,
         comparison_type: str = ComparisonType.METRICS,
         is_public: bool = False,
     ) -> ComparisonResponse:
@@ -111,9 +111,9 @@ class ComparisonService:
 
     async def _generate_comparison_data(
         self,
-        backtest_results: Dict[str, Dict[str, Any]],
+        backtest_results: dict[str, dict[str, Any]],
         comparison_type: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate comparison data based on the specified comparison type.
 
         Args:
@@ -149,8 +149,8 @@ class ComparisonService:
 
     def _compare_metrics(
         self,
-        backtest_results: Dict[str, Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        backtest_results: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
         """Compare performance metrics across multiple backtest results.
 
         Args:
@@ -179,8 +179,8 @@ class ComparisonService:
 
     def _find_best_metrics(
         self,
-        backtest_results: Dict[str, Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        backtest_results: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
         """Identify the best performing metrics across all backtest results.
 
         Args:
@@ -228,8 +228,8 @@ class ComparisonService:
 
     def _compare_equity(
         self,
-        backtest_results: Dict[str, Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        backtest_results: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
         """Compare equity curves across multiple backtest results.
 
         Args:
@@ -246,9 +246,9 @@ class ComparisonService:
 
         # Collect all dates from all backtest results
         all_dates = set()
-        for task_id, result in backtest_results.items():
+        for _task_id, result in backtest_results.items():
             all_dates.update(result["equity_dates"])
-        equity_comparison["dates"] = sorted(list(all_dates))
+        equity_comparison["dates"] = sorted(all_dates)
 
         # Collect equity curve data
         for task_id, result in backtest_results.items():
@@ -274,8 +274,8 @@ class ComparisonService:
 
     def _compare_trades(
         self,
-        backtest_results: Dict[str, Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        backtest_results: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
         """Compare trade statistics across multiple backtest results.
 
         Args:
@@ -306,8 +306,8 @@ class ComparisonService:
 
     def _compare_drawdown(
         self,
-        backtest_results: Dict[str, Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        backtest_results: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
         """Compare drawdown metrics across multiple backtest results.
 
         Args:
@@ -334,7 +334,7 @@ class ComparisonService:
         comparison_id: str,
         user_id: str,
         update_data: ComparisonUpdate,
-    ) -> Optional[ComparisonResponse]:
+    ) -> ComparisonResponse | None:
         """Update an existing comparison.
 
         Args:
@@ -411,7 +411,7 @@ class ComparisonService:
         self,
         comparison_id: str,
         user_id: str,
-    ) -> Optional[ComparisonResponse]:
+    ) -> ComparisonResponse | None:
         """Retrieve a comparison by ID.
 
         Args:
@@ -439,8 +439,8 @@ class ComparisonService:
         user_id: str,
         limit: int = 20,
         offset: int = 0,
-        is_public: Optional[bool] = None,
-    ) -> tuple[List[Comparison], int]:
+        is_public: bool | None = None,
+    ) -> tuple[list[Comparison], int]:
         """List comparisons with filtering and pagination.
 
         Args:

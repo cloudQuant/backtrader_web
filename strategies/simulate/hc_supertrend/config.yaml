@@ -73,15 +73,11 @@ live:
   symbol: "hc2609"
   network: "telecom"
   bar_seconds: 5
-  duration_seconds: 3600
-  session_timeout: 3700
+  duration_seconds: 86400
+  session_timeout: 86500
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    hc2509:
-      min_price_tick: 1.0
-      max_order_size: 1
-
     hc2609:
       min_price_tick: 1.0
       max_order_size: 1

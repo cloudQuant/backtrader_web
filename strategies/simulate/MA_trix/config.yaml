@@ -21,7 +21,8 @@ symbol:
 # 策略参数
 # ============================================================
 params:
-
+  stake: 10
+  period: 15
 # ============================================================
 # 数据配置
 # ============================================================
@@ -70,15 +71,11 @@ live:
   symbol: "MA2609"
   network: "telecom"
   bar_seconds: 15
-  duration_seconds: 3600
-  session_timeout: 3700
+  duration_seconds: 86400
+  session_timeout: 86500
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    MA2509:
-      min_price_tick: 1.0
-      max_order_size: 1
-
     MA2609:
       min_price_tick: 1.0
       max_order_size: 1

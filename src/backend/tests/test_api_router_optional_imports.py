@@ -33,4 +33,3 @@ def test_api_router_handles_optional_import_errors():
     finally:
         builtins.__import__ = original_import
         importlib.reload(router_module)
-

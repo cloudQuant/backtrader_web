@@ -2,18 +2,19 @@
  * Shared mounting helper for view tests.
  * Provides isolated Pinia and Router instances for each mount.
  */
+import type { Component } from 'vue'
 import { mount, MountingOptions, VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 import { elStubs } from './stubs'
 
-export interface MountOptions extends Omit<MountingOptions<any>, 'global'> {
-  customStubs?: Record<string, any>
+export interface MountOptions extends Omit<MountingOptions<Component>, 'global'> {
+  customStubs?: Record<string, unknown>
 }
 
 export function mountWithPlugins(
-  component: any,
+  component: Component,
   options: MountOptions = {}
 ): VueWrapper {
   const { customStubs, ...mountOptions } = options

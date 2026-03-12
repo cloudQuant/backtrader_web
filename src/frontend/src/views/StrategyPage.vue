@@ -2,17 +2,30 @@
   <div class="space-y-6">
     <!-- 页面标题和操作栏 -->
     <div class="flex justify-between items-center">
-      <h1 class="text-2xl font-bold">策略中心</h1>
-      <el-button type="primary" @click="showCreateDialog">
-        <el-icon class="mr-1"><Plus /></el-icon>
+      <h1 class="text-2xl font-bold">
+        策略中心
+      </h1>
+      <el-button
+        type="primary"
+        @click="showCreateDialog"
+      >
+        <el-icon class="mr-1">
+          <Plus />
+        </el-icon>
         创建策略
       </el-button>
     </div>
 
     <!-- 主Tab: 策略库 / 我的策略 -->
-    <el-tabs v-model="activeTab" type="border-card">
+    <el-tabs
+      v-model="activeTab"
+      type="border-card"
+    >
       <!-- ========== 策略库 ========== -->
-      <el-tab-pane label="策略库" name="gallery">
+      <el-tab-pane
+        label="策略库"
+        name="gallery"
+      >
         <!-- 搜索和筛选栏 -->
         <div class="flex flex-wrap gap-4 mb-6">
           <el-input
@@ -22,14 +35,31 @@
             class="w-64"
             prefix-icon="Search"
           />
-          <el-radio-group v-model="categoryFilter" size="default">
-            <el-radio-button label="">全部</el-radio-button>
-            <el-radio-button label="trend">趋势</el-radio-button>
-            <el-radio-button label="mean_reversion">均值回归</el-radio-button>
-            <el-radio-button label="volatility">波动率</el-radio-button>
-            <el-radio-button label="indicator">指标</el-radio-button>
-            <el-radio-button label="arbitrage">套利</el-radio-button>
-            <el-radio-button label="custom">其他</el-radio-button>
+          <el-radio-group
+            v-model="categoryFilter"
+            size="default"
+          >
+            <el-radio-button label="">
+              全部
+            </el-radio-button>
+            <el-radio-button label="trend">
+              趋势
+            </el-radio-button>
+            <el-radio-button label="mean_reversion">
+              均值回归
+            </el-radio-button>
+            <el-radio-button label="volatility">
+              波动率
+            </el-radio-button>
+            <el-radio-button label="indicator">
+              指标
+            </el-radio-button>
+            <el-radio-button label="arbitrage">
+              套利
+            </el-radio-button>
+            <el-radio-button label="custom">
+              其他
+            </el-radio-button>
           </el-radio-group>
           <span class="text-gray-400 text-sm self-center ml-auto">
             共 {{ filteredTemplates.length }} 个策略
@@ -37,7 +67,10 @@
         </div>
 
         <!-- 策略卡片网格 -->
-        <div v-if="filteredTemplates.length" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div
+          v-if="filteredTemplates.length"
+          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
+        >
           <el-card
             v-for="t in paginatedTemplates"
             :key="t.id"
@@ -47,34 +80,59 @@
           >
             <div class="flex flex-col h-full">
               <div class="flex justify-between items-start mb-2">
-                <h3 class="font-bold text-base leading-tight">{{ t.name }}</h3>
-                <el-tag size="small" :type="getCategoryType(t.category)" effect="light">
+                <h3 class="font-bold text-base leading-tight">
+                  {{ t.name }}
+                </h3>
+                <el-tag
+                  size="small"
+                  :type="getCategoryType(t.category)"
+                  effect="light"
+                >
                   {{ getCategoryLabel(t.category) }}
                 </el-tag>
               </div>
-              <p class="text-gray-500 text-sm mb-3 line-clamp-2 flex-1">{{ stripMeta(t.description) }}</p>
+              <p class="text-gray-500 text-sm mb-3 line-clamp-2 flex-1">
+                {{ stripMeta(t.description) }}
+              </p>
               <div class="flex items-center justify-between text-xs text-gray-400">
                 <span>{{ getParamCount(t) }} 个参数</span>
                 <span>{{ t.id }}</span>
               </div>
               <div class="flex gap-2 mt-3 pt-3 border-t">
-                <el-button size="small" type="primary" @click.stop="openTemplateDetail(t)">
+                <el-button
+                  size="small"
+                  type="primary"
+                  @click.stop="openTemplateDetail(t)"
+                >
                   详情
                 </el-button>
-                <el-button size="small" @click.stop="useTemplate(t)">
+                <el-button
+                  size="small"
+                  @click.stop="useTemplate(t)"
+                >
                   复制为我的策略
                 </el-button>
-                <el-button size="small" type="success" @click.stop="goBacktest(t)">
+                <el-button
+                  size="small"
+                  type="success"
+                  @click.stop="goBacktest(t)"
+                >
                   回测
                 </el-button>
               </div>
             </div>
           </el-card>
         </div>
-        <el-empty v-else description="没有匹配的策略" />
+        <el-empty
+          v-else
+          description="没有匹配的策略"
+        />
 
         <!-- 分页 -->
-        <div v-if="filteredTemplates.length > pageSize" class="flex justify-center mt-6">
+        <div
+          v-if="filteredTemplates.length > pageSize"
+          class="flex justify-center mt-6"
+        >
           <el-pagination
             v-model:current-page="currentPage"
             :page-size="pageSize"
@@ -85,23 +143,75 @@
       </el-tab-pane>
 
       <!-- ========== 我的策略 ========== -->
-      <el-tab-pane label="我的策略" name="my">
-        <el-table :data="strategies" stripe v-loading="loading" empty-text="暂无自定义策略">
-          <el-table-column prop="name" label="策略名称" width="200" />
-          <el-table-column prop="description" label="描述" show-overflow-tooltip />
-          <el-table-column prop="category" label="分类" width="120">
+      <el-tab-pane
+        label="我的策略"
+        name="my"
+      >
+        <el-table
+          v-loading="loading"
+          :data="strategies"
+          stripe
+          empty-text="暂无自定义策略"
+        >
+          <el-table-column
+            prop="name"
+            label="策略名称"
+            width="200"
+          />
+          <el-table-column
+            prop="description"
+            label="描述"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="category"
+            label="分类"
+            width="120"
+          >
             <template #default="{ row }">
-              <el-tag size="small" :type="getCategoryType(row.category)">
+              <el-tag
+                size="small"
+                :type="getCategoryType(row.category)"
+              >
                 {{ getCategoryLabel(row.category) }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="created_at" label="创建时间" width="180" />
-          <el-table-column label="操作" width="220" fixed="right">
+          <el-table-column
+            prop="created_at"
+            label="创建时间"
+            width="180"
+          />
+          <el-table-column
+            label="操作"
+            width="220"
+            fixed="right"
+          >
             <template #default="{ row }">
-              <el-button type="primary" link size="small" @click="viewStrategy(row)">查看</el-button>
-              <el-button type="warning" link size="small" @click="editStrategy(row)">编辑</el-button>
-              <el-button type="danger" link size="small" @click="deleteStrategy(row.id)">删除</el-button>
+              <el-button
+                type="primary"
+                link
+                size="small"
+                @click="viewStrategy(row)"
+              >
+                查看
+              </el-button>
+              <el-button
+                type="warning"
+                link
+                size="small"
+                @click="editStrategy(row)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                type="danger"
+                link
+                size="small"
+                @click="deleteStrategy(row.id)"
+              >
+                删除
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -109,95 +219,228 @@
     </el-tabs>
 
     <!-- ========== 策略详情弹窗 (模板) ========== -->
-    <el-dialog v-model="detailVisible" :title="detailTemplate?.name" width="900px" top="5vh">
-      <div v-if="detailTemplate" class="space-y-4">
+    <el-dialog
+      v-model="detailVisible"
+      :title="detailTemplate?.name"
+      width="900px"
+      top="5vh"
+    >
+      <div
+        v-if="detailTemplate"
+        class="space-y-4"
+      >
         <div class="flex items-center gap-3 flex-wrap">
-          <el-tag :type="getCategoryType(detailTemplate.category)">{{ getCategoryLabel(detailTemplate.category) }}</el-tag>
+          <el-tag :type="getCategoryType(detailTemplate.category)">
+            {{ getCategoryLabel(detailTemplate.category) }}
+          </el-tag>
           <span class="text-gray-400 text-sm">{{ detailTemplate.id }}</span>
         </div>
-        <p class="text-gray-600">{{ stripMeta(detailTemplate.description) }}</p>
+        <p class="text-gray-600">
+          {{ stripMeta(detailTemplate.description) }}
+        </p>
 
         <!-- 参数表 -->
         <div v-if="Object.keys(detailTemplate.params).length">
-          <h4 class="font-bold text-sm mb-2">策略参数</h4>
-          <el-table :data="paramTableData" size="small" border stripe>
-            <el-table-column prop="name" label="参数名" width="180" />
-            <el-table-column prop="default" label="默认值" width="120" />
-            <el-table-column prop="type" label="类型" width="80" />
-            <el-table-column prop="description" label="说明" />
+          <h4 class="font-bold text-sm mb-2">
+            策略参数
+          </h4>
+          <el-table
+            :data="paramTableData"
+            size="small"
+            border
+            stripe
+          >
+            <el-table-column
+              prop="name"
+              label="参数名"
+              width="180"
+            />
+            <el-table-column
+              prop="default"
+              label="默认值"
+              width="120"
+            />
+            <el-table-column
+              prop="type"
+              label="类型"
+              width="80"
+            />
+            <el-table-column
+              prop="description"
+              label="说明"
+            />
           </el-table>
         </div>
 
         <!-- Tab: README / 代码 -->
         <el-tabs v-model="detailTab">
-          <el-tab-pane label="策略文档" name="readme">
-            <div v-if="readmeLoading" class="flex justify-center py-8">
-              <el-icon class="is-loading text-2xl"><Loading /></el-icon>
+          <el-tab-pane
+            label="策略文档"
+            name="readme"
+          >
+            <div
+              v-if="readmeLoading"
+              class="flex justify-center py-8"
+            >
+              <el-icon class="is-loading text-2xl">
+                <Loading />
+              </el-icon>
             </div>
-            <div v-else-if="readmeContent" class="prose prose-sm max-w-none readme-content" v-html="renderedReadme"></div>
-            <el-empty v-else description="暂无文档" />
+            <!-- eslint-disable vue/no-v-html -- Strategy readme Markdown; consider sanitizing with DOMPurify -->
+            <div
+              v-else-if="readmeContent"
+              class="prose prose-sm max-w-none readme-content"
+              v-html="renderedReadme"
+            />
+            <!-- eslint-enable vue/no-v-html -->
+            <el-empty
+              v-else
+              description="暂无文档"
+            />
           </el-tab-pane>
-          <el-tab-pane label="策略代码" name="code">
+          <el-tab-pane
+            label="策略代码"
+            name="code"
+          >
             <MonacoEditor
               v-model="detailTemplate.code"
               language="python"
               :height="450"
-              :readOnly="true"
+              :read-only="true"
               theme="vs"
             />
           </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
-        <el-button @click="detailVisible = false">关闭</el-button>
-        <el-button @click="useTemplate(detailTemplate!)">复制为我的策略</el-button>
-        <el-button type="primary" @click="goBacktest(detailTemplate!)">去回测</el-button>
+        <el-button @click="detailVisible = false">
+          关闭
+        </el-button>
+        <el-button @click="useTemplate(detailTemplate!)">
+          复制为我的策略
+        </el-button>
+        <el-button
+          type="primary"
+          @click="goBacktest(detailTemplate!)"
+        >
+          去回测
+        </el-button>
       </template>
     </el-dialog>
 
     <!-- ========== 创建/编辑弹窗 ========== -->
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑策略' : '创建策略'" width="800px">
-      <el-form :model="form" label-width="100px">
-        <el-form-item label="策略名称" required>
-          <el-input v-model="form.name" placeholder="输入策略名称" />
+    <el-dialog
+      v-model="dialogVisible"
+      :title="isEdit ? '编辑策略' : '创建策略'"
+      width="800px"
+    >
+      <el-form
+        :model="form"
+        label-width="100px"
+      >
+        <el-form-item
+          label="策略名称"
+          required
+        >
+          <el-input
+            v-model="form.name"
+            placeholder="输入策略名称"
+          />
         </el-form-item>
         <el-form-item label="策略描述">
-          <el-input v-model="form.description" type="textarea" rows="2" placeholder="策略描述" />
+          <el-input
+            v-model="form.description"
+            type="textarea"
+            rows="2"
+            placeholder="策略描述"
+          />
         </el-form-item>
         <el-form-item label="策略分类">
-          <el-select v-model="form.category" class="w-full">
-            <el-option label="趋势策略" value="trend" />
-            <el-option label="均值回归" value="mean_reversion" />
-            <el-option label="波动率" value="volatility" />
-            <el-option label="指标策略" value="indicator" />
-            <el-option label="套利策略" value="arbitrage" />
-            <el-option label="自定义" value="custom" />
+          <el-select
+            v-model="form.category"
+            class="w-full"
+          >
+            <el-option
+              label="趋势策略"
+              value="trend"
+            />
+            <el-option
+              label="均值回归"
+              value="mean_reversion"
+            />
+            <el-option
+              label="波动率"
+              value="volatility"
+            />
+            <el-option
+              label="指标策略"
+              value="indicator"
+            />
+            <el-option
+              label="套利策略"
+              value="arbitrage"
+            />
+            <el-option
+              label="自定义"
+              value="custom"
+            />
           </el-select>
         </el-form-item>
-        <el-form-item label="策略代码" required>
-          <MonacoEditor v-model="form.code" language="python" :height="400" theme="vs" />
+        <el-form-item
+          label="策略代码"
+          required
+        >
+          <MonacoEditor
+            v-model="form.code"
+            language="python"
+            :height="400"
+            theme="vs"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveStrategy" :loading="saving">
+        <el-button @click="dialogVisible = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="saving"
+          @click="saveStrategy"
+        >
           {{ isEdit ? '保存' : '创建' }}
         </el-button>
       </template>
     </el-dialog>
 
     <!-- ========== 查看我的策略弹窗 ========== -->
-    <el-dialog v-model="viewDialogVisible" title="策略详情" width="800px">
-      <div v-if="currentStrategy" class="space-y-4">
+    <el-dialog
+      v-model="viewDialogVisible"
+      title="策略详情"
+      width="800px"
+    >
+      <div
+        v-if="currentStrategy"
+        class="space-y-4"
+      >
         <div class="flex justify-between items-center">
-          <h2 class="text-xl font-bold">{{ currentStrategy.name }}</h2>
+          <h2 class="text-xl font-bold">
+            {{ currentStrategy.name }}
+          </h2>
           <el-tag :type="getCategoryType(currentStrategy.category)">
             {{ getCategoryLabel(currentStrategy.category) }}
           </el-tag>
         </div>
-        <p class="text-gray-500">{{ currentStrategy.description }}</p>
+        <p class="text-gray-500">
+          {{ currentStrategy.description }}
+        </p>
         <el-divider />
-        <MonacoEditor v-model="currentStrategy.code" language="python" :height="400" :readOnly="true" theme="vs" />
+        <MonacoEditor
+          v-model="currentStrategy.code"
+          language="python"
+          :height="400"
+          :read-only="true"
+          theme="vs"
+        />
       </div>
     </el-dialog>
   </div>
@@ -211,7 +454,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useStrategyStore } from '@/stores/strategy'
 import { strategyApi } from '@/api/strategy'
 import MonacoEditor from '@/components/common/MonacoEditor.vue'
-import type { Strategy, StrategyTemplate } from '@/types'
+import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
 
 const router = useRouter()
 const strategyStore = useStrategyStore()
@@ -271,7 +514,7 @@ const paginatedTemplates = computed(() => {
 
 const paramTableData = computed(() => {
   if (!detailTemplate.value) return []
-  return Object.entries(detailTemplate.value.params).map(([name, spec]: [string, any]) => ({
+  return Object.entries(detailTemplate.value.params).map(([name, spec]: [string, ParamSpec]) => ({
     name,
     default: spec.default ?? '-',
     type: spec.type ?? '-',
@@ -344,8 +587,8 @@ async function openTemplateDetail(t: StrategyTemplate) {
   readmeContent.value = ''
   readmeLoading.value = true
   try {
-    const res: any = await strategyApi.getTemplateReadme(t.id)
-    readmeContent.value = res.content || ''
+    const res = await strategyApi.getTemplateReadme(t.id)
+    readmeContent.value = res.content ?? ''
   } catch {
     readmeContent.value = ''
   } finally {

@@ -100,6 +100,41 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
+def _scan_running_strategy_pids() -> dict[str, int]:
+    """Scan OS processes for running strategy run.py files.
+
+    Returns:
+        A dict mapping the absolute run.py path to its PID.
+    """
+    import subprocess as _sp
+
+    result: dict[str, int] = {}
+    try:
+        out = _sp.check_output(
+            ["ps", "-eo", "pid,args"], text=True, timeout=5, stderr=_sp.DEVNULL
+        )
+        for line in out.splitlines():
+            line = line.strip()
+            if "run.py" not in line or "strategies" not in line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) < 2:
+                continue
+            try:
+                pid = int(parts[0])
+            except ValueError:
+                continue
+            args = parts[1]
+            # Extract the run.py path from the command args
+            for token in args.split():
+                if token.endswith("run.py") and "strategies" in token:
+                    result[token] = pid
+                    break
+    except Exception:
+        pass
+    return result
+
+
 class LiveTradingManager:
     """Live trading manager (singleton pattern usage).
 
@@ -138,6 +173,9 @@ class LiveTradingManager:
     def list_instances(self, user_id: str = None) -> list[dict]:
         """List live trading instances, optionally filtered by user.
 
+        Also detects externally-started strategy processes by scanning OS
+        processes and matching run.py paths to registered instances.
+
         Args:
             user_id: Optional user ID to filter instances.
 
@@ -146,6 +184,10 @@ class LiveTradingManager:
         """
         instances = _load_instances()
         changed = False
+
+        # Build a map of strategy_id -> resolved run.py path for external detection
+        running_pids = _scan_running_strategy_pids()
+
         # Refresh status for ALL instances (before user filter)
         for iid, inst in instances.items():
             inst["id"] = iid
@@ -155,6 +197,17 @@ class LiveTradingManager:
                     inst["status"] = "stopped"
                     inst["pid"] = None
                     changed = True
+            # Detect externally-started processes for stopped instances
+            if inst.get("status") != "running":
+                try:
+                    strategy_dir = self._resolve_strategy_dir(inst["strategy_id"])
+                    run_py_path = str(strategy_dir / "run.py")
+                    if run_py_path in running_pids:
+                        inst["status"] = "running"
+                        inst["pid"] = running_pids[run_py_path]
+                        changed = True
+                except ValueError:
+                    pass
         if changed:
             _save_instances(instances)
 
@@ -174,11 +227,17 @@ class LiveTradingManager:
     def get_gateway_health(self) -> list[dict[str, Any]]:
         """Return health snapshots for all active gateways.
 
+        Includes both shared GatewayRuntime instances and synthetic entries
+        for running strategy instances that use direct CTP connections.
+
         Returns:
             A list of dicts, one per gateway, each containing the gateway key
             and its health snapshot from GatewayRuntime.health.
         """
         results: list[dict[str, Any]] = []
+        gateway_instance_ids: set[str] = set()
+
+        # 1. Real shared gateway runtimes
         for key, state in self._gateways.items():
             runtime = state.get("runtime")
             if runtime is None:
@@ -189,7 +248,312 @@ class LiveTradingManager:
             snap["ref_count"] = state.get("ref_count", 0)
             snap["instances"] = sorted(state.get("instances", set()))
             results.append(snap)
+            gateway_instance_ids.update(state.get("instances", set()))
+
+        # 2. Synthetic entries for running instances using direct CTP (no gateway)
+        instances = _load_instances()
+        for iid, inst in instances.items():
+            if iid in gateway_instance_ids:
+                continue
+            if inst.get("status") != "running":
+                continue
+            pid = inst.get("pid")
+            if not pid or not _is_pid_alive(pid):
+                continue
+            # Determine exchange/asset type from strategy config
+            strategy_id = inst.get("strategy_id", "")
+            exchange = "CTP"
+            asset_type = "FUTURE"
+            account_id = ""
+            try:
+                strategy_dir = self._resolve_strategy_dir(strategy_id)
+                config_data = self._load_strategy_config(strategy_dir)
+                env_data = self._load_strategy_env(strategy_dir)
+                ctp = config_data.get("ctp", {}) or {}
+                account_id = (
+                    env_data.get("CTP_INVESTOR_ID")
+                    or env_data.get("CTP_USER_ID")
+                    or ctp.get("investor_id", "")
+                )
+            except Exception:
+                pass
+            name = inst.get("strategy_name") or strategy_id
+            results.append({
+                "gateway_key": f"direct:{strategy_id}",
+                "state": "running",
+                "is_healthy": True,
+                "exchange": exchange,
+                "asset_type": asset_type,
+                "account_id": account_id,
+                "market_connection": "connected",
+                "trade_connection": "connected",
+                "uptime_sec": 0,
+                "strategy_count": 1,
+                "symbol_count": 0,
+                "tick_count": 0,
+                "order_count": 0,
+                "heartbeat_age_sec": None,
+                "ref_count": 1,
+                "instances": [iid],
+                "recent_errors": [],
+                "strategy_name": name,
+            })
         return results
+
+    def connect_gateway(
+        self, exchange_type: str, credentials: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Manually connect a gateway with provided credentials.
+
+        Args:
+            exchange_type: Exchange type (CTP, IB_WEB, BINANCE, OKX).
+            credentials: Exchange-specific credential dict.
+
+        Returns:
+            A dict with gateway_key, status, and message.
+        """
+        exchange_type = self._normalize_gateway_exchange_type(exchange_type)
+        account_id = credentials.get("account_id") or credentials.get("user_id") or ""
+        key = f"manual:{exchange_type}:{account_id}"
+
+        # Check if already connected
+        if key in self._gateways:
+            return {"gateway_key": key, "status": "connected", "message": "Gateway already active"}
+
+        if exchange_type == "CTP":
+            return self._connect_ctp_gateway(key, credentials)
+        if exchange_type == "IB_WEB":
+            return self._connect_ib_web_gateway(key, credentials)
+        # Binance / OKX — placeholder: store as connected without runtime
+        self._gateways[key] = {
+            "config": None,
+            "runtime": None,
+            "instances": set(),
+            "ref_count": 0,
+            "lock": threading.Lock(),
+            "manual": True,
+            "exchange_type": exchange_type,
+            "account_id": account_id,
+        }
+        return {
+            "gateway_key": key,
+            "status": "connected",
+            "message": f"{exchange_type} gateway registered (no runtime)",
+        }
+
+    def _connect_ctp_gateway(
+        self, key: str, credentials: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Start a CTP gateway runtime from manual credentials."""
+        required = ["broker_id", "user_id", "password", "td_front", "md_front"]
+        missing = [f for f in required if not credentials.get(f)]
+        if missing:
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": f"Missing required fields: {', '.join(missing)}",
+            }
+        try:
+            gateway_config_cls, gateway_runtime_cls = self._import_gateway_runtime_classes()
+            kwargs = {
+                "exchange_type": "CTP",
+                "asset_type": "FUTURE",
+                "account_id": credentials.get("account_id") or credentials["user_id"],
+                "transport": "ipc",
+                "md_address": credentials["md_front"],
+                "td_address": credentials["td_front"],
+                "broker_id": credentials["broker_id"],
+                "investor_id": credentials["user_id"],
+                "user_id": credentials["user_id"],
+                "password": credentials["password"],
+                "app_id": credentials.get("app_id", "simnow_client_test"),
+                "auth_code": credentials.get("auth_code", "0000000000000000"),
+            }
+            config = gateway_config_cls.from_kwargs(**kwargs)
+            runtime = gateway_runtime_cls(config, **kwargs)
+            runtime.start_in_thread()
+            self._gateways[key] = {
+                "config": config,
+                "runtime": runtime,
+                "instances": set(),
+                "ref_count": 0,
+                "lock": threading.Lock(),
+                "manual": True,
+                "exchange_type": "CTP",
+                "account_id": kwargs["account_id"],
+            }
+            return {
+                "gateway_key": key,
+                "status": "connected",
+                "message": "CTP gateway started successfully",
+            }
+        except Exception as e:
+            logger.exception("Failed to connect CTP gateway %s", key)
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": f"CTP连接失败: {type(e).__name__}: {e}",
+            }
+
+    def _connect_ib_web_gateway(
+        self, key: str, credentials: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Start an IB Web gateway runtime from manual credentials."""
+        account_id = credentials.get("account_id", "")
+        if not account_id:
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": "Missing required field: account_id",
+            }
+        try:
+            gateway_config_cls, gateway_runtime_cls = self._import_gateway_runtime_classes()
+            kwargs = {
+                "exchange_type": "IB_WEB",
+                "asset_type": credentials.get("asset_type", "STK"),
+                "account_id": account_id,
+                "transport": "ipc",
+                "base_url": credentials.get("base_url", "https://localhost:5000"),
+                "verify_ssl": self._coerce_bool(credentials.get("verify_ssl"), default=False),
+                "timeout": self._coerce_float(credentials.get("timeout"), default=10.0),
+            }
+            if credentials.get("access_token"):
+                kwargs["access_token"] = credentials["access_token"]
+            config = gateway_config_cls.from_kwargs(**kwargs)
+            runtime = gateway_runtime_cls(config, **kwargs)
+            runtime.start_in_thread()
+            self._gateways[key] = {
+                "config": config,
+                "runtime": runtime,
+                "instances": set(),
+                "ref_count": 0,
+                "lock": threading.Lock(),
+                "manual": True,
+                "exchange_type": "IB_WEB",
+                "account_id": account_id,
+            }
+            return {
+                "gateway_key": key,
+                "status": "connected",
+                "message": "IB Web gateway started successfully",
+            }
+        except Exception as e:
+            logger.exception("Failed to connect IB Web gateway %s", key)
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": f"IB Web连接失败: {type(e).__name__}: {e}",
+            }
+
+    def query_gateway_account(self, gateway_key: str) -> dict[str, Any] | None:
+        """Query account info from a connected gateway.
+
+        Args:
+            gateway_key: The gateway key to query.
+
+        Returns:
+            Account dict or None if unavailable.
+        """
+        state = self._gateways.get(gateway_key)
+        if state is None:
+            return None
+        runtime = state.get("runtime")
+        if runtime is None:
+            return None
+        try:
+            health = getattr(runtime, "health", None)
+            if health is not None:
+                snap = health.snapshot()
+                return {
+                    "gateway_key": gateway_key,
+                    "exchange": state.get("exchange_type", snap.get("exchange", "")),
+                    "account_id": state.get("account_id", snap.get("account_id", "")),
+                    "state": snap.get("state", "unknown"),
+                    "market_connection": snap.get("market_connection", "unknown"),
+                    "trade_connection": snap.get("trade_connection", "unknown"),
+                }
+            return {"gateway_key": gateway_key, "state": "connected"}
+        except Exception:
+            return {"gateway_key": gateway_key, "state": "error"}
+
+    def query_gateway_positions(self, gateway_key: str) -> list[dict[str, Any]]:
+        """Query positions from a connected gateway.
+
+        Args:
+            gateway_key: The gateway key to query.
+
+        Returns:
+            A list of position dicts.
+        """
+        state = self._gateways.get(gateway_key)
+        if state is None:
+            return []
+        runtime = state.get("runtime")
+        if runtime is None:
+            return []
+        try:
+            positions = getattr(runtime, "positions", None)
+            if positions is not None and callable(positions):
+                return list(positions())
+            pos_dict = getattr(runtime, "_positions", None)
+            if isinstance(pos_dict, dict):
+                return list(pos_dict.values())
+            return []
+        except Exception:
+            return []
+
+    def list_connected_gateways(self) -> list[dict[str, Any]]:
+        """List all manually connected gateways with basic info.
+
+        Returns:
+            A list of dicts with gateway_key and metadata.
+        """
+        results: list[dict[str, Any]] = []
+        for key, state in self._gateways.items():
+            if not state.get("manual"):
+                continue
+            results.append({
+                "gateway_key": key,
+                "exchange_type": state.get("exchange_type", ""),
+                "account_id": state.get("account_id", ""),
+                "has_runtime": state.get("runtime") is not None,
+            })
+        return results
+
+    def disconnect_gateway(self, gateway_key: str) -> dict[str, Any]:
+        """Disconnect a manually-started gateway.
+
+        Args:
+            gateway_key: The gateway key to disconnect.
+
+        Returns:
+            A dict with gateway_key, status, and message.
+        """
+        state = self._gateways.get(gateway_key)
+        if state is None:
+            return {
+                "gateway_key": gateway_key,
+                "status": "error",
+                "message": "Gateway not found",
+            }
+        if not state.get("manual"):
+            return {
+                "gateway_key": gateway_key,
+                "status": "error",
+                "message": "Cannot disconnect a strategy-owned gateway",
+            }
+        runtime = state.get("runtime")
+        if runtime is not None:
+            try:
+                runtime.stop()
+            except Exception:
+                pass
+        self._gateways.pop(gateway_key, None)
+        return {
+            "gateway_key": gateway_key,
+            "status": "disconnected",
+            "message": "Gateway disconnected",
+        }
 
     def get_gateway_presets(self) -> list[dict[str, Any]]:
         return [

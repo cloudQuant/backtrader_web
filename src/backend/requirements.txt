@@ -38,8 +38,9 @@ PyYAML>=6.0.1
 pandas>=2.1.0
 numpy>=1.26.0
 
-# 数据源
+# 数据源与指标
 akshare>=1.12.0
+fincore>=1.0.0
 
 # 测试
 pytest>=8.0.0

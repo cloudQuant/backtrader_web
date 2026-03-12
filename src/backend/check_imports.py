@@ -2,6 +2,7 @@
 """
 Check backend code imports.
 """
+
 import importlib.util
 import sys
 from pathlib import Path
@@ -12,37 +13,37 @@ sys.path.insert(0, str(project_root))
 
 # Check core modules
 modules_to_check = [
-    'app.models.user',
-    'app.models.permission',
-    'app.models.paper_trading',
-    'app.models.comparison',
-    'app.models.strategy_version',
-    'app.models.alerts',
-    'app.schemas.comparison',
-    'app.schemas.strategy_version',
-    'app.schemas.live_trading',
-    'app.schemas.realtime_data',
-    'app.schemas.monitoring',
-    'app.services.paper_trading_service',
-    'app.services.comparison_service',
-    'app.services.strategy_version_service',
-    'app.services.live_trading_service',
-    'app.services.monitoring_service',
-    'app.api.paper_trading',
-    'app.api.comparison',
-    'app.api.strategy_version',
-    'app.api.live_trading',
-    'app.api.realtime_data',
-    'app.api.monitoring',
-    'app.websocket_manager',
-    'app.config',
-    'app.db.database',
-    'app.utils.logger',
+    "app.models.user",
+    "app.models.permission",
+    "app.models.paper_trading",
+    "app.models.comparison",
+    "app.models.strategy_version",
+    "app.models.alerts",
+    "app.schemas.comparison",
+    "app.schemas.strategy_version",
+    "app.schemas.live_trading",
+    "app.schemas.realtime_data",
+    "app.schemas.monitoring",
+    "app.services.paper_trading_service",
+    "app.services.comparison_service",
+    "app.services.strategy_version_service",
+    "app.services.live_trading_service",
+    "app.services.monitoring_service",
+    "app.api.paper_trading",
+    "app.api.comparison",
+    "app.api.strategy_version",
+    "app.api.live_trading",
+    "app.api.realtime_data",
+    "app.api.monitoring",
+    "app.websocket_manager",
+    "app.config",
+    "app.db.database",
+    "app.utils.logger",
 ]
 
-print("="*70)
+print("=" * 70)
 print("Checking Backend Modules")
-print("="*70)
+print("=" * 70)
 print()
 
 all_ok = True
@@ -55,13 +56,13 @@ for module_name in modules_to_check:
         all_ok = False
 
 print()
-print("="*70)
+print("=" * 70)
 if all_ok:
     print("✅ All modules imported successfully!")
-    print("="*70)
+    print("=" * 70)
 else:
     print("✗ Some modules failed to import")
-    print("="*70)
+    print("=" * 70)
 
 print()
 print("Python Path:")

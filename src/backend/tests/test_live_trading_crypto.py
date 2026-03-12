@@ -9,6 +9,7 @@ Tests /api/v1/live-trading-crypto routes:
     - GET /live/tasks/{task_id}/data - Get trading data
     - WebSocket /ws/live/{task_id} - Real-time updates
 """
+
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -34,7 +35,7 @@ def mock_live_trading_service():
     Returns:
         A mocked LiveTradingService instance.
     """
-    with patch('app.services.live_trading_service.LiveTradingService') as mock:
+    with patch("app.services.live_trading_service.LiveTradingService") as mock:
         service = AsyncMock()
         mock.return_value = service
         yield service
@@ -48,12 +49,13 @@ def mock_task_response():
         A LiveTradingTaskResponse with test data.
     """
     from app.schemas.live_trading import LiveTradingTaskResponse
+
     return LiveTradingTaskResponse(
         task_id="task_123",
         user_id="user_123",
         status="running",
         config={"strategy_name": "SMACross", "exchange": "binance"},
-        created_at=datetime.now()
+        created_at=datetime.now(),
     )
 
 
@@ -68,8 +70,7 @@ class TestLiveTradingCryptoSubmitAPI:
             client: Async HTTP client fixture.
         """
         response = await client.post(
-            "/api/v1/live-trading-crypto/live/submit",
-            json=VALID_LIVE_TRADING_REQUEST
+            "/api/v1/live-trading-crypto/live/submit", json=VALID_LIVE_TRADING_REQUEST
         )
         assert response.status_code in [401, 403]
 
@@ -80,7 +81,7 @@ class TestLiveTradingCryptoSubmitAPI:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
 
@@ -90,7 +91,7 @@ class TestLiveTradingCryptoSubmitAPI:
             response = await client.post(
                 "/api/v1/live-trading-crypto/live/submit",
                 headers=auth_headers,
-                json=VALID_LIVE_TRADING_REQUEST
+                json=VALID_LIVE_TRADING_REQUEST,
             )
             # Should return 200 with proper LiveTradingTaskResponse
             assert response.status_code == 200
@@ -121,7 +122,7 @@ class TestLiveTradingCryptoSubmitAPI:
             "sandbox": True,
         }
 
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
 
@@ -129,16 +130,16 @@ class TestLiveTradingCryptoSubmitAPI:
             mock_service.start_live_trading = AsyncMock(return_value="task_full_123")
 
             response = await client.post(
-                "/api/v1/live-trading-crypto/live/submit",
-                headers=auth_headers,
-                json=full_request
+                "/api/v1/live-trading-crypto/live/submit", headers=auth_headers, json=full_request
             )
             assert response.status_code == 200
             data = response.json()
             assert data["task_id"] == "task_full_123"
             assert data["status"] == "submitted"
 
-    async def test_submit_live_strategy_missing_required_fields(self, client: AsyncClient, auth_headers):
+    async def test_submit_live_strategy_missing_required_fields(
+        self, client: AsyncClient, auth_headers
+    ):
         """Test submission with missing required fields.
 
         Args:
@@ -152,9 +153,7 @@ class TestLiveTradingCryptoSubmitAPI:
         }
 
         response = await client.post(
-            "/api/v1/live-trading-crypto/live/submit",
-            headers=auth_headers,
-            json=invalid_request
+            "/api/v1/live-trading-crypto/live/submit", headers=auth_headers, json=invalid_request
         )
         assert response.status_code == 422
 
@@ -179,14 +178,13 @@ class TestLiveTradingCryptoTasksAPI:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
             mock_service.list_tasks = AsyncMock(return_value=[])
 
             response = await client.get(
-                "/api/v1/live-trading-crypto/live/tasks",
-                headers=auth_headers
+                "/api/v1/live-trading-crypto/live/tasks", headers=auth_headers
             )
             assert response.status_code == 200
             data = response.json()
@@ -204,7 +202,7 @@ class TestLiveTradingCryptoTasksAPI:
         """
         from app.schemas.live_trading import LiveTradingTaskResponse
 
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
 
@@ -214,14 +212,14 @@ class TestLiveTradingCryptoTasksAPI:
                     user_id="user_1",
                     status="running",
                     config={},
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
                 LiveTradingTaskResponse(
                     task_id="task_2",
                     user_id="user_1",
                     status="stopped",
                     config={},
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
                 ),
             ]
             mock_service.list_tasks = AsyncMock(return_value=mock_tasks)
@@ -229,7 +227,7 @@ class TestLiveTradingCryptoTasksAPI:
             response = await client.get(
                 "/api/v1/live-trading-crypto/live/tasks",
                 headers=auth_headers,
-                params={"limit": 10, "offset": 0}
+                params={"limit": 10, "offset": 0},
             )
             assert response.status_code == 200
             data = response.json()
@@ -245,9 +243,7 @@ class TestLiveTradingCryptoTasksAPI:
             auth_headers: Authentication headers fixture.
         """
         response = await client.get(
-            "/api/v1/live-trading-crypto/live/tasks",
-            headers=auth_headers,
-            params={"limit": 200}
+            "/api/v1/live-trading-crypto/live/tasks", headers=auth_headers, params={"limit": 200}
         )
         assert response.status_code == 422
 
@@ -272,14 +268,13 @@ class TestLiveTradingCryptoTaskStatusAPI:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
             mock_service.get_task_status = AsyncMock(return_value=None)
 
             response = await client.get(
-                "/api/v1/live-trading-crypto/live/tasks/nonexistent",
-                headers=auth_headers
+                "/api/v1/live-trading-crypto/live/tasks/nonexistent", headers=auth_headers
             )
             assert response.status_code == 404
 
@@ -292,7 +287,7 @@ class TestLiveTradingCryptoTaskStatusAPI:
         """
         from app.schemas.live_trading import LiveTradingTaskResponse
 
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
 
@@ -301,13 +296,12 @@ class TestLiveTradingCryptoTaskStatusAPI:
                 user_id="user_123",
                 status="running",
                 config={"strategy_name": "SMACross"},
-                created_at=datetime.now()
+                created_at=datetime.now(),
             )
             mock_service.get_task_status = AsyncMock(return_value=mock_task)
 
             response = await client.get(
-                "/api/v1/live-trading-crypto/live/tasks/task_123",
-                headers=auth_headers
+                "/api/v1/live-trading-crypto/live/tasks/task_123", headers=auth_headers
             )
             assert response.status_code == 200
             data = response.json()
@@ -335,14 +329,13 @@ class TestLiveTradingCryptoControlAPI:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
             mock_service.stop_live_trading = AsyncMock(return_value=False)
 
             response = await client.post(
-                "/api/v1/live-trading-crypto/live/tasks/nonexistent/stop",
-                headers=auth_headers
+                "/api/v1/live-trading-crypto/live/tasks/nonexistent/stop", headers=auth_headers
             )
             assert response.status_code == 404
 
@@ -353,14 +346,13 @@ class TestLiveTradingCryptoControlAPI:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
             mock_service.stop_live_trading = AsyncMock(return_value=True)
 
             response = await client.post(
-                "/api/v1/live-trading-crypto/live/tasks/task_123/stop",
-                headers=auth_headers
+                "/api/v1/live-trading-crypto/live/tasks/task_123/stop", headers=auth_headers
             )
             assert response.status_code == 200
             data = response.json()
@@ -387,27 +379,22 @@ class TestLiveTradingCryptoDataAPI:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
 
             # Mock get_task_status to return a dict with status
-            mock_service.get_task_status = AsyncMock(return_value={
-                "task_id": "task_123",
-                "status": "running"
-            })
+            mock_service.get_task_status = AsyncMock(
+                return_value={"task_id": "task_123", "status": "running"}
+            )
 
             # Mock get_task_data to return a dict with required fields
-            mock_service.get_task_data = AsyncMock(return_value={
-                "cash": 5000.0,
-                "value": 15000.0,
-                "positions": [],
-                "orders": []
-            })
+            mock_service.get_task_data = AsyncMock(
+                return_value={"cash": 5000.0, "value": 15000.0, "positions": [], "orders": []}
+            )
 
             response = await client.get(
-                "/api/v1/live-trading-crypto/live/tasks/task_123/data",
-                headers=auth_headers
+                "/api/v1/live-trading-crypto/live/tasks/task_123/data", headers=auth_headers
             )
             # Should return 200 with proper LiveTradingDataResponse
             assert response.status_code == 200
@@ -426,14 +413,13 @@ class TestLiveTradingCryptoDataAPI:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        with patch('app.api.live_trading.LiveTradingService') as mock_service_class:
+        with patch("app.api.live_trading.LiveTradingService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service_class.return_value = mock_service
             mock_service.get_task_status = AsyncMock(return_value=None)
 
             response = await client.get(
-                "/api/v1/live-trading-crypto/live/tasks/nonexistent/data",
-                headers=auth_headers
+                "/api/v1/live-trading-crypto/live/tasks/nonexistent/data", headers=auth_headers
             )
             assert response.status_code == 404
 
@@ -475,12 +461,12 @@ class TestLiveTradingCryptoWebSocket:
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
 
-        with patch('app.api.live_trading.ws_manager') as mock_mgr:
+        with patch("app.api.live_trading.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
 
-            with patch('asyncio.sleep', side_effect=Exception("Exit loop")):
+            with patch("asyncio.sleep", side_effect=Exception("Exit loop")):
                 try:
                     await live_trading_websocket(mock_ws, "task_123")
                 except Exception:
@@ -502,7 +488,7 @@ class TestLiveTradingCryptoRouter:
         from app.api.live_trading import router
 
         assert router is not None
-        assert hasattr(router, 'routes')
+        assert hasattr(router, "routes")
 
     async def test_router_has_endpoints(self):
         """Test that router has required endpoints.

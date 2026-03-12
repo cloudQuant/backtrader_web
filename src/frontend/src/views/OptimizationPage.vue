@@ -2,10 +2,15 @@
   <div class="space-y-5">
     <!-- Step 1: 策略选择 + 参数配置 -->
     <el-card v-if="phase === 'config'">
-      <template #header><span class="font-bold">参数优化配置</span></template>
+      <template #header>
+        <span class="font-bold">参数优化配置</span>
+      </template>
 
       <!-- 策略选择 -->
-      <el-form label-width="100px" class="mb-4">
+      <el-form
+        label-width="100px"
+        class="mb-4"
+      >
         <el-form-item label="选择策略">
           <el-select
             v-model="selectedStrategy"
@@ -26,16 +31,42 @@
 
       <!-- 参数网格 -->
       <div v-if="paramRows.length > 0">
-        <el-table :data="paramRows" border size="small" class="mb-4">
-          <el-table-column prop="name" label="参数名" width="140" />
-          <el-table-column prop="type" label="类型" width="70" align="center" />
-          <el-table-column prop="default" label="默认值" width="90" align="center" />
-          <el-table-column label="启用" width="60" align="center">
+        <el-table
+          :data="paramRows"
+          border
+          size="small"
+          class="mb-4"
+        >
+          <el-table-column
+            prop="name"
+            label="参数名"
+            width="140"
+          />
+          <el-table-column
+            prop="type"
+            label="类型"
+            width="70"
+            align="center"
+          />
+          <el-table-column
+            prop="default"
+            label="默认值"
+            width="90"
+            align="center"
+          />
+          <el-table-column
+            label="启用"
+            width="60"
+            align="center"
+          >
             <template #default="{ row }">
               <el-checkbox v-model="row.enabled" />
             </template>
           </el-table-column>
-          <el-table-column label="起始值" width="120">
+          <el-table-column
+            label="起始值"
+            width="120"
+          >
             <template #default="{ row }">
               <el-input-number
                 v-model="row.start"
@@ -47,7 +78,10 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="结束值" width="120">
+          <el-table-column
+            label="结束值"
+            width="120"
+          >
             <template #default="{ row }">
               <el-input-number
                 v-model="row.end"
@@ -59,7 +93,10 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="步长" width="120">
+          <el-table-column
+            label="步长"
+            width="120"
+          >
             <template #default="{ row }">
               <el-input-number
                 v-model="row.step"
@@ -72,25 +109,44 @@
               />
             </template>
           </el-table-column>
-          <el-table-column label="组合数" width="80" align="center">
+          <el-table-column
+            label="组合数"
+            width="80"
+            align="center"
+          >
             <template #default="{ row }">
               <span v-if="row.enabled">{{ calcCount(row) }}</span>
-              <span v-else class="text-gray-400">—</span>
+              <span
+                v-else
+                class="text-gray-400"
+              >—</span>
             </template>
           </el-table-column>
         </el-table>
 
         <!-- 进程数 + 总组合数 -->
         <div class="flex items-center gap-6 mb-4">
-          <el-form-item label="进程数" class="mb-0">
-            <el-input-number v-model="nWorkers" :min="1" :max="32" size="small" />
+          <el-form-item
+            label="进程数"
+            class="mb-0"
+          >
+            <el-input-number
+              v-model="nWorkers"
+              :min="1"
+              :max="32"
+              size="small"
+            />
           </el-form-item>
           <span class="text-gray-600">
             总参数组合: <strong class="text-blue-600">{{ totalCombinations }}</strong>
           </span>
         </div>
 
-        <el-button type="primary" :disabled="totalCombinations === 0" @click="startOptimization">
+        <el-button
+          type="primary"
+          :disabled="totalCombinations === 0"
+          @click="startOptimization"
+        >
           开始优化
         </el-button>
       </div>
@@ -98,15 +154,31 @@
 
     <!-- Step 2: 优化进行中 -->
     <el-card v-if="phase === 'running'">
-      <template #header><span class="font-bold">优化进行中…</span></template>
+      <template #header>
+        <span class="font-bold">优化进行中…</span>
+      </template>
       <div class="space-y-4">
-        <el-progress :percentage="progress.progress" :stroke-width="20" :text-inside="true" />
+        <el-progress
+          :percentage="progress.progress"
+          :stroke-width="20"
+          :text-inside="true"
+        />
         <div class="text-sm text-gray-600">
           已完成: {{ progress.completed }} / {{ progress.total }}
-          <span v-if="progress.failed > 0" class="text-red-500 ml-2">失败: {{ progress.failed }}</span>
+          <span
+            v-if="progress.failed > 0"
+            class="text-red-500 ml-2"
+          >失败: {{ progress.failed }}</span>
           <span class="ml-4">进程数: {{ progress.n_workers }}</span>
         </div>
-        <el-button type="danger" plain size="small" @click="cancelOpt">取消优化</el-button>
+        <el-button
+          type="danger"
+          plain
+          size="small"
+          @click="cancelOpt"
+        >
+          取消优化
+        </el-button>
       </div>
     </el-card>
 
@@ -114,16 +186,27 @@
     <template v-if="phase === 'done' && results">
       <!-- 操作栏 -->
       <div class="flex items-center gap-3">
-        <el-button size="small" @click="phase = 'config'">返回配置</el-button>
+        <el-button
+          size="small"
+          @click="phase = 'config'"
+        >
+          返回配置
+        </el-button>
         <span class="text-gray-500 text-sm">
           共 {{ results.completed }} 组成功 / {{ results.total }} 组
-          <span v-if="results.failed > 0" class="text-red-500">, {{ results.failed }} 组失败</span>
+          <span
+            v-if="results.failed > 0"
+            class="text-red-500"
+          >, {{ results.failed }} 组失败</span>
         </span>
       </div>
 
       <el-tabs v-model="resultTab">
         <!-- 结果列表 -->
-        <el-tab-pane label="结果列表" name="table">
+        <el-tab-pane
+          label="结果列表"
+          name="table"
+        >
           <el-card>
             <el-table
               :data="results.rows"
@@ -142,106 +225,282 @@
                 sortable
                 align="center"
               />
-              <el-table-column prop="annual_return" label="年化收益率%" width="110" sortable align="right">
+              <el-table-column
+                prop="annual_return"
+                label="年化收益率%"
+                width="110"
+                sortable
+                align="right"
+              >
                 <template #default="{ row }">
                   <span :class="row.annual_return >= 0 ? 'text-green-600' : 'text-red-600'">
                     {{ row.annual_return?.toFixed(2) }}
                   </span>
                 </template>
               </el-table-column>
-              <el-table-column prop="sharpe_ratio" label="夏普率" width="90" sortable align="right">
-                <template #default="{ row }">{{ row.sharpe_ratio?.toFixed(4) }}</template>
+              <el-table-column
+                prop="sharpe_ratio"
+                label="夏普率"
+                width="90"
+                sortable
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ row.sharpe_ratio?.toFixed(4) }}
+                </template>
               </el-table-column>
-              <el-table-column prop="max_drawdown" label="最大回撤%" width="100" sortable align="right">
-                <template #default="{ row }">{{ row.max_drawdown?.toFixed(2) }}</template>
+              <el-table-column
+                prop="max_drawdown"
+                label="最大回撤%"
+                width="100"
+                sortable
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ row.max_drawdown?.toFixed(2) }}
+                </template>
               </el-table-column>
-              <el-table-column prop="total_trades" label="交易次数" width="80" sortable align="center" />
-              <el-table-column prop="win_rate" label="胜率%" width="80" sortable align="right">
-                <template #default="{ row }">{{ row.win_rate?.toFixed(1) }}</template>
+              <el-table-column
+                prop="total_trades"
+                label="交易次数"
+                width="80"
+                sortable
+                align="center"
+              />
+              <el-table-column
+                prop="win_rate"
+                label="胜率%"
+                width="80"
+                sortable
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ row.win_rate?.toFixed(1) }}
+                </template>
               </el-table-column>
-              <el-table-column prop="total_return" label="总收益率%" width="100" sortable align="right">
+              <el-table-column
+                prop="total_return"
+                label="总收益率%"
+                width="100"
+                sortable
+                align="right"
+              >
                 <template #default="{ row }">
                   <span :class="row.total_return >= 0 ? 'text-green-600' : 'text-red-600'">
                     {{ row.total_return?.toFixed(2) }}
                   </span>
                 </template>
               </el-table-column>
-              <el-table-column prop="final_value" label="终值" width="110" sortable align="right">
-                <template #default="{ row }">{{ row.final_value?.toFixed(2) }}</template>
+              <el-table-column
+                prop="final_value"
+                label="终值"
+                width="110"
+                sortable
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ row.final_value?.toFixed(2) }}
+                </template>
               </el-table-column>
             </el-table>
           </el-card>
         </el-tab-pane>
 
         <!-- 热力图 (2 params + 1 metric) -->
-        <el-tab-pane label="热力图" name="heatmap">
+        <el-tab-pane
+          label="热力图"
+          name="heatmap"
+        >
           <el-card>
             <div class="flex items-center gap-4 mb-4 flex-wrap">
-              <el-form-item label="X 轴参数" class="mb-0">
-                <el-select v-model="heatmapXParam" size="small" class="w-36">
-                  <el-option v-for="p in results.param_names" :key="p" :label="p" :value="p" />
+              <el-form-item
+                label="X 轴参数"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="heatmapXParam"
+                  size="small"
+                  class="w-36"
+                >
+                  <el-option
+                    v-for="p in results.param_names"
+                    :key="p"
+                    :label="p"
+                    :value="p"
+                  />
                 </el-select>
               </el-form-item>
-              <el-form-item label="Y 轴参数" class="mb-0">
-                <el-select v-model="heatmapYParam" size="small" class="w-36">
-                  <el-option v-for="p in results.param_names" :key="p" :label="p" :value="p" />
+              <el-form-item
+                label="Y 轴参数"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="heatmapYParam"
+                  size="small"
+                  class="w-36"
+                >
+                  <el-option
+                    v-for="p in results.param_names"
+                    :key="p"
+                    :label="p"
+                    :value="p"
+                  />
                 </el-select>
               </el-form-item>
-              <el-form-item label="指标" class="mb-0">
-                <el-select v-model="heatmapMetric" size="small" class="w-40">
-                  <el-option v-for="m in metricOptions" :key="m.value" :label="m.label" :value="m.value" />
+              <el-form-item
+                label="指标"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="heatmapMetric"
+                  size="small"
+                  class="w-40"
+                >
+                  <el-option
+                    v-for="m in metricOptions"
+                    :key="m.value"
+                    :label="m.label"
+                    :value="m.value"
+                  />
                 </el-select>
               </el-form-item>
             </div>
-            <div ref="heatmapRef" style="width:100%;height:500px"></div>
+            <div
+              ref="heatmapRef"
+              style="width:100%;height:500px"
+            />
           </el-card>
         </el-tab-pane>
 
         <!-- 箱体图 (1 param + 1 metric) -->
-        <el-tab-pane label="箱体图" name="boxplot">
+        <el-tab-pane
+          label="箱体图"
+          name="boxplot"
+        >
           <el-card>
             <div class="flex items-center gap-4 mb-4 flex-wrap">
-              <el-form-item label="参数" class="mb-0">
-                <el-select v-model="boxParam" size="small" class="w-36">
-                  <el-option v-for="p in results.param_names" :key="p" :label="p" :value="p" />
+              <el-form-item
+                label="参数"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="boxParam"
+                  size="small"
+                  class="w-36"
+                >
+                  <el-option
+                    v-for="p in results.param_names"
+                    :key="p"
+                    :label="p"
+                    :value="p"
+                  />
                 </el-select>
               </el-form-item>
-              <el-form-item label="指标" class="mb-0">
-                <el-select v-model="boxMetric" size="small" class="w-40">
-                  <el-option v-for="m in metricOptions" :key="m.value" :label="m.label" :value="m.value" />
+              <el-form-item
+                label="指标"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="boxMetric"
+                  size="small"
+                  class="w-40"
+                >
+                  <el-option
+                    v-for="m in metricOptions"
+                    :key="m.value"
+                    :label="m.label"
+                    :value="m.value"
+                  />
                 </el-select>
               </el-form-item>
             </div>
-            <div ref="boxplotRef" style="width:100%;height:500px"></div>
+            <div
+              ref="boxplotRef"
+              style="width:100%;height:500px"
+            />
           </el-card>
         </el-tab-pane>
 
         <!-- 3D 散点图 (3 params + 1 metric) -->
-        <el-tab-pane label="3D散点图" name="scatter3d">
+        <el-tab-pane
+          label="3D散点图"
+          name="scatter3d"
+        >
           <el-card>
             <div class="flex items-center gap-4 mb-4 flex-wrap">
-              <el-form-item label="X 轴" class="mb-0">
-                <el-select v-model="scatter3dX" size="small" class="w-36">
-                  <el-option v-for="p in results.param_names" :key="p" :label="p" :value="p" />
+              <el-form-item
+                label="X 轴"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="scatter3dX"
+                  size="small"
+                  class="w-36"
+                >
+                  <el-option
+                    v-for="p in results.param_names"
+                    :key="p"
+                    :label="p"
+                    :value="p"
+                  />
                 </el-select>
               </el-form-item>
-              <el-form-item label="Y 轴" class="mb-0">
-                <el-select v-model="scatter3dY" size="small" class="w-36">
-                  <el-option v-for="p in results.param_names" :key="p" :label="p" :value="p" />
+              <el-form-item
+                label="Y 轴"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="scatter3dY"
+                  size="small"
+                  class="w-36"
+                >
+                  <el-option
+                    v-for="p in results.param_names"
+                    :key="p"
+                    :label="p"
+                    :value="p"
+                  />
                 </el-select>
               </el-form-item>
-              <el-form-item label="Z 轴" class="mb-0">
-                <el-select v-model="scatter3dZ" size="small" class="w-36">
-                  <el-option v-for="p in results.param_names" :key="p" :label="p" :value="p" />
+              <el-form-item
+                label="Z 轴"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="scatter3dZ"
+                  size="small"
+                  class="w-36"
+                >
+                  <el-option
+                    v-for="p in results.param_names"
+                    :key="p"
+                    :label="p"
+                    :value="p"
+                  />
                 </el-select>
               </el-form-item>
-              <el-form-item label="颜色指标" class="mb-0">
-                <el-select v-model="scatter3dMetric" size="small" class="w-40">
-                  <el-option v-for="m in metricOptions" :key="m.value" :label="m.label" :value="m.value" />
+              <el-form-item
+                label="颜色指标"
+                class="mb-0"
+              >
+                <el-select
+                  v-model="scatter3dMetric"
+                  size="small"
+                  class="w-40"
+                >
+                  <el-option
+                    v-for="m in metricOptions"
+                    :key="m.value"
+                    :label="m.label"
+                    :value="m.value"
+                  />
                 </el-select>
               </el-form-item>
             </div>
-            <div ref="scatter3dRef" style="width:100%;height:600px"></div>
+            <div
+              ref="scatter3dRef"
+              style="width:100%;height:600px"
+            />
           </el-card>
         </el-tab-pane>
       </el-tabs>
@@ -255,15 +514,33 @@ import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import 'echarts-gl'
 import { strategyApi } from '@/api/strategy'
+import { getErrorMessage } from '@/api'
 import { optimizationApi } from '@/api/optimization'
-import type { OptimizationProgress, OptimizationResults, StrategyParam } from '@/api/optimization'
+import type {
+  OptimizationProgress,
+  OptimizationResults,
+  ParamRangeSpec,
+  StrategyParam,
+} from '@/api/optimization'
+
+/** Param row for optimization config (StrategyParam + range fields). */
+interface ParamRow {
+  name: string
+  type: string
+  default: number
+  description: string
+  enabled: boolean
+  start: number
+  end: number
+  step: number
+}
 
 // ---- State ----
 
 const phase = ref<'config' | 'running' | 'done'>('config')
 const templates = ref<{ id: string; name: string }[]>([])
 const selectedStrategy = ref('')
-const paramRows = ref<any[]>([])
+const paramRows = ref<ParamRow[]>([])
 const nWorkers = ref(4)
 const taskId = ref('')
 const progress = ref<OptimizationProgress>({
@@ -304,7 +581,7 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 // ---- Computed ----
 
-function calcCount(row: any): number {
+function calcCount(row: ParamRow): number {
   if (!row.enabled || row.step <= 0) return 0
   return Math.floor((row.end - row.start) / row.step) + 1
 }
@@ -339,8 +616,8 @@ async function onStrategyChange(strategyId: string) {
       end: p.type === 'int' ? p.default + 10 : p.default * 2 || 1,
       step: p.type === 'int' ? 1 : Math.max(p.default * 0.1, 0.1),
     }))
-  } catch (e: any) {
-    ElMessage.error(e.message || '获取参数失败')
+  } catch (e: unknown) {
+    ElMessage.error(getErrorMessage(e, '获取参数失败'))
   }
 }
 
@@ -350,7 +627,7 @@ async function startOptimization() {
   const enabled = paramRows.value.filter(r => r.enabled)
   if (enabled.length === 0) { ElMessage.warning('请至少启用一个参数'); return }
 
-  const paramRanges: Record<string, any> = {}
+  const paramRanges: Record<string, ParamRangeSpec> = {}
   for (const r of enabled) {
     paramRanges[r.name] = { start: r.start, end: r.end, step: r.step, type: r.type }
   }
@@ -365,8 +642,8 @@ async function startOptimization() {
     ElMessage.success(res.message)
     phase.value = 'running'
     startPolling()
-  } catch (e: any) {
-    ElMessage.error(e.message || '提交失败')
+  } catch (e: unknown) {
+    ElMessage.error(getErrorMessage(e, '提交失败'))
   }
 }
 
@@ -415,8 +692,8 @@ async function loadResults() {
     if (r.param_names.length >= 3) {
       scatter3dZ.value = r.param_names[2]
     }
-  } catch (e: any) {
-    ElMessage.error(e.message || '获取结果失败')
+  } catch (e: unknown) {
+    ElMessage.error(getErrorMessage(e, '获取结果失败'))
   }
 }
 
@@ -459,7 +736,8 @@ function renderHeatmap() {
   heatmapChart.setOption({
     tooltip: {
       position: 'top',
-      formatter: (p: any) => `${xKey}=${xVals[p.data[0]]}, ${yKey}=${yVals[p.data[1]]}<br/>${metricLabel}: ${p.data[2]?.toFixed(4)}`,
+      formatter: (p: { data: [number, number, number] }) =>
+        `${xKey}=${xVals[p.data[0]]}, ${yKey}=${yVals[p.data[1]]}<br/>${metricLabel}: ${p.data[2]?.toFixed(4)}`,
     },
     grid: { left: 80, right: 120, top: 30, bottom: 60 },
     xAxis: { type: 'category', data: xVals.map(String), name: xKey },
@@ -541,7 +819,7 @@ function renderScatter3d() {
 
   scatter3dChart.setOption({
     tooltip: {
-      formatter: (p: any) => {
+      formatter: (p: { data: number[] }) => {
         const d = p.data
         return `${xKey}=${d[0]}, ${yKey}=${d[1]}, ${zKey}=${d[2]}<br/>${metricLabel}: ${d[3]?.toFixed(4)}`
       },

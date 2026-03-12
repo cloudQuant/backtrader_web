@@ -6,10 +6,20 @@
         <span class="font-bold">回测配置</span>
       </template>
       
-      <el-form :model="form" label-width="120px" class="max-w-3xl">
+      <el-form
+        :model="form"
+        label-width="120px"
+        class="max-w-3xl"
+      >
         <!-- 策略选择 -->
         <el-form-item label="策略">
-          <el-select v-model="form.strategy_id" placeholder="选择策略" class="w-full" filterable @change="onStrategyChange">
+          <el-select
+            v-model="form.strategy_id"
+            placeholder="选择策略"
+            class="w-full"
+            filterable
+            @change="onStrategyChange"
+          >
             <el-option
               v-for="t in templates"
               :key="t.id"
@@ -20,18 +30,30 @@
         </el-form-item>
 
         <!-- 策略描述 -->
-        <el-form-item v-if="strategyConfig" label="策略说明">
+        <el-form-item
+          v-if="strategyConfig"
+          label="策略说明"
+        >
           <div class="text-gray-500 text-sm">
             <span v-if="strategyConfig.strategy.description">{{ strategyConfig.strategy.description }}</span>
-            <span v-if="strategyConfig.strategy.author" class="ml-2 text-gray-400">— {{ strategyConfig.strategy.author }}</span>
+            <span
+              v-if="strategyConfig.strategy.author"
+              class="ml-2 text-gray-400"
+            >— {{ strategyConfig.strategy.author }}</span>
           </div>
         </el-form-item>
 
         <!-- 动态策略参数（从config.yaml的params段读取） -->
         <template v-if="Object.keys(dynamicParams).length > 0">
-          <el-divider content-position="left">策略参数</el-divider>
+          <el-divider content-position="left">
+            策略参数
+          </el-divider>
           <el-row :gutter="20">
-            <el-col :span="12" v-for="(val, key) in dynamicParams" :key="key">
+            <el-col
+              v-for="(val, key) in dynamicParams"
+              :key="key"
+              :span="12"
+            >
               <el-form-item :label="String(key)">
                 <el-input-number
                   v-if="typeof val === 'number'"
@@ -51,22 +73,36 @@
         </template>
         
         <el-form-item>
-          <el-button type="primary" :loading="loading" @click="runBacktest">
+          <el-button
+            type="primary"
+            :loading="loading"
+            @click="runBacktest"
+          >
             运行回测
           </el-button>
-          <el-button v-if="loading && currentTaskId" type="danger" @click="cancelBacktest">
+          <el-button
+            v-if="loading && currentTaskId"
+            type="danger"
+            @click="cancelBacktest"
+          >
             取消
           </el-button>
         </el-form-item>
       </el-form>
       
       <!-- 进度条 -->
-      <div v-if="loading && progressInfo.progress > 0" class="mt-4">
+      <div
+        v-if="loading && progressInfo.progress > 0"
+        class="mt-4"
+      >
         <div class="flex justify-between text-sm text-gray-500 mb-1">
           <span>{{ progressInfo.message }}</span>
           <span>{{ progressInfo.progress }}%</span>
         </div>
-        <el-progress :percentage="progressInfo.progress" :status="progressInfo.progress >= 100 ? 'success' : undefined" />
+        <el-progress
+          :percentage="progressInfo.progress"
+          :status="progressInfo.progress >= 100 ? 'success' : undefined"
+        />
       </div>
     </el-card>
     
@@ -79,49 +115,71 @@
       <!-- 指标面板 -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">总收益率</div>
-          <div class="text-2xl font-bold" :class="currentResult.total_return >= 0 ? 'text-green-500' : 'text-red-500'">
+          <div class="text-gray-500 text-sm">
+            总收益率
+          </div>
+          <div
+            class="text-2xl font-bold"
+            :class="currentResult.total_return >= 0 ? 'text-green-500' : 'text-red-500'"
+          >
             {{ (currentResult.total_return ?? 0).toFixed(2) }}%
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">年化收益</div>
-          <div class="text-2xl font-bold" :class="currentResult.annual_return >= 0 ? 'text-green-500' : 'text-red-500'">
+          <div class="text-gray-500 text-sm">
+            年化收益
+          </div>
+          <div
+            class="text-2xl font-bold"
+            :class="currentResult.annual_return >= 0 ? 'text-green-500' : 'text-red-500'"
+          >
             {{ (currentResult.annual_return ?? 0).toFixed(2) }}%
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">夏普比率</div>
+          <div class="text-gray-500 text-sm">
+            夏普比率
+          </div>
           <div class="text-2xl font-bold text-gray-800">
             {{ (currentResult.sharpe_ratio ?? 0).toFixed(2) }}
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">最大回撤</div>
+          <div class="text-gray-500 text-sm">
+            最大回撤
+          </div>
           <div class="text-2xl font-bold text-red-500">
             {{ (currentResult.max_drawdown ?? 0).toFixed(2) }}%
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">胜率</div>
+          <div class="text-gray-500 text-sm">
+            胜率
+          </div>
           <div class="text-2xl font-bold text-gray-800">
             {{ (currentResult.win_rate ?? 0).toFixed(1) }}%
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">总交易次数</div>
+          <div class="text-gray-500 text-sm">
+            总交易次数
+          </div>
           <div class="text-2xl font-bold text-gray-800">
             {{ currentResult.total_trades }}
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">盈利次数</div>
+          <div class="text-gray-500 text-sm">
+            盈利次数
+          </div>
           <div class="text-2xl font-bold text-green-500">
             {{ currentResult.profitable_trades }}
           </div>
         </div>
         <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">亏损次数</div>
+          <div class="text-gray-500 text-sm">
+            亏损次数
+          </div>
           <div class="text-2xl font-bold text-red-500">
             {{ currentResult.losing_trades }}
           </div>
@@ -157,42 +215,87 @@
         <span class="font-bold">回测历史</span>
       </template>
       
-      <el-table :data="results" stripe v-loading="backtestStore.loading">
-        <el-table-column label="策略" width="180">
+      <el-table
+        v-loading="backtestStore.loading"
+        :data="results"
+        stripe
+      >
+        <el-table-column
+          label="策略"
+          width="180"
+        >
           <template #default="{ row }">
             {{ getStrategyName(row.strategy_id) }}
           </template>
         </el-table-column>
-        <el-table-column prop="symbol" label="标的" width="120" />
-        <el-table-column label="收益率" width="100">
+        <el-table-column
+          prop="symbol"
+          label="标的"
+          width="120"
+        />
+        <el-table-column
+          label="收益率"
+          width="100"
+        >
           <template #default="{ row }">
             <span :class="row.total_return >= 0 ? 'text-green-500' : 'text-red-500'">
               {{ (row.total_return ?? 0).toFixed(2) }}%
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="夏普" width="80">
-          <template #default="{ row }">{{ (row.sharpe_ratio ?? 0).toFixed(2) }}</template>
+        <el-table-column
+          label="夏普"
+          width="80"
+        >
+          <template #default="{ row }">
+            {{ (row.sharpe_ratio ?? 0).toFixed(2) }}
+          </template>
         </el-table-column>
-        <el-table-column label="回撤" width="80">
+        <el-table-column
+          label="回撤"
+          width="80"
+        >
           <template #default="{ row }">
             <span class="text-red-500">{{ (row.max_drawdown ?? 0).toFixed(2) }}%</span>
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column
+          label="状态"
+          width="100"
+        >
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
+            <el-tag
+              :type="getStatusType(row.status)"
+              size="small"
+            >
               {{ getStatusText(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" />
-        <el-table-column label="操作" width="120">
+        <el-table-column
+          prop="created_at"
+          label="创建时间"
+          width="180"
+        />
+        <el-table-column
+          label="操作"
+          width="120"
+        >
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="viewResult(row)">
+            <el-button
+              type="primary"
+              link
+              size="small"
+              @click="viewResult(row)"
+            >
               查看
             </el-button>
-            <el-button type="danger" link size="small" @click="deleteBacktest(row.task_id)">
+            <el-button
+              type="danger"
+              link
+              size="small"
+              @click="deleteBacktest(row.task_id)"
+            >
               删除
             </el-button>
           </template>
@@ -214,6 +317,7 @@ import EquityCurve from '@/components/charts/EquityCurve.vue'
 import type { BacktestResult, StrategyConfig } from '@/types'
 import dayjs from 'dayjs'
 import { exportToCSV, exportToJSON, downloadFile } from '@/utils/exportUtils'
+import { getAccessToken } from '@/utils/session'
 
 const router = useRouter()
 const route = useRoute()
@@ -296,7 +400,9 @@ function getStatusText(status: string) {
 function connectWebSocket(taskId: string) {
   // BUG-4: 使用相对路径，通过 Vite 代理或 Nginx 转发，兼容开发和生产环境
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const wsUrl = `${wsProtocol}//${window.location.host}/ws/backtest/${taskId}`
+  const token = getAccessToken()
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ''
+  const wsUrl = `${wsProtocol}//${window.location.host}/ws/backtest/${taskId}${tokenParam}`
   ws = new WebSocket(wsUrl)
   
   // OPT-17: WebSocket 心跳保活，防止中间代理断开空闲连接

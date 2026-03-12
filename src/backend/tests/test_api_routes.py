@@ -2,6 +2,7 @@
 API route coverage tests - Cover data, comparison, paper_trading, strategy_version,
 realtime, monitoring, live_trading, optimization and other low-coverage API routes.
 """
+
 from httpx import AsyncClient
 
 
@@ -16,7 +17,10 @@ class TestDataAPI:
 
     async def test_query_kline(self, client: AsyncClient, auth_headers: dict):
         """Test K-line query with authentication."""
-        resp = await client.get("/api/v1/data/kline?symbol=000001.SZ&start_date=2024-01-01&end_date=2024-01-31", headers=auth_headers)
+        resp = await client.get(
+            "/api/v1/data/kline?symbol=000001.SZ&start_date=2024-01-01&end_date=2024-01-31",
+            headers=auth_headers,
+        )
         # May fail with external API, accept various status codes
         assert resp.status_code in [200, 422, 500]
 
@@ -72,14 +76,18 @@ class TestStrategyVersionAPI:
 
     async def test_list_versions_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test listing versions for non-existent strategy."""
-        resp = await client.get("/api/v1/strategy-versions/nonexistent/versions", headers=auth_headers)
+        resp = await client.get(
+            "/api/v1/strategy-versions/nonexistent/versions", headers=auth_headers
+        )
         assert resp.status_code in [200, 404]
 
     async def test_create_version_no_strategy(self, client: AsyncClient, auth_headers: dict):
         """Test creating version for non-existent strategy."""
-        resp = await client.post("/api/v1/strategy-versions/nonexistent/versions", headers=auth_headers, json={
-            "code": "pass", "description": "test"
-        })
+        resp = await client.post(
+            "/api/v1/strategy-versions/nonexistent/versions",
+            headers=auth_headers,
+            json={"code": "pass", "description": "test"},
+        )
         assert resp.status_code in [404, 422]
 
 

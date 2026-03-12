@@ -1,6 +1,7 @@
 """
 Sandbox security execution tests.
 """
+
 from unittest.mock import patch
 
 import backtrader as bt
@@ -141,73 +142,74 @@ class TestCreateSafeGlobals:
 
     def test_safe_globals_has_builtins(self):
         g = StrategySandbox._create_safe_globals()
-        assert '__builtins__' in g
-        assert 'abs' in g['__builtins__']
-        assert 'int' in g['__builtins__']
+        assert "__builtins__" in g
+        assert "abs" in g["__builtins__"]
+        assert "int" in g["__builtins__"]
 
     def test_safe_globals_has_bt(self):
         g = StrategySandbox._create_safe_globals()
         import backtrader as bt
-        assert g['bt'] is bt
+
+        assert g["bt"] is bt
 
     def test_safe_globals_has_safe_import(self):
         g = StrategySandbox._create_safe_globals()
-        assert '__import__' in g
+        assert "__import__" in g
 
     def test_safe_globals_has_datetime(self):
         """Test contains datetime module."""
         g = StrategySandbox._create_safe_globals()
-        assert 'datetime' in g
+        assert "datetime" in g
 
     def test_safe_globals_has_math(self):
         """Test contains math module."""
         g = StrategySandbox._create_safe_globals()
-        assert 'math' in g
+        assert "math" in g
 
     def test_safe_globals_has_safe_print(self):
         """Test contains safe print function."""
         g = StrategySandbox._create_safe_globals()
-        assert '__print__' in g
+        assert "__print__" in g
 
     def test_safe_globals_no_dangerous_builtins(self):
         """Test does not contain dangerous built-in functions."""
         g = StrategySandbox._create_safe_globals()
-        assert 'print' not in g['__builtins__']
-        assert 'open' not in g['__builtins__']
-        assert 'eval' not in g['__builtins__']
-        assert 'exec' not in g['__builtins__']
+        assert "print" not in g["__builtins__"]
+        assert "open" not in g["__builtins__"]
+        assert "eval" not in g["__builtins__"]
+        assert "exec" not in g["__builtins__"]
 
 
 class TestSafeImport:
     """Safe import tests."""
 
     def test_allowed_import(self):
-        result = StrategySandbox._safe_import('datetime')
+        result = StrategySandbox._safe_import("datetime")
         assert result is not None
 
     def test_disallowed_import(self):
         with pytest.raises(ImportError, match="is not allowed"):
-            StrategySandbox._safe_import('os')
+            StrategySandbox._safe_import("os")
 
     def test_allowed_import_math(self):
         """Test allowed import of math."""
-        result = StrategySandbox._safe_import('math')
+        result = StrategySandbox._safe_import("math")
         assert result is not None
 
     def test_allowed_import_bt(self):
         """Test allowed import of bt."""
-        result = StrategySandbox._safe_import('bt')
+        result = StrategySandbox._safe_import("bt")
         assert result is not None
 
     def test_disallowed_import_socket(self):
         """Test disallowed import of socket."""
         with pytest.raises(ImportError, match="is not allowed"):
-            StrategySandbox._safe_import('socket')
+            StrategySandbox._safe_import("socket")
 
     def test_import_datetime_class(self):
         """Test accessing datetime through import."""
         # In _ALLOWED_MODULES, datetime is the datetime class (from datetime module)
-        result = StrategySandbox._safe_import('datetime')
+        result = StrategySandbox._safe_import("datetime")
         assert result is not None
         # Result should be datetime class (because class is stored in _ALLOWED_MODULES)
         # not the datetime module
@@ -215,7 +217,7 @@ class TestSafeImport:
     def test_import_nonexistent_submodule(self):
         """Test import of non-existent submodule."""
         with pytest.raises(ImportError, match="Cannot import"):
-            StrategySandbox._safe_import('datetime.nonexistent')
+            StrategySandbox._safe_import("datetime.nonexistent")
 
     def test_safe_print_does_nothing(self):
         """Test safe print does nothing."""
@@ -232,7 +234,7 @@ class TestExecuteStrategyCode:
         result = StrategySandbox.execute_strategy_code(VALID_STRATEGY)
         assert result is not None
         assert issubclass(result, bt.Strategy)
-        assert result.__name__ == 'MyStrategy'
+        assert result.__name__ == "MyStrategy"
 
     def test_execute_no_strategy_class(self):
         """Test code without strategy class."""
@@ -254,7 +256,7 @@ class TestStrategy(bt.Strategy):
         if custom_param is not None:
             self.custom = custom_param
 """
-        result = StrategySandbox.execute_strategy_code(code, params={'custom_param': 42})
+        result = StrategySandbox.execute_strategy_code(code, params={"custom_param": 42})
         assert result is not None
         assert issubclass(result, bt.Strategy)
 
@@ -334,7 +336,7 @@ class SecondStrategy(bt.Strategy):
 """
         result = StrategySandbox.execute_strategy_code(code)
         assert result is not None
-        assert result.__name__ == 'FirstStrategy'
+        assert result.__name__ == "FirstStrategy"
 
     def test_execute_with_indicators(self):
         """Test using indicators."""
@@ -436,7 +438,7 @@ class TestExecuteStrategySafely:
 
     def test_execute_safely_with_params(self):
         """Test with parameters."""
-        result = execute_strategy_safely(VALID_STRATEGY, params={'period': 20}, use_docker=False)
+        result = execute_strategy_safely(VALID_STRATEGY, params={"period": 20}, use_docker=False)
         assert result is not None
         assert issubclass(result, bt.Strategy)
 

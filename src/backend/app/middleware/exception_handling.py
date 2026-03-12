@@ -7,7 +7,7 @@ error format to API consumers.
 """
 
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -29,9 +29,9 @@ class ErrorResponse:
         status_code: int,
         error: str,
         message: str,
-        details: Optional[Dict[str, Any]] = None,
-        request_id: Optional[str] = None,
-        path: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        request_id: str | None = None,
+        path: str | None = None,
     ):
         """Initialize error response.
 
@@ -50,7 +50,7 @@ class ErrorResponse:
         self.request_id = request_id
         self.path = path
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON response.
 
         Returns:
@@ -199,6 +199,35 @@ async def handle_request_validation_error(
     )
 
 
+def _extract_http_detail_message(detail: Any) -> tuple[str, dict[str, Any] | None]:
+    """Extract user-friendly message and optional details from HTTPException detail.
+
+    Supports FastAPI/Starlette formats: str, list (validation errors), dict.
+    """
+    if isinstance(detail, str):
+        return detail, None
+    if isinstance(detail, list):
+        messages = []
+        for item in detail:
+            if isinstance(item, dict):
+                msg = item.get("msg", item.get("message", "Invalid value"))
+                loc = item.get("loc", [])
+                if loc:
+                    field = ".".join(
+                        str(p) for p in (loc if isinstance(loc, (list, tuple)) else [loc])
+                    )
+                    messages.append(f"{field}: {msg}")
+                else:
+                    messages.append(str(msg))
+            else:
+                messages.append(str(item))
+        return "; ".join(messages) if messages else "Request failed", {"fields": detail}
+    if isinstance(detail, dict):
+        msg = detail.get("message", detail.get("detail", "Request failed"))
+        return str(msg), detail
+    return "Request failed", None
+
+
 async def handle_http_exception(
     request: Request,
     exc: StarletteHTTPException,
@@ -220,8 +249,7 @@ async def handle_http_exception(
         },
     )
 
-    message = detail if isinstance(detail, str) else "Request failed"
-    details: Optional[Dict[str, Any]] = detail if isinstance(detail, dict) else None
+    message, details = _extract_http_detail_message(detail)
 
     error_response = ErrorResponse(
         status_code=status_code,

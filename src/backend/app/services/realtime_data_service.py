@@ -6,7 +6,7 @@ Supports tick subscription and streaming across brokers.
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -29,15 +29,15 @@ class RealTimeDataService:
     def __init__(self):
         """Initialize the RealTimeDataService with empty subscriptions and cache."""
         # User-subscribed symbols {user_id: {broker_id: [symbols]}}
-        self._subscriptions: Dict[str, Dict[str, List[str]]] = {}
+        self._subscriptions: dict[str, dict[str, list[str]]] = {}
         # Latest tick cache {broker_id: {symbol: tick_data}}
-        self._tick_cache: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        self._tick_cache: dict[str, dict[str, dict[str, Any]]] = {}
 
     async def subscribe_ticks(
         self,
         user_id: str,
-        broker_id: Optional[str],
-        symbols: List[str],
+        broker_id: str | None,
+        symbols: list[str],
     ) -> None:
         """Subscribe to real-time market data for the specified symbols.
 
@@ -63,8 +63,8 @@ class RealTimeDataService:
     async def unsubscribe_ticks(
         self,
         user_id: str,
-        broker_id: Optional[str],
-        symbols: List[str],
+        broker_id: str | None,
+        symbols: list[str],
     ) -> None:
         """Unsubscribe from real-time market data for the specified symbols.
 
@@ -85,8 +85,8 @@ class RealTimeDataService:
     async def get_subscribed_symbols(
         self,
         user_id: str,
-        broker_id: Optional[str],
-    ) -> List[str]:
+        broker_id: str | None,
+    ) -> list[str]:
         """Get the list of symbols subscribed by a user.
 
         Args:
@@ -106,9 +106,9 @@ class RealTimeDataService:
     async def get_tick(
         self,
         user_id: str,
-        broker_id: Optional[str],
+        broker_id: str | None,
         symbol: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get the latest market data for a single symbol.
 
         Args:
@@ -154,9 +154,9 @@ class RealTimeDataService:
     async def get_ticks(
         self,
         user_id: str,
-        broker_id: Optional[str],
-        symbols: List[str],
-    ) -> Dict[str, Any]:
+        broker_id: str | None,
+        symbols: list[str],
+    ) -> dict[str, Any]:
         """Get the latest market data for multiple symbols in batch.
 
         Args:
@@ -180,7 +180,7 @@ class RealTimeDataService:
         start_date: datetime,
         end_date: datetime,
         frequency: str = "1d",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get historical market data for a symbol.
 
         Args:
@@ -207,7 +207,7 @@ class RealTimeDataService:
         self,
         broker_id: str,
         symbol: str,
-        tick_data: Dict[str, Any],
+        tick_data: dict[str, Any],
     ) -> None:
         """Update the tick data cache (internal method for data sources).
 

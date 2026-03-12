@@ -57,6 +57,169 @@
       </div>
     </el-card>
 
+    <!-- 自动交易调度 -->
+    <el-card>
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <h4 class="text-md font-bold">
+            自动交易调度
+          </h4>
+          <el-switch
+            v-model="autoTradingEnabled"
+            :loading="autoTradingLoading"
+            active-text="已启用"
+            inactive-text="已关闭"
+            @change="handleAutoTradingToggle"
+          />
+          <el-tag
+            v-if="autoTradingEnabled"
+            type="success"
+            size="small"
+          >
+            缓冲 {{ autoTradingConfig.buffer_minutes }} 分钟
+          </el-tag>
+        </div>
+        <el-button
+          size="small"
+          :icon="Setting"
+          @click="showAutoTradingDialog = true"
+        >
+          配置
+        </el-button>
+      </div>
+      <div
+        v-if="autoTradingSchedule.length > 0"
+        class="mt-3"
+      >
+        <el-table
+          :data="autoTradingSchedule"
+          size="small"
+          border
+          class="w-full"
+        >
+          <el-table-column
+            prop="session"
+            label="交易时段"
+            min-width="120"
+          />
+          <el-table-column
+            prop="start"
+            label="策略启动时间"
+            min-width="140"
+          />
+          <el-table-column
+            prop="stop"
+            label="策略停止时间"
+            min-width="140"
+          />
+        </el-table>
+      </div>
+    </el-card>
+
+    <!-- 自动交易配置对话框 -->
+    <el-dialog
+      v-model="showAutoTradingDialog"
+      title="自动交易配置"
+      width="520px"
+    >
+      <el-form
+        label-width="100px"
+        class="space-y-2"
+      >
+        <el-form-item label="启用">
+          <el-switch v-model="autoTradingForm.enabled" />
+        </el-form-item>
+        <el-form-item label="缓冲时间">
+          <el-input-number
+            v-model="autoTradingForm.buffer_minutes"
+            :min="0"
+            :max="60"
+            :step="5"
+          />
+          <span class="ml-2 text-sm text-gray-500">分钟（开盘前启动 / 收盘后停止）</span>
+        </el-form-item>
+        <el-form-item label="作用范围">
+          <el-select
+            v-model="autoTradingForm.scope"
+            class="w-40"
+          >
+            <el-option
+              label="所有实例"
+              value="all"
+            />
+            <el-option
+              label="仅实盘"
+              value="live"
+            />
+            <el-option
+              label="仅模拟"
+              value="simulation"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="交易时段">
+          <div class="space-y-2 w-full">
+            <div
+              v-for="(sess, idx) in autoTradingForm.sessions"
+              :key="idx"
+              class="flex items-center gap-2"
+            >
+              <el-input
+                v-model="sess.name"
+                placeholder="时段名"
+                class="w-28"
+                size="small"
+              />
+              <el-time-picker
+                v-model="sess.open"
+                placeholder="开盘"
+                format="HH:mm"
+                value-format="HH:mm"
+                size="small"
+                class="w-28"
+              />
+              <span class="text-gray-400">–</span>
+              <el-time-picker
+                v-model="sess.close"
+                placeholder="收盘"
+                format="HH:mm"
+                value-format="HH:mm"
+                size="small"
+                class="w-28"
+              />
+              <el-button
+                type="danger"
+                size="small"
+                plain
+                :disabled="autoTradingForm.sessions.length <= 1"
+                @click="autoTradingForm.sessions.splice(idx, 1)"
+              >
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </div>
+            <el-button
+              size="small"
+              @click="autoTradingForm.sessions.push({ name: '', open: '09:00', close: '15:00' })"
+            >
+              <el-icon><Plus /></el-icon>添加时段
+            </el-button>
+          </div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showAutoTradingDialog = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="autoTradingLoading"
+          @click="handleSaveAutoTrading"
+        >
+          保存
+        </el-button>
+      </template>
+    </el-dialog>
+
     <!-- 策略列表 -->
     <div
       v-if="loading"
@@ -457,6 +620,7 @@ import {
   Delete,
   View,
   Loading,
+  Setting,
 } from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/api'
 import { liveTradingApi } from '@/api/liveTrading'
@@ -465,6 +629,8 @@ import type {
   LiveGatewayPresetInfo,
   LiveInstanceInfo,
 } from '@/api/liveTrading'
+import { autoTradingApi } from '@/api/autoTrading'
+import type { AutoTradingConfig, ScheduleItem } from '@/api/autoTrading'
 import { strategyApi } from '@/api/strategy'
 import type { StrategyTemplate } from '@/types'
 import {
@@ -488,6 +654,86 @@ const detailInstance = ref<LiveInstanceInfo | null>(null)
 
 const addForm = ref({ strategy_id: '', gatewayPresetId: '' })
 const gatewayOverrides = reactive<Record<string, string | boolean>>({})
+
+const autoTradingEnabled = ref(false)
+const autoTradingLoading = ref(false)
+const showAutoTradingDialog = ref(false)
+const autoTradingConfig = reactive<AutoTradingConfig>({
+  enabled: false,
+  buffer_minutes: 15,
+  sessions: [
+    { name: '日盘', open: '09:00', close: '15:00' },
+    { name: '夜盘', open: '21:00', close: '23:00' },
+  ],
+  scope: 'all',
+})
+const autoTradingForm = reactive<AutoTradingConfig>({
+  enabled: false,
+  buffer_minutes: 15,
+  sessions: [
+    { name: '日盘', open: '09:00', close: '15:00' },
+    { name: '夜盘', open: '21:00', close: '23:00' },
+  ],
+  scope: 'all',
+})
+const autoTradingSchedule = ref<ScheduleItem[]>([])
+
+async function loadAutoTradingConfig() {
+  try {
+    const [cfg, schedRes] = await Promise.all([
+      autoTradingApi.getConfig(),
+      autoTradingApi.getSchedule(),
+    ])
+    Object.assign(autoTradingConfig, cfg)
+    autoTradingEnabled.value = cfg.enabled
+    autoTradingSchedule.value = schedRes.schedule
+  } catch {
+    // silently ignore — auto-trading may not be available
+  }
+}
+
+async function handleAutoTradingToggle(val: boolean | string | number) {
+  autoTradingLoading.value = true
+  try {
+    const updated = await autoTradingApi.updateConfig({ enabled: !!val })
+    Object.assign(autoTradingConfig, updated)
+    autoTradingEnabled.value = updated.enabled
+    ElMessage.success(updated.enabled ? '自动交易已启用' : '自动交易已关闭')
+    const schedRes = await autoTradingApi.getSchedule()
+    autoTradingSchedule.value = schedRes.schedule
+  } catch (e: unknown) {
+    autoTradingEnabled.value = !val
+    ElMessage.error(getErrorMessage(e, '更新自动交易配置失败'))
+  } finally {
+    autoTradingLoading.value = false
+  }
+}
+
+async function handleSaveAutoTrading() {
+  autoTradingLoading.value = true
+  try {
+    const updated = await autoTradingApi.updateConfig({ ...autoTradingForm })
+    Object.assign(autoTradingConfig, updated)
+    autoTradingEnabled.value = updated.enabled
+    showAutoTradingDialog.value = false
+    ElMessage.success('自动交易配置已保存')
+    const schedRes = await autoTradingApi.getSchedule()
+    autoTradingSchedule.value = schedRes.schedule
+  } catch (e: unknown) {
+    ElMessage.error(getErrorMessage(e, '保存自动交易配置失败'))
+  } finally {
+    autoTradingLoading.value = false
+  }
+}
+
+watch(showAutoTradingDialog, (visible) => {
+  if (visible) {
+    autoTradingForm.enabled = autoTradingConfig.enabled
+    autoTradingForm.buffer_minutes = autoTradingConfig.buffer_minutes
+    autoTradingForm.sessions = autoTradingConfig.sessions.map(s => ({ ...s }))
+    autoTradingForm.scope = autoTradingConfig.scope
+  }
+})
 
 async function loadData() {
   loading.value = true
@@ -705,5 +951,6 @@ function openDetail(inst: LiveInstanceInfo) {
 
 onMounted(() => {
   loadData()
+  loadAutoTradingConfig()
 })
 </script>

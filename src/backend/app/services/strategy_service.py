@@ -4,7 +4,6 @@ import logging
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import yaml
 
@@ -90,7 +89,7 @@ def _infer_category(name: str, description: str) -> str:
     return "custom"
 
 
-def _scan_strategies_folder(strategy_type: StrategyType) -> List[StrategyTemplate]:
+def _scan_strategies_folder(strategy_type: StrategyType) -> list[StrategyTemplate]:
     """Scan strategies/ directory and auto-build strategy template list.
 
     Args:
@@ -99,7 +98,7 @@ def _scan_strategies_folder(strategy_type: StrategyType) -> List[StrategyTemplat
     Returns:
         List of StrategyTemplate objects parsed from strategy directories.
     """
-    templates: List[StrategyTemplate] = []
+    templates: list[StrategyTemplate] = []
 
     target_dir = STRATEGIES_DIR / strategy_type.value
     if not target_dir.is_dir():
@@ -110,7 +109,7 @@ def _scan_strategies_folder(strategy_type: StrategyType) -> List[StrategyTemplat
         strategy_dir = config_path.parent
         dir_name = strategy_dir.name
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with open(config_path, encoding="utf-8") as f:
                 config = yaml.safe_load(f) or {}
 
             strat_info = config.get("strategy", {})
@@ -124,7 +123,7 @@ def _scan_strategies_folder(strategy_type: StrategyType) -> List[StrategyTemplat
             code = code_files[0].read_text(encoding="utf-8")
 
             raw_params = config.get("params") or {}
-            params: Dict[str, ParamSpec] = {}
+            params: dict[str, ParamSpec] = {}
             for k, v in raw_params.items():
                 if isinstance(v, bool):
                     ptype = "bool"
@@ -178,7 +177,7 @@ def _scan_strategies_folder(strategy_type: StrategyType) -> List[StrategyTemplat
 @lru_cache(maxsize=3)
 def _get_templates_for_type(
     strategy_type: StrategyType,
-) -> tuple[tuple[StrategyTemplate, ...], Dict[str, StrategyTemplate]]:
+) -> tuple[tuple[StrategyTemplate, ...], dict[str, StrategyTemplate]]:
     """Lazily load and cache strategy templates by type.
 
     Returns:
@@ -189,12 +188,12 @@ def _get_templates_for_type(
     return (tuple(templates), template_map)
 
 
-def _get_template_map(strategy_type: StrategyType) -> Dict[str, StrategyTemplate]:
+def _get_template_map(strategy_type: StrategyType) -> dict[str, StrategyTemplate]:
     """Get cached template map for a strategy type."""
     return _get_templates_for_type(strategy_type)[1]
 
 
-def get_all_strategy_templates() -> List[StrategyTemplate]:
+def get_all_strategy_templates() -> list[StrategyTemplate]:
     """Get all strategy templates (backtest + simulate + live). Lazy-loaded."""
     return (
         list(_get_templates_for_type(StrategyType.backtest)[0])
@@ -204,8 +203,8 @@ def get_all_strategy_templates() -> List[StrategyTemplate]:
 
 
 def get_template_by_id(
-    template_id: str, strategy_type: Optional[StrategyType] = None
-) -> Optional[StrategyTemplate]:
+    template_id: str, strategy_type: StrategyType | None = None
+) -> StrategyTemplate | None:
     """Get strategy template by ID.
 
 
@@ -226,9 +225,7 @@ def get_template_by_id(
     return None
 
 
-def get_strategy_readme(
-    template_id: str, strategy_type: Optional[StrategyType] = None
-) -> Optional[str]:
+def get_strategy_readme(template_id: str, strategy_type: StrategyType | None = None) -> str | None:
     """Read the strategy's README.md content.
 
     Args:
@@ -290,7 +287,7 @@ class StrategyService:
 
         return self._to_response(strategy)
 
-    async def get_strategy(self, strategy_id: str) -> Optional[StrategyResponse]:
+    async def get_strategy(self, strategy_id: str) -> StrategyResponse | None:
         """Get strategy details by ID.
 
         Args:
@@ -306,7 +303,7 @@ class StrategyService:
 
     async def update_strategy(
         self, strategy_id: str, user_id: str, strategy_update: StrategyUpdate
-    ) -> Optional[StrategyResponse]:
+    ) -> StrategyResponse | None:
         """Update an existing strategy.
 
         Args:
@@ -357,7 +354,7 @@ class StrategyService:
         return await self.strategy_repo.delete(strategy_id)
 
     async def list_strategies(
-        self, user_id: str, limit: int = 20, offset: int = 0, category: Optional[str] = None
+        self, user_id: str, limit: int = 20, offset: int = 0, category: str | None = None
     ) -> StrategyListResponse:
         """List user strategies with optional filtering.
 
@@ -382,8 +379,8 @@ class StrategyService:
         return StrategyListResponse(total=total, items=items)
 
     async def get_templates(
-        self, strategy_type: Optional[StrategyType] = None
-    ) -> List[StrategyTemplate]:
+        self, strategy_type: StrategyType | None = None
+    ) -> list[StrategyTemplate]:
         """Get all available strategy templates.
 
         Args:

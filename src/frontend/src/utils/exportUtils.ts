@@ -1,12 +1,17 @@
 /**
  * 数据导出工具
- * 
+ *
  * 支持格式:
  * - CSV: 逗号分隔值，适合 Excel 导入
  * - JSON: 结构化数据，适合程序处理
  * - Excel: .xlsx 格式（已有）
  * - HTML: 可视化报告（已有）
  */
+
+import type { BacktestResult, Strategy, TradeRecord } from '@/types'
+
+/** Backtest-like record for export (API may include extra fields). */
+type BacktestExportInput = Partial<BacktestResult> & Record<string, unknown>
 
 export type ExportFormat = 'csv' | 'json' | 'excel' | 'html'
 
@@ -18,11 +23,14 @@ export interface ExportOptions {
   numberFormat?: 'raw' | 'formatted'
 }
 
+/** Generic row type for CSV/JSON export (allow primitives and nested objects). */
+export type ExportRow = Record<string, string | number | boolean | null | undefined | Date | unknown>
+
 /**
  * 将数据导出为 CSV
  */
 export function exportToCSV(
-  data: Record<string, any>[],
+  data: ExportRow[],
   options: ExportOptions = {}
 ): string {
   const {
@@ -93,7 +101,7 @@ export function exportToCSV(
  * 将数据导出为 JSON
  */
 export function exportToJSON(
-  data: Record<string, any>[] | Record<string, any>,
+  data: ExportRow[] | Record<string, unknown>,
   options: ExportOptions = {}
 ): string {
   const {
@@ -111,10 +119,10 @@ export function exportToJSON(
  * 深度处理数据（格式化日期和数字）
  */
 function processDeepData(
-  data: any,
+  data: unknown,
   dateFormat: string,
   numberFormat: string
-): any {
+): unknown {
   if (data === null || data === undefined) {
     return data
   }
@@ -135,8 +143,8 @@ function processDeepData(
   }
   
   // 处理对象
-  if (typeof data === 'object') {
-    const processed: Record<string, any> = {}
+  if (typeof data === 'object' && data !== null) {
+    const processed: Record<string, unknown> = {}
     Object.keys(data).forEach(key => {
       processed[key] = processDeepData(data[key], dateFormat, numberFormat)
     })
@@ -194,7 +202,7 @@ export function downloadFile(
  * 导出回测结果
  */
 export function exportBacktestResult(
-  result: any,
+  result: BacktestResult | BacktestExportInput,
   format: ExportFormat = 'json'
 ): void {
   const timestamp = new Date().toISOString().split('T')[0]
@@ -237,26 +245,27 @@ export function exportBacktestResult(
 /**
  * 扁平化回测结果（用于 CSV 导出）
  */
-function flattenBacktestResult(result: any): Record<string, any> {
+function flattenBacktestResult(result: BacktestExportInput): ExportRow {
   return {
     task_id: result.task_id,
-    strategy_name: result.strategy_name,
+    strategy_name: (result as Record<string, unknown>).strategy_name,
+    strategy_id: result.strategy_id,
     symbol: result.symbol,
     start_date: result.start_date,
     end_date: result.end_date,
-    initial_cash: result.initial_cash,
-    final_value: result.final_value,
+    initial_cash: (result as Record<string, unknown>).initial_cash,
+    final_value: (result as Record<string, unknown>).final_value,
     total_return: result.total_return,
     annual_return: result.annual_return,
     sharpe_ratio: result.sharpe_ratio,
     max_drawdown: result.max_drawdown,
     win_rate: result.win_rate,
-    profit_factor: result.profit_factor,
+    profit_factor: (result as Record<string, unknown>).profit_factor,
     total_trades: result.total_trades,
-    winning_trades: result.winning_trades,
+    winning_trades: (result as Record<string, unknown>).winning_trades ?? result.profitable_trades,
     losing_trades: result.losing_trades,
-    avg_holding_period: result.avg_holding_period,
-    metrics_source: result.metrics_source,
+    avg_holding_period: (result as Record<string, unknown>).avg_holding_period,
+    metrics_source: (result as Record<string, unknown>).metrics_source,
     created_at: result.created_at
   }
 }
@@ -265,7 +274,7 @@ function flattenBacktestResult(result: any): Record<string, any> {
  * 导出交易记录
  */
 export function exportTrades(
-  trades: any[],
+  trades: TradeRecord[],
   format: ExportFormat = 'csv'
 ): void {
   const timestamp = new Date().toISOString().split('T')[0]
@@ -295,11 +304,14 @@ export function exportTrades(
   downloadFile(content, filename, mimeType)
 }
 
+/** Strategy-like record for export (id and name required). */
+type StrategyExportInput = (Strategy | Record<string, unknown>) & { id: string; name: string }
+
 /**
  * 导出策略列表
  */
 export function exportStrategies(
-  strategies: any[],
+  strategies: StrategyExportInput[],
   format: ExportFormat = 'json'
 ): void {
   const timestamp = new Date().toISOString().split('T')[0]
@@ -377,10 +389,10 @@ export function exportEquityCurve(
 /**
  * 批量导出（多格式）
  */
-export function exportMultipleFormats(
-  data: any,
+export function exportMultipleFormats<T>(
+  data: T,
   formats: ExportFormat[],
-  exporter: (data: any, format: ExportFormat) => void
+  exporter: (data: T, format: ExportFormat) => void
 ): void {
   formats.forEach(format => {
     try {

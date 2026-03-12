@@ -66,18 +66,13 @@
 ---
 
 #### 2.3 API性能监控中间件
-- **功能**:
-  - ✅ 自动追踪所有API响应时间
-  - ✅ 添加 `X-Process-Time` 响应头
-  - ✅ 记录慢请求警告(>500ms)
-  - ✅ 结构化日志记录
-- **文件**: `src/backend/app/middleware/performance.py`
-- **使用方式**:
-  ```python
-  from app.middleware.performance import PerformanceMiddleware
-  
-  app.add_middleware(PerformanceMiddleware)
-  ```
+- **功能** (规划中):
+  - 自动追踪所有API响应时间
+  - 添加 `X-Process-Time` 响应头
+  - 记录慢请求警告(>500ms)
+  - 结构化日志记录
+- **状态**: 规划中，当前未实现。可参考 `app/middleware/logging.py` 的请求日志实现。
+- **建议**: 若需性能监控，可考虑在现有 logging 中间件中扩展或引入 OpenTelemetry。
 
 ---
 
@@ -300,10 +295,9 @@
 
 ### 新增文档
 1. ✅ `docs/PERFORMANCE_OPTIMIZATION.md` - 性能优化完整指南
-2. ✅ `docs/SPRINT_3_SUMMARY.md` - Sprint 3执行总结
+2. ✅ `docs/SPRINT3_EXECUTION_SUMMARY.md` - Sprint 3执行总结
 3. ✅ `src/backend/migrations/001_add_performance_indexes.sql` - 数据库索引迁移
-4. ✅ `src/backend/app/middleware/performance.py` - 性能监控中间件
-5. ✅ `src/backend/app/utils/cache_decorator.py` - 缓存装饰器
+4. ✅ `src/backend/app/utils/cache_decorator.py` - 缓存装饰器
 
 ### 更新文档
 - ✅ `src/frontend/.eslintrc.cjs` - ESLint配置文件

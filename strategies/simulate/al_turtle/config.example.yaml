@@ -93,10 +93,6 @@ live:
   min_price_tick: 5.0
   max_order_size: 1
   contract_metadata:
-    al2507:
-      min_price_tick: 5.0
-      max_order_size: 1
-
     al2607:
       min_price_tick: 1.0
       max_order_size: 1

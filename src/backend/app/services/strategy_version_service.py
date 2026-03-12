@@ -7,7 +7,7 @@ Supports versioning, branch management, rollback, and comparisons.
 import difflib
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy import desc, select
 
@@ -84,10 +84,10 @@ class VersionControlService:
         strategy_id: str,
         version_name: str,
         code: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         branch: str = "main",
-        tags: Optional[List[str]] = None,
-        changelog: Optional[str] = None,
+        tags: list[str] | None = None,
+        changelog: str | None = None,
         is_default: bool = False,
     ) -> StrategyVersion:
         """Create a new strategy version.
@@ -154,7 +154,7 @@ class VersionControlService:
 
         return version
 
-    async def get_version(self, version_id: str) -> Optional[StrategyVersion]:
+    async def get_version(self, version_id: str) -> StrategyVersion | None:
         """Get a strategy version by ID.
 
         Args:
@@ -169,11 +169,11 @@ class VersionControlService:
         self,
         user_id: str,
         strategy_id: str,
-        branch: Optional[str] = None,
-        status: Optional[str] = None,
+        branch: str | None = None,
+        status: str | None = None,
         limit: int = 20,
         offset: int = 0,
-    ) -> tuple[List[Dict[str, Any]], int]:
+    ) -> tuple[list[dict[str, Any]], int]:
         """List versions for a strategy.
 
         Args:
@@ -193,7 +193,7 @@ class VersionControlService:
         """
         await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
-        filters: Dict[str, Any] = {"strategy_id": strategy_id}
+        filters: dict[str, Any] = {"strategy_id": strategy_id}
         if branch:
             filters["branch"] = branch
         if status:
@@ -214,7 +214,7 @@ class VersionControlService:
         version_id: str,
         user_id: str,
         update_data: VersionUpdate,
-    ) -> Optional[StrategyVersion]:
+    ) -> StrategyVersion | None:
         """Update a strategy version.
 
         Args:
@@ -539,9 +539,9 @@ class VersionControlService:
 
     def _generate_params_diff(
         self,
-        params1: Dict[str, Any],
-        params2: Dict[str, Any],
-    ) -> Dict[str, Dict[str, Any]]:
+        params1: dict[str, Any],
+        params2: dict[str, Any],
+    ) -> dict[str, dict[str, Any]]:
         """Generate a parameter difference between two parameter sets.
 
         Args:
@@ -580,7 +580,7 @@ class VersionControlService:
         self,
         from_version_id: str,
         to_version_id: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate a performance difference between two versions.
 
         Compares backtest results from both versions.
@@ -597,7 +597,7 @@ class VersionControlService:
             - diff: Metric differences (to - from)
         """
 
-        async def _latest(version_id: str) -> Optional[Dict[str, Any]]:
+        async def _latest(version_id: str) -> dict[str, Any] | None:
             async with db.async_session_maker() as session:
                 stmt = (
                     select(BacktestTask, BacktestResultModel)
@@ -634,7 +634,7 @@ class VersionControlService:
         if not from_res or not to_res:
             return {"available": False, "from": from_res, "to": to_res}
 
-        diff: Dict[str, Any] = {}
+        diff: dict[str, Any] = {}
         for k, v in to_res["metrics"].items():
             if (
                 k in from_res["metrics"]
@@ -645,7 +645,7 @@ class VersionControlService:
 
         return {"available": True, "from": from_res, "to": to_res, "diff": diff}
 
-    def _to_response(self, version: StrategyVersion) -> Dict[str, Any]:
+    def _to_response(self, version: StrategyVersion) -> dict[str, Any]:
         """Convert a StrategyVersion entity to an API response dictionary.
 
         Args:
@@ -732,7 +732,7 @@ class VersionControlService:
         user_id: str,
         strategy_id: str,
         branch_name: str,
-        parent_branch: Optional[str] = None,
+        parent_branch: str | None = None,
     ) -> VersionBranch:
         """Create a strategy branch (idempotent if it already exists).
 
@@ -778,7 +778,7 @@ class VersionControlService:
         strategy_id: str,
         limit: int = 20,
         offset: int = 0,
-    ) -> tuple[List[VersionBranch], int]:
+    ) -> tuple[list[VersionBranch], int]:
         """List strategy branches with pagination.
 
         Args:
@@ -806,7 +806,7 @@ class VersionControlService:
         return branches, total
 
     @staticmethod
-    def branch_to_response(branch: VersionBranch) -> Dict[str, Any]:
+    def branch_to_response(branch: VersionBranch) -> dict[str, Any]:
         """Convert a branch ORM object to the API response dict.
 
         Args:
@@ -830,7 +830,7 @@ class VersionControlService:
         self,
         strategy_id: str,
         branch: str,
-    ) -> Optional[StrategyVersion]:
+    ) -> StrategyVersion | None:
         """Get the latest version for a branch.
 
         Args:
@@ -856,7 +856,7 @@ class VersionControlService:
     async def _get_current_version(
         self,
         strategy_id: str,
-    ) -> Optional[StrategyVersion]:
+    ) -> StrategyVersion | None:
         """Get the current version of a strategy (is_current=True).
 
         Args:

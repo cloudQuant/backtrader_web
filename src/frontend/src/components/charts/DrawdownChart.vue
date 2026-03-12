@@ -1,7 +1,12 @@
 <template>
   <div class="drawdown-chart">
-    <h4 class="text-md font-medium mb-4">回撤曲线</h4>
-    <div ref="chartRef" :style="{ height: height + 'px' }"></div>
+    <h4 class="text-md font-medium mb-4">
+      回撤曲线
+    </h4>
+    <div
+      ref="chartRef"
+      :style="{ height: height + 'px' }"
+    />
   </div>
 </template>
 
@@ -63,9 +68,11 @@ function renderChart() {
   const option: echarts.EChartsOption = {
     tooltip: {
       trigger: 'axis',
-      formatter: (params: any) => {
-        const p = params[0]
-        return `${p.axisValue}<br/>回撤: ${p.value}%`
+      formatter: (params: unknown) => {
+        if (typeof params === 'string') return params
+        const arr = Array.isArray(params) ? params : []
+        const p = arr[0] as { axisValue?: string; value?: number } | undefined
+        return p ? `${p.axisValue}<br/>回撤: ${p.value}%` : ''
       },
     },
     grid: {

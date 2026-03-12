@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Simple verification script"""
+
 import sys
 from pathlib import Path
 

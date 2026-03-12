@@ -9,6 +9,7 @@ Tests:
 - Get historical market data
 - Update market data cache
 """
+
 from datetime import datetime
 
 import pytest
@@ -294,12 +295,7 @@ class TestGetHistoricalData:
         end = datetime(2024, 1, 31)
 
         result = await service.get_historical_data(
-            "user_123",
-            "broker_1",
-            "BTC/USDT",
-            start,
-            end,
-            "1d"
+            "user_123", "broker_1", "BTC/USDT", start, end, "1d"
         )
 
         # Currently returns empty list

@@ -7,16 +7,18 @@ This guide covers system administration, maintenance, and troubleshooting for th
 ### 当前架构说明
 
 - **回测任务**：任务状态持久化在数据库中，但实际执行由当前 API 进程在本地调度（`asyncio.create_task`）。
-- **参数优化任务**：使用进程内全局状态，进程重启后丢失，不支持水平扩展。
-- **取消操作**：仅当任务在当前 API 进程内运行时有效。多 worker / 多实例部署时，若任务由其他实例执行，取消请求会失败。
+- **参数优化任务**：任务状态与结果已落库（`optimization_tasks` 表），进程重启后可通过 DB 恢复；取消会写入 DB，其他实例轮询 DB 可感知取消并停止。
+- **取消操作**：回测取消仅对当前实例有效；优化任务取消会持久化到 DB，执行线程轮询 DB 可跨实例生效。
+
+**重要**：回测仍为单实例取消语义；参数优化已支持多实例取消（通过 DB 状态同步）。
 
 ### 部署建议
 
 | 部署模式 | 支持情况 | 说明 |
 |----------|----------|------|
 | 单实例单进程 | ✅ 推荐 | 回测取消、优化任务可预期 |
-| 多 worker (同机) | ⚠️ 部分支持 | 取消可能失败，优化任务可能分布在不同 worker |
-| 多实例 (水平扩展) | ⚠️ 受限 | 取消仅对任务所在实例有效，优化任务不可跨实例 |
+| 多 worker (同机) | ⚠️ 部分支持 | 回测取消可能失败；优化取消通过 DB 可跨 worker 生效 |
+| 多实例 (水平扩展) | ⚠️ 部分支持 | 回测取消仅对所在实例有效；优化任务可落库、取消可跨实例 |
 
 ### 演进方向
 
@@ -332,10 +334,10 @@ git fetch origin
 git checkout main
 git pull origin main
 
-# 3. Update dependencies
+# 3. Update dependencies (pyproject.toml 为单一来源)
 cd src/backend
 source ../venv/bin/activate
-pip install -r requirements.txt --upgrade
+pip install -e ".[postgres,redis,backtrader,data]" --upgrade
 
 # 4. Run migrations (if any)
 alembic upgrade head

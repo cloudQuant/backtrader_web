@@ -1,5 +1,9 @@
 <template>
-  <el-dropdown @command="handleCommand" trigger="click" placement="bottom">
+  <el-dropdown
+    trigger="click"
+    placement="bottom"
+    @command="handleCommand"
+  >
     <el-button 
       circle 
       :icon="currentIcon"

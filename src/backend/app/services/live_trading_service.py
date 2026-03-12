@@ -11,7 +11,7 @@ import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # Dynamically import backtrader project
 BACKTRADER_PATH = Path.home() / "Documents" / "backtrader"
@@ -54,23 +54,23 @@ class LiveTradingService:
 
         Creates empty dictionaries for tracking tasks and Cerebro instances.
         """
-        self.tasks: Dict[str, Dict[str, Any]] = {}
-        self.cerebro_instances: Dict[str, bt.Cerebro] = {}
+        self.tasks: dict[str, dict[str, Any]] = {}
+        self.cerebro_instances: dict[str, bt.Cerebro] = {}
 
     async def submit_live_strategy(
         self,
         user_id: str,
         strategy_code: str,
         exchange: str,
-        symbols: List[str],
+        symbols: list[str],
         api_key: str,
         secret: str,
         initial_cash: float = 100000.0,
-        strategy_params: Optional[Dict[str, Any]] = None,
+        strategy_params: dict[str, Any] | None = None,
         sandbox: bool = False,
         timeframe: str = "1d",
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> str:
         """Submit a live trading strategy for execution.
 
@@ -172,7 +172,7 @@ class LiveTradingService:
 
         return task_id
 
-    def _load_strategy_from_code(self, code: str, params: Dict[str, Any]):
+    def _load_strategy_from_code(self, code: str, params: dict[str, Any]):
         """Load a Backtrader strategy class from executable Python code.
 
         Args:
@@ -192,7 +192,7 @@ class LiveTradingService:
         exec(code, module.__dict__)
 
         # Find strategy class
-        for name, obj in module.__dict__.items():
+        for _name, obj in module.__dict__.items():
             if isinstance(obj, type) and issubclass(obj, bt.Strategy):
                 # Set parameters
                 if hasattr(obj, "params"):
@@ -241,7 +241,7 @@ class LiveTradingService:
         self,
         user_id: str,
         task_id: str,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get the current status of a live trading task.
 
         Args:
@@ -309,8 +309,8 @@ class LiveTradingService:
     async def list_tasks(
         self,
         user_id: str,
-        status: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
         """List all live trading tasks for a user.
 
         Args:

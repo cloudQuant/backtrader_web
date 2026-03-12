@@ -21,11 +21,11 @@ class TestProfitFactor:
         """Test profit factor with profitable trades."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100},  # Win
-            {'pnlcomm': 200},  # Win
-            {'pnlcomm': -50},  # Loss
-            {'pnlcomm': 150},  # Win
-            {'pnlcomm': -75},  # Loss
+            {"pnlcomm": 100},  # Win
+            {"pnlcomm": 200},  # Win
+            {"pnlcomm": -50},  # Loss
+            {"pnlcomm": 150},  # Win
+            {"pnlcomm": -75},  # Loss
         ]
         result = adapter.calculate_profit_factor(trades)
 
@@ -39,9 +39,9 @@ class TestProfitFactor:
         """Test profit factor with all winning trades."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100},
-            {'pnlcomm': 200},
-            {'pnlcomm': 150},
+            {"pnlcomm": 100},
+            {"pnlcomm": 200},
+            {"pnlcomm": 150},
         ]
         result = adapter.calculate_profit_factor(trades)
 
@@ -52,9 +52,9 @@ class TestProfitFactor:
         """Test profit factor with all losing trades."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': -100},
-            {'pnlcomm': -200},
-            {'pnlcomm': -150},
+            {"pnlcomm": -100},
+            {"pnlcomm": -200},
+            {"pnlcomm": -150},
         ]
         result = adapter.calculate_profit_factor(trades)
 
@@ -76,10 +76,10 @@ class TestAvgHoldingPeriod:
         """Test average holding period with normal data."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100, 'barlen': 5},
-            {'pnlcomm': -50, 'barlen': 10},
-            {'pnlcomm': 200, 'barlen': 15},
-            {'pnlcomm': -75, 'barlen': 3},
+            {"pnlcomm": 100, "barlen": 5},
+            {"pnlcomm": -50, "barlen": 10},
+            {"pnlcomm": 200, "barlen": 15},
+            {"pnlcomm": -75, "barlen": 3},
         ]
         result = adapter.calculate_avg_holding_period(trades)
 
@@ -90,9 +90,9 @@ class TestAvgHoldingPeriod:
         """Test average holding period with missing barlen."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100, 'barlen': 5},
-            {'pnlcomm': -50},  # No barlen
-            {'pnlcomm': 200, 'barlen': 15},
+            {"pnlcomm": 100, "barlen": 5},
+            {"pnlcomm": -50},  # No barlen
+            {"pnlcomm": 200, "barlen": 15},
         ]
         result = adapter.calculate_avg_holding_period(trades)
 
@@ -114,12 +114,12 @@ class TestMaxConsecutive:
         """Test maximum consecutive wins."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100},  # Win 1
-            {'pnlcomm': 200},  # Win 2
-            {'pnlcomm': 150},  # Win 3 (max)
-            {'pnlcomm': -50},  # Loss
-            {'pnlcomm': 75},   # Win 1
-            {'pnlcomm': 125},  # Win 2
+            {"pnlcomm": 100},  # Win 1
+            {"pnlcomm": 200},  # Win 2
+            {"pnlcomm": 150},  # Win 3 (max)
+            {"pnlcomm": -50},  # Loss
+            {"pnlcomm": 75},  # Win 1
+            {"pnlcomm": 125},  # Win 2
         ]
         result = adapter.calculate_max_consecutive(trades, win=True)
 
@@ -129,12 +129,12 @@ class TestMaxConsecutive:
         """Test maximum consecutive losses."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': -50},  # Loss 1
-            {'pnlcomm': -100}, # Loss 2
-            {'pnlcomm': -75},  # Loss 3 (max)
-            {'pnlcomm': 200},  # Win
-            {'pnlcomm': -25},  # Loss 1
-            {'pnlcomm': -50},  # Loss 2
+            {"pnlcomm": -50},  # Loss 1
+            {"pnlcomm": -100},  # Loss 2
+            {"pnlcomm": -75},  # Loss 3 (max)
+            {"pnlcomm": 200},  # Win
+            {"pnlcomm": -25},  # Loss 1
+            {"pnlcomm": -50},  # Loss 2
         ]
         result = adapter.calculate_max_consecutive(trades, win=False)
 
@@ -201,7 +201,7 @@ class TestAnalyticsServiceIntegration:
         service = AnalyticsService(use_fincore=True)
 
         # Should have adapter attribute
-        assert hasattr(service, 'adapter')
+        assert hasattr(service, "adapter")
         assert service.adapter.use_fincore is True
 
     def test_analytics_service_calculate_metrics(self):
@@ -211,17 +211,42 @@ class TestAnalyticsServiceIntegration:
         service = AnalyticsService(use_fincore=True)
 
         result_data = {
-            'equity_curve': [
-                {'date': '2023-01-01', 'total_assets': 100000, 'cash': 50000, 'position_value': 50000},
-                {'date': '2023-01-02', 'total_assets': 101000, 'cash': 50000, 'position_value': 51000},
-                {'date': '2023-01-03', 'total_assets': 102000, 'cash': 50000, 'position_value': 52000},
-                {'date': '2023-01-04', 'total_assets': 101500, 'cash': 50000, 'position_value': 51500},
-                {'date': '2023-01-05', 'total_assets': 103000, 'cash': 50000, 'position_value': 53000},
+            "equity_curve": [
+                {
+                    "date": "2023-01-01",
+                    "total_assets": 100000,
+                    "cash": 50000,
+                    "position_value": 50000,
+                },
+                {
+                    "date": "2023-01-02",
+                    "total_assets": 101000,
+                    "cash": 50000,
+                    "position_value": 51000,
+                },
+                {
+                    "date": "2023-01-03",
+                    "total_assets": 102000,
+                    "cash": 50000,
+                    "position_value": 52000,
+                },
+                {
+                    "date": "2023-01-04",
+                    "total_assets": 101500,
+                    "cash": 50000,
+                    "position_value": 51500,
+                },
+                {
+                    "date": "2023-01-05",
+                    "total_assets": 103000,
+                    "cash": 50000,
+                    "position_value": 53000,
+                },
             ],
-            'trades': [
-                {'pnl': 100, 'pnlcomm': 95, 'barlen': 5, 'value': 10000},
-                {'pnl': -50, 'pnlcomm': -55, 'barlen': 3, 'value': 10000},
-                {'pnl': 200, 'pnlcomm': 195, 'barlen': 10, 'value': 10000},
+            "trades": [
+                {"pnl": 100, "pnlcomm": 95, "barlen": 5, "value": 10000},
+                {"pnl": -50, "pnlcomm": -55, "barlen": 3, "value": 10000},
+                {"pnl": 200, "pnlcomm": 195, "barlen": 10, "value": 10000},
             ],
         }
 
@@ -245,8 +270,8 @@ class TestAdvancedMetricsEdgeCases:
         """Test profit factor when average loss is zero."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100},
-            {'pnlcomm': 0},  # Zero loss
+            {"pnlcomm": 100},
+            {"pnlcomm": 0},  # Zero loss
         ]
         result = adapter.calculate_profit_factor(trades)
 
@@ -257,8 +282,8 @@ class TestAdvancedMetricsEdgeCases:
         """Test average holding period when all barlen are zero."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100, 'barlen': 0},
-            {'pnlcomm': -50, 'barlen': 0},
+            {"pnlcomm": 100, "barlen": 0},
+            {"pnlcomm": -50, "barlen": 0},
         ]
         result = adapter.calculate_avg_holding_period(trades)
 
@@ -269,9 +294,9 @@ class TestAdvancedMetricsEdgeCases:
         """Test consecutive calculation with zero PnL."""
         adapter = FincoreAdapter()
         trades = [
-            {'pnlcomm': 100},
-            {'pnlcomm': 0},  # Zero is not a win
-            {'pnlcomm': 200},
+            {"pnlcomm": 100},
+            {"pnlcomm": 0},  # Zero is not a win
+            {"pnlcomm": 200},
         ]
 
         wins = adapter.calculate_max_consecutive(trades, win=True)

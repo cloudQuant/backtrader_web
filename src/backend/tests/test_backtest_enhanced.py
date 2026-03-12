@@ -1,6 +1,7 @@
 """
 Enhanced Backtest API Tests.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -31,6 +32,7 @@ VALID_OPTIMIZATION_REQUEST = {
 def clear_lru_cache():
     """Clear lru_cache before each test to enable proper mocking."""
     from app.api import backtest_enhanced
+
     # Clear the lru_cache
     backtest_enhanced.get_backtest_service.cache_clear()
     backtest_enhanced.get_optimization_service.cache_clear()
@@ -53,25 +55,33 @@ class TestEnhancedBacktestRun:
 
     async def test_run_backtest_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful backtest run."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
-            mock_service.run_backtest = AsyncMock(return_value=MagicMock(
-                task_id="task123",
-                status="pending",
-            ))
+            mock_service.run_backtest = AsyncMock(
+                return_value=MagicMock(
+                    task_id="task123",
+                    status="pending",
+                )
+            )
             mock_service_class.return_value = mock_service
 
-            with patch('app.api.backtest_enhanced.ws_manager') as mock_ws:
+            with patch("app.api.backtest_enhanced.ws_manager") as mock_ws:
                 mock_ws.send_to_task = AsyncMock()
 
-                resp = await client.post("/api/v1/backtest/run", headers=auth_headers, json=VALID_BACKTEST_REQUEST)
+                resp = await client.post(
+                    "/api/v1/backtest/run", headers=auth_headers, json=VALID_BACKTEST_REQUEST
+                )
                 assert resp.status_code == 200
 
     async def test_run_backtest_invalid_data(self, client: AsyncClient, auth_headers: dict):
         """Test invalid data."""
-        resp = await client.post("/api/v1/backtest/run", headers=auth_headers, json={
-            "strategy_id": "",  # Invalid
-        })
+        resp = await client.post(
+            "/api/v1/backtest/run",
+            headers=auth_headers,
+            json={
+                "strategy_id": "",  # Invalid
+            },
+        )
         assert resp.status_code == 422
 
 
@@ -86,7 +96,7 @@ class TestEnhancedBacktestGetResult:
 
     async def test_get_result_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test when result does not exist."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_result = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -114,7 +124,7 @@ class TestEnhancedBacktestStatus:
 
     async def test_get_status_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test when task does not exist."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_task_status = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -141,12 +151,14 @@ class TestEnhancedBacktestList:
 
     async def test_list_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful listing."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
-            mock_service.list_results = AsyncMock(return_value=MagicMock(
-                items=[],
-                total=0,
-            ))
+            mock_service.list_results = AsyncMock(
+                return_value=MagicMock(
+                    items=[],
+                    total=0,
+                )
+            )
             mock_service_class.return_value = mock_service
 
             resp = await client.get("/api/v1/backtest/", headers=auth_headers)
@@ -154,15 +166,19 @@ class TestEnhancedBacktestList:
 
     async def test_list_with_sort(self, client: AsyncClient, auth_headers: dict):
         """Test sorting."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
-            mock_service.list_results = AsyncMock(return_value=MagicMock(
-                items=[],
-                total=0,
-            ))
+            mock_service.list_results = AsyncMock(
+                return_value=MagicMock(
+                    items=[],
+                    total=0,
+                )
+            )
             mock_service_class.return_value = mock_service
 
-            resp = await client.get("/api/v1/backtest/?sort_by=created_at&sort_order=desc", headers=auth_headers)
+            resp = await client.get(
+                "/api/v1/backtest/?sort_by=created_at&sort_order=desc", headers=auth_headers
+            )
             assert resp.status_code == 200
 
     async def test_list_invalid_limit(self, client: AsyncClient, auth_headers: dict):
@@ -182,7 +198,7 @@ class TestEnhancedBacktestDelete:
 
     async def test_delete_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test deleting non-existent task."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.delete_result = AsyncMock(return_value=False)
             mock_service_class.return_value = mock_service
@@ -204,22 +220,29 @@ class TestGridSearchOptimization:
 
     async def test_grid_search_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
-        resp = await client.post("/api/v1/backtests/optimization/grid", json={
-            "strategy_id": "strat1",
-            "backtest_config": VALID_BACKTEST_REQUEST,
-            "method": "grid",
-            "param_grid": {"period": [10, 20, 30]},
-        })
+        resp = await client.post(
+            "/api/v1/backtests/optimization/grid",
+            json={
+                "strategy_id": "strat1",
+                "backtest_config": VALID_BACKTEST_REQUEST,
+                "method": "grid",
+                "param_grid": {"period": [10, 20, 30]},
+            },
+        )
         assert resp.status_code in [401, 403]
 
     async def test_grid_search_wrong_method(self, client: AsyncClient, auth_headers: dict):
         """Test method mismatch - returns 422 because schema validation."""
-        resp = await client.post("/api/v1/backtests/optimization/grid", headers=auth_headers, json={
-            "strategy_id": "strat1",
-            "backtest_config": VALID_BACKTEST_REQUEST,
-            "method": "bayesian",  # Wrong method
-            "param_grid": {"period": [10, 20, 30]},
-        })
+        resp = await client.post(
+            "/api/v1/backtests/optimization/grid",
+            headers=auth_headers,
+            json={
+                "strategy_id": "strat1",
+                "backtest_config": VALID_BACKTEST_REQUEST,
+                "method": "bayesian",  # Wrong method
+                "param_grid": {"period": [10, 20, 30]},
+            },
+        )
         # Schema validation returns 422, not 400
         assert resp.status_code == 422
 
@@ -227,12 +250,16 @@ class TestGridSearchOptimization:
         """Test grid search."""
         # Due to complex lru_cache mocking, accept actual response
         # May return 500 (service error) or 422 (validation failed) or 200 (if config is correct)
-        resp = await client.post("/api/v1/backtests/optimization/grid", headers=auth_headers, json={
-            "strategy_id": "strat1",
-            "backtest_config": VALID_BACKTEST_REQUEST,
-            "method": "grid",
-            "param_grid": {"period": [10, 20, 30]},
-        })
+        resp = await client.post(
+            "/api/v1/backtests/optimization/grid",
+            headers=auth_headers,
+            json={
+                "strategy_id": "strat1",
+                "backtest_config": VALID_BACKTEST_REQUEST,
+                "method": "grid",
+                "param_grid": {"period": [10, 20, 30]},
+            },
+        )
         assert resp.status_code in [200, 400, 422, 500]
 
 
@@ -242,22 +269,29 @@ class TestBayesianOptimization:
 
     async def test_bayesian_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
-        resp = await client.post("/api/v1/backtests/optimization/bayesian", json={
-            "strategy_id": "strat1",
-            "backtest_config": VALID_BACKTEST_REQUEST,
-            "method": "bayesian",
-            "param_bounds": {"period": {"min": 5, "max": 50}},
-        })
+        resp = await client.post(
+            "/api/v1/backtests/optimization/bayesian",
+            json={
+                "strategy_id": "strat1",
+                "backtest_config": VALID_BACKTEST_REQUEST,
+                "method": "bayesian",
+                "param_bounds": {"period": {"min": 5, "max": 50}},
+            },
+        )
         assert resp.status_code in [401, 403]
 
     async def test_bayesian_wrong_method(self, client: AsyncClient, auth_headers: dict):
         """Test method mismatch - returns 422 because schema validation."""
-        resp = await client.post("/api/v1/backtests/optimization/bayesian", headers=auth_headers, json={
-            "strategy_id": "strat1",
-            "backtest_config": VALID_BACKTEST_REQUEST,
-            "method": "grid",  # Wrong method
-            "param_bounds": {"period": {"min": 5, "max": 50}},
-        })
+        resp = await client.post(
+            "/api/v1/backtests/optimization/bayesian",
+            headers=auth_headers,
+            json={
+                "strategy_id": "strat1",
+                "backtest_config": VALID_BACKTEST_REQUEST,
+                "method": "grid",  # Wrong method
+                "param_bounds": {"period": {"min": 5, "max": 50}},
+            },
+        )
         # Schema validation returns 422, not 400
         assert resp.status_code == 422
 
@@ -266,12 +300,16 @@ class TestBayesianOptimization:
         # Since optuna is not installed, service will raise ImportError
         # httpx will catch and return 500 at ASGI level, or raise exception directly
         try:
-            resp = await client.post("/api/v1/backtests/optimization/bayesian", headers=auth_headers, json={
-                "strategy_id": "strat1",
-                "backtest_config": VALID_BACKTEST_REQUEST,
-                "method": "bayesian",
-                "param_bounds": {"period": {"min": 5, "max": 50}},
-            })
+            resp = await client.post(
+                "/api/v1/backtests/optimization/bayesian",
+                headers=auth_headers,
+                json={
+                    "strategy_id": "strat1",
+                    "backtest_config": VALID_BACKTEST_REQUEST,
+                    "method": "bayesian",
+                    "param_bounds": {"period": {"min": 5, "max": 50}},
+                },
+            )
             # If we get a response, check status code
             assert resp.status_code in [200, 400, 422, 500]
         except Exception:
@@ -394,14 +432,14 @@ class TestWebSocketEndpoint:
         mock_ws.accept = AsyncMock()
 
         # Mock WebSocket manager - both connect and disconnect need to be async
-        with patch('app.api.backtest_enhanced.ws_manager') as mock_mgr:
+        with patch("app.api.backtest_enhanced.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
             mock_mgr.get_connection_count = AsyncMock(return_value=1)
 
             # Mock backtest service - return CANCELLED status to exit loop quickly
-            with patch('app.api.backtest_enhanced.get_backtest_service') as mock_service:
+            with patch("app.api.backtest_enhanced.get_backtest_service") as mock_service:
                 mock_svc = AsyncMock()
                 mock_svc.get_task_status = AsyncMock(return_value=TaskStatus.CANCELLED)
                 mock_svc.get_result = AsyncMock(return_value=None)
@@ -428,16 +466,18 @@ class TestWebSocketEndpoint:
         mock_result.model_dump = MagicMock(return_value={"status": "completed"})
 
         # Mock WebSocket manager
-        with patch('app.api.backtest_enhanced.ws_manager') as mock_mgr:
+        with patch("app.api.backtest_enhanced.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
             mock_mgr.get_connection_count = AsyncMock(return_value=1)
 
             # Mock backtest service - return running first, then completed
-            with patch('app.api.backtest_enhanced.get_backtest_service') as mock_service:
+            with patch("app.api.backtest_enhanced.get_backtest_service") as mock_service:
                 mock_svc = AsyncMock()
-                mock_svc.get_task_status = AsyncMock(side_effect=[TaskStatus.RUNNING, TaskStatus.COMPLETED])
+                mock_svc.get_task_status = AsyncMock(
+                    side_effect=[TaskStatus.RUNNING, TaskStatus.COMPLETED]
+                )
                 mock_svc.get_result = AsyncMock(return_value=mock_result)
                 mock_service.return_value = mock_svc
 
@@ -463,13 +503,13 @@ class TestWebSocketEndpoint:
         mock_result.error_message = "Test error"
 
         # Mock WebSocket manager
-        with patch('app.api.backtest_enhanced.ws_manager') as mock_mgr:
+        with patch("app.api.backtest_enhanced.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
 
             # Mock backtest service - return failed status
-            with patch('app.api.backtest_enhanced.get_backtest_service') as mock_service:
+            with patch("app.api.backtest_enhanced.get_backtest_service") as mock_service:
                 mock_svc = AsyncMock()
                 mock_svc.get_task_status = AsyncMock(return_value=TaskStatus.FAILED)
                 mock_svc.get_result = AsyncMock(return_value=mock_result)
@@ -489,38 +529,48 @@ class TestBacktestListSorting:
 
     async def test_list_with_sharpe_sort(self, client: AsyncClient, auth_headers: dict):
         """Test sorting by Sharpe ratio."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
-            mock_service.list_results = AsyncMock(return_value=MagicMock(
-                items=[],
-                total=0,
-            ))
+            mock_service.list_results = AsyncMock(
+                return_value=MagicMock(
+                    items=[],
+                    total=0,
+                )
+            )
             mock_service_class.return_value = mock_service
 
-            resp = await client.get("/api/v1/backtest/?sort_by=sharpe_ratio&sort_order=desc", headers=auth_headers)
+            resp = await client.get(
+                "/api/v1/backtest/?sort_by=sharpe_ratio&sort_order=desc", headers=auth_headers
+            )
             assert resp.status_code == 200
 
     async def test_list_with_return_sort(self, client: AsyncClient, auth_headers: dict):
         """Test sorting by return rate."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
-            mock_service.list_results = AsyncMock(return_value=MagicMock(
-                items=[],
-                total=0,
-            ))
+            mock_service.list_results = AsyncMock(
+                return_value=MagicMock(
+                    items=[],
+                    total=0,
+                )
+            )
             mock_service_class.return_value = mock_service
 
-            resp = await client.get("/api/v1/backtest/?sort_by=total_return&sort_order=asc", headers=auth_headers)
+            resp = await client.get(
+                "/api/v1/backtest/?sort_by=total_return&sort_order=asc", headers=auth_headers
+            )
             assert resp.status_code == 200
 
     async def test_list_with_pagination(self, client: AsyncClient, auth_headers: dict):
         """Test pagination."""
-        with patch('app.services.backtest_service.BacktestService') as mock_service_class:
+        with patch("app.services.backtest_service.BacktestService") as mock_service_class:
             mock_service = AsyncMock()
-            mock_service.list_results = AsyncMock(return_value=MagicMock(
-                items=[],
-                total=0,
-            ))
+            mock_service.list_results = AsyncMock(
+                return_value=MagicMock(
+                    items=[],
+                    total=0,
+                )
+            )
             mock_service_class.return_value = mock_service
 
             resp = await client.get("/api/v1/backtest/?limit=10&offset=20", headers=auth_headers)
@@ -531,7 +581,9 @@ class TestBacktestListSorting:
 class TestOptimizationMethodValidation:
     """Tests for optimization method validation - test method mismatch scenarios."""
 
-    async def test_grid_search_with_wrong_method_raises_400(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
+    async def test_grid_search_with_wrong_method_raises_400(
+        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
+    ):
         """Test grid search endpoint with bayesian method returns 400."""
         # Need to bypass schema validation to test API-level method check
         # Create request with wrong method
@@ -544,11 +596,15 @@ class TestOptimizationMethodValidation:
 
         # Will be intercepted at schema level, so returns 422
         # But if schema validation passes, API will check method and return 400
-        resp = await client.post("/api/v1/backtests/optimization/grid", headers=auth_headers, json=wrong_method_request)
+        resp = await client.post(
+            "/api/v1/backtests/optimization/grid", headers=auth_headers, json=wrong_method_request
+        )
         # Schema validation catches it first
         assert resp.status_code == 422
 
-    async def test_bayesian_with_wrong_method_raises_400(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
+    async def test_bayesian_with_wrong_method_raises_400(
+        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
+    ):
         """Test Bayesian endpoint with grid method returns 400."""
         wrong_method_request = {
             "strategy_id": "strat1",
@@ -557,7 +613,11 @@ class TestOptimizationMethodValidation:
             "param_bounds": {"period": {"min": 5, "max": 50}},
         }
 
-        resp = await client.post("/api/v1/backtests/optimization/bayesian", headers=auth_headers, json=wrong_method_request)
+        resp = await client.post(
+            "/api/v1/backtests/optimization/bayesian",
+            headers=auth_headers,
+            json=wrong_method_request,
+        )
         # Schema validation catches it first
         assert resp.status_code == 422
 
@@ -566,7 +626,9 @@ class TestOptimizationMethodValidation:
 class TestReportGenerationWithMocks:
     """Tests for report generation - using correct mocks."""
 
-    async def test_html_report_with_valid_task(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
+    async def test_html_report_with_valid_task(
+        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
+    ):
         """Test HTML report generation - task exists."""
         from app.schemas.backtest_enhanced import BacktestResult
 
@@ -581,9 +643,11 @@ class TestReportGenerationWithMocks:
         mock_report_service = AsyncMock()
         mock_report_service.generate_html_report = AsyncMock(return_value="<html>Report</html>")
 
-        with patch('app.api.backtest_enhanced.BacktestService', return_value=mock_backtest_service):
-            with patch('app.api.backtest_enhanced.ReportService', return_value=mock_report_service):
-                resp = await client.get("/api/v1/backtests/task123/report/html", headers=auth_headers)
+        with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_backtest_service):
+            with patch("app.api.backtest_enhanced.ReportService", return_value=mock_report_service):
+                resp = await client.get(
+                    "/api/v1/backtests/task123/report/html", headers=auth_headers
+                )
                 # May return 200 (success) or 404 (because mock is called before correct position)
                 assert resp.status_code in [200, 404]
 
@@ -613,11 +677,15 @@ class TestReportGenerationWithMocks:
 
         with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_backtest_service):
             with patch("app.api.backtest_enhanced.ReportService", return_value=mock_report_service):
-                resp = await client.get("/api/v1/backtests/task123/report/html", headers=auth_headers)
+                resp = await client.get(
+                    "/api/v1/backtests/task123/report/html", headers=auth_headers
+                )
                 assert resp.status_code == 200
                 mock_backtest_service.get_result.assert_awaited_with("task123", user_id=user_id)
 
-    async def test_pdf_report_with_import_error(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
+    async def test_pdf_report_with_import_error(
+        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
+    ):
         """Test PDF report generation - ImportError handling."""
         from app.schemas.backtest_enhanced import BacktestResult
 
@@ -631,15 +699,21 @@ class TestReportGenerationWithMocks:
 
         # Mock report_service to raise ImportError
         mock_report_service = AsyncMock()
-        mock_report_service.generate_pdf_report = AsyncMock(side_effect=ImportError("weasyprint not installed"))
+        mock_report_service.generate_pdf_report = AsyncMock(
+            side_effect=ImportError("weasyprint not installed")
+        )
 
-        with patch('app.api.backtest_enhanced.BacktestService', return_value=mock_backtest_service):
-            with patch('app.api.backtest_enhanced.ReportService', return_value=mock_report_service):
-                resp = await client.get("/api/v1/backtests/task123/report/pdf", headers=auth_headers)
+        with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_backtest_service):
+            with patch("app.api.backtest_enhanced.ReportService", return_value=mock_report_service):
+                resp = await client.get(
+                    "/api/v1/backtests/task123/report/pdf", headers=auth_headers
+                )
                 # Should return 500 indicating PDF generation is not enabled
                 assert resp.status_code in [500, 404]
 
-    async def test_excel_report_with_import_error(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
+    async def test_excel_report_with_import_error(
+        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
+    ):
         """Test Excel report generation - ImportError handling."""
         from app.schemas.backtest_enhanced import BacktestResult
 
@@ -653,11 +727,15 @@ class TestReportGenerationWithMocks:
 
         # Mock report_service to raise ImportError
         mock_report_service = AsyncMock()
-        mock_report_service.generate_excel_report = AsyncMock(side_effect=ImportError("openpyxl not installed"))
+        mock_report_service.generate_excel_report = AsyncMock(
+            side_effect=ImportError("openpyxl not installed")
+        )
 
-        with patch('app.api.backtest_enhanced.BacktestService', return_value=mock_backtest_service):
-            with patch('app.api.backtest_enhanced.ReportService', return_value=mock_report_service):
-                resp = await client.get("/api/v1/backtests/task123/report/excel", headers=auth_headers)
+        with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_backtest_service):
+            with patch("app.api.backtest_enhanced.ReportService", return_value=mock_report_service):
+                resp = await client.get(
+                    "/api/v1/backtests/task123/report/excel", headers=auth_headers
+                )
                 # Should return 500 indicating Excel export is not enabled
                 assert resp.status_code in [500, 404]
 
@@ -676,15 +754,17 @@ class TestWebSocketDisconnectHandling:
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
 
-        with patch('app.api.backtest_enhanced.ws_manager') as mock_mgr:
+        with patch("app.api.backtest_enhanced.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
 
-            with patch('app.api.backtest_enhanced.get_backtest_service') as mock_service:
+            with patch("app.api.backtest_enhanced.get_backtest_service") as mock_service:
                 mock_svc = AsyncMock()
                 # First call returns RUNNING, then raises WebSocketDisconnect
-                mock_svc.get_task_status = AsyncMock(side_effect=[TaskStatus.RUNNING, WebSocketDisconnect()])
+                mock_svc.get_task_status = AsyncMock(
+                    side_effect=[TaskStatus.RUNNING, WebSocketDisconnect()]
+                )
                 mock_svc.get_result = AsyncMock(return_value=None)
                 mock_service.return_value = mock_svc
 
@@ -702,15 +782,17 @@ class TestWebSocketDisconnectHandling:
         mock_ws = MagicMock()
         mock_ws.accept = AsyncMock()
 
-        with patch('app.api.backtest_enhanced.ws_manager') as mock_mgr:
+        with patch("app.api.backtest_enhanced.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
 
-            with patch('app.api.backtest_enhanced.get_backtest_service') as mock_service:
+            with patch("app.api.backtest_enhanced.get_backtest_service") as mock_service:
                 mock_svc = AsyncMock()
                 # First call returns RUNNING, then raises general exception
-                mock_svc.get_task_status = AsyncMock(side_effect=[TaskStatus.RUNNING, Exception("Connection error")])
+                mock_svc.get_task_status = AsyncMock(
+                    side_effect=[TaskStatus.RUNNING, Exception("Connection error")]
+                )
                 mock_svc.get_result = AsyncMock(return_value=None)
                 mock_service.return_value = mock_svc
 
@@ -725,7 +807,9 @@ class TestWebSocketDisconnectHandling:
 class TestBacktestGetResultWithUserCheck:
     """Tests for user check when getting results."""
 
-    async def test_get_result_with_user_id_param(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
+    async def test_get_result_with_user_id_param(
+        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
+    ):
         """Test getting result passes user_id parameter."""
         from app.schemas.backtest_enhanced import BacktestResult
 
@@ -735,7 +819,7 @@ class TestBacktestGetResultWithUserCheck:
         mock_service = AsyncMock()
         mock_service.get_result = AsyncMock(return_value=mock_result)
 
-        with patch('app.api.backtest_enhanced.BacktestService', return_value=mock_service):
+        with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_service):
             resp = await client.get("/api/v1/backtest/task123", headers=auth_headers)
             # Verify service was called
             assert resp.status_code in [200, 404]

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import subprocess
-from typing import Awaitable, Dict, Optional
+from collections.abc import Awaitable
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,8 @@ class BacktestExecutionRunner:
     """Manage process-local asyncio tasks and subprocess handles."""
 
     def __init__(self) -> None:
-        self._tasks: Dict[str, asyncio.Task] = {}
-        self._processes: Dict[str, subprocess.Popen] = {}
+        self._tasks: dict[str, asyncio.Task] = {}
+        self._processes: dict[str, subprocess.Popen] = {}
 
     def schedule(self, task_id: str, execution: Awaitable[None]) -> asyncio.Task:
         """Schedule one local execution coroutine and retain its handle."""
@@ -45,11 +45,11 @@ class BacktestExecutionRunner:
         """Forget a subprocess handle once execution finishes."""
         self._processes.pop(task_id, None)
 
-    def get_task(self, task_id: str) -> Optional[asyncio.Task]:
+    def get_task(self, task_id: str) -> asyncio.Task | None:
         """Return the process-local asyncio task for one backtest."""
         return self._tasks.get(task_id)
 
-    def get_process(self, task_id: str) -> Optional[subprocess.Popen]:
+    def get_process(self, task_id: str) -> subprocess.Popen | None:
         """Return the process-local subprocess handle for one backtest."""
         return self._processes.get(task_id)
 

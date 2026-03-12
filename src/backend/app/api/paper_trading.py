@@ -4,8 +4,6 @@ Paper trading API routes.
 Provides a full paper trading workflow: accounts, orders, positions, trades, and WebSocket updates.
 """
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 
@@ -189,9 +187,9 @@ async def submit_paper_order(
 async def list_paper_orders(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-    account_id: Optional[str] = Query(None, description="Account ID"),
-    symbol: Optional[str] = Query(None, description="Trading symbol"),
-    status: Optional[str] = Query(None, description="Order status"),
+    account_id: str | None = Query(None, description="Account ID"),
+    symbol: str | None = Query(None, description="Trading symbol"),
+    status: str | None = Query(None, description="Order status"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -301,8 +299,8 @@ async def cancel_paper_order(
 async def list_paper_positions(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-    account_id: Optional[str] = Query(None, description="Account ID"),
-    symbol: Optional[str] = Query(None, description="Trading symbol"),
+    account_id: str | None = Query(None, description="Account ID"),
+    symbol: str | None = Query(None, description="Trading symbol"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
@@ -380,9 +378,9 @@ async def get_paper_position(
 async def list_paper_trades(
     current_user=Depends(get_current_user),
     service: PaperTradingService = Depends(get_paper_trading_service),
-    account_id: Optional[str] = Query(None, description="Account ID"),
-    symbol: Optional[str] = Query(None, description="Trading symbol"),
-    side: Optional[str] = Query(None, description="Trade side (buy/sell)"),
+    account_id: str | None = Query(None, description="Account ID"),
+    symbol: str | None = Query(None, description="Trading symbol"),
+    side: str | None = Query(None, description="Trade side (buy/sell)"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):

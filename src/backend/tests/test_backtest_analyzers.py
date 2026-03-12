@@ -8,6 +8,7 @@ Tests custom Backtrader analyzers:
 - MonthlyReturnsAnalyzer: Calculates monthly returns
 - DrawdownAnalyzer: Tracks drawdown curve
 """
+
 from datetime import datetime
 from unittest.mock import Mock
 
@@ -56,17 +57,17 @@ class TestDetailedTradeAnalyzer:
 
         # Create trade.data._name (actual code uses trade.data._name)
         trade_data = Mock()
-        trade_data._name = 'AAPL'
+        trade_data._name = "AAPL"
         trade.data = trade_data
 
         # Create mock data source for datetime
         data = Mock()
-        dt = datetime(2024, 1, 1, 10, 30, 0)
+        datetime(2024, 1, 1, 10, 30, 0)
 
         # Correctly set datetime mock chain
         # self.datas[0].datetime.datetime(0).strftime(...)
         dt_mock = Mock()
-        dt_mock.strftime = Mock(return_value='2024-01-01 10:30:00')
+        dt_mock.strftime = Mock(return_value="2024-01-01 10:30:00")
 
         datetime_mock = Mock()
         datetime_mock.datetime = Mock(return_value=dt_mock)
@@ -80,8 +81,8 @@ class TestDetailedTradeAnalyzer:
         # Verify
         assert analyzer.trade_count == 1
         assert len(analyzer.trades) == 1
-        assert analyzer.trades[0]['symbol'] == 'AAPL'
-        assert analyzer.trades[0]['direction'] == 'buy'
+        assert analyzer.trades[0]["symbol"] == "AAPL"
+        assert analyzer.trades[0]["direction"] == "buy"
 
     def test_notify_trade_sell(self):
         """Test recording sell trades."""
@@ -102,12 +103,12 @@ class TestDetailedTradeAnalyzer:
 
         # Create trade.data._name
         trade_data = Mock()
-        trade_data._name = 'MSFT'
+        trade_data._name = "MSFT"
         trade.data = trade_data
 
         # Create mock data source for datetime
         dt_mock = Mock()
-        dt_mock.strftime = Mock(return_value='2024-01-02 14:00:00')
+        dt_mock.strftime = Mock(return_value="2024-01-02 14:00:00")
         datetime_mock = Mock()
         datetime_mock.datetime = Mock(return_value=dt_mock)
         data = Mock()
@@ -116,8 +117,8 @@ class TestDetailedTradeAnalyzer:
 
         analyzer.notify_trade(trade)
 
-        assert analyzer.trades[0]['direction'] == 'sell'
-        assert analyzer.trades[0]['size'] == 50
+        assert analyzer.trades[0]["direction"] == "sell"
+        assert analyzer.trades[0]["size"] == 50
 
     def test_notify_trade_not_closed(self):
         """Test that unclosed trades are not recorded."""
@@ -134,11 +135,11 @@ class TestDetailedTradeAnalyzer:
     def test_get_analysis(self):
         """Test getting analysis results."""
         analyzer = DetailedTradeAnalyzer()
-        analyzer.trades = [{'test': 'trade'}]
+        analyzer.trades = [{"test": "trade"}]
 
         result = analyzer.get_analysis()
 
-        assert result == {'trades': [{'test': 'trade'}]}
+        assert result == {"trades": [{"test": "trade"}]}
 
 
 class TestEquityCurveAnalyzer:
@@ -186,18 +187,18 @@ class TestEquityCurveAnalyzer:
         analyzer.next()
 
         assert len(analyzer.equity_curve) == 1
-        assert analyzer.equity_curve[0]['total_assets'] == 100500
-        assert analyzer.equity_curve[0]['cash'] == 50000
-        assert analyzer.equity_curve[0]['position_value'] == 50500
+        assert analyzer.equity_curve[0]["total_assets"] == 100500
+        assert analyzer.equity_curve[0]["cash"] == 50000
+        assert analyzer.equity_curve[0]["position_value"] == 50500
 
     def test_get_analysis(self):
         """Test getting analysis results."""
         analyzer = EquityCurveAnalyzer()
-        analyzer.equity_curve = [{'date': '2024-01-01', 'total_assets': 100000}]
+        analyzer.equity_curve = [{"date": "2024-01-01", "total_assets": 100000}]
 
         result = analyzer.get_analysis()
 
-        assert result == {'equity_curve': [{'date': '2024-01-01', 'total_assets': 100000}]}
+        assert result == {"equity_curve": [{"date": "2024-01-01", "total_assets": 100000}]}
 
 
 class TestTradeSignalAnalyzer:
@@ -227,8 +228,8 @@ class TestTradeSignalAnalyzer:
         analyzer.notify_order(order)
 
         assert len(analyzer.signals) == 1
-        assert analyzer.signals[0]['type'] == 'buy'
-        assert analyzer.signals[0]['price'] == 100.5
+        assert analyzer.signals[0]["type"] == "buy"
+        assert analyzer.signals[0]["price"] == 100.5
 
     def test_notify_order_sell(self):
         """Test recording sell signals."""
@@ -248,7 +249,7 @@ class TestTradeSignalAnalyzer:
         analyzer.datas = [data]
         analyzer.notify_order(order)
 
-        assert analyzer.signals[0]['type'] == 'sell'
+        assert analyzer.signals[0]["type"] == "sell"
 
     def test_notify_order_not_completed(self):
         """Test that incomplete orders are not recorded."""
@@ -264,11 +265,11 @@ class TestTradeSignalAnalyzer:
     def test_get_analysis(self):
         """Test getting analysis results."""
         analyzer = TradeSignalAnalyzer()
-        analyzer.signals = [{'type': 'buy'}]
+        analyzer.signals = [{"type": "buy"}]
 
         result = analyzer.get_analysis()
 
-        assert result == {'signals': [{'type': 'buy'}]}
+        assert result == {"signals": [{"type": "buy"}]}
 
 
 class TestMonthlyReturnsAnalyzer:
@@ -372,7 +373,7 @@ class TestMonthlyReturnsAnalyzer:
 
         result = analyzer.get_analysis()
 
-        assert result == {'monthly_returns': {(2024, 1): 0.05}}
+        assert result == {"monthly_returns": {(2024, 1): 0.05}}
 
 
 class TestDrawdownAnalyzer:
@@ -418,7 +419,7 @@ class TestDrawdownAnalyzer:
         analyzer.next()
 
         assert analyzer.peak == 101000
-        assert analyzer.drawdown_curve[0]['drawdown'] == 0
+        assert analyzer.drawdown_curve[0]["drawdown"] == 0
 
     def test_next_drawdown(self):
         """Test drawdown is recorded."""
@@ -442,16 +443,16 @@ class TestDrawdownAnalyzer:
         analyzer.next()
 
         assert analyzer.peak == 100000
-        assert analyzer.drawdown_curve[0]['drawdown'] == pytest.approx(-0.01)
+        assert analyzer.drawdown_curve[0]["drawdown"] == pytest.approx(-0.01)
 
     def test_get_analysis(self):
         """Test getting analysis results."""
         analyzer = DrawdownAnalyzer()
-        analyzer.drawdown_curve = [{'date': '2024-01-01', 'drawdown': -0.05}]
+        analyzer.drawdown_curve = [{"date": "2024-01-01", "drawdown": -0.05}]
 
         result = analyzer.get_analysis()
 
-        assert result == {'drawdown_curve': [{'date': '2024-01-01', 'drawdown': -0.05}]}
+        assert result == {"drawdown_curve": [{"date": "2024-01-01", "drawdown": -0.05}]}
 
 
 class TestGetAllAnalyzers:
@@ -461,18 +462,18 @@ class TestGetAllAnalyzers:
         """Test that all analyzers are returned."""
         analyzers = get_all_analyzers()
 
-        assert 'detailed_trades' in analyzers
-        assert 'equity_curve' in analyzers
-        assert 'trade_signals' in analyzers
-        assert 'monthly_returns' in analyzers
-        assert 'drawdown' in analyzers
+        assert "detailed_trades" in analyzers
+        assert "equity_curve" in analyzers
+        assert "trade_signals" in analyzers
+        assert "monthly_returns" in analyzers
+        assert "drawdown" in analyzers
 
     def test_analyzer_classes(self):
         """Test that correct analyzer classes are returned."""
         analyzers = get_all_analyzers()
 
-        assert analyzers['detailed_trades'] == DetailedTradeAnalyzer
-        assert analyzers['equity_curve'] == EquityCurveAnalyzer
-        assert analyzers['trade_signals'] == TradeSignalAnalyzer
-        assert analyzers['monthly_returns'] == MonthlyReturnsAnalyzer
-        assert analyzers['drawdown'] == DrawdownAnalyzer
+        assert analyzers["detailed_trades"] == DetailedTradeAnalyzer
+        assert analyzers["equity_curve"] == EquityCurveAnalyzer
+        assert analyzers["trade_signals"] == TradeSignalAnalyzer
+        assert analyzers["monthly_returns"] == MonthlyReturnsAnalyzer
+        assert analyzers["drawdown"] == DrawdownAnalyzer

@@ -21,6 +21,10 @@ symbol:
 # 策略参数
 # ============================================================
 params:
+  stake: 10
+  jaw_period: 13
+  teeth_period: 8
+  lips_period: 5
 
 # ============================================================
 # 数据配置
@@ -75,10 +79,6 @@ live:
   min_price_tick: 2.0
   max_order_size: 1
   contract_metadata:
-    y2509:
-      min_price_tick: 2.0
-      max_order_size: 1
-
     y2609:
       min_price_tick: 1.0
       max_order_size: 1

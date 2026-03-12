@@ -16,7 +16,7 @@ Usage:
     >>> raise UserNotFoundError(user_id="123")
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 class BaseAppError(Exception):
@@ -33,8 +33,8 @@ class BaseAppError(Exception):
     def __init__(
         self,
         message: str,
-        details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ):
         """Initialize the base application error.
 
@@ -48,7 +48,7 @@ class BaseAppError(Exception):
         self.error_code = error_code or self.__class__.__name__
         super().__init__(self.message)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert exception to a dictionary for API responses.
 
         Returns:
@@ -72,8 +72,8 @@ class AuthenticationError(BaseAppError):
     def __init__(
         self,
         message: str = "Authentication failed",
-        details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ):
         """Initialize authentication error.
 
@@ -88,7 +88,7 @@ class AuthenticationError(BaseAppError):
 class InvalidCredentialsError(AuthenticationError):
     """Raised when username or password is incorrect."""
 
-    def __init__(self, username: Optional[str] = None):
+    def __init__(self, username: str | None = None):
         """Initialize invalid credentials error.
 
         Args:
@@ -103,7 +103,7 @@ class InvalidCredentialsError(AuthenticationError):
 class UserNotFoundError(AuthenticationError):
     """Raised when a user is not found in the system."""
 
-    def __init__(self, user_id: Optional[str] = None, username: Optional[str] = None):
+    def __init__(self, user_id: str | None = None, username: str | None = None):
         """Initialize user not found error.
 
         Args:
@@ -126,7 +126,7 @@ class UserNotFoundError(AuthenticationError):
 class UserAlreadyExistsError(AuthenticationError):
     """Raised when trying to create a user that already exists."""
 
-    def __init__(self, username: Optional[str] = None, email: Optional[str] = None):
+    def __init__(self, username: str | None = None, email: str | None = None):
         """Initialize user already exists error.
 
         Args:
@@ -170,7 +170,7 @@ class TokenExpiredError(InvalidTokenError):
 class InsufficientPermissionsError(AuthenticationError):
     """Raised when a user lacks required permissions."""
 
-    def __init__(self, required_permission: Optional[str] = None, resource: Optional[str] = None):
+    def __init__(self, required_permission: str | None = None, resource: str | None = None):
         """Initialize insufficient permissions error.
 
         Args:
@@ -192,7 +192,7 @@ class InsufficientPermissionsError(AuthenticationError):
 class UserInactiveError(AuthenticationError):
     """Raised when trying to authenticate an inactive user account."""
 
-    def __init__(self, user_id: Optional[str] = None, username: Optional[str] = None):
+    def __init__(self, user_id: str | None = None, username: str | None = None):
         """Initialize user inactive error.
 
         Args:
@@ -216,9 +216,9 @@ class ValidationError(BaseAppError):
     def __init__(
         self,
         message: str = "Validation failed",
-        field: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None,
+        field: str | None = None,
+        details: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ):
         """Initialize validation error.
 
@@ -237,7 +237,7 @@ class ValidationError(BaseAppError):
 class InvalidInputError(ValidationError):
     """Raised when input data is invalid."""
 
-    def __init__(self, message: str, field: Optional[str] = None, value: Optional[Any] = None):
+    def __init__(self, message: str, field: str | None = None, value: Any | None = None):
         """Initialize invalid input error.
 
         Args:
@@ -294,8 +294,8 @@ class StrategyError(BaseAppError):
     def __init__(
         self,
         message: str = "Strategy operation failed",
-        details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ):
         """Initialize strategy error.
 
@@ -310,7 +310,7 @@ class StrategyError(BaseAppError):
 class StrategyNotFoundError(StrategyError):
     """Raised when a strategy is not found."""
 
-    def __init__(self, strategy_id: Optional[str] = None):
+    def __init__(self, strategy_id: str | None = None):
         """Initialize strategy not found error.
 
         Args:
@@ -331,8 +331,8 @@ class InvalidStrategyCodeError(StrategyError):
     def __init__(
         self,
         message: str = "Invalid strategy code",
-        line: Optional[int] = None,
-        error: Optional[str] = None,
+        line: int | None = None,
+        error: str | None = None,
     ):
         """Initialize invalid strategy code error.
 
@@ -358,8 +358,8 @@ class BacktestError(BaseAppError):
     def __init__(
         self,
         message: str = "Backtest operation failed",
-        details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ):
         """Initialize backtest error.
 
@@ -374,7 +374,7 @@ class BacktestError(BaseAppError):
 class BacktestNotFoundError(BacktestError):
     """Raised when a backtest result is not found."""
 
-    def __init__(self, task_id: Optional[str] = None):
+    def __init__(self, task_id: str | None = None):
         """Initialize backtest not found error.
 
         Args:
@@ -392,7 +392,7 @@ class BacktestNotFoundError(BacktestError):
 class BacktestExecutionError(BacktestError):
     """Raised when backtest execution fails."""
 
-    def __init__(self, message: str, task_id: Optional[str] = None, logs: Optional[str] = None):
+    def __init__(self, message: str, task_id: str | None = None, logs: str | None = None):
         """Initialize backtest execution error.
 
         Args:
@@ -432,8 +432,8 @@ class DataError(BaseAppError):
     def __init__(
         self,
         message: str = "Data operation failed",
-        details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None,
+        details: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ):
         """Initialize data error.
 
@@ -450,9 +450,9 @@ class DataNotFoundError(DataError):
 
     def __init__(
         self,
-        symbol: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
+        symbol: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
     ):
         """Initialize data not found error.
 
@@ -478,9 +478,7 @@ class DataNotFoundError(DataError):
 class InvalidDateRangeError(DataError):
     """Raised when date range is invalid."""
 
-    def __init__(
-        self, reason: str, start_date: Optional[str] = None, end_date: Optional[str] = None
-    ):
+    def __init__(self, reason: str, start_date: str | None = None, end_date: str | None = None):
         """Initialize invalid date range error.
 
         Args:
@@ -505,8 +503,8 @@ class ConfigurationError(BaseAppError):
     def __init__(
         self,
         message: str = "Configuration error",
-        setting: Optional[str] = None,
-        error_code: Optional[str] = None,
+        setting: str | None = None,
+        error_code: str | None = None,
     ):
         """Initialize configuration error.
 
@@ -540,7 +538,7 @@ class MissingConfigError(ConfigurationError):
 class InvalidConfigError(ConfigurationError):
     """Raised when a configuration value is invalid."""
 
-    def __init__(self, setting: str, value: Optional[Any] = None, reason: Optional[str] = None):
+    def __init__(self, setting: str, value: Any | None = None, reason: str | None = None):
         """Initialize invalid config error.
 
         Args:
@@ -572,9 +570,9 @@ class ExternalServiceError(BaseAppError):
     def __init__(
         self,
         service: str,
-        message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
-        error_code: Optional[str] = None,
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
+        error_code: str | None = None,
     ):
         """Initialize external service error.
 
@@ -593,7 +591,7 @@ class ExternalServiceError(BaseAppError):
 class BrokerConnectionError(ExternalServiceError):
     """Raised when broker connection fails."""
 
-    def __init__(self, broker: str, reason: Optional[str] = None):
+    def __init__(self, broker: str, reason: str | None = None):
         """Initialize broker connection error.
 
         Args:
@@ -614,7 +612,7 @@ class BrokerConnectionError(ExternalServiceError):
 class DataProviderError(ExternalServiceError):
     """Raised when data provider fails."""
 
-    def __init__(self, provider: str, reason: Optional[str] = None):
+    def __init__(self, provider: str, reason: str | None = None):
         """Initialize data provider error.
 
         Args:
@@ -635,7 +633,7 @@ class DataProviderError(ExternalServiceError):
 # ==================== Utility Functions ====================
 
 
-def format_exception_for_response(exc: Exception) -> Dict[str, Any]:
+def format_exception_for_response(exc: Exception) -> dict[str, Any]:
     """Format any exception for API response.
 
     Args:

@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 先复制依赖声明，利用层级缓存（依赖变更频率低）
+# pyproject.toml 为单一事实来源，不依赖 requirements.txt
 COPY pyproject.toml .
-COPY requirements.txt .
 
 # 复制应用代码（pip install -e 需完整源码）
 COPY . .

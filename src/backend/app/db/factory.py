@@ -2,7 +2,7 @@
 Database factory - Create Repository based on environment variables.
 """
 
-from typing import Type, TypeVar
+from typing import TypeVar
 
 from app.config import get_settings
 from app.db.base import BaseRepository
@@ -12,7 +12,7 @@ from app.db.sql_repository import SQLRepository
 T = TypeVar("T")
 
 
-def get_repository(model_class: Type[T]) -> BaseRepository[T]:
+def get_repository(model_class: type[T]) -> BaseRepository[T]:
     """Get Repository instance.
 
     Automatically selects implementation based on DATABASE_TYPE environment variable:

@@ -21,8 +21,7 @@ symbol:
 # 策略参数
 # ============================================================
 params:
-  period: 20
-  devfactor: 2.0
+  period_boll: 52
 
 # ============================================================
 # 数据配置
@@ -72,15 +71,11 @@ live:
   symbol: "au2606"
   network: "telecom"
   bar_seconds: 30
-  duration_seconds: 3600
-  session_timeout: 3700
+  duration_seconds: 86400
+  session_timeout: 86500
   min_price_tick: 0.02
   max_order_size: 1
   contract_metadata:
-    au2506:
-      min_price_tick: 0.02
-      max_order_size: 1
-
     au2606:
       min_price_tick: 1.0
       max_order_size: 1

@@ -11,6 +11,7 @@ Extended test coverage for:
 - TSV parsing utilities
 - Safe float conversion utilities
 """
+
 import json
 from pathlib import Path
 
@@ -133,8 +134,7 @@ class TestParsePositionLog:
     def test_parse_positions(self, tmp_path: Path):
         """Test parsing position records from log file."""
         (tmp_path / "position.log").write_text(
-            "dt\tdata_name\tsize\tprice\n"
-            "2024-01-01 10:00:00\t000001\t100\t10.5\n"
+            "dt\tdata_name\tsize\tprice\n2024-01-01 10:00:00\t000001\t100\t10.5\n"
         )
         positions = parse_position_log(tmp_path)
         assert len(positions) == 1
@@ -212,7 +212,9 @@ class TestParseAllLogs:
             "ref\tdtopen\tdtclose\tdata_name\tlong\tsize\tprice\tvalue\tcommission\tpnl\tpnlcomm\tbarlen\tisclosed\n"
             "1\t2024-01-01\t2024-01-02\t000001\t1\t100\t10.5\t1050\t1.0\t50.0\t49.0\t1\t1\n"
         )
-        (logs_dir / "order.log").write_text("ref\tordtype\tsize\texecuted_price\tcommission\tdt\tdata_name\tstatus\n")
+        (logs_dir / "order.log").write_text(
+            "ref\tordtype\tsize\texecuted_price\tcommission\tdt\tdata_name\tstatus\n"
+        )
         (logs_dir / "data.log").write_text("dt\topen\thigh\tlow\tclose\tvolume\n")
         (logs_dir / "run_info.json").write_text(json.dumps({"strategy": "test"}))
 

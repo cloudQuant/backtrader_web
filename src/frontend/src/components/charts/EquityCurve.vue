@@ -1,7 +1,12 @@
 <template>
   <div class="equity-curve">
-    <h4 class="text-md font-medium mb-4">资金曲线</h4>
-    <div ref="chartRef" :style="{ height: height + 'px' }"></div>
+    <h4 class="text-md font-medium mb-4">
+      资金曲线
+    </h4>
+    <div
+      ref="chartRef"
+      :style="{ height: height + 'px' }"
+    />
   </div>
 </template>
 
@@ -77,10 +82,10 @@ function initChart() {
       ]
     : [{ left: '3%', right: '4%', bottom: '15%', top: '12%', containLabel: true }]
   
-  const xAxes: any[] = [
+  const xAxes: echarts.XAXisComponentOption[] = [
     { type: 'category', data: chartDates.value, boundaryGap: false },
   ]
-  const yAxes: any[] = [
+  const yAxes: echarts.YAXisComponentOption[] = [
     {
       type: 'value', name: '金额',
       axisLabel: { formatter: (v: number) => {
@@ -103,7 +108,7 @@ function initChart() {
     })
   }
   
-  const series: any[] = [
+  const series: echarts.SeriesOption[] = [
     {
       name: '总资产', type: 'line', data: chartEquity.value,
       smooth: true, showSymbol: false,
@@ -151,8 +156,8 @@ function initChart() {
   
   // 买卖点标记
   if (props.trades?.length) {
-    const buyData: any[] = []
-    const sellData: any[] = []
+    const buyData: Array<{ value: [string, number]; symbol: string; symbolSize: number }> = []
+    const sellData: Array<{ value: [string, number]; symbol: string; symbolSize: number }> = []
     const dateSet = new Set(chartDates.value)
     
     props.trades.forEach(t => {
@@ -189,14 +194,16 @@ function initChart() {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
-      formatter: (params: any) => {
-        const date = params[0].axisValue
+      formatter: (params: unknown) => {
+        if (typeof params === 'string') return params
+        const arr = Array.isArray(params) ? params : []
+        const date = (arr[0] as { axisValue?: string })?.axisValue ?? ''
         let html = `<strong>${date}</strong><br/>`
-        params.forEach((p: any) => {
+        arr.forEach((p: { seriesName?: string; value?: number; marker?: string }) => {
           if (p.seriesName === '回撤') {
             html += `${p.marker} ${p.seriesName}: ${p.value.toFixed(2)}%<br/>`
           } else {
-            html += `${p.marker} ${p.seriesName}: ¥${Number(p.value).toLocaleString()}<br/>`
+            html += `${p.marker} ${p.seriesName}: ¥${Number(p.value ?? 0).toLocaleString()}<br/>`
           }
         })
         return html

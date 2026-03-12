@@ -3,8 +3,12 @@
     <el-card class="w-96 shadow-2xl">
       <template #header>
         <div class="text-center">
-          <h1 class="text-2xl font-bold text-gray-800">注册账号</h1>
-          <p class="text-gray-500 mt-2">创建您的 Backtrader Web 账号</p>
+          <h1 class="text-2xl font-bold text-gray-800">
+            注册账号
+          </h1>
+          <p class="text-gray-500 mt-2">
+            创建您的 Backtrader Web 账号
+          </p>
         </div>
       </template>
       
@@ -69,7 +73,10 @@
       
       <div class="text-center text-gray-500">
         已有账号？
-        <router-link to="/login" class="text-blue-500 hover:underline">
+        <router-link
+          to="/login"
+          class="text-blue-500 hover:underline"
+        >
           立即登录
         </router-link>
       </div>
@@ -81,7 +88,7 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
+import type { FormInstance, FormRule, FormRules } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -97,7 +104,11 @@ const form = reactive({
   confirmPassword: '',
 })
 
-const validateConfirmPassword = (_rule: any, value: string, callback: Function) => {
+const validateConfirmPassword = (
+  _rule: FormRule,
+  value: string,
+  callback: (error?: string | Error) => void,
+) => {
   if (value !== form.password) {
     callback(new Error('两次输入的密码不一致'))
   } else {

@@ -6,14 +6,15 @@ Automatically caches API responses to Redis/Memory cache.
 
 import hashlib
 import json
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, List, Optional
+from typing import Any
 
 from app.db.cache import get_cache
 
 
 def cache_response(
-    ttl: int = 300, key_prefix: str = "api", vary_by_params: Optional[List[str]] = None
+    ttl: int = 300, key_prefix: str = "api", vary_by_params: list[str] | None = None
 ):
     """
     Decorator to cache API responses.

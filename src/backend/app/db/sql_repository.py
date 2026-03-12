@@ -2,8 +2,10 @@
 SQL database repository implementation for PostgreSQL, MySQL, and SQLite.
 """
 
+import builtins
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Dict, Generic, List, Optional, Type, TypeVar
+from typing import Any, Generic, TypeVar
 
 from sqlalchemy import asc, delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +26,7 @@ class BulkUpdateResult:
 class SQLRepository(BaseRepository[T], Generic[T]):
     """Generic async SQLAlchemy repository."""
 
-    def __init__(self, model_class: Type[T], session: Optional[AsyncSession] = None):
+    def __init__(self, model_class: type[T], session: AsyncSession | None = None):
         self.model_class = model_class
         self._external_session = session
 
@@ -47,7 +49,7 @@ class SQLRepository(BaseRepository[T], Generic[T]):
         else:
             await session.flush()
 
-    def _apply_filters(self, query, filters: Optional[Dict[str, Any]]):
+    def _apply_filters(self, query, filters: dict[str, Any] | None):
         if not filters:
             return query
 
@@ -72,14 +74,14 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             await session.refresh(entity)
             return entity
 
-    async def get_by_id(self, id: str) -> Optional[T]:
+    async def get_by_id(self, id: str) -> T | None:
         async with self._session_scope() as session:
             result = await session.execute(
                 select(self.model_class).where(self.model_class.id == id)
             )
             return result.scalar_one_or_none()
 
-    async def update(self, id: str, data: Dict[str, Any], refresh: bool = True) -> Optional[T]:
+    async def update(self, id: str, data: dict[str, Any], refresh: bool = True) -> T | None:
         async with self._session_scope() as session:
             result = await session.execute(
                 update(self.model_class).where(self.model_class.id == id).values(**data)
@@ -114,14 +116,14 @@ class SQLRepository(BaseRepository[T], Generic[T]):
 
     async def list(
         self,
-        filters: Optional[Dict[str, Any]] = None,
+        filters: dict[str, Any] | None = None,
         skip: int = 0,
         limit: int = 100,
-        order_by: Optional[str] = None,
+        order_by: str | None = None,
         order_desc: bool = True,
-        sort_by: Optional[str] = None,
-        sort_order: Optional[str] = None,
-    ) -> List[T]:
+        sort_by: str | None = None,
+        sort_order: str | None = None,
+    ) -> list[T]:
         if sort_by and not order_by:
             order_by = sort_by
         if sort_order:
@@ -137,7 +139,7 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             result = await session.execute(query.offset(skip).limit(limit))
             return list(result.scalars().all())
 
-    async def count(self, filters: Optional[Dict[str, Any]] = None) -> int:
+    async def count(self, filters: dict[str, Any] | None = None) -> int:
         async with self._session_scope() as session:
             query = self._apply_filters(
                 select(func.count()).select_from(self.model_class),
@@ -146,14 +148,14 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             result = await session.execute(query)
             return result.scalar() or 0
 
-    async def get_by_field(self, field: str, value: Any) -> Optional[T]:
+    async def get_by_field(self, field: str, value: Any) -> T | None:
         async with self._session_scope() as session:
             result = await session.execute(
                 select(self.model_class).where(getattr(self.model_class, field) == value)
             )
             return result.scalar_one_or_none()
 
-    async def exists(self, filters: Optional[Dict[str, Any]] = None) -> bool:
+    async def exists(self, filters: dict[str, Any] | None = None) -> bool:
         """Check existence with LIMIT 1 for early exit (more efficient than full count)."""
         async with self._session_scope() as session:
             query = self._apply_filters(
@@ -163,7 +165,7 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             result = await session.execute(query)
             return result.first() is not None
 
-    async def bulk_create(self, entities: List[T]) -> List[T]:
+    async def bulk_create(self, entities: builtins.list[T]) -> builtins.list[T]:
         if not entities:
             return []
 
@@ -174,7 +176,7 @@ class SQLRepository(BaseRepository[T], Generic[T]):
                 await session.refresh(entity)
             return entities
 
-    async def bulk_update(self, ids: List[str], data: Dict[str, Any]) -> BulkUpdateResult:
+    async def bulk_update(self, ids: builtins.list[str], data: dict[str, Any]) -> BulkUpdateResult:
         if not ids:
             return BulkUpdateResult(rowcount=0)
 
@@ -185,7 +187,7 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             await self._finalize_write(session)
             return BulkUpdateResult(rowcount=result.rowcount or 0)
 
-    async def bulk_delete(self, ids: List[str]) -> int:
+    async def bulk_delete(self, ids: builtins.list[str]) -> int:
         if not ids:
             return 0
 
@@ -196,7 +198,7 @@ class SQLRepository(BaseRepository[T], Generic[T]):
             await self._finalize_write(session)
             return result.rowcount or 0
 
-    async def get_by_fields(self, filters: Dict[str, Any], limit: int = 1) -> List[T]:
+    async def get_by_fields(self, filters: dict[str, Any], limit: int = 1) -> builtins.list[T]:
         async with self._session_scope() as session:
             query = self._apply_filters(select(self.model_class), filters).limit(limit)
             result = await session.execute(query)

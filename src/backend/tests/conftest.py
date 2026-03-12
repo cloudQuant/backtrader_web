@@ -5,10 +5,11 @@ Provides shared fixtures and configuration for all tests.
 Uses httpx.AsyncClient + ASGITransport for direct FastAPI app testing.
 Each test uses an independent in-memory SQLite database (shared connection via StaticPool).
 """
+
 import importlib
 import os
 import uuid
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
@@ -33,9 +34,7 @@ _test_engine = create_async_engine(
     poolclass=StaticPool,
     echo=False,
 )
-_test_session_maker = async_sessionmaker(
-    _test_engine, class_=AsyncSession, expire_on_commit=False
-)
+_test_session_maker = async_sessionmaker(_test_engine, class_=AsyncSession, expire_on_commit=False)
 
 # Monkey patch: make all services use test database
 db_module.engine = _test_engine
@@ -54,10 +53,12 @@ app = importlib.import_module("app.main").app
 
 # ==================== Database Fixtures ====================
 
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config):
     """Ensure pytest-asyncio sees an explicit loop-scope default."""
     config.inicfg["asyncio_default_fixture_loop_scope"] = "function"
+
 
 @pytest.fixture(autouse=True)
 async def setup_db():
@@ -73,6 +74,7 @@ async def setup_db():
 
 # ==================== HTTP Client Fixture ====================
 
+
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
     """Create httpx async test client."""
@@ -83,6 +85,7 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 
 # ==================== Authentication Helper ====================
 
+
 async def register_and_login(
     client: AsyncClient,
     username: str = None,
@@ -92,17 +95,23 @@ async def register_and_login(
     username = username or f"user_{uuid.uuid4().hex[:8]}"
     email = f"{username}@test.com"
 
-    reg = await client.post("/api/v1/auth/register", json={
-        "username": username,
-        "email": email,
-        "password": password,
-    })
+    reg = await client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": username,
+            "email": email,
+            "password": password,
+        },
+    )
     assert reg.status_code == 200, f"Register failed: {reg.text}"
 
-    login = await client.post("/api/v1/auth/login", json={
-        "username": username,
-        "password": password,
-    })
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": username,
+            "password": password,
+        },
+    )
     assert login.status_code == 200, f"Login failed: {login.text}"
     token = login.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}

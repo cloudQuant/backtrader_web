@@ -6,7 +6,7 @@ Includes strict input validation and range checks.
 
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -82,7 +82,7 @@ class BacktestRequest(BaseModel):
     )
 
     # Strategy parameters (with type and range validation)
-    params: Dict[str, Any] = Field(
+    params: dict[str, Any] = Field(
         default_factory=dict,
         description="Strategy parameters (must match strategy parameter definitions)",
     )
@@ -130,7 +130,7 @@ class BacktestRequest(BaseModel):
 
     @field_validator("params")
     @classmethod
-    def validate_params(cls, v: Dict[str, Any], info) -> Dict[str, Any]:
+    def validate_params(cls, v: dict[str, Any], info) -> dict[str, Any]:
         """Validate strategy parameters.
 
         Args:
@@ -235,7 +235,7 @@ class BacktestResponse(BaseModel):
 
     task_id: str = Field(..., description="Task ID")
     status: TaskStatus = Field(..., description="Task status")
-    message: Optional[str] = Field(None, description="Status message")
+    message: str | None = Field(None, description="Status message")
 
 
 class TradeRecord(BaseModel):
@@ -246,7 +246,7 @@ class TradeRecord(BaseModel):
     price: float = Field(..., gt=0, description="Trade price")
     size: int = Field(..., gt=0, description="Trade quantity")
     value: float = Field(..., gt=0, description="Trade value")
-    pnl: Optional[float] = Field(None, description="Profit/loss")
+    pnl: float | None = Field(None, description="Profit/loss")
 
 
 class BacktestResult(BaseModel):
@@ -272,23 +272,23 @@ class BacktestResult(BaseModel):
     losing_trades: int = Field(0, ge=0, description="Losing trades")
 
     # Equity curve data
-    equity_curve: List[float] = Field(default_factory=list, description="Equity curve")
-    equity_dates: List[str] = Field(default_factory=list, description="Date sequence")
-    drawdown_curve: List[float] = Field(default_factory=list, description="Drawdown curve")
+    equity_curve: list[float] = Field(default_factory=list, description="Equity curve")
+    equity_dates: list[str] = Field(default_factory=list, description="Date sequence")
+    drawdown_curve: list[float] = Field(default_factory=list, description="Drawdown curve")
 
     # Trade records
-    trades: List[TradeRecord] = Field(default_factory=list, description="Trade records")
+    trades: list[TradeRecord] = Field(default_factory=list, description="Trade records")
 
     # Meta information
     created_at: datetime
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 
 class BacktestListResponse(BaseModel):
     """Backtest list response schema."""
 
     total: int = Field(..., ge=0, description="Total count")
-    items: List[BacktestResult]
+    items: list[BacktestResult]
 
 
 class OptimizationRequest(BaseModel):
@@ -311,12 +311,12 @@ class OptimizationRequest(BaseModel):
     )
 
     # Grid search parameters
-    param_grid: Optional[Dict[str, List[Any]]] = Field(
+    param_grid: dict[str, list[Any]] | None = Field(
         None, description="Parameter grid (for grid search)"
     )
 
     # Bayesian optimization parameters
-    param_bounds: Optional[Dict[str, Dict[str, Any]]] = Field(
+    param_bounds: dict[str, dict[str, Any]] | None = Field(
         None, description="Parameter bounds (for Bayesian optimization)"
     )
 
@@ -389,17 +389,17 @@ class OptimizationResult(BaseModel):
     """Optimization result schema."""
 
     # Best parameters
-    best_params: Dict[str, Any] = Field(..., description="Best parameter combination")
+    best_params: dict[str, Any] = Field(..., description="Best parameter combination")
     # Best metrics
-    best_metrics: Dict[str, float] = Field(..., description="Best metric values")
+    best_metrics: dict[str, float] = Field(..., description="Best metric values")
     # All trial results
-    all_results: List[Dict[str, Any]] = Field(..., description="All trial results")
+    all_results: list[dict[str, Any]] = Field(..., description="All trial results")
     # Number of trials
     n_trials: int = Field(..., ge=0, description="Actual number of trials")
 
 
 # Helper function
-def get_strategy_params(strategy_id: str) -> Dict[str, Any]:
+def get_strategy_params(strategy_id: str) -> dict[str, Any]:
     """Get strategy parameter definitions.
 
     Args:

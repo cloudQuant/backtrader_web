@@ -3,7 +3,6 @@ Paper trading schemas.
 """
 
 from datetime import datetime
-from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -52,7 +51,7 @@ class AccountListResponse(BaseModel):
     """Account list response schema."""
 
     total: int = Field(..., ge=0, description="Total count")
-    items: List[AccountResponse]
+    items: list[AccountResponse]
 
 
 class OrderRequest(BaseModel):
@@ -70,13 +69,13 @@ class OrderRequest(BaseModel):
     )
     side: str = Field(..., description="Order side: buy (long) or sell (close long or short)")
     size: int = Field(..., gt=0, description="Order size, must be positive integer")
-    price: Optional[float] = Field(
+    price: float | None = Field(
         None, gt=0, description="Limit order price (not required for market orders)"
     )
-    stop_price: Optional[float] = Field(
+    stop_price: float | None = Field(
         None, gt=0, description="Stop price (required for stop orders)"
     )
-    limit_price: Optional[float] = Field(
+    limit_price: float | None = Field(
         None, gt=0, description="Take profit price (required for stop limit orders)"
     )
 
@@ -90,28 +89,28 @@ class OrderResponse(BaseModel):
     order_type: str = Field(..., description="Order type")
     side: str = Field(..., description="Order side")
     size: int = Field(..., description="Order size")
-    price: Optional[float] = Field(None, description="Limit order price")
-    stop_price: Optional[float] = Field(None, description="Stop price")
-    limit_price: Optional[float] = Field(None, description="Take profit price")
+    price: float | None = Field(None, description="Limit order price")
+    stop_price: float | None = Field(None, description="Stop price")
+    limit_price: float | None = Field(None, description="Take profit price")
     filled_size: int = Field(default=0, description="Filled size")
     avg_fill_price: float = Field(default=0, description="Average fill price")
     status: str = Field(
         ...,
         description="Order status: pending (waiting), partial_filled (partially filled), filled (completed), cancelled (cancelled), rejected (rejected)",
     )
-    rejected_reason: Optional[str] = Field(None, description="Rejection reason")
+    rejected_reason: str | None = Field(None, description="Rejection reason")
     commission: float = Field(default=0, description="Commission")
     slippage: float = Field(default=0, description="Slippage")
     created_at: datetime = Field(..., description="Creation time")
     updated_at: datetime = Field(..., description="Update time")
-    filled_at: Optional[datetime] = Field(None, description="Fill time")
+    filled_at: datetime | None = Field(None, description="Fill time")
 
 
 class OrderListResponse(BaseModel):
     """Order list response schema."""
 
     total: int = Field(..., ge=0, description="Total count")
-    items: List[OrderResponse]
+    items: list[OrderResponse]
 
 
 class PositionResponse(BaseModel):
@@ -138,7 +137,7 @@ class PositionResponse(BaseModel):
         description="Unrealized profit/loss percentage, e.g., 15.5 means 15.5% profit, -8.2 means 8.2% loss",
     )
     entry_price: float = Field(default=0, description="Entry price")
-    entry_time: Optional[datetime] = Field(None, description="Entry time")
+    entry_time: datetime | None = Field(None, description="Entry time")
     updated_at: datetime = Field(..., description="Update time")
 
 
@@ -146,7 +145,7 @@ class PositionListResponse(BaseModel):
     """Position list response schema."""
 
     total: int = Field(..., ge=0, description="Total count")
-    items: List[PositionResponse]
+    items: list[PositionResponse]
 
 
 class TradeResponse(BaseModel):
@@ -154,7 +153,7 @@ class TradeResponse(BaseModel):
 
     id: str = Field(..., description="Trade ID")
     account_id: str = Field(..., description="Account ID")
-    order_id: Optional[str] = Field(None, description="Order ID")
+    order_id: str | None = Field(None, description="Order ID")
     symbol: str = Field(..., description="Stock code")
     side: str = Field(..., description="Trade side: buy (buy) or sell (sell)")
     size: int = Field(..., description="Trade size")
@@ -170,4 +169,4 @@ class TradeListResponse(BaseModel):
     """Trade list response schema."""
 
     total: int = Field(..., ge=0, description="Total count")
-    items: List[TradeResponse]
+    items: list[TradeResponse]

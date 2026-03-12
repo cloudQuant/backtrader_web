@@ -9,6 +9,10 @@ Tests:
     - Error handling
     - Log directory lookup
 """
+
+import asyncio
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -33,7 +37,7 @@ class TestUtilityFunctions:
         a JSON file.
         """
         # Mock file exists with content
-        with patch('app.services.live_trading_manager._INSTANCES_FILE') as mock_file:
+        with patch("app.services.live_trading_manager._INSTANCES_FILE") as mock_file:
             mock_file.is_file.return_value = True
             mock_file.read_text.return_value = '{"test": {"status": "running"}}'
 
@@ -47,7 +51,7 @@ class TestUtilityFunctions:
         Verifies that an empty dictionary is returned when
         the instances file doesn't exist.
         """
-        with patch('app.services.live_trading_manager._INSTANCES_FILE') as mock_file:
+        with patch("app.services.live_trading_manager._INSTANCES_FILE") as mock_file:
             mock_file.is_file.return_value = False
 
             result = _load_instances()
@@ -60,9 +64,9 @@ class TestUtilityFunctions:
         Verifies that an empty dictionary is returned when
         the file contains invalid JSON.
         """
-        with patch('app.services.live_trading_manager._INSTANCES_FILE') as mock_file:
+        with patch("app.services.live_trading_manager._INSTANCES_FILE") as mock_file:
             mock_file.is_file.return_value = True
-            mock_file.read_text.return_value = 'invalid json'
+            mock_file.read_text.return_value = "invalid json"
 
             result = _load_instances()
 
@@ -74,7 +78,7 @@ class TestUtilityFunctions:
         Verifies that instances are correctly written to
         the JSON file.
         """
-        with patch('app.services.live_trading_manager._INSTANCES_FILE') as mock_file:
+        with patch("app.services.live_trading_manager._INSTANCES_FILE") as mock_file:
             test_data = {"test": {"status": "running"}}
 
             _save_instances(test_data)
@@ -88,7 +92,7 @@ class TestUtilityFunctions:
         Verifies that the most recently modified log directory
         is returned.
         """
-        with patch('app.services.live_trading_manager.Path') as mock_path:
+        with patch("app.services.live_trading_manager.Path"):
             mock_strategy_dir = MagicMock()
             mock_logs_dir = MagicMock()
             mock_subdir1 = MagicMock()
@@ -115,7 +119,7 @@ class TestUtilityFunctions:
         Verifies that None is returned when no log directory
         exists for the strategy.
         """
-        with patch('app.services.live_trading_manager.Path') as mock_path:
+        with patch("app.services.live_trading_manager.Path"):
             mock_strategy_dir = MagicMock()
             mock_logs_dir = MagicMock()
             mock_logs_dir.is_dir.return_value = False
@@ -133,6 +137,7 @@ class TestUtilityFunctions:
         """
         # Test with a valid PID (current process)
         import os
+
         current_pid = os.getpid()
         assert _is_pid_alive(current_pid) is True
 
@@ -155,7 +160,7 @@ class TestLiveTradingManagerInitialization:
         Verifies that a new LiveTradingManager initializes
         with an empty processes dictionary.
         """
-        with patch('app.services.live_trading_manager._load_instances', return_value={}):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
             assert manager._processes == {}
 
@@ -165,17 +170,258 @@ class TestLiveTradingManagerInitialization:
         Verifies that the manager synchronizes process status
         during initialization by checking if PIDs are alive.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"status": "running", "pid": 12345},  # Will be marked as stopped
                 "inst2": {"status": "stopped", "pid": None},
             }
 
-            with patch('app.services.live_trading_manager._is_pid_alive', return_value=False):
-                with patch('app.services.live_trading_manager._save_instances') as mock_save:
-                    manager = LiveTradingManager()
+            with patch("app.services.live_trading_manager._is_pid_alive", return_value=False):
+                with patch("app.services.live_trading_manager._save_instances") as mock_save:
+                    LiveTradingManager()
                     # Should have saved updated status
                     assert mock_save.called
+
+
+class TestGatewayLifecycle:
+    def test_build_subprocess_env_with_gateway(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+            gateway_state = {
+                "config": MagicMock(
+                    command_endpoint="ipc://command",
+                    event_endpoint="ipc://event",
+                    market_endpoint="ipc://market",
+                    account_id="acc-1",
+                    exchange_type="CTP",
+                    asset_type="FUTURE",
+                )
+            }
+            with patch.dict("os.environ", {}, clear=True):
+                with patch.object(
+                    manager, "_acquire_gateway_for_instance", return_value=gateway_state
+                ):
+                    env = manager._build_subprocess_env(
+                        "inst1",
+                        {"params": {"gateway": {"enabled": True}}},
+                        Path("/tmp/strategy"),
+                    )
+
+        assert env["BT_STORE_PROVIDER"] == "ctp_gateway"
+        assert env["BT_GATEWAY_START_LOCAL_RUNTIME"] == "0"
+        assert env["BT_GATEWAY_COMMAND_ENDPOINT"] == "ipc://command"
+        assert env["BT_GATEWAY_EVENT_ENDPOINT"] == "ipc://event"
+        assert env["BT_GATEWAY_MARKET_ENDPOINT"] == "ipc://market"
+        assert env["BT_GATEWAY_ACCOUNT_ID"] == "acc-1"
+        assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "CTP"
+        assert env["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+
+    def test_build_subprocess_env_with_ib_web_gateway(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+            gateway_state = {
+                "config": MagicMock(
+                    command_endpoint="ipc://command",
+                    event_endpoint="ipc://event",
+                    market_endpoint="ipc://market",
+                    account_id="du123456",
+                    exchange_type="IB_WEB",
+                    asset_type="STK",
+                )
+            }
+            with patch.dict("os.environ", {}, clear=True):
+                with patch.object(
+                    manager, "_acquire_gateway_for_instance", return_value=gateway_state
+                ):
+                    env = manager._build_subprocess_env(
+                        "inst1",
+                        {"params": {"gateway": {"enabled": True, "exchange_type": "IB_WEB"}}},
+                        Path("/tmp/strategy"),
+                    )
+
+        assert env["BT_STORE_PROVIDER"] == "ctp_gateway"
+        assert env["BT_GATEWAY_START_LOCAL_RUNTIME"] == "0"
+        assert env["BT_GATEWAY_COMMAND_ENDPOINT"] == "ipc://command"
+        assert env["BT_GATEWAY_EVENT_ENDPOINT"] == "ipc://event"
+        assert env["BT_GATEWAY_MARKET_ENDPOINT"] == "ipc://market"
+        assert env["BT_GATEWAY_ACCOUNT_ID"] == "du123456"
+        assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "IB_WEB"
+        assert env["BT_GATEWAY_ASSET_TYPE"] == "STK"
+
+    def test_get_gateway_params_normalizes_ib_web(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        params = manager._get_gateway_params(
+            {
+                "params": {
+                    "exchange": "ib",
+                    "gateway": {
+                        "enabled": True,
+                        "asset_type": "stock",
+                        "account_id": "du123456",
+                        "base_url": "https://localhost:5000",
+                    },
+                }
+            }
+        )
+
+        assert params["enabled"] is True
+        assert params["exchange_type"] == "IB_WEB"
+        assert params["asset_type"] == "STK"
+        assert params["account_id"] == "du123456"
+        assert params["base_url"] == "https://localhost:5000"
+
+    def test_build_gateway_launch_for_ib_web(self, tmp_path):
+        strategy_dir = tmp_path / "test_strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "config.yaml").write_text(
+            "\n".join(
+                [
+                    "ib_web:",
+                    "  base_url: https://localhost:5000",
+                    "  account_id: config-acc",
+                    "  verify_ssl: false",
+                    "  timeout: 15",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (strategy_dir / ".env").write_text(
+            "\n".join(
+                [
+                    "IB_WEB_ACCOUNT_ID=env-acc",
+                    "IB_WEB_ACCESS_TOKEN=test-token",
+                    "IB_WEB_VERIFY_SSL=true",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        class FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return kwargs
+
+        class FakeGatewayRuntime:
+            pass
+
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        gateway_params = {
+            "enabled": True,
+            "provider": "ctp_gateway",
+            "exchange_type": "IB_WEB",
+            "asset_type": "stock",
+            "transport": "ipc",
+            "account_id": "",
+            "base_dir": str(tmp_path / "gateway"),
+            "base_url": "",
+            "access_token": "",
+            "verify_ssl": None,
+            "cookie_source": "",
+            "cookie_browser": "",
+            "cookie_path": "",
+            "cookies": None,
+        }
+
+        with patch.object(
+            manager,
+            "_import_gateway_runtime_classes",
+            return_value=(FakeGatewayConfig, FakeGatewayRuntime),
+        ):
+            launch = manager._build_gateway_launch(
+                {"params": {"gateway": {"enabled": True, "exchange_type": "IB_WEB"}}},
+                strategy_dir,
+                gateway_params,
+            )
+
+        runtime_kwargs = launch["runtime_kwargs"]
+        assert launch["runtime_cls"] is FakeGatewayRuntime
+        assert launch["config"] == runtime_kwargs
+        assert runtime_kwargs["exchange_type"] == "IB_WEB"
+        assert runtime_kwargs["asset_type"] == "STK"
+        assert runtime_kwargs["account_id"] == "env-acc"
+        assert runtime_kwargs["base_url"] == "https://localhost:5000"
+        assert runtime_kwargs["access_token"] == "test-token"
+        assert runtime_kwargs["verify_ssl"] is True
+        assert runtime_kwargs["timeout"] == 15.0
+
+    def test_release_gateway_for_instance_stops_runtime_when_last_instance(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        runtime = Mock()
+        manager._gateways["ctp-future-acc-1"] = {
+            "runtime": runtime,
+            "instances": {"inst1"},
+            "ref_count": 1,
+        }
+        manager._instance_gateways["inst1"] = "ctp-future-acc-1"
+
+        manager._release_gateway_for_instance("inst1")
+
+        runtime.stop.assert_called_once()
+        assert "ctp-future-acc-1" not in manager._gateways
+
+    def test_release_gateway_for_instance_keeps_runtime_when_shared(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        runtime = Mock()
+        manager._gateways["ctp-future-acc-1"] = {
+            "runtime": runtime,
+            "instances": {"inst1", "inst2"},
+            "ref_count": 2,
+        }
+        manager._instance_gateways["inst1"] = "ctp-future-acc-1"
+        manager._instance_gateways["inst2"] = "ctp-future-acc-1"
+
+        manager._release_gateway_for_instance("inst1")
+
+        runtime.stop.assert_not_called()
+        assert manager._gateways["ctp-future-acc-1"]["ref_count"] == 1
+        assert manager._gateways["ctp-future-acc-1"]["instances"] == {"inst2"}
+
+    def test_acquire_gateway_reuses_runtime_across_instances(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        config = MagicMock(runtime_name="ctp-future-acc-1")
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        launch = {
+            "config": config,
+            "runtime_cls": runtime_cls,
+            "runtime_kwargs": {"account_id": "acc-1"},
+        }
+
+        with patch.object(manager, "_build_gateway_launch", return_value=launch):
+            state1 = manager._acquire_gateway_for_instance(
+                "inst1",
+                {"params": {"gateway": {"enabled": True}}},
+                Path("/tmp/strategy"),
+            )
+            state2 = manager._acquire_gateway_for_instance(
+                "inst2",
+                {"params": {"gateway": {"enabled": True}}},
+                Path("/tmp/strategy"),
+            )
+
+        assert state1 is state2
+        runtime_cls.assert_called_once_with(config, account_id="acc-1")
+        runtime.start_in_thread.assert_called_once()
+        assert state1["ref_count"] == 2
+        assert state1["instances"] == {"inst1", "inst2"}
+
+        manager._release_gateway_for_instance("inst1")
+        runtime.stop.assert_not_called()
+        assert manager._gateways["ctp-future-acc-1"]["ref_count"] == 1
+
+        manager._release_gateway_for_instance("inst2")
+        runtime.stop.assert_called_once()
+        assert "ctp-future-acc-1" not in manager._gateways
 
 
 class TestListInstances:
@@ -187,16 +433,19 @@ class TestListInstances:
         Verifies that all instances are returned with
         proper formatting.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "s1", "user_id": "user1", "status": "stopped"},
                 "inst2": {"strategy_id": "s2", "user_id": "user2", "status": "running"},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch('app.services.live_trading_manager._is_pid_alive', return_value=True):
-                    with patch('app.services.live_trading_manager._find_latest_log_dir', return_value="/logs/test"):
-                        with patch('app.services.live_trading_manager.STRATEGIES_DIR'):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                    with patch(
+                        "app.services.live_trading_manager._find_latest_log_dir",
+                        return_value="/logs/test",
+                    ):
+                        with patch("app.services.live_trading_manager.STRATEGIES_DIR"):
                             manager = LiveTradingManager()
                             result = manager.list_instances()
 
@@ -209,16 +458,19 @@ class TestListInstances:
         Verifies that only instances belonging to the
         specified user are returned.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "s1", "user_id": "user1", "status": "stopped"},
                 "inst2": {"strategy_id": "s2", "user_id": "user2", "status": "running"},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch('app.services.live_trading_manager._is_pid_alive', return_value=True):
-                    with patch('app.services.live_trading_manager._find_latest_log_dir', return_value="/logs/test"):
-                        with patch('app.services.live_trading_manager.STRATEGIES_DIR'):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                    with patch(
+                        "app.services.live_trading_manager._find_latest_log_dir",
+                        return_value="/logs/test",
+                    ):
+                        with patch("app.services.live_trading_manager.STRATEGIES_DIR"):
                             manager = LiveTradingManager()
                             result = manager.list_instances(user_id="user1")
 
@@ -231,15 +483,22 @@ class TestListInstances:
         Verifies that instances with dead PIDs are marked
         as stopped when listing.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
-                "inst1": {"strategy_id": "s1", "user_id": "user1", "status": "running", "pid": 12345},
+                "inst1": {
+                    "strategy_id": "s1",
+                    "user_id": "user1",
+                    "status": "running",
+                    "pid": 12345,
+                },
             }
 
-            with patch('app.services.live_trading_manager._save_instances') as mock_save:
-                with patch('app.services.live_trading_manager._is_pid_alive', return_value=False):
-                    with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
-                        with patch('app.services.live_trading_manager.STRATEGIES_DIR'):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager._is_pid_alive", return_value=False):
+                    with patch(
+                        "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                    ):
+                        with patch("app.services.live_trading_manager.STRATEGIES_DIR"):
                             manager = LiveTradingManager()
                             result = manager.list_instances()
 
@@ -257,11 +516,14 @@ class TestAddInstance:
         Verifies that a new instance can be added with
         proper configuration.
         """
-        with patch('app.services.live_trading_manager._load_instances', return_value={}):
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch('app.services.live_trading_manager.STRATEGIES_DIR') as mock_dir:
-                    with patch('app.services.live_trading_manager.get_template_by_id') as mock_tpl:
-                        with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
+                    with patch("app.services.live_trading_manager.get_template_by_id") as mock_tpl:
+                        with patch(
+                            "app.services.live_trading_manager._find_latest_log_dir",
+                            return_value=None,
+                        ):
                             mock_strategy_dir = MagicMock()
                             mock_run_py = MagicMock()
                             mock_run_py.is_file.return_value = True
@@ -283,9 +545,9 @@ class TestAddInstance:
         Verifies that a ValueError is raised when trying
         to add an instance for a non-existent strategy.
         """
-        with patch('app.services.live_trading_manager.STRATEGIES_DIR') as mock_dir:
-            with patch('app.services.live_trading_manager._load_instances', return_value={}):
-                with patch('app.services.live_trading_manager._save_instances'):
+        with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
+            with patch("app.services.live_trading_manager._load_instances", return_value={}):
+                with patch("app.services.live_trading_manager._save_instances"):
                     mock_strategy_dir = MagicMock()
                     mock_run_py = MagicMock()
                     mock_run_py.is_file.return_value = False
@@ -303,11 +565,14 @@ class TestAddInstance:
         Verifies that custom parameters are correctly
         stored when adding an instance.
         """
-        with patch('app.services.live_trading_manager._load_instances', return_value={}):
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch('app.services.live_trading_manager.STRATEGIES_DIR') as mock_dir:
-                    with patch('app.services.live_trading_manager.get_template_by_id') as mock_tpl:
-                        with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
+                    with patch("app.services.live_trading_manager.get_template_by_id") as mock_tpl:
+                        with patch(
+                            "app.services.live_trading_manager._find_latest_log_dir",
+                            return_value=None,
+                        ):
                             mock_strategy_dir = MagicMock()
                             mock_run_py = MagicMock()
                             mock_run_py.is_file.return_value = True
@@ -317,7 +582,9 @@ class TestAddInstance:
 
                             manager = LiveTradingManager()
                             params = {"fast": 10, "slow": 20}
-                            result = manager.add_instance("test_strategy", params=params, user_id="user1")
+                            result = manager.add_instance(
+                                "test_strategy", params=params, user_id="user1"
+                            )
 
                             assert result["params"] == params
 
@@ -330,12 +597,12 @@ class TestRemoveInstance:
 
         Verifies that an existing instance can be removed.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "s1", "user_id": "user1", "status": "stopped"},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
+            with patch("app.services.live_trading_manager._save_instances"):
                 manager = LiveTradingManager()
                 result = manager.remove_instance("inst1", user_id="user1")
 
@@ -347,8 +614,8 @@ class TestRemoveInstance:
         Verifies that removing a non-existent instance
         returns False.
         """
-        with patch('app.services.live_trading_manager._load_instances', return_value={}):
-            with patch('app.services.live_trading_manager._save_instances'):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._save_instances"):
                 manager = LiveTradingManager()
                 result = manager.remove_instance("nonexistent")
 
@@ -360,12 +627,12 @@ class TestRemoveInstance:
         Verifies that a user cannot remove instances
         belonging to other users.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "s1", "user_id": "user1", "status": "stopped"},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
+            with patch("app.services.live_trading_manager._save_instances"):
                 manager = LiveTradingManager()
                 result = manager.remove_instance("inst1", user_id="user2")
 
@@ -380,14 +647,19 @@ class TestRemoveInstance:
         import os
         import signal
 
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
-                "inst1": {"strategy_id": "s1", "user_id": "user1", "status": "running", "pid": 12345},
+                "inst1": {
+                    "strategy_id": "s1",
+                    "user_id": "user1",
+                    "status": "running",
+                    "pid": 12345,
+                },
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
+            with patch("app.services.live_trading_manager._save_instances"):
                 # Patch os.kill directly to verify the kill attempt
-                with patch.object(os, 'kill') as mock_kill:
+                with patch.object(os, "kill") as mock_kill:
                     manager = LiveTradingManager()
                     manager.remove_instance("inst1")
 
@@ -403,13 +675,16 @@ class TestGetInstance:
 
         Verifies that an existing instance can be retrieved.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "s1", "user_id": "user1", "status": "stopped"},
             }
 
-            with patch('app.services.live_trading_manager.STRATEGIES_DIR'):
-                with patch('app.services.live_trading_manager._find_latest_log_dir', return_value="/logs/test"):
+            with patch("app.services.live_trading_manager.STRATEGIES_DIR"):
+                with patch(
+                    "app.services.live_trading_manager._find_latest_log_dir",
+                    return_value="/logs/test",
+                ):
                     manager = LiveTradingManager()
                     result = manager.get_instance("inst1", user_id="user1")
 
@@ -422,7 +697,7 @@ class TestGetInstance:
         Verifies that None is returned for a non-existent
         instance.
         """
-        with patch('app.services.live_trading_manager._load_instances', return_value={}):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
             result = manager.get_instance("nonexistent")
 
@@ -434,7 +709,7 @@ class TestGetInstance:
         Verifies that a user cannot retrieve instances
         belonging to other users.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "s1", "user_id": "user1", "status": "stopped"},
             }
@@ -455,14 +730,16 @@ class TestStartInstance:
         Verifies that an instance can be started and
         its status is updated.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "test_strategy", "status": "stopped"},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch('app.services.live_trading_manager.STRATEGIES_DIR') as mock_dir:
-                    with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
+                    with patch(
+                        "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                    ):
                         mock_strategy_dir = MagicMock()
                         mock_run_py = MagicMock()
                         mock_run_py.is_file.return_value = True
@@ -476,10 +753,11 @@ class TestStartInstance:
                         mock_proc.pid = 12345
                         mock_proc.returncode = None
 
-                        with patch('asyncio.create_subprocess_exec', return_value=mock_proc):
+                        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
                             # start_instance schedules _wait_process via asyncio.create_task; when patched,
                             # close the coroutine to avoid "coroutine was never awaited" warnings.
-                            with patch('asyncio.create_task') as mock_create_task:
+                            with patch("asyncio.create_task") as mock_create_task:
+
                                 def _create_task(coro):
                                     try:
                                         coro.close()
@@ -494,18 +772,183 @@ class TestStartInstance:
                                 assert result["pid"] == 12345
 
     @pytest.mark.asyncio
+    async def test_start_instance_passes_gateway_env_to_subprocess(self):
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
+            mock_load.return_value = {
+                "inst1": {
+                    "strategy_id": "test_strategy",
+                    "status": "stopped",
+                    "params": {"gateway": {"enabled": True}},
+                },
+            }
+
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
+                    with patch(
+                        "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                    ):
+                        mock_strategy_dir = MagicMock()
+                        mock_run_py = MagicMock()
+                        mock_run_py.is_file.return_value = True
+                        mock_strategy_dir.__truediv__.return_value = mock_run_py
+                        mock_dir.__truediv__ = Mock(return_value=mock_strategy_dir)
+
+                        manager = LiveTradingManager()
+                        gateway_env = {
+                            "BT_STORE_PROVIDER": "ctp_gateway",
+                            "BT_GATEWAY_COMMAND_ENDPOINT": "ipc://command",
+                            "BT_GATEWAY_EVENT_ENDPOINT": "ipc://event",
+                            "BT_GATEWAY_MARKET_ENDPOINT": "ipc://market",
+                            "BT_GATEWAY_ACCOUNT_ID": "acc-1",
+                            "BT_GATEWAY_EXCHANGE_TYPE": "CTP",
+                            "BT_GATEWAY_ASSET_TYPE": "FUTURE",
+                            "BT_GATEWAY_START_LOCAL_RUNTIME": "0",
+                        }
+
+                        mock_proc = AsyncMock()
+                        mock_proc.pid = 12345
+                        mock_proc.returncode = None
+
+                        with patch.object(
+                            manager, "_build_subprocess_env", return_value=gateway_env
+                        ):
+                            with patch(
+                                "asyncio.create_subprocess_exec", return_value=mock_proc
+                            ) as mock_exec:
+                                with patch("asyncio.create_task") as mock_create_task:
+
+                                    def _create_task(coro):
+                                        try:
+                                            coro.close()
+                                        except Exception:
+                                            pass
+                                        return Mock()
+
+                                    mock_create_task.side_effect = _create_task
+                                    await manager.start_instance("inst1")
+
+                        assert mock_exec.call_args.kwargs["env"] == gateway_env
+
+    @pytest.mark.asyncio
+    async def test_start_stop_instance_real_subprocess_gateway_smoke(self, tmp_path):
+        instances = {
+            "inst1": {
+                "strategy_id": "test_strategy",
+                "status": "stopped",
+                "params": {"gateway": {"enabled": True}},
+            }
+        }
+        strategy_dir = tmp_path / "test_strategy"
+        strategy_dir.mkdir()
+        env_file = strategy_dir / "env.json"
+        run_py = strategy_dir / "run.py"
+        run_py.write_text(
+            "\n".join(
+                [
+                    "import json",
+                    "import os",
+                    "import time",
+                    "from pathlib import Path",
+                    "",
+                    "Path('env.json').write_text(",
+                    "    json.dumps(",
+                    "        {",
+                    "            'BT_STORE_PROVIDER': os.environ.get('BT_STORE_PROVIDER'),",
+                    "            'BT_GATEWAY_COMMAND_ENDPOINT': os.environ.get('BT_GATEWAY_COMMAND_ENDPOINT'),",
+                    "            'BT_GATEWAY_EVENT_ENDPOINT': os.environ.get('BT_GATEWAY_EVENT_ENDPOINT'),",
+                    "            'BT_GATEWAY_MARKET_ENDPOINT': os.environ.get('BT_GATEWAY_MARKET_ENDPOINT'),",
+                    "            'BT_GATEWAY_ACCOUNT_ID': os.environ.get('BT_GATEWAY_ACCOUNT_ID'),",
+                    "            'BT_GATEWAY_EXCHANGE_TYPE': os.environ.get('BT_GATEWAY_EXCHANGE_TYPE'),",
+                    "            'BT_GATEWAY_ASSET_TYPE': os.environ.get('BT_GATEWAY_ASSET_TYPE'),",
+                    "            'BT_GATEWAY_START_LOCAL_RUNTIME': os.environ.get('BT_GATEWAY_START_LOCAL_RUNTIME'),",
+                    "        }",
+                    "    ),",
+                    "    encoding='utf-8',",
+                    ")",
+                    "time.sleep(30)",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        config = MagicMock(
+            runtime_name="ctp-future-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+        )
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        launch = {
+            "config": config,
+            "runtime_cls": runtime_cls,
+            "runtime_kwargs": {"account_id": "acc-1"},
+        }
+
+        created_tasks = []
+        original_create_task = asyncio.create_task
+
+        def _create_task(coro):
+            task = original_create_task(coro)
+            created_tasks.append(task)
+            return task
+
+        with patch("app.services.live_trading_manager._load_instances", return_value=instances):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch(
+                    "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                ):
+                    manager = LiveTradingManager()
+                    with patch.object(manager, "_resolve_strategy_dir", return_value=strategy_dir):
+                        with patch.object(manager, "_build_gateway_launch", return_value=launch):
+                            with patch("asyncio.create_task", side_effect=_create_task):
+                                started = await manager.start_instance("inst1")
+                                assert started["status"] == "running"
+                                assert manager._gateways["ctp-future-acc-1"]["ref_count"] == 1
+
+                                for _ in range(40):
+                                    if env_file.exists():
+                                        break
+                                    await asyncio.sleep(0.05)
+
+                                assert env_file.is_file()
+                                env_data = json.loads(env_file.read_text("utf-8"))
+                                assert env_data["BT_STORE_PROVIDER"] == "ctp_gateway"
+                                assert env_data["BT_GATEWAY_COMMAND_ENDPOINT"] == "ipc://command"
+                                assert env_data["BT_GATEWAY_EVENT_ENDPOINT"] == "ipc://event"
+                                assert env_data["BT_GATEWAY_MARKET_ENDPOINT"] == "ipc://market"
+                                assert env_data["BT_GATEWAY_ACCOUNT_ID"] == "acc-1"
+                                assert env_data["BT_GATEWAY_EXCHANGE_TYPE"] == "CTP"
+                                assert env_data["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+                                assert env_data["BT_GATEWAY_START_LOCAL_RUNTIME"] == "0"
+
+                                stopped = await manager.stop_instance("inst1")
+                                assert stopped["status"] == "stopped"
+                                assert "ctp-future-acc-1" not in manager._gateways
+
+        runtime_cls.assert_called_once_with(config, account_id="acc-1")
+        runtime.start_in_thread.assert_called_once()
+        runtime.stop.assert_called_once()
+
+        for task in created_tasks:
+            await asyncio.wait_for(task, timeout=5)
+
+    @pytest.mark.asyncio
     async def test_start_instance_already_running(self):
         """Test starting an already running instance.
 
         Verifies that a ValueError is raised when trying
         to start an instance that's already running.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "test_strategy", "status": "running", "pid": 12345},
             }
 
-            with patch('app.services.live_trading_manager._is_pid_alive', return_value=True):
+            with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
                 manager = LiveTradingManager()
 
                 with pytest.raises(ValueError, match="already running"):
@@ -518,7 +961,7 @@ class TestStartInstance:
         Verifies that a ValueError is raised when trying
         to start a non-existent instance.
         """
-        with patch('app.services.live_trading_manager._load_instances', return_value={}):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
 
             with pytest.raises(ValueError, match="Instance does not exist"):
@@ -531,12 +974,12 @@ class TestStartInstance:
         Verifies that a ValueError is raised when the
         strategy's run.py file is missing.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "test_strategy", "status": "stopped"},
             }
 
-            with patch('app.services.live_trading_manager.STRATEGIES_DIR') as mock_dir:
+            with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
                 mock_strategy_dir = MagicMock()
                 mock_run_py = MagicMock()
                 mock_run_py.is_file.return_value = False
@@ -559,15 +1002,15 @@ class TestStopInstance:
         Verifies that a running instance can be stopped
         and its status is updated.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "test_strategy", "status": "running", "pid": 12345},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
+            with patch("app.services.live_trading_manager._save_instances"):
                 manager = LiveTradingManager()
 
-                with patch('app.services.live_trading_manager._is_pid_alive', return_value=False):
+                with patch("app.services.live_trading_manager._is_pid_alive", return_value=False):
                     result = await manager.stop_instance("inst1")
 
                     assert result["status"] == "stopped"
@@ -580,7 +1023,7 @@ class TestStopInstance:
         Verifies that a ValueError is raised when trying
         to stop a non-existent instance.
         """
-        with patch('app.services.live_trading_manager._load_instances', return_value={}):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
 
             with pytest.raises(ValueError, match="Instance does not exist"):
@@ -596,16 +1039,18 @@ class TestStopInstance:
         import os
         import signal
 
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "test_strategy", "status": "running", "pid": 12345},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch.object(os, 'kill') as mock_kill:
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch.object(os, "kill") as mock_kill:
                     manager = LiveTradingManager()
 
-                    with patch('app.services.live_trading_manager._is_pid_alive', return_value=True):
+                    with patch(
+                        "app.services.live_trading_manager._is_pid_alive", return_value=True
+                    ):
                         # Add a mock process to the manager's process dict
                         # proc.terminate()/kill() are sync; proc.wait() is async.
                         mock_proc = MagicMock()
@@ -615,7 +1060,7 @@ class TestStopInstance:
                         mock_proc.kill = Mock()
                         manager._processes["inst1"] = mock_proc
 
-                        result = await manager.stop_instance("inst1")
+                        await manager.stop_instance("inst1")
 
                         # Should have killed the process with SIGTERM
                         mock_kill.assert_any_call(12345, signal.SIGTERM)
@@ -631,21 +1076,25 @@ class TestStartAllStopAll:
         Verifies that all stopped instances can be
         started in batch.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "s1", "status": "stopped"},
                 "inst2": {"strategy_id": "s2", "status": "stopped"},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch('app.services.live_trading_manager.STRATEGIES_DIR'):
-                    with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
-                        with patch('app.services.live_trading_manager._is_pid_alive', return_value=False):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager.STRATEGIES_DIR"):
+                    with patch(
+                        "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                    ):
+                        with patch(
+                            "app.services.live_trading_manager._is_pid_alive", return_value=False
+                        ):
                             manager = LiveTradingManager()
 
                             # Use AsyncMock for the async start_instance method
                             mock_start = AsyncMock(return_value={"status": "running", "id": "test"})
-                            with patch.object(manager, 'start_instance', mock_start):
+                            with patch.object(manager, "start_instance", mock_start):
                                 result = await manager.start_all()
 
                                 assert result["success"] == 2
@@ -658,15 +1107,17 @@ class TestStartAllStopAll:
         Verifies that the result correctly reports successes
         and failures when starting all instances.
         """
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {
                 "inst1": {"strategy_id": "s1", "status": "stopped"},
                 "inst2": {"strategy_id": "s2", "status": "stopped"},
             }
 
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch('app.services.live_trading_manager.STRATEGIES_DIR'):
-                    with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager.STRATEGIES_DIR"):
+                    with patch(
+                        "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                    ):
                         manager = LiveTradingManager()
 
                         # Mock start_instance - one succeeds, one fails
@@ -678,7 +1129,7 @@ class TestStartAllStopAll:
 
                         # Use side_effect with AsyncMock wrapper
                         mock_start_async = AsyncMock(side_effect=mock_start)
-                        with patch.object(manager, 'start_instance', mock_start_async):
+                        with patch.object(manager, "start_instance", mock_start_async):
                             result = await manager.start_all()
 
                             assert result["success"] == 1
@@ -700,14 +1151,14 @@ class TestStartAllStopAll:
             "inst2": {"strategy_id": "s2", "status": "running", "pid": 12346},
         }
 
-        with patch.object(live_trading_manager, '_load_instances', return_value=running_data):
-            with patch.object(live_trading_manager, '_save_instances'):
-                with patch.object(live_trading_manager, '_is_pid_alive', return_value=True):
+        with patch.object(live_trading_manager, "_load_instances", return_value=running_data):
+            with patch.object(live_trading_manager, "_save_instances"):
+                with patch.object(live_trading_manager, "_is_pid_alive", return_value=True):
                     manager = live_trading_manager.LiveTradingManager()
 
                     # Use AsyncMock for the async stop_instance method
                     mock_stop = AsyncMock(return_value={"status": "stopped", "id": "test"})
-                    with patch.object(manager, 'stop_instance', mock_stop):
+                    with patch.object(manager, "stop_instance", mock_stop):
                         result = await manager.stop_all()
 
                         assert result["success"] == 2
@@ -736,11 +1187,13 @@ class TestWaitProcess:
         def mock_save(data):
             saved_data.update(data)
 
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {"inst1": {"strategy_id": "s1", "status": "running"}}
-            with patch('app.services.live_trading_manager._save_instances', side_effect=mock_save):
-                with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
-                    with patch('app.services.live_trading_manager.STRATEGIES_DIR'):
+            with patch("app.services.live_trading_manager._save_instances", side_effect=mock_save):
+                with patch(
+                    "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                ):
+                    with patch("app.services.live_trading_manager.STRATEGIES_DIR"):
                         await manager._wait_process("inst1", mock_proc)
 
                         # Check that status was updated to stopped
@@ -767,11 +1220,13 @@ class TestWaitProcess:
         def mock_save(data):
             saved_data.update(data)
 
-        with patch('app.services.live_trading_manager._load_instances') as mock_load:
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
             mock_load.return_value = {"inst1": {"strategy_id": "s1", "status": "running"}}
-            with patch('app.services.live_trading_manager._save_instances', side_effect=mock_save):
-                with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
-                    with patch('app.services.live_trading_manager.STRATEGIES_DIR'):
+            with patch("app.services.live_trading_manager._save_instances", side_effect=mock_save):
+                with patch(
+                    "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                ):
+                    with patch("app.services.live_trading_manager.STRATEGIES_DIR"):
                         await manager._wait_process("inst1", mock_proc)
 
                         # Check that status was updated to error
@@ -789,8 +1244,9 @@ class TestKillPid:
         a process.
         """
         import os
+
         # Patch os module directly since _kill_pid imports os locally
-        with patch.object(os, 'kill') as mock_kill:
+        with patch.object(os, "kill") as mock_kill:
             LiveTradingManager._kill_pid(12345)
             mock_kill.assert_called_once()
 
@@ -801,8 +1257,9 @@ class TestKillPid:
         to kill a non-existent process.
         """
         import os
+
         # Patch os module directly since _kill_pid imports os locally
-        with patch.object(os, 'kill', side_effect=ProcessLookupError):
+        with patch.object(os, "kill", side_effect=ProcessLookupError):
             # Should not raise an error
             LiveTradingManager._kill_pid(999999)
 
@@ -828,7 +1285,7 @@ class TestGetLiveTradingManager:
         attribute that is a dictionary.
         """
         manager = get_live_trading_manager()
-        assert hasattr(manager, '_processes')
+        assert hasattr(manager, "_processes")
         assert isinstance(manager._processes, dict)
 
 
@@ -841,11 +1298,14 @@ class TestIntegration:
         Verifies the full lifecycle of an instance:
         add, get, list, and remove.
         """
-        with patch('app.services.live_trading_manager._load_instances', return_value={}):
-            with patch('app.services.live_trading_manager._save_instances'):
-                with patch('app.services.live_trading_manager.STRATEGIES_DIR') as mock_dir:
-                    with patch('app.services.live_trading_manager.get_template_by_id') as mock_tpl:
-                        with patch('app.services.live_trading_manager._find_latest_log_dir', return_value=None):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._save_instances"):
+                with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
+                    with patch("app.services.live_trading_manager.get_template_by_id") as mock_tpl:
+                        with patch(
+                            "app.services.live_trading_manager._find_latest_log_dir",
+                            return_value=None,
+                        ):
                             # Setup strategy directory
                             mock_strategy_dir = MagicMock()
                             mock_run_py = MagicMock()
@@ -857,7 +1317,9 @@ class TestIntegration:
                             manager = LiveTradingManager()
 
                             # Add instance
-                            inst = manager.add_instance("test_strategy", {"param": 10}, user_id="user1")
+                            inst = manager.add_instance(
+                                "test_strategy", {"param": 10}, user_id="user1"
+                            )
                             inst_id = inst["id"]
 
                             # Get instance

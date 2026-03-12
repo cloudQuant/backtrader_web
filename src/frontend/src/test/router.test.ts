@@ -1,7 +1,7 @@
 /**
  * 路由模块测试
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { createRouter, createMemoryHistory } from 'vue-router'
 
 describe('Vue Router 配置', () => {

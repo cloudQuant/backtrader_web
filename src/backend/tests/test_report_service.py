@@ -8,6 +8,7 @@ Tests:
 - Error handling when dependencies are missing
 - Edge case handling
 """
+
 from unittest.mock import patch
 
 import pytest
@@ -42,33 +43,33 @@ class TestGenerateHtmlReport:
         service = ReportService()
 
         result = {
-            'total_return': 15.5,
-            'annual_return': 12.3,
-            'sharpe_ratio': 1.5,
-            'max_drawdown': -8.2,
-            'win_rate': 60.0,
-            'total_trades': 100,
-            'profitable_trades': 60,
-            'losing_trades': 40,
-            'params': {'fast_period': 10, 'slow_period': 20},
-            'start_date': '2024-01-01',
-            'end_date': '2024-12-31',
+            "total_return": 15.5,
+            "annual_return": 12.3,
+            "sharpe_ratio": 1.5,
+            "max_drawdown": -8.2,
+            "win_rate": 60.0,
+            "total_trades": 100,
+            "profitable_trades": 60,
+            "losing_trades": 40,
+            "params": {"fast_period": 10, "slow_period": 20},
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
         }
 
         strategy = {
-            'name': 'Dual Moving Average Strategy',
+            "name": "Dual Moving Average Strategy",
         }
 
         html = await service.generate_html_report(result, strategy)
 
         assert isinstance(html, str)
-        assert 'Dual Moving Average Strategy' in html
-        assert '15.5' in html  # total_return
-        assert '12.3' in html  # annual_return
-        assert '1.5' in html  # sharpe_ratio
-        assert '60.0' in html  # win_rate
-        assert '<!DOCTYPE html>' in html
-        assert '</html>' in html
+        assert "Dual Moving Average Strategy" in html
+        assert "15.5" in html  # total_return
+        assert "12.3" in html  # annual_return
+        assert "1.5" in html  # sharpe_ratio
+        assert "60.0" in html  # win_rate
+        assert "<!DOCTYPE html>" in html
+        assert "</html>" in html
 
     @pytest.mark.asyncio
     async def test_generate_html_with_missing_values(self):
@@ -79,14 +80,14 @@ class TestGenerateHtmlReport:
         service = ReportService()
 
         result = {}  # Empty result
-        strategy = {'name': 'Test Strategy'}
+        strategy = {"name": "Test Strategy"}
 
         html = await service.generate_html_report(result, strategy)
 
         assert isinstance(html, str)
-        assert 'Test Strategy' in html
+        assert "Test Strategy" in html
         # Should use default value 0
-        assert '0' in html
+        assert "0" in html
 
     @pytest.mark.asyncio
     async def test_generate_html_without_jinja2(self):
@@ -108,14 +109,14 @@ class TestGenerateHtmlReport:
         service = ReportService()
 
         result = {
-            'total_return': 25.5,
-            'annual_return': 20.0,
+            "total_return": 25.5,
+            "annual_return": 20.0,
         }
-        strategy = {'name': 'Test'}
+        strategy = {"name": "Test"}
 
         html = await service.generate_html_report(result, strategy)
 
-        assert 'positive' in html
+        assert "positive" in html
 
     @pytest.mark.asyncio
     async def test_generate_html_negative_returns(self):
@@ -126,14 +127,14 @@ class TestGenerateHtmlReport:
         service = ReportService()
 
         result = {
-            'total_return': -15.5,
-            'annual_return': -10.0,
+            "total_return": -15.5,
+            "annual_return": -10.0,
         }
-        strategy = {'name': 'Test'}
+        strategy = {"name": "Test"}
 
         html = await service.generate_html_report(result, strategy)
 
-        assert 'negative' in html
+        assert "negative" in html
 
     @pytest.mark.asyncio
     async def test_generate_html_with_params(self):
@@ -144,19 +145,19 @@ class TestGenerateHtmlReport:
         service = ReportService()
 
         result = {
-            'params': {
-                'fast_period': 5,
-                'slow_period': 20,
-                'risk_ratio': 2.0,
+            "params": {
+                "fast_period": 5,
+                "slow_period": 20,
+                "risk_ratio": 2.0,
             }
         }
-        strategy = {'name': 'Parameter Test'}
+        strategy = {"name": "Parameter Test"}
 
         html = await service.generate_html_report(result, strategy)
 
-        assert 'fast_period' in html
-        assert 'slow_period' in html
-        assert 'risk_ratio' in html
+        assert "fast_period" in html
+        assert "slow_period" in html
+        assert "risk_ratio" in html
 
     @pytest.mark.asyncio
     async def test_generate_html_with_trades_summary(self):
@@ -167,18 +168,18 @@ class TestGenerateHtmlReport:
         service = ReportService()
 
         result = {
-            'total_trades': 150,
-            'profitable_trades': 90,
-            'losing_trades': 60,
-            'win_rate': 60.0,
+            "total_trades": 150,
+            "profitable_trades": 90,
+            "losing_trades": 60,
+            "win_rate": 60.0,
         }
-        strategy = {'name': 'Trade Test'}
+        strategy = {"name": "Trade Test"}
 
         html = await service.generate_html_report(result, strategy)
 
-        assert '150' in html
-        assert '90' in html
-        assert '60' in html
+        assert "150" in html
+        assert "90" in html
+        assert "60" in html
 
 
 class TestGeneratePdfReport:
@@ -193,18 +194,18 @@ class TestGeneratePdfReport:
         service = ReportService()
 
         result = {
-            'total_return': 15.5,
-            'sharpe_ratio': 1.5,
-            'max_drawdown': -8.2,
+            "total_return": 15.5,
+            "sharpe_ratio": 1.5,
+            "max_drawdown": -8.2,
         }
-        strategy = {'name': 'PDF Test'}
+        strategy = {"name": "PDF Test"}
 
         pdf_bytes = await service.generate_pdf_report(result, strategy)
 
         assert isinstance(pdf_bytes, bytes)
         assert len(pdf_bytes) > 0
         # PDF should start with %PDF
-        assert pdf_bytes.startswith(b'%PDF')
+        assert pdf_bytes.startswith(b"%PDF")
 
     @pytest.mark.asyncio
     async def test_generate_pdf_without_weasyprint(self):
@@ -215,7 +216,7 @@ class TestGeneratePdfReport:
         # Patch to simulate weasyprint not available
         service = ReportService()
 
-        with patch('app.services.report_service.WEASYPRINT_AVAILABLE', False):
+        with patch("app.services.report_service.WEASYPRINT_AVAILABLE", False):
             with pytest.raises(ImportError, match="weasyprint"):
                 await service.generate_pdf_report({}, {})
 
@@ -227,14 +228,15 @@ class TestGeneratePdfReport:
 
         service = ReportService()
 
-        result = {'total_return': 10.0}
-        strategy = {'name': 'Test'}
+        result = {"total_return": 10.0}
+        strategy = {"name": "Test"}
 
         # Generate HTML first and verify PDF uses it
-        with patch.object(service, 'generate_html_report',
-                        return_value='<html><body>Test HTML</body></html>') as mock_html:
-            with patch('app.services.report_service.WeasyPrintHTML') as mock_weasy:
-                mock_weasy.return_value.write_pdf.return_value = b'%PDF-test'
+        with patch.object(
+            service, "generate_html_report", return_value="<html><body>Test HTML</body></html>"
+        ) as mock_html:
+            with patch("app.services.report_service.WeasyPrintHTML") as mock_weasy:
+                mock_weasy.return_value.write_pdf.return_value = b"%PDF-test"
 
                 await service.generate_pdf_report(result, strategy)
 
@@ -254,32 +256,32 @@ class TestGenerateExcelReport:
         service = ReportService()
 
         result = {
-            'total_return': 15.5,
-            'annual_return': 12.3,
-            'sharpe_ratio': 1.5,
-            'max_drawdown': -8.2,
-            'win_rate': 60.0,
-            'total_trades': 100,
-            'profitable_trades': 60,
-            'losing_trades': 40,
-            'params': {'period': 20},
-            'start_date': '2024-01-01',
-            'end_date': '2024-12-31',
-            'trades': [
-                {'date': '2024-01-01', 'symbol': 'AAPL', 'type': 'buy', 'price': 100, 'size': 10},
-                {'date': '2024-01-02', 'symbol': 'AAPL', 'type': 'sell', 'price': 110, 'size': 10},
+            "total_return": 15.5,
+            "annual_return": 12.3,
+            "sharpe_ratio": 1.5,
+            "max_drawdown": -8.2,
+            "win_rate": 60.0,
+            "total_trades": 100,
+            "profitable_trades": 60,
+            "losing_trades": 40,
+            "params": {"period": 20},
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "trades": [
+                {"date": "2024-01-01", "symbol": "AAPL", "type": "buy", "price": 100, "size": 10},
+                {"date": "2024-01-02", "symbol": "AAPL", "type": "sell", "price": 110, "size": 10},
             ],
-            'equity_dates': ['2024-01-01', '2024-01-02', '2024-01-03'],
-            'equity_curve': [100000, 101000, 102000],
+            "equity_dates": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "equity_curve": [100000, 101000, 102000],
         }
-        strategy = {'name': 'Excel Test', 'symbol': 'AAPL'}
+        strategy = {"name": "Excel Test", "symbol": "AAPL"}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
         assert isinstance(excel_bytes, bytes)
         assert len(excel_bytes) > 0
         # Excel files should start with PK (ZIP signature)
-        assert excel_bytes.startswith(b'PK')
+        assert excel_bytes.startswith(b"PK")
 
     @pytest.mark.asyncio
     async def test_generate_excel_without_dependencies(self):
@@ -289,7 +291,7 @@ class TestGenerateExcelReport:
 
         service = ReportService()
 
-        with patch('app.services.report_service.PANDAS_AVAILABLE', False):
+        with patch("app.services.report_service.PANDAS_AVAILABLE", False):
             with pytest.raises(ImportError, match="pandas.*openpyxl"):
                 await service.generate_excel_report({}, {})
 
@@ -302,7 +304,7 @@ class TestGenerateExcelReport:
         service = ReportService()
 
         result = {}  # Minimal data
-        strategy = {'name': 'Minimal Test'}
+        strategy = {"name": "Minimal Test"}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -318,12 +320,12 @@ class TestGenerateExcelReport:
         service = ReportService()
 
         result = {
-            'trades': [
-                {'date': '2024-01-01', 'symbol': 'AAPL', 'type': 'buy', 'price': 100, 'pnl': 1000},
-                {'date': '2024-01-02', 'symbol': 'MSFT', 'type': 'sell', 'price': 200, 'pnl': -500},
+            "trades": [
+                {"date": "2024-01-01", "symbol": "AAPL", "type": "buy", "price": 100, "pnl": 1000},
+                {"date": "2024-01-02", "symbol": "MSFT", "type": "sell", "price": 200, "pnl": -500},
             ]
         }
-        strategy = {'name': 'Trade Test'}
+        strategy = {"name": "Trade Test"}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -339,10 +341,10 @@ class TestGenerateExcelReport:
         service = ReportService()
 
         result = {
-            'equity_dates': ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05'],
-            'equity_curve': [100000, 101000, 100500, 102000, 103000],
+            "equity_dates": ["2024-01-01", "2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"],
+            "equity_curve": [100000, 101000, 100500, 102000, 103000],
         }
-        strategy = {'name': 'Equity Curve Test'}
+        strategy = {"name": "Equity Curve Test"}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -361,11 +363,8 @@ class TestEdgeCases:
 
         service = ReportService()
 
-        result = {
-            'total_return': 15.5,
-            'params': {'param_<script>': 'value_test'}
-        }
-        strategy = {'name': 'Strategy<>&"'}
+        result = {"total_return": 15.5, "params": {"param_<script>": "value_test"}}
+        strategy = {"name": 'Strategy<>&"'}
 
         html = await service.generate_html_report(result, strategy)
 
@@ -382,21 +381,21 @@ class TestEdgeCases:
         service = ReportService()
 
         result = {
-            'total_return': 0,
-            'annual_return': 0,
-            'sharpe_ratio': 0,
-            'max_drawdown': 0,
-            'win_rate': 0,
-            'total_trades': 0,
-            'profitable_trades': 0,
-            'losing_trades': 0,
+            "total_return": 0,
+            "annual_return": 0,
+            "sharpe_ratio": 0,
+            "max_drawdown": 0,
+            "win_rate": 0,
+            "total_trades": 0,
+            "profitable_trades": 0,
+            "losing_trades": 0,
         }
-        strategy = {'name': 'Zero Value Test'}
+        strategy = {"name": "Zero Value Test"}
 
         html = await service.generate_html_report(result, strategy)
 
         assert isinstance(html, str)
-        assert '0' in html
+        assert "0" in html
 
     @pytest.mark.asyncio
     async def test_html_with_large_values(self):
@@ -407,16 +406,16 @@ class TestEdgeCases:
         service = ReportService()
 
         result = {
-            'total_return': 999999.99,
-            'total_trades': 1000000,
+            "total_return": 999999.99,
+            "total_trades": 1000000,
         }
-        strategy = {'name': 'Large Value Test'}
+        strategy = {"name": "Large Value Test"}
 
         html = await service.generate_html_report(result, strategy)
 
         assert isinstance(html, str)
-        assert '999999' in html
-        assert '1000000' in html
+        assert "999999" in html
+        assert "1000000" in html
 
     @pytest.mark.asyncio
     async def test_excel_empty_trades_list(self):
@@ -427,11 +426,11 @@ class TestEdgeCases:
         service = ReportService()
 
         result = {
-            'trades': [],  # Empty list
-            'equity_dates': [],  # Empty list
-            'equity_curve': [],  # Empty list
+            "trades": [],  # Empty list
+            "equity_dates": [],  # Empty list
+            "equity_curve": [],  # Empty list
         }
-        strategy = {'name': 'Empty Data Test'}
+        strategy = {"name": "Empty Data Test"}
 
         excel_bytes = await service.generate_excel_report(result, strategy)
 
@@ -451,32 +450,32 @@ class TestTemplateRendering:
         service = ReportService()
 
         result = {
-            'total_return': 10.0,
-            'annual_return': 8.0,
-            'sharpe_ratio': 1.2,
-            'max_drawdown': -5.0,
-            'win_rate': 55.0,
-            'total_trades': 50,
-            'profitable_trades': 28,
-            'losing_trades': 22,
-            'params': {'test': 'value'},
-            'start_date': '2024-01-01',
-            'end_date': '2024-12-31',
+            "total_return": 10.0,
+            "annual_return": 8.0,
+            "sharpe_ratio": 1.2,
+            "max_drawdown": -5.0,
+            "win_rate": 55.0,
+            "total_trades": 50,
+            "profitable_trades": 28,
+            "losing_trades": 22,
+            "params": {"test": "value"},
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
         }
-        strategy = {'name': 'Complete Test'}
+        strategy = {"name": "Complete Test"}
 
         html = await service.generate_html_report(result, strategy)
 
         # Check HTML structure
-        assert '<!DOCTYPE html>' in html
-        assert '<head>' in html
-        assert '<body>' in html
-        assert '</html>' in html
-        assert 'Backtest Overview' in html
-        assert 'Trade Statistics' in html
-        assert 'Strategy Parameters' in html
-        assert 'Risk Disclaimer' in html
-        assert 'Backtrader Web' in html
+        assert "<!DOCTYPE html>" in html
+        assert "<head>" in html
+        assert "<body>" in html
+        assert "</html>" in html
+        assert "Backtest Overview" in html
+        assert "Trade Statistics" in html
+        assert "Strategy Parameters" in html
+        assert "Risk Disclaimer" in html
+        assert "Backtrader Web" in html
 
     @pytest.mark.asyncio
     async def test_template_styling(self):
@@ -486,18 +485,18 @@ class TestTemplateRendering:
 
         service = ReportService()
 
-        result = {'total_return': 10.0}
-        strategy = {'name': 'Style Test'}
+        result = {"total_return": 10.0}
+        strategy = {"name": "Style Test"}
 
         html = await service.generate_html_report(result, strategy)
 
         # Check CSS styles
-        assert '<style>' in html
-        assert 'container' in html
-        assert 'metric-card' in html
-        assert 'table' in html
-        assert 'header' in html
-        assert 'footer' in html
+        assert "<style>" in html
+        assert "container" in html
+        assert "metric-card" in html
+        assert "table" in html
+        assert "header" in html
+        assert "footer" in html
 
 
 class TestIntegration:
@@ -513,39 +512,51 @@ class TestIntegration:
 
         # Complete backtest results
         result = {
-            'symbol': '000001.SZ',
-            'start_date': '2024-01-01',
-            'end_date': '2024-12-31',
-            'total_return': 25.5,
-            'annual_return': 22.0,
-            'sharpe_ratio': 1.8,
-            'max_drawdown': -10.5,
-            'win_rate': 65.0,
-            'total_trades': 200,
-            'profitable_trades': 130,
-            'losing_trades': 70,
-            'params': {
-                'fast_period': 5,
-                'slow_period': 20,
-                'risk_ratio': 2.0,
+            "symbol": "000001.SZ",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "total_return": 25.5,
+            "annual_return": 22.0,
+            "sharpe_ratio": 1.8,
+            "max_drawdown": -10.5,
+            "win_rate": 65.0,
+            "total_trades": 200,
+            "profitable_trades": 130,
+            "losing_trades": 70,
+            "params": {
+                "fast_period": 5,
+                "slow_period": 20,
+                "risk_ratio": 2.0,
             },
-            'trades': [
-                {'date': '2024-01-01', 'symbol': '000001.SZ', 'type': 'buy', 'price': 10.0, 'size': 100},
-                {'date': '2024-01-05', 'symbol': '000001.SZ', 'type': 'sell', 'price': 12.0, 'size': 100},
+            "trades": [
+                {
+                    "date": "2024-01-01",
+                    "symbol": "000001.SZ",
+                    "type": "buy",
+                    "price": 10.0,
+                    "size": 100,
+                },
+                {
+                    "date": "2024-01-05",
+                    "symbol": "000001.SZ",
+                    "type": "sell",
+                    "price": 12.0,
+                    "size": 100,
+                },
             ],
-            'equity_dates': ['2024-01-01', '2024-01-02', '2024-01-03'],
-            'equity_curve': [100000, 101000, 102000],
+            "equity_dates": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "equity_curve": [100000, 101000, 102000],
         }
         strategy = {
-            'name': 'Dual Moving Average Strategy',
-            'description': 'Trade based on fast/slow moving average crossover signals',
-            'symbol': '000001.SZ',
+            "name": "Dual Moving Average Strategy",
+            "description": "Trade based on fast/slow moving average crossover signals",
+            "symbol": "000001.SZ",
         }
 
         # Generate HTML report
         html = await service.generate_html_report(result, strategy)
-        assert 'Dual Moving Average Strategy' in html
-        assert '25.5' in html  # total_return
+        assert "Dual Moving Average Strategy" in html
+        assert "25.5" in html  # total_return
 
         # Generate Excel report (if dependencies available)
         if PANDAS_AVAILABLE and OPENPYXL_AVAILABLE:

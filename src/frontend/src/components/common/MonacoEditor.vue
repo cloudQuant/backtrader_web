@@ -1,5 +1,9 @@
 <template>
-  <div ref="editorRef" class="monaco-editor-container" :style="{ height: height + 'px' }"></div>
+  <div
+    ref="editorRef"
+    class="monaco-editor-container"
+    :style="{ height: height + 'px' }"
+  />
 </template>
 
 <script setup lang="ts">
