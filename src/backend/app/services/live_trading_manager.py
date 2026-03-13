@@ -1242,6 +1242,8 @@ class LiveTradingManager:
         env["BT_GATEWAY_ACCOUNT_ID"] = config.account_id
         env["BT_GATEWAY_EXCHANGE_TYPE"] = config.exchange_type
         env["BT_GATEWAY_ASSET_TYPE"] = config.asset_type
+        env["BT_GATEWAY_STARTUP_TIMEOUT_SEC"] = str(config.startup_timeout_sec)
+        env["BT_GATEWAY_COMMAND_TIMEOUT_SEC"] = str(config.command_timeout_sec)
         return env
 
     def _acquire_gateway_for_instance(
@@ -1250,12 +1252,20 @@ class LiveTradingManager:
         gateway_params = self._get_gateway_params(instance)
         if not gateway_params.get("enabled"):
             return None
-        launch = self._build_gateway_launch(instance, strategy_dir, gateway_params)
+        try:
+            launch = self._build_gateway_launch(instance, strategy_dir, gateway_params)
+        except Exception as exc:
+            logger.warning("Gateway launch config failed for %s: %s", instance_id, exc)
+            raise ValueError(f"Gateway configuration error: {exc}") from exc
         key = launch["config"].runtime_name
         state = self._gateways.get(key)
         if state is None:
-            runtime = launch["runtime_cls"](launch["config"], **launch["runtime_kwargs"])
-            runtime.start_in_thread()
+            try:
+                runtime = launch["runtime_cls"](launch["config"], **launch["runtime_kwargs"])
+                runtime.start_in_thread()
+            except Exception as exc:
+                logger.warning("Gateway runtime failed to start for %s: %s", instance_id, exc)
+                raise ValueError(f"Gateway runtime startup error: {exc}") from exc
             state = {
                 "config": launch["config"],
                 "runtime": runtime,
@@ -1571,6 +1581,8 @@ class LiveTradingManager:
             "ws_uri": ws_uri,
             "symbol_suffix": symbol_suffix,
             "auto_reconnect": True,
+            "gateway_startup_timeout_sec": 60.0,
+            "gateway_command_timeout_sec": 30.0,
         }
         symbol_map = mt5.get("symbol_map")
         if isinstance(symbol_map, dict) and symbol_map:
@@ -1633,14 +1645,15 @@ class LiveTradingManager:
     def _import_gateway_runtime_classes(self):
         if _BT_API_PY_DIR.is_dir() and str(_BT_API_PY_DIR) not in sys.path:
             sys.path.insert(0, str(_BT_API_PY_DIR))
-        # Guard: the spdlog C extension may crash the process on some Windows
-        # environments.  Pre-insert a lightweight stub into sys.modules so that
-        # ``import spdlog`` inside bt_api_py returns the stub instead of
-        # attempting to load the native DLL.  We unconditionally stub because
-        # a try/except cannot catch a native DLL segfault.
+        # Guard: the spdlog C extension may crash on some Windows environments.
+        # Try importing the real module first; only fall back to a lightweight
+        # stub when the native extension is genuinely unavailable.
         if "spdlog" not in sys.modules:
-            import types
-            sys.modules["spdlog"] = types.ModuleType("spdlog")
+            try:
+                import spdlog as _spdlog_real  # noqa: F401
+            except Exception:
+                import types
+                sys.modules["spdlog"] = types.ModuleType("spdlog")
         from bt_api_py.gateway.config import GatewayConfig
         from bt_api_py.gateway.runtime import GatewayRuntime
 

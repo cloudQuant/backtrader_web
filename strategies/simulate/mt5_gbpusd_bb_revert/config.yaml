@@ -43,6 +43,8 @@ simulate:
   commission: 0.00007
   slippage: 0.00002
   position_size: 0.01
+  duration_seconds: 86400
+  session_timeout: 86500
 
 # ============================================================
 # 风控配置
@@ -56,9 +58,9 @@ risk:
 # MT5 连接配置
 # ============================================================
 mt5:
-  login: ""
-  password: ""
-  ws_uri: ""
+  login: "5047785364"
+  password: "NyCh-i4r"
+  ws_uri: "wss://web.metatrader.app/terminal"
   symbol_suffix: ""
 
 # ============================================================
