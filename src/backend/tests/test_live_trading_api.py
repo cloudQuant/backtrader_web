@@ -134,13 +134,13 @@ class TestLiveTradingList:
         assert okx["params"]["gateway"]["asset_type"] == "SWAP"
         assert "passphrase" in okx["params"]["gateway"]
 
-    async def test_list_gateway_presets_total_includes_all_five(
+    async def test_list_gateway_presets_total_includes_all_six(
         self, client: AsyncClient, auth_headers
     ):
         response = await client.get("/api/v1/live-trading/presets", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
-        assert data["total"] >= 5
+        assert data["total"] >= 6
         ids = {p["id"] for p in data["presets"]}
         assert {
             "ctp_futures_gateway",
@@ -148,7 +148,23 @@ class TestLiveTradingList:
             "ib_web_futures_gateway",
             "binance_swap_gateway",
             "okx_swap_gateway",
+            "mt5_forex_gateway",
         }.issubset(ids)
+
+    async def test_list_gateway_presets_mt5_has_metadata(
+        self, client: AsyncClient, auth_headers
+    ):
+        response = await client.get("/api/v1/live-trading/presets", headers=auth_headers)
+        assert response.status_code == 200
+        data = response.json()
+        mt5 = next(p for p in data["presets"] if p["id"] == "mt5_forex_gateway")
+        assert mt5["description"] == "MT5 Forex gateway preset for MetaTrader 5 trading via pymt5 WebSocket."
+        assert len(mt5["editable_fields"]) == 4
+        field_keys = [f["key"] for f in mt5["editable_fields"]]
+        assert field_keys == ["account_id", "login", "password", "ws_uri"]
+        assert mt5["params"]["gateway"]["exchange_type"] == "MT5"
+        assert mt5["params"]["gateway"]["asset_type"] == "OTC"
+        assert mt5["params"]["gateway"]["provider"] == "mt5_gateway"
 
     async def test_gateway_health_empty(self, client: AsyncClient, auth_headers):
         """Gateway health returns empty list when no gateways are active."""

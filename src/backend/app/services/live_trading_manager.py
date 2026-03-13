@@ -29,6 +29,8 @@ _BT_API_PY_DIR = _WORKSPACE_DIR / "bt_api_py"
 _DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
 
+_DEFAULT_TRANSPORT = "tcp" if sys.platform == "win32" else "ipc"
+
 
 def _load_instances() -> dict[str, dict]:
     """Load instances from the JSON file.
@@ -91,9 +93,21 @@ def _is_pid_alive(pid: int) -> bool:
     Returns:
         True if the process is alive, False otherwise.
     """
-    try:
-        import os
+    if sys.platform == "win32":
+        # Use Win32 API to avoid os.kill(pid, 0) which can trigger
+        # KeyboardInterrupt on Windows.
+        import ctypes
 
+        _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(
+            _PROCESS_QUERY_LIMITED_INFORMATION, False, pid,
+        )
+        if handle:
+            kernel32.CloseHandle(handle)
+            return True
+        return False
+    try:
         os.kill(pid, 0)
         return True
     except (OSError, ProcessLookupError):
@@ -110,26 +124,52 @@ def _scan_running_strategy_pids() -> dict[str, int]:
 
     result: dict[str, int] = {}
     try:
-        out = _sp.check_output(
-            ["ps", "-eo", "pid,args"], text=True, timeout=5, stderr=_sp.DEVNULL
-        )
-        for line in out.splitlines():
-            line = line.strip()
-            if "run.py" not in line or "strategies" not in line:
-                continue
-            parts = line.split(None, 1)
-            if len(parts) < 2:
-                continue
-            try:
-                pid = int(parts[0])
-            except ValueError:
-                continue
-            args = parts[1]
-            # Extract the run.py path from the command args
-            for token in args.split():
-                if token.endswith("run.py") and "strategies" in token:
-                    result[token] = pid
-                    break
+        if sys.platform == "win32":
+            out = _sp.check_output(
+                ["wmic", "process", "where",
+                 "CommandLine like '%run.py%'",
+                 "get", "ProcessId,CommandLine", "/FORMAT:CSV"],
+                text=True, timeout=10, stderr=_sp.DEVNULL,
+                creationflags=_sp.CREATE_NO_WINDOW,
+            )
+            for line in out.splitlines():
+                line = line.strip()
+                if not line or line.lower().startswith("node,"):
+                    continue
+                # CSV format: Node,CommandLine,ProcessId
+                parts = line.split(",")
+                if len(parts) < 3:
+                    continue
+                try:
+                    pid = int(parts[-1].strip())
+                except ValueError:
+                    continue
+                cmdline = ",".join(parts[1:-1])
+                for token in cmdline.split():
+                    norm = token.replace("\\", "/")
+                    if norm.endswith("run.py") and "strategies" in norm:
+                        result[token] = pid
+                        break
+        else:
+            out = _sp.check_output(
+                ["ps", "-eo", "pid,args"], text=True, timeout=5, stderr=_sp.DEVNULL
+            )
+            for line in out.splitlines():
+                line = line.strip()
+                if "run.py" not in line or "strategies" not in line:
+                    continue
+                parts = line.split(None, 1)
+                if len(parts) < 2:
+                    continue
+                try:
+                    pid = int(parts[0])
+                except ValueError:
+                    continue
+                args = parts[1]
+                for token in args.split():
+                    if token.endswith("run.py") and "strategies" in token:
+                        result[token] = pid
+                        break
     except Exception:
         pass
     return result
@@ -324,6 +364,8 @@ class LiveTradingManager:
             return self._connect_ctp_gateway(key, credentials)
         if exchange_type == "IB_WEB":
             return self._connect_ib_web_gateway(key, credentials)
+        if exchange_type == "MT5":
+            return self._connect_mt5_gateway(key, credentials)
         # Binance / OKX — placeholder: store as connected without runtime
         self._gateways[key] = {
             "config": None,
@@ -359,7 +401,7 @@ class LiveTradingManager:
                 "exchange_type": "CTP",
                 "asset_type": "FUTURE",
                 "account_id": credentials.get("account_id") or credentials["user_id"],
-                "transport": "ipc",
+                "transport": _DEFAULT_TRANSPORT,
                 "md_address": credentials["md_front"],
                 "td_address": credentials["td_front"],
                 "broker_id": credentials["broker_id"],
@@ -412,7 +454,7 @@ class LiveTradingManager:
                 "exchange_type": "IB_WEB",
                 "asset_type": credentials.get("asset_type", "STK"),
                 "account_id": account_id,
-                "transport": "ipc",
+                "transport": _DEFAULT_TRANSPORT,
                 "base_url": credentials.get("base_url", "https://localhost:5000"),
                 "verify_ssl": self._coerce_bool(credentials.get("verify_ssl"), default=False),
                 "timeout": self._coerce_float(credentials.get("timeout"), default=10.0),
@@ -443,6 +485,60 @@ class LiveTradingManager:
                 "gateway_key": key,
                 "status": "error",
                 "message": f"IB Web连接失败: {type(e).__name__}: {e}",
+            }
+
+    def _connect_mt5_gateway(
+        self, key: str, credentials: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Start an MT5 gateway runtime from manual credentials."""
+        login = credentials.get("login")
+        password = credentials.get("password")
+        if not login or not password:
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": "Missing required fields: login, password",
+            }
+        try:
+            gateway_config_cls, gateway_runtime_cls = self._import_gateway_runtime_classes()
+            account_id = credentials.get("account_id") or str(login)
+            kwargs = {
+                "exchange_type": "MT5",
+                "asset_type": "OTC",
+                "account_id": account_id,
+                "transport": "tcp",
+                "login": int(login),
+                "password": str(password),
+                "ws_uri": credentials.get("ws_uri", ""),
+                "symbol_suffix": credentials.get("symbol_suffix", ""),
+                "auto_reconnect": True,
+            }
+            if credentials.get("symbol_map"):
+                kwargs["symbol_map"] = credentials["symbol_map"]
+            config = gateway_config_cls.from_kwargs(**kwargs)
+            runtime = gateway_runtime_cls(config, **kwargs)
+            runtime.start_in_thread()
+            self._gateways[key] = {
+                "config": config,
+                "runtime": runtime,
+                "instances": set(),
+                "ref_count": 0,
+                "lock": threading.Lock(),
+                "manual": True,
+                "exchange_type": "MT5",
+                "account_id": account_id,
+            }
+            return {
+                "gateway_key": key,
+                "status": "connected",
+                "message": "MT5 gateway started successfully",
+            }
+        except Exception as e:
+            logger.exception("Failed to connect MT5 gateway %s", key)
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": f"MT5连接失败: {type(e).__name__}: {e}",
             }
 
     def query_gateway_account(self, gateway_key: str) -> dict[str, Any] | None:
@@ -728,6 +824,50 @@ class LiveTradingManager:
                     }
                 },
             },
+            {
+                "description": "MT5 Forex gateway preset for MetaTrader 5 trading via pymt5 WebSocket.",
+                "id": "mt5_forex_gateway",
+                "name": "MT5 Forex Gateway",
+                "editable_fields": [
+                    {
+                        "key": "account_id",
+                        "label": "账户标识",
+                        "input_type": "string",
+                        "placeholder": "自定义账户标识",
+                    },
+                    {
+                        "key": "login",
+                        "label": "MT5 账号",
+                        "input_type": "string",
+                        "placeholder": "MT5 登录账号（数字）",
+                    },
+                    {
+                        "key": "password",
+                        "label": "MT5 密码",
+                        "input_type": "string",
+                        "placeholder": "MT5 登录密码",
+                    },
+                    {
+                        "key": "ws_uri",
+                        "label": "WebSocket 地址",
+                        "input_type": "string",
+                        "placeholder": "默认 wss://web.metatrader.app/terminal",
+                    },
+                ],
+                "params": {
+                    "gateway": {
+                        "enabled": True,
+                        "provider": "mt5_gateway",
+                        "exchange_type": "MT5",
+                        "asset_type": "OTC",
+                        "account_id": "",
+                        "login": "",
+                        "password": "",
+                        "ws_uri": "",
+                        "symbol_suffix": "",
+                    }
+                },
+            },
         ]
 
     def add_instance(
@@ -756,6 +896,12 @@ class LiveTradingManager:
         tpl = get_template_by_id(strategy_id)
         name = tpl.name if tpl else strategy_id
 
+        merged_params = dict(params) if params else {}
+        if "gateway" not in merged_params:
+            inferred = self._infer_gateway_params(strategy_dir)
+            if inferred:
+                merged_params["gateway"] = inferred
+
         iid = str(uuid.uuid4())[:8]
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         inst = {
@@ -766,7 +912,7 @@ class LiveTradingManager:
             "status": "stopped",
             "pid": None,
             "error": None,
-            "params": params or {},
+            "params": merged_params,
             "created_at": now,
             "started_at": None,
             "stopped_at": None,
@@ -857,6 +1003,15 @@ class LiveTradingManager:
             raise ValueError(f"run.py does not exist: {run_py}")
 
         env = self._build_subprocess_env(instance_id, inst, strategy_dir)
+        # On Windows, isolate child processes in a new process group so that
+        # console Ctrl+C events do not propagate and crash the parent.
+        _sub_kwargs: dict[str, Any] = {}
+        if sys.platform == "win32":
+            import subprocess as _sp
+
+            _sub_kwargs["creationflags"] = (
+                _sp.CREATE_NEW_PROCESS_GROUP | _sp.CREATE_NO_WINDOW
+            )
         try:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable,
@@ -865,6 +1020,7 @@ class LiveTradingManager:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
+                **_sub_kwargs,
             )
         except Exception:
             self._release_gateway_for_instance(instance_id)
@@ -1006,7 +1162,16 @@ class LiveTradingManager:
                     if proc.stderr:
                         try:
                             stderr_bytes = await proc.stderr.read()
-                            stderr = stderr_bytes.decode("utf-8", errors="replace")[-500:]
+                            # Windows Chinese locale uses GBK; try it first, then UTF-8
+                            for enc in ("utf-8", "gbk", "cp936"):
+                                try:
+                                    stderr = stderr_bytes.decode(enc)
+                                    break
+                                except (UnicodeDecodeError, LookupError):
+                                    continue
+                            else:
+                                stderr = stderr_bytes.decode("utf-8", errors="replace")
+                            stderr = stderr[-500:]
                         except Exception:
                             pass
                     inst["status"] = "error"
@@ -1035,12 +1200,23 @@ class LiveTradingManager:
         Args:
             pid: The process ID to kill.
         """
-        import os
+        if sys.platform == "win32":
+            import subprocess as _sp
 
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except (OSError, ProcessLookupError):
-            pass
+            try:
+                _sp.call(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                    creationflags=_sp.CREATE_NO_WINDOW,
+                )
+            except Exception:
+                pass
+        else:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except (OSError, ProcessLookupError):
+                pass
 
     def _build_subprocess_env(
         self, instance_id: str, instance: dict[str, Any], strategy_dir: Path
@@ -1054,7 +1230,11 @@ class LiveTradingManager:
         if gateway is None:
             return env
         config = gateway["config"]
-        env["BT_STORE_PROVIDER"] = "ctp_gateway"
+        exchange_type = config.exchange_type
+        if exchange_type == "MT5":
+            env["BT_STORE_PROVIDER"] = "mt5_gateway"
+        else:
+            env["BT_STORE_PROVIDER"] = "ctp_gateway"
         env["BT_GATEWAY_START_LOCAL_RUNTIME"] = "0"
         env["BT_GATEWAY_COMMAND_ENDPOINT"] = config.command_endpoint
         env["BT_GATEWAY_EVENT_ENDPOINT"] = config.event_endpoint
@@ -1105,6 +1285,42 @@ class LiveTradingManager:
             runtime.stop()
         self._gateways.pop(key, None)
 
+    @staticmethod
+    def _infer_gateway_params(strategy_dir: Path) -> dict[str, Any] | None:
+        """Read config.yaml and infer gateway params when not provided by the user.
+
+        Returns a gateway dict suitable for ``instance["params"]["gateway"]``,
+        or *None* if no gateway / CTP section is found.
+        """
+        config_path = strategy_dir / "config.yaml"
+        if not config_path.is_file():
+            return None
+        try:
+            cfg = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            return None
+
+        # Explicit gateway section (MT5 strategies)
+        gw = cfg.get("gateway")
+        if isinstance(gw, dict) and gw.get("enabled"):
+            return {
+                "enabled": True,
+                "provider": str(gw.get("provider", "ctp_gateway")),
+                "exchange_type": str(gw.get("exchange_type", "CTP")),
+                "asset_type": str(gw.get("asset_type", "FUTURE")),
+            }
+
+        # CTP section present → infer ctp_gateway
+        if isinstance(cfg.get("ctp"), dict):
+            return {
+                "enabled": True,
+                "provider": "ctp_gateway",
+                "exchange_type": "CTP",
+                "asset_type": "FUTURE",
+            }
+
+        return None
+
     def _get_gateway_params(self, instance: dict[str, Any]) -> dict[str, Any]:
         params = instance.get("params") or {}
         if not isinstance(params, dict):
@@ -1129,7 +1345,7 @@ class LiveTradingManager:
             "enabled": enabled,
             "provider": provider or "ctp",
             "exchange_type": exchange_type,
-            "transport": str(gateway.get("transport") or "ipc"),
+            "transport": str(gateway.get("transport") or _DEFAULT_TRANSPORT),
             "asset_type": self._normalize_gateway_asset_type(
                 exchange_type, gateway.get("asset_type") or params.get("asset_type")
             ),
@@ -1159,6 +1375,12 @@ class LiveTradingManager:
         )
         if exchange_type == "IB_WEB":
             runtime_kwargs = self._build_ib_web_gateway_runtime_kwargs(
+                config_data=config_data,
+                env_data=env_data,
+                gateway_params=gateway_params,
+            )
+        elif exchange_type == "MT5":
+            runtime_kwargs = self._build_mt5_gateway_runtime_kwargs(
                 config_data=config_data,
                 env_data=env_data,
                 gateway_params=gateway_params,
@@ -1207,7 +1429,7 @@ class LiveTradingManager:
                 "CTP", gateway_params.get("asset_type")
             ),
             "account_id": account_id,
-            "transport": gateway_params.get("transport") or "ipc",
+            "transport": gateway_params.get("transport") or _DEFAULT_TRANSPORT,
             "gateway_base_dir": gateway_params.get("base_dir") or "",
             "md_address": md_address,
             "td_address": td_address,
@@ -1284,7 +1506,7 @@ class LiveTradingManager:
                 gateway_params.get("asset_type") or ib_web.get("asset_type"),
             ),
             "account_id": account_id,
-            "transport": gateway_params.get("transport") or "ipc",
+            "transport": gateway_params.get("transport") or _DEFAULT_TRANSPORT,
             "gateway_base_dir": gateway_params.get("base_dir") or "",
             "base_url": base_url,
             "verify_ssl": verify_ssl,
@@ -1302,11 +1524,66 @@ class LiveTradingManager:
             runtime_kwargs["cookies"] = cookies
         return runtime_kwargs
 
+    def _build_mt5_gateway_runtime_kwargs(
+        self,
+        config_data: dict[str, Any],
+        env_data: dict[str, str],
+        gateway_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        mt5 = dict(config_data.get("mt5", {}) or {})
+        login = (
+            gateway_params.get("login")
+            or env_data.get("MT5_LOGIN")
+            or mt5.get("login", "")
+        )
+        password = (
+            gateway_params.get("password")
+            or env_data.get("MT5_PASSWORD")
+            or mt5.get("password", "")
+        )
+        account_id = (
+            gateway_params.get("account_id")
+            or env_data.get("MT5_ACCOUNT_ID")
+            or mt5.get("account_id")
+            or str(login)
+        )
+        ws_uri = (
+            gateway_params.get("ws_uri")
+            or env_data.get("MT5_WS_URI")
+            or mt5.get("ws_uri", "")
+        )
+        symbol_suffix = (
+            gateway_params.get("symbol_suffix")
+            or env_data.get("MT5_SYMBOL_SUFFIX")
+            or mt5.get("symbol_suffix", "")
+        )
+        if not login or not password:
+            raise ValueError("MT5 gateway requires login and password")
+        runtime_kwargs: dict[str, Any] = {
+            "exchange_type": "MT5",
+            "asset_type": self._normalize_gateway_asset_type(
+                "MT5", gateway_params.get("asset_type") or mt5.get("asset_type")
+            ),
+            "account_id": account_id,
+            "transport": gateway_params.get("transport") or "tcp",
+            "login": int(login),
+            "password": str(password),
+            "ws_uri": ws_uri,
+            "symbol_suffix": symbol_suffix,
+            "auto_reconnect": True,
+        }
+        symbol_map = mt5.get("symbol_map")
+        if isinstance(symbol_map, dict) and symbol_map:
+            runtime_kwargs["symbol_map"] = symbol_map
+        return runtime_kwargs
+
     def _normalize_gateway_exchange_type(self, value: Any, provider: str = "") -> str:
         text = str(value or "").strip().upper()
         provider_text = str(provider or "").strip().lower()
         if text in {"IB", "IB_WEB", "IBWEB"} or provider_text.startswith("ib_web"):
             return "IB_WEB"
+        if text == "MT5" or provider_text.startswith("mt5"):
+            return "MT5"
         if text in {"CTP", ""}:
             return "CTP"
         return text
@@ -1321,6 +1598,8 @@ class LiveTradingManager:
         if exchange_type == "CTP":
             if text in {"", "FUT", "FUTURE"}:
                 return "FUTURE"
+        if exchange_type == "MT5":
+            return text or "OTC"
         return text or "FUTURE"
 
     def _coerce_bool(self, value: Any, default: bool = False) -> bool:
@@ -1354,6 +1633,14 @@ class LiveTradingManager:
     def _import_gateway_runtime_classes(self):
         if _BT_API_PY_DIR.is_dir() and str(_BT_API_PY_DIR) not in sys.path:
             sys.path.insert(0, str(_BT_API_PY_DIR))
+        # Guard: the spdlog C extension may crash the process on some Windows
+        # environments.  Pre-insert a lightweight stub into sys.modules so that
+        # ``import spdlog`` inside bt_api_py returns the stub instead of
+        # attempting to load the native DLL.  We unconditionally stub because
+        # a try/except cannot catch a native DLL segfault.
+        if "spdlog" not in sys.modules:
+            import types
+            sys.modules["spdlog"] = types.ModuleType("spdlog")
         from bt_api_py.gateway.config import GatewayConfig
         from bt_api_py.gateway.runtime import GatewayRuntime
 

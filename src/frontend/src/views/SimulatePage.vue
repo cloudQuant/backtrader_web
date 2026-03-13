@@ -58,6 +58,19 @@
           >
             <el-icon><Plus /></el-icon>添加策略
           </el-button>
+          <el-tooltip
+            :content="`一键添加尚未加入列表的 ${remainingTemplates.length} 个策略`"
+            placement="bottom"
+          >
+            <el-button
+              type="warning"
+              :loading="addRemainingLoading"
+              :disabled="remainingTemplates.length === 0"
+              @click="handleAddRemaining"
+            >
+              <el-icon><FolderAdd /></el-icon>添加剩余策略 ({{ remainingTemplates.length }})
+            </el-button>
+          </el-tooltip>
         </div>
       </div>
     </el-card>
@@ -420,6 +433,7 @@ const loading = ref(false)
 const viewMode = ref<'card' | 'list'>('card')
 const showAddDialog = ref(false)
 const addLoading = ref(false)
+const addRemainingLoading = ref(false)
 const detailDialogVisible = ref(false)
 const detailInstance = ref<SimulationInstanceInfo | null>(null)
 
@@ -446,6 +460,11 @@ const visibleInstances = computed(() =>
 )
 const templates = computed(() => strategyStore.templates)
 const runningCount = computed(() => visibleInstances.value.filter(i => i.status === 'running').length)
+
+const remainingTemplates = computed(() => {
+  const existingIds = new Set(instances.value.map(i => i.strategy_id))
+  return templates.value.filter(t => !existingIds.has(t.id))
+})
 
 const detailTimeline = computed(() => {
   if (!detailInstance.value) return []
@@ -541,5 +560,26 @@ function goToDetail(inst: SimulationInstanceInfo) {
 function openDetail(inst: SimulationInstanceInfo) {
   detailInstance.value = inst
   detailDialogVisible.value = true
+}
+
+async function handleAddRemaining() {
+  if (remainingTemplates.value.length === 0) return
+  addRemainingLoading.value = true
+  let ok = 0
+  let fail = 0
+  try {
+    for (const t of remainingTemplates.value) {
+      try {
+        await simulationStore.addInstance(t.id)
+        ok++
+      } catch {
+        fail++
+      }
+    }
+    ElMessage.success(`添加完成: 成功 ${ok}, 失败 ${fail}`)
+    await simulationStore.fetchInstances()
+  } finally {
+    addRemainingLoading.value = false
+  }
 }
 </script>

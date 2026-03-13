@@ -14,7 +14,6 @@ try:
     JINJA2_AVAILABLE = True
 except ImportError:
     JINJA2_AVAILABLE = False
-    print("Warning: jinja2 not installed. HTML/PDF export will be disabled.")
 
 try:
     import pandas as pd
@@ -26,7 +25,6 @@ try:
 except ImportError:
     PANDAS_AVAILABLE = False
     OPENPYXL_AVAILABLE = False
-    print("Warning: pandas or openpyxl not installed. Excel export will be disabled.")
 
 try:
     from weasyprint import HTML as WeasyPrintHTML
@@ -34,7 +32,6 @@ try:
     WEASYPRINT_AVAILABLE = True
 except ImportError:
     WEASYPRINT_AVAILABLE = False
-    print("Warning: weasyprint not installed. PDF export will be disabled.")
 
 
 class ReportService:

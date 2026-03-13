@@ -20,10 +20,6 @@ if BACKTRADER_PATH.exists():
 
 try:
     import backtrader as bt
-    from backtrader.brokers.ccxtbroker import CCXTBroker  # noqa: F401
-    from backtrader.feeds.ccxtdata import CCXTData
-    from backtrader.observers.broker import BrokerObserver
-    from backtrader.stores.ccxtstore import CCXTStore  # noqa: F811
 
     BACKTRADER_AVAILABLE = True
 except Exception as e:
@@ -96,6 +92,12 @@ class LiveTradingService:
         """
         if not BACKTRADER_AVAILABLE:
             raise ImportError("backtrader not available")
+        try:
+            from backtrader.feeds.ccxtdata import CCXTData
+            from backtrader.observers.broker import Broker as BrokerObserver
+            from backtrader.stores.ccxtstore import CCXTStore  # noqa: F811
+        except ImportError as e:
+            raise ImportError("CCXT live trading components are not available") from e
 
         # Generate unique task ID
         task_id = f"live-{user_id}-{datetime.now(timezone.utc).timestamp()}"

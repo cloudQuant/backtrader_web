@@ -15,6 +15,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.api.router import api_router
 from app.config import get_settings
+from app.db.database import ensure_database_ready
 from app.middleware.exception_handling import register_exception_handlers
 from app.middleware.logging import (
     AuditLoggingMiddleware,
@@ -56,6 +57,8 @@ monitoring.
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting Backtrader Web API...")
+    await ensure_database_ready()
+    logger.info("Database schema and default admin verified")
     if "change-in-production" in settings.SECRET_KEY or (
         "change-in-production" in settings.JWT_SECRET_KEY
     ):

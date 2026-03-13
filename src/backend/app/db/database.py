@@ -47,6 +47,12 @@ async def init_db():
     await create_tables()
 
 
+async def ensure_database_ready() -> None:
+    """Ensure schema and default bootstrap data exist."""
+    await create_tables()
+    await create_default_admin()
+
+
 async def create_default_admin():
     """Create default admin account (if it doesn't exist)."""
     from sqlalchemy import select

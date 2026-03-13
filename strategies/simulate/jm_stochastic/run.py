@@ -191,6 +191,10 @@ def run():
     """主入口：仅支持 CTP 模拟盘,连接失败时报错退出."""
     _load_dotenv()
     config = load_config()
+    # Gateway 模式：跳过凭证和连通性检查，由 gateway 进程处理 CTP 连接
+    if os.environ.get("BT_STORE_PROVIDER", "").strip().lower() == "ctp_gateway":
+        print("  Gateway 模式，跳过 CTP 凭证和连通性检查...")
+        return run_ctp_session(config)
     ctp_cfg = config.get("ctp", {}) or {}
     live_cfg = config.get("live", {}) or {}
     if not ctp_cfg or not live_cfg:

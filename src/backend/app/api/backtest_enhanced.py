@@ -223,9 +223,15 @@ async def get_html_report(
     }
 
     # Generate HTML report
-    html_content = await report_service.generate_html_report(
-        result.model_dump(mode="python"), strategy
-    )
+    try:
+        html_content = await report_service.generate_html_report(
+            result.model_dump(mode="python"), strategy
+        )
+    except ImportError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"HTML generation not enabled, need to install jinja2: {e}",
+        ) from e
 
     return Response(
         content=html_content,
