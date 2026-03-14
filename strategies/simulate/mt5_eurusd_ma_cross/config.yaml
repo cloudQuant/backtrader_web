@@ -34,7 +34,7 @@ data:
   symbol: "EURUSD"
   data_type: "otc"
   exchange: "MT5"
-  timeframe: "M15"
+  timeframe: "15s"
   warmup_bars: 200
 
 # ============================================================
@@ -79,6 +79,6 @@ gateway:
 # ============================================================
 live:
   symbol: "EURUSD"
-  bar_seconds: 900
+  bar_seconds: 15
   duration_seconds: 86400
   session_timeout: 86500

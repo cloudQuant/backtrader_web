@@ -34,7 +34,6 @@ from app.services.log_parser_service import (
     parse_all_logs,
     parse_data_log,
     parse_trade_log,
-    parse_value_log,
 )
 from app.services.strategy_service import get_strategy_dir
 
@@ -449,7 +448,9 @@ async def get_simulation_kline(
     for t in trades_raw:
         is_long = t.get("direction", "buy") == "buy" or t.get("long", True)
         if t.get("dtopen"):
-            open_date = t["dtopen"][:10]
+            open_date = t["dtopen"]
+            if open_date not in kline_close_map:
+                open_date = open_date[:10]
             signals.append(
                 {
                     "date": open_date,
@@ -459,7 +460,9 @@ async def get_simulation_kline(
                 }
             )
         if t.get("dtclose"):
-            close_date = t["dtclose"][:10]
+            close_date = t["dtclose"]
+            if close_date not in kline_close_map:
+                close_date = close_date[:10]
             signals.append(
                 {
                     "date": close_date,
@@ -502,8 +505,22 @@ async def get_simulation_monthly_returns(
     Raises:
         HTTPException: If the instance or log directory is not found.
     """
-    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
-    value_data = parse_value_log(log_dir)
+    inst = mgr.get_instance(instance_id, user_id=current_user.sub)
+    if not inst:
+        raise HTTPException(status_code=404, detail="Instance not found")
+    try:
+        strategy_dir = get_strategy_dir(inst["strategy_id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    log_result = parse_all_logs(strategy_dir)
+    if not log_result:
+        raise HTTPException(status_code=404, detail="No log data available")
+
+    value_data = {
+        "dates": log_result.get("equity_dates", []),
+        "equity_curve": log_result.get("equity_curve", []),
+    }
 
     equity_dates = value_data.get("dates", [])
     equity_values = value_data.get("equity_curve", [])

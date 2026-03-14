@@ -68,7 +68,7 @@ ctp:
 # CTP 模拟盘会话参数
 # ============================================================
 live:
-  symbol: "MA2609"
+  symbol: "MA609"
   network: "telecom"
   bar_seconds: 15
   duration_seconds: 86400
@@ -76,6 +76,6 @@ live:
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    MA2609:
+    MA609:
       min_price_tick: 1.0
       max_order_size: 1

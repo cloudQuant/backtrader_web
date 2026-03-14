@@ -6,6 +6,15 @@ Essential info for AI agents working on Backtrader Web, a quantitative trading p
 
 ---
 
+## Agent Command Retry Rule
+
+- If the user cancels a `run_command` request twice in a row, assume the command or script is likely flawed, too broad, or poorly targeted.
+- Do not repeat the same command pattern a third time.
+- Rewrite the command into a new, smaller, safer, and more observable form, or write a different script before asking to run it again.
+- Prefer read-only verification and narrower diagnostics before retrying a state-mutating command.
+
+---
+
 ## Build/Test/Lint Commands
 
 ### Backend (`src/backend/`)

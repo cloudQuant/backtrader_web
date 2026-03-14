@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.services.log_parser_service import (
     find_latest_log_dir,
+    parse_data_log,
     parse_trade_log,
     parse_value_log,
 )
@@ -153,3 +154,60 @@ class TestFindLatestLogDir:
         result = find_latest_log_dir(tmp_path)
         assert result is not None
         assert result == logs_dir
+
+    def test_flat_logs_dir_with_json_simulate_logs(self, tmp_path: Path):
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "bar.log").touch()
+        result = find_latest_log_dir(tmp_path)
+        assert result is not None
+        assert result == logs_dir
+
+
+class TestParseJsonSimulateLogs:
+    def test_parse_trade_log_from_json_lines(self, tmp_path: Path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "trade.log").write_text(
+            '\n'.join(
+                [
+                    '{"datetime":"2026-03-13 09:00:00","ref":1,"data_name":"EURUSD","size":0.01,"price":1.1,"value":0.011,"commission":0.001,"pnl":0.0,"pnlcomm":-0.001,"isopen":true,"isclosed":false,"barlen":0}',
+                    '{"datetime":"2026-03-13 10:00:00","ref":1,"data_name":"EURUSD","size":0.0,"price":1.11,"value":0.0,"commission":0.001,"pnl":10.0,"pnlcomm":9.998,"isopen":false,"isclosed":true,"barlen":4}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        trades = parse_trade_log(log_dir)
+        assert len(trades) == 1
+        assert trades[0]["dtopen"] == "2026-03-13 09:00:00"
+        assert trades[0]["dtclose"] == "2026-03-13 10:00:00"
+        assert trades[0]["pnlcomm"] == 10.0
+
+    def test_parse_data_log_from_bar_and_indicator_json_lines(self, tmp_path: Path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "bar.log").write_text(
+            '\n'.join(
+                [
+                    '{"datetime":"2026-03-13 09:00:00","open":1.1,"high":1.2,"low":1.0,"close":1.15,"volume":10}',
+                    '{"datetime":"2026-03-13 09:15:00","open":1.15,"high":1.25,"low":1.1,"close":1.2,"volume":12}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (log_dir / "indicator.log").write_text(
+            '\n'.join(
+                [
+                    '{"datetime":"2026-03-13 09:00:00","fast_ma":1.11}',
+                    '{"datetime":"2026-03-13 09:15:00","fast_ma":1.16}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = parse_data_log(log_dir)
+        assert result["dates"] == ["2026-03-13 09:00:00", "2026-03-13 09:15:00"]
+        assert result["ohlc"][0] == [1.1, 1.15, 1.0, 1.2]
+        assert result["indicators"]["fast_ma"] == [1.11, 1.16]

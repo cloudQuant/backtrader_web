@@ -33,7 +33,7 @@ data:
   symbol: "XAUUSD"
   data_type: "otc"
   exchange: "MT5"
-  timeframe: "H1"
+  timeframe: "15s"
   warmup_bars: 100
 
 # ============================================================
@@ -78,6 +78,6 @@ gateway:
 # ============================================================
 live:
   symbol: "XAUUSD"
-  bar_seconds: 3600
+  bar_seconds: 15
   duration_seconds: 86400
   session_timeout: 86500

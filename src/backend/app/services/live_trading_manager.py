@@ -21,7 +21,10 @@ import yaml
 
 from app.services.strategy_service import STRATEGIES_DIR, get_template_by_id
 
-logger = logging.getLogger(__name__)
+try:
+    from loguru import logger  # type: ignore[import-untyped]
+except ImportError:
+    logger = logging.getLogger(__name__)
 
 _WORKSPACE_DIR = Path(__file__).resolve().parents[5]
 _BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
@@ -78,7 +81,17 @@ def _find_latest_log_dir(strategy_dir: Path) -> str | None:
     if subdirs:
         return str(subdirs[0])
     # Fallback: flat logs/ (no subdirs), e.g. simulate strategies
-    expected = {"value.log", "data.log", "trade.log"}
+    expected = {
+        "value.log",
+        "data.log",
+        "trade.log",
+        "bar.log",
+        "indicator.log",
+        "position.log",
+        "order.log",
+        "system.log",
+        "tick.log",
+    }
     if any((logs_dir / f).is_file() for f in expected):
         return str(logs_dir)
     return None
@@ -965,6 +978,15 @@ class LiveTradingManager:
             if user_id and inst.get("user_id") and inst["user_id"] != user_id:
                 return None
             inst["id"] = instance_id
+            # Refresh PID alive status (same as list_instances) so callers
+            # never see a stale "running" state for a dead process.
+            if inst.get("status") == "running":
+                pid = inst.get("pid")
+                if not pid or not _is_pid_alive(pid):
+                    inst["status"] = "stopped"
+                    inst["pid"] = None
+                    instances[instance_id] = inst
+                    _save_instances(instances)
             try:
                 strategy_dir = self._resolve_strategy_dir(inst["strategy_id"])
                 inst["log_dir"] = _find_latest_log_dir(strategy_dir)
@@ -1255,17 +1277,30 @@ class LiveTradingManager:
         try:
             launch = self._build_gateway_launch(instance, strategy_dir, gateway_params)
         except Exception as exc:
-            logger.warning("Gateway launch config failed for %s: %s", instance_id, exc)
-            raise ValueError(f"Gateway configuration error: {exc}") from exc
+            logger.warning(
+                "Gateway launch config failed for {}, falling back to direct mode: {}",
+                instance_id, exc,
+            )
+            return None
         key = launch["config"].runtime_name
         state = self._gateways.get(key)
+        logger.info(
+            "Gateway acquire for {}: key={}, existing={}, endpoints={}/{}/{}",
+            instance_id, key, state is not None,
+            launch["config"].command_endpoint,
+            launch["config"].event_endpoint,
+            launch["config"].market_endpoint,
+        )
         if state is None:
             try:
                 runtime = launch["runtime_cls"](launch["config"], **launch["runtime_kwargs"])
                 runtime.start_in_thread()
             except Exception as exc:
-                logger.warning("Gateway runtime failed to start for %s: %s", instance_id, exc)
-                raise ValueError(f"Gateway runtime startup error: {exc}") from exc
+                logger.warning(
+                    "Gateway runtime failed to start for {}, falling back to direct mode: {}",
+                    instance_id, exc,
+                )
+                return None
             state = {
                 "config": launch["config"],
                 "runtime": runtime,
@@ -1292,7 +1327,10 @@ class LiveTradingManager:
             return
         runtime = state.get("runtime")
         if runtime is not None:
-            runtime.stop()
+            try:
+                runtime.stop()
+            except Exception:
+                logger.debug("Gateway runtime stop error for %s (ignored)", key, exc_info=True)
         self._gateways.pop(key, None)
 
     @staticmethod

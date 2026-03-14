@@ -32,7 +32,7 @@ data:
   symbol: "USDJPY"
   data_type: "otc"
   exchange: "MT5"
-  timeframe: "H4"
+  timeframe: "15s"
   warmup_bars: 80
 
 # ============================================================
@@ -77,6 +77,6 @@ gateway:
 # ============================================================
 live:
   symbol: "USDJPY"
-  bar_seconds: 14400
+  bar_seconds: 15
   duration_seconds: 86400
   session_timeout: 86500

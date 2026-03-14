@@ -75,16 +75,21 @@ def run():
     data_cfg = config.get("data", {}) or {}
     sim_cfg = config.get("simulate", {}) or {}
     symbol = data_cfg.get("symbol", "GBPUSD")
-    timeframe_str = data_cfg.get("timeframe", "30m")
+    timeframe_str = data_cfg.get("timeframe", "15s")
+    sec_map = {"5s": 5, "10s": 10, "15s": 15, "30s": 30, "45s": 45}
     tf_map = {
         "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "4h": 240, "1d": 1440,
         "M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440,
     }
-    compression = tf_map.get(timeframe_str, 30)
-    bt_timeframe = bt.TimeFrame.Minutes
-    if compression >= 1440:
-        bt_timeframe = bt.TimeFrame.Days
-        compression = compression // 1440
+    if timeframe_str in sec_map:
+        compression = sec_map[timeframe_str]
+        bt_timeframe = bt.TimeFrame.Seconds
+    else:
+        compression = tf_map.get(timeframe_str, 15)
+        bt_timeframe = bt.TimeFrame.Minutes
+        if compression >= 1440:
+            bt_timeframe = bt.TimeFrame.Days
+            compression = compression // 1440
 
     duration_seconds = int(sim_cfg.get("duration_seconds", 86400))
     session_timeout = int(sim_cfg.get("session_timeout", duration_seconds + 100))

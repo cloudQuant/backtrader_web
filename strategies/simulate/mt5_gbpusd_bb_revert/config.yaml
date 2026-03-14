@@ -32,7 +32,7 @@ data:
   symbol: "GBPUSD"
   data_type: "otc"
   exchange: "MT5"
-  timeframe: "M30"
+  timeframe: "15s"
   warmup_bars: 150
 
 # ============================================================
@@ -77,6 +77,6 @@ gateway:
 # ============================================================
 live:
   symbol: "GBPUSD"
-  bar_seconds: 1800
+  bar_seconds: 15
   duration_seconds: 86400
   session_timeout: 86500

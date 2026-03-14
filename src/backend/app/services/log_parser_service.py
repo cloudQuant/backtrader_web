@@ -23,6 +23,20 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+_FLAT_LOG_FILENAMES = frozenset(
+    {
+        "value.log",
+        "data.log",
+        "trade.log",
+        "bar.log",
+        "indicator.log",
+        "position.log",
+        "order.log",
+        "system.log",
+        "tick.log",
+    }
+)
+
 
 def find_latest_log_dir(strategy_dir: Path) -> Path | None:
     """Find the latest log directory under the strategy directory.
@@ -50,8 +64,7 @@ def find_latest_log_dir(strategy_dir: Path) -> Path | None:
     if subdirs:
         return subdirs[0]
     # Fallback: logs written directly in logs/ (no subdirs), e.g. simulate strategies
-    expected = {"value.log", "data.log", "trade.log"}
-    has_logs = any((logs_dir / f).is_file() for f in expected)
+    has_logs = any((logs_dir / f).is_file() for f in _FLAT_LOG_FILENAMES)
     return logs_dir if has_logs else None
 
 
@@ -73,6 +86,8 @@ def _parse_tsv(filepath: Path) -> list[dict[str, str]]:
         header_line = f.readline().strip()
         if not header_line:
             return []
+        if header_line.startswith("{") or header_line.startswith("["):
+            return []
         headers = header_line.split("\t")
 
         for line in f:
@@ -86,6 +101,169 @@ def _parse_tsv(filepath: Path) -> list[dict[str, str]]:
             rows.append(row)
 
     return rows
+
+
+def _parse_json_lines(filepath: Path) -> list[dict[str, Any]]:
+    if not filepath.is_file():
+        return []
+
+    rows: list[dict[str, Any]] = []
+    with open(filepath, encoding="utf-8") as f:
+        for line in f:
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                return []
+            if isinstance(payload, dict):
+                rows.append(payload)
+    return rows
+
+
+def _normalize_dt_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return text
+
+
+def _normalize_date_text(value: Any) -> str:
+    text = _normalize_dt_text(value)
+    if " " in text:
+        return text.split(" ")[0]
+    return text
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
+
+
+def _extract_indicator_values(row: dict[str, Any]) -> dict[str, float]:
+    ignored = {
+        "log_time",
+        "datetime",
+        "strategy_name",
+        "data_name",
+        "event_type",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "openinterest",
+    }
+    values: dict[str, float] = {}
+    for key, value in row.items():
+        if key in ignored:
+            continue
+        if isinstance(value, (int, float)):
+            values[key] = _safe_float(value)
+    return values
+
+
+def _load_strategy_config(strategy_dir: Path) -> dict[str, Any]:
+    config_path = strategy_dir / "config.yaml"
+    if not config_path.is_file():
+        return {}
+    try:
+        import yaml
+
+        with open(config_path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+
+
+def _initial_cash_for_strategy(strategy_dir: Path, run_info: dict[str, Any] | None = None) -> float:
+    run_info = run_info or {}
+    for key in ("initial_cash", "starting_cash", "initial_capital"):
+        value = run_info.get(key)
+        if value is not None:
+            cash = _safe_float(value, 0.0)
+            if cash > 0:
+                return cash
+
+    config = _load_strategy_config(strategy_dir)
+    for section in ("simulate", "backtest"):
+        value = (config.get(section) or {}).get("initial_cash")
+        cash = _safe_float(value, 0.0)
+        if cash > 0:
+            return cash
+    return 100000.0
+
+
+def _synthesize_value_curve(
+    strategy_dir: Path,
+    kline_data: dict[str, Any],
+    position_rows: list[dict[str, Any]],
+    trades: list[dict[str, Any]],
+    run_info: dict[str, Any],
+) -> dict[str, Any]:
+    initial_cash = _initial_cash_for_strategy(strategy_dir, run_info)
+    realized_by_date: dict[str, float] = {}
+    for trade in trades:
+        close_dt = _normalize_dt_text(trade.get("dtclose") or trade.get("datetime"))
+        if not close_dt:
+            continue
+        realized_by_date[close_dt] = realized_by_date.get(close_dt, 0.0) + _safe_float(
+            trade.get("pnlcomm", trade.get("pnl", 0.0)),
+            0.0,
+        )
+
+    position_by_date: dict[str, dict[str, Any]] = {}
+    for row in position_rows:
+        dt = _normalize_dt_text(row.get("datetime") or row.get("dt"))
+        if dt:
+            position_by_date[dt] = row
+
+    ordered_dates: list[str] = []
+    seen_dates: set[str] = set()
+    for dt in kline_data.get("dates", []):
+        if dt and dt not in seen_dates:
+            ordered_dates.append(dt)
+            seen_dates.add(dt)
+    for dt in sorted(position_by_date):
+        if dt not in seen_dates:
+            ordered_dates.append(dt)
+            seen_dates.add(dt)
+    for dt in sorted(realized_by_date):
+        if dt not in seen_dates:
+            ordered_dates.append(dt)
+            seen_dates.add(dt)
+
+    if not ordered_dates:
+        return {"dates": [], "equity_curve": [], "cash_curve": [], "drawdown_curve": []}
+
+    realized = 0.0
+    equity: list[float] = []
+    cash_curve: list[float] = []
+    peak = initial_cash
+    drawdown_curve: list[float] = []
+    for dt in ordered_dates:
+        realized += realized_by_date.get(dt, 0.0)
+        pos = position_by_date.get(dt, {})
+        size = _safe_float(pos.get("size", 0.0), 0.0)
+        avg_price = _safe_float(pos.get("price", 0.0), 0.0)
+        market_value = _safe_float(pos.get("value", pos.get("market_value", 0.0)), 0.0)
+        cost_basis = size * avg_price
+        unrealized = market_value - cost_basis
+        total_assets = initial_cash + realized + unrealized
+        cash_value = total_assets - market_value
+        equity.append(round(total_assets, 4))
+        cash_curve.append(round(cash_value, 4))
+        if total_assets > peak:
+            peak = total_assets
+        dd = ((peak - total_assets) / peak * 100) if peak > 0 else 0.0
+        drawdown_curve.append(round(dd, 4))
+
+    return {
+        "dates": ordered_dates,
+        "equity_curve": equity,
+        "cash_curve": cash_curve,
+        "drawdown_curve": drawdown_curve,
+    }
 
 
 def _safe_float(val: str, default: float = 0.0) -> float:
@@ -127,7 +305,7 @@ def parse_value_log(log_dir: Path) -> dict[str, Any]:
     cash = []
 
     for row in rows:
-        dt = row.get("dt", "")
+        dt = row.get("dt", row.get("datetime", ""))
         if " " in dt:
             dt = dt.split(" ")[0]
         dates.append(dt)
@@ -163,6 +341,70 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
         A list of trade record dictionaries.
     """
     rows = _parse_tsv(log_dir / "trade.log")
+    if not rows:
+        json_rows = _parse_json_lines(log_dir / "trade.log")
+        if not json_rows:
+            return []
+
+        grouped: dict[int, dict[str, Any]] = {}
+        ungrouped_index = 1000000
+        for row in json_rows:
+            ref = int(_safe_float(row.get("ref", ungrouped_index), float(ungrouped_index)))
+            if ref == ungrouped_index:
+                ungrouped_index += 1
+            item = grouped.setdefault(ref, {"ref": ref})
+            dt_value = _normalize_dt_text(row.get("datetime"))
+            if _is_truthy(row.get("isopen")):
+                item["dtopen"] = dt_value
+                item["open_size"] = _safe_float(row.get("size", 0.0))
+                item["open_price"] = _safe_float(row.get("price", 0.0))
+                item["open_value"] = _safe_float(row.get("value", 0.0))
+                item["data_name"] = row.get("data_name", item.get("data_name", ""))
+            if _is_truthy(row.get("isclosed")):
+                item["dtclose"] = dt_value
+                item["close_price"] = _safe_float(row.get("price", 0.0))
+                item["pnl"] = _safe_float(row.get("pnl", 0.0))
+                item["pnlcomm"] = _safe_float(row.get("pnlcomm", item.get("pnl", 0.0)))
+                item["commission_close"] = _safe_float(row.get("commission", 0.0))
+                item["barlen"] = int(_safe_float(row.get("barlen", 0)))
+                item["data_name"] = row.get("data_name", item.get("data_name", ""))
+            item["commission_open"] = item.get("commission_open", 0.0) + (
+                _safe_float(row.get("commission", 0.0)) if _is_truthy(row.get("isopen")) else 0.0
+            )
+            item["direction"] = (
+                "buy"
+                if _safe_float(row.get("size", item.get("open_size", 0.0)), 0.0) >= 0
+                else "sell"
+            )
+
+        trades: list[dict[str, Any]] = []
+        for item in sorted(grouped.values(), key=lambda payload: payload.get("dtclose") or payload.get("dtopen") or ""):
+            if not item.get("dtclose"):
+                continue
+            open_size = abs(_safe_float(item.get("open_size", 0.0), 0.0))
+            commission = _safe_float(item.get("commission_open", 0.0), 0.0) + _safe_float(
+                item.get("commission_close", 0.0),
+                0.0,
+            )
+            trades.append(
+                {
+                    "ref": int(item.get("ref", 0)),
+                    "datetime": _normalize_date_text(item.get("dtclose")),
+                    "dtopen": _normalize_dt_text(item.get("dtopen")),
+                    "dtclose": _normalize_dt_text(item.get("dtclose")),
+                    "data_name": str(item.get("data_name", "")),
+                    "direction": item.get("direction", "buy"),
+                    "size": open_size,
+                    "price": round(_safe_float(item.get("open_price", item.get("close_price", 0.0))), 4),
+                    "value": round(abs(_safe_float(item.get("open_value", 0.0))), 2),
+                    "commission": round(commission, 4),
+                    "pnl": round(_safe_float(item.get("pnl", 0.0)), 2),
+                    "pnlcomm": round(_safe_float(item.get("pnlcomm", item.get("pnl", 0.0))), 2),
+                    "barlen": int(_safe_float(item.get("barlen", 0))),
+                }
+            )
+        return trades
+
     trades = []
 
     for row in rows:
@@ -238,7 +480,42 @@ def parse_data_log(log_dir: Path) -> dict[str, Any]:
     """
     rows = _parse_tsv(log_dir / "data.log")
     if not rows:
-        return {"dates": [], "ohlc": [], "volumes": [], "indicators": {}}
+        bar_rows = _parse_json_lines(log_dir / "bar.log")
+        if not bar_rows:
+            return {"dates": [], "ohlc": [], "volumes": [], "indicators": {}}
+        indicator_rows = _parse_json_lines(log_dir / "indicator.log")
+        indicator_map = {
+            _normalize_dt_text(row.get("datetime")): _extract_indicator_values(row)
+            for row in indicator_rows
+            if _normalize_dt_text(row.get("datetime"))
+        }
+        dates = []
+        ohlc = []
+        volumes = []
+        indicators: dict[str, list[float]] = {}
+        for row in bar_rows:
+            dt = _normalize_dt_text(row.get("datetime"))
+            if not dt:
+                continue
+            dates.append(dt)
+            open_price = _safe_float(row.get("open", 0.0))
+            high_price = _safe_float(row.get("high", 0.0))
+            low_price = _safe_float(row.get("low", 0.0))
+            close_price = _safe_float(row.get("close", 0.0))
+            ohlc.append([open_price, close_price, low_price, high_price])
+            volumes.append(_safe_float(row.get("volume", 0.0)))
+            for key, value in indicator_map.get(dt, {}).items():
+                indicators.setdefault(key, [None] * (len(dates) - 1))
+                indicators[key].append(value)
+            for key, values in indicators.items():
+                if len(values) < len(dates):
+                    values.append(None)
+        return {
+            "dates": dates,
+            "ohlc": ohlc,
+            "volumes": volumes,
+            "indicators": indicators,
+        }
 
     # Find indicator columns (non-standard columns)
     standard_cols = {
@@ -296,6 +573,23 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
         A list of position snapshot dictionaries.
     """
     rows = _parse_tsv(log_dir / "position.log")
+    if not rows:
+        json_rows = _parse_json_lines(log_dir / "position.log")
+        if not json_rows:
+            return []
+        return [
+            {
+                "dt": _normalize_date_text(row.get("datetime")),
+                "datetime": _normalize_dt_text(row.get("datetime")),
+                "data_name": row.get("data_name", ""),
+                "size": _safe_float(row.get("size", 0.0)),
+                "price": round(_safe_float(row.get("price", 0.0)), 4),
+                "market_value": round(_safe_float(row.get("value", 0.0)), 2),
+                "value": round(_safe_float(row.get("value", 0.0)), 2),
+            }
+            for row in json_rows
+            if _normalize_dt_text(row.get("datetime"))
+        ]
     positions = []
     for row in rows:
         size = _safe_float(row.get("size", "0"))
@@ -310,6 +604,7 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
                 "size": size,
                 "price": round(price, 4),
                 "market_value": round(abs(size) * price, 2),
+                "value": round(abs(size) * price, 2),
             }
         )
     return positions
@@ -387,6 +682,9 @@ def parse_all_logs(strategy_dir: Path) -> dict[str, Any] | None:
     orders = parse_order_log(log_dir)
     kline_data = parse_data_log(log_dir)
     run_info = parse_run_info(log_dir)
+    positions = parse_position_log(log_dir)
+    if not value_data.get("equity_curve"):
+        value_data = _synthesize_value_curve(strategy_dir, kline_data, positions, trades, run_info)
 
     # Calculate statistics
     equity = value_data.get("equity_curve", [])

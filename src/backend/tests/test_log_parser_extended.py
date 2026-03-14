@@ -224,3 +224,45 @@ class TestParseAllLogs:
         assert result["total_trades"] == 1
         assert result["win_rate"] > 0
         assert len(result["equity_curve"]) == 3
+
+    def test_parse_all_logs_synthesizes_equity_for_json_simulate_logs(self, tmp_path: Path):
+        strategy_dir = tmp_path / "strategy"
+        logs_dir = strategy_dir / "logs"
+        logs_dir.mkdir(parents=True)
+        (strategy_dir / "config.yaml").write_text("simulate:\n  initial_cash: 100000\n", encoding="utf-8")
+        (logs_dir / "bar.log").write_text(
+            '\n'.join(
+                [
+                    '{"datetime":"2026-03-13 09:00:00","open":100,"high":101,"low":99,"close":100.5,"volume":10}',
+                    '{"datetime":"2026-03-13 09:15:00","open":100.5,"high":102,"low":100,"close":101.5,"volume":12}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "position.log").write_text(
+            '\n'.join(
+                [
+                    '{"datetime":"2026-03-13 09:00:00","data_name":"CF609","size":0,"price":0,"value":0}',
+                    '{"datetime":"2026-03-13 09:15:00","data_name":"CF609","size":1,"price":100.5,"value":101.5}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "trade.log").write_text(
+            '\n'.join(
+                [
+                    '{"datetime":"2026-03-13 09:00:00","ref":1,"data_name":"CF609","size":1,"price":100.5,"value":100.5,"commission":0.1,"pnl":0.0,"pnlcomm":-0.1,"isopen":true,"isclosed":false,"barlen":0}',
+                    '{"datetime":"2026-03-13 09:15:00","ref":1,"data_name":"CF609","size":0,"price":101.5,"value":0.0,"commission":0.1,"pnl":1.0,"pnlcomm":0.8,"isopen":false,"isclosed":true,"barlen":1}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = parse_all_logs(strategy_dir)
+        assert result is not None
+        assert result["equity_dates"] == ["2026-03-13 09:00:00", "2026-03-13 09:15:00"]
+        assert len(result["equity_curve"]) == 2
+        assert result["total_trades"] == 1

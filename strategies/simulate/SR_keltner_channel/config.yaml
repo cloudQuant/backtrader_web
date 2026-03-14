@@ -70,7 +70,7 @@ ctp:
 # CTP 模拟盘会话参数
 # ============================================================
 live:
-  symbol: "SR2609"
+  symbol: "SR609"
   network: "telecom"
   bar_seconds: 60
   duration_seconds: 86400
@@ -78,6 +78,6 @@ live:
   min_price_tick: 1.0
   max_order_size: 1
   contract_metadata:
-    SR2609:
+    SR609:
       min_price_tick: 1.0
       max_order_size: 1
