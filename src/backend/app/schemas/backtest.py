@@ -28,6 +28,9 @@ class BacktestRequest(BaseModel):
     end_date: datetime = Field(..., description="End date")
     initial_cash: float = Field(100000.0, description="Initial cash")
     commission: float = Field(0.001, description="Commission rate")
+    timeframe: str = Field("1d", description="K-line timeframe e.g. 1d, 1h, 5m")
+    timeframe_n: int = Field(1, ge=1, description="Timeframe multiplier")
+    bar_count: int | None = Field(None, description="Number of bars to load (None = all)")
     params: dict[str, Any] = Field(default_factory=dict, description="Strategy parameters")
 
     model_config = ConfigDict(

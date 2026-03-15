@@ -344,10 +344,18 @@ class BacktestService:
         config["backtest"]["commission"] = request.commission
 
         # Override data configuration
+        if "data" not in config:
+            config["data"] = {}
         if request.symbol:
-            if "data" not in config:
-                config["data"] = {}
             config["data"]["symbol"] = request.symbol
+        # Write timeframe / timeframe_n / bar_count into data config so the
+        # strategy runner picks them up (Bug-2 v2 fix).
+        if request.timeframe:
+            config["data"]["timeframe"] = request.timeframe
+        if request.timeframe_n is not None:
+            config["data"]["timeframe_n"] = request.timeframe_n
+        if request.bar_count is not None:
+            config["data"]["bar_count"] = request.bar_count
 
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(config, f, allow_unicode=True, default_flow_style=False)

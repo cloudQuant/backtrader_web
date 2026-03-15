@@ -1,0 +1,132 @@
+import api from './index'
+import type {
+  Workspace,
+  WorkspaceCreate,
+  WorkspaceUpdate,
+  WorkspaceListResponse,
+  StrategyUnit,
+  StrategyUnitCreate,
+  StrategyUnitUpdate,
+  StrategyUnitListResponse,
+  BulkDeleteRequest,
+  SortRequest,
+  GroupRenameRequest,
+  UnitRenameRequest,
+  RunUnitResult,
+  UnitStatusResponse,
+  UnitOptimizationRequest,
+  ApplyBestParamsRequest,
+  OptimizationSubmitResult,
+} from '@/types/workspace'
+
+export const workspaceApi = {
+  // Workspace CRUD
+  async create(data: WorkspaceCreate): Promise<Workspace> {
+    return api.post('/workspace/', data)
+  },
+
+  async list(skip = 0, limit = 50): Promise<WorkspaceListResponse> {
+    return api.get('/workspace/', { params: { skip, limit } })
+  },
+
+  async get(id: string): Promise<Workspace> {
+    return api.get(`/workspace/${id}`)
+  },
+
+  async update(id: string, data: WorkspaceUpdate): Promise<Workspace> {
+    return api.put(`/workspace/${id}`, data)
+  },
+
+  async delete(id: string): Promise<void> {
+    return api.delete(`/workspace/${id}`)
+  },
+
+  // Strategy Unit CRUD
+  async listUnits(workspaceId: string): Promise<StrategyUnitListResponse> {
+    return api.get(`/workspace/${workspaceId}/units`)
+  },
+
+  async createUnit(workspaceId: string, data: StrategyUnitCreate): Promise<StrategyUnit> {
+    return api.post(`/workspace/${workspaceId}/units`, data)
+  },
+
+  async batchCreateUnits(workspaceId: string, units: StrategyUnitCreate[]): Promise<StrategyUnit[]> {
+    return api.post(`/workspace/${workspaceId}/units/batch`, { units })
+  },
+
+  async getUnit(workspaceId: string, unitId: string): Promise<StrategyUnit> {
+    return api.get(`/workspace/${workspaceId}/units/${unitId}`)
+  },
+
+  async updateUnit(workspaceId: string, unitId: string, data: StrategyUnitUpdate): Promise<StrategyUnit> {
+    return api.put(`/workspace/${workspaceId}/units/${unitId}`, data)
+  },
+
+  async deleteUnit(workspaceId: string, unitId: string): Promise<void> {
+    return api.delete(`/workspace/${workspaceId}/units/${unitId}`)
+  },
+
+  // Bulk operations
+  async bulkDeleteUnits(workspaceId: string, data: BulkDeleteRequest): Promise<{ deleted: number }> {
+    return api.post(`/workspace/${workspaceId}/units/bulk-delete`, data)
+  },
+
+  async reorderUnits(workspaceId: string, data: SortRequest): Promise<void> {
+    return api.post(`/workspace/${workspaceId}/units/reorder`, data)
+  },
+
+  async renameGroup(workspaceId: string, data: GroupRenameRequest): Promise<void> {
+    return api.post(`/workspace/${workspaceId}/units/rename-group`, data)
+  },
+
+  async renameUnit(workspaceId: string, data: UnitRenameRequest): Promise<void> {
+    return api.post(`/workspace/${workspaceId}/units/rename-unit`, data)
+  },
+
+  // Run orchestration
+  async runUnits(workspaceId: string, unitIds: string[], parallel = false): Promise<{ results: RunUnitResult[] }> {
+    return api.post(`/workspace/${workspaceId}/run`, { unit_ids: unitIds, parallel })
+  },
+
+  async stopUnits(workspaceId: string, unitIds: string[]): Promise<{ results: { unit_id: string; cancelled: boolean }[] }> {
+    return api.post(`/workspace/${workspaceId}/stop`, { unit_ids: unitIds })
+  },
+
+  async getUnitsStatus(workspaceId: string): Promise<UnitStatusResponse[]> {
+    return api.get(`/workspace/${workspaceId}/status`)
+  },
+
+  // Optimization
+  async submitOptimization(workspaceId: string, data: UnitOptimizationRequest): Promise<OptimizationSubmitResult> {
+    return api.post(`/workspace/${workspaceId}/optimize`, data)
+  },
+
+  async getOptimizationProgress(workspaceId: string, unitId: string): Promise<Record<string, unknown>> {
+    return api.get(`/workspace/${workspaceId}/optimize/${unitId}/progress`)
+  },
+
+  async getOptimizationResults(workspaceId: string, unitId: string): Promise<Record<string, unknown>> {
+    return api.get(`/workspace/${workspaceId}/optimize/${unitId}/results`)
+  },
+
+  async cancelOptimization(workspaceId: string, unitId: string): Promise<Record<string, unknown>> {
+    return api.post(`/workspace/${workspaceId}/optimize/${unitId}/cancel`)
+  },
+
+  async applyBestParams(workspaceId: string, data: ApplyBestParamsRequest): Promise<Record<string, unknown>> {
+    return api.post(`/workspace/${workspaceId}/optimize/apply`, data)
+  },
+
+  // Report
+  async getReport(workspaceId: string): Promise<Record<string, unknown>> {
+    return api.get(`/workspace/${workspaceId}/report`)
+  },
+
+  async createReport(workspaceId: string, config: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return api.post(`/workspace/${workspaceId}/report`, config)
+  },
+
+  async deleteReport(workspaceId: string): Promise<Record<string, unknown>> {
+    return api.delete(`/workspace/${workspaceId}/report`)
+  },
+}

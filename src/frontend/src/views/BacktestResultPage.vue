@@ -211,7 +211,7 @@ function handleExport(format: 'csv' | 'json') {
 }
 
 function handleBack() {
-  router.push('/backtest')
+  router.push('/backtest/legacy')
 }
 
 </script>

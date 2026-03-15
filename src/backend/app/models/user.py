@@ -46,6 +46,7 @@ class User(Base):
     paper_trading_accounts = relationship("Account", back_populates="user")
     alerts = relationship("Alert", back_populates="user")
     alert_rules = relationship("AlertRule", back_populates="user")
+    workspaces = relationship("Workspace", back_populates="user")
     refresh_tokens = relationship(
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )

@@ -654,20 +654,33 @@ def get_optimization_results(
     return _build_results_response(task, task_id)
 
 
-def _build_results_response(task: dict[str, Any], task_id: str) -> dict[str, Any]:
-    """Build the optimization results response dict from task data."""
+def _build_results_response(
+    task: dict[str, Any],
+    task_id: str,
+    objective: str = "annual_return",
+) -> dict[str, Any]:
+    """Build the optimization results response dict from task data.
+
+    Args:
+        objective: metric key used for sorting and selecting the best result.
+            Defaults to ``annual_return``.  Common values include
+            ``sharpe_ratio``, ``total_return``, ``win_rate``, etc.
+    """
     results = task.get("results", [])
 
-    # Build table-formatted data
+    # Build table-formatted data – keep a copy of original params dict in each row
     rows = []
     for r in results:
         row = dict(r["params"])
+        row["params"] = dict(r["params"])  # preserve nested params for frontend
         if r.get("metrics"):
             row.update(r["metrics"])
         rows.append(row)
 
-    # Sort by annual return descending
-    rows.sort(key=lambda x: x.get("annual_return", -999999), reverse=True)
+    # Determine sort direction: for max_drawdown lower (less negative) is better
+    reverse = objective != "max_drawdown"
+    default_val = -999999 if reverse else 999999
+    rows.sort(key=lambda x: x.get(objective, default_val), reverse=reverse)
 
     # Find best parameters
     best = rows[0] if rows else None
@@ -691,6 +704,7 @@ def _build_results_response(task: dict[str, Any], task_id: str) -> dict[str, Any
         "failed": task["failed"],
         "rows": rows,
         "best": best,
+        "objective": objective,
     }
 
 

@@ -201,6 +201,154 @@ def _calculate_win_rate(adapter: FincoreAdapter, trades: list[dict[str, Any]]) -
     return round((winning_trades / total_trades) * 100, 2)  # Convert to percentage
 
 
+def calculate_extended_metrics(
+    log_data: dict[str, Any],
+    initial_cash: float | None = None,
+) -> dict[str, Any]:
+    """Calculate the full set of ~35 metrics required by Iteration 124.
+
+    This builds on top of the basic metrics and adds: net_value, net_profit,
+    max_leverage, max_market_value, max_drawdown_value, adjusted_return_risk,
+    avg_profit, avg_profit_rate, total_win_amount, total_loss_amount,
+    profit_loss_ratio, profit_factor, profit_rate_factor, profit_loss_rate_ratio,
+    odds, daily/weekly/monthly return stats, trading_cost, trading_days.
+
+    Args:
+        log_data: Parsed log data with equity_curve, trades, dates.
+        initial_cash: Override initial cash if provided.
+
+    Returns:
+        Dict with all metrics. Values are rounded floats; missing data → None.
+    """
+    import numpy as np
+
+    equity = log_data.get("equity_curve", [])
+    trades = log_data.get("trades", [])
+    dates_raw = log_data.get("equity_dates", log_data.get("dates", []))
+
+    ic = initial_cash if initial_cash else (equity[0] if equity else 100000.0)
+    fv = equity[-1] if equity else ic
+
+    # ---- basic ----
+    basic = calculate_metrics_from_log_data(log_data)
+
+    # ---- daily returns ----
+    daily_returns: list[float] = []
+    if len(equity) >= 2:
+        for i in range(1, len(equity)):
+            prev = equity[i - 1]
+            daily_returns.append((equity[i] - prev) / prev if prev > 0 else 0.0)
+
+    dr = np.array(daily_returns) if daily_returns else np.array([0.0])
+
+    # ---- weekly / monthly returns (approximate via grouping) ----
+    def _period_returns(period_size: int) -> list[float]:
+        if len(equity) < period_size + 1:
+            return []
+        result = []
+        for start in range(0, len(equity) - 1, period_size):
+            end = min(start + period_size, len(equity) - 1)
+            v0 = equity[start]
+            v1 = equity[end]
+            if v0 > 0:
+                result.append((v1 - v0) / v0)
+        return result
+
+    weekly_returns = _period_returns(5)
+    monthly_returns = _period_returns(21)
+
+    wr = np.array(weekly_returns) if weekly_returns else np.array([0.0])
+    mr = np.array(monthly_returns) if monthly_returns else np.array([0.0])
+
+    # ---- trade-level stats ----
+    win_trades = [t for t in trades if t.get("pnlcomm", 0) > 0]
+    loss_trades = [t for t in trades if t.get("pnlcomm", 0) < 0]
+    total_win = sum(t.get("pnlcomm", 0) for t in win_trades)
+    total_loss = abs(sum(t.get("pnlcomm", 0) for t in loss_trades))
+    total_pnl = sum(t.get("pnlcomm", 0) for t in trades)
+    n_trades = len(trades)
+
+    avg_win = total_win / len(win_trades) if win_trades else 0.0
+    avg_loss = total_loss / len(loss_trades) if loss_trades else 0.0
+
+    # commission / cost
+    total_commission = sum(abs(t.get("commission", 0)) for t in trades)
+
+    # net value = final / initial
+    net_value = fv / ic if ic > 0 else 1.0
+    net_profit = fv - ic
+
+    # profit factor = gross_profit / gross_loss
+    profit_factor = total_win / total_loss if total_loss > 0 else 0.0
+    # profit rate factor = avg_win_rate / avg_loss_rate
+    avg_win_rate = (avg_win / ic * 100) if ic > 0 else 0.0
+    avg_loss_rate = (avg_loss / ic * 100) if ic > 0 else 0.0
+    profit_rate_factor = avg_win_rate / avg_loss_rate if avg_loss_rate > 0 else 0.0
+    # profit_loss_ratio = avg_win / avg_loss
+    profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0.0
+    # profit_loss_rate_ratio = win_rate * avg_win / (loss_rate * avg_loss)
+    win_rate_dec = len(win_trades) / n_trades if n_trades > 0 else 0.0
+    loss_rate_dec = len(loss_trades) / n_trades if n_trades > 0 else 0.0
+    odds = (win_rate_dec * avg_win - loss_rate_dec * avg_loss) / ic * 100 if ic > 0 else 0.0
+
+    # max drawdown value (absolute)
+    max_dd_value = 0.0
+    if len(equity) >= 2:
+        ea = np.array(equity)
+        peak = np.maximum.accumulate(ea)
+        dd_vals = peak - ea
+        max_dd_value = float(np.max(dd_vals))
+
+    # adjusted return/risk ratio = annual_return / abs(max_drawdown)
+    ann_ret = basic.get("annual_return", 0.0)
+    mdd = basic.get("max_drawdown", 0.0)
+    adjusted_rr = ann_ret / abs(mdd) if mdd != 0 else 0.0
+
+    # average profit per trade
+    avg_profit = total_pnl / n_trades if n_trades > 0 else 0.0
+    avg_profit_rate = (avg_profit / ic * 100) if ic > 0 else 0.0
+
+    return {
+        # --- basic (from calculate_metrics_from_log_data) ---
+        **basic,
+        # --- extended ---
+        "initial_cash": round(ic, 2),
+        "final_value": round(fv, 2),
+        "net_value": round(net_value, 6),
+        "net_profit": round(net_profit, 2),
+        "max_leverage": None,  # requires position sizing data not yet available
+        "max_market_value": None,  # requires position sizing data
+        "max_drawdown_value": round(max_dd_value, 2),
+        "adjusted_return_risk": round(adjusted_rr, 4),
+        "avg_profit": round(avg_profit, 2),
+        "avg_profit_rate": round(avg_profit_rate, 4),
+        "total_win_amount": round(total_win, 2),
+        "total_loss_amount": round(total_loss, 2),
+        "profit_loss_ratio": round(profit_loss_ratio, 4),
+        "profit_factor": round(profit_factor, 4),
+        "profit_rate_factor": round(profit_rate_factor, 4),
+        "profit_loss_rate_ratio": round(
+            (win_rate_dec * profit_loss_ratio) / loss_rate_dec if loss_rate_dec > 0 else 0.0, 4
+        ),
+        "odds": round(odds, 4),
+        # daily
+        "daily_avg_return": round(float(np.mean(dr)) * 100, 4) if len(dr) else 0.0,
+        "daily_max_loss": round(float(np.min(dr)) * 100, 4) if len(dr) else 0.0,
+        "daily_max_profit": round(float(np.max(dr)) * 100, 4) if len(dr) else 0.0,
+        # weekly
+        "weekly_avg_return": round(float(np.mean(wr)) * 100, 4) if len(wr) else 0.0,
+        "weekly_max_loss": round(float(np.min(wr)) * 100, 4) if len(wr) else 0.0,
+        "weekly_max_profit": round(float(np.max(wr)) * 100, 4) if len(wr) else 0.0,
+        # monthly
+        "monthly_avg_return": round(float(np.mean(mr)) * 100, 4) if len(mr) else 0.0,
+        "monthly_max_loss": round(float(np.min(mr)) * 100, 4) if len(mr) else 0.0,
+        "monthly_max_profit": round(float(np.max(mr)) * 100, 4) if len(mr) else 0.0,
+        # misc
+        "trading_cost": round(total_commission, 2),
+        "trading_days": len(equity),
+    }
+
+
 def compare_calculation_methods(log_data: dict[str, Any]) -> dict[str, Any]:
     """Compare metrics calculated by fincore vs manual methods.
 

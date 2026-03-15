@@ -525,7 +525,7 @@ async function pollResult(taskId: string) {
 
 function viewResult(result: BacktestResult) {
   // 导航到详细分析页面
-  router.push(`/backtest/${result.task_id}`)
+  router.push(`/backtest/result/${result.task_id}`)
 }
 
 async function deleteBacktest(taskId: string) {

@@ -598,7 +598,7 @@ async function openTemplateDetail(t: StrategyTemplate) {
 
 function goBacktest(t: StrategyTemplate) {
   detailVisible.value = false
-  router.push({ path: '/backtest', query: { strategy: t.id } })
+  router.push({ path: '/backtest/legacy', query: { strategy: t.id } })
 }
 
 function showCreateDialog() {

@@ -31,6 +31,10 @@
           <el-icon><DataLine /></el-icon>
           <span>回测分析</span>
         </el-menu-item>
+        <el-menu-item index="/workspace">
+          <el-icon><Aim /></el-icon>
+          <span>策略研究</span>
+        </el-menu-item>
         <el-menu-item index="/optimization">
           <el-icon><MagicStick /></el-icon>
           <span>参数优化</span>
@@ -70,10 +74,20 @@
     <el-container>
       <!-- 顶部栏 -->
       <el-header class="flex items-center justify-between bg-white border-b px-6">
-        <div class="flex items-center gap-4">
-          <div class="text-lg font-medium">
-            {{ pageTitle }}
+        <div class="flex items-center gap-4 flex-1 min-w-0 flex-wrap">
+          <div class="flex items-center gap-3 min-w-0 flex-wrap">
+            <div class="text-lg font-medium shrink-0">
+              {{ pageTitle }}
+            </div>
+            <div
+              id="page-header-title-extra"
+              class="flex items-center gap-2 min-w-0 flex-wrap"
+            ></div>
           </div>
+          <div
+            id="page-header-actions"
+            class="flex items-center gap-3 flex-wrap"
+          ></div>
           <div v-if="route.path === '/portfolio'">
             <el-radio-group
               v-model="portfolioUiStore.tradingType"
@@ -89,7 +103,7 @@
           </div>
         </div>
         
-        <div class="flex items-center gap-4">
+        <div class="flex items-center gap-4 shrink-0">
           <el-tooltip :content="isDark ? '切换亮色模式' : '切换暗色模式'">
             <el-button
               circle
@@ -137,6 +151,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import {
+  Aim,
   HomeFilled,
   DataLine,
   Document,
@@ -157,7 +172,15 @@ const router = useRouter()
 const authStore = useAuthStore()
 const portfolioUiStore = usePortfolioUiStore()
 
-const currentRoute = computed(() => route.path)
+const currentRoute = computed(() => {
+  const p = route.path
+  // Match top-level menu items for nested routes
+  const prefixes = ['/workspace', '/backtest', '/optimization', '/strategy', '/data', '/simulate', '/live-trading', '/gateways', '/quote', '/portfolio', '/settings']
+  for (const prefix of prefixes) {
+    if (p.startsWith(prefix + '/') || p === prefix) return prefix
+  }
+  return p
+})
 const user = computed(() => authStore.user)
 
 const isDark = ref(localStorage.getItem('theme') === 'dark')
@@ -185,10 +208,12 @@ const pageTitle = computed(() => {
     '/live-trading': '实盘交易',
     '/gateways': 'Gateway 状态',
     '/quote': '行情报价',
+    '/workspace': '策略研究',
     '/portfolio': '组合管理',
     '/settings': '系统设置',
   }
-  return titles[route.path] || 'Backtrader Web'
+  // Use prefix matching for nested routes (Bug-11 fix)
+  return titles[route.path] || titles[currentRoute.value] || 'Backtrader Web'
 })
 
 function handleCommand(command: string) {

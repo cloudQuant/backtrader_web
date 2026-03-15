@@ -18,6 +18,7 @@ from app.models.strategy_version import (
     VersionRollback,
 )
 from app.models.user import RefreshToken, User
+from app.models.workspace import StrategyUnit, Workspace
 
 __all__ = [
     "Account",
@@ -42,4 +43,6 @@ __all__ = [
     "VersionComparison",
     "VersionRollback",
     "user_roles",
+    "Workspace",
+    "StrategyUnit",
 ]

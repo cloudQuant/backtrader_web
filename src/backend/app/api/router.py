@@ -14,6 +14,7 @@ from app.api.optimization_api import router as optimization_router
 from app.api.portfolio_api import router as portfolio_router
 from app.api.simulation import router as simulation_router
 from app.api.strategy import router as strategy_router
+from app.api.workspace_api import router as workspace_router
 
 api_router = APIRouter()
 
@@ -26,6 +27,7 @@ api_router.include_router(live_trading_router, prefix="/live-trading", tags=["Li
 api_router.include_router(portfolio_router, prefix="/portfolio", tags=["Portfolio"])
 api_router.include_router(optimization_router, prefix="/optimization", tags=["Optimization"])
 api_router.include_router(simulation_router, prefix="/simulation", tags=["Simulation"])
+api_router.include_router(workspace_router, prefix="/workspace", tags=["Workspace"])
 
 try:
     from app.api.auto_trading import router as auto_trading_router

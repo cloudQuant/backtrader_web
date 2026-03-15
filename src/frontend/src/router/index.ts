@@ -28,12 +28,26 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'backtest',
         name: 'Backtest',
+        component: () => import('@/views/workspace/WorkspaceListPage.vue'),
+      },
+      {
+        path: 'backtest/workspace/:id',
+        name: 'BacktestWorkspaceDetail',
+        component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
+      },
+      {
+        path: 'backtest/legacy',
+        name: 'BacktestLegacy',
         component: () => import('@/views/BacktestPage.vue'),
       },
       {
-        path: 'backtest/:id',
+        path: 'backtest/result/:id',
         name: 'BacktestResult',
         component: () => import('@/views/BacktestResultPage.vue'),
+      },
+      {
+        path: 'backtest/:id',
+        redirect: to => ({ path: `/backtest/result/${String(to.params.id ?? '')}` }),
       },
       {
         path: 'optimization',
@@ -79,6 +93,16 @@ const routes: RouteRecordRaw[] = [
         path: 'quote',
         name: 'Quote',
         component: () => import('@/views/QuotePage.vue'),
+      },
+      {
+        path: 'workspace',
+        name: 'WorkspaceList',
+        component: () => import('@/views/workspace/WorkspaceListPage.vue'),
+      },
+      {
+        path: 'workspace/:id',
+        name: 'WorkspaceDetail',
+        component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
       },
       {
         path: 'portfolio',
