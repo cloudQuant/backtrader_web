@@ -630,32 +630,28 @@ class QuoteService:
 
     def _get_default_symbols_for_source(self, source: str) -> list[dict[str, str]]:
         manager = self._get_live_trading_manager()
-        asset_type = self._get_source_asset_type(manager, source)
+        state = self._find_gateway_state(manager, source)
+        asset_type = self._get_source_asset_type(source, state)
         return list(_DEFAULT_SYMBOLS_BY_ASSET.get((source, asset_type), _DEFAULT_SYMBOLS.get(source, [])))
 
     @staticmethod
-    def _get_source_asset_type(manager, source: str) -> str:
-        if manager is None:
+    def _get_source_asset_type(source: str, state: dict[str, Any] | None) -> str:
+        if state is None:
             return _DEFAULT_ASSET_TYPES.get(source, "")
-        try:
-            for _key, state in manager._gateways.items():
-                if state.get("exchange_type") != source:
-                    continue
-                asset_type = str(
-                    state.get("asset_type")
-                    or getattr(state.get("config"), "asset_type", "")
-                    or ""
-                ).strip().upper()
-                if asset_type:
-                    return asset_type
-        except Exception:
-            pass
+        asset_type = str(
+            state.get("asset_type")
+            or getattr(state.get("config"), "asset_type", "")
+            or ""
+        ).strip().upper()
+        if asset_type:
+            return asset_type
         return _DEFAULT_ASSET_TYPES.get(source, "")
 
     def _is_source_ready(self, manager, source: str) -> bool:
-        config = self._find_gateway_config(manager, source)
-        if config is None:
+        state = self._find_gateway_state(manager, source)
+        if state is None:
             return False
+        config = state.get("config")
         command_endpoint = getattr(config, "command_endpoint", None)
         if not command_endpoint:
             return False
@@ -670,17 +666,50 @@ class QuoteService:
             return bool(result.get("ready"))
         return False
 
-    @staticmethod
-    def _find_gateway_config(manager, source: str):
-        """Find the GatewayConfig object for the given source from LiveTradingManager."""
+    def _find_gateway_config(self, manager, source: str):
+        state = self._find_gateway_state(manager, source)
+        if state is None:
+            return None
+        return state.get("config")
+
+    def _find_gateway_state(self, manager, source: str) -> dict[str, Any] | None:
+        """Find the most relevant gateway state for the given source.
+
+        Preference order:
+        1. Manual gateways for the source
+        2. Among them, gateways whose ping says ready=true
+        3. Fallback to any gateway of the source
+        """
         if manager is None:
             return None
         try:
+            candidates: list[dict[str, Any]] = []
+            manual_candidates: list[dict[str, Any]] = []
             for _key, state in manager._gateways.items():
-                if state.get("exchange_type") == source:
-                    config = state.get("config")
-                    if config is not None:
-                        return config
+                if state.get("exchange_type") != source:
+                    continue
+                if state.get("config") is None:
+                    continue
+                candidates.append(state)
+                if state.get("manual"):
+                    manual_candidates.append(state)
+            preferred = manual_candidates or candidates
+            for state in preferred:
+                config = state.get("config")
+                command_endpoint = getattr(config, "command_endpoint", None)
+                if not command_endpoint:
+                    continue
+                result = self._send_gateway_command(
+                    command_endpoint,
+                    "ping",
+                    {},
+                    send_timeout_ms=1000,
+                    recv_timeout_ms=1000,
+                )
+                if isinstance(result, dict) and result.get("ready") is True:
+                    return state
+            if preferred:
+                return preferred[0]
         except Exception:
             pass
         return None
@@ -810,6 +839,20 @@ class QuoteService:
         tick["turnover"] = _opt_float(raw.get("turnover"))
         tick["open_interest"] = _opt_float(raw.get("openinterest"))
 
+        # OHLC fields from enriched GatewayTick (24h ticker data)
+        tick["high_price"] = _opt_float(raw.get("high_price"))
+        tick["low_price"] = _opt_float(raw.get("low_price"))
+        tick["open_price"] = _opt_float(raw.get("open_price"))
+        tick["prev_close"] = _opt_float(raw.get("prev_close"))
+
+        # Compute change / change_pct from last_price and open_price or prev_close
+        last = tick["last_price"]
+        if last is not None:
+            ref = tick["prev_close"] or tick["open_price"]
+            if ref is not None and ref != 0:
+                tick["change"] = last - ref
+                tick["change_pct"] = (last - ref) / ref * 100.0
+
         # Exchange from tick overrides metadata if present
         if raw.get("exchange"):
             tick["exchange"] = raw["exchange"]
@@ -826,10 +869,6 @@ class QuoteService:
                 ).isoformat()
             except (ValueError, TypeError, OSError):
                 tick["update_time"] = now
-
-        # NOTE: GatewayTick does not carry high/low/open/prev_close directly.
-        # These would need OHLC aggregation or a separate data source.
-        # For now they remain None until we integrate bar data.
 
         return tick
 
