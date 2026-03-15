@@ -174,6 +174,72 @@ class TestLiveTradingList:
         assert data["total"] == 0
         assert data["gateways"] == []
 
+    async def test_gateway_health_with_subprocess_gateways(self, client: AsyncClient, auth_headers):
+        with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.get_gateway_health.return_value = [
+                {
+                    "gateway_key": "manual:CTP:089763",
+                    "state": "running",
+                    "is_healthy": True,
+                    "market_connection": "connected",
+                    "trade_connection": "connected",
+                    "uptime_sec": 0,
+                    "last_heartbeat": None,
+                    "heartbeat_age_sec": None,
+                    "last_tick_time": None,
+                    "last_order_time": None,
+                    "strategy_count": 0,
+                    "symbol_count": 0,
+                    "tick_count": 0,
+                    "order_count": 0,
+                    "recent_errors": [],
+                    "ref_count": 0,
+                    "instances": [],
+                    "exchange": "CTP",
+                    "asset_type": "FUTURE",
+                    "account_id": "089763",
+                }
+            ]
+            mock_get_mgr.return_value = mock_mgr
+
+            response = await client.get("/api/v1/live-trading/gateways/health", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 1
+        assert data["gateways"][0]["gateway_key"] == "manual:CTP:089763"
+        assert data["gateways"][0]["market_connection"] == "connected"
+
+    async def test_connect_gateway_error_returns_400_not_500(self, client: AsyncClient, auth_headers):
+        with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.connect_gateway.return_value = {
+                "gateway_key": "manual:CTP:089763",
+                "status": "error",
+                "message": "CTP连接失败: RuntimeError: ctp market not ready",
+            }
+            mock_get_mgr.return_value = mock_mgr
+
+            response = await client.post(
+                "/api/v1/live-trading/gateways/connect",
+                headers=auth_headers,
+                json={
+                    "exchange_type": "CTP",
+                    "credentials": {
+                        "broker_id": "9999",
+                        "user_id": "089763",
+                        "password": "secret",
+                        "td_front": "tcp://127.0.0.1:1",
+                        "md_front": "tcp://127.0.0.1:2",
+                    },
+                },
+            )
+
+        assert response.status_code == 400
+        payload = response.json()
+        assert "CTP连接失败" in str(payload)
+
     async def test_live_instance_create_schema_example_exposes_ib_web_gateway(self):
         schema = LiveInstanceCreate.model_json_schema()
         example = schema["example"]

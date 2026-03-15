@@ -199,14 +199,16 @@ async def get_gateway_health(
     response_model=GatewayConnectResponse,
     summary="Manually connect a gateway",
 )
-async def connect_gateway(
+def connect_gateway(
     req: GatewayConnectRequest,
     current_user=Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
     """Manually connect a gateway with provided credentials.
 
-    Supports CTP, IB_WEB, BINANCE, and OKX exchange types.
+    Supports CTP, IB_WEB, BINANCE, MT5, and OKX exchange types.
+    Uses ``def`` (not ``async def``) so the blocking subprocess start
+    runs in a thread-pool instead of stalling the event loop.
     """
     result = mgr.connect_gateway(req.exchange_type, req.credentials)
     if result["status"] == "error":

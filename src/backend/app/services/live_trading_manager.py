@@ -314,15 +314,22 @@ class LiveTradingManager:
                 ready = False
                 if running:
                     ready = self._ping_subprocess_gateway_ready(state)
+                recent_errors: list[dict[str, Any]] = []
+                has_fatal_error = False
+                if running and not ready:
+                    recent_errors = self._read_subprocess_recent_errors(state)
+                    has_fatal_error = bool(recent_errors)
+                elif not running:
+                    recent_errors = [{"source": "process", "message": "Gateway process not running"}]
                 results.append({
                     "gateway_key": key,
-                    "state": "running" if ready else ("starting" if running else "error"),
+                    "state": "running" if ready else ("error" if has_fatal_error or not running else "starting"),
                     "is_healthy": ready,
                     "exchange": state.get("exchange_type", ""),
                     "asset_type": state.get("asset_type", ""),
                     "account_id": state.get("account_id", ""),
-                    "market_connection": "connected" if ready else ("connecting" if running else "error"),
-                    "trade_connection": "connected" if ready else ("connecting" if running else "error"),
+                    "market_connection": "connected" if ready else ("error" if has_fatal_error or not running else "connecting"),
+                    "trade_connection": "connected" if ready else ("error" if has_fatal_error or not running else "connecting"),
                     "uptime_sec": 0,
                     "strategy_count": 0,
                     "symbol_count": 0,
@@ -331,15 +338,7 @@ class LiveTradingManager:
                     "heartbeat_age_sec": None,
                     "ref_count": state.get("ref_count", 0),
                     "instances": sorted(state.get("instances", set())),
-                    "recent_errors": (
-                        []
-                        if ready
-                        else (
-                            [{"source": "gateway", "message": "Gateway process running but adapter not ready"}]
-                            if running
-                            else [{"source": "process", "message": "Gateway process not running"}]
-                        )
-                    ),
+                    "recent_errors": [] if ready else recent_errors,
                 })
                 gateway_instance_ids.update(state.get("instances", set()))
                 continue
@@ -442,14 +441,28 @@ class LiveTradingManager:
         )
         key = f"manual:{exchange_type}:{account_id}"
 
-        # Check if already connected
+        # Check if already connected — but allow reconnect if subprocess died
         with self._gateway_lock:
-            if key in self._gateways:
-                return {
-                    "gateway_key": key,
-                    "status": "connected",
-                    "message": "Gateway already active",
-                }
+            existing = self._gateways.get(key)
+            if existing is not None:
+                if existing.get("process_mode") == "subprocess":
+                    proc = existing.get("process")
+                    pid = getattr(proc, "pid", None) if proc else None
+                    if pid and _is_pid_alive(int(pid)):
+                        return {
+                            "gateway_key": key,
+                            "status": "connected",
+                            "message": "Gateway already active",
+                        }
+                    # Subprocess died — remove stale entry so we can reconnect
+                    logger.info("Removing stale gateway entry %s (subprocess dead)", key)
+                    del self._gateways[key]
+                else:
+                    return {
+                        "gateway_key": key,
+                        "status": "connected",
+                        "message": "Gateway already active",
+                    }
 
         if exchange_type == "CTP":
             return self._connect_ctp_gateway(key, credentials)
@@ -529,18 +542,44 @@ class LiveTradingManager:
 
     def _start_ctp_gateway_process(
         self, kwargs: dict[str, Any]
-    ) -> tuple[dict[str, Any], subprocess.Popen, Path, Path, Path]:
+    ) -> tuple[Any, subprocess.Popen, Path, Path, Path]:
         runtime_name = str(kwargs.get("gateway_runtime_name") or uuid.uuid4().hex)
         gateway_dir = _MANUAL_GATEWAY_DIR / runtime_name
         gateway_dir.mkdir(parents=True, exist_ok=True)
         runtime_kwargs = dict(kwargs)
         runtime_kwargs["gateway_base_dir"] = str(gateway_dir)
+
+        # Kill any stale subprocess from a previous session
+        self._kill_stale_gateway_process(gateway_dir, runtime_name)
+
+        # Pre-allocate GatewayConfig so endpoints are determined BEFORE
+        # the subprocess starts.  Write them into config.json so the child
+        # process reads the *same* ports and avoids "Address in use" errors.
+        if _BT_API_PY_DIR.is_dir() and str(_BT_API_PY_DIR) not in sys.path:
+            sys.path.insert(0, str(_BT_API_PY_DIR))
+        self._ensure_spdlog_safe()
+        from bt_api_py.gateway.config import GatewayConfig
+        config = GatewayConfig.from_kwargs(**runtime_kwargs)
+        runtime_kwargs["gateway_command_endpoint"] = config.command_endpoint
+        runtime_kwargs["gateway_event_endpoint"] = config.event_endpoint
+        runtime_kwargs["gateway_market_endpoint"] = config.market_endpoint
+
         config_path = gateway_dir / "config.json"
         stdout_path = gateway_dir / "stdout.log"
         stderr_path = gateway_dir / "stderr.log"
         config_path.write_text(json.dumps(runtime_kwargs, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Clear old stderr so stale errors are not misdetected
+        stderr_path.write_bytes(b"")
+
         python_exe = self._select_ctp_python_executable()
         env = dict(os.environ)
+        # Strip proxy env vars so the subprocess's MyWebsocketApp does not
+        # auto-detect a potentially dead proxy via urllib.request.getproxies().
+        # Proxy settings are passed explicitly as http_proxy_host/http_proxy_port
+        # in config.json instead.
+        for _proxy_var in ("HTTP_PROXY", "HTTPS_PROXY", "SOCKS_PROXY",
+                           "http_proxy", "https_proxy", "socks_proxy"):
+            env.pop(_proxy_var, None)
         python_paths = [str(_BT_API_PY_DIR)]
         existing = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = os.pathsep.join(python_paths + ([existing] if existing else []))
@@ -561,16 +600,85 @@ class LiveTradingManager:
                 error_text = stderr_path.read_text(encoding="utf-8", errors="replace")[-500:]
             except Exception:
                 pass
-            raise RuntimeError(error_text or "CTP gateway process exited immediately")
+            raise RuntimeError(error_text or "Gateway process exited immediately")
         pid_file = gateway_dir / f"{runtime_name}.pid"
-        config = {
-            "runtime_name": runtime_name,
-            "gateway_base_dir": str(gateway_dir),
-            "command_endpoint": "",
-            "event_endpoint": "",
-            "market_endpoint": "",
-        }
         return config, proc, pid_file, stdout_path, stderr_path
+
+    def _kill_stale_gateway_process(self, gateway_dir: Path, runtime_name: str) -> None:
+        """Kill a stale gateway subprocess left from a previous session.
+
+        Checks both PID files and processes holding the deterministic ZMQ
+        ports so that ``Address in use`` errors are avoided.
+        """
+        killed_pids: set[int] = set()
+
+        # 1. Kill by PID file
+        for pid_path in gateway_dir.glob("*.pid"):
+            try:
+                old_pid = int(pid_path.read_text(encoding="utf-8").strip())
+                if _is_pid_alive(old_pid):
+                    logger.info("Killing stale gateway process PID %s in %s", old_pid, gateway_dir)
+                    self._force_kill_pid(old_pid)
+                    killed_pids.add(old_pid)
+                pid_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        # 2. Kill by port — the deterministic port may still be held by a
+        #    process whose PID file was already cleaned up.
+        try:
+            self._ensure_spdlog_safe()
+            from bt_api_py.gateway.config import GatewayConfig
+            cfg = GatewayConfig(
+                exchange_type="CTP", asset_type="FUTURE", account_id="tmp",
+                transport="tcp", runtime_name=runtime_name,
+            )
+            base_port = int(cfg.command_endpoint.rsplit(":", 1)[-1])
+            for port in (base_port, base_port + 1, base_port + 2):
+                port_pid = self._find_pid_on_port(port)
+                if port_pid and port_pid not in killed_pids:
+                    logger.info("Killing process PID %s holding port %s", port_pid, port)
+                    self._force_kill_pid(port_pid)
+                    killed_pids.add(port_pid)
+        except Exception:
+            pass
+
+        if killed_pids:
+            time.sleep(0.5)
+
+    @staticmethod
+    def _force_kill_pid(pid: int) -> None:
+        try:
+            if sys.platform == "win32":
+                subprocess.call(
+                    ["taskkill", "/F", "/PID", str(pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            else:
+                os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+    @staticmethod
+    def _find_pid_on_port(port: int) -> int | None:
+        """Return the PID listening on *port*, or None."""
+        try:
+            out = subprocess.check_output(
+                ["netstat", "-ano"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+            )
+            needle = f":{port} "
+            for line in out.splitlines():
+                if needle not in line or "LISTENING" not in line:
+                    continue
+                parts = line.split()
+                if parts:
+                    return int(parts[-1])
+        except Exception:
+            pass
+        return None
 
     def _select_ctp_python_executable(self) -> str:
         preferred = Path(r"C:\anaconda3\python.exe")
@@ -597,14 +705,12 @@ class LiveTradingManager:
         if not https_proxy and proxy_host:
             https_proxy = proxy_host if "://" in proxy_host else f"http://{proxy_host}"
 
-        if http_proxy:
-            os.environ["HTTP_PROXY"] = http_proxy
-        if https_proxy:
-            os.environ["HTTPS_PROXY"] = https_proxy
-        if no_proxy:
-            os.environ["NO_PROXY"] = no_proxy
-        if socks_proxy:
-            os.environ["SOCKS_PROXY"] = socks_proxy
+        # NOTE: Do NOT set os.environ["HTTP_PROXY"] etc. here.
+        # Subprocess children inherit env vars, and MyWebsocketApp auto-detects
+        # the system proxy via urllib.request.getproxies().  If the configured
+        # proxy is not running, ALL WebSocket connections would fail with
+        # "Connection refused".  Instead, pass proxy settings explicitly in
+        # kwargs so they only apply where intended.
 
         proxies = {}
         if http_proxy:
@@ -619,6 +725,33 @@ class LiveTradingManager:
             result["async_proxy"] = socks_proxy
         elif https_proxy or http_proxy:
             result["async_proxy"] = https_proxy or http_proxy
+
+        # Extract host/port for websocket-client (used by MyWebsocketApp).
+        # Only include if the proxy is actually reachable — a dead proxy
+        # causes "Connection refused" for every WebSocket connection.
+        proxy_url = https_proxy or http_proxy
+        if proxy_url:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(proxy_url)
+                if parsed.hostname and parsed.port:
+                    import socket as _sock
+                    _s = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+                    _s.settimeout(1.0)
+                    try:
+                        _s.connect((parsed.hostname, parsed.port))
+                        _s.close()
+                        result["http_proxy_host"] = parsed.hostname
+                        result["http_proxy_port"] = parsed.port
+                    except (OSError, ConnectionRefusedError):
+                        logger.warning(
+                            "Proxy %s:%s not reachable — WebSocket will connect directly",
+                            parsed.hostname, parsed.port,
+                        )
+                    finally:
+                        _s.close()
+            except Exception:
+                pass
         return result
 
     def _connect_ib_web_gateway(
@@ -2008,7 +2141,7 @@ class LiveTradingManager:
 
     def _ping_subprocess_gateway_ready(self, state: dict[str, Any]) -> bool:
         config = state.get("config")
-        command_endpoint = getattr(config, "command_endpoint", None) if config is not None else None
+        command_endpoint = self._get_config_value(config, "command_endpoint")
         if not command_endpoint:
             return False
         try:
@@ -2034,6 +2167,43 @@ class LiveTradingManager:
         finally:
             sock.close()
 
+    @staticmethod
+    def _get_config_value(config: Any, key: str) -> Any:
+        if config is None:
+            return None
+        if isinstance(config, dict):
+            return config.get(key)
+        return getattr(config, key, None)
+
+    def _read_subprocess_recent_errors(self, state: dict[str, Any]) -> list[dict[str, Any]]:
+        stderr_path = state.get("stderr_path")
+        if not stderr_path:
+            return []
+        try:
+            text = Path(stderr_path).read_text(encoding="utf-8", errors="replace")[-4000:]
+        except Exception:
+            return []
+        fatal_markers = (
+            "Adapter failed to connect after",
+            "ImportError:",
+            "ModuleNotFoundError:",
+            "Traceback",
+        )
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        matched: list[str] = []
+        seen: set[str] = set()
+        for line in reversed(lines):
+            if not any(marker in line for marker in fatal_markers):
+                continue
+            if line in seen:
+                continue
+            seen.add(line)
+            matched.append(line)
+            if len(matched) >= 3:
+                break
+        matched.reverse()
+        return [{"source": "gateway", "message": line} for line in matched]
+
     def _parse_json_dict(self, value: Any) -> dict[str, Any] | None:
         if isinstance(value, dict):
             return value
@@ -2047,18 +2217,28 @@ class LiveTradingManager:
             return parsed
         return None
 
+    @staticmethod
+    def _ensure_spdlog_safe() -> None:
+        """Guard against spdlog C extension crash in console-less Windows processes.
+
+        When the backend is launched with ``Start-Process -WindowStyle Hidden``
+        (as ``restart_app.bat`` does), the spdlog native extension may segfault
+        because there is no console.  Install a lightweight stub unconditionally
+        so that the ``import bt_api_py`` chain never triggers the real extension.
+        The real spdlog is NOT needed by the web backend — it only needs
+        GatewayConfig (pure Python) and delegates actual gateway work to
+        subprocesses that have their own spdlog.
+        """
+        if "spdlog" not in sys.modules:
+            import types
+            stub = types.ModuleType("spdlog")
+            stub.__file__ = "spdlog_stub"
+            sys.modules["spdlog"] = stub
+
     def _import_gateway_runtime_classes(self):
         if _BT_API_PY_DIR.is_dir() and str(_BT_API_PY_DIR) not in sys.path:
             sys.path.insert(0, str(_BT_API_PY_DIR))
-        # Guard: the spdlog C extension may crash on some Windows environments.
-        # Try importing the real module first; only fall back to a lightweight
-        # stub when the native extension is genuinely unavailable.
-        if "spdlog" not in sys.modules:
-            try:
-                import spdlog as _spdlog_real  # noqa: F401
-            except Exception:
-                import types
-                sys.modules["spdlog"] = types.ModuleType("spdlog")
+        self._ensure_spdlog_safe()
         from bt_api_py.gateway.config import GatewayConfig
         from bt_api_py.gateway.runtime import GatewayRuntime
 

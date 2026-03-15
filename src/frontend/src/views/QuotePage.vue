@@ -606,6 +606,7 @@ function handleRowClick(row: QuoteTick) {
 // ---- tick flash animation (P1) ----
 const flashSymbols = ref<Set<string>>(new Set())
 let prevTickMap: Map<string, number> = new Map()
+let sourceRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 watch(
   () => store.ticks,
@@ -799,6 +800,27 @@ function handleChartResize() {
   chartInstance?.resize()
 }
 
+function stopSourceRefresh() {
+  if (sourceRefreshTimer) {
+    clearInterval(sourceRefreshTimer)
+    sourceRefreshTimer = null
+  }
+}
+
+function startSourceRefresh() {
+  stopSourceRefresh()
+  sourceRefreshTimer = setInterval(async () => {
+    await store.fetchSources()
+    if (store.activeSourceInfo?.status === 'available') {
+      stopSourceRefresh()
+      if (store.ticks.length === 0 && !store.quotesLoading) {
+        await store.fetchQuotes()
+        if (store.autoRefresh) store.startAutoRefresh()
+      }
+    }
+  }, 3000)
+}
+
 watch(
   () => [store.chartBars, store.chartDrawerVisible],
   () => {
@@ -809,18 +831,38 @@ watch(
   { deep: true },
 )
 
+watch(
+  () => store.activeSourceInfo?.status,
+  async (status, prevStatus) => {
+    if (status === 'available') {
+      stopSourceRefresh()
+      if (prevStatus !== 'available' && !store.quotesLoading) {
+        await store.fetchQuotes()
+        if (store.autoRefresh) store.startAutoRefresh()
+      }
+      return
+    }
+    if (status) {
+      startSourceRefresh()
+    }
+  },
+)
+
 // ---- lifecycle ----
 onMounted(async () => {
   await store.fetchSources()
   if (store.activeSource && store.activeSourceInfo?.status === 'available') {
     await store.fetchQuotes()
     if (store.autoRefresh) store.startAutoRefresh()
+  } else if (store.activeSourceInfo?.status) {
+    startSourceRefresh()
   }
   window.addEventListener('resize', handleChartResize)
 })
 
 onUnmounted(() => {
   store.cleanup()
+  stopSourceRefresh()
   chartInstance?.dispose()
   window.removeEventListener('resize', handleChartResize)
 })

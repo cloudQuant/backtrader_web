@@ -423,6 +423,77 @@ class TestGatewayLifecycle:
         runtime.stop.assert_called_once()
         assert "ctp-future-acc-1" not in manager._gateways
 
+    def test_get_gateway_health_subprocess_ready(self, tmp_path):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        stderr_path = tmp_path / "stderr.log"
+        stderr_path.write_text("", encoding="utf-8")
+        manager._gateways["manual:CTP:089763"] = {
+            "process_mode": "subprocess",
+            "process": Mock(pid=12345),
+            "stderr_path": str(stderr_path),
+            "instances": set(),
+            "ref_count": 0,
+            "manual": True,
+            "exchange_type": "CTP",
+            "asset_type": "FUTURE",
+            "account_id": "089763",
+            "config": MagicMock(command_endpoint="tcp://127.0.0.1:33128"),
+        }
+
+        with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+            with patch.object(manager, "_ping_subprocess_gateway_ready", return_value=True):
+                result = manager.get_gateway_health()
+
+        assert len(result) == 1
+        snap = result[0]
+        assert snap["gateway_key"] == "manual:CTP:089763"
+        assert snap["state"] == "running"
+        assert snap["is_healthy"] is True
+        assert snap["market_connection"] == "connected"
+        assert snap["trade_connection"] == "connected"
+        assert snap["recent_errors"] == []
+
+    def test_get_gateway_health_subprocess_fatal_error(self, tmp_path):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        stderr_path = tmp_path / "stderr.log"
+        stderr_path.write_text(
+            "Adapter failed to connect after 3 attempts for CTP\n",
+            encoding="utf-8",
+        )
+        manager._gateways["manual:CTP:089763"] = {
+            "process_mode": "subprocess",
+            "process": Mock(pid=12345),
+            "stderr_path": str(stderr_path),
+            "instances": set(),
+            "ref_count": 0,
+            "manual": True,
+            "exchange_type": "CTP",
+            "asset_type": "FUTURE",
+            "account_id": "089763",
+            "config": MagicMock(command_endpoint="tcp://127.0.0.1:33128"),
+        }
+
+        with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+            with patch.object(manager, "_ping_subprocess_gateway_ready", return_value=False):
+                result = manager.get_gateway_health()
+
+        assert len(result) == 1
+        snap = result[0]
+        assert snap["state"] == "error"
+        assert snap["is_healthy"] is False
+        assert snap["market_connection"] == "error"
+        assert snap["trade_connection"] == "error"
+        assert snap["recent_errors"] == [
+            {
+                "source": "gateway",
+                "message": "Adapter failed to connect after 3 attempts for CTP",
+            }
+        ]
+
 
 class TestListInstances:
     """Tests for listing instances."""
