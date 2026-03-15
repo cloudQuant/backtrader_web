@@ -18,6 +18,28 @@ set "FRONTEND_ERR_LOG=%LOG_DIR%\frontend.err.log"
 if not exist "%PID_DIR%" mkdir "%PID_DIR%"
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
+if /I "%~1"=="__run__" goto :run
+if /I "%~1"=="__sync__" goto :run
+
+set "RUN_TOKEN=%RANDOM%_%RANDOM%"
+set "ASYNC_LOG=%LOG_DIR%\start_app.%RUN_TOKEN%.async.log"
+type nul > "%ASYNC_LOG%"
+
+echo ======================================
+echo   Backtrader Web - 后台启动中
+echo ======================================
+echo.
+echo [INFO] 已提交到后台执行
+echo [INFO] 实时输出窗口将单独打开，当前终端可继续使用
+echo [INFO] 日志文件: %ASYNC_LOG%
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$log = [System.IO.Path]::GetFullPath('%ASYNC_LOG%'); $script = [System.IO.Path]::GetFullPath('%~f0'); $runner = '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; $OutputEncoding = [Console]::OutputEncoding; $utf8 = New-Object System.Text.UTF8Encoding($false); [System.IO.File]::WriteAllText(''' + $log + ''', '''', $utf8); & ''' + $script + ''' __sync__ 2>&1 | ForEach-Object { $line = $_.ToString(); [System.IO.File]::AppendAllText(''' + $log + ''', $line + [Environment]::NewLine, $utf8); Write-Output $line }; Write-Host ''''; Write-Host ''[INFO] 启动脚本已执行完成，可关闭此窗口'''; Start-Process -WindowStyle Normal -FilePath 'powershell.exe' -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-NoExit','-Command',$runner | Out-Null"
+
+endlocal
+exit /b 0
+
+:run
+
 echo ======================================
 echo   Backtrader Web - 启动项目
 echo ======================================
@@ -50,9 +72,6 @@ if errorlevel 1 exit /b 1
 
 echo [1/5] 检查后端依赖...
 pushd "%BACKEND_DIR%" >nul
-if exist "venv\Scripts\python.exe" (
-    set "PYTHON_EXE=%BACKEND_DIR%\venv\Scripts\python.exe"
-)
 for %%p in (fastapi uvicorn sqlalchemy pydantic email_validator slowapi jose passlib loguru yaml aiosqlite) do (
     "%PYTHON_EXE%" -c "import %%p" >nul 2>nul
     if errorlevel 1 (
@@ -130,9 +149,22 @@ exit /b 0
 
 :resolve_python
 set "PYTHON_EXE="
-if exist "%BACKEND_DIR%\venv\Scripts\python.exe" (
-    set "PYTHON_EXE=%BACKEND_DIR%\venv\Scripts\python.exe"
-) else (
+set "VENV_PY=%BACKEND_DIR%\venv\Scripts\python.exe"
+if exist "%VENV_PY%" (
+    call :python_supports_ctp "%VENV_PY%"
+    if not errorlevel 1 (
+        set "PYTHON_EXE=%VENV_PY%"
+    ) else (
+        echo [WARN] 虚拟环境 Python 无法稳定加载 CTP 模块，尝试切换解释器
+    )
+)
+if not defined PYTHON_EXE if exist "C:\anaconda3\python.exe" (
+    call :python_supports_ctp "C:\anaconda3\python.exe"
+    if not errorlevel 1 (
+        set "PYTHON_EXE=C:\anaconda3\python.exe"
+    )
+)
+if not defined PYTHON_EXE (
     for %%P in (python.exe) do set "PYTHON_EXE=%%~$PATH:P"
 )
 if not defined PYTHON_EXE (
@@ -141,6 +173,13 @@ if not defined PYTHON_EXE (
 )
 for /f "delims=" %%i in ('"%PYTHON_EXE%" --version') do set "PYTHON_VERSION=%%i"
 echo [INFO] Python 版本: %PYTHON_VERSION%
+exit /b 0
+
+:python_supports_ctp
+set "CANDIDATE_PY=%~1"
+if not defined CANDIDATE_PY exit /b 1
+"%CANDIDATE_PY%" -c "import sys; sys.path.insert(0, r'%PROJECT_ROOT%\..\bt_api_py'); from bt_api_py.ctp.client import MdClient; print('ok')" >nul 2>nul
+if errorlevel 1 exit /b 1
 exit /b 0
 
 :cleanup_stale_pid

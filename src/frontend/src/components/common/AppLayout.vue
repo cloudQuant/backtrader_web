@@ -23,6 +23,10 @@
           <el-icon><HomeFilled /></el-icon>
           <span>首页</span>
         </el-menu-item>
+        <el-menu-item index="/quote">
+          <el-icon><Stopwatch /></el-icon>
+          <span>行情报价</span>
+        </el-menu-item>
         <el-menu-item index="/backtest">
           <el-icon><DataLine /></el-icon>
           <span>回测分析</span>
@@ -145,6 +149,7 @@ import {
   VideoPlay,
   MagicStick,
   Monitor,
+  Stopwatch,
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -176,8 +181,10 @@ const pageTitle = computed(() => {
     '/optimization': '参数优化',
     '/strategy': '策略管理',
     '/data': '数据管理',
+    '/simulate': '模拟交易',
     '/live-trading': '实盘交易',
     '/gateways': 'Gateway 状态',
+    '/quote': '行情报价',
     '/portfolio': '组合管理',
     '/settings': '系统设置',
   }

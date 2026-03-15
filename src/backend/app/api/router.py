@@ -77,6 +77,13 @@ except ImportError:
     pass
 
 try:
+    from app.api.quote import router as quote_router
+
+    api_router.include_router(quote_router, prefix="/quote", tags=["Quote"])
+except ImportError:
+    pass
+
+try:
     from app.api.monitoring import router as monitoring_router
 
     api_router.include_router(monitoring_router, prefix="/monitoring", tags=["Monitoring"])

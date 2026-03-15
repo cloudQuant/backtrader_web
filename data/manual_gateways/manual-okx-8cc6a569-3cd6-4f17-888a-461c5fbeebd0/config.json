@@ -1,0 +1,17 @@
+{
+  "exchange_type": "OKX",
+  "asset_type": "SWAP",
+  "account_id": "8cc6a569-3cd6-4f17-888a-461c5fbeebd0",
+  "transport": "tcp",
+  "gateway_runtime_name": "manual-okx-8cc6a569-3cd6-4f17-888a-461c5fbeebd0",
+  "api_key": "8cc6a569-3cd6-4f17-888a-461c5fbeebd0",
+  "secret_key": "192D778284B4E342B05523EEBDCD4FC2",
+  "passphrase": "Test_backtrader_2026",
+  "testnet": false,
+  "proxies": {
+    "http": "http://127.0.0.1:15732",
+    "https": "http://127.0.0.1:15732"
+  },
+  "async_proxy": "socks5://127.0.0.1:15732",
+  "gateway_base_dir": "D:\\new_projects\\backtrader_web\\data\\manual_gateways\\manual-okx-8cc6a569-3cd6-4f17-888a-461c5fbeebd0"
+}

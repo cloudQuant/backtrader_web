@@ -68,6 +68,12 @@ async def lifespan(app: FastAPI):
     logger.info("Application ready")
     yield
     logger.info("Shutting down Backtrader Web API...")
+    # Clean up ZMQ tick receivers
+    try:
+        from app.services.quote_service import get_quote_service
+        get_quote_service().shutdown()
+    except Exception:
+        pass
 
 
 app = FastAPI(

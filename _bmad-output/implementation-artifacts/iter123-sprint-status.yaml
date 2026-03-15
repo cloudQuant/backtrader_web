@@ -1,0 +1,51 @@
+# generated: 2026-03-14
+# project: backtrader_web
+# iteration: 123 - 优化行情展示功能
+# source_requirements: docs/iterations/迭代123-优化行情展示功能/需求.md
+
+generated: 2026-03-14
+project: backtrader_web
+iteration: "123"
+tracking_system: file-system
+
+development_status:
+  # Epic 3: 行情报价页面 - P0
+  epic-3: done
+
+  # BE-01: 后端统一行情查询接口与字段映射
+  3-1-be-quote-api: done
+
+  # BE-02: 默认品种配置
+  3-2-be-default-symbols: done
+
+  # BE-03: 品种搜索、校验与自定义品种持久化
+  3-3-be-symbol-management: done
+
+  # BE-04: 刷新策略与异常码规范 (ZMQ push + polling fallback)
+  3-4-be-refresh-strategy: done
+
+  # FE-01: 导航入口、路由与页面容器
+  3-5-fe-route-nav: done
+
+  # FE-02: 数据源切换标签与状态展示
+  3-6-fe-source-tabs: done
+
+  # FE-03: 工具栏(搜索/筛选/刷新/添加品种)
+  3-7-fe-toolbar: done
+
+  # FE-04: 高密度行情表格
+  3-8-fe-quote-table: done
+
+  # FE-05: 自定义品种管理与持久化
+  3-9-fe-custom-symbols: done
+
+  # FE-06: 异常态/空态/不可用态
+  3-10-fe-error-states: done
+
+  # Epic 4: 行情报价页面 - P1 (增强)
+  epic-4: done
+  4-1-fe-chart-detail: done
+  4-2-fe-column-config: done
+  4-3-fe-advanced-filter: done
+  4-4-be-chart-data-api: done
+  4-5-fe-refresh-feedback: done

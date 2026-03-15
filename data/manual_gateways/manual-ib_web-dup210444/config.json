@@ -1,0 +1,19 @@
+{
+  "exchange_type": "IB_WEB",
+  "asset_type": "STK",
+  "account_id": "DUP210444",
+  "transport": "tcp",
+  "gateway_runtime_name": "manual-ib_web-dup210444",
+  "base_url": "https://localhost:5000/v1/api",
+  "verify_ssl": false,
+  "timeout": 10.0,
+  "cookie_source": "file:/Users/yunjinqi/Documents/source_code/bt_api_py/configs/ibkr_cookies.json",
+  "cookie_browser": "chrome",
+  "cookie_path": "/sso",
+  "proxies": {
+    "http": "http://127.0.0.1:15732",
+    "https": "http://127.0.0.1:15732"
+  },
+  "async_proxy": "socks5://127.0.0.1:15732",
+  "gateway_base_dir": "D:\\new_projects\\backtrader_web\\data\\manual_gateways\\manual-ib_web-dup210444"
+}

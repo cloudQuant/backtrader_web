@@ -1,0 +1,15 @@
+{
+  "exchange_type": "MT5",
+  "asset_type": "OTC",
+  "account_id": "5047785364",
+  "transport": "tcp",
+  "gateway_runtime_name": "manual-mt5-5047785364",
+  "login": 5047785364,
+  "password": "NyCh-i4r",
+  "server": "MetaQuotes-Demo",
+  "ws_uri": "wss://web.metatrader.app/terminal",
+  "timeout": 30.0,
+  "symbol_suffix": "",
+  "auto_reconnect": true,
+  "gateway_base_dir": "D:\\new_projects\\backtrader_web\\data\\manual_gateways\\manual-mt5-5047785364"
+}

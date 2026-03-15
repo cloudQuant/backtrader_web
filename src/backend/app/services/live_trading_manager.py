@@ -10,8 +10,10 @@ import json
 import logging
 import os
 import signal
+import subprocess
 import sys
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +33,7 @@ _BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
 _BT_API_PY_DIR = _WORKSPACE_DIR / "bt_api_py"
 _DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
+_MANUAL_GATEWAY_DIR = _DATA_DIR / "manual_gateways"
 
 _DEFAULT_TRANSPORT = "tcp" if sys.platform == "win32" else "ipc"
 
@@ -198,6 +201,7 @@ class LiveTradingManager:
     def __init__(self):
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._gateways: dict[str, dict[str, Any]] = {}
+        self._gateway_lock = threading.RLock()
         self._instance_gateways: dict[str, str] = {}
         self._stopping_instances: set[str] = set()
         # Sync process status on startup
@@ -291,12 +295,75 @@ class LiveTradingManager:
         gateway_instance_ids: set[str] = set()
 
         # 1. Real shared gateway runtimes
-        for key, state in self._gateways.items():
+        with self._gateway_lock:
+            gateway_items = list(self._gateways.items())
+        for key, state in gateway_items:
+            if state.get("process_mode") == "subprocess":
+                proc = state.get("process")
+                pid = None
+                if proc is not None:
+                    pid = getattr(proc, "pid", None)
+                if not pid:
+                    pid_file = state.get("pid_file")
+                    if pid_file:
+                        try:
+                            pid = int(Path(pid_file).read_text(encoding="utf-8").strip())
+                        except Exception:
+                            pid = None
+                running = bool(pid and _is_pid_alive(int(pid)))
+                ready = False
+                if running:
+                    ready = self._ping_subprocess_gateway_ready(state)
+                results.append({
+                    "gateway_key": key,
+                    "state": "running" if ready else ("starting" if running else "error"),
+                    "is_healthy": ready,
+                    "exchange": state.get("exchange_type", ""),
+                    "asset_type": state.get("asset_type", ""),
+                    "account_id": state.get("account_id", ""),
+                    "market_connection": "connected" if ready else ("connecting" if running else "error"),
+                    "trade_connection": "connected" if ready else ("connecting" if running else "error"),
+                    "uptime_sec": 0,
+                    "strategy_count": 0,
+                    "symbol_count": 0,
+                    "tick_count": 0,
+                    "order_count": 0,
+                    "heartbeat_age_sec": None,
+                    "ref_count": state.get("ref_count", 0),
+                    "instances": sorted(state.get("instances", set())),
+                    "recent_errors": (
+                        []
+                        if ready
+                        else (
+                            [{"source": "gateway", "message": "Gateway process running but adapter not ready"}]
+                            if running
+                            else [{"source": "process", "message": "Gateway process not running"}]
+                        )
+                    ),
+                })
+                gateway_instance_ids.update(state.get("instances", set()))
+                continue
             runtime = state.get("runtime")
             if runtime is None:
                 continue
             health = getattr(runtime, "health", None)
-            snap: dict[str, Any] = health.snapshot() if health is not None else {}
+            try:
+                snap: dict[str, Any] = health.snapshot() if health is not None else {}
+            except Exception as exc:
+                logger.exception("Failed to build gateway health snapshot for %s", key)
+                snap = {
+                    "state": "error",
+                    "is_healthy": False,
+                    "market_connection": "error",
+                    "trade_connection": "error",
+                    "uptime_sec": 0,
+                    "strategy_count": 0,
+                    "symbol_count": 0,
+                    "tick_count": 0,
+                    "order_count": 0,
+                    "heartbeat_age_sec": None,
+                    "recent_errors": [{"source": "health", "message": str(exc)}],
+                }
             snap["gateway_key"] = key
             snap["ref_count"] = state.get("ref_count", 0)
             snap["instances"] = sorted(state.get("instances", set()))
@@ -366,12 +433,23 @@ class LiveTradingManager:
             A dict with gateway_key, status, and message.
         """
         exchange_type = self._normalize_gateway_exchange_type(exchange_type)
-        account_id = credentials.get("account_id") or credentials.get("user_id") or ""
+        account_id = (
+            credentials.get("account_id")
+            or credentials.get("user_id")
+            or credentials.get("login")
+            or credentials.get("api_key")
+            or ""
+        )
         key = f"manual:{exchange_type}:{account_id}"
 
         # Check if already connected
-        if key in self._gateways:
-            return {"gateway_key": key, "status": "connected", "message": "Gateway already active"}
+        with self._gateway_lock:
+            if key in self._gateways:
+                return {
+                    "gateway_key": key,
+                    "status": "connected",
+                    "message": "Gateway already active",
+                }
 
         if exchange_type == "CTP":
             return self._connect_ctp_gateway(key, credentials)
@@ -379,21 +457,14 @@ class LiveTradingManager:
             return self._connect_ib_web_gateway(key, credentials)
         if exchange_type == "MT5":
             return self._connect_mt5_gateway(key, credentials)
-        # Binance / OKX — placeholder: store as connected without runtime
-        self._gateways[key] = {
-            "config": None,
-            "runtime": None,
-            "instances": set(),
-            "ref_count": 0,
-            "lock": threading.Lock(),
-            "manual": True,
-            "exchange_type": exchange_type,
-            "account_id": account_id,
-        }
+        if exchange_type == "BINANCE":
+            return self._connect_binance_gateway(key, credentials)
+        if exchange_type == "OKX":
+            return self._connect_okx_gateway(key, credentials)
         return {
             "gateway_key": key,
-            "status": "connected",
-            "message": f"{exchange_type} gateway registered (no runtime)",
+            "status": "error",
+            "message": f"Unsupported gateway exchange_type: {exchange_type}",
         }
 
     def _connect_ctp_gateway(
@@ -409,12 +480,12 @@ class LiveTradingManager:
                 "message": f"Missing required fields: {', '.join(missing)}",
             }
         try:
-            gateway_config_cls, gateway_runtime_cls = self._import_gateway_runtime_classes()
             kwargs = {
                 "exchange_type": "CTP",
                 "asset_type": "FUTURE",
                 "account_id": credentials.get("account_id") or credentials["user_id"],
                 "transport": _DEFAULT_TRANSPORT,
+                "gateway_runtime_name": key.replace(":", "-").lower(),
                 "md_address": credentials["md_front"],
                 "td_address": credentials["td_front"],
                 "broker_id": credentials["broker_id"],
@@ -423,24 +494,30 @@ class LiveTradingManager:
                 "password": credentials["password"],
                 "app_id": credentials.get("app_id", "simnow_client_test"),
                 "auth_code": credentials.get("auth_code", "0000000000000000"),
+                "gateway_startup_timeout_sec": 30.0,
             }
-            config = gateway_config_cls.from_kwargs(**kwargs)
-            runtime = gateway_runtime_cls(config, **kwargs)
-            runtime.start_in_thread()
-            self._gateways[key] = {
-                "config": config,
-                "runtime": runtime,
-                "instances": set(),
-                "ref_count": 0,
-                "lock": threading.Lock(),
-                "manual": True,
-                "exchange_type": "CTP",
-                "account_id": kwargs["account_id"],
-            }
+            config, proc, pid_file, stdout_path, stderr_path = self._start_ctp_gateway_process(kwargs)
+            with self._gateway_lock:
+                self._gateways[key] = {
+                    "config": config,
+                    "runtime": None,
+                    "process": proc,
+                    "process_mode": "subprocess",
+                    "pid_file": str(pid_file),
+                    "stdout_path": str(stdout_path),
+                    "stderr_path": str(stderr_path),
+                    "instances": set(),
+                    "ref_count": 0,
+                    "lock": threading.Lock(),
+                    "manual": True,
+                    "exchange_type": "CTP",
+                    "asset_type": "FUTURE",
+                    "account_id": kwargs["account_id"],
+                }
             return {
                 "gateway_key": key,
                 "status": "connected",
-                "message": "CTP gateway started successfully",
+                "message": "CTP gateway process started successfully",
             }
         except Exception as e:
             logger.exception("Failed to connect CTP gateway %s", key)
@@ -449,6 +526,100 @@ class LiveTradingManager:
                 "status": "error",
                 "message": f"CTP连接失败: {type(e).__name__}: {e}",
             }
+
+    def _start_ctp_gateway_process(
+        self, kwargs: dict[str, Any]
+    ) -> tuple[dict[str, Any], subprocess.Popen, Path, Path, Path]:
+        runtime_name = str(kwargs.get("gateway_runtime_name") or uuid.uuid4().hex)
+        gateway_dir = _MANUAL_GATEWAY_DIR / runtime_name
+        gateway_dir.mkdir(parents=True, exist_ok=True)
+        runtime_kwargs = dict(kwargs)
+        runtime_kwargs["gateway_base_dir"] = str(gateway_dir)
+        config_path = gateway_dir / "config.json"
+        stdout_path = gateway_dir / "stdout.log"
+        stderr_path = gateway_dir / "stderr.log"
+        config_path.write_text(json.dumps(runtime_kwargs, ensure_ascii=False, indent=2), encoding="utf-8")
+        python_exe = self._select_ctp_python_executable()
+        env = dict(os.environ)
+        python_paths = [str(_BT_API_PY_DIR)]
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = os.pathsep.join(python_paths + ([existing] if existing else []))
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+        with stdout_path.open("ab") as stdout_handle, stderr_path.open("ab") as stderr_handle:
+            proc = subprocess.Popen(
+                [python_exe, "-m", "bt_api_py.gateway.process", "start", "--config", str(config_path)],
+                cwd=str(_BACKTRADER_WEB_DIR),
+                env=env,
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                creationflags=creationflags,
+            )
+        time.sleep(1.5)
+        if proc.poll() is not None:
+            error_text = ""
+            try:
+                error_text = stderr_path.read_text(encoding="utf-8", errors="replace")[-500:]
+            except Exception:
+                pass
+            raise RuntimeError(error_text or "CTP gateway process exited immediately")
+        pid_file = gateway_dir / f"{runtime_name}.pid"
+        config = {
+            "runtime_name": runtime_name,
+            "gateway_base_dir": str(gateway_dir),
+            "command_endpoint": "",
+            "event_endpoint": "",
+            "market_endpoint": "",
+        }
+        return config, proc, pid_file, stdout_path, stderr_path
+
+    def _select_ctp_python_executable(self) -> str:
+        preferred = Path(r"C:\anaconda3\python.exe")
+        if preferred.is_file():
+            return str(preferred)
+        return sys.executable
+
+    def _get_gateway_proxy_kwargs(self) -> dict[str, Any]:
+        try:
+            from app.config import get_settings
+
+            s = get_settings()
+        except Exception:
+            return {}
+
+        http_proxy = str(getattr(s, "HTTP_PROXY", "") or "").strip()
+        https_proxy = str(getattr(s, "HTTPS_PROXY", "") or "").strip()
+        proxy_host = str(getattr(s, "PROXY_HOST", "") or "").strip()
+        socks_proxy = str(getattr(s, "SOCKS_PROXY", "") or "").strip()
+        no_proxy = str(getattr(s, "NO_PROXY", "") or "").strip()
+
+        if not http_proxy and proxy_host:
+            http_proxy = proxy_host if "://" in proxy_host else f"http://{proxy_host}"
+        if not https_proxy and proxy_host:
+            https_proxy = proxy_host if "://" in proxy_host else f"http://{proxy_host}"
+
+        if http_proxy:
+            os.environ["HTTP_PROXY"] = http_proxy
+        if https_proxy:
+            os.environ["HTTPS_PROXY"] = https_proxy
+        if no_proxy:
+            os.environ["NO_PROXY"] = no_proxy
+        if socks_proxy:
+            os.environ["SOCKS_PROXY"] = socks_proxy
+
+        proxies = {}
+        if http_proxy:
+            proxies["http"] = http_proxy
+        if https_proxy:
+            proxies["https"] = https_proxy
+
+        result: dict[str, Any] = {}
+        if proxies:
+            result["proxies"] = proxies
+        if socks_proxy:
+            result["async_proxy"] = socks_proxy
+        elif https_proxy or http_proxy:
+            result["async_proxy"] = https_proxy or http_proxy
+        return result
 
     def _connect_ib_web_gateway(
         self, key: str, credentials: dict[str, Any]
@@ -462,42 +633,54 @@ class LiveTradingManager:
                 "message": "Missing required field: account_id",
             }
         try:
-            gateway_config_cls, gateway_runtime_cls = self._import_gateway_runtime_classes()
             kwargs = {
                 "exchange_type": "IB_WEB",
-                "asset_type": credentials.get("asset_type", "STK"),
+                "asset_type": self._normalize_gateway_asset_type("IB_WEB", credentials.get("asset_type", "STK")),
                 "account_id": account_id,
                 "transport": _DEFAULT_TRANSPORT,
+                "gateway_runtime_name": key.replace(":", "-").lower(),
                 "base_url": credentials.get("base_url", "https://localhost:5000"),
                 "verify_ssl": self._coerce_bool(credentials.get("verify_ssl"), default=False),
                 "timeout": self._coerce_float(credentials.get("timeout"), default=10.0),
             }
             if credentials.get("access_token"):
                 kwargs["access_token"] = credentials["access_token"]
-            config = gateway_config_cls.from_kwargs(**kwargs)
-            runtime = gateway_runtime_cls(config, **kwargs)
-            runtime.start_in_thread()
-            self._gateways[key] = {
-                "config": config,
-                "runtime": runtime,
-                "instances": set(),
-                "ref_count": 0,
-                "lock": threading.Lock(),
-                "manual": True,
-                "exchange_type": "IB_WEB",
-                "account_id": account_id,
-            }
+            if credentials.get("cookie_source"):
+                kwargs["cookie_source"] = str(credentials["cookie_source"])
+            if credentials.get("cookie_browser"):
+                kwargs["cookie_browser"] = str(credentials["cookie_browser"])
+            if credentials.get("cookie_path"):
+                kwargs["cookie_path"] = str(credentials["cookie_path"])
+            kwargs.update(self._get_gateway_proxy_kwargs())
+            config, proc, pid_file, stdout_path, stderr_path = self._start_ctp_gateway_process(kwargs)
+            with self._gateway_lock:
+                self._gateways[key] = {
+                    "config": config,
+                    "runtime": None,
+                    "process": proc,
+                    "process_mode": "subprocess",
+                    "pid_file": str(pid_file),
+                    "stdout_path": str(stdout_path),
+                    "stderr_path": str(stderr_path),
+                    "instances": set(),
+                    "ref_count": 0,
+                    "lock": threading.Lock(),
+                    "manual": True,
+                    "exchange_type": "IB_WEB",
+                    "asset_type": kwargs["asset_type"],
+                    "account_id": account_id,
+                }
             return {
                 "gateway_key": key,
                 "status": "connected",
-                "message": "IB Web gateway started successfully",
+                "message": "IB Web gateway process started successfully",
             }
         except Exception as e:
             logger.exception("Failed to connect IB Web gateway %s", key)
             return {
                 "gateway_key": key,
                 "status": "error",
-                "message": f"IB Web连接失败: {type(e).__name__}: {e}",
+                "message": f"IB Web????: {type(e).__name__}: {e}",
             }
 
     def _connect_mt5_gateway(
@@ -513,38 +696,45 @@ class LiveTradingManager:
                 "message": "Missing required fields: login, password",
             }
         try:
-            gateway_config_cls, gateway_runtime_cls = self._import_gateway_runtime_classes()
             account_id = credentials.get("account_id") or str(login)
             kwargs = {
                 "exchange_type": "MT5",
                 "asset_type": "OTC",
                 "account_id": account_id,
-                "transport": "tcp",
+                "transport": _DEFAULT_TRANSPORT,
+                "gateway_runtime_name": key.replace(":", "-").lower(),
                 "login": int(login),
                 "password": str(password),
+                "server": str(credentials.get("server") or ""),
                 "ws_uri": credentials.get("ws_uri", ""),
+                "timeout": self._coerce_float(credentials.get("timeout"), default=60.0),
                 "symbol_suffix": credentials.get("symbol_suffix", ""),
                 "auto_reconnect": True,
             }
             if credentials.get("symbol_map"):
                 kwargs["symbol_map"] = credentials["symbol_map"]
-            config = gateway_config_cls.from_kwargs(**kwargs)
-            runtime = gateway_runtime_cls(config, **kwargs)
-            runtime.start_in_thread()
-            self._gateways[key] = {
-                "config": config,
-                "runtime": runtime,
-                "instances": set(),
-                "ref_count": 0,
-                "lock": threading.Lock(),
-                "manual": True,
-                "exchange_type": "MT5",
-                "account_id": account_id,
-            }
+            config, proc, pid_file, stdout_path, stderr_path = self._start_ctp_gateway_process(kwargs)
+            with self._gateway_lock:
+                self._gateways[key] = {
+                    "config": config,
+                    "runtime": None,
+                    "process": proc,
+                    "process_mode": "subprocess",
+                    "pid_file": str(pid_file),
+                    "stdout_path": str(stdout_path),
+                    "stderr_path": str(stderr_path),
+                    "instances": set(),
+                    "ref_count": 0,
+                    "lock": threading.Lock(),
+                    "manual": True,
+                    "exchange_type": "MT5",
+                    "asset_type": "OTC",
+                    "account_id": account_id,
+                }
             return {
                 "gateway_key": key,
                 "status": "connected",
-                "message": "MT5 gateway started successfully",
+                "message": "MT5 gateway process started successfully",
             }
         except Exception as e:
             logger.exception("Failed to connect MT5 gateway %s", key)
@@ -552,6 +742,122 @@ class LiveTradingManager:
                 "gateway_key": key,
                 "status": "error",
                 "message": f"MT5连接失败: {type(e).__name__}: {e}",
+            }
+
+    def _connect_binance_gateway(
+        self, key: str, credentials: dict[str, Any]
+    ) -> dict[str, Any]:
+        api_key = str(credentials.get("api_key") or "").strip()
+        secret_key = str(credentials.get("secret_key") or "").strip()
+        if not api_key or not secret_key:
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": "Missing required fields: api_key, secret_key",
+            }
+        try:
+            account_id = str(credentials.get("account_id") or api_key).strip()
+            kwargs = {
+                "exchange_type": "BINANCE",
+                "asset_type": self._normalize_gateway_asset_type("BINANCE", credentials.get("asset_type")),
+                "account_id": account_id,
+                "transport": _DEFAULT_TRANSPORT,
+                "gateway_runtime_name": key.replace(":", "-").lower(),
+                "api_key": api_key,
+                "secret_key": secret_key,
+                "testnet": self._coerce_bool(credentials.get("testnet"), default=False),
+            }
+            if credentials.get("base_url"):
+                kwargs["base_url"] = str(credentials["base_url"])
+            kwargs.update(self._get_gateway_proxy_kwargs())
+            config, proc, pid_file, stdout_path, stderr_path = self._start_ctp_gateway_process(kwargs)
+            with self._gateway_lock:
+                self._gateways[key] = {
+                    "config": config,
+                    "runtime": None,
+                    "process": proc,
+                    "process_mode": "subprocess",
+                    "pid_file": str(pid_file),
+                    "stdout_path": str(stdout_path),
+                    "stderr_path": str(stderr_path),
+                    "instances": set(),
+                    "ref_count": 0,
+                    "lock": threading.Lock(),
+                    "manual": True,
+                    "exchange_type": "BINANCE",
+                    "asset_type": kwargs["asset_type"],
+                    "account_id": account_id,
+                }
+            return {
+                "gateway_key": key,
+                "status": "connected",
+                "message": "Binance gateway process started successfully",
+            }
+        except Exception as e:
+            logger.exception("Failed to connect Binance gateway %s", key)
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": f"Binance????: {type(e).__name__}: {e}",
+            }
+
+    def _connect_okx_gateway(
+        self, key: str, credentials: dict[str, Any]
+    ) -> dict[str, Any]:
+        api_key = str(credentials.get("api_key") or "").strip()
+        secret_key = str(credentials.get("secret_key") or "").strip()
+        passphrase = str(credentials.get("passphrase") or "").strip()
+        if not api_key or not secret_key or not passphrase:
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": "Missing required fields: api_key, secret_key, passphrase",
+            }
+        try:
+            account_id = str(credentials.get("account_id") or api_key).strip()
+            kwargs = {
+                "exchange_type": "OKX",
+                "asset_type": self._normalize_gateway_asset_type("OKX", credentials.get("asset_type")),
+                "account_id": account_id,
+                "transport": _DEFAULT_TRANSPORT,
+                "gateway_runtime_name": key.replace(":", "-").lower(),
+                "api_key": api_key,
+                "secret_key": secret_key,
+                "passphrase": passphrase,
+                "testnet": self._coerce_bool(credentials.get("testnet"), default=False),
+            }
+            if credentials.get("base_url"):
+                kwargs["base_url"] = str(credentials["base_url"])
+            kwargs.update(self._get_gateway_proxy_kwargs())
+            config, proc, pid_file, stdout_path, stderr_path = self._start_ctp_gateway_process(kwargs)
+            with self._gateway_lock:
+                self._gateways[key] = {
+                    "config": config,
+                    "runtime": None,
+                    "process": proc,
+                    "process_mode": "subprocess",
+                    "pid_file": str(pid_file),
+                    "stdout_path": str(stdout_path),
+                    "stderr_path": str(stderr_path),
+                    "instances": set(),
+                    "ref_count": 0,
+                    "lock": threading.Lock(),
+                    "manual": True,
+                    "exchange_type": "OKX",
+                    "asset_type": kwargs["asset_type"],
+                    "account_id": account_id,
+                }
+            return {
+                "gateway_key": key,
+                "status": "connected",
+                "message": "OKX gateway process started successfully",
+            }
+        except Exception as e:
+            logger.exception("Failed to connect OKX gateway %s", key)
+            return {
+                "gateway_key": key,
+                "status": "error",
+                "message": f"OKX????: {type(e).__name__}: {e}",
             }
 
     def query_gateway_account(self, gateway_key: str) -> dict[str, Any] | None:
@@ -563,7 +869,8 @@ class LiveTradingManager:
         Returns:
             Account dict or None if unavailable.
         """
-        state = self._gateways.get(gateway_key)
+        with self._gateway_lock:
+            state = self._gateways.get(gateway_key)
         if state is None:
             return None
         runtime = state.get("runtime")
@@ -594,7 +901,8 @@ class LiveTradingManager:
         Returns:
             A list of position dicts.
         """
-        state = self._gateways.get(gateway_key)
+        with self._gateway_lock:
+            state = self._gateways.get(gateway_key)
         if state is None:
             return []
         runtime = state.get("runtime")
@@ -618,7 +926,9 @@ class LiveTradingManager:
             A list of dicts with gateway_key and metadata.
         """
         results: list[dict[str, Any]] = []
-        for key, state in self._gateways.items():
+        with self._gateway_lock:
+            gateway_items = list(self._gateways.items())
+        for key, state in gateway_items:
             if not state.get("manual"):
                 continue
             results.append({
@@ -638,7 +948,8 @@ class LiveTradingManager:
         Returns:
             A dict with gateway_key, status, and message.
         """
-        state = self._gateways.get(gateway_key)
+        with self._gateway_lock:
+            state = self._gateways.get(gateway_key)
         if state is None:
             return {
                 "gateway_key": gateway_key,
@@ -657,7 +968,24 @@ class LiveTradingManager:
                 runtime.stop()
             except Exception:
                 pass
-        self._gateways.pop(gateway_key, None)
+        if state.get("process_mode") == "subprocess":
+            proc = state.get("process")
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                    proc.wait(timeout=3.0)
+                except Exception:
+                    pass
+            pid_file = state.get("pid_file")
+            if pid_file:
+                try:
+                    pid = int(Path(pid_file).read_text(encoding="utf-8").strip())
+                except Exception:
+                    pid = None
+                if pid:
+                    self._kill_pid(pid)
+        with self._gateway_lock:
+            self._gateways.pop(gateway_key, None)
         return {
             "gateway_key": gateway_key,
             "status": "disconnected",
@@ -1283,7 +1611,8 @@ class LiveTradingManager:
             )
             return None
         key = launch["config"].runtime_name
-        state = self._gateways.get(key)
+        with self._gateway_lock:
+            state = self._gateways.get(key)
         logger.info(
             "Gateway acquire for {}: key={}, existing={}, endpoints={}/{}/{}",
             instance_id, key, state is not None,
@@ -1308,22 +1637,26 @@ class LiveTradingManager:
                 "ref_count": 0,
                 "lock": threading.Lock(),
             }
-            self._gateways[key] = state
+            with self._gateway_lock:
+                self._gateways[key] = state
         state["instances"].add(instance_id)
         state["ref_count"] += 1
-        self._instance_gateways[instance_id] = key
+        with self._gateway_lock:
+            self._instance_gateways[instance_id] = key
         return state
 
     def _release_gateway_for_instance(self, instance_id: str) -> None:
-        key = self._instance_gateways.pop(instance_id, None)
+        with self._gateway_lock:
+            key = self._instance_gateways.pop(instance_id, None)
         if not key:
             return
-        state = self._gateways.get(key)
+        with self._gateway_lock:
+            state = self._gateways.get(key)
         if state is None:
             return
         state["instances"].discard(instance_id)
-        state["ref_count"] = max(int(state.get("ref_count", 0)) - 1, 0)
-        if state["ref_count"] > 0:
+        state["ref_count"] = max(0, int(state.get("ref_count", 0)) - 1)
+        if state["instances"] or state["ref_count"] > 0:
             return
         runtime = state.get("runtime")
         if runtime is not None:
@@ -1331,7 +1664,8 @@ class LiveTradingManager:
                 runtime.stop()
             except Exception:
                 logger.debug("Gateway runtime stop error for %s (ignored)", key, exc_info=True)
-        self._gateways.pop(key, None)
+        with self._gateway_lock:
+            self._gateways.pop(key, None)
 
     @staticmethod
     def _infer_gateway_params(strategy_dir: Path) -> dict[str, Any] | None:
@@ -1650,6 +1984,11 @@ class LiveTradingManager:
                 return "FUTURE"
         if exchange_type == "MT5":
             return text or "OTC"
+        if exchange_type in {"BINANCE", "OKX"}:
+            if text in {"", "SWAP", "FUT", "FUTURE"}:
+                return "SWAP"
+            if text == "SPOT":
+                return "SPOT"
         return text or "FUTURE"
 
     def _coerce_bool(self, value: Any, default: bool = False) -> bool:
@@ -1666,6 +2005,34 @@ class LiveTradingManager:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    def _ping_subprocess_gateway_ready(self, state: dict[str, Any]) -> bool:
+        config = state.get("config")
+        command_endpoint = getattr(config, "command_endpoint", None) if config is not None else None
+        if not command_endpoint:
+            return False
+        try:
+            import zmq
+        except ImportError:
+            return False
+        ctx = zmq.Context.instance()
+        sock = ctx.socket(zmq.DEALER)
+        sock.setsockopt(zmq.IDENTITY, uuid.uuid4().hex.encode("utf-8"))
+        sock.setsockopt(zmq.SNDTIMEO, 1500)
+        sock.setsockopt(zmq.RCVTIMEO, 1500)
+        try:
+            sock.connect(command_endpoint)
+            sock.send(json.dumps({
+                "request_id": uuid.uuid4().hex,
+                "command": "ping",
+                "payload": {},
+            }).encode("utf-8"))
+            resp = json.loads(sock.recv().decode("utf-8"))
+            return bool(isinstance(resp, dict) and (resp.get("data") or {}).get("ready"))
+        except Exception:
+            return False
+        finally:
+            sock.close()
 
     def _parse_json_dict(self, value: Any) -> dict[str, Any] | None:
         if isinstance(value, dict):

@@ -125,6 +125,10 @@ export const liveTradingApi = {
     return request.post('/live-trading/stop-all')
   },
 
+  getGatewayCredentials(): Promise<Record<string, Record<string, unknown>>> {
+    return request.get('/live-trading/gateways/credentials')
+  },
+
   listGatewayHealth(): Promise<GatewayHealthListResponse> {
     return request.get('/live-trading/gateways/health')
   },

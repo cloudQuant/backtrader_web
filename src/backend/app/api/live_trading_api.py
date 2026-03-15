@@ -79,6 +79,104 @@ async def list_gateway_presets(
 
 
 @router.get(
+    "/gateways/credentials",
+    summary="Get saved gateway credentials for form pre-fill",
+)
+async def get_gateway_credentials(
+    current_user=Depends(get_current_user),
+):
+    """Return credentials from .env for pre-filling the connect form.
+
+    All fields are returned as-is; the frontend can override any value.
+    """
+    from app.config import get_settings
+    s = get_settings()
+    return {
+        "CTP": {
+            "broker_id": s.CTP_BROKER_ID,
+            "user_id": s.CTP_USER_ID or s.CTP_INVESTOR_ID,
+            "password": s.CTP_PASSWORD,
+            "app_id": s.CTP_APP_ID,
+            "auth_code": s.CTP_AUTH_CODE,
+        },
+        "MT5": {
+            "login": s.MT5_LOGIN,
+            "password": s.MT5_PASSWORD,
+            "server": s.MT5_SERVER,
+            "ws_uri": s.MT5_WS_URI,
+            "symbol_suffix": s.MT5_SYMBOL_SUFFIX,
+            "timeout": s.MT5_TIMEOUT,
+            "demo": {
+                "login": s.MT5_DEMO_LOGIN or s.MT5_LOGIN,
+                "password": s.MT5_DEMO_PASSWORD or s.MT5_PASSWORD,
+                "server": s.MT5_DEMO_SERVER or s.MT5_SERVER,
+                "ws_uri": s.MT5_DEMO_WS_URI or s.MT5_WS_URI,
+                "symbol_suffix": s.MT5_SYMBOL_SUFFIX,
+                "timeout": s.MT5_TIMEOUT,
+            },
+            "live": {
+                "login": s.MT5_LIVE_LOGIN or s.MT5_LOGIN,
+                "password": s.MT5_LIVE_PASSWORD or s.MT5_PASSWORD,
+                "server": s.MT5_LIVE_SERVER or s.MT5_SERVER,
+                "ws_uri": s.MT5_LIVE_WS_URI or s.MT5_WS_URI,
+                "symbol_suffix": s.MT5_SYMBOL_SUFFIX,
+                "timeout": s.MT5_TIMEOUT,
+            },
+        },
+        "IB_WEB": {
+            "account_id": s.IB_ACCOUNT_ID,
+            "asset_type": s.IB_ASSET_TYPE,
+            "base_url": s.IB_BASE_URL,
+            "access_token": s.IB_ACCESS_TOKEN,
+            "verify_ssl": s.IB_VERIFY_SSL,
+            "timeout": s.IB_TIMEOUT,
+            "cookie_source": s.IB_COOKIE_SOURCE,
+            "cookie_browser": s.IB_COOKIE_BROWSER,
+            "cookie_path": s.IB_COOKIE_PATH,
+            "paper": {
+                "account_id": s.IB_PAPER_ACCOUNT_ID or s.IB_ACCOUNT_ID,
+                "asset_type": s.IB_PAPER_ASSET_TYPE or s.IB_ASSET_TYPE,
+                "base_url": s.IB_PAPER_BASE_URL or s.IB_BASE_URL,
+                "access_token": s.IB_PAPER_ACCESS_TOKEN or s.IB_ACCESS_TOKEN,
+                "verify_ssl": s.IB_PAPER_VERIFY_SSL if s.IB_PAPER_BASE_URL or s.IB_PAPER_ACCOUNT_ID or s.IB_PAPER_ACCESS_TOKEN else s.IB_VERIFY_SSL,
+                "timeout": s.IB_PAPER_TIMEOUT or s.IB_TIMEOUT,
+                "cookie_source": s.IB_PAPER_COOKIE_SOURCE or s.IB_COOKIE_SOURCE,
+                "cookie_browser": s.IB_PAPER_COOKIE_BROWSER or s.IB_COOKIE_BROWSER,
+                "cookie_path": s.IB_PAPER_COOKIE_PATH or s.IB_COOKIE_PATH,
+            },
+            "live": {
+                "account_id": s.IB_LIVE_ACCOUNT_ID or s.IB_ACCOUNT_ID,
+                "asset_type": s.IB_LIVE_ASSET_TYPE or s.IB_ASSET_TYPE,
+                "base_url": s.IB_LIVE_BASE_URL or s.IB_BASE_URL,
+                "access_token": s.IB_LIVE_ACCESS_TOKEN or s.IB_ACCESS_TOKEN,
+                "verify_ssl": s.IB_LIVE_VERIFY_SSL if s.IB_LIVE_BASE_URL or s.IB_LIVE_ACCOUNT_ID or s.IB_LIVE_ACCESS_TOKEN else s.IB_VERIFY_SSL,
+                "timeout": s.IB_LIVE_TIMEOUT or s.IB_TIMEOUT,
+                "cookie_source": s.IB_LIVE_COOKIE_SOURCE or s.IB_COOKIE_SOURCE,
+                "cookie_browser": s.IB_LIVE_COOKIE_BROWSER or s.IB_COOKIE_BROWSER,
+                "cookie_path": s.IB_LIVE_COOKIE_PATH or s.IB_COOKIE_PATH,
+            },
+        },
+        "BINANCE": {
+            "account_id": s.BINANCE_ACCOUNT_ID,
+            "asset_type": s.BINANCE_ASSET_TYPE,
+            "api_key": s.BINANCE_API_KEY,
+            "secret_key": s.BINANCE_SECRET_KEY,
+            "testnet": s.BINANCE_TESTNET,
+            "base_url": s.BINANCE_BASE_URL,
+        },
+        "OKX": {
+            "account_id": s.OKX_ACCOUNT_ID,
+            "asset_type": s.OKX_ASSET_TYPE,
+            "api_key": s.OKX_API_KEY,
+            "secret_key": s.OKX_SECRET_KEY,
+            "passphrase": s.OKX_PASSPHRASE,
+            "testnet": s.OKX_TESTNET,
+            "base_url": s.OKX_BASE_URL,
+        },
+    }
+
+
+@router.get(
     "/gateways/health",
     summary="Get health status of all active gateways",
 )
