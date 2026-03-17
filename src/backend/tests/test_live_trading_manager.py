@@ -13,6 +13,7 @@ Tests:
 import asyncio
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -291,8 +292,16 @@ class TestGatewayLifecycle:
             "\n".join(
                 [
                     "IB_WEB_ACCOUNT_ID=env-acc",
+                    "IB_WEB_BASE_URL=https://localhost:5000",
                     "IB_WEB_ACCESS_TOKEN=test-token",
                     "IB_WEB_VERIFY_SSL=true",
+                    "IB_WEB_USERNAME=test-user",
+                    "IB_WEB_PASSWORD=test-pass",
+                    "IB_WEB_LOGIN_MODE=paper",
+                    "IB_WEB_LOGIN_BROWSER=chrome",
+                    "IB_WEB_LOGIN_HEADLESS=false",
+                    "IB_WEB_LOGIN_TIMEOUT=180",
+                    "IB_WEB_COOKIE_OUTPUT=../bt_api_py/configs/ibkr_cookies.json",
                 ]
             ),
             encoding="utf-8",
@@ -347,6 +356,117 @@ class TestGatewayLifecycle:
         assert runtime_kwargs["access_token"] == "test-token"
         assert runtime_kwargs["verify_ssl"] is True
         assert runtime_kwargs["timeout"] == 15.0
+        assert runtime_kwargs["username"] == "test-user"
+        assert runtime_kwargs["password"] == "test-pass"
+        assert runtime_kwargs["login_mode"] == "paper"
+        assert runtime_kwargs["login_browser"] == "chrome"
+        assert runtime_kwargs["login_headless"] is False
+        assert runtime_kwargs["login_timeout"] == 180
+        assert runtime_kwargs["cookie_source"] == "file:../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["cookie_output"] == "../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["cookie_base_dir"]
+
+    def test_connect_ib_web_gateway_defaults_to_browser_cookie_source(self, tmp_path):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        fake_proc = MagicMock()
+        fake_settings = SimpleNamespace(
+            IB_ACCESS_TOKEN="",
+            IB_PAPER_COOKIE_SOURCE="file:../bt_api_py/configs/ibkr_cookies.json",
+            IB_LIVE_COOKIE_SOURCE="",
+            IB_COOKIE_SOURCE="",
+            IB_COOKIE_BROWSER="chrome",
+            IB_PAPER_COOKIE_PATH="/sso",
+            IB_LIVE_COOKIE_PATH="",
+            IB_COOKIE_PATH="/sso",
+            IB_COOKIE_OUTPUT="../bt_api_py/configs/ibkr_cookies.json",
+            IB_USERNAME="test-ib-user",
+            IB_PASSWORD="test-ib-pass",
+            IB_LOGIN_BROWSER="chrome",
+            IB_LOGIN_HEADLESS=False,
+            IB_LOGIN_TIMEOUT=180,
+        )
+        with patch.object(manager, "_get_gateway_proxy_kwargs", return_value={}):
+            with patch("app.config.get_settings", return_value=fake_settings):
+                with patch.object(
+                    manager,
+                    "_start_ctp_gateway_process",
+                    return_value=(
+                        MagicMock(),
+                        fake_proc,
+                        tmp_path / "manual.pid",
+                        tmp_path / "stdout.log",
+                        tmp_path / "stderr.log",
+                    ),
+                ) as mock_start:
+                    result = manager._connect_ib_web_gateway(
+                        "manual:IB_WEB:DU123456",
+                        {
+                            "account_id": "DU123456",
+                            "base_url": "https://localhost:5000/v1/api",
+                        },
+                    )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = mock_start.call_args.args[0]
+        assert runtime_kwargs["cookie_source"] == "file:../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["cookie_browser"] == "chrome"
+        assert runtime_kwargs["cookie_path"] == "/sso"
+        assert runtime_kwargs["cookie_output"] == "../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["username"] == "test-ib-user"
+        assert runtime_kwargs["password"] == "test-ib-pass"
+        assert runtime_kwargs["login_mode"] == "paper"
+        assert runtime_kwargs["cookie_base_dir"]
+
+    def test_connect_ib_web_gateway_missing_cookie_file_falls_back_to_browser(self, tmp_path):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        fake_proc = MagicMock()
+        fake_settings = SimpleNamespace(
+            IB_ACCESS_TOKEN="",
+            IB_PAPER_COOKIE_SOURCE="",
+            IB_LIVE_COOKIE_SOURCE="",
+            IB_COOKIE_SOURCE="",
+            IB_COOKIE_BROWSER="chrome",
+            IB_PAPER_COOKIE_PATH="/sso",
+            IB_LIVE_COOKIE_PATH="",
+            IB_COOKIE_PATH="/sso",
+            IB_COOKIE_OUTPUT="../bt_api_py/configs/ibkr_cookies.json",
+            IB_USERNAME="test-ib-user",
+            IB_PASSWORD="test-ib-pass",
+            IB_LOGIN_BROWSER="chrome",
+            IB_LOGIN_HEADLESS=False,
+            IB_LOGIN_TIMEOUT=180,
+        )
+        with patch.object(manager, "_get_gateway_proxy_kwargs", return_value={}):
+            with patch("app.config.get_settings", return_value=fake_settings):
+                with patch.object(
+                    manager,
+                    "_start_ctp_gateway_process",
+                    return_value=(
+                        MagicMock(),
+                        fake_proc,
+                        tmp_path / "manual.pid",
+                        tmp_path / "stdout.log",
+                        tmp_path / "stderr.log",
+                    ),
+                ) as mock_start:
+                    result = manager._connect_ib_web_gateway(
+                        "manual:IB_WEB:DU123456",
+                        {
+                            "account_id": "DU123456",
+                            "cookie_source": "file:C:/definitely/not/exist/ibkr_cookies.json",
+                        },
+                    )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = mock_start.call_args.args[0]
+        assert runtime_kwargs["cookie_source"] == "file:C:/definitely/not/exist/ibkr_cookies.json"
+        assert runtime_kwargs["cookie_output"] == "../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["username"] == "test-ib-user"
+        assert runtime_kwargs["password"] == "test-ib-pass"
 
     def test_release_gateway_for_instance_stops_runtime_when_last_instance(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):

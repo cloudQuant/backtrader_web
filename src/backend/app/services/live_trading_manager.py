@@ -686,7 +686,7 @@ class LiveTradingManager:
             return str(preferred)
         return sys.executable
 
-    def _get_gateway_proxy_kwargs(self) -> dict[str, Any]:
+    def _get_gateway_proxy_kwargs(self, base_url: str | None = None) -> dict[str, Any]:
         try:
             from app.config import get_settings
 
@@ -699,6 +699,28 @@ class LiveTradingManager:
         proxy_host = str(getattr(s, "PROXY_HOST", "") or "").strip()
         socks_proxy = str(getattr(s, "SOCKS_PROXY", "") or "").strip()
         no_proxy = str(getattr(s, "NO_PROXY", "") or "").strip()
+        target_host = ""
+        if base_url:
+            try:
+                from urllib.parse import urlparse
+
+                target_host = str(urlparse(base_url).hostname or "").strip().lower()
+            except Exception:
+                target_host = ""
+        no_proxy_hosts = {
+            item.strip().lower().lstrip(".")
+            for item in no_proxy.split(",")
+            if item.strip()
+        }
+        if target_host:
+            if target_host in {"localhost", "127.0.0.1", "::1"}:
+                return {}
+            if any(
+                target_host == host or target_host.endswith(f".{host}")
+                for host in no_proxy_hosts
+                if host
+            ):
+                return {}
 
         if not http_proxy and proxy_host:
             http_proxy = proxy_host if "://" in proxy_host else f"http://{proxy_host}"
@@ -776,15 +798,8 @@ class LiveTradingManager:
                 "verify_ssl": self._coerce_bool(credentials.get("verify_ssl"), default=False),
                 "timeout": self._coerce_float(credentials.get("timeout"), default=10.0),
             }
-            if credentials.get("access_token"):
-                kwargs["access_token"] = credentials["access_token"]
-            if credentials.get("cookie_source"):
-                kwargs["cookie_source"] = str(credentials["cookie_source"])
-            if credentials.get("cookie_browser"):
-                kwargs["cookie_browser"] = str(credentials["cookie_browser"])
-            if credentials.get("cookie_path"):
-                kwargs["cookie_path"] = str(credentials["cookie_path"])
-            kwargs.update(self._get_gateway_proxy_kwargs())
+            kwargs.update(self._build_ib_web_manual_auth_kwargs(credentials))
+            kwargs.update(self._get_gateway_proxy_kwargs(str(kwargs.get("base_url") or "")))
             config, proc, pid_file, stdout_path, stderr_path = self._start_ctp_gateway_process(kwargs)
             with self._gateway_lock:
                 self._gateways[key] = {
@@ -813,8 +828,86 @@ class LiveTradingManager:
             return {
                 "gateway_key": key,
                 "status": "error",
-                "message": f"IB Web????: {type(e).__name__}: {e}",
+                "message": f"IB Web连接失败: {type(e).__name__}: {e}",
             }
+
+    def _build_ib_web_manual_auth_kwargs(self, credentials: dict[str, Any]) -> dict[str, Any]:
+        from app.config import get_settings
+
+        settings = get_settings()
+        def pick_attr(*names: str):
+            for name in names:
+                value = getattr(settings, name, "")
+                if value not in (None, ""):
+                    return value
+            return ""
+        account_id = str(credentials.get("account_id") or "").strip()
+        login_mode = str(credentials.get("login_mode") or pick_attr("IB_WEB_LOGIN_MODE") or "").strip().lower()
+        if login_mode not in {"paper", "live"}:
+            login_mode = "paper" if account_id.upper().startswith("DU") else "live"
+        access_token = str(credentials.get("access_token") or pick_attr("IB_WEB_ACCESS_TOKEN", "IB_ACCESS_TOKEN") or "").strip()
+        cookie_source = str(credentials.get("cookie_source") or "").strip()
+        if not cookie_source:
+            cookie_source = str(
+                (pick_attr("IB_PAPER_COOKIE_SOURCE") if login_mode == "paper" else pick_attr("IB_LIVE_COOKIE_SOURCE"))
+                or pick_attr("IB_WEB_COOKIE_SOURCE", "IB_COOKIE_SOURCE")
+                or ""
+            ).strip()
+        cookie_browser = str(credentials.get("cookie_browser") or pick_attr("IB_WEB_COOKIE_BROWSER", "IB_COOKIE_BROWSER") or "").strip() or "chrome"
+        cookie_path = str(credentials.get("cookie_path") or "").strip()
+        if not cookie_path:
+            cookie_path = str(
+                (pick_attr("IB_PAPER_COOKIE_PATH") if login_mode == "paper" else pick_attr("IB_LIVE_COOKIE_PATH"))
+                or pick_attr("IB_WEB_COOKIE_PATH", "IB_COOKIE_PATH")
+                or "/sso"
+            ).strip() or "/sso"
+        cookie_output = str(credentials.get("cookie_output") or pick_attr("IB_WEB_COOKIE_OUTPUT", "IB_COOKIE_OUTPUT") or "").strip()
+        username = str(credentials.get("username") or pick_attr("IB_WEB_USERNAME", "IB_USERNAME") or "").strip()
+        password = str(credentials.get("password") or pick_attr("IB_WEB_PASSWORD", "IB_PASSWORD") or "").strip()
+        login_browser = str(credentials.get("login_browser") or pick_attr("IB_WEB_LOGIN_BROWSER", "IB_LOGIN_BROWSER") or cookie_browser).strip() or "chrome"
+        login_headless = self._coerce_bool(
+            credentials.get("login_headless", pick_attr("IB_WEB_LOGIN_HEADLESS", "IB_LOGIN_HEADLESS")),
+            default=False,
+        )
+        login_timeout = int(
+            self._coerce_float(credentials.get("login_timeout", pick_attr("IB_WEB_LOGIN_TIMEOUT", "IB_LOGIN_TIMEOUT")), default=180.0)
+        )
+        cookies = credentials.get("cookies")
+
+        if cookie_source and cookie_source not in {"browser", "env"} and not cookie_source.startswith("file:"):
+            cookie_source = f"file:{cookie_source}"
+
+        if not cookie_source and cookie_output:
+            cookie_source = f"file:{cookie_output}"
+
+        if not access_token and not cookie_source and not isinstance(cookies, dict) and not cookie_output:
+            cookie_source = "browser"
+
+        auth_kwargs: dict[str, Any] = {}
+        if access_token:
+            auth_kwargs["access_token"] = access_token
+        if cookie_source:
+            auth_kwargs["cookie_source"] = cookie_source
+        if cookie_browser:
+            auth_kwargs["cookie_browser"] = cookie_browser
+        if cookie_path:
+            auth_kwargs["cookie_path"] = cookie_path
+        if cookie_output:
+            auth_kwargs["cookie_output"] = cookie_output
+        if username:
+            auth_kwargs["username"] = username
+        if password:
+            auth_kwargs["password"] = password
+        if login_mode:
+            auth_kwargs["login_mode"] = login_mode
+        if login_browser:
+            auth_kwargs["login_browser"] = login_browser
+        auth_kwargs["login_headless"] = login_headless
+        auth_kwargs["login_timeout"] = login_timeout
+        auth_kwargs["cookie_base_dir"] = str(_BACKTRADER_WEB_DIR)
+        if isinstance(cookies, dict) and cookies:
+            auth_kwargs["cookies"] = cookies
+        return auth_kwargs
 
     def _connect_mt5_gateway(
         self, key: str, credentials: dict[str, Any]
@@ -2009,11 +2102,61 @@ class LiveTradingManager:
             or ib_web.get("cookie_path")
             or "/sso"
         )
+        cookie_output = (
+            gateway_params.get("cookie_output")
+            or env_data.get("IB_WEB_COOKIE_OUTPUT")
+            or ib_web.get("cookie_output")
+            or ""
+        )
+        username = (
+            gateway_params.get("username")
+            or env_data.get("IB_WEB_USERNAME")
+            or ib_web.get("username", "")
+        )
+        password = (
+            gateway_params.get("password")
+            or env_data.get("IB_WEB_PASSWORD")
+            or ib_web.get("password", "")
+        )
+        login_mode = (
+            gateway_params.get("login_mode")
+            or env_data.get("IB_WEB_LOGIN_MODE")
+            or ib_web.get("login_mode", "")
+        )
+        if not login_mode:
+            login_mode = "paper" if str(account_id).upper().startswith("DU") else "live"
+        login_browser = (
+            gateway_params.get("login_browser")
+            or env_data.get("IB_WEB_LOGIN_BROWSER")
+            or ib_web.get("login_browser")
+            or cookie_browser
+            or "chrome"
+        )
+        login_headless = self._coerce_bool(
+            gateway_params.get(
+                "login_headless",
+                env_data.get("IB_WEB_LOGIN_HEADLESS", ib_web.get("login_headless")),
+            ),
+            default=False,
+        )
+        login_timeout = int(
+            self._coerce_float(
+                gateway_params.get(
+                    "login_timeout",
+                    env_data.get("IB_WEB_LOGIN_TIMEOUT", ib_web.get("login_timeout")),
+                ),
+                default=180.0,
+            )
+        )
         cookies = gateway_params.get("cookies") or self._parse_json_dict(
             env_data.get("IB_WEB_COOKIES_JSON")
         )
         if cookies is None and isinstance(ib_web.get("cookies"), dict):
             cookies = ib_web.get("cookies")
+        if cookie_source and cookie_source not in {"browser", "env"} and not str(cookie_source).startswith("file:"):
+            cookie_source = f"file:{cookie_source}"
+        if not cookie_source and cookie_output:
+            cookie_source = f"file:{cookie_output}"
         runtime_kwargs = {
             "exchange_type": "IB_WEB",
             "asset_type": self._normalize_gateway_asset_type(
@@ -2026,6 +2169,7 @@ class LiveTradingManager:
             "base_url": base_url,
             "verify_ssl": verify_ssl,
             "timeout": timeout,
+            "cookie_base_dir": str(_BACKTRADER_WEB_DIR),
         }
         if access_token:
             runtime_kwargs["access_token"] = access_token
@@ -2035,6 +2179,18 @@ class LiveTradingManager:
             runtime_kwargs["cookie_browser"] = cookie_browser
         if cookie_path:
             runtime_kwargs["cookie_path"] = cookie_path
+        if cookie_output:
+            runtime_kwargs["cookie_output"] = cookie_output
+        if username:
+            runtime_kwargs["username"] = username
+        if password:
+            runtime_kwargs["password"] = password
+        if login_mode:
+            runtime_kwargs["login_mode"] = login_mode
+        if login_browser:
+            runtime_kwargs["login_browser"] = login_browser
+        runtime_kwargs["login_headless"] = login_headless
+        runtime_kwargs["login_timeout"] = login_timeout
         if cookies:
             runtime_kwargs["cookies"] = cookies
         return runtime_kwargs

@@ -10,6 +10,7 @@ Tests:
 """
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -239,6 +240,104 @@ class TestLiveTradingList:
         assert response.status_code == 400
         payload = response.json()
         assert "CTP连接失败" in str(payload)
+
+    async def test_gateway_credentials_prefers_ib_web_env_values(self, client: AsyncClient, auth_headers):
+        fake_settings = SimpleNamespace(
+            CTP_BROKER_ID="",
+            CTP_USER_ID="",
+            CTP_INVESTOR_ID="",
+            CTP_PASSWORD="",
+            CTP_APP_ID="simnow_client_test",
+            CTP_AUTH_CODE="0000000000000000",
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+            MT5_TIMEOUT=60,
+            MT5_DEMO_LOGIN="",
+            MT5_DEMO_PASSWORD="",
+            MT5_DEMO_SERVER="",
+            MT5_DEMO_WS_URI="",
+            MT5_LIVE_LOGIN="",
+            MT5_LIVE_PASSWORD="",
+            MT5_LIVE_SERVER="",
+            MT5_LIVE_WS_URI="",
+            IB_ACCOUNT_ID="legacy-acc",
+            IB_ASSET_TYPE="STK",
+            IB_BASE_URL="https://legacy.localhost:5000/v1/api",
+            IB_ACCESS_TOKEN="legacy-token",
+            IB_VERIFY_SSL=False,
+            IB_TIMEOUT=10,
+            IB_COOKIE_SOURCE="file:legacy.json",
+            IB_COOKIE_BROWSER="chrome",
+            IB_COOKIE_PATH="/legacy",
+            IB_USERNAME="legacy-user",
+            IB_PASSWORD="legacy-pass",
+            IB_LOGIN_BROWSER="chrome",
+            IB_LOGIN_HEADLESS=False,
+            IB_LOGIN_TIMEOUT=180,
+            IB_COOKIE_OUTPUT="legacy-output.json",
+            IB_WEB_ACCOUNT_ID="DUP447807",
+            IB_WEB_ASSET_TYPE="STK",
+            IB_WEB_BASE_URL="https://localhost:5000/v1/api",
+            IB_WEB_ACCESS_TOKEN="",
+            IB_WEB_VERIFY_SSL=False,
+            IB_WEB_TIMEOUT=10,
+            IB_WEB_COOKIE_SOURCE="file:../bt_api_py/configs/ibkr_cookies.json",
+            IB_WEB_COOKIE_BROWSER="chrome",
+            IB_WEB_COOKIE_PATH="/sso",
+            IB_WEB_USERNAME="test-ib-web-user",
+            IB_WEB_PASSWORD="test-ib-web-pass",
+            IB_WEB_LOGIN_MODE="paper",
+            IB_WEB_LOGIN_BROWSER="chrome",
+            IB_WEB_LOGIN_HEADLESS=False,
+            IB_WEB_LOGIN_TIMEOUT=180,
+            IB_WEB_COOKIE_OUTPUT="../bt_api_py/configs/ibkr_cookies.json",
+            IB_PAPER_ACCOUNT_ID="",
+            IB_PAPER_ASSET_TYPE="",
+            IB_PAPER_BASE_URL="",
+            IB_PAPER_ACCESS_TOKEN="",
+            IB_PAPER_VERIFY_SSL=False,
+            IB_PAPER_TIMEOUT=0,
+            IB_PAPER_COOKIE_SOURCE="",
+            IB_PAPER_COOKIE_BROWSER="",
+            IB_PAPER_COOKIE_PATH="",
+            IB_LIVE_ACCOUNT_ID="",
+            IB_LIVE_ASSET_TYPE="",
+            IB_LIVE_BASE_URL="",
+            IB_LIVE_ACCESS_TOKEN="",
+            IB_LIVE_VERIFY_SSL=False,
+            IB_LIVE_TIMEOUT=0,
+            IB_LIVE_COOKIE_SOURCE="",
+            IB_LIVE_COOKIE_BROWSER="",
+            IB_LIVE_COOKIE_PATH="",
+            BINANCE_ACCOUNT_ID="",
+            BINANCE_ASSET_TYPE="SWAP",
+            BINANCE_API_KEY="",
+            BINANCE_SECRET_KEY="",
+            BINANCE_TESTNET=False,
+            BINANCE_BASE_URL="",
+            OKX_ACCOUNT_ID="",
+            OKX_ASSET_TYPE="SWAP",
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+        with patch("app.config.get_settings", return_value=fake_settings):
+            response = await client.get("/api/v1/live-trading/gateways/credentials", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()["IB_WEB"]
+        assert data["account_id"] == "DUP447807"
+        assert data["base_url"] == "https://localhost:5000/v1/api"
+        assert data["cookie_source"] == "file:../bt_api_py/configs/ibkr_cookies.json"
+        assert data["username"] == "test-ib-web-user"
+        assert data["password"] == "test-ib-web-pass"
+        assert data["paper"]["account_id"] == "DUP447807"
+        assert data["paper"]["login_mode"] == "paper"
 
     async def test_live_instance_create_schema_example_exposes_ib_web_gateway(self):
         schema = LiveInstanceCreate.model_json_schema()

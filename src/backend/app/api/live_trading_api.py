@@ -47,6 +47,13 @@ def _get_manager() -> LiveTradingManager:
     return get_live_trading_manager()
 
 
+def _first_non_empty(*values):
+    for value in values:
+        if value not in (None, ""):
+            return value
+    return ""
+
+
 @router.get("/", response_model=LiveInstanceListResponse, summary="List live trading instances")
 async def list_instances(
     current_user=Depends(get_current_user),
@@ -91,6 +98,9 @@ async def get_gateway_credentials(
     """
     from app.config import get_settings
     s = get_settings()
+    ib_web_login_mode = str(s.IB_WEB_LOGIN_MODE or "").strip().lower()
+    ib_web_default_is_paper = ib_web_login_mode == "paper"
+    ib_web_default_is_live = ib_web_login_mode == "live"
     return {
         "CTP": {
             "broker_id": s.CTP_BROKER_ID,
@@ -124,36 +134,57 @@ async def get_gateway_credentials(
             },
         },
         "IB_WEB": {
-            "account_id": s.IB_ACCOUNT_ID,
-            "asset_type": s.IB_ASSET_TYPE,
-            "base_url": s.IB_BASE_URL,
-            "access_token": s.IB_ACCESS_TOKEN,
-            "verify_ssl": s.IB_VERIFY_SSL,
-            "timeout": s.IB_TIMEOUT,
-            "cookie_source": s.IB_COOKIE_SOURCE,
-            "cookie_browser": s.IB_COOKIE_BROWSER,
-            "cookie_path": s.IB_COOKIE_PATH,
+            "account_id": _first_non_empty(s.IB_WEB_ACCOUNT_ID, s.IB_ACCOUNT_ID),
+            "asset_type": _first_non_empty(s.IB_WEB_ASSET_TYPE, s.IB_ASSET_TYPE, "STK"),
+            "base_url": _first_non_empty(s.IB_WEB_BASE_URL, s.IB_BASE_URL),
+            "access_token": _first_non_empty(s.IB_WEB_ACCESS_TOKEN, s.IB_ACCESS_TOKEN),
+            "verify_ssl": s.IB_WEB_VERIFY_SSL if s.IB_WEB_BASE_URL or s.IB_WEB_ACCOUNT_ID or s.IB_WEB_COOKIE_SOURCE or s.IB_WEB_USERNAME else s.IB_VERIFY_SSL,
+            "timeout": _first_non_empty(s.IB_WEB_TIMEOUT, s.IB_TIMEOUT, 10),
+            "cookie_source": _first_non_empty(s.IB_WEB_COOKIE_SOURCE, s.IB_COOKIE_SOURCE),
+            "cookie_browser": _first_non_empty(s.IB_WEB_COOKIE_BROWSER, s.IB_COOKIE_BROWSER, "chrome"),
+            "cookie_path": _first_non_empty(s.IB_WEB_COOKIE_PATH, s.IB_COOKIE_PATH, "/sso"),
+            "username": _first_non_empty(s.IB_WEB_USERNAME, s.IB_USERNAME),
+            "password": _first_non_empty(s.IB_WEB_PASSWORD, s.IB_PASSWORD),
+            "login_mode": _first_non_empty(s.IB_WEB_LOGIN_MODE, "paper"),
+            "login_browser": _first_non_empty(s.IB_WEB_LOGIN_BROWSER, s.IB_LOGIN_BROWSER, "chrome"),
+            "login_headless": s.IB_WEB_LOGIN_HEADLESS if s.IB_WEB_LOGIN_BROWSER or s.IB_WEB_USERNAME else s.IB_LOGIN_HEADLESS,
+            "login_timeout": _first_non_empty(s.IB_WEB_LOGIN_TIMEOUT, s.IB_LOGIN_TIMEOUT, 180),
+            "cookie_output": _first_non_empty(s.IB_WEB_COOKIE_OUTPUT, s.IB_COOKIE_OUTPUT),
             "paper": {
-                "account_id": s.IB_PAPER_ACCOUNT_ID or s.IB_ACCOUNT_ID,
-                "asset_type": s.IB_PAPER_ASSET_TYPE or s.IB_ASSET_TYPE,
-                "base_url": s.IB_PAPER_BASE_URL or s.IB_BASE_URL,
-                "access_token": s.IB_PAPER_ACCESS_TOKEN or s.IB_ACCESS_TOKEN,
+                "account_id": _first_non_empty(s.IB_PAPER_ACCOUNT_ID, s.IB_WEB_ACCOUNT_ID if ib_web_default_is_paper else "", s.IB_ACCOUNT_ID),
+                "asset_type": _first_non_empty(s.IB_PAPER_ASSET_TYPE, s.IB_WEB_ASSET_TYPE if ib_web_default_is_paper else "", s.IB_ASSET_TYPE, "STK"),
+                "base_url": _first_non_empty(s.IB_PAPER_BASE_URL, s.IB_WEB_BASE_URL if ib_web_default_is_paper else "", s.IB_BASE_URL),
+                "access_token": _first_non_empty(s.IB_PAPER_ACCESS_TOKEN, s.IB_WEB_ACCESS_TOKEN if ib_web_default_is_paper else "", s.IB_ACCESS_TOKEN),
                 "verify_ssl": s.IB_PAPER_VERIFY_SSL if s.IB_PAPER_BASE_URL or s.IB_PAPER_ACCOUNT_ID or s.IB_PAPER_ACCESS_TOKEN else s.IB_VERIFY_SSL,
-                "timeout": s.IB_PAPER_TIMEOUT or s.IB_TIMEOUT,
-                "cookie_source": s.IB_PAPER_COOKIE_SOURCE or s.IB_COOKIE_SOURCE,
-                "cookie_browser": s.IB_PAPER_COOKIE_BROWSER or s.IB_COOKIE_BROWSER,
-                "cookie_path": s.IB_PAPER_COOKIE_PATH or s.IB_COOKIE_PATH,
+                "timeout": _first_non_empty(s.IB_PAPER_TIMEOUT, s.IB_WEB_TIMEOUT if ib_web_default_is_paper else 0, s.IB_TIMEOUT, 10),
+                "cookie_source": _first_non_empty(s.IB_PAPER_COOKIE_SOURCE, s.IB_WEB_COOKIE_SOURCE if ib_web_default_is_paper else "", s.IB_COOKIE_SOURCE),
+                "cookie_browser": _first_non_empty(s.IB_PAPER_COOKIE_BROWSER, s.IB_WEB_COOKIE_BROWSER if ib_web_default_is_paper else "", s.IB_COOKIE_BROWSER, "chrome"),
+                "cookie_path": _first_non_empty(s.IB_PAPER_COOKIE_PATH, s.IB_WEB_COOKIE_PATH if ib_web_default_is_paper else "", s.IB_COOKIE_PATH, "/sso"),
+                "username": _first_non_empty(s.IB_WEB_USERNAME, s.IB_USERNAME),
+                "password": _first_non_empty(s.IB_WEB_PASSWORD, s.IB_PASSWORD),
+                "login_mode": "paper",
+                "login_browser": _first_non_empty(s.IB_WEB_LOGIN_BROWSER, s.IB_LOGIN_BROWSER, "chrome"),
+                "login_headless": s.IB_WEB_LOGIN_HEADLESS if s.IB_WEB_LOGIN_BROWSER or s.IB_WEB_USERNAME else s.IB_LOGIN_HEADLESS,
+                "login_timeout": _first_non_empty(s.IB_WEB_LOGIN_TIMEOUT, s.IB_LOGIN_TIMEOUT, 180),
+                "cookie_output": _first_non_empty(s.IB_WEB_COOKIE_OUTPUT, s.IB_COOKIE_OUTPUT),
             },
             "live": {
-                "account_id": s.IB_LIVE_ACCOUNT_ID or s.IB_ACCOUNT_ID,
-                "asset_type": s.IB_LIVE_ASSET_TYPE or s.IB_ASSET_TYPE,
-                "base_url": s.IB_LIVE_BASE_URL or s.IB_BASE_URL,
-                "access_token": s.IB_LIVE_ACCESS_TOKEN or s.IB_ACCESS_TOKEN,
+                "account_id": _first_non_empty(s.IB_LIVE_ACCOUNT_ID, s.IB_WEB_ACCOUNT_ID if ib_web_default_is_live else "", s.IB_ACCOUNT_ID),
+                "asset_type": _first_non_empty(s.IB_LIVE_ASSET_TYPE, s.IB_WEB_ASSET_TYPE if ib_web_default_is_live else "", s.IB_ASSET_TYPE, "STK"),
+                "base_url": _first_non_empty(s.IB_LIVE_BASE_URL, s.IB_WEB_BASE_URL if ib_web_default_is_live else "", s.IB_BASE_URL),
+                "access_token": _first_non_empty(s.IB_LIVE_ACCESS_TOKEN, s.IB_WEB_ACCESS_TOKEN if ib_web_default_is_live else "", s.IB_ACCESS_TOKEN),
                 "verify_ssl": s.IB_LIVE_VERIFY_SSL if s.IB_LIVE_BASE_URL or s.IB_LIVE_ACCOUNT_ID or s.IB_LIVE_ACCESS_TOKEN else s.IB_VERIFY_SSL,
-                "timeout": s.IB_LIVE_TIMEOUT or s.IB_TIMEOUT,
-                "cookie_source": s.IB_LIVE_COOKIE_SOURCE or s.IB_COOKIE_SOURCE,
-                "cookie_browser": s.IB_LIVE_COOKIE_BROWSER or s.IB_COOKIE_BROWSER,
-                "cookie_path": s.IB_LIVE_COOKIE_PATH or s.IB_COOKIE_PATH,
+                "timeout": _first_non_empty(s.IB_LIVE_TIMEOUT, s.IB_WEB_TIMEOUT if ib_web_default_is_live else 0, s.IB_TIMEOUT, 10),
+                "cookie_source": _first_non_empty(s.IB_LIVE_COOKIE_SOURCE, s.IB_WEB_COOKIE_SOURCE if ib_web_default_is_live else "", s.IB_COOKIE_SOURCE),
+                "cookie_browser": _first_non_empty(s.IB_LIVE_COOKIE_BROWSER, s.IB_WEB_COOKIE_BROWSER if ib_web_default_is_live else "", s.IB_COOKIE_BROWSER, "chrome"),
+                "cookie_path": _first_non_empty(s.IB_LIVE_COOKIE_PATH, s.IB_WEB_COOKIE_PATH if ib_web_default_is_live else "", s.IB_COOKIE_PATH, "/sso"),
+                "username": _first_non_empty(s.IB_WEB_USERNAME, s.IB_USERNAME),
+                "password": _first_non_empty(s.IB_WEB_PASSWORD, s.IB_PASSWORD),
+                "login_mode": "live",
+                "login_browser": _first_non_empty(s.IB_WEB_LOGIN_BROWSER, s.IB_LOGIN_BROWSER, "chrome"),
+                "login_headless": s.IB_WEB_LOGIN_HEADLESS if s.IB_WEB_LOGIN_BROWSER or s.IB_WEB_USERNAME else s.IB_LOGIN_HEADLESS,
+                "login_timeout": _first_non_empty(s.IB_WEB_LOGIN_TIMEOUT, s.IB_LOGIN_TIMEOUT, 180),
+                "cookie_output": _first_non_empty(s.IB_WEB_COOKIE_OUTPUT, s.IB_COOKIE_OUTPUT),
             },
         },
         "BINANCE": {
