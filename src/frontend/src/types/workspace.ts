@@ -6,6 +6,46 @@
 export type UnitRunStatus = 'idle' | 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
 export type WorkspaceStatus = 'idle' | 'running' | 'completed' | 'error'
 export type ViewMode = 'card' | 'table'
+export type WorkspaceDataSourceType = 'csv' | 'mysql' | 'postgresql' | 'mongodb'
+
+export interface WorkspaceDataSourceConfig {
+  type: WorkspaceDataSourceType
+  csv: {
+    directory_path: string
+    delimiter: string
+    encoding: string
+    has_header: boolean
+  }
+  mysql: {
+    host: string
+    port: number
+    database: string
+    username: string
+    password: string
+    table: string
+  }
+  postgresql: {
+    host: string
+    port: number
+    database: string
+    schema: string
+    username: string
+    password: string
+    table: string
+  }
+  mongodb: {
+    uri: string
+    database: string
+    collection: string
+    username: string
+    password: string
+    auth_source: string
+  }
+}
+
+export interface WorkspaceSettings extends Record<string, unknown> {
+  data_source?: WorkspaceDataSourceConfig
+}
 
 // ---------------------------------------------------------------------------
 // Workspace
@@ -16,7 +56,7 @@ export interface Workspace {
   user_id: string
   name: string
   description: string | null
-  settings: Record<string, unknown>
+  settings: WorkspaceSettings
   unit_count: number
   completed_count: number
   status: WorkspaceStatus
@@ -27,13 +67,13 @@ export interface Workspace {
 export interface WorkspaceCreate {
   name: string
   description?: string
-  settings?: Record<string, unknown>
+  settings?: WorkspaceSettings
 }
 
 export interface WorkspaceUpdate {
   name?: string
   description?: string
-  settings?: Record<string, unknown>
+  settings?: WorkspaceSettings
 }
 
 export interface WorkspaceListResponse {

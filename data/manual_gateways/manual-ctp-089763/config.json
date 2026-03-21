@@ -13,5 +13,8 @@
   "app_id": "simnow_client_test",
   "auth_code": "0000000000000000",
   "gateway_startup_timeout_sec": 30.0,
-  "gateway_base_dir": "D:\\new_projects\\backtrader_web\\data\\manual_gateways\\manual-ctp-089763"
+  "gateway_base_dir": "D:\\new_projects\\backtrader_web\\data\\manual_gateways\\manual-ctp-089763",
+  "gateway_command_endpoint": "tcp://127.0.0.1:33128",
+  "gateway_event_endpoint": "tcp://127.0.0.1:33129",
+  "gateway_market_endpoint": "tcp://127.0.0.1:33130"
 }

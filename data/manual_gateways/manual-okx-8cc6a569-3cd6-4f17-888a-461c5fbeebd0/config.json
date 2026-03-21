@@ -13,5 +13,8 @@
     "https": "http://127.0.0.1:15732"
   },
   "async_proxy": "socks5://127.0.0.1:15732",
-  "gateway_base_dir": "D:\\new_projects\\backtrader_web\\data\\manual_gateways\\manual-okx-8cc6a569-3cd6-4f17-888a-461c5fbeebd0"
+  "gateway_base_dir": "D:\\new_projects\\backtrader_web\\data\\manual_gateways\\manual-okx-8cc6a569-3cd6-4f17-888a-461c5fbeebd0",
+  "gateway_command_endpoint": "tcp://127.0.0.1:33791",
+  "gateway_event_endpoint": "tcp://127.0.0.1:33792",
+  "gateway_market_endpoint": "tcp://127.0.0.1:33793"
 }

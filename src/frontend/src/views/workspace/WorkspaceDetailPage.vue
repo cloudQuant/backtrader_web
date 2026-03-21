@@ -7,6 +7,18 @@
       </span>
     </teleport>
 
+    <teleport to="#page-header-actions">
+      <el-button
+        v-if="store.currentWorkspace"
+        size="small"
+        @click="showDataSourceDialog = true"
+      >
+        <el-icon class="mr-1"><DataLine /></el-icon>
+        数据源
+        <span class="ml-1 text-xs text-gray-500">{{ dataSourceTypeLabel }}</span>
+      </el-button>
+    </teleport>
+
     <!-- Loading -->
     <div v-if="store.loading && !store.currentWorkspace" class="flex justify-center py-20">
       <el-icon class="is-loading text-3xl text-blue-500"><Loading /></el-icon>
@@ -41,24 +53,44 @@
           />
         </el-tab-pane>
       </el-tabs>
+
+      <WorkspaceDataSourceDialog
+        v-model="showDataSourceDialog"
+        :workspace-id="workspaceId"
+        :workspace="store.currentWorkspace"
+        @saved="store.fetchWorkspace(workspaceId)"
+      />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { Loading } from '@element-plus/icons-vue'
+import { DataLine, Loading } from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import WorkspaceUnitsTab from '@/components/workspace/WorkspaceUnitsTab.vue'
 import WorkspaceOptimizationTab from '@/components/workspace/WorkspaceOptimizationTab.vue'
 import WorkspaceReportTab from '@/components/workspace/WorkspaceReportTab.vue'
+import WorkspaceDataSourceDialog from '@/components/workspace/WorkspaceDataSourceDialog.vue'
 
 const route = useRoute()
 const store = useWorkspaceStore()
 
 const workspaceId = route.params.id as string
 const activeTab = ref('units')
+const showDataSourceDialog = ref(false)
+
+const dataSourceTypeLabel = computed(() => {
+  const type = store.currentWorkspace?.settings?.data_source?.type || 'csv'
+  const labels: Record<string, string> = {
+    csv: 'CSV',
+    mysql: 'MySQL',
+    postgresql: 'PostgreSQL',
+    mongodb: 'MongoDB',
+  }
+  return labels[type] || type
+})
 
 onMounted(async () => {
   await store.fetchWorkspace(workspaceId)

@@ -453,7 +453,7 @@ class QuoteService:
 
         for sym in all_syms:
             meta = defaults_map.get(sym, {"symbol": sym, "name": "", "exchange": "", "category": ""})
-            raw = cached_ticks.get(sym)
+            raw = self._match_cached_tick(cached_ticks, sym)
             tick = self._build_tick(source, label, sym, meta, raw, now)
             ticks.append(tick)
 
@@ -732,6 +732,28 @@ class QuoteService:
             if any(sym in cached for sym in symbols):
                 return cached
         return cached
+
+    @staticmethod
+    def _match_cached_tick(
+        cached_ticks: dict[str, dict[str, Any]],
+        symbol: str,
+    ) -> dict[str, Any] | None:
+        raw = cached_ticks.get(symbol)
+        if raw is not None:
+            return raw
+        target = symbol.upper()
+        for key, payload in cached_ticks.items():
+            candidates = [
+                str(key or ""),
+                str(payload.get("symbol") or ""),
+                str(payload.get("instrument_id") or ""),
+            ]
+            normalized = [candidate.upper() for candidate in candidates if candidate]
+            if target in normalized:
+                return payload
+            if any(value.startswith(target) for value in normalized):
+                return payload
+        return None
 
     @staticmethod
     def _send_gateway_command(

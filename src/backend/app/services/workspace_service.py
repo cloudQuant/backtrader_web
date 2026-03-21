@@ -33,6 +33,74 @@ from app.schemas.workspace import (
 logger = logging.getLogger(__name__)
 
 
+def _default_workspace_settings() -> dict[str, Any]:
+    return {
+        "data_source": {
+            "type": "csv",
+            "csv": {
+                "directory_path": "",
+                "delimiter": ",",
+                "encoding": "utf-8",
+                "has_header": True,
+            },
+            "mysql": {
+                "host": "127.0.0.1",
+                "port": 3306,
+                "database": "",
+                "username": "",
+                "password": "",
+                "table": "",
+            },
+            "postgresql": {
+                "host": "127.0.0.1",
+                "port": 5432,
+                "database": "",
+                "schema": "public",
+                "username": "",
+                "password": "",
+                "table": "",
+            },
+            "mongodb": {
+                "uri": "mongodb://127.0.0.1:27017",
+                "database": "",
+                "collection": "",
+                "username": "",
+                "password": "",
+                "auth_source": "admin",
+            },
+        }
+    }
+
+
+def _normalize_workspace_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
+    normalized = _default_workspace_settings()
+    if not isinstance(settings, dict):
+        return normalized
+
+    for key, value in settings.items():
+        if key != "data_source":
+            normalized[key] = value
+
+    data_source = settings.get("data_source")
+    if isinstance(data_source, dict):
+        merged_data_source = dict(normalized["data_source"])
+        for key, value in data_source.items():
+            if key in {"csv", "mysql", "postgresql", "mongodb"} and isinstance(value, dict):
+                section = dict(merged_data_source[key])
+                if key == "csv" and "directory_path" not in value and isinstance(value.get("file_path"), str):
+                    section["directory_path"] = value["file_path"]
+                for section_key, section_value in value.items():
+                    if key == "csv" and section_key == "file_path":
+                        continue
+                    section[section_key] = section_value
+                merged_data_source[key] = section
+            else:
+                merged_data_source[key] = value
+        normalized["data_source"] = merged_data_source
+
+    return normalized
+
+
 def _aggregate_workspace_status(units: list[StrategyUnit]) -> str:
     """Compute workspace status from child unit statuses."""
     if not units:
@@ -56,7 +124,7 @@ def _workspace_to_response(ws: Workspace) -> WorkspaceResponse:
         user_id=ws.user_id,
         name=ws.name,
         description=ws.description,
-        settings=ws.settings or {},
+        settings=_normalize_workspace_settings(ws.settings),
         unit_count=len(units),
         completed_count=completed_count,
         status=_aggregate_workspace_status(units),
@@ -78,7 +146,7 @@ class WorkspaceService:
                 user_id=user_id,
                 name=data.name,
                 description=data.description,
-                settings=data.settings,
+                settings=_normalize_workspace_settings(data.settings),
             )
             session.add(ws)
             await session.commit()
@@ -126,10 +194,20 @@ class WorkspaceService:
             update_data = data.model_dump(exclude_unset=True)
             for key, value in update_data.items():
                 if key == "settings" and isinstance(value, dict):
-                    # Deep-merge settings so saving report_config doesn't
-                    # wipe optimization_config and vice versa.
-                    existing = dict(ws.settings or {})
-                    existing.update(value)
+                    existing = _normalize_workspace_settings(ws.settings)
+                    for settings_key, settings_value in value.items():
+                        if settings_key != "data_source":
+                            existing[settings_key] = settings_value
+                    if isinstance(value.get("data_source"), dict):
+                        merged_data_source = dict(existing.get("data_source") or {})
+                        for source_key, source_value in value["data_source"].items():
+                            if source_key in {"csv", "mysql", "postgresql", "mongodb"} and isinstance(source_value, dict):
+                                current_section = dict(merged_data_source.get(source_key) or {})
+                                current_section.update(source_value)
+                                merged_data_source[source_key] = current_section
+                            else:
+                                merged_data_source[source_key] = source_value
+                        existing["data_source"] = merged_data_source
                     ws.settings = existing
                 else:
                     setattr(ws, key, value)
