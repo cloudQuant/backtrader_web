@@ -11,9 +11,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed, nextTick } from 'vue'
+import { watch, computed } from 'vue'
 import * as echarts from 'echarts'
 import type { EquityPoint } from '@/types/analytics'
+import { useChartResize } from '@/composables/useChartResize'
 
 interface TradeSignal {
   date: string
@@ -37,8 +38,7 @@ const props = withDefaults(defineProps<{
   height: 350,
 })
 
-const chartRef = ref<HTMLDivElement>()
-let chart: echarts.ECharts | null = null
+const { chartRef, initChart: baseInitChart } = useChartResize()
 
 const chartDates = computed(() => {
   if (props.dates?.length) return props.dates
@@ -57,12 +57,9 @@ const chartDrawdown = computed(() => {
 
 function initChart() {
   if (!chartRef.value || !chartDates.value.length) return
-  
-  if (chart) {
-    chart.dispose()
-  }
-  
-  chart = echarts.init(chartRef.value)
+
+  const chart = baseInitChart()
+  if (!chart) return
   
   const hasDrawdown = chartDrawdown.value.length > 0
   const hasDetailData = props.data?.length > 0 && props.data[0].cash !== undefined
@@ -200,10 +197,11 @@ function initChart() {
         const date = (arr[0] as { axisValue?: string })?.axisValue ?? ''
         let html = `<strong>${date}</strong><br/>`
         arr.forEach((p: { seriesName?: string; value?: number; marker?: string }) => {
+          const numericValue = Number(p.value ?? 0)
           if (p.seriesName === '回撤') {
-            html += `${p.marker} ${p.seriesName}: ${p.value.toFixed(2)}%<br/>`
+            html += `${p.marker} ${p.seriesName}: ${numericValue.toFixed(2)}%<br/>`
           } else {
-            html += `${p.marker} ${p.seriesName}: ¥${Number(p.value ?? 0).toLocaleString()}<br/>`
+            html += `${p.marker} ${p.seriesName}: ¥${numericValue.toLocaleString()}<br/>`
           }
         })
         return html
@@ -223,19 +221,9 @@ function initChart() {
   chart.setOption(option)
 }
 
-function handleResize() {
-  chart?.resize()
-}
-
-onMounted(() => {
-  nextTick(() => initChart())
-  window.addEventListener('resize', handleResize)
-})
-
-onUnmounted(() => {
-  chart?.dispose()
-  window.removeEventListener('resize', handleResize)
-})
-
-watch([() => props.data, () => props.equity, () => props.drawdown, () => props.trades], initChart, { deep: true })
+// Use data identity instead of deep watch for performance
+watch(
+  () => `${props.data?.length}:${props.equity?.length}:${props.drawdown?.length}:${props.trades?.length}`,
+  initChart,
+)
 </script>

@@ -1,0 +1,138 @@
+# Alerting Configuration
+# Defines thresholds for monitoring alerts
+
+alerts:
+  # HTTP Latency Alerts
+  - name: high_api_latency_warning
+    description: "API response time exceeds 5 seconds"
+    metric: http_request_duration_seconds
+    condition: "p95 > 5"
+    threshold: 5.0
+    severity: warning
+    duration: 60s
+    action: "Check for slow queries or resource constraints"
+
+  - name: high_api_latency_critical
+    description: "API response time exceeds 10 seconds"
+    metric: http_request_duration_seconds
+    condition: "p95 > 10"
+    threshold: 10.0
+    severity: critical
+    duration: 30s
+    action: "Immediate investigation required"
+
+  # Error Rate Alerts
+  - name: high_error_rate_warning
+    description: "HTTP error rate exceeds 5%"
+    metric: http_requests_error_rate
+    condition: "rate > 0.05"
+    threshold: 0.05
+    severity: warning
+    duration: 120s
+    action: "Review recent deployments and error logs"
+
+  - name: high_error_rate_critical
+    description: "HTTP error rate exceeds 10%"
+    metric: http_requests_error_rate
+    condition: "rate > 0.10"
+    threshold: 0.10
+    severity: critical
+    duration: 60s
+    action: "Immediate investigation and potential rollback"
+
+  # Database Alerts
+  - name: db_connection_pool_warning
+    description: "Database connection pool usage exceeds 80%"
+    metric: db_connection_pool_usage
+    condition: "usage > 0.80"
+    threshold: 0.80
+    severity: warning
+    duration: 180s
+    action: "Consider increasing pool size or optimizing queries"
+
+  - name: db_connection_pool_critical
+    description: "Database connection pool usage exceeds 95%"
+    metric: db_connection_pool_usage
+    condition: "usage > 0.95"
+    threshold: 0.95
+    severity: critical
+    duration: 60s
+    action: "Immediate action required - connections may exhaust"
+
+  # System Resource Alerts
+  - name: high_memory_warning
+    description: "Memory usage exceeds 85%"
+    metric: process_memory_usage_bytes
+    condition: "usage > 0.85"
+    threshold: 0.85
+    severity: warning
+    duration: 300s
+    action: "Monitor for memory leaks, consider restart"
+
+  - name: high_cpu_warning
+    description: "CPU usage exceeds 90%"
+    metric: process_cpu_usage
+    condition: "usage > 0.90"
+    threshold: 0.90
+    severity: warning
+    duration: 180s
+    action: "Investigate high CPU processes"
+
+  - name: high_cpu_critical
+    description: "CPU usage exceeds 95% for extended period"
+    metric: process_cpu_usage
+    condition: "usage > 0.95"
+    threshold: 0.95
+    severity: critical
+    duration: 120s
+    action: "Scale horizontally or optimize performance"
+
+  # Backtest Alerts
+  - name: backtest_queue_warning
+    description: "Backtest queue depth exceeds 10"
+    metric: backtest_queue_depth
+    condition: "depth > 10"
+    threshold: 10
+    severity: warning
+    duration: 300s
+    action: "Consider adding more workers"
+
+  - name: backtest_failure_rate_warning
+    description: "Backtest failure rate exceeds 20%"
+    metric: backtest_failure_rate
+    condition: "rate > 0.20"
+    threshold: 0.20
+    severity: warning
+    duration: 600s
+    action: "Review strategy code and data quality"
+
+# Notification Channels
+notification_channels:
+  - type: email
+    enabled: false
+    config:
+      recipients: []
+
+  - type: webhook
+    enabled: false
+    config:
+      url: ""
+
+  - type: slack
+    enabled: false
+    config:
+      channel: ""
+
+# Severity Levels
+severity_levels:
+  warning:
+    color: yellow
+    priority: 2
+    auto_resolve: true
+    auto_resolve_duration: 600s
+
+  critical:
+    color: red
+    priority: 1
+    auto_resolve: false
+    requires_acknowledgment: true

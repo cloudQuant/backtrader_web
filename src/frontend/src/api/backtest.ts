@@ -4,30 +4,33 @@ import type {
   BacktestResponse,
   BacktestResult,
   BacktestListResponse,
+  BacktestStatusResponse,
 } from '@/types'
+
+const BACKTEST_API_BASE = '/backtests'
 
 export const backtestApi = {
   async run(data: BacktestRequest): Promise<BacktestResponse> {
-    return api.post('/backtest/run', data)
+    return api.post<BacktestResponse, BacktestRequest>(`${BACKTEST_API_BASE}/run`, data)
   },
 
   async getResult(taskId: string): Promise<BacktestResult> {
-    return api.get(`/backtest/${taskId}`)
+    return api.get<BacktestResult>(`${BACKTEST_API_BASE}/${taskId}`)
   },
 
-  async getStatus(taskId: string): Promise<{ task_id: string; status: string }> {
-    return api.get(`/backtest/${taskId}/status`)
+  async getStatus(taskId: string): Promise<BacktestStatusResponse> {
+    return api.get<BacktestStatusResponse>(`${BACKTEST_API_BASE}/${taskId}/status`)
   },
 
   async list(limit = 20, offset = 0): Promise<BacktestListResponse> {
-    return api.get('/backtest/', { params: { limit, offset } })
+    return api.get<BacktestListResponse>(`${BACKTEST_API_BASE}/`, { params: { limit, offset } })
   },
 
   async cancel(taskId: string): Promise<void> {
-    return api.post(`/backtest/${taskId}/cancel`)
+    return api.post<void>(`${BACKTEST_API_BASE}/${taskId}/cancel`)
   },
 
   async delete(taskId: string): Promise<void> {
-    return api.delete(`/backtest/${taskId}`)
+    return api.delete<void>(`${BACKTEST_API_BASE}/${taskId}`)
   },
 }

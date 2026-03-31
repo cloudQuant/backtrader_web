@@ -691,16 +691,23 @@ class TestCheckCrossTrigger:
     """Test cross trigger checking."""
 
     async def test_check_cross_trigger(self):
-        """Test cross trigger returns False by default (TODO not implemented)."""
+        """Test cross trigger stores previous diff and fires on upward crossing."""
         service = MonitoringService()
 
         mock_rule = Mock()
-        config = {}
+        mock_rule.id = "rule_123"
 
-        result = await service._check_cross_trigger(mock_rule, config)
+        first = await service._check_cross_trigger(
+            mock_rule,
+            {"value1": "0", "value2": "1", "direction": "up"},
+        )
+        second = await service._check_cross_trigger(
+            mock_rule,
+            {"value1": "2", "value2": "1", "direction": "up"},
+        )
 
-        # Returns False by default because TODO not implemented
-        assert result is False
+        assert first is False
+        assert second is True
 
 
 @pytest.mark.asyncio

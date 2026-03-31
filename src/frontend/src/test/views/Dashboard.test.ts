@@ -12,6 +12,11 @@ vi.mock('@element-plus/icons-vue', () => ({
   Trophy: { template: '<span />' },
 }))
 
+vi.mock('vue-i18n', () => ({
+  createI18n: vi.fn(() => ({ global: { t: (key: string) => key } })),
+  useI18n: vi.fn(() => ({ t: (key: string) => key })),
+}))
+
 vi.mock('@/stores/backtest', () => ({
   useBacktestStore: () => ({
     fetchResults: vi.fn().mockResolvedValue(undefined),
@@ -58,9 +63,10 @@ describe('Dashboard', () => {
 
   it('getStatusText returns correct text', () => {
     const vm = doMount().vm as any
-    expect(vm.getStatusText('completed')).toBe('完成')
-    expect(vm.getStatusText('running')).toBe('运行中')
-    expect(vm.getStatusText('failed')).toBe('失败')
+    // i18n mock returns key, so we check for the key
+    expect(vm.getStatusText('completed')).toBe('backtest.completed')
+    expect(vm.getStatusText('running')).toBe('backtest.running')
+    expect(vm.getStatusText('failed')).toBe('backtest.failed')
     expect(vm.getStatusText('xyz')).toBe('xyz')
   })
 

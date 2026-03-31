@@ -96,6 +96,7 @@ class TestSubmitLiveStrategy:
             ):
                 with patch.object(service, "_load_strategy_from_code", return_value=mock_strategy):
                     with patch("threading.Thread") as mock_thread:
+                        mock_thread_instance = mock_thread.return_value
                         task_id = await service.submit_live_strategy(
                             user_id="user123",
                             strategy_code="class TestStrategy(bt.Strategy): pass",
@@ -108,7 +109,10 @@ class TestSubmitLiveStrategy:
                         assert task_id.startswith("live-user123-")
                         assert task_id in service.tasks
                         assert service.tasks[task_id]["status"] == "running"
-                        assert mock_thread.called
+                        mock_thread.assert_called_once()
+                        assert callable(mock_thread.call_args.kwargs["target"])
+                        assert mock_thread.call_args.kwargs["daemon"] is True
+                        mock_thread_instance.start.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_submit_with_custom_params(self):

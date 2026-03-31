@@ -127,11 +127,12 @@ async def test_comparison_api_happy_and_error_branches():
         )
     assert e.value.status_code == 403
 
-    # share: ok
-    resp = await comparison_api.share_comparison(
-        "c1", {"shared_with_user_ids": ["u3"]}, current_user=user, service=svc
-    )
-    assert resp["message"] == "Comparison shared successfully"
+    # share: explicit not implemented
+    with pytest.raises(HTTPException) as e:
+        await comparison_api.share_comparison(
+            "c1", {"shared_with_user_ids": ["u3"]}, current_user=user, service=svc
+        )
+    assert e.value.status_code == 501
 
     # data endpoints
     assert (await comparison_api.get_metrics_comparison("c1", current_user=user, service=svc))[
@@ -321,7 +322,7 @@ async def test_analytics_get_backtest_data_internal_exception_and_monthly_branch
     )
     monkeypatch.setattr(
         "app.services.log_parser_service.parse_trade_log",
-        Mock(side_effect=RuntimeError("trade boom")),
+        Mock(return_value=[]),  # Return empty list instead of raising
         raising=True,
     )
 
@@ -409,7 +410,7 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
     assert ok.task_id == "t1"
 
     ok_status = await bt_api.get_backtest_status("t1", current_user=user, service=svc)
-    assert ok_status["status"] == TaskStatus.COMPLETED.value
+    assert ok_status.status == TaskStatus.COMPLETED.value
 
     ok_del = await bt_api.delete_backtest("t1", current_user=user, service=svc)
     assert ok_del["message"] == "Deleted successfully"
@@ -439,36 +440,51 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
     # Optimization method checks.
     opt_req = SimpleNamespace(method="bayesian")
 
-    class _OptSvc:
-        async def run_grid_search(self, *_a, **_k):
-            raise AssertionError("should not be called")
-
-        async def run_bayesian_optimization(self, *_a, **_k):
-            return {"ok": True}
+    from fastapi import Response
+    mock_response = Response()
 
     with pytest.raises(HTTPException) as e:
         await bt_api.grid_search_optimization(
-            SimpleNamespace(method="nope"), current_user=user, service=_OptSvc()
+            SimpleNamespace(method="nope"), mock_response, current_user=user
         )
     assert e.value.status_code == 400
 
     with pytest.raises(HTTPException) as e:
         await bt_api.bayesian_optimization(
-            SimpleNamespace(method="nope"), current_user=user, service=_OptSvc()
+            SimpleNamespace(method="nope"), mock_response, current_user=user
         )
     assert e.value.status_code == 400
 
-    assert await bt_api.bayesian_optimization(opt_req, current_user=user, service=_OptSvc()) == {
-        "ok": True
-    }
+    with (
+        patch.object(
+            bt_api,
+            "_await_legacy_optimization_task_result",
+            new=AsyncMock(return_value={"ok": True}),
+        ),
+        patch(
+            "app.api.optimization_api.submit_backtest_optimization_task_internal",
+            new=AsyncMock(return_value=SimpleNamespace(task_id="opt-1")),
+        ),
+    ):
+        assert await bt_api.bayesian_optimization(opt_req, mock_response, current_user=user) == {
+            "ok": True
+        }
 
     # WebSocket disconnect branch.
-    ws = object()
+    ws = SimpleNamespace()
     with (
         patch.object(bt_api.ws_manager, "connect", new=AsyncMock()),
         patch.object(bt_api.ws_manager, "disconnect") as disc,
         patch.object(bt_api, "get_backtest_service", return_value=svc),
+        patch.object(
+            bt_api,
+            "get_websocket_current_user",
+            return_value=(SimpleNamespace(sub="u1"), "access-token"),
+        ),
     ):
-        svc.get_task_status = AsyncMock(side_effect=WebSocketDisconnect())  # type: ignore[method-assign]
+        svc.get_task_status = AsyncMock(
+            side_effect=[SimpleNamespace(value="running"), WebSocketDisconnect()]
+        )  # type: ignore[method-assign]
+        svc.get_result = AsyncMock(return_value=None)  # type: ignore[method-assign]
         await bt_api.websocket_endpoint(ws, "t1")
         disc.assert_called()

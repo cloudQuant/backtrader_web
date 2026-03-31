@@ -433,7 +433,10 @@ curl -X GET "http://localhost:8000/api/v1/backtest/task-uuid/status" \
 
 **JavaScript 示例**:
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/backtest/task-uuid');
+const token = localStorage.getItem('token');
+const ws = token
+  ? new WebSocket('ws://localhost:8000/ws/backtest/task-uuid', ['access-token', token])
+  : new WebSocket('ws://localhost:8000/ws/backtest/task-uuid');
 
 ws.onopen = () => {
   console.log('WebSocket 连接已建立');
@@ -443,7 +446,7 @@ ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
   console.log('进度更新:', data);
   
-  if (data.status === 'completed') {
+  if (data.type === 'completed') {
     console.log('回测完成！结果:', data.result);
     ws.close();
   }
@@ -457,13 +460,22 @@ ws.onerror = (error) => {
 **消息格式**:
 ```json
 {
+  "type": "progress",
   "task_id": "task-uuid",
   "status": "running",
   "progress": 45,
   "message": "正在处理 2021 年数据...",
-  "timestamp": "2026-03-07T10:02:30Z"
+  "data": {}
 }
 ```
+
+**事件类型**:
+- `connected`: 握手成功
+- `task_created`: 任务已提交，状态为 `pending`
+- `progress`: 任务运行中，带 `progress/message/data`
+- `completed`: 任务完成，带完整 `result`
+- `failed`: 任务失败，带 `message/error`
+- `cancelled`: 任务取消
 
 ---
 
@@ -471,37 +483,47 @@ ws.onerror = (error) => {
 
 ### 1. 提交优化任务
 
-**端点**: `POST /api/v1/optimization/run`
+**权威端点**: `POST /api/v1/optimization/submit/backtest`
 
 **请求示例**:
 ```bash
-curl -X POST "http://localhost:8000/api/v1/optimization/run" \
+curl -X POST "http://localhost:8000/api/v1/optimization/submit/backtest" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "strategy_id": "your-strategy-uuid",
-    "symbol": "000001.SZ",
-    "start_date": "2020-01-01",
-    "end_date": "2023-12-31",
-    "initial_cash": 100000,
-    "optimization_method": "grid_search",
-    "parameters": {
-      "fast_period": {"min": 5, "max": 20, "step": 5},
-      "slow_period": {"min": 20, "max": 60, "step": 10}
+    "backtest_config": {
+      "strategy_id": "your-strategy-uuid",
+      "symbol": "000001.SZ",
+      "start_date": "2020-01-01T00:00:00",
+      "end_date": "2023-12-31T00:00:00",
+      "initial_cash": 100000,
+      "commission": 0.001,
+      "params": {}
     },
-    "target_metric": "sharpe_ratio"
+    "method": "grid",
+    "param_grid": {
+      "fast_period": [5, 10, 15, 20],
+      "slow_period": [20, 30, 40, 50, 60]
+    },
+    "metric": "sharpe_ratio"
   }'
 ```
 
 **优化方法**:
-- `grid_search`: 网格搜索
+- `grid`: 网格搜索
 - `bayesian`: 贝叶斯优化
-- `random_search`: 随机搜索
 
 **目标指标**:
 - `sharpe_ratio`: 夏普比率
 - `total_return`: 总收益率
 - `max_drawdown`: 最大回撤（最小化）
+
+**兼容入口**:
+- `POST /api/v1/backtests/optimization/grid`
+- `POST /api/v1/backtests/optimization/bayesian`
+
+兼容入口当前仅用于旧调用方迁移，服务端会代理到统一任务式主链路，并返回 deprecated 相关响应头，不建议新接入继续使用。
 
 ---
 
@@ -843,9 +865,11 @@ class BacktestMonitor:
     
     def on_message(self, ws, message):
         data = json.loads(message)
-        print(f"[{data['timestamp']}] 进度: {data['progress']}% - {data['message']}")
+        event_type = data.get('type')
+        if event_type == 'progress':
+            print(f"进度: {data['progress']}% - {data['message']}")
         
-        if data['status'] == 'completed':
+        if event_type == 'completed':
             print("✅ 回测完成！")
             self.display_summary(data['result'])
             ws.close()
@@ -903,7 +927,7 @@ monitor.start()
 | `/api/v1/backtest/{task_id}` | GET | 回测结果 | ✅ |
 | `/api/v1/backtest/{task_id}/status` | GET | 回测状态 | ✅ |
 | `/api/v1/backtest/` | GET | 回测列表 | ✅ |
-| `/api/v1/optimization/run` | POST | 参数优化 | ✅ |
+| `/api/v1/optimization/submit/backtest` | POST | 参数优化（权威入口） | ✅ |
 | `/api/v1/live-trading/start` | POST | 启动实盘 | ✅ |
 | `/ws/backtest/{task_id}` | WebSocket | 实时进度 | ✅ |
 

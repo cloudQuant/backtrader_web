@@ -146,9 +146,8 @@ class TestUnsubscribeTicks:
         """Test unsubscribing a non-existent user."""
         service = RealTimeDataService()
 
-        # Should not raise an exception
         await service.unsubscribe_ticks("nonexistent_user", "broker_1", ["BTC/USDT"])
-        assert True
+        assert service._subscriptions == {}
 
 
 @pytest.mark.asyncio
@@ -287,37 +286,138 @@ class TestGetTicks:
 class TestGetHistoricalData:
     """Tests for getting historical market data."""
 
-    async def test_get_historical_data(self):
-        """Test getting historical market data."""
+    async def test_get_historical_data_success(self, monkeypatch):
+        """Test historical market data retrieval with mocked akshare."""
+        import pandas as pd
+
         service = RealTimeDataService()
+
+        # Mock akshare response
+        mock_df = pd.DataFrame({
+            "日期": ["2024-01-01", "2024-01-02"],
+            "开盘": [10.0, 11.0],
+            "最高": [12.0, 13.0],
+            "最低": [9.0, 10.0],
+            "收盘": [11.0, 12.0],
+            "成交量": [1000, 2000],
+            "涨跌幅": [1.0, 2.0],
+        })
+
+        class MockAk:
+            @staticmethod
+            def stock_zh_a_hist(**kwargs):
+                return mock_df
+
+        monkeypatch.setitem(__import__("sys").modules, "akshare", MockAk())
 
         start = datetime(2024, 1, 1)
         end = datetime(2024, 1, 31)
 
         result = await service.get_historical_data(
-            "user_123", "broker_1", "BTC/USDT", start, end, "1d"
+            "user_123", "broker_1", "000001.SZ", start, end, "1d"
         )
 
-        # Currently returns empty list
-        assert result == []
+        assert len(result) == 2
+        assert result[0]["date"] == "2024-01-01"
+        assert result[0]["open"] == 10.0
+        assert result[0]["close"] == 11.0
 
-    async def test_get_historical_data_different_frequency(self):
-        """Test historical data with different frequencies."""
+    async def test_get_historical_data_empty_result(self, monkeypatch):
+        """Test historical data with empty result."""
+        import pandas as pd
+
         service = RealTimeDataService()
+
+        # Mock empty akshare response
+        mock_df = pd.DataFrame()
+
+        class MockAk:
+            @staticmethod
+            def stock_zh_a_hist(**kwargs):
+                return mock_df
+
+        monkeypatch.setitem(__import__("sys").modules, "akshare", MockAk())
 
         start = datetime(2024, 1, 1)
         end = datetime(2024, 1, 31)
 
-        result_1d = await service.get_historical_data(
-            "user_123", "broker_1", "BTC/USDT", start, end, "1d"
-        )
-        result_1h = await service.get_historical_data(
-            "user_123", "broker_1", "BTC/USDT", start, end, "1h"
+        result = await service.get_historical_data(
+            "user_123", "broker_1", "000001.SZ", start, end, "1d"
         )
 
-        # Both return empty lists
-        assert result_1d == []
-        assert result_1h == []
+        assert result == []
+
+    async def test_get_historical_data_different_frequencies(self, monkeypatch):
+        """Test historical data with different frequencies."""
+        import pandas as pd
+
+        service = RealTimeDataService()
+
+        mock_df = pd.DataFrame({
+            "日期": ["2024-01-01"],
+            "开盘": [10.0],
+            "最高": [12.0],
+            "最低": [9.0],
+            "收盘": [11.0],
+            "成交量": [1000],
+            "涨跌幅": [1.0],
+        })
+
+        class MockAk:
+            @staticmethod
+            def stock_zh_a_hist(**kwargs):
+                return mock_df
+
+        monkeypatch.setitem(__import__("sys").modules, "akshare", MockAk())
+
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 1, 31)
+
+        # Test daily
+        result = await service.get_historical_data(
+            "user_123", "broker_1", "000001.SZ", start, end, "daily"
+        )
+        assert len(result) == 1
+
+        # Test weekly
+        result = await service.get_historical_data(
+            "user_123", "broker_1", "000001.SZ", start, end, "1w"
+        )
+        assert len(result) == 1
+
+        # Test monthly
+        result = await service.get_historical_data(
+            "user_123", "broker_1", "000001.SZ", start, end, "monthly"
+        )
+        assert len(result) == 1
+
+    async def test_get_historical_data_akshare_not_installed(self, monkeypatch):
+        """Test historical data when akshare is not installed."""
+        service = RealTimeDataService()
+
+        # Remove akshare from modules if present
+        import sys
+        if "akshare" in sys.modules:
+            del sys.modules["akshare"]
+
+        # Mock import to raise ImportError
+        import builtins
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "akshare":
+                raise ImportError("No module named 'akshare'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", mock_import)
+
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 1, 31)
+
+        with pytest.raises(ValueError, match="akshare library is required"):
+            await service.get_historical_data(
+                "user_123", "broker_1", "000001.SZ", start, end, "1d"
+            )
 
 
 class TestUpdateTick:

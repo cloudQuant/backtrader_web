@@ -287,16 +287,28 @@ class StrategyService:
 
         return self._to_response(strategy)
 
-    async def get_strategy(self, strategy_id: str) -> StrategyResponse | None:
+    async def _get_owned_strategy(self, strategy_id: str, user_id: str) -> Strategy | None:
+        strategy = await self.strategy_repo.get_by_id(strategy_id)
+        if not strategy or strategy.user_id != user_id:
+            return None
+        return strategy
+
+    async def get_strategy(
+        self, strategy_id: str, user_id: str | None = None
+    ) -> StrategyResponse | None:
         """Get strategy details by ID.
 
         Args:
             strategy_id: The unique identifier for the strategy.
+            user_id: Optional owner identifier used to enforce access control.
 
         Returns:
-            StrategyResponse if found, None otherwise.
+            StrategyResponse if found and accessible, None otherwise.
         """
-        strategy = await self.strategy_repo.get_by_id(strategy_id)
+        if user_id is not None:
+            strategy = await self._get_owned_strategy(strategy_id, user_id)
+        else:
+            strategy = await self.strategy_repo.get_by_id(strategy_id)
         if not strategy:
             return None
         return self._to_response(strategy)
@@ -315,8 +327,8 @@ class StrategyService:
             Updated StrategyResponse if successful, None if not found
             or unauthorized.
         """
-        strategy = await self.strategy_repo.get_by_id(strategy_id)
-        if not strategy or strategy.user_id != user_id:
+        strategy = await self._get_owned_strategy(strategy_id, user_id)
+        if strategy is None:
             return None
 
         update_data = {}
@@ -347,8 +359,8 @@ class StrategyService:
         Returns:
             True if deletion succeeded, False if not found or unauthorized.
         """
-        strategy = await self.strategy_repo.get_by_id(strategy_id)
-        if not strategy or strategy.user_id != user_id:
+        strategy = await self._get_owned_strategy(strategy_id, user_id)
+        if strategy is None:
             return False
 
         return await self.strategy_repo.delete(strategy_id)

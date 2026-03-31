@@ -17,7 +17,11 @@ def get_repository(model_class: type[T]) -> BaseRepository[T]:
 
     Automatically selects implementation based on DATABASE_TYPE environment variable:
     - postgresql/mysql/sqlite: SQLRepository
-    - mongodb: MongoRepository (to be implemented)
+    - mongodb: Planned feature (not yet implemented)
+
+    Note: MongoDB support is planned for a future release. Currently, only
+    SQLite, PostgreSQL, and MySQL are supported. See config.py for the
+    list of supported database types.
 
     Usage:
         from app.db import get_repository
@@ -33,7 +37,7 @@ def get_repository(model_class: type[T]) -> BaseRepository[T]:
         A repository instance for the model.
 
     Raises:
-        NotImplementedError: If MongoDB is requested (not yet implemented).
+        NotImplementedError: If MongoDB is requested (planned feature, not yet implemented).
         ValueError: If an unsupported database type is specified.
     """
     settings = get_settings()
@@ -42,8 +46,13 @@ def get_repository(model_class: type[T]) -> BaseRepository[T]:
     if db_type in ("postgresql", "mysql", "sqlite"):
         return SQLRepository(model_class)
     elif db_type == "mongodb":
-        # MongoDB implementation to be added
-        raise NotImplementedError("MongoDB support coming soon")
+        # MongoDB implementation is planned for a future release
+        # Currently, config.py validator will reject mongodb, so this branch
+        # is unreachable via normal configuration. Kept for future compatibility.
+        raise NotImplementedError(
+            "MongoDB support is planned for a future release. "
+            "Currently supported: sqlite, postgresql, mysql"
+        )
     else:
         raise ValueError(f"Unsupported database type: {db_type}")
 

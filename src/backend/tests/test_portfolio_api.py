@@ -22,23 +22,28 @@ class TestPortfolioOverview:
 
     async def test_get_portfolio_overview_empty(self, client: AsyncClient, auth_headers):
         """Test getting portfolio overview when empty."""
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = []
+        from app.api import portfolio_api
+        from app.main import app
 
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             response = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
         assert "total_assets" in data
         assert "total_pnl" in data
         assert "strategy_count" in data
-        # strategy_count may include default instance, so don't enforce 0
 
     async def test_get_portfolio_overview_requires_auth(self, client: AsyncClient):
         """Test authentication required for portfolio overview."""
         response = await client.get("/api/v1/portfolio/overview")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_get_portfolio_overview_with_strategies(self, client: AsyncClient, auth_headers):
         """Test portfolio overview with active strategies."""
@@ -48,13 +53,18 @@ class TestPortfolioOverview:
                 "strategy_id": "test_strategy",
                 "strategy_name": "Test Strategy",
                 "status": "running",
+                "user_id": "user1",
             }
         ]
 
-        with patch("app.api.portfolio_api.get_live_trading_manager") as mock_get_mgr:
-            mock_mgr = MagicMock()
-            mock_mgr.list_instances.return_value = mock_instances
-            mock_get_mgr.return_value = mock_mgr
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = mock_instances
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             # Mock get_strategy_dir and no log directory
             with patch(
                 "app.api.portfolio_api.get_strategy_dir", return_value=Path("/tmp/test_strategy")
@@ -63,6 +73,8 @@ class TestPortfolioOverview:
                     "app.services.log_parser_service.find_latest_log_dir", return_value=None
                 ):
                     response = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -75,10 +87,17 @@ class TestPortfolioPositions:
 
     async def test_get_portfolio_positions_empty(self, client: AsyncClient, auth_headers):
         """Test getting portfolio positions when empty."""
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = []
+        from app.api import portfolio_api
+        from app.main import app
 
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             response = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -93,11 +112,19 @@ class TestPortfolioPositions:
                 "id": "inst1",
                 "strategy_id": "test_strategy",
                 "strategy_name": "Test Strategy",
+                "status": "running",
+                "user_id": "user1",
             }
         ]
 
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = mock_instances
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = mock_instances
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             with patch(
                 "app.services.log_parser_service.find_latest_log_dir", return_value="/tmp/logs"
             ):
@@ -108,6 +135,8 @@ class TestPortfolioPositions:
                     ],
                 ):
                     response = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
 
@@ -118,10 +147,17 @@ class TestPortfolioTrades:
 
     async def test_get_portfolio_trades_empty(self, client: AsyncClient, auth_headers):
         """Test getting portfolio trades when empty."""
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = []
+        from app.api import portfolio_api
+        from app.main import app
 
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             response = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -130,10 +166,17 @@ class TestPortfolioTrades:
 
     async def test_get_portfolio_trades_with_limit(self, client: AsyncClient, auth_headers):
         """Test getting portfolio trades with limit parameter."""
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = []
+        from app.api import portfolio_api
+        from app.main import app
 
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             response = await client.get("/api/v1/portfolio/trades?limit=50", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
 
@@ -144,11 +187,19 @@ class TestPortfolioTrades:
                 "id": "inst1",
                 "strategy_id": "test_strategy",
                 "strategy_name": "Test Strategy",
+                "status": "running",
+                "user_id": "user1",
             }
         ]
 
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = mock_instances
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = mock_instances
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             with patch(
                 "app.services.log_parser_service.find_latest_log_dir", return_value="/tmp/logs"
             ):
@@ -157,6 +208,8 @@ class TestPortfolioTrades:
                     return_value=[{"dtclose": "2024-01-01", "pnlcomm": 100.0, "price": 150.0}],
                 ):
                     response = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
 
@@ -167,10 +220,17 @@ class TestPortfolioEquity:
 
     async def test_get_portfolio_equity_empty(self, client: AsyncClient, auth_headers):
         """Test getting portfolio equity curve when empty."""
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = []
+        from app.api import portfolio_api
+        from app.main import app
 
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             response = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -186,11 +246,19 @@ class TestPortfolioEquity:
                 "id": "inst1",
                 "strategy_id": "test_strategy",
                 "strategy_name": "Test Strategy",
+                "status": "running",
+                "user_id": "user1",
             }
         ]
 
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = mock_instances
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = mock_instances
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             with patch(
                 "app.services.log_parser_service.find_latest_log_dir", return_value="/tmp/logs"
             ):
@@ -203,6 +271,8 @@ class TestPortfolioEquity:
                     },
                 ):
                     response = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -217,10 +287,17 @@ class TestPortfolioAllocation:
 
     async def test_get_portfolio_allocation_empty(self, client: AsyncClient, auth_headers):
         """Test getting portfolio allocation when empty."""
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = []
+        from app.api import portfolio_api
+        from app.main import app
 
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             response = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()
@@ -234,11 +311,19 @@ class TestPortfolioAllocation:
                 "id": "inst1",
                 "strategy_id": "test_strategy",
                 "strategy_name": "Test Strategy",
+                "status": "running",
+                "user_id": "user1",
             }
         ]
 
-        with patch("app.services.live_trading_manager.get_live_trading_manager") as mock_mgr:
-            mock_mgr.return_value.list_instances.return_value = mock_instances
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = mock_instances
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
             with patch(
                 "app.services.log_parser_service.find_latest_log_dir", return_value="/tmp/logs"
             ):
@@ -253,6 +338,8 @@ class TestPortfolioAllocation:
                     response = await client.get(
                         "/api/v1/portfolio/allocation", headers=auth_headers
                     )
+        finally:
+            app.dependency_overrides.clear()
 
         assert response.status_code == 200
         data = response.json()

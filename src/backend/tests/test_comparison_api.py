@@ -26,8 +26,7 @@ class TestComparisonCreate:
             "/api/v1/comparisons/",
             json={"name": "Test Comparison", "backtest_task_ids": ["task1", "task2"]},
         )
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_create_comparison_invalid_params(self, client: AsyncClient, auth_headers):
         """Test validation with invalid parameters."""
@@ -41,7 +40,7 @@ class TestComparisonCreate:
             },
         )
         # Should return validation error 422
-        assert response.status_code in [400, 422]
+        assert response.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -51,13 +50,12 @@ class TestComparisonGetDetail:
     async def test_get_comparison_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_get_comparison_not_found(self, client: AsyncClient, auth_headers):
         """Test getting a non-existent comparison."""
         response = await client.get("/api/v1/comparisons/non_existent", headers=auth_headers)
-        assert response.status_code in [404, 400]
+        assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -67,8 +65,7 @@ class TestComparisonUpdate:
     async def test_update_comparison_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
         response = await client.put("/api/v1/comparisons/comp_123", json={"name": "Updated Name"})
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
 
 @pytest.mark.asyncio
@@ -78,8 +75,7 @@ class TestComparisonDelete:
     async def test_delete_comparison_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
         response = await client.delete("/api/v1/comparisons/comp_123")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
 
 @pytest.mark.asyncio
@@ -89,14 +85,13 @@ class TestComparisonList:
     async def test_list_comparisons_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_list_comparisons_with_auth(self, client: AsyncClient, auth_headers):
         """Test list request with authentication."""
         response = await client.get("/api/v1/comparisons/", headers=auth_headers)
         # 200 or empty list
-        assert response.status_code in [200, 404]
+        assert response.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -106,26 +101,22 @@ class TestComparisonDataEndpoints:
     async def test_get_comparison_metrics_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123/metrics")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_get_comparison_equity_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123/equity")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_get_comparison_trades_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123/trades")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_get_comparison_drawdown_requires_auth(self, client: AsyncClient):
         """Test that authentication is required."""
         response = await client.get("/api/v1/comparisons/comp_123/drawdown")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
 
 @pytest.mark.asyncio

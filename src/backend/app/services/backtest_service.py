@@ -24,9 +24,14 @@ from app.schemas.backtest import (
     BacktestResult,
     TaskStatus,
 )
+from app.schemas.backtest_enhanced import (
+    BacktestCancelledEvent,
+    BacktestCompletedEvent,
+    BacktestFailedEvent,
+    BacktestProgressEvent,
+)
 from app.services.backtest_manager import BacktestExecutionManager
 from app.services.backtest_runner import BacktestExecutionRunner
-from app.websocket_manager import MessageType
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -127,182 +132,138 @@ class BacktestService:
             user_id: The ID of the user who requested the backtest.
             request: The backtest request parameters.
         """
-        task_work_dir = None
         tmp_base = None
         try:
-            # Update status to running using task_manager
             await self.task_manager.update_task_status(task_id, TaskStatus.RUNNING)
-            await ws_manager.send_to_task(
-                task_id,
-                {
-                    "type": MessageType.PROGRESS,
-                    "task_id": task_id,
-                    "progress": 10,
-                    "message": "Task started",
-                },
-            )
+            await self._notify_progress(task_id, 10, "Task started")
 
-            # Find strategy directory
-            from app.services.strategy_service import STRATEGIES_DIR
+            from app.services.strategy_service import get_strategy_dir
 
-            strategy_dir = STRATEGIES_DIR / request.strategy_id
-            run_py = strategy_dir / "run.py"
-
-            if not run_py.is_file():
+            strategy_dir = get_strategy_dir(request.strategy_id)
+            if not (strategy_dir / "run.py").is_file():
                 raise ValueError(f"Strategy {request.strategy_id} run.py not found")
 
-            # [B003/O001] Copy strategy directory to isolated temp directory
-            # to avoid concurrent conflicts. Create tmp_base/strategies/<strategy_id>/
-            # structure so BASE_DIR.parent.parent can locate correctly.
-            tmp_base = Path(tempfile.mkdtemp(prefix=f"bt_{task_id}_"))
-            task_work_dir = tmp_base / "strategies" / request.strategy_id
-            task_work_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(strategy_dir, task_work_dir, dirs_exist_ok=True)
+            tmp_base, task_work_dir = self._setup_workspace(task_id, request.strategy_id, strategy_dir)
+            await self._notify_progress(task_id, 20, "Writing configuration parameters...")
 
-            # Create datas symlink so resolve_data_path can find data files
-            project_root = STRATEGIES_DIR.parent
-            datas_src = project_root / "datas"
-            datas_link = tmp_base / "datas"
-            if datas_src.is_dir() and not datas_link.exists():
-                os.symlink(str(datas_src), str(datas_link))
-
-            # Clear temp directory logs
-            tmp_logs = task_work_dir / "logs"
-            if tmp_logs.is_dir():
-                shutil.rmtree(tmp_logs)
-
-            await ws_manager.send_to_task(
-                task_id,
-                {
-                    "type": MessageType.PROGRESS,
-                    "task_id": task_id,
-                    "progress": 20,
-                    "message": "Writing configuration parameters...",
-                },
-            )
-
-            # If frontend passed custom parameters, write to temp config.yaml
             config_path = task_work_dir / "config.yaml"
             if self._has_custom_params(request):
-                original_text = (
-                    config_path.read_text(encoding="utf-8") if config_path.is_file() else None
-                )
+                original_text = config_path.read_text(encoding="utf-8") if config_path.is_file() else None
                 self._write_temp_config(config_path, request, original_text)
 
-            await ws_manager.send_to_task(
-                task_id,
-                {
-                    "type": MessageType.PROGRESS,
-                    "task_id": task_id,
-                    "progress": 30,
-                    "message": "Running backtest...",
-                },
-            )
+            await self._notify_progress(task_id, 30, "Running backtest...")
+            await self._run_strategy_subprocess(task_work_dir, str(strategy_dir), task_id)
 
-            # Call run.py (run in temp directory)
-            _result = await self._run_strategy_subprocess(task_work_dir, str(strategy_dir), task_id)
-
-            await ws_manager.send_to_task(
-                task_id,
-                {
-                    "type": MessageType.PROGRESS,
-                    "task_id": task_id,
-                    "progress": 80,
-                    "message": "Parsing logs...",
-                },
-            )
-
-            # Parse logs from temp directory
-            from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
-            from app.services.log_parser_service import parse_all_logs
-
-            log_result = parse_all_logs(task_work_dir)
-            if not log_result:
-                raise ValueError("Backtest completed but no log file found")
-
-            # Calculate metrics using FincoreAdapter (use_fincore=True by default)
-            # This provides standardized financial metrics with fallback to manual calculation
-            metrics = calculate_metrics_from_log_data(log_result, use_fincore=True)
-
-            # [B009] Save log directory path to task for later analysis.
-            # Copy temp logs back to original strategy directory (named by task_id)
-            # for persistence.
-            persist_log_dir = strategy_dir / "logs" / f"task_{task_id}"
-            tmp_log_dir = log_result.get("log_dir")
-            if tmp_log_dir and Path(tmp_log_dir).is_dir():
-                shutil.copytree(tmp_log_dir, persist_log_dir, dirs_exist_ok=True)
-
-            # Create result using task_manager
-            await self.task_manager.create_result(
-                task_id=task_id,
-                metrics=metrics,
-                equity_curve=log_result.get("equity_curve", []),
-                equity_dates=log_result.get("equity_dates", []),
-                drawdown_curve=log_result.get("drawdown_curve", []),
-                trades=log_result.get("trades", []),
-                metrics_source=metrics.get("metrics_source", "manual"),
-            )
-
-            # Update task status using task_manager
-            await self.task_manager.update_task_status(
-                task_id,
-                TaskStatus.COMPLETED,
-                log_dir=str(persist_log_dir),
-            )
-
-            await ws_manager.send_to_task(
-                task_id,
-                {
-                    "type": MessageType.COMPLETED,
-                    "task_id": task_id,
-                    "progress": 100,
-                    "message": "Backtest completed",
-                    "data": {"total_return": log_result.get("total_return", 0)},
-                },
-            )
-
-            logger.info(
-                f"Backtest completed: {task_id}, return: {log_result.get('total_return', 0)}%"
-            )
+            await self._notify_progress(task_id, 80, "Parsing logs...")
+            await self._persist_results(task_id, user_id, task_work_dir, strategy_dir)
 
         except asyncio.CancelledError:
             logger.info(f"Backtest cancelled: {task_id}")
             await self.task_manager.update_task_status(
-                task_id,
-                TaskStatus.CANCELLED,
-                error_message="User cancelled task",
+                task_id, TaskStatus.CANCELLED, error_message="User cancelled task",
             )
             await ws_manager.send_to_task(
-                task_id,
-                {
-                    "type": MessageType.CANCELLED,
-                    "task_id": task_id,
-                    "message": "Task cancelled",
-                },
+                task_id, BacktestCancelledEvent(task_id=task_id).model_dump(mode="python"),
             )
         except Exception as e:
             logger.error(f"Backtest failed: {task_id}, {e}")
             await self.task_manager.update_task_status(
-                task_id,
-                TaskStatus.FAILED,
-                error_message=str(e),
+                task_id, TaskStatus.FAILED, error_message=str(e),
             )
             await ws_manager.send_to_task(
                 task_id,
-                {
-                    "type": MessageType.FAILED,
-                    "task_id": task_id,
-                    "message": str(e),
-                },
+                BacktestFailedEvent(task_id=task_id, message=str(e), error=str(e)).model_dump(mode="python"),
             )
         finally:
-            # Clean up temp work directory (clean entire tmp_base)
-            cleanup_dir = tmp_base or task_work_dir
-            if cleanup_dir and cleanup_dir.is_dir():
+            if tmp_base and tmp_base.is_dir():
                 try:
-                    shutil.rmtree(cleanup_dir, ignore_errors=True)
-                except Exception:
-                    pass
+                    shutil.rmtree(tmp_base, ignore_errors=True)
+                except Exception as e:
+                    logger.debug("Cleanup dir failed (ignored): %s", e)
+
+    # ------------------------------------------------------------------
+    # _execute_backtest helpers
+    # ------------------------------------------------------------------
+
+    def _setup_workspace(
+        self, task_id: str, strategy_id: str, strategy_dir: Path,
+    ) -> tuple[Path, Path]:
+        """Create an isolated temp workspace for a backtest run.
+
+        Returns:
+            (tmp_base, task_work_dir) – the root temp directory and the
+            strategy-specific working directory inside it.
+        """
+        from app.services.strategy_service import STRATEGIES_DIR
+
+        tmp_base = Path(tempfile.mkdtemp(prefix=f"bt_{task_id}_"))
+        task_work_dir = tmp_base / "strategies" / strategy_id
+        task_work_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(strategy_dir, task_work_dir, dirs_exist_ok=True)
+
+        # Symlink shared data directory
+        project_root = STRATEGIES_DIR.parent
+        datas_src = project_root / "datas"
+        datas_link = tmp_base / "datas"
+        if datas_src.is_dir() and not datas_link.exists():
+            os.symlink(str(datas_src), str(datas_link))
+
+        # Clear temp directory logs to avoid stale output
+        tmp_logs = task_work_dir / "logs"
+        if tmp_logs.is_dir():
+            shutil.rmtree(tmp_logs)
+
+        return tmp_base, task_work_dir
+
+    async def _persist_results(
+        self, task_id: str, user_id: str, task_work_dir: Path, strategy_dir: Path,
+    ) -> None:
+        """Parse logs, calculate metrics, persist results and notify completion."""
+        from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
+        from app.services.log_parser_service import parse_all_logs
+
+        log_result = parse_all_logs(task_work_dir)
+        if not log_result:
+            raise ValueError("Backtest completed but no log file found")
+
+        metrics = calculate_metrics_from_log_data(log_result, use_fincore=True)
+
+        # Copy temp logs back to strategy directory for persistence
+        persist_log_dir = strategy_dir / "logs" / f"task_{task_id}"
+        tmp_log_dir = log_result.get("log_dir")
+        if tmp_log_dir and Path(tmp_log_dir).is_dir():
+            shutil.copytree(tmp_log_dir, persist_log_dir, dirs_exist_ok=True)
+
+        await self.task_manager.create_result(
+            task_id=task_id,
+            metrics=metrics,
+            equity_curve=log_result.get("equity_curve", []),
+            equity_dates=log_result.get("equity_dates", []),
+            drawdown_curve=log_result.get("drawdown_curve", []),
+            trades=log_result.get("trades", []),
+            metrics_source=metrics.get("metrics_source", "manual"),
+        )
+        await self.task_manager.update_task_status(
+            task_id, TaskStatus.COMPLETED, log_dir=str(persist_log_dir),
+        )
+
+        completed_result = await self.get_result(task_id, user_id=user_id)
+        await ws_manager.send_to_task(
+            task_id,
+            BacktestCompletedEvent(
+                task_id=task_id,
+                message="Backtest completed",
+                result=completed_result.model_dump(mode="json") if completed_result else None,
+            ).model_dump(mode="python"),
+        )
+        logger.info(f"Backtest completed: {task_id}, return: {log_result.get('total_return', 0)}%")
+
+    async def _notify_progress(self, task_id: str, progress: int, message: str) -> None:
+        """Send a backtest progress event via WebSocket."""
+        await ws_manager.send_to_task(
+            task_id,
+            BacktestProgressEvent(task_id=task_id, progress=progress, message=message).model_dump(mode="python"),
+        )
 
     def _has_custom_params(self, request: BacktestRequest) -> bool:
         """Check if there are custom parameters to override config.yaml.
@@ -463,31 +424,8 @@ class BacktestService:
         results = await self.result_repo.list(filters={"task_id": task_id}, limit=1)
         result_model = results[0] if results else None
 
-        result = BacktestResult(
-            task_id=task.id,
-            strategy_id=task.strategy_id,
-            symbol=task.symbol,
-            start_date=(
-                task.request_data.get("start_date") if task.request_data else datetime.now()
-            ),
-            end_date=(task.request_data.get("end_date") if task.request_data else datetime.now()),
-            status=TaskStatus(task.status),
-            total_return=result_model.total_return if result_model else 0,
-            annual_return=result_model.annual_return if result_model else 0,
-            sharpe_ratio=result_model.sharpe_ratio if result_model else 0,
-            max_drawdown=result_model.max_drawdown if result_model else 0,
-            win_rate=result_model.win_rate if result_model else 0,
-            metrics_source=getattr(result_model, "metrics_source", None) or "manual",
-            total_trades=result_model.total_trades if result_model else 0,
-            profitable_trades=result_model.profitable_trades if result_model else 0,
-            losing_trades=result_model.losing_trades if result_model else 0,
-            equity_curve=result_model.equity_curve if result_model else [],
-            equity_dates=result_model.equity_dates if result_model else [],
-            drawdown_curve=result_model.drawdown_curve if result_model else [],
-            trades=result_model.trades if result_model else [],
-            created_at=task.created_at,
-            error_message=task.error_message,
-        )
+        # Use unified result builder to avoid code duplication
+        result = self._build_backtest_result(task, result_model)
 
         # Cache result
         if task.status == TaskStatus.COMPLETED:
@@ -613,8 +551,9 @@ class BacktestService:
                 if log_path.is_dir():
                     try:
                         shutil.rmtree(log_path, ignore_errors=True)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        # Log deletion failure is non-critical; log and continue
+                        logger.debug("Log dir deletion failed (ignored): %s", e)
 
         # Delete task and result using task_manager
         success = await self.task_manager.delete_task_and_result(task_id, user_id)

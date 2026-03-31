@@ -510,13 +510,11 @@ class TestLiveTradingWebSocket:
 
             # Make the loop run once then exit
             with patch("asyncio.sleep", side_effect=[None, Exception("Exit")]):
-                try:
-                    await live_trading_websocket(mock_ws, "task_123")
-                except Exception:
-                    pass
+                await live_trading_websocket(mock_ws, "task_123")
 
                 # Verify connection was established
                 mock_mgr.connect.assert_called_once()
+                mock_mgr.disconnect.assert_called_once()
 
                 # Verify initial message was sent
                 assert mock_mgr.send_to_task.call_count >= 1
@@ -542,10 +540,7 @@ class TestLiveTradingWebSocket:
             mock_mgr.send_to_task = AsyncMock()
 
             with patch("asyncio.sleep", side_effect=Exception("Exit")):
-                try:
-                    await live_trading_websocket(mock_ws, "task_123")
-                except Exception:
-                    pass
+                await live_trading_websocket(mock_ws, "task_123")
 
                 # Verify client ID format
                 call_args = mock_mgr.connect.call_args
@@ -560,17 +555,16 @@ class TestLiveTradingWebSocket:
         from app.api.live_trading_complete import live_trading_websocket
 
         mock_ws = MagicMock()
-        mock_ws.accept = AsyncMock(side_effect=Exception("Connection error"))
 
         with patch("app.api.live_trading_complete.ws_manager") as mock_mgr:
+            mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
+            mock_mgr.send_to_task = AsyncMock(side_effect=Exception("Connection error"))
 
-            try:
-                await live_trading_websocket(mock_ws, "task_123")
-            except Exception:
-                pass
+            await live_trading_websocket(mock_ws, "task_123")
 
             # Verify disconnect was called (error handling)
+            mock_mgr.disconnect.assert_called_once()
 
 
 @pytest.mark.asyncio

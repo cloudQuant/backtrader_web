@@ -14,7 +14,7 @@ vi.mock('echarts', () => ({
   init: vi.fn(() => mockChartInstance),
   graphic: {
     LinearGradient: class LinearGradient {
-      constructor(public config: any) {}
+      constructor(public config: unknown) {}
     },
   },
 }))
@@ -107,9 +107,9 @@ describe('EquityCurve', () => {
 
   it('should use data prop with EquityPoint structure', () => {
     const equityData = [
-      { date: '2024-01-01', total_assets: 100000 },
-      { date: '2024-01-02', total_assets: 101000 },
-      { date: '2024-01-03', total_assets: 102000 },
+      { date: '2024-01-01', total_assets: 100000, cash: 100000, position_value: 0 },
+      { date: '2024-01-02', total_assets: 101000, cash: 91000, position_value: 10000 },
+      { date: '2024-01-03', total_assets: 102000, cash: 92000, position_value: 10000 },
     ]
     const wrapper = mount(EquityCurve, {
       props: {

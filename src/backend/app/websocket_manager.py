@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from app.schemas.backtest_enhanced import TaskStatus
+from app.schemas.backtest_enhanced import BacktestConnectedEvent, TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +26,31 @@ class ConnectionManager:
         # Task ID to WebSocket connection list mapping
         # key: task_id, value: list of (websocket, client_id)
         self.active_connections: dict[str, list[tuple]] = {}
+        # Track connections known to be closed to avoid sending to dead sockets
+        self._closed_connections: set[WebSocket] = set()
 
-    async def connect(self, websocket: WebSocket, task_id: str, client_id: str):
+    async def send_to_connection(self, websocket: WebSocket, message: dict[str, Any]) -> bool:
+        """Send a message to a single WebSocket connection.
+
+        Returns True on success, False if the connection is dead or send failed.
+        """
+        if websocket in self._closed_connections:
+            return False
+        try:
+            await websocket.send_json(message)
+            return True
+        except Exception:
+            logger.exception("Failed to send message to a WebSocket connection")
+            self._closed_connections.add(websocket)
+            return False
+
+    async def connect(
+        self,
+        websocket: WebSocket,
+        task_id: str,
+        client_id: str,
+        subprotocol: str | None = None,
+    ):
         """Establish a WebSocket connection.
 
         Args:
@@ -35,7 +58,10 @@ class ConnectionManager:
             task_id: Task ID.
             client_id: Client ID (for multiple connections to the same task).
         """
-        await websocket.accept()
+        if subprotocol is None:
+            await websocket.accept()
+        else:
+            await websocket.accept(subprotocol=subprotocol)
 
         # Add to active connections
         if task_id not in self.active_connections:
@@ -43,14 +69,9 @@ class ConnectionManager:
 
         self.active_connections[task_id].append((websocket, client_id))
 
-        # Send connection success message
-        await self.send_to_task(
-            task_id,
-            {
-                "type": "connected",
-                "task_id": task_id,
-                "message": "WebSocket connected successfully",
-            },
+        await self.send_to_connection(
+            websocket,
+            BacktestConnectedEvent(task_id=task_id, client_id=client_id).model_dump(mode="python"),
         )
 
         logger.info(f"WebSocket connected: task_id={task_id}, client_id={client_id}")
@@ -68,13 +89,14 @@ class ConnectionManager:
             self.active_connections[task_id] = [
                 (ws, cid)
                 for ws, cid in self.active_connections[task_id]
-                if ws != websocket and cid != client_id
+                if not (ws == websocket and cid == client_id)
             ]
 
             # Delete task if no more connections
             if not self.active_connections[task_id]:
                 del self.active_connections[task_id]
 
+        self._closed_connections.discard(websocket)
         logger.info(f"WebSocket disconnected: task_id={task_id}, client_id={client_id}")
 
     async def send_to_task(self, task_id: str, message: dict[str, Any]):
@@ -89,16 +111,12 @@ class ConnectionManager:
             return
 
         # Get all connections for the task
-        connections = self.active_connections[task_id]
+        connections = list(self.active_connections[task_id])
         dead_connections = []
 
         for websocket, client_id in connections:
-            try:
-                await websocket.send_json(message)
-            except Exception as e:
-                logger.error(
-                    f"Failed to send message: task_id={task_id}, client_id={client_id}, {e}"
-                )
+            sent = await self.send_to_connection(websocket, message)
+            if not sent:
                 dead_connections.append((websocket, client_id))
 
         # Remove dead connections
@@ -115,10 +133,8 @@ class ConnectionManager:
         """
         for task_id, connections in list(self.active_connections.items()):
             for websocket, client_id in connections:
-                try:
-                    await websocket.send_json(message)
-                except Exception as e:
-                    logger.error(f"Failed to broadcast message: {e}")
+                sent = await self.send_to_connection(websocket, message)
+                if not sent:
                     self.disconnect(websocket, task_id, client_id)
 
     def get_connection_count(self, task_id: str) -> int:
@@ -155,6 +171,7 @@ class MessageType:
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    ERROR = "error"
 
 
 class ProgressMessage:
@@ -229,6 +246,47 @@ class ResultMessage:
             "task_id": self.task_id,
             "result": self.result,
         }
+
+
+class ErrorMessage:
+    """Standardized WebSocket error message.
+
+    Attributes:
+        task_id: Task ID (may be empty for connection-level errors).
+        code: Machine-readable error code.
+        message: Human-readable error description.
+        type: Message type (always "error").
+    """
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        task_id: str = "",
+        data: dict[str, Any] | None = None,
+    ):
+        self.task_id = task_id
+        self.code = code
+        self.message = message
+        self.data = data or {}
+        self.type = MessageType.ERROR
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary.
+
+        Returns:
+            Dictionary representation of the error message.
+        """
+        result: dict[str, Any] = {
+            "type": self.type,
+            "code": self.code,
+            "message": self.message,
+        }
+        if self.task_id:
+            result["task_id"] = self.task_id
+        if self.data:
+            result["data"] = self.data
+        return result
 
 
 class LogMessage:

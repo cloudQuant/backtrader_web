@@ -1,32 +1,50 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
+import * as sessionUtils from '@/utils/session'
 
 // Mock the auth API
 vi.mock('@/api/auth', () => ({
   authApi: {
-    login: vi.fn().mockResolvedValue({ access_token: 'mock-token', token_type: 'bearer', expires_in: 86400 }),
-    register: vi.fn().mockResolvedValue({ id: '1', username: 'testuser', email: 'test@test.com' }),
-    getMe: vi.fn().mockResolvedValue({ id: '1', username: 'testuser', email: 'test@test.com', is_active: true, created_at: '2024-01-01T00:00:00' }),
+    login: vi.fn().mockResolvedValue({
+      access_token: 'mock-token',
+      token_type: 'bearer',
+      expires_in: 86400,
+    }),
+    register: vi.fn().mockResolvedValue({
+      id: '1',
+      username: 'testuser',
+      email: 'test@test.com',
+      is_active: true,
+      created_at: '2024-01-01T00:00:00',
+    }),
+    getMe: vi.fn().mockResolvedValue({
+      id: '1',
+      username: 'testuser',
+      email: 'test@test.com',
+      is_active: true,
+      created_at: '2024-01-01T00:00:00',
+    }),
   },
 }))
 
-// Mock localStorage
-const localStorageMock = (() => {
-  let store: Record<string, string> = {}
-  return {
-    getItem: vi.fn((key: string) => store[key] || null),
-    setItem: vi.fn((key: string, value: string) => { store[key] = value }),
-    removeItem: vi.fn((key: string) => { delete store[key] }),
-    clear: vi.fn(() => { store = {} }),
-  }
-})()
-Object.defineProperty(window, 'localStorage', { value: localStorageMock })
+// Mock strategy API
+vi.mock('@/api/strategy', () => ({
+  strategyApi: {
+    getTemplates: vi.fn().mockResolvedValue({ templates: [], total: 0 }),
+  },
+}))
+
+// Mock session utils
+vi.mock('@/utils/session', () => ({
+  getAccessToken: vi.fn(() => null),
+  setAccessToken: vi.fn(),
+  clearAccessToken: vi.fn(),
+}))
 
 describe('useAuthStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
-    localStorageMock.clear()
     vi.clearAllMocks()
   })
 
@@ -42,7 +60,7 @@ describe('useAuthStore', () => {
     await store.login({ username: 'testuser', password: 'password123' })
     expect(store.token).toBe('mock-token')
     expect(store.isAuthenticated).toBe(true)
-    expect(localStorageMock.setItem).toHaveBeenCalledWith('token', 'mock-token')
+    expect(sessionUtils.setAccessToken).toHaveBeenCalledWith('mock-token')
   })
 
   it('should fetch user after login', async () => {
@@ -59,7 +77,7 @@ describe('useAuthStore', () => {
     expect(store.token).toBeNull()
     expect(store.user).toBeNull()
     expect(store.isAuthenticated).toBe(false)
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('token')
+    expect(sessionUtils.clearAccessToken).toHaveBeenCalled()
   })
 
   it('should register without setting token', async () => {

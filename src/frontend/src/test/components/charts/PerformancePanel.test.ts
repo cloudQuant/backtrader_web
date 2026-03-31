@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PerformancePanel from '@/components/charts/PerformancePanel.vue'
+import type { PerformanceMetrics } from '@/types/analytics'
 
 // Create a stub that renders the title prop
 const MetricCardStub = {
@@ -22,14 +23,16 @@ describe('PerformancePanel', () => {
   })
 
   it('should render main metrics section', () => {
+    const metrics: Partial<PerformanceMetrics> = {
+      initial_capital: 100000,
+      final_assets: 120000,
+      total_return: 0.2,
+      annualized_return: 0.25,
+    }
+
     const wrapper = mount(PerformancePanel, {
       props: {
-        metrics: {
-          initial_capital: 100000,
-          final_assets: 120000,
-          total_return: 0.2,
-          annualized_return: 0.25,
-        },
+        metrics,
       },
       global: {
         stubs: {
@@ -44,14 +47,16 @@ describe('PerformancePanel', () => {
   })
 
   it('should render risk metrics section', () => {
+    const metrics: Partial<PerformanceMetrics> = {
+      max_drawdown: -0.1,
+      sharpe_ratio: 1.5,
+      win_rate: 0.6,
+      profit_factor: 2.0,
+    }
+
     const wrapper = mount(PerformancePanel, {
       props: {
-        metrics: {
-          max_drawdown: -0.1,
-          sharpe_ratio: 1.5,
-          win_rate: 0.6,
-          profit_factor: 2.0,
-        },
+        metrics,
       },
       global: {
         stubs: {
@@ -66,14 +71,16 @@ describe('PerformancePanel', () => {
   })
 
   it('should render trade statistics section', () => {
+    const metrics: Partial<PerformanceMetrics> = {
+      trade_count: 50,
+      avg_holding_days: 5,
+      max_consecutive_wins: 5,
+      max_consecutive_losses: 3,
+    }
+
     const wrapper = mount(PerformancePanel, {
       props: {
-        metrics: {
-          trade_count: 50,
-          avg_holding_days: 5,
-          max_consecutive_wins: 5,
-          max_consecutive_losses: 3,
-        },
+        metrics,
       },
       global: {
         stubs: {
@@ -102,7 +109,7 @@ describe('PerformancePanel', () => {
   })
 
   it('should render all metrics with complete data', () => {
-    const completeMetrics = {
+    const completeMetrics: Partial<PerformanceMetrics> = {
       initial_capital: 100000,
       final_assets: 120000,
       total_return: 0.2,

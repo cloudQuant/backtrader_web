@@ -104,6 +104,6 @@ import MetricCard from './MetricCard.vue'
 import type { PerformanceMetrics } from '@/types/analytics'
 
 defineProps<{
-  metrics?: PerformanceMetrics
+  metrics?: Partial<PerformanceMetrics>
 }>()
 </script>

@@ -1040,13 +1040,11 @@ class TestPaperTradingWebSocket:
 
                 # Make the loop exit after one iteration
                 with patch("asyncio.sleep", side_effect=[None, Exception("Exit")]):
-                    try:
-                        await websocket_account_endpoint(mock_ws, "acc_123")
-                    except Exception:
-                        pass
+                    await websocket_account_endpoint(mock_ws, "acc_123")
 
                 # Verify connection was established
                 mock_mgr.connect.assert_called_once()
+                mock_mgr.disconnect.assert_called_once()
 
                 # Verify initial message was sent
                 assert mock_mgr.send_to_task.call_count >= 1

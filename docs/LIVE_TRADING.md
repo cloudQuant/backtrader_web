@@ -6,7 +6,16 @@
 
 实盘交易模块基于 Backtrader 架构，通过 Cerebro + Store + Broker 模式对接多个交易所和券商，支持加密货币（CCXT）和国内期货（CTP）。
 
-### 1.1 支持的交易所/券商
+### 1.1 当前链路说明
+
+| 类型 | 对外路径 | 后端实现 | 当前状态 |
+|------|----------|----------|----------|
+| 主链路 | `/api/v1/live-trading` | `app.api.live_trading_api` + `LiveTradingManager` | 当前默认入口 |
+| 遗留兼容链路 | `/api/v1/live-trading-crypto` | `app.api.live_trading` + `LiveTradingService` | Deprecated，仅保留兼容用途 |
+
+新功能、联调和问题修复应优先基于主链路 `live-trading` 进行；`live-trading-crypto` 仅用于兼容历史调用，不再作为默认接入入口。
+
+### 1.2 支持的交易所/券商
 
 | 类型 | 交易所 | 协议 |
 |------|--------|------|

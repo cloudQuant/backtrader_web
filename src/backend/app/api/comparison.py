@@ -263,8 +263,6 @@ async def share_comparison(
         HTTPException: If the comparison does not exist (404) or user lacks
             permission to share (403).
     """
-    _shared_with_user_ids = request.get("shared_with_user_ids", [])
-
     comparison = await service.get_comparison(comparison_id, current_user.sub)
 
     if not comparison:
@@ -276,13 +274,10 @@ async def share_comparison(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to share this comparison"
         )
 
-    # TODO: Implement share logic
-    # await service.share_comparison(comparison_id, current_user.sub, shared_with_user_ids)
-
-    return {
-        "comparison_id": comparison_id,
-        "message": "Comparison shared successfully",
-    }
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="Comparison sharing is not available yet",
+    )
 
 
 # ==================== Comparison Data API ====================

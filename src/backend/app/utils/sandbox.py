@@ -4,11 +4,18 @@ Strategy execution sandbox.
 Safely executes user strategy code in a restricted environment.
 """
 
+import ast
 import math
+import signal
+import threading
 from datetime import datetime
 from typing import Any
 
 import backtrader as bt
+
+
+class _SandboxTimeoutError(Exception):
+    """Raised when strategy code execution exceeds the time limit."""
 
 
 class StrategySandbox:
@@ -82,7 +89,11 @@ class StrategySandbox:
 
     @staticmethod
     def _safe_import(
-        name: str, globals: dict = None, locals: dict = None, fromlist: list = None, level: int = 0
+        name: str,
+        globals: dict | None = None,
+        locals: dict | None = None,
+        fromlist: list | None = None,
+        level: int = 0,
     ):
         """Safe import function.
 
@@ -131,20 +142,24 @@ class StrategySandbox:
         """Safe print function.
 
         Disables print to prevent user strategy output.
+        Intentionally does nothing - user strategy print calls are silently ignored.
 
         Args:
-            *args: Variable length argument list.
-            **kwargs: Arbitrary keyword arguments.
+            *args: Variable length argument list (ignored).
+            **kwargs: Arbitrary keyword arguments (ignored).
         """
         pass
 
     @classmethod
-    def execute_strategy_code(cls, code: str, params: dict | None = None) -> type:
+    def execute_strategy_code(
+        cls, code: str, params: dict | None = None, timeout: int | None = None
+    ) -> type:
         """Safely execute strategy code.
 
         Args:
             code: Strategy code string.
             params: Strategy parameter dictionary.
+            timeout: Maximum execution time in seconds. Defaults to _EXECUTION_TIMEOUT.
 
         Returns:
             Strategy class (inherits from bt.Strategy).
@@ -152,9 +167,11 @@ class StrategySandbox:
         Raises:
             ValueError: If the code is invalid or contains unsafe content.
             SyntaxError: If the code has syntax errors.
-            RuntimeError: If the code execution fails.
+            RuntimeError: If the code execution fails or times out.
         """
-        # Pre-check code to prevent dangerous operations
+        execution_timeout = timeout if timeout is not None else cls._EXECUTION_TIMEOUT
+
+        # Pre-check code to prevent dangerous operations (AST-based)
         cls._check_code_safety(code)
 
         # Create safe namespace
@@ -168,29 +185,16 @@ class StrategySandbox:
             # Compile code
             compiled_code = compile(code, "<strategy>", "exec")
 
-            # Execute code
-            exec(compiled_code, safe_globals)
+            # Execute with timeout enforcement
+            cls._exec_with_timeout(compiled_code, safe_globals, execution_timeout)
 
             # Find strategy class
-            strategy_class = None
-            for name, obj in safe_globals.items():
-                # Skip built-in modules and functions
-                if name.startswith("_"):
-                    continue
-                if name in cls._ALLOWED_MODULES:
-                    continue
+            strategy_class = cls._find_strategy_class(safe_globals)
 
-                # Find class that inherits from bt.Strategy
-                if isinstance(obj, type):
-                    try:
-                        # Check if it's a subclass of bt.Strategy
-                        if issubclass(obj, bt.Strategy) and obj != bt.Strategy:
-                            strategy_class = obj
-                            break
-                    except TypeError:
-                        # issubclass may fail in some cases
-                        continue
-
+        except _SandboxTimeoutError:
+            raise RuntimeError(
+                f"Strategy code execution timed out after {execution_timeout} seconds"
+            )
         except SyntaxError as e:
             raise SyntaxError(f"Strategy code syntax error: {e}")
         except NameError as e:
@@ -200,12 +204,10 @@ class StrategySandbox:
         except ImportError as e:
             raise ImportError(f"Disallowed module import in strategy code: {e}")
         except ValueError:
-            # Re-raise ValueError directly (for "no strategy class found")
             raise
         except Exception as e:
             raise RuntimeError(f"Strategy code execution failed: {type(e).__name__}: {e}")
 
-        # Check for strategy class after exception handling
         if not strategy_class:
             raise ValueError(
                 "No valid Strategy class found in strategy code (must inherit from bt.Strategy)"
@@ -214,83 +216,243 @@ class StrategySandbox:
         return strategy_class
 
     @classmethod
-    def _check_code_safety(cls, code: str) -> None:
-        """Check code safety.
+    def _exec_with_timeout(
+        cls, compiled_code: Any, safe_globals: dict, timeout: int
+    ) -> None:
+        """Execute compiled code with a timeout.
 
-        Prevents dangerous operations such as:
-        - Importing dangerous modules
-        - Executing system commands
-        - File operations
-        - Network operations
+        Uses signal.alarm on Unix and threading.Timer as fallback.
+
+        Args:
+            compiled_code: The compiled code object.
+            safe_globals: The safe global namespace.
+            timeout: Timeout in seconds.
+
+        Raises:
+            _SandboxTimeoutError: If execution exceeds timeout.
+        """
+        if hasattr(signal, "SIGALRM"):
+            # Unix: use signal-based timeout (works within the same thread)
+            def _timeout_handler(signum, frame):
+                raise _SandboxTimeoutError()
+
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(timeout)
+            try:
+                exec(compiled_code, safe_globals)
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+        else:
+            # Fallback: use threading (less reliable but cross-platform)
+            error: list[Exception] = []
+
+            def _run():
+                try:
+                    exec(compiled_code, safe_globals)
+                except Exception as e:
+                    error.append(e)
+
+            t = threading.Thread(target=_run, daemon=True)
+            t.start()
+            t.join(timeout=timeout)
+            if t.is_alive():
+                raise _SandboxTimeoutError()
+            if error:
+                raise error[0]
+
+    @classmethod
+    def _find_strategy_class(cls, safe_globals: dict) -> type | None:
+        """Find the bt.Strategy subclass in the executed globals.
+
+        Args:
+            safe_globals: The global namespace after code execution.
+
+        Returns:
+            The strategy class, or None if not found.
+        """
+        for name, obj in safe_globals.items():
+            if name.startswith("_"):
+                continue
+            if name in cls._ALLOWED_MODULES:
+                continue
+            if isinstance(obj, type):
+                try:
+                    if issubclass(obj, bt.Strategy) and obj != bt.Strategy:
+                        return obj
+                except TypeError:
+                    continue
+        return None
+
+    # Dangerous modules that must never be imported
+    _DANGEROUS_MODULES = frozenset({
+        "os", "sys", "subprocess", "shutil", "pickle", "socket",
+        "urllib", "requests", "http", "ctypes", "multiprocessing",
+        "signal", "importlib", "pathlib", "io", "builtins",
+        "code", "codeop", "compileall", "py_compile",
+    })
+
+    # Dangerous function names that must never be called
+    _DANGEROUS_CALLS = frozenset({
+        "eval", "exec", "compile", "open", "input", "raw_input",
+        "__import__", "breakpoint", "exit", "quit",
+    })
+
+    # Dangerous dunder attributes (legitimate ones like __init__ are allowed)
+    _DANGEROUS_ATTRS = frozenset({
+        "__builtins__", "__subclasses__", "__bases__", "__mro__",
+        "__globals__", "__code__", "__closure__", "__func__",
+        "__self__", "__module__", "__dict__", "__class__",
+        "__import__", "__loader__", "__spec__",
+    })
+
+    # Default execution timeout in seconds
+    _EXECUTION_TIMEOUT = 30
+
+    @classmethod
+    def _check_code_safety(cls, code: str) -> None:
+        """Check code safety using AST analysis.
+
+        Parses the code into an abstract syntax tree and walks every node
+        to detect dangerous operations such as:
+        - Importing disallowed modules (including via importlib)
+        - Calling dangerous built-in functions
+        - Accessing restricted dunder attributes
+        - Using globals()/locals()/vars() to escape the sandbox
 
         Args:
             code: The code to check.
 
         Raises:
             ValueError: If the code contains dangerous operations.
+            SyntaxError: If the code cannot be parsed.
         """
-        # List of dangerous modules
-        dangerous_modules = [
-            "os",
-            "sys",
-            "subprocess",
-            "shutil",
-            "pickle",
-            "socket",
-            "urllib",
-            "requests",
-            "http",
-            "eval",
-            "exec",
-            "compile",
-            "__import__",
-            "open",
-            "file",
-            "input",
-            "raw_input",
-            "globals",
-            "locals",
-            "vars",
-            "dir",
-        ]
+        try:
+            tree = ast.parse(code, filename="<strategy>")
+        except SyntaxError:
+            raise  # Let SyntaxError propagate with its original message
 
-        # List of dangerous functions
-        dangerous_functions = [
-            "eval",
-            "exec",
-            "compile",
-            "open",
-            "file",
-            "input",
-            "raw_input",
-        ]
+        for node in ast.walk(tree):
+            cls._check_node(node)
 
-        # Check for dangerous module imports
-        for module in dangerous_modules:
-            if f"import {module}" in code or f"from {module}" in code:
-                raise ValueError(f"Importing dangerous module is not allowed: {module}")
+    @classmethod
+    def _check_node(cls, node: ast.AST) -> None:
+        """Check a single AST node for safety violations.
 
-        # Check for dangerous function calls
-        for func in dangerous_functions:
-            if f"{func}(" in code:
-                raise ValueError(f"Using dangerous function is not allowed: {func}")
+        Args:
+            node: The AST node to check.
 
-        # Check for double underscore attribute access (may bypass restrictions)
-        if "__" in code:
-            # Check if accessing __builtins__
-            if "__builtins__" in code:
-                raise ValueError("Accessing __builtins__ is not allowed")
+        Raises:
+            ValueError: If the node represents a dangerous operation.
+        """
+        # Check import statements
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                base = alias.name.split(".")[0]
+                if base in cls._DANGEROUS_MODULES:
+                    raise ValueError(
+                        f"Importing module '{alias.name}' is not allowed"
+                    )
 
-        # Check if trying to modify global namespace
-        if "globals()[" in code or "locals()[" in code:
-            raise ValueError("Using globals() or locals() is not allowed")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                base = node.module.split(".")[0]
+                if base in cls._DANGEROUS_MODULES:
+                    raise ValueError(
+                        f"Importing from module '{node.module}' is not allowed"
+                    )
+
+        # Check Name nodes for dangerous dunder names (e.g., bare __builtins__)
+        elif isinstance(node, ast.Name):
+            if node.id in cls._DANGEROUS_ATTRS:
+                raise ValueError(
+                    f"Accessing attribute '{node.id}' is not allowed"
+                )
+
+        # Check function calls
+        elif isinstance(node, ast.Call):
+            func_name = cls._get_call_name(node)
+            if func_name in cls._DANGEROUS_CALLS:
+                raise ValueError(
+                    f"Calling function '{func_name}' is not allowed"
+                )
+            # Block globals(), locals(), vars() calls
+            if func_name in ("globals", "locals", "vars", "dir"):
+                raise ValueError(
+                    f"Calling '{func_name}()' is not allowed"
+                )
+            # Block getattr/setattr/delattr with dangerous attr names
+            if func_name in ("getattr", "setattr", "delattr") and len(node.args) >= 2:
+                if isinstance(node.args[1], ast.Constant) and isinstance(
+                    node.args[1].value, str
+                ):
+                    attr = node.args[1].value
+                    if attr in cls._DANGEROUS_ATTRS:
+                        raise ValueError(
+                            f"Accessing attribute '{attr}' via {func_name}() is not allowed"
+                        )
+
+        # Check attribute access for dangerous dunder names
+        elif isinstance(node, ast.Attribute):
+            if node.attr in cls._DANGEROUS_ATTRS:
+                raise ValueError(
+                    f"Accessing attribute '{node.attr}' is not allowed"
+                )
+
+        # Check subscript access on globals()/locals()
+        elif isinstance(node, ast.Subscript):
+            if isinstance(node.value, ast.Call):
+                name = cls._get_call_name(node.value)
+                if name in ("globals", "locals", "vars"):
+                    raise ValueError(
+                        f"Subscript access on '{name}()' is not allowed"
+                    )
+
+    @staticmethod
+    def _get_call_name(node: ast.Call) -> str:
+        """Extract the function name from a Call AST node.
+
+        Args:
+            node: The Call AST node.
+
+        Returns:
+            The function name, or empty string if not extractable.
+        """
+        if isinstance(node.func, ast.Name):
+            return node.func.id
+        if isinstance(node.func, ast.Attribute):
+            return node.func.attr
+        return ""
 
 
 class DockerSandbox:
-    """Docker container sandbox (optional implementation).
+    """Docker container sandbox for strategy execution.
 
     Uses Docker containers to completely isolate the strategy execution environment.
     Provides the highest level of security but requires Docker support.
+
+    Implementation Status:
+        - Core execution logic: Implemented
+        - Resource limits: Implemented (CPU, memory, network isolation)
+        - Security features: Implemented (read-only filesystem, noexec tmpfs)
+
+    Requirements:
+        - Docker must be installed and running
+        - Docker image `backtrader-sandbox:latest` must be built or pulled
+          (see project documentation for building the image)
+
+    Note: This is an optional feature. The StrategySandbox class provides a
+    simpler in-process sandbox that works without external dependencies.
+    DockerSandbox is intended for production environments requiring stronger
+    isolation where the overhead of container management is acceptable.
+
+    Security Features:
+        - No network access (--network=none)
+        - CPU limit: 1 core (--cpus=1.0)
+        - Memory limit: 512MB (--memory=512m)
+        - Read-only root filesystem (--read-only)
+        - No-exec temporary filesystem (--tmpfs /tmp:rw,noexec,nosuid,size=100m)
+        - Read-only strategy mount
     """
 
     @staticmethod
@@ -373,7 +535,7 @@ class DockerSandbox:
 # Convenience function
 def execute_strategy_safely(
     code: str, params: dict | None = None, use_docker: bool = False
-) -> type:
+) -> type | dict[str, Any]:
     """Safely execute strategy code.
 
     Args:
@@ -382,14 +544,15 @@ def execute_strategy_safely(
         use_docker: Whether to use Docker container isolation (more secure but requires Docker).
 
     Returns:
-        Strategy class.
+        Strategy class (non-Docker mode) or execution result dict (Docker mode).
+
+    Raises:
+        RuntimeError: If Docker mode is requested but Docker is not available.
     """
     if use_docker:
         # Use Docker container isolation
-        DockerSandbox.execute_in_container(code, params or {})
-        # Assume Docker container returns serialized strategy class
-        # Actual implementation requires more complexity
-        raise NotImplementedError("Docker sandbox mode requires additional configuration")
+        # Note: Docker mode returns execution result dict, not strategy class
+        return DockerSandbox.execute_in_container(code, params or {})
     else:
         # Use restricted Python environment
         return StrategySandbox.execute_strategy_code(code, params)

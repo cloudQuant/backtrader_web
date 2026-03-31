@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { AxiosInstance, AxiosError } from 'axios'
+import type { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 
 import {
@@ -25,6 +25,15 @@ type ApiErrorPayload = {
     [k: string]: unknown
   }
   [k: string]: unknown
+}
+
+interface ApiClient extends AxiosInstance {
+  request<T = unknown, D = unknown>(config: AxiosRequestConfig<D>): Promise<T>
+  get<T = unknown, D = unknown>(url: string, config?: AxiosRequestConfig<D>): Promise<T>
+  delete<T = unknown, D = unknown>(url: string, config?: AxiosRequestConfig<D>): Promise<T>
+  post<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
+  put<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
+  patch<T = unknown, D = unknown>(url: string, data?: D, config?: AxiosRequestConfig<D>): Promise<T>
 }
 
 function stringifyDetail(detail: unknown): string | undefined {
@@ -79,14 +88,16 @@ export function getErrorMessage(e: unknown, fallback: string): string {
   return fallback
 }
 
+const env = (import.meta as ImportMeta & { env: Record<string, string | undefined> }).env
+
 // 创建axios实例
-const api: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
+const api = axios.create({
+  baseURL: env.VITE_API_BASE_URL || '/api/v1',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
-})
+}) as ApiClient
 
 // 请求拦截器
 api.interceptors.request.use(

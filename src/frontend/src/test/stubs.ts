@@ -3,6 +3,7 @@
  * These stubs absorb common props and keep the rendered DOM stable.
  */
 import { defineComponent, h } from 'vue'
+import { vi } from 'vitest'
 
 const cardStub = defineComponent({
   name: 'ElCardStub',
@@ -45,7 +46,12 @@ const inputStub = defineComponent({
   inheritAttrs: false,
   props: ['modelValue', 'type', 'placeholder', 'prefixIcon', 'size', 'showPassword', 'disabled'],
   emits: ['update:modelValue', 'input', 'change'],
-  setup(props, { emit }) {
+  setup(props, { emit, expose }) {
+    expose({
+      focus: vi.fn(),
+      blur: vi.fn(),
+      select: vi.fn(),
+    })
     return () =>
       h('input', {
         class: 'el-input',
@@ -211,4 +217,6 @@ export const elStubs: Record<string, any> = {
   'el-header': layoutStub('header', 'el-header'),
   'el-main': layoutStub('main', 'el-main'),
   'el-button-group': { template: '<div class="el-button-group"><slot /></div>' },
+  'el-config-provider': { template: '<div><slot /></div>' },
+  'el-time-picker': { template: '<input class="el-time-picker" />' },
 }

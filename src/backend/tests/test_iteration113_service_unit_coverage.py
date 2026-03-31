@@ -13,7 +13,6 @@ Tests:
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -97,113 +96,6 @@ async def test_monitoring_service_monitor_task_cancel_and_error_and_threshold_br
         )
         await svc._send_notification(rule, alert)
         await svc._send_websocket_alert(rule, alert)
-
-
-@pytest.mark.asyncio
-async def test_optimization_service_bayesian_objective_and_exception_paths(monkeypatch):
-    from app.schemas.backtest_enhanced import TaskStatus
-    from app.services.optimization_service import OptimizationService
-
-    svc = OptimizationService()
-
-    # Patch _run_single_backtest (used after best_params).
-    best_result = SimpleNamespace(
-        status=TaskStatus.COMPLETED, sharpe_ratio=2.0, total_return=3.0, max_drawdown=1.0
-    )
-    svc._run_single_backtest = AsyncMock(return_value=best_result)  # type: ignore[method-assign]
-
-    # Patch asyncio.run_coroutine_threadsafe to avoid deadlock and to close the coro.
-    def _fake_rcts(coro, loop):
-        coro.close()
-        fut = Mock()
-        fut.result = Mock(
-            return_value=SimpleNamespace(
-                status=TaskStatus.COMPLETED,
-                sharpe_ratio=1.0,
-                total_return=2.0,
-                max_drawdown=0.5,
-            )
-        )
-        return fut
-
-    # Dummy optuna implementation.
-    class _Trial:
-        def __init__(self):
-            self.params = {}
-            self.value = None
-
-        def suggest_int(self, key, low, high):
-            self.params[key] = low
-            return low
-
-        def suggest_float(self, key, low, high):
-            self.params[key] = low
-            return low
-
-        def suggest_categorical(self, key, choices):
-            self.params[key] = choices[0]
-            return choices[0]
-
-    class _Study:
-        def __init__(self):
-            self.trials = []
-            self.best_params = {}
-            self.best_trial = SimpleNamespace(value=-1.0)
-
-        def optimize(self, objective, n_trials):
-            for _ in range(n_trials):
-                t = _Trial()
-                t.value = objective(t)
-                self.trials.append(t)
-            self.best_params = self.trials[0].params
-            self.best_trial = SimpleNamespace(value=self.trials[0].value)
-
-    dummy_optuna = SimpleNamespace(create_study=lambda direction: _Study())
-    monkeypatch.setitem(sys.modules, "optuna", dummy_optuna)
-
-    request = SimpleNamespace(
-        strategy_id="s1",
-        metric="sharpe_ratio",
-        n_trials=1,
-        param_bounds={
-            "i": {"type": "int", "min": 1, "max": 2},
-            "f": {"type": "float", "min": 0.1, "max": 0.2},
-            "c": {"type": "categorical", "choices": ["a", "b"]},
-        },
-        backtest_config=SimpleNamespace(model_copy=lambda: SimpleNamespace(params={})),
-    )
-
-    with (
-        patch(
-            "app.services.optimization_service.asyncio.run_coroutine_threadsafe",
-            side_effect=_fake_rcts,
-        ),
-        patch(
-            "app.services.optimization_service.asyncio.get_event_loop",
-            new=lambda: asyncio.get_running_loop(),
-        ),
-    ):
-        result = await svc.run_bayesian_optimization("u1", request)
-        assert result.best_params
-
-    # Exception path inside objective.
-    def _fake_rcts_boom(coro, loop):
-        coro.close()
-        raise RuntimeError("boom")
-
-    with (
-        patch(
-            "app.services.optimization_service.asyncio.run_coroutine_threadsafe",
-            side_effect=_fake_rcts_boom,
-        ),
-        patch(
-            "app.services.optimization_service.asyncio.get_event_loop",
-            new=lambda: asyncio.get_running_loop(),
-        ),
-    ):
-        request.metric = "max_drawdown"
-        out = await svc.run_bayesian_optimization("u1", request)
-        assert out.n_trials == 1
 
 
 def test_param_optimization_service_run_optimization_thread_paths(tmp_path, monkeypatch):

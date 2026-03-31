@@ -337,7 +337,7 @@ class TestListAndDeleteResults:
                 created_at=datetime(2024, 1, 2),
             ),
         ]
-        mock_result = BacktestResult(
+        _mock_result = BacktestResult(  # noqa: F841 - created for test fixture reference
             task_id="task1",
             strategy_id="s1",
             symbol="000001.SZ",
@@ -363,7 +363,7 @@ class TestListAndDeleteResults:
 
         with patch.object(svc.task_repo, "list", return_value=tasks) as mock_list:
             with patch.object(svc.task_repo, "count", return_value=2):
-                with patch.object(svc, "get_result", return_value=mock_result) as mock_get_result:
+                with patch.object(svc.result_repo, "list", return_value=[]):
                     response = await svc.list_results("user1", limit=2, offset=0)
 
         mock_list.assert_awaited_once_with(
@@ -375,7 +375,6 @@ class TestListAndDeleteResults:
         )
         assert response.total == 2
         assert len(response.items) == 2
-        assert mock_get_result.await_count == 2
 
     async def test_delete_result_deletes_logs_and_clears_cache(self):
         task_manager = MagicMock(spec=BacktestExecutionManager)
@@ -392,3 +391,145 @@ class TestListAndDeleteResults:
         assert result is True
         task_manager.delete_task_and_result.assert_awaited_once_with("task123", "user1")
         mock_cache_delete.assert_awaited_once_with("backtest:result:task123")
+
+    async def test_delete_result_wrong_user_skips_log_cleanup(self):
+        """Deletion by wrong user should not clean up logs."""
+        task_manager = MagicMock(spec=BacktestExecutionManager)
+        task_manager.delete_task_and_result = AsyncMock(return_value=False)
+        svc = BacktestService(task_manager=task_manager)
+        task = BacktestTask(id="task123", user_id="user2", log_dir="/tmp/logs/task123")
+
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            with patch.object(svc.cache, "delete") as mock_cache_delete:
+                result = await svc.delete_result("task123", "user1")
+
+        assert result is False
+        mock_cache_delete.assert_not_awaited()
+
+    async def test_list_results_empty_returns_zero(self):
+        """Listing results for a user with no tasks returns empty list."""
+        svc = BacktestService()
+
+        with patch.object(svc.task_repo, "list", return_value=[]):
+            with patch.object(svc.task_repo, "count", return_value=0):
+                response = await svc.list_results("user1")
+
+        assert response.total == 0
+        assert len(response.items) == 0
+
+
+@pytest.mark.asyncio
+class TestGetResultErrorPaths:
+    """Error path tests for get_result."""
+
+    async def test_get_result_returns_none_for_missing_task(self):
+        svc = BacktestService()
+        with patch.object(svc.task_repo, "get_by_id", return_value=None):
+            result = await svc.get_result("nonexistent")
+        assert result is None
+
+    async def test_get_result_no_result_model_returns_zero_metrics(self):
+        """When task exists but no result model, metrics should default to zero."""
+        svc = BacktestService()
+        task = BacktestTask(
+            id="task123",
+            user_id="user1",
+            strategy_id="s1",
+            symbol="000001.SZ",
+            status=TaskStatus.RUNNING,
+            request_data={},
+            created_at=datetime(2024, 1, 1),
+        )
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            with patch.object(svc.cache, "get", return_value=None):
+                with patch.object(svc.result_repo, "list", return_value=[]):
+                    result = await svc.get_result("task123", "user1")
+
+        assert result is not None
+        assert result.total_return == 0
+        assert result.sharpe_ratio == 0
+        assert result.equity_curve == []
+
+    async def test_get_result_running_task_not_cached(self):
+        """Running tasks should not be cached."""
+        svc = BacktestService()
+        task = BacktestTask(
+            id="task123",
+            user_id="user1",
+            strategy_id="s1",
+            symbol="000001.SZ",
+            status=TaskStatus.RUNNING,
+            request_data={},
+            created_at=datetime(2024, 1, 1),
+        )
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            with patch.object(svc.cache, "get", return_value=None):
+                with patch.object(svc.result_repo, "list", return_value=[]):
+                    with patch.object(svc.cache, "set") as mock_set:
+                        await svc.get_result("task123", "user1")
+        mock_set.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+class TestCancelTaskErrorPaths:
+    """Error path tests for cancel_task."""
+
+    async def test_cancel_nonexistent_task_returns_false(self):
+        svc = BacktestService()
+        with patch.object(svc.task_repo, "get_by_id", return_value=None):
+            result = await svc.cancel_task("nonexistent", "user1")
+        assert result is False
+
+    async def test_cancel_wrong_user_returns_false(self):
+        svc = BacktestService()
+        task = BacktestTask(id="task123", user_id="user2", status=TaskStatus.RUNNING)
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            result = await svc.cancel_task("task123", "user1")
+        assert result is False
+
+    async def test_cancel_completed_task_returns_false(self):
+        svc = BacktestService()
+        task = BacktestTask(id="task123", user_id="user1", status=TaskStatus.COMPLETED)
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            result = await svc.cancel_task("task123", "user1")
+        assert result is False
+
+    async def test_cancel_already_cancelled_task_returns_false(self):
+        svc = BacktestService()
+        task = BacktestTask(id="task123", user_id="user1", status=TaskStatus.CANCELLED)
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            result = await svc.cancel_task("task123", "user1")
+        assert result is False
+
+
+@pytest.mark.asyncio
+class TestGetTaskStatusErrorPaths:
+    """Error path tests for get_task_status."""
+
+    async def test_get_status_missing_task(self):
+        svc = BacktestService()
+        with patch.object(svc.task_repo, "get_by_id", return_value=None):
+            result = await svc.get_task_status("nonexistent")
+        assert result is None
+
+    async def test_get_status_wrong_user(self):
+        svc = BacktestService()
+        task = BacktestTask(id="task123", user_id="user2", status=TaskStatus.COMPLETED)
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            result = await svc.get_task_status("task123", "user1")
+        assert result is None
+
+    async def test_get_status_correct_user(self):
+        svc = BacktestService()
+        task = BacktestTask(id="task123", user_id="user1", status=TaskStatus.COMPLETED)
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            result = await svc.get_task_status("task123", "user1")
+        assert result == TaskStatus.COMPLETED
+
+    async def test_get_status_no_user_filter(self):
+        """Without user_id filter, any task status is returned."""
+        svc = BacktestService()
+        task = BacktestTask(id="task123", user_id="user2", status=TaskStatus.RUNNING)
+        with patch.object(svc.task_repo, "get_by_id", return_value=task):
+            result = await svc.get_task_status("task123")
+        assert result == TaskStatus.RUNNING

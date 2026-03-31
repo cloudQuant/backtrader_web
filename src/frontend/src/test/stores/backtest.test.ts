@@ -7,14 +7,39 @@ vi.mock('@/api/backtest', () => ({
     run: vi.fn().mockResolvedValue({ task_id: 'task-123', status: 'pending' }),
     getResult: vi.fn().mockResolvedValue({
       task_id: 'task-123',
+      strategy_id: '001_ma_cross',
+      symbol: '000001.SZ',
+      start_date: '2023-01-01',
+      end_date: '2023-12-31',
+      status: 'completed',
       total_return: 15.5,
+      annual_return: 12.3,
       sharpe_ratio: 1.8,
       max_drawdown: 12.5,
+      win_rate: 60,
+      total_trades: 10,
+      profitable_trades: 6,
+      losing_trades: 4,
+      equity_curve: [100000, 102000, 105000],
+      equity_dates: ['2023-01-01', '2023-06-01', '2023-12-31'],
+      drawdown_curve: [0, -2.5, -1.2],
       trades: [],
+      created_at: '2024-01-01T00:00:00',
     }),
     list: vi.fn().mockResolvedValue({ total: 0, items: [] }),
-    delete: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue(undefined),
   },
+}))
+
+vi.mock('@/api/strategy', () => ({
+  strategyApi: {
+    getTemplates: vi.fn().mockResolvedValue({ templates: [], total: 0 }),
+  },
+}))
+
+vi.mock('vue-i18n', () => ({
+  createI18n: vi.fn(() => ({ global: { t: (key: string) => key } })),
+  useI18n: vi.fn(() => ({ t: (key: string) => key })),
 }))
 
 describe('useBacktestStore', () => {

@@ -29,8 +29,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "alembic>=1.13.0",
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-xdist>=3.5.0",
     "httpx>=0.26.0",
     "ruff>=0.1.0",
 ]
@@ -56,3 +58,9 @@ ignore = ["E501", "B008", "B904"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "performance: Performance benchmark tests",
+    "e2e: End-to-end integration tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]

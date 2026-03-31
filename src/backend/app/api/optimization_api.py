@@ -10,18 +10,19 @@ Provides:
 """
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user
-from app.services.param_optimization_service import (
-    _build_results_response as _build_optimization_results_response,
-)
+from app.schemas.backtest_enhanced import OptimizationRequest
 from app.services.param_optimization_service import (
     cancel_optimization,
+    estimate_backtest_optimization_total,
     get_optimization_progress,
     get_optimization_results,
+    submit_backtest_optimization,
     submit_optimization,
 )
 from app.services.strategy_service import get_template_by_id
@@ -75,6 +76,122 @@ class OptimizationSubmitResponse(BaseModel):
     task_id: str
     total_combinations: int
     message: str
+
+
+def _build_param_ranges(param_specs: dict[str, ParamRangeSpec]) -> dict[str, dict[str, Any]]:
+    return {
+        name: {
+            "start": spec.start,
+            "end": spec.end,
+            "step": spec.step,
+            "type": spec.type,
+        }
+        for name, spec in param_specs.items()
+    }
+
+
+async def submit_optimization_task_internal(
+    *,
+    strategy_id: str,
+    param_ranges: dict[str, dict[str, Any]],
+    n_workers: int,
+    user_id: str,
+) -> OptimizationSubmitResponse:
+    from app.services.optimization_execution_manager import (
+        get_optimization_execution_manager,
+    )
+    from app.services.param_optimization_service import generate_param_grid
+
+    tpl = get_template_by_id(strategy_id)
+    if not tpl:
+        raise HTTPException(status_code=404, detail=f"Strategy {strategy_id} not found")
+
+    grid = generate_param_grid(param_ranges)
+    if not grid:
+        raise HTTPException(
+            status_code=400,
+            detail="Parameter grid is empty, please check parameter ranges",
+        )
+
+    try:
+        mgr = get_optimization_execution_manager()
+        db_task = await mgr.create_task(
+            user_id=user_id,
+            strategy_id=strategy_id,
+            total=len(grid),
+            param_ranges=param_ranges,
+            n_workers=n_workers,
+        )
+        task_id = db_task.id
+
+        submit_optimization(
+            strategy_id=strategy_id,
+            param_ranges=param_ranges,
+            n_workers=n_workers,
+            task_id=task_id,
+            persist_to_db=True,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return OptimizationSubmitResponse(
+        task_id=task_id,
+        total_combinations=len(grid),
+        message=(
+            f"Optimization task submitted, total {len(grid)} parameter combinations, "
+            f"using {n_workers} workers"
+        ),
+    )
+
+
+async def submit_backtest_optimization_task_internal(
+    *,
+    request: OptimizationRequest,
+    user_id: str,
+) -> OptimizationSubmitResponse:
+    from app.services.optimization_execution_manager import (
+        get_optimization_execution_manager,
+    )
+
+    tpl = get_template_by_id(request.strategy_id)
+    if not tpl:
+        raise HTTPException(status_code=404, detail=f"Strategy {request.strategy_id} not found")
+
+    total = estimate_backtest_optimization_total(request)
+    if total <= 0:
+        raise HTTPException(status_code=400, detail="Optimization task is empty")
+
+    param_spec = request.param_grid if request.method == "grid" else request.param_bounds
+    n_workers = 1 if request.method == "bayesian" else 4
+
+    try:
+        mgr = get_optimization_execution_manager()
+        db_task = await mgr.create_task(
+            user_id=user_id,
+            strategy_id=request.strategy_id,
+            total=total,
+            param_ranges=param_spec or {},
+            n_workers=n_workers,
+        )
+        task_id = db_task.id
+
+        submit_backtest_optimization(
+            user_id=user_id,
+            request=request,
+            task_id=task_id,
+            persist_to_db=True,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return OptimizationSubmitResponse(
+        task_id=task_id,
+        total_combinations=total,
+        message=(
+            f"{request.method.capitalize()} optimization task submitted, total {total} "
+            "scheduled trials"
+        ),
+    )
 
 
 # ---- Endpoints ----
@@ -136,60 +253,26 @@ async def submit_optimization_task(
     Raises:
         HTTPException: If strategy not found (404) or parameter grid is empty (400).
     """
-    from app.services.param_optimization_service import generate_param_grid
-
-    # Validate strategy
-    tpl = get_template_by_id(request.strategy_id)
-    if not tpl:
-        raise HTTPException(status_code=404, detail=f"Strategy {request.strategy_id} not found")
-
-    # Build param_ranges dict
-    param_ranges = {}
-    for name, spec in request.param_ranges.items():
-        param_ranges[name] = {
-            "start": spec.start,
-            "end": spec.end,
-            "step": spec.step,
-            "type": spec.type,
-        }
-
-    # Pre-calculate combination count
-    grid = generate_param_grid(param_ranges)
-    if not grid:
-        raise HTTPException(
-            status_code=400, detail="Parameter grid is empty, please check parameter ranges"
-        )
-
-    from app.services.optimization_execution_manager import (
-        get_optimization_execution_manager,
+    return await submit_optimization_task_internal(
+        strategy_id=request.strategy_id,
+        param_ranges=_build_param_ranges(request.param_ranges),
+        n_workers=request.n_workers,
+        user_id=current_user.sub,
     )
 
-    try:
-        # Create persisted task in DB first
-        mgr = get_optimization_execution_manager()
-        db_task = await mgr.create_task(
-            user_id=current_user.sub,
-            strategy_id=request.strategy_id,
-            total=len(grid),
-            param_ranges=param_ranges,
-            n_workers=request.n_workers,
-        )
-        task_id = db_task.id
 
-        submit_optimization(
-            strategy_id=request.strategy_id,
-            param_ranges=param_ranges,
-            n_workers=request.n_workers,
-            task_id=task_id,
-            persist_to_db=True,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    return OptimizationSubmitResponse(
-        task_id=task_id,
-        total_combinations=len(grid),
-        message=f"Optimization task submitted, total {len(grid)} parameter combinations, using {request.n_workers} workers",
+@router.post(
+    "/submit/backtest",
+    response_model=OptimizationSubmitResponse,
+    summary="Submit backtest-style optimization task",
+)
+async def submit_backtest_optimization_task(
+    request: OptimizationRequest,
+    current_user=Depends(get_current_user),
+):
+    return await submit_backtest_optimization_task_internal(
+        request=request,
+        user_id=current_user.sub,
     )
 
 
@@ -213,27 +296,7 @@ async def get_progress(
     Raises:
         HTTPException: If the task does not exist (404).
     """
-    from app.services.optimization_execution_manager import (
-        get_optimization_execution_manager,
-    )
-
-    mgr = get_optimization_execution_manager()
-    db_task = await mgr.get_task(task_id, user_id=current_user.sub)
-    if db_task:
-        total = db_task.total or 0
-        done = (db_task.completed or 0) + (db_task.failed or 0)
-        return {
-            "task_id": task_id,
-            "status": db_task.status,
-            "strategy_id": db_task.strategy_id,
-            "total": total,
-            "completed": db_task.completed or 0,
-            "failed": db_task.failed or 0,
-            "progress": round(done / total * 100, 1) if total > 0 else 0,
-            "n_workers": db_task.n_workers or 4,
-            "created_at": db_task.created_at.isoformat() if db_task.created_at else "",
-        }
-    progress = get_optimization_progress(task_id, user_id=current_user.sub, use_db=False)
+    progress = get_optimization_progress(task_id, user_id=current_user.sub)
     if not progress:
         raise HTTPException(status_code=404, detail="Optimization task not found")
     return progress
@@ -256,25 +319,7 @@ async def get_results(
     Raises:
         HTTPException: If the task does not exist (404).
     """
-    from app.services.optimization_execution_manager import (
-        get_optimization_execution_manager,
-    )
-
-    mgr = get_optimization_execution_manager()
-    db_task = await mgr.get_task(task_id, user_id=current_user.sub)
-    if db_task and db_task.results is not None:
-        task_dict = {
-            "status": db_task.status,
-            "strategy_id": db_task.strategy_id,
-            "param_names": list((db_task.param_ranges or {}).keys()),
-            "total": db_task.total,
-            "completed": db_task.completed,
-            "failed": db_task.failed,
-            "results": db_task.results,
-        }
-        results = _build_optimization_results_response(task_dict, task_id)
-        return results
-    results = get_optimization_results(task_id, user_id=current_user.sub, use_db=False)
+    results = get_optimization_results(task_id, user_id=current_user.sub)
     if not results:
         raise HTTPException(status_code=404, detail="Optimization task not found")
     return results
@@ -300,13 +345,6 @@ async def cancel_task(
     Raises:
         HTTPException: If the task does not exist (404).
     """
-    from app.services.optimization_execution_manager import (
-        get_optimization_execution_manager,
-    )
-
-    mgr = get_optimization_execution_manager()
-    ok_db = await mgr.set_cancelled(task_id, user_id=current_user.sub)
-    ok_mem = cancel_optimization(task_id, user_id=current_user.sub, use_db=False)
-    if not ok_db and not ok_mem:
+    if not cancel_optimization(task_id, user_id=current_user.sub):
         raise HTTPException(status_code=404, detail="Optimization task not found")
     return {"message": "Cancellation requested", "task_id": task_id}

@@ -42,7 +42,7 @@ A modern, full-featured web backtesting platform built on [Backtrader](https://w
 ### Installation
 
 ```bash
-git clone https://gitee.com/xxx/backtrader_web.git
+git clone https://github.com/cloudQuant/backtrader_web.git
 cd backtrader_web
 ./scripts/verify-dev-env.sh --preinstall
 

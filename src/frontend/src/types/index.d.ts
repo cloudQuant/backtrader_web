@@ -41,7 +41,12 @@ export interface BacktestResponse {
   message?: string
 }
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface BacktestStatusResponse {
+  task_id: string
+  status: TaskStatus
+}
 
 export interface BacktestResult {
   task_id: string
@@ -79,6 +84,62 @@ export interface BacktestListResponse {
   total: number
   items: BacktestResult[]
 }
+
+export interface BacktestConnectedEvent {
+  type: 'connected'
+  task_id: string
+  client_id: string
+  message: string
+}
+
+export interface BacktestTaskCreatedEvent {
+  type: 'task_created'
+  task_id: string
+  status: 'pending'
+  message: string
+}
+
+export interface BacktestProgressEvent {
+  type: 'progress'
+  task_id: string
+  status: 'running'
+  progress: number
+  message: string
+  data?: Record<string, unknown>
+}
+
+export interface BacktestCompletedEvent {
+  type: 'completed'
+  task_id: string
+  status: 'completed'
+  progress: number
+  message: string
+  result?: BacktestResult | null
+}
+
+export interface BacktestFailedEvent {
+  type: 'failed'
+  task_id: string
+  status: 'failed'
+  message: string
+  error: string
+}
+
+export interface BacktestCancelledEvent {
+  type: 'cancelled'
+  task_id: string
+  status: 'cancelled'
+  message: string
+}
+
+export type BacktestRuntimeEvent =
+  | BacktestConnectedEvent
+  | BacktestTaskCreatedEvent
+  | BacktestProgressEvent
+  | BacktestCompletedEvent
+  | BacktestFailedEvent
+  | BacktestCancelledEvent
+  | { type: 'pong' }
 
 // 策略相关类型
 export interface ParamSpec {

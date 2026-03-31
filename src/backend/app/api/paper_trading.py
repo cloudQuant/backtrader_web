@@ -20,6 +20,9 @@ from app.schemas.paper_trading import (
     TradeListResponse,
 )
 from app.services.paper_trading_service import PaperTradingService
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -485,7 +488,5 @@ async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, f"account:{account_id}", client_id)
     except Exception as e:
-        import logging
-
-        logging.error(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error: {e}")
         ws_manager.disconnect(websocket, f"account:{account_id}", client_id)

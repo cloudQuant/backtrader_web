@@ -18,6 +18,51 @@ def make_request() -> StarletteRequest:
     )
 
 
+def make_websocket(protocols: str = "", query_token: str | None = None) -> SimpleNamespace:
+    """Create a minimal websocket-like object for dependency tests."""
+    query_params = {}
+    if query_token is not None:
+        query_params["token"] = query_token
+
+    return SimpleNamespace(
+        headers={"sec-websocket-protocol": protocols},
+        query_params=query_params,
+    )
+
+
+def test_extract_websocket_token_from_subprotocol():
+    from app.api.deps import WEBSOCKET_TOKEN_PROTOCOL, _extract_websocket_token
+
+    websocket = make_websocket(f"{WEBSOCKET_TOKEN_PROTOCOL}, token-123", query_token="legacy")
+
+    assert _extract_websocket_token(websocket) == ("token-123", WEBSOCKET_TOKEN_PROTOCOL)
+
+
+def test_extract_websocket_token_rejects_query_param_fallback():
+    from app.api.deps import _extract_websocket_token
+
+    websocket = make_websocket(query_token="legacy-token")
+
+    assert _extract_websocket_token(websocket) == (None, None)
+
+
+def test_get_websocket_current_user_requires_subprotocol_token(monkeypatch):
+    from app.api.deps import get_websocket_current_user
+
+    monkeypatch.setattr(
+        "app.api.deps.decode_access_token",
+        lambda _: {"sub": "user-ws", "username": "tester", "exp": 123},
+        raising=True,
+    )
+
+    websocket = make_websocket(query_token="legacy-token")
+
+    current_user, accepted_subprotocol = get_websocket_current_user(websocket)
+
+    assert current_user is None
+    assert accepted_subprotocol is None
+
+
 @pytest.mark.asyncio
 async def test_get_current_user_invalid_token_raises(monkeypatch):
     from app.api.deps import get_current_user

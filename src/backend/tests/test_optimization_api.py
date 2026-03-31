@@ -122,7 +122,7 @@ class TestOptimizationSubmit:
                 return_value=[{"fast": 5}, {"fast": 10}, {"fast": 15}],
             ):
                 with patch(
-                    "app.api.optimization_api.get_optimization_execution_manager"
+                    "app.services.optimization_execution_manager.get_optimization_execution_manager"
                 ) as mock_get_mgr:
                     mock_mgr = AsyncMock()
                     mock_mgr.create_task = AsyncMock(return_value=mock_db_task)
@@ -261,6 +261,82 @@ class TestOptimizationSubmit:
                     # Verify n_workers=4 was passed
                     call_kwargs = mock_submit.call_args.kwargs
                     assert call_kwargs["n_workers"] == 4
+
+    async def test_submit_backtest_optimization_success(
+        self, mock_current_user, mock_strategy_template
+    ):
+        """Test successful backtest-style optimization task submission."""
+        from app.api.optimization_api import submit_backtest_optimization_task
+        from app.schemas.backtest_enhanced import BacktestRequest, OptimizationRequest
+
+        request = OptimizationRequest(
+            strategy_id="test_strategy",
+            backtest_config=BacktestRequest(
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                start_date="2024-01-01T00:00:00",
+                end_date="2024-02-15T00:00:00",
+                initial_cash=100000,
+                commission=0.001,
+            ),
+            method="bayesian",
+            metric="sharpe_ratio",
+            param_bounds={"fast": {"type": "int", "min": 5, "max": 15}},
+            n_trials=10,
+        )
+
+        mock_db_task = MagicMock()
+        mock_db_task.id = "task_bt_123"
+
+        with patch(
+            "app.api.optimization_api.get_template_by_id", return_value=mock_strategy_template
+        ):
+            with patch(
+                "app.services.optimization_execution_manager.get_optimization_execution_manager"
+            ) as mock_get_mgr:
+                mock_mgr = AsyncMock()
+                mock_mgr.create_task = AsyncMock(return_value=mock_db_task)
+                mock_get_mgr.return_value = mock_mgr
+                with patch("app.api.optimization_api.submit_backtest_optimization"):
+                    result = await submit_backtest_optimization_task(
+                        request=request, current_user=mock_current_user
+                    )
+
+                    assert result.task_id == "task_bt_123"
+                    assert result.total_combinations == 10
+                    assert "bayesian" in result.message.lower()
+
+    async def test_submit_backtest_optimization_empty_task(
+        self, mock_current_user, mock_strategy_template
+    ):
+        """Test empty backtest-style optimization task validation."""
+        from app.api.optimization_api import submit_backtest_optimization_task
+        from app.schemas.backtest_enhanced import BacktestRequest, OptimizationRequest
+
+        request = OptimizationRequest(
+            strategy_id="test_strategy",
+            backtest_config=BacktestRequest(
+                strategy_id="test_strategy",
+                symbol="000001.SZ",
+                start_date="2024-01-01T00:00:00",
+                end_date="2024-02-15T00:00:00",
+                initial_cash=100000,
+                commission=0.001,
+            ),
+            method="grid",
+            metric="sharpe_ratio",
+            param_grid={"fast": []},
+        )
+
+        with patch(
+            "app.api.optimization_api.get_template_by_id", return_value=mock_strategy_template
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await submit_backtest_optimization_task(
+                    request=request, current_user=mock_current_user
+                )
+
+            assert exc_info.value.status_code == 400
 
 
 # ==================== Query Optimization Progress Tests ====================
@@ -476,8 +552,8 @@ class TestOptimizationRouter:
         from app.api.optimization_api import router
 
         routes = list(router.routes)
-        # Should have 5 routes
-        assert len(routes) == 5
+        # Should have 6 routes
+        assert len(routes) == 6
 
     async def test_router_has_strategy_params_endpoint(self):
         """Test that strategy params endpoint exists."""
@@ -495,6 +571,18 @@ class TestOptimizationRouter:
             route for route in router.routes if hasattr(route, "path") and hasattr(route, "methods")
         ]
         submit_routes = [r for r in routes if "/submit" in r.path and "POST" in r.methods]
+        assert len(submit_routes) > 0
+
+    async def test_router_has_backtest_submit_endpoint(self):
+        """Test that backtest-style submit endpoint exists."""
+        from app.api.optimization_api import router
+
+        routes = [
+            route for route in router.routes if hasattr(route, "path") and hasattr(route, "methods")
+        ]
+        submit_routes = [
+            r for r in routes if "/submit/backtest" in r.path and "POST" in r.methods
+        ]
         assert len(submit_routes) > 0
 
     async def test_router_has_progress_endpoint(self):
@@ -571,3 +659,154 @@ class TestOptimizationService:
 
         # Test that function exists and is callable
         assert callable(cancel_optimization)
+
+
+# ==================== Authoritative Helper Tests ====================
+
+
+class TestGenerateBacktestParamCombinations:
+    """Tests for _generate_backtest_param_combinations (authoritative helper)."""
+
+    def test_single_param(self):
+        from app.services.param_optimization_service import _generate_backtest_param_combinations
+
+        combos = _generate_backtest_param_combinations({"fast": [5, 10, 15]})
+        assert len(combos) == 3
+        assert combos[0] == {"fast": 5}
+        assert combos[2] == {"fast": 15}
+
+    def test_multiple_params_cartesian(self):
+        from app.services.param_optimization_service import _generate_backtest_param_combinations
+
+        combos = _generate_backtest_param_combinations({"fast": [5, 10], "slow": [20, 30]})
+        assert len(combos) == 4
+        assert {"fast": 5, "slow": 20} in combos
+        assert {"fast": 10, "slow": 30} in combos
+
+    def test_empty_grid(self):
+        from app.services.param_optimization_service import _generate_backtest_param_combinations
+
+        combos = _generate_backtest_param_combinations({})
+        assert len(combos) == 1
+        assert combos[0] == {}
+
+    def test_three_params(self):
+        from app.services.param_optimization_service import _generate_backtest_param_combinations
+
+        combos = _generate_backtest_param_combinations(
+            {"a": [1, 2], "b": [3, 4], "c": [5]}
+        )
+        assert len(combos) == 4
+
+
+class TestExtractBacktestMetrics:
+    """Tests for _extract_backtest_metrics (authoritative helper)."""
+
+    def test_extracts_all_fields(self):
+        from types import SimpleNamespace
+
+        from app.services.param_optimization_service import _extract_backtest_metrics
+
+        result = SimpleNamespace(
+            sharpe_ratio=1.5,
+            total_return=0.2,
+            max_drawdown=-0.1,
+            annual_return=0.15,
+            win_rate=0.6,
+        )
+        metrics = _extract_backtest_metrics(result)
+        assert metrics["sharpe_ratio"] == 1.5
+        assert metrics["total_return"] == 0.2
+        assert metrics["max_drawdown"] == -0.1
+        assert metrics["annual_return"] == 0.15
+        assert metrics["win_rate"] == 0.6
+
+    def test_missing_fields_default_to_zero(self):
+        from types import SimpleNamespace
+
+        from app.services.param_optimization_service import _extract_backtest_metrics
+
+        result = SimpleNamespace()
+        metrics = _extract_backtest_metrics(result)
+        assert metrics["sharpe_ratio"] == 0.0
+        assert metrics["total_return"] == 0.0
+
+
+@pytest.mark.asyncio
+class TestWaitForBacktestCompletion:
+    """Tests for _wait_for_backtest_completion (authoritative helper)."""
+
+    async def test_completed_immediately(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from app.services.param_optimization_service import _wait_for_backtest_completion
+
+        svc = SimpleNamespace(
+            get_task_status=AsyncMock(return_value="completed"),
+            get_result=AsyncMock(return_value=SimpleNamespace(status="completed")),
+        )
+        result = await _wait_for_backtest_completion(svc, "t1", timeout=5)
+        assert result.status == "completed"
+
+    async def test_timeout(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from app.services.param_optimization_service import _wait_for_backtest_completion
+
+        svc = SimpleNamespace(
+            get_task_status=AsyncMock(return_value="pending"),
+            get_result=AsyncMock(),
+        )
+        with pytest.raises(RuntimeError, match="timeout"):
+            await _wait_for_backtest_completion(svc, "t1", timeout=1)
+
+    async def test_failed_raises(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from app.schemas.backtest import TaskStatus
+        from app.services.param_optimization_service import _wait_for_backtest_completion
+
+        svc = SimpleNamespace(
+            get_task_status=AsyncMock(side_effect=[TaskStatus.RUNNING, TaskStatus.FAILED]),
+            get_result=AsyncMock(
+                return_value=SimpleNamespace(error_message="Strategy execution failed")
+            ),
+        )
+        with pytest.raises(RuntimeError, match="failed"):
+            await _wait_for_backtest_completion(svc, "t1", timeout=10)
+
+    async def test_cancelled_raises(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from app.schemas.backtest import TaskStatus
+        from app.services.param_optimization_service import _wait_for_backtest_completion
+
+        svc = SimpleNamespace(
+            get_task_status=AsyncMock(side_effect=[TaskStatus.RUNNING, TaskStatus.CANCELLED]),
+            get_result=AsyncMock(),
+        )
+        with pytest.raises(RuntimeError, match="cancelled"):
+            await _wait_for_backtest_completion(svc, "t1", timeout=10)
+
+
+@pytest.mark.asyncio
+class TestRunBacktestRequest:
+    """Tests for _run_backtest_request (authoritative helper)."""
+
+    async def test_success(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from app.services.param_optimization_service import _run_backtest_request
+
+        mock_svc = AsyncMock()
+        mock_svc.run_backtest = AsyncMock(return_value=SimpleNamespace(task_id="t1"))
+        mock_svc.get_task_status = AsyncMock(return_value="completed")
+        mock_svc.get_result = AsyncMock(return_value=SimpleNamespace(status="completed"))
+
+        result = await _run_backtest_request("u1", SimpleNamespace(), backtest_service=mock_svc)
+        assert result.status == "completed"

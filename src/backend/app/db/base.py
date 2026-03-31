@@ -67,7 +67,7 @@ class BaseRepository(ABC, Generic[T]):
 
     @abstractmethod
     async def list(
-        self, filters: dict[str, Any] = None, skip: int = 0, limit: int = 100
+        self, filters: dict[str, Any] | None = None, skip: int = 0, limit: int = 100
     ) -> list[T]:
         """List entities with optional filtering.
 
@@ -82,7 +82,7 @@ class BaseRepository(ABC, Generic[T]):
         pass  # pragma: no cover
 
     @abstractmethod
-    async def count(self, filters: dict[str, Any] = None) -> int:
+    async def count(self, filters: dict[str, Any] | None = None) -> int:
         """Count entities with optional filtering.
 
         Args:

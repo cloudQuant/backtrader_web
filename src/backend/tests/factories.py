@@ -223,6 +223,105 @@ class ComparisonFactory(BaseFactory):
         return defaults
 
 
+# ==================== ORM Model Factories ====================
+# These create actual SQLAlchemy model instances for service-level tests.
+
+
+class ORMUserFactory(BaseFactory):
+    """Factory for User ORM model instances (service-level tests)."""
+
+    @classmethod
+    def build(cls, **overrides) -> Any:
+        """Return an unsaved User model instance."""
+        from app.models.user import User
+
+        username = overrides.pop("username", cls._generate_username())
+        defaults = {
+            "id": cls._generate_id(),
+            "username": username,
+            "email": overrides.pop("email", f"{username}@test.example.com"),
+            "hashed_password": "$2b$12$TESTHASHEDPASSWORD00000000000000000000000000000",
+            "is_active": True,
+        }
+        defaults.update(overrides)
+        return User(**defaults)
+
+
+class ORMStrategyFactory(BaseFactory):
+    """Factory for Strategy ORM model instances."""
+
+    @classmethod
+    def build(cls, *, user_id: str, **overrides) -> Any:
+        """Return an unsaved Strategy model instance. Requires user_id."""
+        from app.models.strategy import Strategy
+
+        defaults = {
+            "id": cls._generate_id(),
+            "user_id": user_id,
+            "name": f"Test Strategy {uuid.uuid4().hex[:6]}",
+            "description": "A test strategy for unit tests.",
+            "code": "import backtrader as bt\nclass TestStrategy(bt.Strategy):\n    pass\n",
+            "params": {},
+            "category": "custom",
+        }
+        defaults.update(overrides)
+        return Strategy(**defaults)
+
+
+class ORMBacktestTaskFactory(BaseFactory):
+    """Factory for BacktestTask ORM model instances."""
+
+    @classmethod
+    def build(cls, *, user_id: str, **overrides) -> Any:
+        """Return an unsaved BacktestTask model instance. Requires user_id."""
+        from app.models.backtest import BacktestTask
+
+        defaults = {
+            "id": cls._generate_id(),
+            "user_id": user_id,
+            "symbol": "000001.SZ",
+            "status": "pending",
+            "request_data": {
+                "strategy_id": "test",
+                "symbol": "000001.SZ",
+                "start_date": "2023-01-01",
+                "end_date": "2023-12-31",
+                "initial_cash": 100000,
+            },
+        }
+        defaults.update(overrides)
+        return BacktestTask(**defaults)
+
+
+class ORMBacktestResultFactory(BaseFactory):
+    """Factory for BacktestResultModel ORM instances."""
+
+    @classmethod
+    def build(cls, *, task_id: str, **overrides) -> Any:
+        """Return an unsaved BacktestResultModel. Requires task_id."""
+        from app.models.backtest import BacktestResultModel
+
+        defaults = {
+            "id": cls._generate_id(),
+            "task_id": task_id,
+            "total_return": 0.15,
+            "annual_return": 0.12,
+            "sharpe_ratio": 1.5,
+            "max_drawdown": -0.08,
+            "win_rate": 0.55,
+            "total_trades": 20,
+            "profitable_trades": 11,
+            "losing_trades": 9,
+            "equity_curve": [100000, 101000, 102500, 103000, 115000],
+            "equity_dates": ["2023-01-01", "2023-04-01", "2023-07-01", "2023-10-01", "2023-12-31"],
+            "drawdown_curve": [0, -0.01, 0, -0.03, 0],
+            "trades": [],
+            "metrics_source": "manual",
+        }
+        defaults.update(overrides)
+        return BacktestResultModel(**defaults)
+
+
 # HTTP Status Code Constants for Assertions
 class HTTP:
     """HTTP status code constants for clearer assertions."""

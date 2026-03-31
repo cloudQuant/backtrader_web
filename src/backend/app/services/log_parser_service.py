@@ -21,21 +21,9 @@ from typing import Any
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from app.services import strategy_runtime_support
 
-_FLAT_LOG_FILENAMES = frozenset(
-    {
-        "value.log",
-        "data.log",
-        "trade.log",
-        "bar.log",
-        "indicator.log",
-        "position.log",
-        "order.log",
-        "system.log",
-        "tick.log",
-    }
-)
+logger = logging.getLogger(__name__)
 
 
 def find_latest_log_dir(strategy_dir: Path) -> Path | None:
@@ -52,20 +40,8 @@ def find_latest_log_dir(strategy_dir: Path) -> Path | None:
     Returns:
         The path to the latest log directory, or None if no logs directory exists.
     """
-    logs_dir = strategy_dir / "logs"
-    if not logs_dir.is_dir():
-        return None
-
-    subdirs = sorted(
-        [d for d in logs_dir.iterdir() if d.is_dir()],
-        key=lambda d: d.name,
-        reverse=True,
-    )
-    if subdirs:
-        return subdirs[0]
-    # Fallback: logs written directly in logs/ (no subdirs), e.g. simulate strategies
-    has_logs = any((logs_dir / f).is_file() for f in _FLAT_LOG_FILENAMES)
-    return logs_dir if has_logs else None
+    latest_log_dir = strategy_runtime_support.find_latest_log_dir(strategy_dir)
+    return Path(latest_log_dir) if latest_log_dir is not None else None
 
 
 def _parse_tsv(filepath: Path) -> list[dict[str, str]]:
@@ -172,7 +148,8 @@ def _load_strategy_config(strategy_dir: Path) -> dict[str, Any]:
 
         with open(config_path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
-    except Exception:
+    except (OSError, yaml.YAMLError) as e:
+        logger.warning("Failed to load strategy config from %s: %s", config_path, e)
         return {}
 
 
@@ -507,7 +484,7 @@ def parse_data_log(log_dir: Path) -> dict[str, Any]:
             for key, value in indicator_map.get(dt, {}).items():
                 indicators.setdefault(key, [None] * (len(dates) - 1))
                 indicators[key].append(value)
-            for key, values in indicators.items():
+            for _key, values in indicators.items():
                 if len(values) < len(dates):
                     values.append(None)
         return {
@@ -638,7 +615,8 @@ def parse_current_position(log_dir: Path) -> list[dict[str, Any]]:
                 }
             )
         return result
-    except Exception:
+    except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
+        logger.warning("Failed to parse positions file %s: %s", fp, e)
         return []
 
 
@@ -657,7 +635,8 @@ def parse_run_info(log_dir: Path) -> dict[str, Any]:
     try:
         with open(info_path, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to parse run_info.json at %s: %s", info_path, e)
         return {}
 
 

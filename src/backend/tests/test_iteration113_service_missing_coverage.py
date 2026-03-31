@@ -69,9 +69,24 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
                 # observe internal calls: tmp_logs cleanup, config overwrite, persist copytree
                 with patch("shutil.rmtree") as mock_rmtree:
                     with patch("shutil.copytree") as mock_copytree:
+                        def _copytree_side_effect(src, dst, *args, **kwargs):
+                            if Path(dst).name == "s1":
+                                (Path(dst) / "logs").mkdir(parents=True, exist_ok=True)
+                            return dst
+
+                        mock_copytree.side_effect = _copytree_side_effect
                         await svc._execute_backtest("t1", "u1", req)
-                        assert mock_rmtree.called  # tmp_logs cleanup executed
-                        assert mock_copytree.called  # persist copy executed
+                        first_copy_args = mock_copytree.call_args_list[0].args
+                        expected_tmp_logs = first_copy_args[1] / "logs"
+                        assert any(
+                            call.args == (expected_tmp_logs,) and not call.kwargs
+                            for call in mock_rmtree.call_args_list
+                        )
+                        assert mock_copytree.call_count == 2
+                        second_copy_kwargs = mock_copytree.call_args_list[1].kwargs
+                        assert first_copy_args[0] == strategy_dir
+                        assert first_copy_args[1].name == "s1"
+                        assert second_copy_kwargs["dirs_exist_ok"] is True
                         svc.task_manager.create_result.assert_awaited_once()
 
     # parse_all_logs empty -> raises -> status FAILED (covers the raise ValueError branch).
@@ -109,6 +124,30 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
 
                 with patch("shutil.rmtree", side_effect=_rmtree_side_effect):
                     await svc._execute_backtest("t3", "u1", req2)
+
+
+@pytest.mark.asyncio
+async def test_backtest_service_rejects_invalid_strategy_id():
+    from app.schemas.backtest import BacktestRequest, TaskStatus
+    from app.services.backtest_service import BacktestService
+
+    svc = BacktestService()
+    svc.task_manager = AsyncMock()
+
+    req = BacktestRequest(
+        strategy_id="../escape",
+        symbol="000001.SZ",
+        start_date="2024-01-01T00:00:00",
+        end_date="2024-06-30T00:00:00",
+    )
+
+    with patch("app.services.backtest_service.ws_manager") as mock_ws:
+        mock_ws.send_to_task = AsyncMock()
+        await svc._execute_backtest("t_invalid", "u1", req)
+
+    last = svc.task_manager.update_task_status.await_args_list[-1]
+    assert last.args[1] == TaskStatus.FAILED
+    assert "Invalid strategy_id" in last.kwargs["error_message"]
 
 
 def test_comparison_service_compare_equity_default_initial():
@@ -198,7 +237,7 @@ async def test_live_trading_manager_missing_branches(tmp_path: Path, monkeypatch
     monkeypatch.setattr(m, "_is_pid_alive", lambda _pid: True)
     monkeypatch.setattr(mgr, "_kill_pid", MagicMock())
     await mgr.stop_instance("iid")
-    assert fake_proc.kill.called
+    fake_proc.kill.assert_called_once_with()
 
     # start_all: skip already running & alive
     monkeypatch.setattr(
@@ -322,157 +361,6 @@ async def test_monitoring_service_missing_branches(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_optimization_service_missing_branches(monkeypatch):
-    """Cover optimization_service: grid warning branch, objective metric branches, _wait_for_backtest loop completed path."""
-    from app.schemas.backtest_enhanced import BacktestRequest, OptimizationRequest, TaskStatus
-    from app.services.optimization_service import OptimizationService
-
-    svc = _new_service_without_init(OptimizationService)
-    svc.backtest_service = SimpleNamespace(
-        run_backtest=AsyncMock(), get_task_status=AsyncMock(), get_result=AsyncMock()
-    )
-
-    # run_grid_search: backtest completed not satisfied -> warning branch line 98
-    bt_req = BacktestRequest(
-        strategy_id="s",
-        symbol="000001.SZ",
-        start_date="2024-01-01T00:00:00",
-        end_date="2024-02-15T00:00:00",
-        initial_cash=100000,
-        commission=0.001,
-    )
-    opt_req = OptimizationRequest(
-        strategy_id="s",
-        backtest_config=bt_req,
-        param_grid={"p": [1]},
-        metric="sharpe_ratio",
-        param_bounds={"p": {"type": "int", "min": 1, "max": 1}},
-        n_trials=10,
-    )
-    svc.backtest_service.run_backtest.return_value = SimpleNamespace(task_id="t1")
-    svc._wait_for_backtest = AsyncMock(return_value=SimpleNamespace(status=TaskStatus.FAILED))
-    out = await OptimizationService.run_grid_search(svc, "u1", opt_req)
-    assert out.n_trials == 0
-
-    # run_bayesian_optimization: cover metric branches in objective and failure return.
-    class DummyTrial:
-        def suggest_int(self, name, a, b):
-            return a
-
-        def suggest_float(self, name, a, b):
-            return a
-
-        def suggest_categorical(self, name, choices):
-            return choices[0]
-
-        @property
-        def params(self):
-            return {}
-
-    class DummyStudy:
-        def __init__(self):
-            self.best_params = {"p": 1}
-            self.best_trial = SimpleNamespace(value=-1.0)
-            self.trials = [SimpleNamespace(params={"p": 1}, value=-1.0)]
-
-        def optimize(self, objective, n_trials):
-            objective(DummyTrial())
-
-    dummy_optuna = types.SimpleNamespace(create_study=lambda direction: DummyStudy())
-    monkeypatch.setitem(sys.modules, "optuna", dummy_optuna)
-
-    completed = SimpleNamespace(
-        status=TaskStatus.COMPLETED,
-        sharpe_ratio=2.0,
-        total_return=3.0,
-        max_drawdown=-4.0,
-        annual_return=0.0,
-        win_rate=0.0,
-        error_message="",
-    )
-    failed = SimpleNamespace(
-        status=TaskStatus.FAILED,
-        sharpe_ratio=0.0,
-        total_return=0.0,
-        max_drawdown=0.0,
-        annual_return=0.0,
-        win_rate=0.0,
-        error_message="err",
-    )
-
-    svc._run_single_backtest = AsyncMock(return_value=completed)
-
-    # COMPLETED + max_drawdown (lines 175-176)
-    def _run_coroutine_threadsafe_returning(result_obj):
-        def _run_coroutine_threadsafe(coro, _loop):
-            coro.close()
-            return SimpleNamespace(result=lambda: result_obj)
-
-        return _run_coroutine_threadsafe
-
-    req2 = OptimizationRequest(
-        strategy_id="s",
-        backtest_config=bt_req,
-        param_grid={"p": [1]},
-        metric="max_drawdown",
-        param_bounds={"p": {"type": "int", "min": 1, "max": 2}},
-        n_trials=10,
-    )
-    with patch(
-        "asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)
-    ):
-        await OptimizationService.run_bayesian_optimization(svc, "u", req2)
-
-    # COMPLETED + total_return (lines 177-178)
-    req3 = OptimizationRequest(
-        strategy_id="s",
-        backtest_config=bt_req,
-        param_grid={"p": [1]},
-        metric="total_return",
-        param_bounds={"p": {"type": "int", "min": 1, "max": 2}},
-        n_trials=10,
-    )
-    with patch(
-        "asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)
-    ):
-        await OptimizationService.run_bayesian_optimization(svc, "u", req3)
-
-    # COMPLETED + fallback metric (lines 179-180)
-    req4 = SimpleNamespace(
-        strategy_id="s",
-        backtest_config=bt_req,
-        metric="other",
-        param_bounds={"p": {"type": "int", "min": 1, "max": 2}},
-        n_trials=10,
-    )
-    with patch(
-        "asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(completed)
-    ):
-        await OptimizationService.run_bayesian_optimization(svc, "u", req4)
-
-    # FAILED -> worst value return (lines 182-183)
-    req5 = OptimizationRequest(
-        strategy_id="s",
-        backtest_config=bt_req,
-        param_grid={"p": [1]},
-        metric="sharpe_ratio",
-        param_bounds={"p": {"type": "int", "min": 1, "max": 2}},
-        n_trials=10,
-    )
-    with patch("asyncio.run_coroutine_threadsafe", new=_run_coroutine_threadsafe_returning(failed)):
-        await OptimizationService.run_bayesian_optimization(svc, "u", req5)
-
-    # _wait_for_backtest: loop returns COMPLETED path (line 330)
-    svc.backtest_service.get_task_status = AsyncMock(
-        side_effect=[TaskStatus.PENDING, TaskStatus.COMPLETED]
-    )
-    svc.backtest_service.get_result = AsyncMock(return_value=completed)
-    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
-    got = await OptimizationService._wait_for_backtest(svc, "t", timeout=2)
-    assert got.status == TaskStatus.COMPLETED
-
-
-@pytest.mark.asyncio
 async def test_param_optimization_service_missing_branches(tmp_path: Path, monkeypatch):
     """Cover param_optimization_service: trial cleanup exception, cancellation branches, thread exception, finally cleanup exception."""
     from app.services import param_optimization_service as p
@@ -540,7 +428,7 @@ async def test_param_optimization_service_missing_branches(tmp_path: Path, monke
     monkeypatch.setattr(p, "as_completed", lambda futures: list(futures)[:1])
 
     p._run_optimization_thread("tid2", "sdir", [{"p": 1}, {"p": 2}], 1)
-    assert any(f.cancel.called for f in futures_created)
+    assert any(f.cancel.call_count > 0 for f in futures_created)
 
     # Exception path (lines 374-376) + finally rmtree exception (lines 380-381)
     def _boom_executor(_max_workers):
@@ -709,14 +597,15 @@ async def test_strategy_version_service_missing_branches(monkeypatch):
     svc.version_repo.list = AsyncMock(
         return_value=[SimpleNamespace(id="v1"), SimpleNamespace(id="v2")]
     )
+    previous_update_count = svc.version_repo.update.await_count
     await VersionControlService._unset_default_versions(svc, "s1", "main")
-    assert svc.version_repo.update.called
+    assert svc.version_repo.update.await_count == previous_update_count + 2
 
     # _unset_active_versions loop (line 706)
     svc.version_repo.update.reset_mock()
     svc.version_repo.list = AsyncMock(return_value=[SimpleNamespace(id="v1")])
     await VersionControlService._unset_active_versions(svc, "s1", "main")
-    svc.version_repo.update.assert_called()
+    svc.version_repo.update.assert_awaited_once()
 
 
 def test_live_trading_service_import_and_run_branches(tmp_path: Path, monkeypatch):
@@ -788,7 +677,7 @@ def test_live_trading_service_import_and_run_branches(tmp_path: Path, monkeypatc
     feeds_ccxt.CCXTData = _CCXTData
 
     observers_broker = types.ModuleType("backtrader.observers.broker")
-    observers_broker.BrokerObserver = object
+    observers_broker.Broker = object
 
     stores_ccxt = types.ModuleType("backtrader.stores.ccxtstore")
 

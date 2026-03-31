@@ -62,6 +62,33 @@ class TestRootRoute:
         # Should contain main features
         assert len(data["features"]) > 0
 
+    async def test_root_route_optional_features_align_with_system_info(
+        self, client: AsyncClient
+    ):
+        """Test root feature labels align with dynamic system feature flags."""
+        root_resp = await client.get("/")
+        assert root_resp.status_code == 200
+        root_features = root_resp.json()["features"]
+
+        info_resp = await client.get("/info")
+        assert info_resp.status_code == 200
+        info_features = info_resp.json()["features"]
+
+        optional_feature_labels = {
+            "optimization": "Parameter Optimization",
+            "report_export": "Report Export",
+            "websocket": "WebSocket Real-time Push",
+            "paper_trading": "Paper Trading",
+            "live_trading": "Live Trading Integration",
+            "comparison": "Backtest Result Comparison",
+            "version_control": "Strategy Version Control",
+            "realtime_data": "Real-time Market Data",
+            "monitoring": "Monitoring and Alerts",
+        }
+
+        for key, label in optional_feature_labels.items():
+            assert (label in root_features) == info_features[key]
+
 
 @pytest.mark.asyncio
 class TestHealthCheck:
@@ -84,6 +111,18 @@ class TestHealthCheck:
         data = resp.json()
         # Database status should be connected or disconnected
         assert data["database"] in ["connected", "disconnected"]
+
+    async def test_health_check_exposes_optional_router_summary(self, client: AsyncClient):
+        """Test health check exposes unavailable optional router summary."""
+        resp = await client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert "optional_routers" in data
+        optional_routers = data["optional_routers"]
+        assert set(optional_routers.keys()) == {"unavailable_count", "unavailable"}
+        assert isinstance(optional_routers["unavailable_count"], int)
+        assert isinstance(optional_routers["unavailable"], list)
 
     async def test_health_check_with_db_error(self):
         """Test health check when database has errors."""
@@ -134,6 +173,50 @@ class TestSystemInfo:
         ]
         for feature in expected_features:
             assert feature in features
+
+    async def test_system_info_exposes_optional_router_status(self, client: AsyncClient):
+        """Test system info exposes optional router availability and error fields."""
+        resp = await client.get("/info")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert "optional_routers" in data
+        optional_routers = data["optional_routers"]
+        assert isinstance(optional_routers, dict)
+        # Check that optional_routers contains expected keys
+        # The actual keys may vary based on configuration
+        assert len(optional_routers) > 0
+
+        for status in optional_routers.values():
+            assert set(status.keys()) == {"available", "error"}
+            assert isinstance(status["available"], bool)
+            assert status["error"] is None or isinstance(status["error"], str)
+
+    async def test_system_info_features_match_registered_routes(self, client: AsyncClient):
+        """Test dynamic feature flags reflect actual registered routes."""
+        from app.main import app
+
+        resp = await client.get("/info")
+        assert resp.status_code == 200
+        features = resp.json()["features"]
+
+        route_paths = {route.path for route in app.routes if hasattr(route, "path")}
+
+        assert features["comparison"] == any(
+            path.startswith("/api/v1/comparisons") for path in route_paths
+        )
+        assert features["realtime_data"] == any(
+            path.startswith("/api/v1/realtime") for path in route_paths
+        )
+        assert features["monitoring"] == any(
+            path.startswith("/api/v1/monitoring") for path in route_paths
+        )
+        assert features["paper_trading"] == any(
+            path.startswith("/api/v1/paper-trading") for path in route_paths
+        )
+        assert features["report_export"] == any(
+            path.startswith("/api/v1/backtests/") and "/report/" in path for path in route_paths
+        )
 
 
 @pytest.mark.asyncio
@@ -266,6 +349,29 @@ class TestAppIntegration:
         assert "info" in schema
         assert "paths" in schema
 
+    async def test_backtest_and_backtests_openapi_contract(self, client: AsyncClient):
+        """Test deprecated legacy backtest routes and primary enhanced backtests routes."""
+        resp = await client.get("/openapi.json")
+        assert resp.status_code == 200
+        schema = resp.json()
+
+        assert "/api/v1/backtest/run" in schema["paths"]
+        assert "/api/v1/backtests/run" in schema["paths"]
+        assert schema["paths"]["/api/v1/backtest/run"]["post"]["deprecated"] is True
+        assert schema["paths"]["/api/v1/backtests/run"]["post"].get("deprecated") is not True
+        assert "/api/v1/backtests/{task_id}/cancel" in schema["paths"]
+
+    async def test_live_trading_openapi_contract(self, client: AsyncClient):
+        """Test legacy live-trading-crypto is deprecated while live-trading remains primary."""
+        resp = await client.get("/openapi.json")
+        assert resp.status_code == 200
+        schema = resp.json()
+
+        assert "/api/v1/live-trading-crypto/live/submit" in schema["paths"]
+        assert "/api/v1/live-trading/" in schema["paths"]
+        assert schema["paths"]["/api/v1/live-trading-crypto/live/submit"]["post"]["deprecated"] is True
+        assert schema["paths"]["/api/v1/live-trading/"]["get"].get("deprecated") is not True
+
     async def test_docs_accessible(self, client: AsyncClient):
         """Test that Swagger documentation is accessible."""
         resp = await client.get("/docs")
@@ -295,9 +401,9 @@ class TestWebSocketManager:
     """WebSocket manager tests."""
 
     def test_websocket_manager_imported(self):
-        """Test that WebSocket manager is imported."""
-        from app.main import ws_manager
+        """Test that WebSocket manager module is available."""
+        from app.websocket_manager import ConnectionManager
 
-        assert ws_manager is not None
-        assert hasattr(ws_manager, "connect")
-        assert hasattr(ws_manager, "disconnect")
+        assert ConnectionManager is not None
+        assert hasattr(ConnectionManager, "connect")
+        assert hasattr(ConnectionManager, "disconnect")

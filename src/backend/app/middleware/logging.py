@@ -28,6 +28,14 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     - Sensitive data filtering
     """
 
+    # Query parameter names that must be redacted from logs
+    _SENSITIVE_PARAMS = frozenset({
+        "token", "access_token", "refresh_token",
+        "password", "passwd", "secret",
+        "key", "api_key", "apikey",
+        "authorization", "auth",
+    })
+
     def __init__(
         self,
         app: ASGIApp,
@@ -50,6 +58,45 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             skip_paths or ["/health", "/metrics", "/docs", "/redoc", "/openapi.json"]
         )
 
+    @classmethod
+    def _sanitize_query_params(cls, query_params) -> str | None:
+        """Redact sensitive query parameters before logging.
+
+        Args:
+            query_params: The request query parameters.
+
+        Returns:
+            Sanitized string representation, or None if empty.
+        """
+        if not query_params:
+            return None
+        sanitized = {}
+        for key in query_params:
+            if key.lower() in cls._SENSITIVE_PARAMS:
+                sanitized[key] = "***REDACTED***"
+            else:
+                sanitized[key] = query_params[key]
+        return str(sanitized)
+
+    @staticmethod
+    def _get_client_ip(request: Request) -> str:
+        """Extract real client IP, respecting X-Forwarded-For header.
+
+        Args:
+            request: The incoming HTTP request.
+
+        Returns:
+            The client IP address string.
+        """
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            # First IP in the chain is the original client
+            return forwarded_for.split(",")[0].strip()
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip:
+            return real_ip.strip()
+        return request.client.host if request.client else "unknown"
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request and log details.
 
@@ -68,8 +115,8 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         request_id = str(uuid.uuid4())[:8]
         start_time = time.time()
 
-        # Get client IP
-        client_ip = request.client.host if request.client else "unknown"
+        # Get client IP (respects X-Forwarded-For)
+        client_ip = self._get_client_ip(request)
 
         # Bind request context to logger
         request_logger = bind_request_context(
@@ -80,13 +127,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             client_ip=client_ip,
         )
 
-        # Log incoming request
+        # Log incoming request (with sensitive params redacted)
         request_logger.info(
             f"Request started: {request.method} {request.url.path}",
             request_id=request_id,
             method=request.method,
             path=request.url.path,
-            query_params=str(request.query_params) if request.query_params else None,
+            query_params=self._sanitize_query_params(request.query_params),
             client_ip=client_ip,
         )
 
@@ -162,6 +209,7 @@ class AuditLoggingMiddleware(BaseHTTPMiddleware):
         # Track authentication events
         if request.url.path.startswith("/api/v1/auth/login"):
             # Login is handled in the route handler, just track the request here
+            # No action needed - login events are logged by auth_service
             pass
         elif request.url.path.startswith("/api/v1/auth/logout"):
             # Log logout

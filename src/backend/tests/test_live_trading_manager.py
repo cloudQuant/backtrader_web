@@ -101,6 +101,8 @@ class TestUtilityFunctions:
             # Setup mock hierarchy
             mock_subdir1.is_dir.return_value = True
             mock_subdir2.is_dir.return_value = True
+            mock_subdir1.name = "log1"
+            mock_subdir2.name = "log2"
             mock_subdir1.stat.return_value.st_mtime = 1000
             mock_subdir2.stat.return_value.st_mtime = 2000  # Latest
 
@@ -180,7 +182,7 @@ class TestLiveTradingManagerInitialization:
                 with patch("app.services.live_trading_manager._save_instances") as mock_save:
                     LiveTradingManager()
                     # Should have saved updated status
-                    assert mock_save.called
+                    mock_save.assert_called_once()
 
 
 class TestGatewayLifecycle:
@@ -545,19 +547,14 @@ class TestAddInstance:
         Verifies that a ValueError is raised when trying
         to add an instance for a non-existent strategy.
         """
-        with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
-            with patch("app.services.live_trading_manager._load_instances", return_value={}):
-                with patch("app.services.live_trading_manager._save_instances"):
-                    mock_strategy_dir = MagicMock()
-                    mock_run_py = MagicMock()
-                    mock_run_py.is_file.return_value = False
-                    mock_strategy_dir.__truediv__.return_value = mock_run_py
-                    mock_dir.__truediv__ = Mock(return_value=mock_strategy_dir)
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._save_instances"):
+                manager = LiveTradingManager()
+                # Mock the instance method to raise ValueError
+                manager._resolve_strategy_dir = Mock(side_effect=ValueError("not found"))
 
-                    manager = LiveTradingManager()
-
-                    with pytest.raises(ValueError, match="does not exist or lacks run.py"):
-                        manager.add_instance("test_strategy")
+                with pytest.raises(ValueError, match="Invalid strategy_id"):
+                    manager.add_instance("test_strategy")
 
     def test_add_instance_with_params(self):
         """Test adding instance with parameters.
@@ -660,7 +657,8 @@ class TestRemoveInstance:
             with patch("app.services.live_trading_manager._save_instances"):
                 # Patch os.kill directly to verify the kill attempt
                 with patch.object(os, "kill") as mock_kill:
-                    manager = LiveTradingManager()
+                    with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                        manager = LiveTradingManager()
                     manager.remove_instance("inst1")
 
                     # Should have called kill with SIGTERM (os.kill is also called by _is_pid_alive with signal 0)
@@ -979,17 +977,16 @@ class TestStartInstance:
                 "inst1": {"strategy_id": "test_strategy", "status": "stopped"},
             }
 
-            with patch("app.services.live_trading_manager.STRATEGIES_DIR") as mock_dir:
-                mock_strategy_dir = MagicMock()
-                mock_run_py = MagicMock()
-                mock_run_py.is_file.return_value = False
-                mock_strategy_dir.__truediv__.return_value = mock_run_py
-                mock_dir.__truediv__ = Mock(return_value=mock_strategy_dir)
+            manager = LiveTradingManager()
+            # Mock _resolve_strategy_dir to return a mock path without run.py
+            mock_strategy_dir = MagicMock()
+            mock_run_py = MagicMock()
+            mock_run_py.is_file.return_value = False
+            mock_strategy_dir.__truediv__.return_value = mock_run_py
+            manager._resolve_strategy_dir = Mock(return_value=mock_strategy_dir)
 
-                manager = LiveTradingManager()
-
-                with pytest.raises(ValueError, match="run.py does not exist"):
-                    await manager.start_instance("inst1")
+            with pytest.raises(ValueError, match="run.py does not exist"):
+                await manager.start_instance("inst1")
 
 
 class TestStopInstance:
@@ -1008,7 +1005,8 @@ class TestStopInstance:
             }
 
             with patch("app.services.live_trading_manager._save_instances"):
-                manager = LiveTradingManager()
+                with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                    manager = LiveTradingManager()
 
                 with patch("app.services.live_trading_manager._is_pid_alive", return_value=False):
                     result = await manager.stop_instance("inst1")
@@ -1046,7 +1044,8 @@ class TestStopInstance:
 
             with patch("app.services.live_trading_manager._save_instances"):
                 with patch.object(os, "kill") as mock_kill:
-                    manager = LiveTradingManager()
+                    with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                        manager = LiveTradingManager()
 
                     with patch(
                         "app.services.live_trading_manager._is_pid_alive", return_value=True
@@ -1175,7 +1174,8 @@ class TestWaitProcess:
         Verifies that the status is updated to stopped
         when a process completes normally.
         """
-        manager = LiveTradingManager()
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
 
         mock_proc = AsyncMock()
         mock_proc.returncode = 0
@@ -1207,7 +1207,8 @@ class TestWaitProcess:
         Verifies that the status is updated to error
         when a process completes with an error.
         """
-        manager = LiveTradingManager()
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
 
         mock_proc = AsyncMock()
         mock_proc.returncode = 1
@@ -1273,8 +1274,10 @@ class TestGetLiveTradingManager:
         Verifies that get_live_trading_manager returns
         the same instance on subsequent calls.
         """
-        manager1 = get_live_trading_manager()
-        manager2 = get_live_trading_manager()
+        with patch("app.services.live_trading_manager._manager", None):
+            with patch("app.services.live_trading_manager._load_instances", return_value={}):
+                manager1 = get_live_trading_manager()
+                manager2 = get_live_trading_manager()
 
         assert manager1 is manager2
 
@@ -1284,7 +1287,9 @@ class TestGetLiveTradingManager:
         Verifies that the manager has a _processes
         attribute that is a dictionary.
         """
-        manager = get_live_trading_manager()
+        with patch("app.services.live_trading_manager._manager", None):
+            with patch("app.services.live_trading_manager._load_instances", return_value={}):
+                manager = get_live_trading_manager()
         assert hasattr(manager, "_processes")
         assert isinstance(manager._processes, dict)
 

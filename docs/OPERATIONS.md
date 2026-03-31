@@ -330,6 +330,7 @@ cp -r /opt/backtrader_web /opt/backtrader_web.backup
 
 # 2. Pull latest code
 cd /opt/backtrader_web
+git remote set-url origin https://github.com/cloudQuant/backtrader_web.git
 git fetch origin
 git checkout main
 git pull origin main
@@ -420,7 +421,7 @@ sudo systemctl start backtrader
 - **Installation Guide**: [INSTALLATION.md](INSTALLATION.md)
 - **Deployment Guide**: [DEPLOYMENT.md](DEPLOYMENT.md)
 - **API Documentation**: http://your-domain.com/docs
-- **GitHub Issues**: https://github.com/your-org/backtrader_web/issues
+- **GitHub Issues**: https://github.com/cloudQuant/backtrader_web/issues
 
 ## Contact Information
 

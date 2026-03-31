@@ -453,8 +453,10 @@ import { Plus, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useStrategyStore } from '@/stores/strategy'
 import { strategyApi } from '@/api/strategy'
+import { getCategoryType, getCategoryLabel } from '@/constants/strategy'
 import MonacoEditor from '@/components/common/MonacoEditor.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
+import DOMPurify from 'dompurify'
 
 const router = useRouter()
 const strategyStore = useStrategyStore()
@@ -551,26 +553,10 @@ const renderedReadme = computed(() => {
   // Paragraphs
   md = md.replace(/\n\n/g, '</p><p class="my-2">')
   md = '<p class="my-2">' + md + '</p>'
-  return md
+  return DOMPurify.sanitize(md)
 })
 
 // ---- Methods ----
-function getCategoryLabel(category: string) {
-  const labels: Record<string, string> = {
-    trend: '趋势', mean_reversion: '均值回归', volatility: '波动率',
-    indicator: '指标', arbitrage: '套利', custom: '其他',
-  }
-  return labels[category] || category
-}
-
-function getCategoryType(category: string) {
-  const types: Record<string, string> = {
-    trend: '', mean_reversion: 'success', volatility: 'warning',
-    indicator: 'info', arbitrage: 'danger', custom: 'info',
-  }
-  return types[category] || 'info'
-}
-
 function stripMeta(desc?: string) {
   if (!desc) return ''
   return desc.split(' | ')[0]
@@ -666,10 +652,14 @@ async function deleteStrategy(id: string) {
 }
 
 onMounted(async () => {
-  await Promise.all([
-    strategyStore.fetchStrategies(),
-    strategyStore.fetchTemplates(),
-  ])
+  try {
+    await Promise.all([
+      strategyStore.fetchStrategies(),
+      strategyStore.fetchTemplates(),
+    ])
+  } catch {
+    ElMessage.error('加载策略数据失败，请刷新重试')
+  }
 })
 </script>
 

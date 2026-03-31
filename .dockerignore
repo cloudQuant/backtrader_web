@@ -1,0 +1,57 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+docs/
+*.md
+
+# Data files (large)
+datas/
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Node.js
+node_modules/
+coverage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# BMAD
+_bmad/
+_bmad-output/
+
+# Test artifacts
+test-results/
+playwright-report/
+e2e-results/
+
+# Environment
+.env
+.env.local
+.env.*.local

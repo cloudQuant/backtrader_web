@@ -32,6 +32,12 @@ vi.mock('@element-plus/icons-vue', () => ({
   Moon: { template: '<span>Moon</span>' },
   VideoPlay: { template: '<span>Video</span>' },
   MagicStick: { template: '<span>Magic</span>' },
+  Monitor: { template: '<span>Monitor</span>' },
+  Refresh: { template: '<span>Refresh</span>' },
+  Plus: { template: '<span>Plus</span>' },
+  Delete: { template: '<span>Delete</span>' },
+  Edit: { template: '<span>Edit</span>' },
+  Search: { template: '<span>Search</span>' },
 }))
 
 // Mock Element Plus ElMessage

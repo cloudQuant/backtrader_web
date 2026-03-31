@@ -4,16 +4,11 @@ Strategy version control service.
 Supports versioning, branch management, rollback, and comparisons.
 """
 
-import difflib
 import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import desc, select
-
-from app.db import database as db
 from app.db.sql_repository import SQLRepository
-from app.models.backtest import BacktestResultModel, BacktestTask
 from app.models.strategy import Strategy
 from app.models.strategy_version import (
     StrategyVersion,
@@ -24,6 +19,11 @@ from app.models.strategy_version import (
 )
 from app.schemas.strategy_version import (
     VersionUpdate,
+)
+from app.services.version_diff_service import (
+    generate_code_diff,
+    generate_params_diff,
+    generate_performance_diff,
 )
 from app.websocket_manager import manager as ws_manager
 
@@ -60,16 +60,7 @@ class VersionControlService:
     async def _require_strategy_owner(self, strategy_id: str, user_id: str) -> Strategy:
         """Load a strategy and enforce ownership.
 
-        Args:
-            strategy_id: The strategy identifier.
-            user_id: The user identifier to verify ownership.
-
-        Returns:
-            The Strategy entity if found and owned by the user.
-
-        Raises:
-            ValueError: If the strategy does not exist.
-            PermissionError: If the user does not own the strategy.
+        Raises ValueError if not found, PermissionError if not owned.
         """
         strategy = await self.strategy_repo.get_by_id(strategy_id)
         if not strategy:
@@ -393,7 +384,7 @@ class VersionControlService:
             raise PermissionError("forbidden")
 
         # Calculate code diff
-        code_diff = self._generate_code_diff(
+        code_diff = generate_code_diff(
             from_version.code,
             to_version.code,
             from_version.version_name,
@@ -401,13 +392,13 @@ class VersionControlService:
         )
 
         # Calculate parameters diff
-        params_diff = self._generate_params_diff(
+        params_diff = generate_params_diff(
             from_version.params,
             to_version.params,
         )
 
         # Calculate performance diff
-        performance_diff = await self._generate_performance_diff(
+        performance_diff = await generate_performance_diff(
             from_version_id,
             to_version_id,
         )
@@ -513,138 +504,6 @@ class VersionControlService:
 
         return new_version
 
-    def _generate_code_diff(
-        self,
-        code1: str,
-        code2: str,
-        name1: str,
-        name2: str,
-    ) -> str:
-        """Generate a code difference in unified diff format.
-
-        Args:
-            code1: Source code content.
-            code2: Target code content.
-            name1: Source name for diff header.
-            name2: Target name for diff header.
-
-        Returns:
-            String containing the unified diff.
-        """
-        lines1 = code1.splitlines(keepends=True)
-        lines2 = code2.splitlines(keepends=True)
-
-        diff = difflib.unified_diff(lines1, lines2, fromfile=name1, tofile=name2, lineterm="")
-        return "".join(diff)
-
-    def _generate_params_diff(
-        self,
-        params1: dict[str, Any],
-        params2: dict[str, Any],
-    ) -> dict[str, dict[str, Any]]:
-        """Generate a parameter difference between two parameter sets.
-
-        Args:
-            params1: Source parameters dictionary.
-            params2: Target parameters dictionary.
-
-        Returns:
-            Dictionary with keys 'added', 'removed', 'modified', and 'unchanged'
-            containing the respective parameter differences.
-        """
-        all_keys = set(params1.keys()) | set(params2.keys())
-
-        diff = {
-            "added": {},
-            "removed": {},
-            "modified": {},
-            "unchanged": {},
-        }
-
-        for key in all_keys:
-            if key not in params1:
-                diff["added"][key] = params2[key]
-            elif key not in params2:
-                diff["removed"][key] = params1[key]
-            elif params1[key] != params2[key]:
-                diff["modified"][key] = {
-                    "from": params1[key],
-                    "to": params2[key],
-                }
-            else:
-                diff["unchanged"][key] = params1[key]
-
-        return diff
-
-    async def _generate_performance_diff(
-        self,
-        from_version_id: str,
-        to_version_id: str,
-    ) -> dict[str, Any]:
-        """Generate a performance difference between two versions.
-
-        Compares backtest results from both versions.
-
-        Args:
-            from_version_id: Source version identifier.
-            to_version_id: Target version identifier.
-
-        Returns:
-            Dictionary containing performance metrics differences with keys:
-            - available: Whether performance data exists for both versions
-            - from: Source version metrics
-            - to: Target version metrics
-            - diff: Metric differences (to - from)
-        """
-
-        async def _latest(version_id: str) -> dict[str, Any] | None:
-            async with db.async_session_maker() as session:
-                stmt = (
-                    select(BacktestTask, BacktestResultModel)
-                    .join(BacktestResultModel, BacktestResultModel.task_id == BacktestTask.id)
-                    .where(BacktestTask.strategy_version_id == version_id)
-                    .where(BacktestTask.status == "completed")
-                    .order_by(desc(BacktestTask.created_at))
-                    .limit(1)
-                )
-                result = await session.execute(stmt)
-                row = result.first()
-                if not row:
-                    return None
-                task, res = row
-                return {
-                    "task_id": task.id,
-                    "created_at": task.created_at.isoformat()
-                    if getattr(task, "created_at", None)
-                    else None,
-                    "metrics": {
-                        "total_return": float(getattr(res, "total_return", 0.0)),
-                        "annual_return": float(getattr(res, "annual_return", 0.0)),
-                        "sharpe_ratio": float(getattr(res, "sharpe_ratio", 0.0)),
-                        "max_drawdown": float(getattr(res, "max_drawdown", 0.0)),
-                        "win_rate": float(getattr(res, "win_rate", 0.0)),
-                        "total_trades": int(getattr(res, "total_trades", 0)),
-                        "profitable_trades": int(getattr(res, "profitable_trades", 0)),
-                        "losing_trades": int(getattr(res, "losing_trades", 0)),
-                    },
-                }
-
-        from_res = await _latest(from_version_id)
-        to_res = await _latest(to_version_id)
-        if not from_res or not to_res:
-            return {"available": False, "from": from_res, "to": to_res}
-
-        diff: dict[str, Any] = {}
-        for k, v in to_res["metrics"].items():
-            if (
-                k in from_res["metrics"]
-                and isinstance(v, (int, float))
-                and isinstance(from_res["metrics"][k], (int, float))
-            ):
-                diff[k] = v - from_res["metrics"][k]
-
-        return {"available": True, "from": from_res, "to": to_res, "diff": diff}
-
     def _to_response(self, version: StrategyVersion) -> dict[str, Any]:
         """Convert a StrategyVersion entity to an API response dictionary.
 
@@ -672,22 +531,23 @@ class VersionControlService:
             "updated_at": version.updated_at.isoformat(),
         }
 
+    # Backward-compatible wrappers for tests that call these as instance methods.
+    def _generate_code_diff(self, code1, code2, name1, name2):
+        return generate_code_diff(code1, code2, name1, name2)
+
+    def _generate_params_diff(self, params1, params2):
+        return generate_params_diff(params1, params2)
+
+    async def _generate_performance_diff(self, from_version_id, to_version_id):
+        return await generate_performance_diff(from_version_id, to_version_id)
+
     async def _get_or_create_branch(
         self,
         strategy_id: str,
         user_id: str,
         branch_name: str,
     ) -> VersionBranch:
-        """Get an existing branch or create a new one.
-
-        Args:
-            strategy_id: The strategy identifier.
-            user_id: The user identifier.
-            branch_name: The branch name.
-
-        Returns:
-            The VersionBranch entity.
-        """
+        """Get an existing branch or create a new one."""
         branches = await self.branch_repo.list(
             filters={"strategy_id": strategy_id, "branch_name": branch_name}, limit=1
         )
@@ -713,12 +573,7 @@ class VersionControlService:
         branch: VersionBranch,
         version: StrategyVersion,
     ):
-        """Update branch information after a version is created.
-
-        Args:
-            branch: The VersionBranch entity to update.
-            version: The StrategyVersion entity to incorporate.
-        """
+        """Update branch version_count and last_version_id after a version is created."""
         await self.branch_repo.update(
             branch.id,
             {
@@ -831,15 +686,7 @@ class VersionControlService:
         strategy_id: str,
         branch: str,
     ) -> StrategyVersion | None:
-        """Get the latest version for a branch.
-
-        Args:
-            strategy_id: The strategy identifier.
-            branch: The branch name.
-
-        Returns:
-            The latest StrategyVersion entity or None if not found.
-        """
+        """Get the latest active version for a branch."""
         versions = await self.version_repo.list(
             filters={
                 "strategy_id": strategy_id,
@@ -857,14 +704,7 @@ class VersionControlService:
         self,
         strategy_id: str,
     ) -> StrategyVersion | None:
-        """Get the current version of a strategy (is_current=True).
-
-        Args:
-            strategy_id: The strategy identifier.
-
-        Returns:
-            The current StrategyVersion entity or None if not found.
-        """
+        """Get the current version of a strategy (is_current=True)."""
         versions = await self.version_repo.list(
             filters={
                 "strategy_id": strategy_id,
@@ -880,15 +720,7 @@ class VersionControlService:
         strategy_id: str,
         branch: str,
     ) -> int:
-        """Get the next version number for a branch.
-
-        Args:
-            strategy_id: The strategy identifier.
-            branch: The branch name.
-
-        Returns:
-            The next available version number (integer).
-        """
+        """Get the next version number for a branch."""
         # Get current maximum version number
         versions = await self.version_repo.list(
             filters={
@@ -910,12 +742,7 @@ class VersionControlService:
         strategy_id: str,
         branch: str,
     ):
-        """Unset default flag for all versions on a branch.
-
-        Args:
-            strategy_id: The strategy identifier.
-            branch: The branch name.
-        """
+        """Unset default flag for all versions on a branch."""
         versions = await self.version_repo.list(
             filters={
                 "strategy_id": strategy_id,
@@ -932,12 +759,7 @@ class VersionControlService:
         strategy_id: str,
         branch: str,
     ):
-        """Unset active flag for all versions on a branch.
-
-        Args:
-            strategy_id: The strategy identifier.
-            branch: The branch name.
-        """
+        """Unset active flag for all versions on a branch."""
         versions = await self.version_repo.list(
             filters={
                 "strategy_id": strategy_id,

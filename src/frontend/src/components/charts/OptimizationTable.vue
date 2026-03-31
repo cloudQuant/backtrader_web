@@ -74,12 +74,12 @@
         min-width="200"
       >
         <template #default="{ row }">
-          <span
-            v-for="(value, key, index) in row.params"
-            :key="key"
+          <template
+            v-for="(entry, idx) in Object.entries(row.params)"
+            :key="entry[0]"
           >
-            {{ key }}={{ value }}{{ index < Object.keys(row.params).length - 1 ? ', ' : '' }}
-          </span>
+            <span>{{ entry[0] }}={{ entry[1] }}{{ idx < Object.keys(row.params).length - 1 ? ', ' : '' }}</span>
+          </template>
         </template>
       </el-table-column>
       <el-table-column
@@ -129,7 +129,7 @@ import { ref } from 'vue'
 import { Trophy } from '@element-plus/icons-vue'
 import type { OptimizationResultItem } from '@/types/analytics'
 
-const props = defineProps<{
+defineProps<{
   results: OptimizationResultItem[]
   best: OptimizationResultItem | null
 }>()

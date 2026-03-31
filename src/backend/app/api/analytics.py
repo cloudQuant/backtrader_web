@@ -5,6 +5,7 @@ Backtest analytics API routes.
 import csv
 import io
 import json
+import logging
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -23,7 +24,9 @@ from app.schemas.analytics import (
 from app.services.analytics_service import AnalyticsService
 from app.services.backtest_service import BacktestService
 from app.services.log_parser_service import find_latest_log_dir, parse_data_log, parse_value_log
-from app.services.strategy_service import STRATEGIES_DIR
+from app.services.strategy_service import get_strategy_dir
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -55,10 +58,14 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
             p = Path(task.log_dir)
             if p.is_dir():
                 return p
-    except Exception:
-        pass
+    except Exception as e:
+        # Task lookup failed; fallback to strategy dir
+        logger.debug("Task log dir lookup failed: %s", e)
     # Fallback: compatible with old tasks
-    strategy_dir = STRATEGIES_DIR / strategy_id
+    try:
+        strategy_dir = get_strategy_dir(strategy_id)
+    except ValueError:
+        return None
     return find_latest_log_dir(strategy_dir)
 
 
@@ -99,8 +106,9 @@ async def get_backtest_data(
                 value_data.get("dates", []), value_data.get("cash_curve", []), strict=False
             ):
                 real_cash_map[d] = c
-    except Exception:
-        pass
+    except Exception as e:
+        # Value log parsing failed; use default cash calculation
+        logger.debug("Failed to parse value log: %s", e)
 
     peak = equity_values[0] if equity_values else 0
 
@@ -156,8 +164,9 @@ async def get_backtest_data(
                     }
                 )
                 kline_close_map[kline_dates[j]] = round(ohlc[1], 4)
-    except Exception:
-        pass
+    except Exception as e:
+        # K-line parsing failed; continue without klines
+        logger.debug("K-line data parsing failed: %s", e)
 
     # Convert trade records & generate signals
     # Prefer parsing from trade.log directly (always contains dtopen/dtclose),
@@ -171,7 +180,8 @@ async def get_backtest_data(
             from app.services.log_parser_service import parse_trade_log
 
             log_trades = parse_trade_log(task_log_dir)
-        except Exception:
+        except (OSError, ValueError, KeyError) as e:
+            logger.debug("Failed to parse trade log: %s", e)
             log_trades = None
 
     # Use log_trades (complete fields) or result.trades (may lack dtopen/dtclose)
@@ -254,8 +264,9 @@ async def get_backtest_data(
                         monthly_returns[current_month] = round(ret, 6)
                     month_start_value = value
                     current_month = month_key
-            except Exception:
-                pass
+            except Exception as e:
+                # Date parsing failed; skip this entry
+                logger.debug("Failed to parse date for monthly returns: %s", e)
 
         # Last month
         if current_month and month_start_value > 0:

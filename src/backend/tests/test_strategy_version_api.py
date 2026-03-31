@@ -9,10 +9,13 @@ Tests:
 - WebSocket endpoints
 """
 
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
+
+from app.utils.security import create_access_token
 
 # Valid version creation request
 VALID_VERSION_CREATE = {
@@ -49,25 +52,43 @@ class TestCreateStrategyVersion:
     async def test_create_version_requires_auth(self, client: AsyncClient):
         """Test authentication required."""
         resp = await client.post("/api/v1/strategy-versions/versions", json=VALID_VERSION_CREATE)
-        assert resp.status_code in [401, 403]
+        assert resp.status_code == 401  # Unauthorized
 
     async def test_create_version_success(self, client: AsyncClient, auth_headers: dict):
-        """Test successful version creation - accept various responses due to dependency injection complexity."""
-        # Due to dependency injection and lru_cache complexity, full mocking is difficult
-        # Accept actual response, test mainly verifies no crash
-        # May return 500 (service not properly mocked), 400 (strategy not found), 422 (validation error),
-        # or ValueError if strategy doesn't exist
-        try:
-            resp = await client.post(
-                "/api/v1/strategy-versions/versions",
-                headers=auth_headers,
-                json=VALID_VERSION_CREATE,
+        """Test successful version creation."""
+        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+            mock_service = AsyncMock()
+            mock_version = MagicMock(id="ver123")
+            mock_service.create_version = AsyncMock(return_value=mock_version)
+            mock_service._to_response = MagicMock(
+                return_value={
+                    "id": "ver123",
+                    "strategy_id": "test_strategy",
+                    "version_number": 1,
+                    "version_name": "v1.0.0",
+                    "branch": "main",
+                    "status": "draft",
+                    "tags": ["latest"],
+                    "description": None,
+                    "is_active": False,
+                    "is_default": True,
+                    "is_current": True,
+                    "parent_version_id": None,
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat(),
+                }
             )
-            # As long as not 401/403, authentication passed
-            assert resp.status_code in [200, 400, 422, 500]
-        except ValueError:
-            # ValueError "Strategy not found" is also valid business logic error
-            pass
+            mock_service_class.return_value = mock_service
+
+            with patch("app.api.strategy_version.ws_manager") as mock_ws_mgr:
+                mock_ws_mgr.send_to_task = AsyncMock()
+                resp = await client.post(
+                    "/api/v1/strategy-versions/versions",
+                    headers=auth_headers,
+                    json=VALID_VERSION_CREATE,
+                )
+
+            assert resp.status_code == 200
 
     async def test_create_version_invalid_data(self, client: AsyncClient, auth_headers: dict):
         """Test invalid data."""
@@ -88,7 +109,7 @@ class TestListStrategyVersions:
     async def test_list_requires_auth(self, client: AsyncClient):
         """Test authentication required."""
         resp = await client.get("/api/v1/strategy-versions/strategies/test_strategy/versions")
-        assert resp.status_code in [401, 403]
+        assert resp.status_code == 401  # Unauthorized
 
     async def test_list_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful list."""
@@ -157,7 +178,7 @@ class TestGetStrategyVersion:
     async def test_get_requires_auth(self, client: AsyncClient):
         """Test authentication required."""
         resp = await client.get("/api/v1/strategy-versions/versions/ver123")
-        assert resp.status_code in [401, 403]
+        assert resp.status_code == 401  # Unauthorized
 
     async def test_get_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test version not found."""
@@ -186,10 +207,36 @@ class TestGetStrategyVersion:
             assert resp.status_code == 403  # Forbidden - user has token but not owner
 
     async def test_get_success(self, client: AsyncClient, auth_headers: dict):
-        """Test successful get - accept multiple status codes due to mock complexity."""
-        resp = await client.get("/api/v1/strategy-versions/versions/ver123", headers=auth_headers)
-        # 404 because version doesn't exist, 200 if has data
-        assert resp.status_code in [200, 404, 500]
+        """Test successful get."""
+        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+            mock_service = AsyncMock()
+            mock_version = MagicMock(created_by="owner-id")
+            mock_service.get_version = AsyncMock(return_value=mock_version)
+            mock_service._to_response = MagicMock(
+                return_value={
+                    "id": "ver123",
+                    "strategy_id": "test_strategy",
+                    "version_number": 1,
+                    "version_name": "v1.0.0",
+                    "branch": "main",
+                    "status": "draft",
+                    "tags": ["latest"],
+                    "description": None,
+                    "is_active": False,
+                    "is_default": True,
+                    "is_current": True,
+                    "parent_version_id": None,
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat(),
+                }
+            )
+            mock_service_class.return_value = mock_service
+            owner_headers = {
+                "Authorization": f"Bearer {create_access_token({'sub': 'owner-id', 'username': 'owner'})}"
+            }
+
+            resp = await client.get("/api/v1/strategy-versions/versions/ver123", headers=owner_headers)
+            assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -201,7 +248,7 @@ class TestUpdateStrategyVersion:
         resp = await client.put(
             "/api/v1/strategy-versions/versions/ver123", json={"code": "new code"}
         )
-        assert resp.status_code in [401, 403]
+        assert resp.status_code == 401  # Unauthorized
 
     async def test_update_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test version not found."""
@@ -218,16 +265,40 @@ class TestUpdateStrategyVersion:
             assert resp.status_code == 404
 
     async def test_update_success(self, client: AsyncClient, auth_headers: dict):
-        """Test successful update - accept multiple status codes due to mock complexity."""
-        resp = await client.put(
-            "/api/v1/strategy-versions/versions/ver123",
-            headers=auth_headers,
-            json={
-                "description": "Updated description",
-                "tags": ["updated"],
-            },
-        )
-        assert resp.status_code in [200, 404, 500]
+        """Test successful update."""
+        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+            mock_service = AsyncMock()
+            mock_version = MagicMock()
+            mock_service.update_version = AsyncMock(return_value=mock_version)
+            mock_service._to_response = MagicMock(
+                return_value={
+                    "id": "ver123",
+                    "strategy_id": "test_strategy",
+                    "version_number": 1,
+                    "version_name": "v1.0.0",
+                    "branch": "main",
+                    "status": "draft",
+                    "tags": ["updated"],
+                    "description": "Updated description",
+                    "is_active": False,
+                    "is_default": True,
+                    "is_current": True,
+                    "parent_version_id": None,
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat(),
+                }
+            )
+            mock_service_class.return_value = mock_service
+
+            resp = await client.put(
+                "/api/v1/strategy-versions/versions/ver123",
+                headers=auth_headers,
+                json={
+                    "description": "Updated description",
+                    "tags": ["updated"],
+                },
+            )
+            assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -237,7 +308,7 @@ class TestSetVersionDefault:
     async def test_set_default_requires_auth(self, client: AsyncClient):
         """Test authentication required."""
         resp = await client.post("/api/v1/strategy-versions/versions/ver123/set-default")
-        assert resp.status_code in [401, 403]
+        assert resp.status_code == 401  # Unauthorized
 
     async def test_set_default_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test version not found."""
@@ -271,7 +342,7 @@ class TestActivateVersion:
     async def test_activate_requires_auth(self, client: AsyncClient):
         """Test authentication required."""
         resp = await client.post("/api/v1/strategy-versions/versions/ver123/activate")
-        assert resp.status_code in [401, 403]
+        assert resp.status_code == 401  # Unauthorized
 
     async def test_activate_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test version not found."""
@@ -307,20 +378,34 @@ class TestCompareVersions:
         resp = await client.post(
             "/api/v1/strategy-versions/versions/compare", json=VALID_VERSION_COMPARE
         )
-        assert resp.status_code in [401, 403]
+        assert resp.status_code == 401  # Unauthorized
 
     async def test_compare_success(self, client: AsyncClient, auth_headers: dict):
-        """Test successful comparison - accept various responses due to mock complexity."""
-        try:
-            resp = await client.post(
-                "/api/v1/strategy-versions/versions/compare",
-                headers=auth_headers,
-                json=VALID_VERSION_COMPARE,
+        """Test successful comparison."""
+        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+            mock_service = AsyncMock()
+            mock_comparison = MagicMock(
+                id="cmp123",
+                strategy_id="test_strategy",
+                from_version_id="ver1",
+                to_version_id="ver2",
+                code_diff="diff --git",
+                params_diff={"period": [10, 20]},
+                performance_diff={"return": [0.1, 0.2]},
+                created_at=datetime.now().isoformat(),
             )
-            assert resp.status_code in [200, 400, 404, 500]
-        except ValueError:
-            # ValueError "Version not found" is also valid business logic error
-            pass
+            mock_service.compare_versions = AsyncMock(return_value=mock_comparison)
+            mock_service_class.return_value = mock_service
+
+            with patch("app.api.strategy_version.ws_manager") as mock_ws_mgr:
+                mock_ws_mgr.send_to_task = AsyncMock()
+                resp = await client.post(
+                    "/api/v1/strategy-versions/versions/compare",
+                    headers=auth_headers,
+                    json=VALID_VERSION_COMPARE,
+                )
+
+            assert resp.status_code == 200
 
     async def test_compare_invalid_data(self, client: AsyncClient, auth_headers: dict):
         """Test invalid data."""
@@ -343,20 +428,43 @@ class TestRollbackVersion:
         resp = await client.post(
             "/api/v1/strategy-versions/versions/rollback", json=VALID_VERSION_ROLLBACK
         )
-        assert resp.status_code in [401, 403]
+        assert resp.status_code == 401  # Unauthorized
 
     async def test_rollback_success(self, client: AsyncClient, auth_headers: dict):
-        """Test successful rollback - accept various responses due to mock complexity."""
-        try:
-            resp = await client.post(
-                "/api/v1/strategy-versions/versions/rollback",
-                headers=auth_headers,
-                json=VALID_VERSION_ROLLBACK,
+        """Test successful rollback."""
+        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+            mock_service = AsyncMock()
+            mock_version = MagicMock(id="ver124")
+            mock_service.rollback_version = AsyncMock(return_value=mock_version)
+            mock_service._to_response = MagicMock(
+                return_value={
+                    "id": "ver124",
+                    "strategy_id": "test_strategy",
+                    "version_number": 2,
+                    "version_name": "v1.0.1",
+                    "branch": "main",
+                    "status": "draft",
+                    "tags": [],
+                    "description": None,
+                    "is_active": False,
+                    "is_default": False,
+                    "is_current": True,
+                    "parent_version_id": "ver1",
+                    "created_at": datetime.now().isoformat(),
+                    "updated_at": datetime.now().isoformat(),
+                }
             )
-            assert resp.status_code in [200, 400, 404, 500]
-        except ValueError:
-            # ValueError "Version not found" is also valid business logic error
-            pass
+            mock_service_class.return_value = mock_service
+
+            with patch("app.api.strategy_version.ws_manager") as mock_ws_mgr:
+                mock_ws_mgr.send_to_task = AsyncMock()
+                resp = await client.post(
+                    "/api/v1/strategy-versions/versions/rollback",
+                    headers=auth_headers,
+                    json=VALID_VERSION_ROLLBACK,
+                )
+
+            assert resp.status_code == 200
 
     async def test_rollback_invalid_data(self, client: AsyncClient, auth_headers: dict):
         """Test invalid data."""
@@ -464,27 +572,29 @@ class TestStrategyVersionWebSocket:
 
             # Mock asyncio.sleep to avoid infinite loop - patch on builtin asyncio
             with patch("asyncio.sleep") as mock_sleep:
-                mock_sleep.return_value = None
                 # First return normally, second throw exception
                 mock_sleep.side_effect = [None, Exception("Exit loop")]
 
+                import sys
+
+                old_asyncio = sys.modules.get("asyncio")
                 try:
                     # Since asyncio is not imported in module, need to inject it
-                    import sys
-
-                    old_asyncio = sys.modules.get("asyncio")
                     sys.modules["asyncio"] = sys.modules.get("asyncio", asyncio)
 
                     await strategy_version_websocket(mock_ws, "test_strategy")
-                except Exception:
-                    pass
                 finally:
                     # Restore
                     if old_asyncio:
                         sys.modules["asyncio"] = old_asyncio
 
-                # Verify no crash
-                assert True
+                client_id = mock_mgr.connect.await_args.args[2]
+                mock_mgr.connect.assert_awaited_once_with(
+                    mock_ws, "strategy:test_strategy", client_id
+                )
+                mock_mgr.disconnect.assert_called_once_with(
+                    mock_ws, "strategy:test_strategy", client_id
+                )
 
     async def test_websocket_sends_connected_message(self):
         """Test WebSocket sends connected message."""
@@ -504,22 +614,25 @@ class TestStrategyVersionWebSocket:
 
             # Mock asyncio.sleep
             with patch("asyncio.sleep", side_effect=Exception("Exit loop")):
+                import sys
+
+                old_asyncio = sys.modules.get("asyncio")
                 try:
                     # Since asyncio is not imported in module, need to inject it
-                    import sys
-
-                    old_asyncio = sys.modules.get("asyncio")
                     sys.modules["asyncio"] = sys.modules.get("asyncio", asyncio)
 
                     await strategy_version_websocket(mock_ws, "test_strategy")
-                except Exception:
-                    pass
                 finally:
                     if old_asyncio:
                         sys.modules["asyncio"] = old_asyncio
 
-                # Verify no crash
-                assert True
+                client_id = mock_mgr.connect.await_args.args[2]
+                mock_mgr.connect.assert_awaited_once_with(
+                    mock_ws, "strategy:test_strategy", client_id
+                )
+                mock_mgr.disconnect.assert_called_once_with(
+                    mock_ws, "strategy:test_strategy", client_id
+                )
 
 
 class TestServiceDependency:

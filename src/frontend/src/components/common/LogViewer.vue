@@ -287,7 +287,7 @@ function formatLogLine(line: string): FormattedEntry {
 
       // 系统事件日志 (system.log)
       if (eventType) {
-        const levelColors = {
+        const levelColors: Record<string, string> = {
           INFO: 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/20',
           ERROR: 'border-red-400 bg-red-50/50 dark:bg-red-900/20',
           WARNING: 'border-amber-400 bg-amber-50/50 dark:bg-amber-900/20',

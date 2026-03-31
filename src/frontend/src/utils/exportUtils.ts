@@ -16,7 +16,7 @@ type BacktestExportInput = Partial<BacktestResult> & Record<string, unknown>
 export type ExportFormat = 'csv' | 'json' | 'excel' | 'html'
 
 export interface ExportOptions {
-  format: ExportFormat
+  format?: ExportFormat
   filename?: string
   includeHeaders?: boolean
   dateFormat?: 'iso' | 'locale' | 'timestamp'
@@ -26,11 +26,27 @@ export interface ExportOptions {
 /** Generic row type for CSV/JSON export (allow primitives and nested objects). */
 export type ExportRow = Record<string, string | number | boolean | null | undefined | Date | unknown>
 
+function protectCsvFormula(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+}
+
+function serializeCsvValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return ''
+  }
+
+  const normalized = typeof value === 'string' ? protectCsvFormula(value) : String(value)
+  if (normalized.includes(',') || normalized.includes('"') || normalized.includes('\n')) {
+    return `"${normalized.replace(/"/g, '""')}"`
+  }
+  return normalized
+}
+
 /**
  * 将数据导出为 CSV
  */
-export function exportToCSV(
-  data: ExportRow[],
+export function exportToCSV<T extends object>(
+  data: T[],
   options: ExportOptions = {}
 ): string {
   const {
@@ -44,7 +60,7 @@ export function exportToCSV(
   }
 
   // 获取所有列名
-  const headers = Object.keys(data[0])
+  const headers = Object.keys(data[0] as Record<string, unknown>)
   
   // 构建CSV行
   const rows: string[] = []
@@ -56,8 +72,9 @@ export function exportToCSV(
   
   // 添加数据行
   data.forEach(item => {
+    const itemRecord = item as Record<string, unknown>
     const values = headers.map(header => {
-      let value = item[header]
+      let value = itemRecord[header]
       
       // 格式化日期
       if (value instanceof Date) {
@@ -71,25 +88,12 @@ export function exportToCSV(
           : value.toString()
       }
       
-      // 处理字符串（转义逗号和引号）
-      if (typeof value === 'string') {
-        // 如果包含逗号、引号或换行，需要用引号包裹
-        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-          value = `"${value.replace(/"/g, '""')}"`
-        }
-      }
-      
-      // 处理 null/undefined
-      if (value === null || value === undefined) {
-        value = ''
-      }
-      
       // 处理对象和数组（转为JSON字符串）
       if (typeof value === 'object') {
-        value = `"${JSON.stringify(value).replace(/"/g, '""')}"`
+        return serializeCsvValue(JSON.stringify(value))
       }
-      
-      return value
+
+      return serializeCsvValue(value)
     })
     rows.push(values.join(','))
   })
@@ -101,7 +105,7 @@ export function exportToCSV(
  * 将数据导出为 JSON
  */
 export function exportToJSON(
-  data: ExportRow[] | Record<string, unknown>,
+  data: unknown,
   options: ExportOptions = {}
 ): string {
   const {
@@ -144,9 +148,10 @@ function processDeepData(
   
   // 处理对象
   if (typeof data === 'object' && data !== null) {
+    const dataRecord = data as Record<string, unknown>
     const processed: Record<string, unknown> = {}
-    Object.keys(data).forEach(key => {
-      processed[key] = processDeepData(data[key], dateFormat, numberFormat)
+    Object.keys(dataRecord).forEach(key => {
+      processed[key] = processDeepData(dataRecord[key], dateFormat, numberFormat)
     })
     return processed
   }
@@ -245,27 +250,29 @@ export function exportBacktestResult(
 /**
  * 扁平化回测结果（用于 CSV 导出）
  */
-function flattenBacktestResult(result: BacktestExportInput): ExportRow {
+function flattenBacktestResult(result: BacktestResult | BacktestExportInput): ExportRow {
+  const resultRecord = result as Record<string, unknown>
+
   return {
     task_id: result.task_id,
-    strategy_name: (result as Record<string, unknown>).strategy_name,
+    strategy_name: resultRecord.strategy_name,
     strategy_id: result.strategy_id,
     symbol: result.symbol,
     start_date: result.start_date,
     end_date: result.end_date,
-    initial_cash: (result as Record<string, unknown>).initial_cash,
-    final_value: (result as Record<string, unknown>).final_value,
+    initial_cash: resultRecord.initial_cash,
+    final_value: resultRecord.final_value,
     total_return: result.total_return,
     annual_return: result.annual_return,
     sharpe_ratio: result.sharpe_ratio,
     max_drawdown: result.max_drawdown,
     win_rate: result.win_rate,
-    profit_factor: (result as Record<string, unknown>).profit_factor,
+    profit_factor: resultRecord.profit_factor,
     total_trades: result.total_trades,
-    winning_trades: (result as Record<string, unknown>).winning_trades ?? result.profitable_trades,
+    winning_trades: resultRecord.winning_trades ?? result.profitable_trades,
     losing_trades: result.losing_trades,
-    avg_holding_period: (result as Record<string, unknown>).avg_holding_period,
-    metrics_source: (result as Record<string, unknown>).metrics_source,
+    avg_holding_period: resultRecord.avg_holding_period,
+    metrics_source: resultRecord.metrics_source,
     created_at: result.created_at
   }
 }
@@ -397,8 +404,8 @@ export function exportMultipleFormats<T>(
   formats.forEach(format => {
     try {
       exporter(data, format)
-    } catch (error) {
-      console.error(`Failed to export as ${format}:`, error)
+    } catch {
+      // Export failed for this format, continue with other formats
     }
   })
 }

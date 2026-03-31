@@ -48,8 +48,10 @@ class LiveTradingService:
     def __init__(self):
         """Initialize the LiveTradingService.
 
-        Creates empty dictionaries for tracking tasks and Cerebro instances.
+        Creates empty dictionaries for tracking tasks and Cerebro instances,
+        protected by a threading lock for concurrent access safety.
         """
+        self._lock = threading.Lock()
         self.tasks: dict[str, dict[str, Any]] = {}
         self.cerebro_instances: dict[str, bt.Cerebro] = {}
 
@@ -95,7 +97,9 @@ class LiveTradingService:
         try:
             from backtrader.feeds.ccxtdata import CCXTData
             from backtrader.observers.broker import Broker as BrokerObserver
-            from backtrader.stores.ccxtstore import CCXTStore  # noqa: F811
+            from backtrader.stores.ccxtstore import (
+                CCXTStore,  # noqa: F811  # re-import for type hints
+            )
         except ImportError as e:
             raise ImportError("CCXT live trading components are not available") from e
 
@@ -144,7 +148,8 @@ class LiveTradingService:
                 cerebro.addobserver(BrokerObserver)
 
                 # Store Cerebro instance for control
-                self.cerebro_instances[task_id] = cerebro
+                with self._lock:
+                    self.cerebro_instances[task_id] = cerebro
 
                 # Run live trading
                 logger.info(f"Running live trading with Cerebro: {task_id}")
@@ -152,25 +157,28 @@ class LiveTradingService:
 
             except Exception as e:
                 logger.error(f"Live trading task error ({task_id}): {e}")
-                self.tasks[task_id]["status"] = "failed"
-                self.tasks[task_id]["error"] = str(e)
+                with self._lock:
+                    if task_id in self.tasks:
+                        self.tasks[task_id]["status"] = "failed"
+                        self.tasks[task_id]["error"] = str(e)
+
+        # Register task before starting thread (credentials never stored)
+        with self._lock:
+            self.tasks[task_id] = {
+                "user_id": user_id,
+                "status": "running",
+                "config": {
+                    "exchange": exchange,
+                    "symbols": symbols,
+                    "initial_cash": initial_cash,
+                    "sandbox": sandbox,
+                },
+                "created_at": datetime.now(timezone.utc),
+            }
 
         # Start background thread
         thread = threading.Thread(target=_run_live_trading, daemon=True)
         thread.start()
-
-        # Update task status
-        self.tasks[task_id] = {
-            "user_id": user_id,
-            "status": "running",
-            "config": {
-                "exchange": exchange,
-                "symbols": symbols,
-                "initial_cash": initial_cash,
-                "sandbox": sandbox,
-            },
-            "created_at": datetime.now(timezone.utc),
-        }
 
         return task_id
 
@@ -218,22 +226,22 @@ class LiveTradingService:
         Returns:
             bool: True if the strategy was stopped successfully, False otherwise.
         """
-        if task_id not in self.cerebro_instances:
-            return False
+        with self._lock:
+            if task_id not in self.cerebro_instances:
+                return False
 
-        # Get Cerebro instance
-        cerebro = self.cerebro_instances[task_id]
+            # Get Cerebro instance
+            cerebro = self.cerebro_instances[task_id]
 
-        # Stop Cerebro
+        # Stop Cerebro (outside lock to avoid blocking)
         cerebro.stop()
 
         # Cleanup
-        del self.cerebro_instances[task_id]
-
-        # Update task status
-        if task_id in self.tasks:
-            self.tasks[task_id]["status"] = "stopped"
-            self.tasks[task_id]["stopped_at"] = datetime.now(timezone.utc)
+        with self._lock:
+            self.cerebro_instances.pop(task_id, None)
+            if task_id in self.tasks:
+                self.tasks[task_id]["status"] = "stopped"
+                self.tasks[task_id]["stopped_at"] = datetime.now(timezone.utc)
 
         logger.info(f"Stopped live trading task: {task_id}")
 
@@ -254,14 +262,15 @@ class LiveTradingService:
             A dictionary containing task status including cash, value,
             positions, and orders. Returns None if the task doesn't exist.
         """
-        if task_id not in self.tasks:
-            return None
-
-        task = self.tasks[task_id]
+        with self._lock:
+            if task_id not in self.tasks:
+                return None
+            task = dict(self.tasks[task_id])  # copy to avoid holding lock
+            has_cerebro = task_id in self.cerebro_instances
+            cerebro = self.cerebro_instances.get(task_id)
 
         # Get real-time status if Cerebro instance exists
-        if task_id in self.cerebro_instances:
-            cerebro = self.cerebro_instances[task_id]
+        if has_cerebro and cerebro is not None:
 
             # Get account information
             cash = cerebro.broker.getcash()
