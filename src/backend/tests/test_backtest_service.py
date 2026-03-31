@@ -73,6 +73,23 @@ class TestBacktestServiceHelpers:
         assert "period" in content
         assert "600519.SH" in content
 
+    def test_build_backtest_result_falls_back_to_created_at_when_request_dates_missing(self):
+        created_at = datetime(2024, 1, 15)
+        task = BacktestTask(
+            id="task123",
+            user_id="user1",
+            strategy_id="test_strategy",
+            symbol="000001.SZ",
+            status=TaskStatus.COMPLETED,
+            request_data={"strategy_id": "test_strategy", "symbol": "000001.SZ"},
+            created_at=created_at,
+        )
+
+        result = BacktestService._build_backtest_result(task, None)
+
+        assert result.start_date == created_at
+        assert result.end_date == created_at
+
 
 @pytest.mark.asyncio
 class TestRunBacktest:

@@ -275,7 +275,7 @@ function getStrategyName(id: string): string {
 }
 
 onMounted(async () => {
-  await Promise.all([
+  await Promise.allSettled([
     backtestStore.fetchResults(5),
     strategyStore.fetchStrategies(100),
     strategyStore.fetchTemplates(),

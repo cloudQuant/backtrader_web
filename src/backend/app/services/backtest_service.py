@@ -5,6 +5,7 @@ Encapsulates Backtrader backtest execution and persistence.
 """
 
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -67,6 +68,30 @@ class BacktestService:
         self.task_runner = task_runner or BacktestExecutionRunner()
 
     @staticmethod
+    def _get_request_data(task: BacktestTask) -> dict[str, object]:
+        request_data = task.request_data
+        if isinstance(request_data, dict):
+            return request_data
+        if isinstance(request_data, str):
+            try:
+                parsed = json.loads(request_data)
+            except json.JSONDecodeError:
+                return {}
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    @staticmethod
+    def _get_request_date(task: BacktestTask, key: str) -> datetime | str:
+        request_data = BacktestService._get_request_data(task)
+        value = request_data.get(key)
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str) and value.strip():
+            return value
+        return task.created_at or datetime.now()
+
+    @staticmethod
     def _build_backtest_result(
         task: BacktestTask, result_model: BacktestResultModel | None
     ) -> BacktestResult:
@@ -74,10 +99,8 @@ class BacktestService:
             task_id=task.id,
             strategy_id=task.strategy_id,
             symbol=task.symbol,
-            start_date=(
-                task.request_data.get("start_date") if task.request_data else datetime.now()
-            ),
-            end_date=(task.request_data.get("end_date") if task.request_data else datetime.now()),
+            start_date=BacktestService._get_request_date(task, "start_date"),
+            end_date=BacktestService._get_request_date(task, "end_date"),
             status=TaskStatus(task.status),
             total_return=result_model.total_return if result_model else 0,
             annual_return=result_model.annual_return if result_model else 0,
