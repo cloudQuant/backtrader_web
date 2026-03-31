@@ -115,27 +115,53 @@ curl -H "Authorization: Bearer <token>" \
 ### 4.4 增强版优化 API
 
 ```bash
-# 网格搜索优化
+# 权威任务式入口 - backtest 风格优化（grid / bayesian）
+curl -X POST http://localhost:8000/api/v1/optimization/submit/backtest \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "strategy_id": "002_dual_ma",
+    "backtest_config": {...},
+    "method": "bayesian",
+    "param_bounds": {"period": {"type": "int", "min": 5, "max": 50}},
+    "n_trials": 50
+  }'
+
+# 兼容接口（legacy）- 网格搜索优化
 curl -X POST http://localhost:8000/api/v1/backtests/optimization/grid \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
     "strategy_id": "002_dual_ma",
+    "backtest_config": {...},
     "method": "grid",
-    "param_ranges": {...}
+    "param_grid": {...}
   }'
 
-# 贝叶斯优化
+# 兼容接口（legacy）- 贝叶斯优化
 curl -X POST http://localhost:8000/api/v1/backtests/optimization/bayesian \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{
     "strategy_id": "002_dual_ma",
+    "backtest_config": {...},
     "method": "bayesian",
-    "param_ranges": {...},
+    "param_bounds": {...},
     "n_trials": 50
   }'
 ```
+
+`/api/v1/optimization/*` 是当前推荐的任务式主入口，适合前端页面和长耗时优化任务。
+
+`/api/v1/backtests/optimization/*` 保留用于兼容旧调用方，当前已标记为 deprecated，不建议新接入继续使用。
+
+其中 `/api/v1/optimization/submit/backtest` 是 backtest 风格优化的权威任务式入口；`/api/v1/backtests/optimization/grid` 和 `/api/v1/backtests/optimization/bayesian` 都会代理到统一的任务式主链路。
+
+兼容入口响应会附带以下迁移提示头：
+
+- `Deprecation: true`
+- `Link: </api/v1/optimization/submit/backtest>; rel="successor-version"`
+- `X-Deprecated-Endpoint: /api/v1/optimization/submit/backtest`
 
 ## 5. 结果解读
 

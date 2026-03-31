@@ -16,6 +16,7 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
+from app.config import get_settings
 from app.db.sql_repository import SQLRepository
 from app.models.alerts import (
     Alert,
@@ -24,6 +25,10 @@ from app.models.alerts import (
     AlertSeverity,
     AlertStatus,
     AlertType,
+)
+from app.services.alert_evaluation import (
+    compare_values,
+    get_current_metric_value,
 )
 from app.services.backtest_service import BacktestService
 from app.services.live_trading_service import LiveTradingService
@@ -368,169 +373,48 @@ class MonitoringService:
                     await self._trigger_alert(rule)
 
                 # Determine check interval based on alert type.
+                settings = get_settings()
                 if rule.alert_type == AlertType.SYSTEM:
-                    # System alerts: check every 5 minutes.
-                    await asyncio.sleep(300)
+                    await asyncio.sleep(settings.MONITORING_SYSTEM_INTERVAL)
                 elif rule.alert_type in [AlertType.ACCOUNT, AlertType.POSITION]:
-                    # Account/Position alerts: check every 30 seconds.
-                    await asyncio.sleep(30)
+                    await asyncio.sleep(settings.MONITORING_ACCOUNT_INTERVAL)
                 elif rule.alert_type == AlertType.STRATEGY:
-                    # Strategy alerts: check every 60 seconds.
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(settings.MONITORING_STRATEGY_INTERVAL)
                 else:
-                    # Other alerts: check every 60 seconds.
-                    await asyncio.sleep(60)
+                    await asyncio.sleep(settings.MONITORING_DEFAULT_INTERVAL)
 
             except asyncio.CancelledError:
                 logger.info(f"Monitoring task cancelled: {rule_id}")
                 break
             except Exception as e:
                 logger.error(f"Monitoring task error ({rule_id}): {e}")
-                await asyncio.sleep(60)
+                await asyncio.sleep(get_settings().MONITORING_DEFAULT_INTERVAL)
 
     async def _check_trigger(self, rule: AlertRule) -> bool:
-        """Evaluates whether a rule should trigger based on its trigger type.
-
-        Args:
-            rule: The alert rule to evaluate.
-
-        Returns:
-            bool: True if the rule should trigger, False otherwise.
-        """
+        """Evaluates whether a rule should trigger based on its trigger type."""
         trigger_type = rule.trigger_type
         trigger_config = rule.trigger_config
-
         if trigger_type == "threshold":
-            # Threshold-based trigger.
             return await self._check_threshold_trigger(rule, trigger_config)
         elif trigger_type == "rate":
-            # Rate-of-change trigger.
             return await self._check_rate_trigger(rule, trigger_config)
         elif trigger_type == "cross":
-            # Cross-over trigger.
             return await self._check_cross_trigger(rule, trigger_config)
         elif trigger_type == "manual":
-            # Manual trigger (never auto-triggers).
             return False
-        else:
-            return False
+        return False
 
-    async def _check_threshold_trigger(self, rule: AlertRule, config: dict[str, Any]) -> bool:
-        """Evaluates a threshold-based trigger condition.
+    async def _check_threshold_trigger(self, rule, config):
+        from app.services.alert_evaluation import _check_threshold_trigger
+        return await _check_threshold_trigger(rule, config, self._get_current_metric_value)
 
-        Compares the current metric value against a configured threshold
-        using the specified condition operator.
+    async def _check_rate_trigger(self, rule, config):
+        from app.services.alert_evaluation import _check_rate_trigger
+        return await _check_rate_trigger(rule, config, self._trigger_state, self._get_current_metric_value)
 
-        Args:
-            rule: The alert rule to evaluate.
-            config: Trigger configuration containing threshold and condition.
-
-        Returns:
-            bool: True if the threshold condition is met, False otherwise.
-
-        Supported data sources (in `trigger_config`):
-            - Paper trading: `account_id` (+ optional `symbol` for position rules)
-            - Live trading: `live_task_id`
-            - Backtest: `backtest_task_id`
-            - Fallback/manual: `current_value`
-        """
-        threshold = config.get("threshold")
-        if threshold is None:
-            return False
-
-        current_value = await self._get_current_metric_value(rule, config)
-        if current_value is None:
-            return False
-
-        return self._compare(current_value, threshold, config.get("condition", "lt"))
-
-    async def _check_rate_trigger(self, rule: AlertRule, config: dict[str, Any]) -> bool:
-        """Evaluates a rate-of-change trigger condition.
-
-        Calculates the change between the current metric value and the
-        previously stored value, comparing against a threshold.
-
-        Args:
-            rule: The alert rule to evaluate.
-            config: Trigger configuration containing threshold and mode.
-
-        Returns:
-            bool: True if the rate-of-change condition is met, False otherwise.
-
-        Note:
-            This implementation keeps state in-memory per rule ID. If there is
-            no previous value stored, it records the current value and returns
-            False.
-        """
-        threshold = config.get("threshold")
-        if threshold is None:
-            return False
-
-        current_value = await self._get_current_metric_value(rule, config)
-        if current_value is None:
-            return False
-
-        rule_id = getattr(rule, "id", None)
-        if not rule_id:
-            return False
-        state_key = f"rate:{rule_id}"
-        prev = self._trigger_state.get(state_key)
-        self._trigger_state[state_key] = current_value
-        if prev is None:
-            return False
-
-        mode = config.get("mode", "pct")  # pct | abs
-        if mode == "abs":
-            change = current_value - float(prev)
-        else:
-            prev_f = float(prev)
-            if prev_f == 0:
-                change = float("inf") if current_value != 0 else 0.0
-            else:
-                change = (current_value - prev_f) / abs(prev_f)
-
-        return self._compare(change, float(threshold), config.get("condition", "gt"))
-
-    async def _check_cross_trigger(self, rule: AlertRule, config: dict[str, Any]) -> bool:
-        """Evaluates a cross-over trigger condition based on two values.
-
-        Detects when the difference between two values crosses zero in the
-        specified direction.
-
-        Args:
-            rule: The alert rule to evaluate.
-            config: Trigger configuration containing values and direction.
-
-        Returns:
-            bool: True if the cross condition is met, False otherwise.
-
-        Expected config keys:
-            - `value1`: current value 1 (optional if `current_value` is provided)
-            - `value2`: value 2, or use `threshold` as value 2
-            - `direction`: "up" (crosses from <=0 to >0) or "down" (>=0 to <0)
-        """
-        v1 = config.get("value1", config.get("current_value"))
-        v2 = config.get("value2", config.get("threshold", 0.0))
-        try:
-            v1_f = float(v1)
-            v2_f = float(v2)
-        except (TypeError, ValueError):
-            return False
-
-        diff = v1_f - v2_f
-        rule_id = getattr(rule, "id", None)
-        if not rule_id:
-            return False
-        state_key = f"cross:{rule_id}"
-        prev_diff = self._trigger_state.get(state_key)
-        self._trigger_state[state_key] = diff
-        if prev_diff is None:
-            return False
-
-        direction = str(config.get("direction", "up")).lower()
-        if direction == "down":
-            return float(prev_diff) >= 0 and diff < 0
-        return float(prev_diff) <= 0 and diff > 0
+    async def _check_cross_trigger(self, rule, config):
+        from app.services.alert_evaluation import _check_cross_trigger
+        return await _check_cross_trigger(rule, config, self._trigger_state)
 
     async def _trigger_alert(self, rule: AlertRule):
         """Creates an alert record and pushes notifications.
@@ -879,130 +763,15 @@ class MonitoringService:
     async def _get_current_metric_value(
         self, rule: AlertRule, config: dict[str, Any]
     ) -> float | None:
-        """Resolves the current numeric metric value for a rule based on its type and config.
-
-        Fetches real-time data from paper trading, live trading, or backtest
-        services depending on the alert type and configuration.
-
-        Args:
-            rule: The alert rule requiring a metric value.
-            config: Configuration specifying which metric to retrieve.
-
-        Returns:
-            The current metric value as a float, or None if unavailable.
-        """
-        alert_type = getattr(rule, "alert_type", None)
-        try:
-            alert_type_enum = AlertType(alert_type)
-        except Exception:
-            alert_type_enum = alert_type
-
-        # Manual/compat fallback.
-        if "current_value" in config:
-            try:
-                return float(config.get("current_value"))
-            except (TypeError, ValueError):
-                return None
-
-        if alert_type_enum == AlertType.ACCOUNT:
-            metric = str(config.get("metric", "cash"))
-            account_id = config.get("account_id")
-            if account_id:
-                account = await self.paper_trading_service.get_account(account_id)
-                if not account:
-                    return None
-                if metric == "cash":
-                    return float(account.current_cash)
-                if metric in ("value", "equity"):
-                    return float(account.total_equity)
-                return None
-
-            live_task_id = config.get("live_task_id")
-            if live_task_id:
-                status = await self.live_trading_service.get_task_status(rule.user_id, live_task_id)
-                if not status:
-                    return None
-                if metric == "cash":
-                    return float(status.get("cash", 0.0))
-                if metric in ("value", "equity"):
-                    return float(status.get("value", 0.0))
-                return None
-
-        if alert_type_enum == AlertType.POSITION:
-            metric = str(config.get("metric", "unrealized_pnl"))
-            symbol = config.get("symbol")
-            if not symbol:
-                return None
-
-            account_id = config.get("account_id")
-            if account_id:
-                positions, _ = await self.paper_trading_service.list_positions(
-                    filters={"account_id": account_id, "symbol": symbol},
-                    limit=1,
-                    offset=0,
-                )
-                if not positions:
-                    return None
-                pos = positions[0]
-                if metric == "market_value":
-                    return float(pos.market_value)
-                if metric == "unrealized_pnl":
-                    return float(pos.unrealized_pnl)
-                if metric == "unrealized_pnl_pct":
-                    return float(pos.unrealized_pnl_pct)
-                return None
-
-            live_task_id = config.get("live_task_id")
-            if live_task_id:
-                status = await self.live_trading_service.get_task_status(rule.user_id, live_task_id)
-                if not status:
-                    return None
-                positions = status.get("positions") or []
-                for p in positions:
-                    if p.get("symbol") == symbol:
-                        size = float(p.get("size", 0.0))
-                        price = float(p.get("price", 0.0))
-                        if metric == "market_value":
-                            return size * price
-                        return size * price
-                return None
-
-        if alert_type_enum == AlertType.STRATEGY:
-            metric = str(config.get("metric", "sharpe_ratio"))
-            backtest_task_id = config.get("backtest_task_id")
-            if backtest_task_id:
-                result = await self.backtest_service.get_result(
-                    backtest_task_id, user_id=rule.user_id
-                )
-                if not result:
-                    return None
-                if metric == "sharpe_ratio":
-                    return float(result.sharpe_ratio)
-                if metric == "total_return":
-                    return float(result.total_return)
-                if metric == "max_drawdown":
-                    return float(result.max_drawdown)
-                if metric == "win_rate":
-                    return float(result.win_rate)
-                return None
-        return None
+        """Resolves the current numeric metric value for a rule."""
+        return await get_current_metric_value(
+            rule, config,
+            getattr(self, "paper_trading_service", None),
+            getattr(self, "live_trading_service", None),
+            getattr(self, "backtest_service", None),
+        )
 
     @staticmethod
     def _compare(current_value: float, threshold: float, condition: str) -> bool:
-        """Compares two float values using a simple operator string.
-
-        Args:
-            current_value: The current value to compare.
-            threshold: The threshold value to compare against.
-            condition: The comparison operator ("gt" for greater than,
-                "eq" for equal, or "lt"/default for less than).
-
-        Returns:
-            bool: True if the comparison condition is met, False otherwise.
-        """
-        cond = str(condition or "lt").lower()
-        if cond == "gt":
-            return current_value > threshold
-        if cond == "eq":
-            return current_value == threshold
-        return current_value < threshold
+        """Compares two float values using a simple operator string."""
+        return compare_values(current_value, threshold, condition)

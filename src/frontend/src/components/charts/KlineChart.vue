@@ -6,9 +6,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { watch } from 'vue'
 import * as echarts from 'echarts'
 import type { KlineData } from '@/types'
+import { useChartResize } from '@/composables/useChartResize'
 
 interface Props {
   data: KlineData
@@ -19,8 +20,7 @@ const props = withDefaults(defineProps<Props>(), {
   indicators: () => ['MA5', 'MA20'],
 })
 
-const chartRef = ref<HTMLDivElement>()
-let chart: echarts.ECharts | null = null
+const { chartRef, initChart: baseInitChart } = useChartResize()
 
 function calculateMA(data: number[][], period: number) {
   const result: (number | '-')[] = []
@@ -40,13 +40,10 @@ function calculateMA(data: number[][], period: number) {
 
 function initChart() {
   if (!chartRef.value || !props.data) return
-  
-  if (chart) {
-    chart.dispose()
-  }
-  
-  chart = echarts.init(chartRef.value)
-  
+
+  const chart = baseInitChart()
+  if (!chart) return
+
   const option: echarts.EChartsOption = {
     animation: false,
     legend: {
@@ -139,19 +136,13 @@ function initChart() {
   chart.setOption(option)
 }
 
-function handleResize() {
-  chart?.resize()
-}
-
-onMounted(() => {
-  initChart()
-  window.addEventListener('resize', handleResize)
-})
-
-onUnmounted(() => {
-  chart?.dispose()
-  window.removeEventListener('resize', handleResize)
-})
-
-watch(() => props.data, initChart, { deep: true })
+// Use data identity (dates length + first/last date) instead of deep watch for performance
+watch(
+  () => {
+    const d = props.data
+    if (!d?.dates?.length) return ''
+    return `${d.dates.length}:${d.dates[0]}:${d.dates[d.dates.length - 1]}`
+  },
+  initChart,
+)
 </script>

@@ -5,6 +5,7 @@ This module provides endpoints for managing live trading strategy instances,
 including starting, stopping, and monitoring live trading operations.
 """
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -34,6 +35,8 @@ from app.services.log_parser_service import (
     parse_value_log,
 )
 from app.services.strategy_service import get_strategy_dir
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -763,8 +766,8 @@ async def get_live_monthly_returns(
                     monthly_returns[current_month] = round(ret, 6)
                 month_start_value = value
                 current_month = month_key
-        except Exception:
-            pass
+        except Exception as e:
+            _logger.debug(f"Error calculating monthly return for {dt}: {e}")
 
     if current_month and month_start_value > 0:
         ret = (equity_values[-1] - month_start_value) / month_start_value

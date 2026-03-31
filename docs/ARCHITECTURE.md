@@ -98,19 +98,41 @@ class BacktestService:
         return result
 ```
 
-### 3. 数据层 (Data Layer)
+## 数据存储
 
-**位置**: `app/db/`
+### 支持的数据库
 
-**职责**:
-- 数据库连接管理
-- CRUD 操作
-- 缓存管理
+| 数据库类型 | 状态 | 说明 |
+|------------|------|------|
+| SQLite | ✅ 支持 | 默认选项，适合开发和小型部署 |
+| PostgreSQL | ✅ 支持 | 生产环境推荐，需要 `asyncpg` 驱动 |
+| MySQL | ✅ 支持 | 需要 `aiomysql` 驱动 |
+| MongoDB | ❌ 不支持 | 规划中，当前版本不可用 |
 
-**组件**:
+### 数据层组件
+
 - `database.py`: 数据库连接
 - `sql_repository.py`: 通用仓储
 - `cache.py`: 缓存封装
+- `factory.py`: 仓储工厂（自动选择实现）
+
+### 配置方式
+
+```bash
+# SQLite (默认)
+DATABASE_TYPE=sqlite
+DATABASE_URL=sqlite+aiosqlite:///./backtrader.db
+
+# PostgreSQL
+DATABASE_TYPE=postgresql
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
+
+# MySQL
+DATABASE_TYPE=mysql
+DATABASE_URL=mysql+aiomysql://user:pass@localhost:3306/backtrader
+```
+
+> **注意**: MongoDB 支持计划在未来版本中实现，当前请求 MongoDB 会抛出 `NotImplementedError`。
 
 ### 4. 中间件层 (Middleware Layer)
 

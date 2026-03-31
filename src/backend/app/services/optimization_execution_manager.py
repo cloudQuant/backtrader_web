@@ -13,6 +13,7 @@ from sqlalchemy import select, update
 
 from app.db.database import async_session_maker
 from app.models.optimization import OptimizationTask
+from app.schemas.backtest import TaskStatus
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class OptimizationExecutionManager:
         task = OptimizationTask(
             user_id=user_id,
             strategy_id=strategy_id,
-            status="running",
+            status=TaskStatus.RUNNING.value,
             total=total,
             completed=0,
             failed=0,
@@ -94,7 +95,7 @@ class OptimizationExecutionManager:
             await session.execute(
                 update(OptimizationTask)
                 .where(OptimizationTask.id == task_id)
-                .values(status="cancelled")
+                .values(status=TaskStatus.CANCELLED.value)
             )
             await session.commit()
         return True
@@ -106,7 +107,7 @@ class OptimizationExecutionManager:
                 select(OptimizationTask.status).where(OptimizationTask.id == task_id)
             )
             row = result.scalar_one_or_none()
-            return row == "cancelled" if row else False
+            return row == TaskStatus.CANCELLED.value if row else False
 
 
 @lru_cache

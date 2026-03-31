@@ -30,7 +30,12 @@ class TestLiveTradingList:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        response = await client.get("/api/v1/live-trading/", headers=auth_headers)
+        mock_manager = MagicMock()
+        mock_manager.list_instances.return_value = []
+
+        with patch("app.api.live_trading_api.get_live_trading_manager", return_value=mock_manager):
+            response = await client.get("/api/v1/live-trading/", headers=auth_headers)
+
         assert response.status_code == 200
         data = response.json()
         assert "total" in data
@@ -45,8 +50,7 @@ class TestLiveTradingList:
             client: Async HTTP client fixture.
         """
         response = await client.get("/api/v1/live-trading/")
-        # API may return 401 or 403
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_list_gateway_presets_exposes_ib_web(self, client: AsyncClient, auth_headers):
         response = await client.get("/api/v1/live-trading/presets", headers=auth_headers)
@@ -359,20 +363,29 @@ class TestLiveTradingCreate:
             client: Async HTTP client fixture.
             auth_headers: Authentication headers fixture.
         """
-        # Mock strategy directory exists
-        with patch("app.services.live_trading_manager.STRATEGIES_DIR", Path("/tmp/strategies")):
-            with patch("app.services.live_trading_manager.get_template_by_id") as mock_tpl:
-                mock_tpl.return_value = MagicMock(name="Test Strategy", params={})
+        mock_manager = MagicMock()
+        mock_manager.add_instance.return_value = {
+            "id": "instance-123",
+            "strategy_id": "test_strategy",
+            "strategy_name": "Test Strategy",
+            "status": "stopped",
+            "pid": None,
+            "error": None,
+            "params": {"fast": 10, "slow": 20},
+            "created_at": "2024-01-01T00:00:00",
+            "started_at": None,
+            "stopped_at": None,
+            "log_dir": None,
+        }
 
-                with patch("app.services.live_trading_manager._save_instances"):
-                    response = await client.post(
-                        "/api/v1/live-trading/",
-                        headers=auth_headers,
-                        json={"strategy_id": "test_strategy", "params": {"fast": 10, "slow": 20}},
-                    )
+        with patch("app.api.live_trading_api.get_live_trading_manager", return_value=mock_manager):
+            response = await client.post(
+                "/api/v1/live-trading/",
+                headers=auth_headers,
+                json={"strategy_id": "test_strategy", "params": {"fast": 10, "slow": 20}},
+            )
 
-        # May return 400 if strategy doesn't exist, which is expected
-        assert response.status_code in [200, 400]
+        assert response.status_code == 200
 
     async def test_add_instance_invalid_strategy(self, client: AsyncClient, auth_headers):
         """Test adding non-existent strategy.
@@ -759,8 +772,10 @@ class TestLiveTradingManager:
         """
         from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
 
-        mgr1 = get_live_trading_manager()
-        mgr2 = get_live_trading_manager()
+        with patch("app.services.live_trading_manager._manager", None):
+            with patch("app.services.live_trading_manager._load_instances", return_value={}):
+                mgr1 = get_live_trading_manager()
+                mgr2 = get_live_trading_manager()
         assert isinstance(mgr1, LiveTradingManager)
         assert mgr1 is mgr2
 

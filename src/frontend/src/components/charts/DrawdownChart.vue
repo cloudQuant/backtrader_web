@@ -11,9 +11,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { watch } from 'vue'
 import * as echarts from 'echarts'
 import type { DrawdownPoint } from '@/types/analytics'
+import { useChartResize } from '@/composables/useChartResize'
 
 const props = withDefaults(defineProps<{
   data: DrawdownPoint[]
@@ -23,33 +24,15 @@ const props = withDefaults(defineProps<{
   height: 200,
 })
 
-const chartRef = ref<HTMLElement>()
-let chartInstance: echarts.ECharts | null = null
+const { chartRef, getChart } = useChartResize(renderChart)
 
-onMounted(() => {
-  nextTick(() => {
-    if (chartRef.value) {
-      chartInstance = echarts.init(chartRef.value)
-      renderChart()
-    }
-  })
-  window.addEventListener('resize', handleResize)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
-  chartInstance?.dispose()
-})
-
-watch(() => props.data, () => {
-  renderChart()
-}, { deep: true })
-
-function handleResize() {
-  chartInstance?.resize()
-}
+watch(
+  () => props.data?.length,
+  () => { renderChart() },
+)
 
 function renderChart() {
+  const chartInstance = getChart()
   if (!chartInstance || !props.data.length) return
 
   const dates = props.data.map(d => d.date)

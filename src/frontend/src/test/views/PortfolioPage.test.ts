@@ -8,6 +8,17 @@ vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn() },
 }))
 
+vi.mock('vue-i18n', () => ({
+  createI18n: vi.fn(() => ({ global: { t: (key: string) => key } })),
+  useI18n: vi.fn(() => ({ t: (key: string) => key })),
+}))
+
+vi.mock('@/api/strategy', () => ({
+  strategyApi: {
+    getTemplates: vi.fn().mockResolvedValue({ templates: [], total: 0 }),
+  },
+}))
+
 vi.mock('@/api/portfolio', () => ({
   portfolioApi: {
     getOverview: vi.fn().mockResolvedValue({
@@ -17,14 +28,29 @@ vi.mock('@/api/portfolio', () => ({
         { strategy_id: 's1', strategy_name: 'SMA', status: 'running', assets: 60000, pnl: 10000, pnl_pct: 20 },
       ],
     }),
+    getSimulationOverview: vi.fn().mockResolvedValue({
+      total_assets: 100000, total_cash: 50000, total_position_value: 50000,
+      total_initial_capital: 80000, total_pnl: 20000, total_pnl_pct: 25,
+      strategy_count: 2, running_count: 1, strategies: [
+        { strategy_id: 's1', strategy_name: 'SMA', status: 'running', assets: 60000, pnl: 10000, pnl_pct: 20 },
+      ],
+    }),
     getPositions: vi.fn().mockResolvedValue({ total: 1, positions: [
+      { strategy_name: 'SMA', data_name: 'BTC', direction: 'long', size: 10, price: 100, market_value: 1000 },
+    ] }),
+    getSimulationPositions: vi.fn().mockResolvedValue({ total: 1, positions: [
       { strategy_name: 'SMA', data_name: 'BTC', direction: 'long', size: 10, price: 100, market_value: 1000 },
     ] }),
     getTrades: vi.fn().mockResolvedValue({ total: 1, trades: [
       { strategy_name: 'SMA', data_name: 'BTC', direction: 'long', dtopen: '2024-01-01', dtclose: '2024-02-01', price: 100, size: 10, commission: 1, pnlcomm: 50, barlen: 30 },
     ] }),
+    getSimulationTrades: vi.fn().mockResolvedValue({ total: 1, trades: [
+      { strategy_name: 'SMA', data_name: 'BTC', direction: 'long', dtopen: '2024-01-01', dtclose: '2024-02-01', price: 100, size: 10, commission: 1, pnlcomm: 50, barlen: 30 },
+    ] }),
     getEquity: vi.fn().mockResolvedValue({ dates: ['2024-01-01'], total_equity: [100000], drawdown: [0], strategies: [] }),
+    getSimulationEquity: vi.fn().mockResolvedValue({ dates: ['2024-01-01'], total_equity: [100000], drawdown: [0], strategies: [] }),
     getAllocation: vi.fn().mockResolvedValue({ total: 1, items: [{ name: 'BTC', value: 50000, pct: 50 }] }),
+    getSimulationAllocation: vi.fn().mockResolvedValue({ total: 1, items: [{ name: 'BTC', value: 50000, pct: 50 }] }),
   },
 }))
 

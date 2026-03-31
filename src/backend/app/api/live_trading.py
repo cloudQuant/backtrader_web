@@ -6,10 +6,11 @@ Based on Backtrader's Cerebro + Store + Broker architecture.
 
 import asyncio
 import logging
+from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, mark_deprecated
 from app.schemas.live_trading import (
     LiveTradingDataResponse,
     LiveTradingSubmitRequest,
@@ -21,8 +22,8 @@ from app.websocket_manager import MessageType
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
-
-router = APIRouter()
+router = APIRouter(deprecated=True)
+_DEPRECATED_SUCCESSOR = "/api/v1/live-trading"
 
 
 def get_live_trading_service():
@@ -42,34 +43,16 @@ def get_live_trading_service():
 )
 async def submit_live_strategy(
     request: LiveTradingSubmitRequest,
+    response: Response,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
 ):
     """Submit a live trading strategy and start execution.
 
-    Args:
-        request: The live trading submission request containing:
-            - strategy_name: Strategy name (built-in strategies: SMACross, etc.)
-            - strategy_code: Strategy code
-            - exchange: Exchange (binance, okex, huobi, etc.)
-            - symbols: Trading pair list
-            - initial_cash: Initial capital
-            - strategy_params: Strategy parameters
-            - timeframe: Time period
-            - start_date: Start time
-            - end_date: End time
-            - api_key: API Key
-            - secret: Secret Key
-            - sandbox: Whether to use test environment
-        current_user: The authenticated user.
-        service: The live trading service.
-
-    Returns:
-        LiveTradingTaskResponse: The created task response with task_id,
-            user_id, status, config, and created_at timestamp.
+    .. deprecated:: 1.0.0
+        Use :func:`app.api.live_trading_api` instead.
     """
-    from datetime import datetime
-
+    mark_deprecated(response, _DEPRECATED_SUCCESSOR, "live-trading-crypto")
     task_id = await service.start_live_trading(
         user_id=current_user.sub,
         strategy_name=request.strategy_name,
@@ -103,6 +86,7 @@ async def submit_live_strategy(
     "/live/tasks", response_model=LiveTradingTaskListResponse, summary="List live trading tasks"
 )
 async def list_live_tasks(
+    response: Response,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
     limit: int = Query(20, ge=1, le=100),
@@ -110,15 +94,10 @@ async def list_live_tasks(
 ):
     """Get the current user's live trading task list.
 
-    Args:
-        current_user: The authenticated user.
-        service: The live trading service.
-        limit: Maximum number of tasks to return (1-100).
-        offset: Number of tasks to skip.
-
-    Returns:
-        A dictionary containing the list of tasks and total count.
+    .. deprecated:: 1.0.0
+        Use :func:`app.api.live_trading_api` instead.
     """
+    mark_deprecated(response, _DEPRECATED_SUCCESSOR, "live-trading-crypto")
     tasks = await service.list_tasks(current_user.sub)
 
     return {
@@ -134,22 +113,16 @@ async def list_live_tasks(
 )
 async def get_live_task_status(
     task_id: str,
+    response: Response,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
 ):
     """Get the status of a live trading task.
 
-    Args:
-        task_id: The unique identifier of the task.
-        current_user: The authenticated user.
-        service: The live trading service.
-
-    Returns:
-        LiveTradingTaskResponse: The task status details.
-
-    Raises:
-        HTTPException: If the task does not exist (404).
+    .. deprecated:: 1.0.0
+        Use :func:`app.api.live_trading_api` instead.
     """
+    mark_deprecated(response, _DEPRECATED_SUCCESSOR, "live-trading-crypto")
     task = await service.get_task_status(task_id, current_user.sub)
 
     if not task:
@@ -166,22 +139,16 @@ async def get_live_task_status(
 @router.post("/live/tasks/{task_id}/stop", summary="Stop live trading task")
 async def stop_live_strategy(
     task_id: str,
+    response: Response,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
 ):
     """Stop a running live trading strategy.
 
-    Args:
-        task_id: The unique identifier of the task to stop.
-        current_user: The authenticated user.
-        service: The live trading service.
-
-    Returns:
-        A message confirming the task has been stopped.
-
-    Raises:
-        HTTPException: If the task does not exist or user lacks permission (404).
+    .. deprecated:: 1.0.0
+        Use :func:`app.api.live_trading_api` instead.
     """
+    mark_deprecated(response, _DEPRECATED_SUCCESSOR, "live-trading-crypto")
     success = await service.stop_live_trading(task_id, current_user.sub)
 
     if not success:
@@ -213,23 +180,16 @@ async def stop_live_strategy(
 )
 async def get_live_trading_data(
     task_id: str,
+    response: Response,
     current_user=Depends(get_current_user),
     service: LiveTradingService = Depends(get_live_trading_service),
 ):
     """Get live trading data including account, positions, orders, and trades.
 
-    Args:
-        task_id: The unique identifier of the task.
-        current_user: The authenticated user.
-        service: The live trading service.
-
-    Returns:
-        LiveTradingDataResponse: The task data containing status, cash,
-            value, positions, and orders.
-
-    Raises:
-        HTTPException: If the task does not exist (404).
+    .. deprecated:: 1.0.0
+        Use :func:`app.api.live_trading_api` instead.
     """
+    mark_deprecated(response, _DEPRECATED_SUCCESSOR, "live-trading-crypto")
     task_status = await service.get_task_status(task_id, current_user.sub)
     if not task_status:
         raise HTTPException(

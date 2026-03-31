@@ -94,7 +94,7 @@ class TestCreateAccount:
 
         with patch.object(service, "_notify_account_update", new_callable=AsyncMock) as mock_notify:
             await service.create_account("user_123", "Test Account")
-            assert mock_notify.called
+            mock_notify.assert_awaited_once_with(mock_account)
 
 
 @pytest.mark.asyncio
@@ -236,7 +236,7 @@ class TestProcessOrder:
         with patch.object(service, "_get_simulated_price", return_value=50000.0):
             with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
                 await service._process_order("order_123", "acc_123", mock_account)
-                assert mock_reject.called
+                mock_reject.assert_awaited_once_with(mock_order, "Insufficient funds")
 
     async def test_process_order_sell_insufficient_position(self):
         """Test sell order processing with insufficient position triggers rejection."""
@@ -263,7 +263,7 @@ class TestProcessOrder:
         with patch.object(service, "_get_simulated_price", return_value=50000.0):
             with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
                 await service._process_order("order_123", "acc_123", mock_account)
-                assert mock_reject.called
+                mock_reject.assert_awaited_once_with(mock_order, "Insufficient position")
 
 
 @pytest.mark.asyncio
@@ -345,7 +345,7 @@ class TestUpdatePosition:
 
         await service._update_position(mock_account, mock_order, 50000.0, 50.0)
 
-        assert service.position_repo.create.called
+        service.position_repo.create.assert_awaited_once()
 
     async def test_update_position_existing_long(self):
         """Test updating an existing long position."""
@@ -374,7 +374,7 @@ class TestUpdatePosition:
 
         await service._update_position(mock_account, mock_order, 50000.0, 25.0)
 
-        assert service.position_repo.update.called
+        service.position_repo.update.assert_awaited_once()
 
     async def test_update_position_close_long(self):
         """Test closing a long position."""
@@ -409,7 +409,7 @@ class TestUpdatePosition:
 
         await service._update_position(mock_account, mock_order, 50000.0, 50.0)
 
-        assert service.trade_repo.update.called
+        service.trade_repo.update.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -889,7 +889,19 @@ class TestWebSocketNotifications:
         with patch("app.services.paper_trading_service.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
             await service._notify_account_update(mock_account)
-            assert mock_ws.send_to_task.called
+            mock_ws.send_to_task.assert_awaited_once_with(
+                "account:acc_123",
+                {
+                    "type": "progress",
+                    "account_id": "acc_123",
+                    "data": {
+                        "current_cash": 100000.0,
+                        "total_equity": 100000.0,
+                        "profit_loss": 0.0,
+                        "profit_loss_pct": 0.0,
+                    },
+                },
+            )
 
     async def test_notify_position_update(self):
         """Test position update WebSocket notification."""
@@ -907,7 +919,21 @@ class TestWebSocketNotifications:
         with patch("app.services.paper_trading_service.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
             await service._notify_position_update(mock_position)
-            assert mock_ws.send_to_task.called
+            mock_ws.send_to_task.assert_awaited_once_with(
+                "position:pos_123",
+                {
+                    "type": "progress",
+                    "position_id": "pos_123",
+                    "data": {
+                        "symbol": "BTC/USDT",
+                        "size": 10,
+                        "avg_price": 50000.0,
+                        "market_value": 500000.0,
+                        "unrealized_pnl": 0.0,
+                        "unrealized_pnl_pct": 0.0,
+                    },
+                },
+            )
 
     async def test_notify_order_update(self):
         """Test order update WebSocket notification."""
@@ -926,7 +952,21 @@ class TestWebSocketNotifications:
         with patch("app.services.paper_trading_service.ws_manager") as mock_ws:
             mock_ws.send_to_task = AsyncMock()
             await service._notify_order_update("acc_123", mock_order)
-            assert mock_ws.send_to_task.called
+            mock_ws.send_to_task.assert_awaited_once_with(
+                "account:acc_123",
+                {
+                    "type": "progress",
+                    "order_id": "order_123",
+                    "data": {
+                        "symbol": "BTC/USDT",
+                        "side": "buy",
+                        "size": 10,
+                        "price": 50000.0,
+                        "status": OrderStatus.FILLED,
+                        "filled_size": 10,
+                    },
+                },
+            )
 
 
 @pytest.mark.asyncio

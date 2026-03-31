@@ -15,7 +15,7 @@ class TestErrorResponseContract:
     @pytest.mark.asyncio
     async def test_401_response_structure(self, client: AsyncClient):
         """Unauthenticated request returns structured 401 with error and message."""
-        resp = await client.get("/api/v1/strategies")
+        resp = await client.get("/api/v1/backtest/")
         assert resp.status_code == 401
         data = resp.json()
         assert "error" in data

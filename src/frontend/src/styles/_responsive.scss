@@ -1,0 +1,104 @@
+// 响应式断点变量
+$breakpoint-xs: 480px;   // 手机
+$breakpoint-sm: 768px;   // 平板
+$breakpoint-md: 992px;   // 小屏电脑
+$breakpoint-lg: 1200px;  // 大屏电脑
+
+// 响应式Mixin
+@mixin respond-to($breakpoint) {
+  @if $breakpoint == 'xs' {
+    @media (max-width: $breakpoint-xs) {
+      @content;
+    }
+  } @else if $breakpoint == 'sm' {
+    @media (max-width: $breakpoint-sm) {
+      @content;
+    }
+  } @else if $breakpoint == 'md' {
+    @media (max-width: $breakpoint-md) {
+      @content;
+    }
+  } @else if $breakpoint == 'lg' {
+    @media (max-width: $breakpoint-lg) {
+      @content;
+    }
+  }
+}
+
+// 最小宽度Mixin
+@mixin min-width($breakpoint) {
+  @if $breakpoint == 'sm' {
+    @media (min-width: $breakpoint-xs + 1) {
+      @content;
+    }
+  } @else if $breakpoint == 'md' {
+    @media (min-width: $breakpoint-sm + 1) {
+      @content;
+    }
+  } @else if $breakpoint == 'lg' {
+    @media (min-width: $breakpoint-md + 1) {
+      @content;
+    }
+  } @else if $breakpoint == 'xl' {
+    @media (min-width: $breakpoint-lg + 1) {
+      @content;
+    }
+  }
+}
+
+// 移动端隐藏
+@mixin hide-on-mobile {
+  @include respond-to('sm') {
+    display: none !important;
+  }
+}
+
+// 桌面端隐藏
+@mixin hide-on-desktop {
+  @include min-width('md') {
+    display: none !important;
+  }
+}
+
+// 移动端堆叠布局
+@mixin stack-on-mobile {
+  @include respond-to('sm') {
+    flex-direction: column !important;
+    gap: 12px;
+    
+    > * {
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+  }
+}
+
+// 移动端全宽
+@mixin full-width-on-mobile {
+  @include respond-to('sm') {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+}
+
+// 移动端字体调整
+@mixin font-size-mobile($desktop-size, $mobile-size) {
+  font-size: $desktop-size;
+  
+  @include respond-to('sm') {
+    font-size: $mobile-size;
+  }
+}
+
+// 移动端间距调整
+@mixin padding-mobile($desktop-padding, $mobile-padding) {
+  padding: $desktop-padding;
+  
+  @include respond-to('sm') {
+    padding: $mobile-padding;
+  }
+}

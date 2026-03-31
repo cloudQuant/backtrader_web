@@ -195,14 +195,20 @@ async def get_historical_ticks(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {e}"
         )
 
-    ticks = await service.get_historical_data(
-        user_id=current_user.sub,
-        broker_id=broker_id,
-        symbol=symbol,
-        start_date=start_dt,
-        end_date=end_dt,
-        frequency=frequency,
-    )
+    try:
+        ticks = await service.get_historical_data(
+            user_id=current_user.sub,
+            broker_id=broker_id,
+            symbol=symbol,
+            start_date=start_dt,
+            end_date=end_dt,
+            frequency=frequency,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     return {
         "symbol": symbol,
@@ -241,20 +247,15 @@ async def realtime_tick_websocket(
             {
                 "type": MessageType.CONNECTED,
                 "broker_id": broker_id,
-                "message": "Realtime quote WebSocket connection successful",
+                "streaming_enabled": False,
+                "push_mode": "keepalive_only",
+                "message": "Realtime quote WebSocket connected; live tick push is not available yet",
             },
         )
 
         # Keep connection alive
         while True:
             await asyncio.sleep(1)
-
-            # Latest quotes should be fetched from realtime data service
-            # and pushed via WebSocket
-            # Temporarily using polling; should use event-driven in production
-
-            # Simulate push (should use actual real-time push in production)
-            # TODO: Integrate RealTimeDataService real-time push functionality
 
     except Exception as e:
         logger.error(f"Realtime tick WebSocket error: {e}")

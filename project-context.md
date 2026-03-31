@@ -148,21 +148,24 @@ API 路由层 (api/) -> 服务层 (services/) -> 数据层 (db/)
 ```
 
 #### 路由注册规范
-所有路由在 `api/router.py` 统一注册，使用 `try/except ImportError` 处理可选路由：
+所有路由在 `api/router.py` 统一注册；可选路由导入失败时会记录状态并输出警告日志，而不是静默跳过：
 
 ```python
 api_router = APIRouter()
 
 # 核心路由
 api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
-api_router.include_router(backtest_router, prefix="/backtest", tags=["Backtest"])
+api_router.include_router(backtest_router, prefix="/backtest", tags=["Backtest"], deprecated=True)
+api_router.include_router(backtest_enhanced_router, prefix="/backtests", tags=["Enhanced Backtest"])
 
 # 可选路由 (插件化)
 try:
-    from app.api.paper_trading import router as paper_trading_router
-    api_router.include_router(paper_trading_router, prefix="/paper-trading", tags=["Paper Trading"])
-except ImportError:
-    pass
+    from app.api.auto_trading import router as auto_trading_router
+    api_router.include_router(auto_trading_router, prefix="/auto-trading", tags=["Auto Trading"])
+    _set_optional_router_status("auto_trading", True)
+except ImportError as exc:
+    _set_optional_router_status("auto_trading", False, str(exc))
+    logger.warning("Optional router auto_trading unavailable: %s", exc)
 ```
 
 #### 依赖注入模式
@@ -197,6 +200,10 @@ async def run_backtest(
 # database.py - 使用 SQLAlchemy 2.0 async
 engine = create_async_engine(settings.DATABASE_URL, echo=settings.SQL_ECHO)
 async_session_maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+# 默认启动只验证数据库可用性；
+# 若显式设置 DB_AUTO_CREATE_SCHEMA / DB_AUTO_CREATE_DEFAULT_ADMIN，
+# 才会启用兼容自举行为。
 
 async def get_db() -> AsyncSession:
     async with async_session_maker() as session:
@@ -248,7 +255,7 @@ api.interceptors.response.use(
 // 模块化 API
 export const backtestApi = {
   async run(data: BacktestRequest): Promise<BacktestResponse> {
-    return api.post('/backtest/run', data)
+    return api.post('/backtests/run', data)
   }
 }
 ```
@@ -327,7 +334,7 @@ sequenceDiagram
     participant Subprocess
     participant WebSocket
 
-    Frontend->>API: POST /backtest/run
+    Frontend->>API: POST /backtests/run
     API->>Service: run_backtest(user_id, request)
     Service->>Service: 创建 BacktestTask
     Service->>Service: 启动异步任务
@@ -337,7 +344,7 @@ sequenceDiagram
     Subprocess->>Service: 返回结果
     Service->>Service: 保存 BacktestResultModel
     WebSocket->>Frontend: 推送完成通知
-    Frontend->>API: GET /backtest/{task_id}
+    Frontend->>API: GET /backtests/{task_id}
     API->>Frontend: 返回完整结果
 ```
 
@@ -503,23 +510,39 @@ cd src/frontend && npm run build
 
 ## 9. API 端点速查
 
+### 推荐入口（主链路）
+
 | 端点 | 方法 | 描述 |
 |------|------|------|
 | `/api/v1/auth/register` | POST | 用户注册 |
 | `/api/v1/auth/login` | POST | 用户登录 |
-| `/api/v1/backtest/run` | POST | 提交回测 |
-| `/api/v1/backtest/{task_id}` | GET | 获取结果 |
-| `/api/v1/backtest/` | GET | 回测列表 |
+| `/api/v1/backtests/run` | POST | 提交回测 |
+| `/api/v1/backtests/{task_id}` | GET | 获取结果 |
+| `/api/v1/backtests/{task_id}/status` | GET | 获取任务状态 |
+| `/api/v1/backtests/` | GET | 回测列表 |
 | `/api/v1/strategy/` | GET/POST | 策略 CRUD |
-| `/api/v1/optimization/run` | POST | 参数优化 |
+| `/api/v1/optimization/submit/backtest` | POST | 提交带 backtest_config 的参数优化任务 |
+| `/api/v1/optimization/progress/{task_id}` | GET | 查询参数优化进度 |
+| `/api/v1/optimization/results/{task_id}` | GET | 获取参数优化结果 |
+| `/api/v1/live-trading/` | GET/POST | 实盘交易管理 |
 | `/ws/backtest/{task_id}` | WebSocket | 回测进度 |
+
+### 已废弃入口（计划 v2.0.0 移除）
+
+| 端点 | 方法 | 替代方案 |
+|------|------|----------|
+| `/api/v1/backtest/run` | POST | 使用 `/api/v1/backtests/run` |
+| `/api/v1/backtest/` | GET | 使用 `/api/v1/backtests/` |
+| `/api/v1/backtests/optimization/grid` | POST | 使用 `/api/v1/optimization/submit/backtest` |
+| `/api/v1/backtests/optimization/bayesian` | POST | 使用 `/api/v1/optimization/submit/backtest` |
+| `/api/v1/live-trading-crypto/*` | * | 使用 `/api/v1/live-trading/` |
 
 ## 10. 注意事项
 
 1. **安全**: 生产环境必须更改 `SECRET_KEY` 和 `ADMIN_PASSWORD`
 2. **并发**: 回测有全局并发限制 (MAX_GLOBAL_TASKS=10)
 3. **数据库**: 默认 SQLite，生产环境推荐 PostgreSQL
-4. **WebSocket**: 用于回测进度实时推送，连接路径 `/ws/backtest/{task_id}`
+4. **WebSocket**: 用于回测进度实时推送，连接路径 `/ws/backtest/{task_id}`，认证通过 `Sec-WebSocket-Protocol: access-token,<jwt>` 完成
 5. **权限**: 使用 RBAC，管理员拥有所有权限
 6. **代码风格**: Python 遵循 ruff (line-length=100), TypeScript 遵循 ESLint
 

@@ -1,3 +1,6 @@
+/* 移动端响应式样式 */
+@import './styles/mobile.scss';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

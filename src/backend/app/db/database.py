@@ -2,10 +2,15 @@
 Database connection management.
 """
 
+import logging
+
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -25,7 +30,11 @@ async_session_maker = async_sessionmaker(
 
 
 class Base(DeclarativeBase):
-    """ORM base class."""
+    """ORM base class.
+
+    This class serves as the declarative base for all SQLAlchemy models.
+    Models inherit from this class to gain ORM functionality.
+    """
 
     pass
 
@@ -47,10 +56,19 @@ async def init_db():
     await create_tables()
 
 
+async def verify_database_connection() -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text("SELECT 1"))
+
+
 async def ensure_database_ready() -> None:
     """Ensure schema and default bootstrap data exist."""
-    await create_tables()
-    await create_default_admin()
+    if settings.DB_AUTO_CREATE_SCHEMA:
+        await create_tables()
+    else:
+        await verify_database_connection()
+    if settings.DB_AUTO_CREATE_DEFAULT_ADMIN:
+        await create_default_admin()
 
 
 async def create_default_admin():
@@ -78,7 +96,7 @@ async def create_default_admin():
             )
             session.add(admin_user)
             await session.commit()
-            print(f"Default admin account created: {settings.ADMIN_USERNAME}")
+            logger.info(f"Default admin account created: {settings.ADMIN_USERNAME}")
 
 
 async def get_db() -> AsyncSession:

@@ -107,95 +107,10 @@
     </el-card>
     
     <!-- 回测结果 -->
-    <el-card v-if="currentResult">
-      <template #header>
-        <span class="font-bold">回测结果</span>
-      </template>
-      
-      <!-- 指标面板 -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">
-            总收益率
-          </div>
-          <div
-            class="text-2xl font-bold"
-            :class="currentResult.total_return >= 0 ? 'text-green-500' : 'text-red-500'"
-          >
-            {{ (currentResult.total_return ?? 0).toFixed(2) }}%
-          </div>
-        </div>
-        <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">
-            年化收益
-          </div>
-          <div
-            class="text-2xl font-bold"
-            :class="currentResult.annual_return >= 0 ? 'text-green-500' : 'text-red-500'"
-          >
-            {{ (currentResult.annual_return ?? 0).toFixed(2) }}%
-          </div>
-        </div>
-        <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">
-            夏普比率
-          </div>
-          <div class="text-2xl font-bold text-gray-800">
-            {{ (currentResult.sharpe_ratio ?? 0).toFixed(2) }}
-          </div>
-        </div>
-        <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">
-            最大回撤
-          </div>
-          <div class="text-2xl font-bold text-red-500">
-            {{ (currentResult.max_drawdown ?? 0).toFixed(2) }}%
-          </div>
-        </div>
-        <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">
-            胜率
-          </div>
-          <div class="text-2xl font-bold text-gray-800">
-            {{ (currentResult.win_rate ?? 0).toFixed(1) }}%
-          </div>
-        </div>
-        <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">
-            总交易次数
-          </div>
-          <div class="text-2xl font-bold text-gray-800">
-            {{ currentResult.total_trades }}
-          </div>
-        </div>
-        <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">
-            盈利次数
-          </div>
-          <div class="text-2xl font-bold text-green-500">
-            {{ currentResult.profitable_trades }}
-          </div>
-        </div>
-        <div class="p-4 bg-gray-50 rounded-lg">
-          <div class="text-gray-500 text-sm">
-            亏损次数
-          </div>
-          <div class="text-2xl font-bold text-red-500">
-            {{ currentResult.losing_trades }}
-          </div>
-        </div>
-      </div>
-      
-      <!-- 资金曲线图 -->
-      <div class="h-80">
-        <EquityCurve
-          v-if="currentResult.equity_curve.length"
-          :equity="currentResult.equity_curve"
-          :dates="currentResult.equity_dates"
-          :drawdown="currentResult.drawdown_curve"
-        />
-      </div>
-    </el-card>
+    <BacktestMetricsPanel
+      v-if="currentResult"
+      :result="currentResult"
+    />
     
     <!-- 回测分析提示 -->
     <el-card v-if="results.length > 0">
@@ -210,133 +125,89 @@
     </el-card>
     
     <!-- 回测历史 -->
-    <el-card>
-      <template #header>
-        <span class="font-bold">回测历史</span>
-      </template>
-      
-      <el-table
-        v-loading="backtestStore.loading"
-        :data="results"
-        stripe
-      >
-        <el-table-column
-          label="策略"
-          width="180"
-        >
-          <template #default="{ row }">
-            {{ getStrategyName(row.strategy_id) }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="symbol"
-          label="标的"
-          width="120"
-        />
-        <el-table-column
-          label="收益率"
-          width="100"
-        >
-          <template #default="{ row }">
-            <span :class="row.total_return >= 0 ? 'text-green-500' : 'text-red-500'">
-              {{ (row.total_return ?? 0).toFixed(2) }}%
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="夏普"
-          width="80"
-        >
-          <template #default="{ row }">
-            {{ (row.sharpe_ratio ?? 0).toFixed(2) }}
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="回撤"
-          width="80"
-        >
-          <template #default="{ row }">
-            <span class="text-red-500">{{ (row.max_drawdown ?? 0).toFixed(2) }}%</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          label="状态"
-          width="100"
-        >
-          <template #default="{ row }">
-            <el-tag
-              :type="getStatusType(row.status)"
-              size="small"
-            >
-              {{ getStatusText(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="created_at"
-          label="创建时间"
-          width="180"
-        />
-        <el-table-column
-          label="操作"
-          width="120"
-        >
-          <template #default="{ row }">
-            <el-button
-              type="primary"
-              link
-              size="small"
-              @click="viewResult(row)"
-            >
-              查看
-            </el-button>
-            <el-button
-              type="danger"
-              link
-              size="small"
-              @click="deleteBacktest(row.task_id)"
-            >
-              删除
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+    <BacktestHistoryTable
+      :results="results"
+      :templates="templates"
+      :strategies="strategies"
+      :loading="backtestStore.loading"
+      @view="viewResult"
+      @delete="deleteBacktest"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage } from '@/api/index'
 import { useBacktestStore } from '@/stores/backtest'
 import { useStrategyStore } from '@/stores/strategy'
 import { strategyApi } from '@/api/strategy'
-import { backtestApi } from '@/api/backtest'
-import EquityCurve from '@/components/charts/EquityCurve.vue'
+import BacktestMetricsPanel from '@/components/backtest/BacktestMetricsPanel.vue'
+import BacktestHistoryTable from '@/components/backtest/BacktestHistoryTable.vue'
+import { useBacktestRuntime } from '@/composables/useBacktestRuntime'
 import type { BacktestResult, StrategyConfig } from '@/types'
 import dayjs from 'dayjs'
-import { exportToCSV, exportToJSON, downloadFile } from '@/utils/exportUtils'
-import { getAccessToken } from '@/utils/session'
 
 const router = useRouter()
 const route = useRoute()
 const backtestStore = useBacktestStore()
 const strategyStore = useStrategyStore()
 
-const loading = ref(false)
 const configLoading = ref(false)
 const currentResult = ref<BacktestResult | null>(null)
-const currentTaskId = ref('')
-const progressInfo = ref({ progress: 0, message: '' })
 const strategyConfig = ref<StrategyConfig | null>(null)
 const dynamicParams = reactive<Record<string, number | string>>({})
-let ws: WebSocket | null = null
-let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+
+const {
+  loading,
+  currentTaskId,
+  progressInfo,
+  cancelBacktest,
+  closeWebSocket,
+  connectWebSocket,
+  disposeRuntime,
+  startRuntime,
+  stopRuntime,
+} = useBacktestRuntime({
+  currentResult,
+  fetchResult: (taskId) => backtestStore.fetchResult(taskId),
+  refreshResults: () => backtestStore.fetchResults(),
+})
+
+defineExpose({
+  closeWebSocket,
+  connectWebSocket,
+})
 
 const form = reactive({
   strategy_id: '',
 })
+
+function hasAxiosResponse(e: unknown): e is { response: unknown } {
+  return !!e && typeof e === 'object' && 'response' in e
+}
+
+function showRequestMessage(
+  e: unknown,
+  fallback: string,
+  level: 'error' | 'warning' = 'error'
+): void {
+  // error 场景：全局响应拦截器已处理 Axios 错误，此处不重复显示
+  if (level === 'error' && hasAxiosResponse(e)) {
+    return
+  }
+
+  // warning 场景：全局拦截器只显示 error，此处需要单独处理 warning
+  // 提取实际错误消息显示，而非只显示 fallback
+  const message = getErrorMessage(e, fallback)
+  if (level === 'warning') {
+    ElMessage.warning(message)
+    return
+  }
+  ElMessage.error(message)
+}
 
 async function onStrategyChange(strategyId: string) {
   if (!strategyId) {
@@ -355,8 +226,8 @@ async function onStrategyChange(strategyId: string) {
         dynamicParams[k] = v
       })
     }
-  } catch {
-    ElMessage.warning('无法加载策略配置，将使用默认参数')
+  } catch (e: unknown) {
+    showRequestMessage(e, '无法加载策略配置，将使用默认参数', 'warning')
     strategyConfig.value = null
   } finally {
     configLoading.value = false
@@ -367,100 +238,12 @@ const strategies = computed(() => strategyStore.strategies)
 const templates = computed(() => strategyStore.templates)
 const results = computed(() => backtestStore.results)
 
-function getStrategyName(id: string): string {
-  const t = templates.value.find(t => t.id === id)
-  if (t) return t.name
-  const s = strategies.value.find(s => s.id === id)
-  if (s) return s.name
-  return id
-}
-
-function getStatusType(status: string) {
-  const types: Record<string, string> = {
-    completed: 'success',
-    running: 'warning',
-    pending: 'info',
-    failed: 'danger',
-    cancelled: 'warning',
-  }
-  return types[status] || 'info'
-}
-
-function getStatusText(status: string) {
-  const texts: Record<string, string> = {
-    completed: '完成',
-    running: '运行中',
-    pending: '等待中',
-    failed: '失败',
-    cancelled: '已取消',
-  }
-  return texts[status] || status
-}
-
-function connectWebSocket(taskId: string) {
-  // BUG-4: 使用相对路径，通过 Vite 代理或 Nginx 转发，兼容开发和生产环境
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const token = getAccessToken()
-  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : ''
-  const wsUrl = `${wsProtocol}//${window.location.host}/ws/backtest/${taskId}${tokenParam}`
-  ws = new WebSocket(wsUrl)
-  
-  // OPT-17: WebSocket 心跳保活，防止中间代理断开空闲连接
-  heartbeatTimer = setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send('ping')
-    }
-  }, 30000)
-  
-  ws.onmessage = async (event) => {
-    const data = JSON.parse(event.data)
-    if (data.type === 'progress') {
-      progressInfo.value = { progress: data.progress, message: data.message }
-    } else if (data.type === 'completed') {
-      progressInfo.value = { progress: 100, message: '回测完成' }
-      const result = await backtestStore.fetchResult(taskId)
-      if (result) {
-        currentResult.value = result
-        await backtestStore.fetchResults()
-      }
-      loading.value = false
-      closeWebSocket()
-      ElMessage.success('回测完成')
-    } else if (data.type === 'failed') {
-      loading.value = false
-      closeWebSocket()
-      ElMessage.error('回测失败: ' + data.message)
-    } else if (data.type === 'cancelled') {
-      loading.value = false
-      closeWebSocket()
-      ElMessage.warning('回测已取消')
-    }
-  }
-  
-  ws.onerror = () => {
-    // WebSocket连接失败，回退到轮询
-    closeWebSocket()
-    pollResult(taskId)
-  }
-}
-
-function closeWebSocket() {
-  if (heartbeatTimer) {
-    clearInterval(heartbeatTimer)
-    heartbeatTimer = null
-  }
-  if (ws) {
-    ws.close()
-    ws = null
-  }
-}
-
 async function runBacktest() {
   if (!form.strategy_id) {
     ElMessage.warning('请选择策略')
     return
   }
-  
+
   loading.value = true
   progressInfo.value = { progress: 0, message: '提交任务中...' }
   try {
@@ -473,53 +256,13 @@ async function runBacktest() {
       commission: strategyConfig.value?.backtest?.commission ?? 0.001,
       params: { ...dynamicParams },
     })
-    
-    currentTaskId.value = response.task_id
+
     ElMessage.success('回测任务已提交')
-    
-    // 尝试WebSocket连接，失败则回退轮询
-    connectWebSocket(response.task_id)
-  } catch {
-    loading.value = false
-  }
-}
 
-async function cancelBacktest() {
-  if (!currentTaskId.value) return
-  try {
-    await backtestApi.cancel(currentTaskId.value)
-    loading.value = false
-    closeWebSocket()
-    ElMessage.success('已取消回测任务')
-  } catch {
-    ElMessage.error('取消失败')
-  }
-}
-
-async function pollResult(taskId: string) {
-  const maxAttempts = 60
-  let attempts = 0
-  
-  while (attempts < maxAttempts && loading.value) {
-    const result = await backtestStore.fetchResult(taskId)
-    if (result && result.status === 'completed') {
-      currentResult.value = result
-      await backtestStore.fetchResults()
-      loading.value = false
-      return
-    }
-    if (result && result.status === 'failed') {
-      ElMessage.error('回测失败: ' + result.error_message)
-      loading.value = false
-      return
-    }
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    attempts++
-  }
-  
-  if (loading.value) {
-    loading.value = false
-    ElMessage.warning('回测超时，请稍后查看结果')
+    startRuntime(response.task_id)
+  } catch (e: unknown) {
+    stopRuntime()
+    showRequestMessage(e, '提交回测失败')
   }
 }
 
@@ -538,20 +281,28 @@ async function deleteBacktest(taskId: string) {
 }
 
 onMounted(async () => {
-  await Promise.all([
-    strategyStore.fetchStrategies(),
-    strategyStore.fetchTemplates(),
-    backtestStore.fetchResults(),
-  ])
+  try {
+    await Promise.all([
+      strategyStore.fetchStrategies(),
+      strategyStore.fetchTemplates(),
+      backtestStore.fetchResults(),
+    ])
   
-  // Support ?strategy= query param from strategy gallery
-  const queryStrategy = route.query.strategy as string
-  if (queryStrategy) {
-    form.strategy_id = queryStrategy
-    await onStrategyChange(queryStrategy)
-  } else if (templates.value.length > 0) {
-    form.strategy_id = templates.value[0].id
-    await onStrategyChange(templates.value[0].id)
+    // Support ?strategy= query param from strategy gallery
+    const queryStrategy = route.query.strategy as string
+    if (queryStrategy) {
+      form.strategy_id = queryStrategy
+      await onStrategyChange(queryStrategy)
+    } else if (templates.value.length > 0) {
+      form.strategy_id = templates.value[0].id
+      await onStrategyChange(templates.value[0].id)
+    }
+  } catch (e: unknown) {
+    showRequestMessage(e, '初始化回测页面失败')
   }
+})
+
+onBeforeUnmount(() => {
+  disposeRuntime()
 })
 </script>

@@ -3,6 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
+from tests.conftest import register_and_login
+
 SAMPLE_CODE = "import backtrader as bt\nclass TestStrategy(bt.Strategy): pass"
 
 
@@ -77,6 +79,28 @@ class TestStrategyAPI:
         data = response.json()
         assert data["id"] == strategy_id
         assert data["name"] == "Get Test Strategy"
+
+    @pytest.mark.asyncio
+    async def test_get_strategy_blocks_cross_user_access(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        """Test that users cannot read strategies owned by another user."""
+        create_response = await client.post(
+            "/api/v1/strategy/",
+            json={
+                "name": "Private Strategy",
+                "description": "Owner only",
+                "code": SAMPLE_CODE,
+                "category": "custom",
+            },
+            headers=auth_headers,
+        )
+        strategy_id = create_response.json()["id"]
+
+        _, other_headers = await register_and_login(client, username="other_reader")
+        response = await client.get(f"/api/v1/strategy/{strategy_id}", headers=other_headers)
+
+        assert response.status_code == 404
 
     @pytest.mark.asyncio
     async def test_update_strategy(self, client: AsyncClient, auth_headers: dict):

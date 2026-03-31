@@ -24,6 +24,12 @@ vi.mock('@/components/common/AppLayout.vue', () => ({ default: { template: '<div
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router/index'
 
+function mockAuthStore(isAuthenticated: boolean) {
+  vi.mocked(useAuthStore).mockReturnValue({
+    isAuthenticated,
+  } as ReturnType<typeof useAuthStore>)
+}
+
 describe('router', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -51,56 +57,56 @@ describe('router', () => {
   })
 
   it('guard redirects unauthenticated user to Login', async () => {
-    vi.mocked(useAuthStore).mockReturnValue({ isAuthenticated: false } as any)
+    mockAuthStore(false)
     await router.push('/')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Login')
   })
 
   it('guard allows unauthenticated user on /login', async () => {
-    vi.mocked(useAuthStore).mockReturnValue({ isAuthenticated: false } as any)
+    mockAuthStore(false)
     await router.push('/login')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Login')
   })
 
   it('guard allows unauthenticated user on /register', async () => {
-    vi.mocked(useAuthStore).mockReturnValue({ isAuthenticated: false } as any)
+    mockAuthStore(false)
     await router.push('/register')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Register')
   })
 
   it('guard redirects authenticated user from /login to Dashboard', async () => {
-    vi.mocked(useAuthStore).mockReturnValue({ isAuthenticated: true } as any)
+    mockAuthStore(true)
     await router.push('/login')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Dashboard')
   })
 
   it('guard redirects authenticated user from /register to Dashboard', async () => {
-    vi.mocked(useAuthStore).mockReturnValue({ isAuthenticated: true } as any)
+    mockAuthStore(true)
     await router.push('/register')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Dashboard')
   })
 
   it('guard allows authenticated user to access /', async () => {
-    vi.mocked(useAuthStore).mockReturnValue({ isAuthenticated: true } as any)
+    mockAuthStore(true)
     await router.push('/')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Dashboard')
   })
 
   it('guard allows authenticated user on /settings', async () => {
-    vi.mocked(useAuthStore).mockReturnValue({ isAuthenticated: true } as any)
+    mockAuthStore(true)
     await router.push('/settings')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Settings')
   })
 
   it('guard passes redirect query for protected routes', async () => {
-    vi.mocked(useAuthStore).mockReturnValue({ isAuthenticated: false } as any)
+    mockAuthStore(false)
     await router.push('/backtest')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Login')

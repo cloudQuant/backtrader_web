@@ -4,9 +4,22 @@ Configuration management - Load configuration from environment variables.
 
 import os
 from pathlib import Path
+import warnings
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_SECRETS = frozenset({
+    "your-secret-key-change-in-production",
+    "your-jwt-secret-change-in-production",
+})
+
+_DEFAULT_PASSWORDS = frozenset({"admin123", "password", "12345678"})
+
+
+def _is_production() -> bool:
+    """Check if the application is running in production mode."""
+    return os.environ.get("DEBUG", "true").lower() in ("false", "0", "no")
 
 
 class Settings(BaseSettings):
@@ -51,6 +64,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = Field(
         default="sqlite+aiosqlite:///./backtrader.db", description="Database connection URL"
     )
+    DB_AUTO_CREATE_SCHEMA: bool = Field(default=False)
+    DB_AUTO_CREATE_DEFAULT_ADMIN: bool = Field(default=False)
 
     # Optional: Document database
     DOCUMENT_DB_TYPE: str | None = Field(default=None, description="Document database type")
@@ -79,11 +94,27 @@ class Settings(BaseSettings):
     )
 
     # Service settings
-    HOST: str = Field(default="0.0.0.0", description="Server host address")
+    # NOTE: HOST="0.0.0.0" binds to all interfaces for development convenience.
+    # In production, set HOST to specific IP or use firewall rules to restrict access.
+    HOST: str = Field(default="0.0.0.0", description="Server host address (use specific IP in production)")
     PORT: int = Field(default=8000, description="Server port")
 
     # Backtest subprocess timeout (seconds)
     BACKTEST_TIMEOUT: int = Field(default=300, description="Backtest subprocess timeout in seconds")
+
+    # Monitoring check intervals (seconds)
+    MONITORING_SYSTEM_INTERVAL: int = Field(
+        default=300, description="System alert check interval in seconds"
+    )
+    MONITORING_ACCOUNT_INTERVAL: int = Field(
+        default=30, description="Account/Position alert check interval in seconds"
+    )
+    MONITORING_STRATEGY_INTERVAL: int = Field(
+        default=60, description="Strategy alert check interval in seconds"
+    )
+    MONITORING_DEFAULT_INTERVAL: int = Field(
+        default=60, description="Default alert check interval in seconds"
+    )
 
     # CORS allowed origins (comma-separated)
     CORS_ORIGINS: str = Field(
@@ -204,50 +235,18 @@ class Settings(BaseSettings):
     @field_validator("SECRET_KEY", "JWT_SECRET_KEY")
     @classmethod
     def validate_secrets_not_default(cls, v: str, info) -> str:
-        """Validate that secret keys are not default values in production.
-
-        Args:
-            v: The secret key value.
-            info: Field validation info.
-
-        Returns:
-            The validated secret key.
-
-        Raises:
-            ValueError: If default secret is used in production environment.
-        """
-        # Check if running in production (DEBUG=False)
-        debug_value = os.environ.get("DEBUG", "true").lower()
-        is_production = debug_value in ("false", "0", "no")
-
-        default_secrets = {
-            "your-secret-key-change-in-production",
-            "your-jwt-secret-change-in-production",
-        }
-
-        if is_production and v in default_secrets:
+        """Validate that secret keys are not default values in production."""
+        if _is_production() and v in _DEFAULT_SECRETS:
             raise ValueError(
                 f"Default secret key detected (ENV: {info.field_name}). "
                 "Please set a secure random key via environment variable in production."
             )
-
         return v
 
     @field_validator("SECRET_KEY", "JWT_SECRET_KEY")
     @classmethod
     def validate_secrets_length(cls, v: str, info) -> str:
-        """Validate that secret keys have sufficient length.
-
-        Args:
-            v: The secret key value.
-            info: Field validation info.
-
-        Returns:
-            The validated secret key.
-
-        Raises:
-            ValueError: If secret key is too short.
-        """
+        """Validate that secret keys have sufficient length."""
         min_length = 32
         if len(v) < min_length:
             raise ValueError(
@@ -259,41 +258,22 @@ class Settings(BaseSettings):
     @field_validator("ADMIN_PASSWORD")
     @classmethod
     def validate_admin_password_not_default(cls, v: str) -> str:
-        """Validate that admin password is not the default.
-
-        Args:
-            v: The admin password value.
-
-        Returns:
-            The validated password.
-
-        Raises:
-            ValueError: If default password is used.
-        """
-        default_passwords = {"admin123", "password", "12345678"}
-        if v.lower() in default_passwords:
-            debug_value = os.environ.get("DEBUG", "true").lower()
-            is_production = debug_value in ("false", "0", "no")
-            if is_production:
+        """Validate that admin password is not the default."""
+        if v.lower() in _DEFAULT_PASSWORDS:
+            if _is_production():
                 raise ValueError(
                     "Default admin password detected. Set ADMIN_PASSWORD to a secure password in production."
                 )
+            warnings.warn(
+                "Insecure default admin password detected. Change ADMIN_PASSWORD before shared or production use.",
+                stacklevel=2,
+            )
         return v
 
     @field_validator("DATABASE_TYPE")
     @classmethod
     def validate_database_type(cls, v: str) -> str:
-        """Validate that database type is supported.
-
-        Args:
-            v: The database type value.
-
-        Returns:
-            The validated database type.
-
-        Raises:
-            ValueError: If database type is not supported.
-        """
+        """Validate that database type is supported."""
         supported_databases = {"sqlite", "postgresql", "mysql"}
         if v.lower() not in supported_databases:
             raise ValueError(
@@ -304,17 +284,7 @@ class Settings(BaseSettings):
     @field_validator("PORT")
     @classmethod
     def validate_port_range(cls, v: int) -> int:
-        """Validate that port is in valid range.
-
-        Args:
-            v: The port value.
-
-        Returns:
-            The validated port.
-
-        Raises:
-            ValueError: If port is out of valid range.
-        """
+        """Validate that port is in valid range."""
         if not (1 <= v <= 65535):
             raise ValueError(f"PORT must be between 1 and 65535, got: {v}")
         return v
@@ -322,17 +292,7 @@ class Settings(BaseSettings):
     @field_validator("JWT_EXPIRE_MINUTES")
     @classmethod
     def validate_jwt_expiration(cls, v: int) -> int:
-        """Validate that JWT expiration is reasonable.
-
-        Args:
-            v: The expiration minutes value.
-
-        Returns:
-            The validated expiration.
-
-        Raises:
-            ValueError: If expiration is too short or too long.
-        """
+        """Validate that JWT expiration is reasonable."""
         if not (5 <= v <= 10080):  # 5 minutes to 7 days
             raise ValueError(
                 f"JWT_EXPIRE_MINUTES must be between 5 and 10080 (5 min to 7 days), got: {v}"
@@ -342,17 +302,7 @@ class Settings(BaseSettings):
     @field_validator("CORS_ORIGINS")
     @classmethod
     def validate_cors_origins(cls, v: str) -> str:
-        """Validate that CORS origins are properly formatted.
-
-        Args:
-            v: The CORS origins string.
-
-        Returns:
-            The validated CORS origins.
-
-        Raises:
-            ValueError: If CORS origins contain invalid entries.
-        """
+        """Validate that CORS origins are properly formatted."""
         if not v:
             raise ValueError("CORS_ORIGINS cannot be empty")
 

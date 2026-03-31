@@ -213,7 +213,7 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://gitee.com/xxx/backtrader_web.git
+git clone https://github.com/cloudQuant/backtrader_web.git
 cd backtrader_web
 
 # 2. 后端安装
@@ -341,7 +341,7 @@ MIT License - 自由使用、修改、商业化
 
 ## 相关链接
 
-- **项目地址**：https://gitee.com/xxx/backtrader_web
+- **项目地址**：https://github.com/cloudQuant/backtrader_web
 - **在线文档**：查看 `docs/INDEX.md`
 - **问题反馈**：GitHub Issues
 - **技术交流**：欢迎提交 PR

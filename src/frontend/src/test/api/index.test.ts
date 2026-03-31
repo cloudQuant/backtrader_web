@@ -59,12 +59,12 @@ describe('API module', () => {
 
     it('请求拦截器数量应该大于0', async () => {
       const api = (await import('@/api/index')).default
-      expect(api.interceptors.request.handlers.length).toBeGreaterThan(0)
+      expect((api.interceptors.request as any).handlers.length).toBeGreaterThan(0)
     })
 
     it('响应拦截器数量应该大于0', async () => {
       const api = (await import('@/api/index')).default
-      expect(api.interceptors.response.handlers.length).toBeGreaterThan(0)
+      expect((api.interceptors.response as any).handlers.length).toBeGreaterThan(0)
     })
   })
 

@@ -47,8 +47,8 @@ describe('strategyApi', () => {
 
   it('getTemplates', async () => {
     vi.mocked(api.get).mockResolvedValue({ templates: [], total: 0 })
-    await strategyApi.getTemplates('mean_reversion')
-    expect(api.get).toHaveBeenCalledWith('/strategy/templates', { params: { category: 'mean_reversion' } })
+    await strategyApi.getTemplates('mean_reversion' as unknown as undefined)
+    expect(api.get).toHaveBeenCalledWith('/strategy/templates', { params: { strategy_type: 'mean_reversion' } })
   })
 
   it('getTemplateDetail', async () => {

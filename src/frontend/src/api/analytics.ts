@@ -13,7 +13,7 @@ export const analyticsApi = {
    * 获取回测详情
    */
   getBacktestDetail(taskId: string): Promise<BacktestDetailResponse> {
-    return request.get(`/analytics/${taskId}/detail`)
+    return request.get<BacktestDetailResponse>(`/analytics/${taskId}/detail`)
   },
 
   /**
@@ -27,21 +27,21 @@ export const analyticsApi = {
     const params: Record<string, string> = {}
     if (startDate) params.start_date = startDate
     if (endDate) params.end_date = endDate
-    return request.get(`/analytics/${taskId}/kline`, { params })
+    return request.get<KlineWithSignalsResponse>(`/analytics/${taskId}/kline`, { params })
   },
 
   /**
    * 获取月度收益
    */
   getMonthlyReturns(taskId: string): Promise<MonthlyReturnsResponse> {
-    return request.get(`/analytics/${taskId}/monthly-returns`)
+    return request.get<MonthlyReturnsResponse>(`/analytics/${taskId}/monthly-returns`)
   },
 
   /**
    * 导出回测结果
    */
   async exportResults(taskId: string, format: 'csv' | 'json' = 'csv'): Promise<void> {
-    const response = await request.get(`/analytics/${taskId}/export`, {
+    const response = await request.get<Blob>(`/analytics/${taskId}/export`, {
       params: { format },
       responseType: 'blob',
     })

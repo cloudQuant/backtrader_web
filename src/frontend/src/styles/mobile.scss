@@ -1,0 +1,237 @@
+@use './responsive' as *;
+
+// 全局移动端适配样式
+
+/* 移动端布局容器 */
+.page-container {
+  padding: 20px;
+  
+  @include respond-to('sm') {
+    padding: 12px;
+  }
+}
+
+/* 卡片布局 */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  
+  @include respond-to('sm') {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+/* 表单布局 */
+.form-row {
+  display: flex;
+  gap: 16px;
+  
+  @include respond-to('sm') {
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+/* 表格滚动容器 */
+.table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  
+  @include respond-to('sm') {
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+  
+  .el-table {
+    @include respond-to('sm') {
+      font-size: 12px;
+      
+      .el-table__cell {
+        padding: 8px 4px;
+      }
+    }
+  }
+}
+
+/* 图表容器 */
+.chart-container {
+  width: 100%;
+  height: 400px;
+  
+  @include respond-to('sm') {
+    height: 300px;
+  }
+}
+
+/* 按钮组 */
+.button-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  
+  @include respond-to('sm') {
+    .el-button {
+      flex: 1;
+      min-width: 80px;
+    }
+  }
+}
+
+/* 侧边栏 */
+.sidebar {
+  width: 240px;
+  transition: transform 0.3s ease;
+  
+  @include respond-to('md') {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 1000;
+    transform: translateX(-100%);
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+    
+    &.is-open {
+      transform: translateX(0);
+    }
+  }
+}
+
+/* 主内容区 */
+.main-content {
+  margin-left: 240px;
+  
+  @include respond-to('md') {
+    margin-left: 0;
+  }
+}
+
+/* 移动端导航栏 */
+.mobile-nav {
+  display: none;
+  
+  @include respond-to('md') {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: var(--el-bg-color);
+    border-top: 1px solid var(--el-border-color-light);
+    z-index: 999;
+    justify-content: space-around;
+    align-items: center;
+    padding: 0 8px;
+    
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 6px 12px;
+      color: var(--el-text-color-secondary);
+      font-size: 12px;
+      
+      &.is-active {
+        color: var(--el-color-primary);
+      }
+      
+      .el-icon {
+        font-size: 20px;
+      }
+    }
+  }
+}
+
+/* 移动端顶部工具栏 */
+.mobile-header {
+  display: none;
+  
+  @include respond-to('md') {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--el-bg-color);
+    border-bottom: 1px solid var(--el-border-color-light);
+    position: sticky;
+    top: 0;
+    z-index: 998;
+    
+    .menu-toggle {
+      font-size: 24px;
+      cursor: pointer;
+    }
+    
+    .page-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+  }
+}
+
+/* 隐藏移动端不需要的元素 */
+.hide-on-mobile {
+  @include respond-to('sm') {
+    display: none !important;
+  }
+}
+
+/* 移动端专用元素 */
+.show-on-mobile {
+  display: none !important;
+  
+  @include respond-to('sm') {
+    display: block !important;
+  }
+}
+
+/* 统计卡片 */
+.stat-card {
+  padding: 16px;
+  
+  @include respond-to('sm') {
+    padding: 12px;
+    
+    .stat-value {
+      font-size: 20px;
+    }
+    
+    .stat-label {
+      font-size: 12px;
+    }
+  }
+}
+
+/* 对话框适配 */
+.el-dialog {
+  @include respond-to('sm') {
+    width: 95% !important;
+    margin: 20px auto !important;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+}
+
+/* 抽屉适配 */
+.el-drawer {
+  @include respond-to('sm') {
+    width: 85% !important;
+  }
+}
+
+/* 分页适配 */
+.el-pagination {
+  @include respond-to('sm') {
+    flex-wrap: wrap;
+    justify-content: center;
+    
+    .el-pagination__sizes,
+    .el-pagination__jump {
+      display: none;
+    }
+  }
+}

@@ -18,6 +18,8 @@ class TestConfig:
         assert settings.JWT_ALGORITHM == "HS256"
         assert settings.JWT_EXPIRE_MINUTES > 0
         assert settings.PORT == 8000
+        assert settings.DB_AUTO_CREATE_SCHEMA is False
+        assert settings.DB_AUTO_CREATE_DEFAULT_ADMIN is False
 
     def test_settings_singleton(self):
         s1 = get_settings()

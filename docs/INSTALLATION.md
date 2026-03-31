@@ -12,7 +12,7 @@ This guide covers the supported local development setup for Backtrader Web.
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-org/backtrader_web.git
+git clone https://github.com/cloudQuant/backtrader_web.git
 cd backtrader_web
 ```
 

@@ -60,7 +60,7 @@ def calculate_metrics_from_log_data(
     source = MetricsSource.MANUAL
     if use_fincore:
         try:
-            import fincore  # noqa: F401
+            import fincore  # noqa: F401  # conditional import for availability check
 
             source = MetricsSource.FINCORE
         except ImportError:

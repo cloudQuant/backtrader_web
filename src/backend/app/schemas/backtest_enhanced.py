@@ -238,6 +238,13 @@ class BacktestResponse(BaseModel):
     message: str | None = Field(None, description="Status message")
 
 
+class BacktestStatusResponse(BaseModel):
+    """Backtest task status response schema."""
+
+    task_id: str = Field(..., description="Task ID")
+    status: TaskStatus = Field(..., description="Task status")
+
+
 class TradeRecord(BaseModel):
     """Trade record schema."""
 
@@ -289,6 +296,65 @@ class BacktestListResponse(BaseModel):
 
     total: int = Field(..., ge=0, description="Total count")
     items: list[BacktestResult]
+
+
+class BacktestConnectedEvent(BaseModel):
+    """WebSocket connected event schema."""
+
+    type: Literal["connected"] = "connected"
+    task_id: str
+    client_id: str
+    message: str = "WebSocket connected successfully"
+
+
+class BacktestTaskCreatedEvent(BaseModel):
+    """Backtest task created event schema."""
+
+    type: Literal["task_created"] = "task_created"
+    task_id: str
+    status: TaskStatus = TaskStatus.PENDING
+    message: str = "Backtest task submitted"
+
+
+class BacktestProgressEvent(BaseModel):
+    """Backtest progress event schema."""
+
+    type: Literal["progress"] = "progress"
+    task_id: str
+    status: TaskStatus = TaskStatus.RUNNING
+    progress: int = Field(..., ge=0, le=100)
+    message: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class BacktestCompletedEvent(BaseModel):
+    """Backtest completed event schema."""
+
+    type: Literal["completed"] = "completed"
+    task_id: str
+    status: TaskStatus = TaskStatus.COMPLETED
+    progress: int = Field(default=100, ge=0, le=100)
+    message: str = "Backtest completed"
+    result: dict[str, Any] | None = None
+
+
+class BacktestFailedEvent(BaseModel):
+    """Backtest failed event schema."""
+
+    type: Literal["failed"] = "failed"
+    task_id: str
+    status: TaskStatus = TaskStatus.FAILED
+    message: str = "Backtest failed"
+    error: str
+
+
+class BacktestCancelledEvent(BaseModel):
+    """Backtest cancelled event schema."""
+
+    type: Literal["cancelled"] = "cancelled"
+    task_id: str
+    status: TaskStatus = TaskStatus.CANCELLED
+    message: str = "Task cancelled"
 
 
 class OptimizationRequest(BaseModel):

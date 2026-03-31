@@ -2,7 +2,9 @@
 Cache layer - Redis is optional, falls back to memory cache if not configured.
 """
 
+import asyncio
 import json
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -18,17 +20,41 @@ class MemoryCache:
     - Maximum cache entries limit to prevent unbounded memory growth
     - Periodic cleanup of expired entries to avoid scanning on every write
     - Uses instance variables instead of class variables to avoid sharing across instances
+    - Observability: hit/miss counts and capacity metrics
+    - Thread-safe with asyncio.Lock for async context
     """
 
     MAX_ENTRIES = 10000
     CLEANUP_INTERVAL = 300
 
     def __init__(self):
-        self._cache: dict[str, dict[str, Any]] = {}
+        self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._last_cleanup: datetime = datetime.now()
+        self._lock = asyncio.Lock()
+        # Observability metrics
+        self._hits = 0
+        self._misses = 0
 
-    def _cleanup_expired(self):
-        """Clean up expired entries."""
+    async def get_stats(self) -> dict[str, Any]:
+        """Get cache statistics for observability.
+
+        Returns:
+            Dictionary with hit_rate, hits, misses, entries, max_entries.
+        """
+        async with self._lock:
+            total = self._hits + self._misses
+            hit_rate = self._hits / total if total > 0 else 0.0
+            return {
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": round(hit_rate, 4),
+                "entries": len(self._cache),
+                "max_entries": self.MAX_ENTRIES,
+                "type": "memory",
+            }
+
+    def _cleanup_expired_unlocked(self):
+        """Clean up expired entries (must be called while holding lock)."""
         now = datetime.now()
         if (now - self._last_cleanup).total_seconds() < self.CLEANUP_INTERVAL:
             return
@@ -48,15 +74,20 @@ class MemoryCache:
         Returns:
             The cached value, or None if not found or expired.
         """
-        if key not in self._cache:
-            return None
+        async with self._lock:
+            if key not in self._cache:
+                self._misses += 1
+                return None
 
-        entry = self._cache[key]
-        if entry.get("expire_at") and datetime.now() > entry["expire_at"]:
-            del self._cache[key]
-            return None
+            entry = self._cache[key]
+            if entry.get("expire_at") and datetime.now() > entry["expire_at"]:
+                del self._cache[key]
+                self._misses += 1
+                return None
 
-        return entry["value"]
+            self._cache.move_to_end(key)
+            self._hits += 1
+            return entry["value"]
 
     async def set(self, key: str, value: Any, ttl: int = 3600):
         """Set cached value.
@@ -66,17 +97,17 @@ class MemoryCache:
             value: Value to cache.
             ttl: Time-to-live in seconds (0 for no expiration).
         """
-        # Periodically cleanup expired entries
-        self._cleanup_expired()
-        # Remove oldest entry if max entries exceeded
-        if len(self._cache) >= self.MAX_ENTRIES:
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
-        expire_at = datetime.now() + timedelta(seconds=ttl) if ttl > 0 else None
-        self._cache[key] = {
-            "value": value,
-            "expire_at": expire_at,
-        }
+        async with self._lock:
+            self._cleanup_expired_unlocked()
+            if key in self._cache:
+                del self._cache[key]
+            elif len(self._cache) >= self.MAX_ENTRIES:
+                self._cache.popitem(last=False)
+            expire_at = datetime.now() + timedelta(seconds=ttl) if ttl > 0 else None
+            self._cache[key] = {
+                "value": value,
+                "expire_at": expire_at,
+            }
 
     async def delete(self, key: str) -> bool:
         """Delete cached value.
@@ -87,10 +118,11 @@ class MemoryCache:
         Returns:
             True if the key was deleted, False otherwise.
         """
-        if key in self._cache:
-            del self._cache[key]
-            return True
-        return False
+        async with self._lock:
+            if key in self._cache:
+                del self._cache[key]
+                return True
+            return False
 
     async def exists(self, key: str) -> bool:
         """Check if key exists.
@@ -105,7 +137,8 @@ class MemoryCache:
 
     async def clear(self):
         """Clear all cached values."""
-        self._cache.clear()
+        async with self._lock:
+            self._cache.clear()
 
 
 class RedisCache:
@@ -118,6 +151,24 @@ class RedisCache:
         import redis.asyncio as redis
 
         self.redis = redis.from_url(url, decode_responses=True)
+
+    async def get_stats(self) -> dict[str, Any]:
+        """Get cache statistics for observability.
+
+        Returns:
+            Dictionary with Redis info.
+        """
+        try:
+            info = await self.redis.info("memory")
+            dbsize = await self.redis.dbsize()
+            return {
+                "type": "redis",
+                "used_memory": info.get("used_memory_human", "unknown"),
+                "entries": dbsize,
+                "connected_clients": info.get("connected_clients", 0),
+            }
+        except (ConnectionError, TimeoutError, OSError):
+            return {"type": "redis", "error": "unable to get stats"}
 
     async def get(self, key: str) -> Any | None:
         """Get cached value.

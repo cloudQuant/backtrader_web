@@ -20,7 +20,18 @@ class TestPortfolioAPI:
 
     async def test_get_overview(self, client: AsyncClient, auth_headers: dict):
         """Test getting portfolio overview."""
-        resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         assert resp.status_code == 200
         data = resp.json()
         assert "total_assets" in data
@@ -28,26 +39,70 @@ class TestPortfolioAPI:
 
     async def test_get_positions(self, client: AsyncClient, auth_headers: dict):
         """Test getting portfolio positions."""
-        resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         assert resp.status_code == 200
         data = resp.json()
         assert "positions" in data
 
     async def test_get_trades(self, client: AsyncClient, auth_headers: dict):
         """Test getting portfolio trades."""
-        resp = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         assert resp.status_code == 200
         data = resp.json()
         assert "trades" in data
 
     async def test_get_equity(self, client: AsyncClient, auth_headers: dict):
         """Test getting portfolio equity curve."""
-        resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         assert resp.status_code == 200
 
     async def test_get_allocation(self, client: AsyncClient, auth_headers: dict):
         """Test getting portfolio allocation."""
-        resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data
@@ -64,7 +119,18 @@ class TestPortfolioOverviewDetailed:
 
     async def test_overview_contains_total_pnl(self, client: AsyncClient, auth_headers: dict):
         """Test that overview contains total PnL."""
-        resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "total_pnl" in data
@@ -72,7 +138,18 @@ class TestPortfolioOverviewDetailed:
 
     async def test_overview_contains_strategy_count(self, client: AsyncClient, auth_headers: dict):
         """Test that overview contains strategy count."""
-        resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/overview", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "strategy_count" in data
@@ -86,7 +163,18 @@ class TestPortfolioPositionsDetailed:
 
     async def test_positions_contains_total(self, client: AsyncClient, auth_headers: dict):
         """Test that positions contain total count."""
-        resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "total" in data
@@ -94,7 +182,18 @@ class TestPortfolioPositionsDetailed:
 
     async def test_positions_list_structure(self, client: AsyncClient, auth_headers: dict):
         """Test positions list structure."""
-        resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/positions", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert isinstance(data["positions"], list)
@@ -106,9 +205,20 @@ class TestPortfolioTradesDetailed:
 
     async def test_trades_limit_parameter(self, client: AsyncClient, auth_headers: dict):
         """Test trades limit parameter."""
-        resp = await client.get(
-            "/api/v1/portfolio/trades", headers=auth_headers, params={"limit": 10}
-        )
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get(
+                "/api/v1/portfolio/trades", headers=auth_headers, params={"limit": 10}
+            )
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "trades" in data
@@ -117,7 +227,18 @@ class TestPortfolioTradesDetailed:
 
     async def test_trades_default_limit(self, client: AsyncClient, auth_headers: dict):
         """Test default limit parameter."""
-        resp = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/trades", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "trades" in data
@@ -131,7 +252,18 @@ class TestPortfolioEquityDetailed:
 
     async def test_equity_contains_dates(self, client: AsyncClient, auth_headers: dict):
         """Test that equity curve contains dates."""
-        resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "dates" in data
@@ -139,7 +271,18 @@ class TestPortfolioEquityDetailed:
 
     async def test_equity_contains_total_equity(self, client: AsyncClient, auth_headers: dict):
         """Test that equity curve contains total equity."""
-        resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "total_equity" in data
@@ -147,7 +290,18 @@ class TestPortfolioEquityDetailed:
 
     async def test_equity_contains_drawdown(self, client: AsyncClient, auth_headers: dict):
         """Test that equity curve contains drawdown."""
-        resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/equity", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "total_drawdown" in data
@@ -160,14 +314,36 @@ class TestPortfolioAllocationDetailed:
 
     async def test_allocation_contains_total(self, client: AsyncClient, auth_headers: dict):
         """Test that allocation contains total value."""
-        resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "total" in data
 
     async def test_allocation_items_structure(self, client: AsyncClient, auth_headers: dict):
         """Test allocation items structure."""
-        resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
+        from app.api import portfolio_api
+        from app.main import app
+
+        mock_mgr = MagicMock()
+        mock_mgr.list_instances.return_value = []
+
+        app.dependency_overrides[portfolio_api._get_manager] = lambda: mock_mgr
+        try:
+            resp = await client.get("/api/v1/portfolio/allocation", headers=auth_headers)
+        finally:
+            app.dependency_overrides.clear()
+
         if resp.status_code == 200:
             data = resp.json()
             assert "items" in data
@@ -231,12 +407,17 @@ class TestPortfolioManagerIntegration:
 
     async def test_manager_list_instances(self):
         """Test manager listing instances."""
-        from app.api.portfolio_api import _get_manager
+        from app.api import portfolio_api
 
-        manager = _get_manager()
-        instances = manager.list_instances()
-        # Should return a list
-        assert isinstance(instances, list)
+        with patch.object(portfolio_api, "_get_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.list_instances.return_value = []
+            mock_get_mgr.return_value = mock_mgr
+
+            manager = portfolio_api._get_manager()
+            instances = manager.list_instances()
+            # Should return a list
+            assert isinstance(instances, list)
 
 
 @pytest.mark.asyncio

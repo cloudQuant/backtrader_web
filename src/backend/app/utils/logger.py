@@ -12,6 +12,7 @@ Features:
 """
 
 import json
+import logging
 import sys
 from datetime import datetime
 from enum import Enum
@@ -21,6 +22,32 @@ from typing import Any
 from loguru import logger
 
 from app.config import get_settings
+
+
+class InterceptHandler(logging.Handler):
+    """Route stdlib logging calls to loguru.
+
+    This handler intercepts all standard library ``logging`` calls (used by
+    ~40 modules in the codebase) and forwards them to loguru so that every
+    log line benefits from loguru's formatting, rotation and structured output.
+
+    Install once via ``setup_logger()`` — no per-file changes required.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # Map stdlib level name to loguru level
+        try:
+            level: str | int = logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        # Walk the call stack to find the *real* caller (skip logging internals)
+        frame, depth = sys._getframe(6), 6
+        while frame and frame.f_code.co_filename == logging.__file__:
+            frame = frame.f_back  # type: ignore[assignment]
+            depth += 1
+
+        logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
 # Sensitive data patterns to filter from logs
 SENSITIVE_PATTERNS = [
@@ -63,7 +90,10 @@ class LogContext:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Exit context, unbind variables."""
+        """Exit context, unbind variables.
+
+        Note: loguru context is automatically managed, no explicit cleanup needed.
+        """
         pass
 
 
@@ -151,12 +181,72 @@ def _serialize_log(record: dict[str, Any]) -> str:
     return json.dumps(log_entry, ensure_ascii=False)
 
 
+def _patch_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Ensure record has default values for optional fields."""
+    if "request_id" not in record["extra"]:
+        record["extra"]["request_id"] = "N/A"
+    return record
+
+
+_PLAIN_FORMAT = (
+    "{time:YYYY-MM-DD HH:mm:ss} | "
+    "{level: <8} | "
+    "{name}:{function}:{line} | "
+    "{extra[request_id]:<12} | "
+    "{message}"
+)
+
+
+def _add_console_handler(level: str, debug: bool) -> None:
+    """Add coloured (debug) or plain (production) console handler."""
+    if debug:
+        fmt = (
+            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+            "<level>{level: <8}</level> | "
+            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+            "{extra[request_id]:<12} | "
+            "<level>{message}</level>"
+        )
+    else:
+        fmt = _PLAIN_FORMAT
+    logger.add(sys.stdout, format=fmt, level=level, colorize=debug, catch=True, filter=_patch_record)
+
+
+def _add_file_handler(
+    logs_path: Path, filename: str, use_json: bool, *,
+    level: str = "INFO", retention: str = "30 days",
+    fmt_override: str | None = None,
+    tag_filter: str | None = None,
+    backtrace: bool = False,
+) -> None:
+    """Add a rotating file handler with common defaults."""
+    fmt = _serialize_log if use_json else (fmt_override or _PLAIN_FORMAT)
+    filt = (
+        (lambda record, t=tag_filter: t in record["extra"].get("tags", []))
+        if tag_filter
+        else _patch_record
+    )
+    logger.add(
+        logs_path / filename,
+        rotation="00:00",
+        retention=retention,
+        compression="zip",
+        format=fmt,
+        level=level,
+        enqueue=True,
+        catch=True,
+        filter=filt,
+        backtrace=backtrace,
+        diagnose=backtrace,
+    )
+
+
 def setup_logger(
-    name: str = None,
-    log_level: str = None,
-    json_logs: bool = None,
-    log_dir: str = None,
-) -> logger:
+    name: str | None = None,
+    log_level: str | None = None,
+    json_logs: bool | None = None,
+    log_dir: str | None = None,
+) -> Any:
     """Configure and return an enhanced logger instance.
 
     Args:
@@ -170,148 +260,52 @@ def setup_logger(
     """
     settings = get_settings()
 
-    # Determine configuration
     level = log_level or ("DEBUG" if settings.DEBUG else "INFO")
     use_json = json_logs if json_logs is not None else not settings.DEBUG
     logs_path = Path(log_dir or "logs")
-
-    # Ensure log directory exists
     logs_path.mkdir(parents=True, exist_ok=True)
 
-    # Remove default handler
     logger.remove()
 
-    # Function to safely get extra values
-    def formatter_extra(record: dict[str, Any]) -> dict[str, Any]:
-        """Safely extract extra fields from log record."""
-        return record.get("extra", {})
+    # Intercept stdlib logging → loguru so that modules using
+    # ``logging.getLogger(__name__)`` are automatically routed through loguru.
+    logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
-    # Console output format
-    if settings.DEBUG:
-        # Detailed colored format for development
-        console_format = (
-            "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
-            "<level>{level: <8}</level> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-            "{extra[request_id]:<12} | "
-            "<level>{message}</level>"
-        )
-    else:
-        # Clean format for production
-        console_format = (
-            "{time:YYYY-MM-DD HH:mm:ss} | "
-            "{level: <8} | "
-            "{name}:{function}:{line} | "
-            "{extra[request_id]:<12} | "
-            "{message}"
-        )
+    _add_console_handler(level, settings.DEBUG)
 
-    # Patch logger to always have request_id
-    def patch_record(record: dict[str, Any]) -> dict[str, Any]:
-        """Ensure record has default values for optional fields."""
-        if "request_id" not in record["extra"]:
-            record["extra"]["request_id"] = "N/A"
-        return record
+    _add_file_handler(logs_path, "app_{time:YYYY-MM-DD}.log", use_json, retention="30 days")
 
-    # Add console handler
-    logger.add(
-        sys.stdout,
-        format=console_format,
-        level=level,
-        colorize=settings.DEBUG,
-        catch=True,
-        filter=patch_record,
-    )
-
-    # Application log - all logs
-    logger.add(
-        logs_path / "app_{time:YYYY-MM-DD}.log",
-        rotation="00:00",  # Rotate at midnight
-        retention="30 days",  # Keep logs for 30 days
-        compression="zip",  # Compress rotated logs
-        format=_serialize_log
-        if use_json
-        else (
-            "{time:YYYY-MM-DD HH:mm:ss} | "
-            "{level: <8} | "
-            "{name}:{function}:{line} | "
-            "{extra[request_id]:<12} | "
-            "{message}"
-        ),
-        level="INFO",
-        enqueue=True,  # Thread-safe logging
-        catch=True,
-        filter=patch_record,
-    )
-
-    # Error log - only errors and above
-    logger.add(
-        logs_path / "errors_{time:YYYY-MM-DD}.log",
-        rotation="00:00",
-        retention="90 days",  # Keep error logs longer
-        compression="zip",
-        format=_serialize_log
-        if use_json
-        else (
-            "{time:YYYY-MM-DD HH:mm:ss} | "
-            "{level: <8} | "
-            "{name}:{function}:{line} | "
-            "{message}\n{exception}"
-        ),
-        level="ERROR",
-        enqueue=True,
-        catch=True,
+    _add_file_handler(
+        logs_path, "errors_{time:YYYY-MM-DD}.log", use_json,
+        level="ERROR", retention="90 days",
+        fmt_override=_PLAIN_FORMAT + "\n{exception}",
         backtrace=True,
-        diagnose=True,
-        filter=patch_record,
     )
 
-    # Security/audit log - authentication and authorization events
-    logger.add(
-        logs_path / "audit_{time:YYYY-MM-DD}.log",
-        rotation="00:00",
-        retention="365 days",  # Keep audit logs for a year
-        compression="zip",
-        format=_serialize_log
-        if use_json
-        else (
-            "{time:YYYY-MM-DD HH:mm:ss} | "
-            "{level: <8} | "
-            "{name}:{function}:{line} | "
-            "user:{extra[user_id]:<12} | "
-            "{message}"
+    _add_file_handler(
+        logs_path, "audit_{time:YYYY-MM-DD}.log", use_json,
+        retention="365 days",
+        fmt_override=(
+            "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+            "{name}:{function}:{line} | user:{extra[user_id]:<12} | {message}"
         ),
-        level="INFO",
-        enqueue=True,
-        catch=True,
-        filter=lambda record: "audit" in record["extra"].get("tags", []),
+        tag_filter="audit",
     )
 
-    # Backtest task log - backtest execution events
-    logger.add(
-        logs_path / "backtest_{time:YYYY-MM-DD}.log",
-        rotation="00:00",
+    _add_file_handler(
+        logs_path, "backtest_{time:YYYY-MM-DD}.log", use_json,
         retention="60 days",
-        compression="zip",
-        format=_serialize_log
-        if use_json
-        else (
-            "{time:YYYY-MM-DD HH:mm:ss} | "
-            "{level: <8} | "
-            "task:{extra[task_id]:<12} | "
-            "user:{extra[user_id]:<12} | "
-            "{message}"
+        fmt_override=(
+            "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
+            "task:{extra[task_id]:<12} | user:{extra[user_id]:<12} | {message}"
         ),
-        level="INFO",
-        enqueue=True,
-        catch=True,
-        filter=lambda record: "backtest" in record["extra"].get("tags", []),
+        tag_filter="backtest",
     )
 
     return logger
 
 
-def get_logger(name: str = None) -> logger:
+def get_logger(name: str | None = None) -> Any:
     """Get a logger instance with the given name.
 
     Args:

@@ -69,7 +69,7 @@
 | user_id | String(36) | 用户ID (外键) |
 | strategy_id | String(36) | 策略ID (外键) |
 | symbol | String(20) | 交易标的 |
-| status | String(20) | 状态 (pending/running/completed/failed) |
+| status | String(20) | 状态 (pending/running/completed/failed/cancelled) |
 | request_data | JSON | 请求数据 |
 | created_at | DateTime | 创建时间 |
 | updated_at | DateTime | 更新时间 |
@@ -184,7 +184,7 @@ erDiagram
         string user_id FK
         string strategy_id FK
         string symbol
-        string status "pending/running/completed/failed"
+        string status "pending/running/completed/failed/cancelled"
         json request_data
         text log_dir
     }

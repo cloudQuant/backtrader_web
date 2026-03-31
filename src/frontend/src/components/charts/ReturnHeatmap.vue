@@ -11,9 +11,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { watch } from 'vue'
 import * as echarts from 'echarts'
 import type { MonthlyReturn } from '@/types/analytics'
+import { useChartResize } from '@/composables/useChartResize'
 
 const props = withDefaults(defineProps<{
   returns: MonthlyReturn[]
@@ -25,35 +26,17 @@ const props = withDefaults(defineProps<{
   height: 280,
 })
 
-const chartRef = ref<HTMLElement>()
-let chartInstance: echarts.ECharts | null = null
+const { chartRef, getChart } = useChartResize(renderChart)
 
 const months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
 
-onMounted(() => {
-  nextTick(() => {
-    if (chartRef.value) {
-      chartInstance = echarts.init(chartRef.value)
-      renderChart()
-    }
-  })
-  window.addEventListener('resize', handleResize)
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
-  chartInstance?.dispose()
-})
-
-watch(() => [props.returns, props.years], () => {
-  renderChart()
-}, { deep: true })
-
-function handleResize() {
-  chartInstance?.resize()
-}
+watch(
+  () => `${props.returns?.length}:${props.years?.length}`,
+  () => { renderChart() },
+)
 
 function renderChart() {
+  const chartInstance = getChart()
   if (!chartInstance || !props.returns.length) return
 
   // 转换数据为热力图格式 [monthIndex, yearIndex, value]
@@ -68,10 +51,11 @@ function renderChart() {
   const option: echarts.EChartsOption = {
     tooltip: {
       position: 'top',
-      formatter: (params: { data?: [number, number, number | string] }) => {
-        const year = props.years[params.data?.[1] ?? 0]
-        const month = months[params.data?.[0] ?? 0]
-        const value = params.data?.[2]
+      formatter: (params: unknown) => {
+        const p = params as { data?: [number, number, number | string] }
+        const year = props.years[p.data?.[1] ?? 0]
+        const month = months[p.data?.[0] ?? 0]
+        const value = p.data?.[2]
         return `${year}年${month}: ${value ?? ''}%`
       },
     },
@@ -109,7 +93,7 @@ function renderChart() {
         data: data,
         label: {
           show: true,
-          formatter: (params: { data?: [number, number, number | string] }) => `${params.data?.[2]}%`,
+          formatter: (params: unknown) => `${(params as { data?: [number, number, number | string] }).data?.[2]}%`,
           fontSize: 9,
         },
         emphasis: {
@@ -118,7 +102,7 @@ function renderChart() {
             shadowColor: 'rgba(0, 0, 0, 0.5)',
           },
         },
-      },
+      } as unknown as echarts.SeriesOption,
     ],
   }
 

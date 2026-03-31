@@ -45,14 +45,13 @@ describe('ReturnHeatmap', () => {
     expect(typeof vm.renderChart).toBe('function')
   })
 
-  it('has handleResize function', () => {
-    const wrapper = mount(ReturnHeatmap, {
+  it('resize event does not throw', () => {
+    mount(ReturnHeatmap, {
       props: { returns: [], years: [] } as any,
       global: { stubs: elStubs },
     })
-    const vm = wrapper.vm as any
-    expect(typeof vm.handleResize).toBe('function')
-    vm.handleResize() // should not throw
+    // Resize is handled internally by useChartResize composable
+    window.dispatchEvent(new Event('resize'))
   })
 
   it('renderChart does nothing when no data', () => {

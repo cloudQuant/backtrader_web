@@ -31,11 +31,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
-import type { AxisLinkXAxisIndex } from '@/types/charts'
 import type { KlineData, TradeSignal } from '@/types/analytics'
+import { useChartResize } from '@/composables/useChartResize'
 
 const props = withDefaults(defineProps<{
   klines: KlineData[]
@@ -49,8 +49,7 @@ const props = withDefaults(defineProps<{
   height: 600,
 })
 
-const chartRef = ref<HTMLElement>()
-let chartInstance: echarts.ECharts | null = null
+const { chartRef, getChart } = useChartResize(renderChart)
 const subChartCount = ref(0)
 
 // 动态计算图表高度：每个副图增加 120px
@@ -71,26 +70,10 @@ const periods = [
 ]
 const selectedPeriod = ref('all')
 
-onMounted(() => {
-  if (chartRef.value) {
-    chartInstance = echarts.init(chartRef.value)
-    renderChart()
-    window.addEventListener('resize', handleResize)
-  }
-})
-
-onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
-  chartInstance?.dispose()
-})
-
-watch(() => [props.klines, props.signals, props.indicators], () => {
-  renderChart()
-}, { deep: true })
-
-function handleResize() {
-  chartInstance?.resize()
-}
+watch(
+  () => `${props.klines?.length}:${props.signals?.length}:${Object.keys(props.indicators ?? {}).length}`,
+  () => { renderChart() },
+)
 
 /**
  * 去除指标前导的 warm-up 阶段（值为 0 或 null）以避免从 0 跳到实际值的大跳跃
@@ -163,6 +146,7 @@ function classifyIndicators(): {
 }
 
 function renderChart() {
+  const chartInstance = getChart()
   if (!chartInstance || !props.klines.length) return
 
   const dates = props.klines.map(k => k.date)
@@ -241,7 +225,7 @@ function renderChart() {
     name: '日K', type: 'candlestick', data: ohlc,
     itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
     markPoint: { data: [...buyPoints, ...sellPoints], label: { show: false } },
-  })
+  } as unknown as echarts.SeriesOption)
 
   // 主图叠加指标
   let ci = 0
@@ -255,8 +239,8 @@ function renderChart() {
   const volSeriesIdx = series.length
   series.push({
     name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
-    itemStyle: { color: (params: { data?: unknown[] }) => (params.data?.[2] === 1 ? '#ec0000' : '#00da3c') },
-  })
+    itemStyle: { color: (_params: unknown) => ((_params as { data?: unknown[] }).data?.[2] === 1 ? '#ec0000' : '#00da3c') },
+  } as unknown as echarts.SeriesOption)
 
   // 副图指标
   const subColors = ['#1890ff', '#722ed1', '#13c2c2', '#eb2f96', '#fa8c16', '#52c41a']
@@ -289,7 +273,7 @@ function renderChart() {
       trigger: 'axis', axisPointer: { type: 'cross' },
       backgroundColor: 'rgba(255, 255, 255, 0.9)', borderWidth: 1, borderColor: '#ccc', padding: 10, textStyle: { color: '#333' },
     },
-    axisPointer: { link: [{ xAxisIndex: 'all' as AxisLinkXAxisIndex }], label: { backgroundColor: '#777' } },
+    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#777' } },
     visualMap: { show: false, seriesIndex: volSeriesIdx, dimension: 2, pieces: [{ value: 1, color: '#ec0000' }, { value: -1, color: '#00da3c' }] },
     grid: grids,
     xAxis: xAxes,
@@ -308,8 +292,9 @@ function renderChart() {
 
   // 监听 legend 点击事件，仅副图指标切换时重绘布局（移除/添加网格）
   chartInstance.off('legendselectchanged')
-  chartInstance.on('legendselectchanged', (params: { selected?: Record<string, boolean> }) => {
-    const selected: Record<string, boolean> = params.selected
+  chartInstance.on('legendselectchanged', ((params: unknown) => {
+    const p = params as { selected?: Record<string, boolean> }
+    const selected: Record<string, boolean> = p.selected ?? {}
     let needRerender = false
     for (const [name, visible] of Object.entries(selected)) {
       if (!subIndicatorNames.has(name)) continue
@@ -321,7 +306,7 @@ function renderChart() {
     if (needRerender) {
       renderChart()
     }
-  })
+  }) as unknown as (...args: unknown[]) => boolean | void)
 
   // 布局变化后 resize
   chartInstance.resize()
@@ -341,7 +326,7 @@ function handlePeriodChange(period: string) {
     default: start = 0
   }
   
-  chartInstance?.setOption({
+  getChart()?.setOption({
     dataZoom: [
       { start, end: 100 },
       { start, end: 100 },
@@ -350,8 +335,9 @@ function handlePeriodChange(period: string) {
 }
 
 function handleExport() {
-  if (chartInstance) {
-    const url = chartInstance.getDataURL({
+  const chart = getChart()
+  if (chart) {
+    const url = chart.getDataURL({
       type: 'png',
       pixelRatio: 2,
       backgroundColor: '#fff',

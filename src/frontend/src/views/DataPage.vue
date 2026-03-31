@@ -7,7 +7,10 @@
 
       <el-tabs v-model="activeTab">
         <!-- 股票数据 Tab -->
-        <el-tab-pane label="股票数据" name="stock">
+        <el-tab-pane
+          label="股票数据"
+          name="stock"
+        >
           <el-form
             :inline="true"
             :model="queryForm"
@@ -46,7 +49,10 @@
         </el-tab-pane>
 
         <!-- 期货数据 Tab -->
-        <el-tab-pane label="期货数据" name="futures">
+        <el-tab-pane
+          label="期货数据"
+          name="futures"
+        >
           <div class="mt-2 space-y-4">
             <!-- Gateway 选择器 -->
             <div class="flex items-center gap-3">
@@ -63,7 +69,10 @@
                   :value="gw.gateway_key"
                 />
               </el-select>
-              <el-button :loading="futuresLoading" @click="refreshFuturesData">
+              <el-button
+                :loading="futuresLoading"
+                @click="refreshFuturesData"
+              >
                 <el-icon><Refresh /></el-icon>刷新
               </el-button>
               <el-button
@@ -82,11 +91,18 @@
             />
 
             <!-- 账户信息卡片 -->
-            <el-card v-if="futuresAccount" shadow="never">
+            <el-card
+              v-if="futuresAccount"
+              shadow="never"
+            >
               <template #header>
                 <span class="font-bold">账户信息</span>
               </template>
-              <el-descriptions :column="3" border size="small">
+              <el-descriptions
+                :column="3"
+                border
+                size="small"
+              >
                 <el-descriptions-item
                   v-for="(val, key) in futuresAccount"
                   :key="String(key)"
@@ -98,13 +114,21 @@
             </el-card>
 
             <!-- 持仓表 -->
-            <el-card v-if="futuresPositions.length > 0" shadow="never">
+            <el-card
+              v-if="futuresPositions.length > 0"
+              shadow="never"
+            >
               <template #header>
                 <div class="flex justify-between items-center">
                   <span class="font-bold">持仓明细 ({{ futuresPositions.length }})</span>
                 </div>
               </template>
-              <el-table :data="futuresPositions" stripe max-height="400" size="small">
+              <el-table
+                :data="futuresPositions"
+                stripe
+                max-height="400"
+                size="small"
+              >
                 <el-table-column
                   v-for="col in futuresPositionCols"
                   :key="col"
@@ -291,13 +315,13 @@ async function queryData() {
     const start = dayjs(queryForm.startDate).format('YYYY-MM-DD')
     const end = dayjs(queryForm.endDate).format('YYYY-MM-DD')
     
-    const resp = await api.get<KlineResponse>('/data/kline', {
+    const data = await api.get<KlineResponse>('/data/kline', {
       params: { symbol: queryForm.symbol, start_date: start, end_date: end },
     })
 
-    klineData.value = resp.kline
-    tableData.value = resp.records.slice().reverse()
-    ElMessage.success(`查询到 ${resp.count} 条数据`)
+    klineData.value = data.kline
+    tableData.value = data.records.slice().reverse()
+    ElMessage.success(`查询到 ${data.count} 条数据`)
   } catch {
     // error handled by interceptor
   } finally {

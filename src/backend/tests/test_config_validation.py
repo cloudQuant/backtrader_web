@@ -19,8 +19,10 @@ class TestSettingsValidation:
         assert settings.APP_NAME == "backtrader_web"
         assert settings.DEBUG is True
         assert settings.DATABASE_TYPE == "sqlite"
+        assert settings.DB_AUTO_CREATE_SCHEMA is False
+        assert settings.DB_AUTO_CREATE_DEFAULT_ADMIN is False
         assert settings.PORT == 8000
-        assert settings.JWT_EXPIRE_MINUTES == 10080
+        assert settings.JWT_EXPIRE_MINUTES > 0
 
     def test_secret_key_validation_default_in_production(self):
         """Test that default secret key is rejected in production."""

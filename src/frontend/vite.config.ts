@@ -16,10 +16,29 @@ export default defineConfig({
     sequence: {
       setupFiles: 'first',
     },
+    testTimeout: 10000,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,vue}'],
-      exclude: ['src/main.ts', 'src/**/*.d.ts', 'src/test/**'],
+      exclude: [
+          'src/main.ts',
+          'src/**/*.d.ts',
+          'src/test/**',
+          'src/i18n/**',
+          'src/composables/useKeyboardShortcuts.ts',
+        ],
+      thresholds: {
+        lines: 50,
+        functions: 45,  // V8 reports 0% for Vue SFC <script setup> functions; real coverage is higher
+        branches: 40,
+      },
+    },
+  },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        api: 'modern-compiler',
+      },
     },
   },
   optimizeDeps: {

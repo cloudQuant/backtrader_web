@@ -36,16 +36,21 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 | PUT | `/strategy/{id}` | 更新策略 |
 | DELETE | `/strategy/{id}` | 删除策略 |
 
-## 3. Backtest（回测）
+## 3. Backtest（回测）⚠️ DEPRECATED
 
-| Method | Path | Summary |
-|--------|------|---------|
-| POST | `/backtest/run` | 运行回测 |
-| GET | `/backtest/` | 回测历史列表 |
-| GET | `/backtest/{task_id}` | 获取回测结果 |
-| GET | `/backtest/{task_id}/status` | 查询回测任务状态 |
-| POST | `/backtest/{task_id}/cancel` | 取消回测任务 |
-| DELETE | `/backtest/{task_id}` | 删除回测结果 |
+> **警告**: 此模块已废弃，请使用 **Enhanced Backtest (`/backtests/`)** 模块。
+> 计划移除时间: **v2.0.0** (预计 2026-Q2)
+
+| Method | Path | Summary | Status |
+|--------|------|---------|--------|
+| POST | `/backtest/run` | 运行回测 | ⚠️ Deprecated |
+| GET | `/backtest/` | 回测历史列表 | ⚠️ Deprecated |
+| GET | `/backtest/{task_id}` | 获取回测结果 | ⚠️ Deprecated |
+| GET | `/backtest/{task_id}/status` | 查询回测任务状态 | ⚠️ Deprecated |
+| POST | `/backtest/{task_id}/cancel` | 取消回测任务 | ⚠️ Deprecated |
+| DELETE | `/backtest/{task_id}` | 删除回测结果 | ⚠️ Deprecated |
+
+**推荐替代**: 使用 `/backtests/run`、`/backtests/`、`/backtests/{task_id}` 等增强版端点。
 
 ## 4. Analytics（回测分析）
 
@@ -101,10 +106,26 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 | GET | `/backtests/{task_id}` | 获取结果 |
 | GET | `/backtests/{task_id}/status` | 查询状态 |
 | GET | `/backtests/` | 历史列表 |
+| POST | `/backtests/{task_id}/cancel` | 取消回测任务 |
+| DELETE | `/backtests/{task_id}` | 删除回测结果 |
 | GET | `/backtests/{task_id}/report/html` | 导出 HTML 报告 |
 | GET | `/backtests/{task_id}/report/pdf` | 导出 PDF 报告 |
 | GET | `/backtests/{task_id}/report/excel` | 导出 Excel 报告 |
-| WS | `/backtests/ws/backtest/{task_id}` | WebSocket 实时进度 |
+| WS | `/ws/backtest/{task_id}` | WebSocket 实时进度 |
+
+### 8.1 参数优化入口（已废弃）⚠️ DEPRECATED
+
+> **警告**: 以下端点已废弃，请使用 **Optimization (`/optimization/`)** 模块。
+> 计划移除时间: **v2.0.0** (预计 2026-Q2)
+
+| Method | Path | Summary | Status |
+|--------|------|---------|--------|
+| POST | `/backtests/optimization/grid` | 网格搜索优化 | ⚠️ Deprecated |
+| POST | `/backtests/optimization/bayesian` | 贝叶斯优化 | ⚠️ Deprecated |
+
+**推荐替代**: 使用 `POST /optimization/submit/backtest` 提交参数优化任务。
+
+**响应头标识**: 所有 deprecated 入口返回 `Deprecation: true` 响应头，以及 `Link: </api/v1/optimization/submit/backtest>; rel="successor-version"` 指向替代端点。
 
 ## 9. Paper Trading（模拟交易）
 
@@ -130,6 +151,9 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 | GET | `/comparisons/{id}/equity` | 资金曲线对比 |
 | GET | `/comparisons/{id}/trades` | 交易对比 |
 | GET | `/comparisons/{id}/drawdown` | 回撤对比 |
+| POST | `/comparisons/{id}/share` | 分享对比 🚧 规划中 |
+
+> **注意**: `POST /comparisons/{id}/share` 功能当前返回 `501 Not Implemented`，计划在未来版本中实现。
 
 ## 11. Strategy Version（策略版本控制）
 
@@ -155,8 +179,10 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 | POST | `/realtime/ticks/unsubscribe` | 取消订阅 |
 | GET | `/realtime/ticks` | 获取实时报价 |
 | GET | `/realtime/ticks/batch` | 批量获取报价 |
-| GET | `/realtime/ticks/historical` | 获取历史报价 |
+| GET | `/realtime/ticks/historical` | 获取历史报价 🚧 规划中 |
 | WS | `/realtime/ws/ticks/{broker_id}` | WebSocket 行情推送 |
+
+> **注意**: `GET /realtime/ticks/historical` 功能当前返回 `501 Not Implemented`，计划在未来版本中实现。
 
 ## 13. Monitoring（监控告警）
 
@@ -182,16 +208,77 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 |--------|------|---------|
 | GET | `/data/kline` | 查询 K 线数据 |
 
-## 15. Crypto Trading（加密货币交易 - Legacy）
+## 15. Crypto Trading（加密货币交易）⚠️ DEPRECATED
+
+> **警告**: 此模块已废弃，请使用 **Live Trading (`/live-trading/`)** 模块。
+> 计划移除时间: **v2.0.0** (预计 2026-Q2)
+
+| Method | Path | Summary | Status |
+|--------|------|---------|--------|
+| POST | `/live-trading-crypto/live/submit` | 提交加密货币实盘 | ⚠️ Deprecated |
+| GET | `/live-trading-crypto/live/tasks` | 任务列表 | ⚠️ Deprecated |
+| GET | `/live-trading-crypto/live/tasks/{id}` | 任务状态 | ⚠️ Deprecated |
+| POST | `/live-trading-crypto/live/tasks/{id}/stop` | 停止任务 | ⚠️ Deprecated |
+| GET | `/live-trading-crypto/live/tasks/{id}/data` | 交易数据 | ⚠️ Deprecated |
+| WS | `/live-trading-crypto/ws/live/{id}` | WebSocket 推送 | ⚠️ Deprecated |
+
+**推荐替代**: 使用 `/live-trading/` 模块进行实盘交易管理。
+
+## 16. Metrics（监控指标）
 
 | Method | Path | Summary |
 |--------|------|---------|
-| POST | `/live-trading-crypto/live/submit` | 提交加密货币实盘 |
-| GET | `/live-trading-crypto/live/tasks` | 任务列表 |
-| GET | `/live-trading-crypto/live/tasks/{id}` | 任务状态 |
-| POST | `/live-trading-crypto/live/tasks/{id}/stop` | 停止任务 |
-| GET | `/live-trading-crypto/live/tasks/{id}/data` | 交易数据 |
-| WS | `/live-trading-crypto/ws/live/{id}` | WebSocket 推送 |
+| GET | `/metrics` | Prometheus 指标端点 |
+| GET | `/metrics/status` | 监控状态 |
+
+### 16.1 Prometheus 指标端点
+
+```bash
+curl http://localhost:8000/api/v1/metrics
+```
+
+**响应示例**:
+```
+# HELP backtest_total Total number of backtest tasks
+# TYPE backtest_total counter
+backtest_total{status="completed"} 42
+backtest_total{status="failed"} 3
+
+# HELP backtest_duration_seconds Duration of backtest execution
+# TYPE backtest_duration_seconds histogram
+backtest_duration_seconds_bucket{strategy_id="ma_cross",le="1"} 5
+backtest_duration_seconds_bucket{strategy_id="ma_cross",le="5"} 12
+
+# HELP api_request_total Total number of API requests
+# TYPE api_request_total counter
+api_request_total{endpoint="/api/v1/backtests",method="POST",status_code="200"} 156
+
+# HELP live_trading_active_instances Number of active live trading instances
+# TYPE live_trading_active_instances gauge
+live_trading_active_instances{broker="simulation"} 2
+```
+
+### 16.2 监控状态
+
+```bash
+curl http://localhost:8000/api/v1/metrics/status
+```
+
+**响应示例**:
+```json
+{
+  "available": true,
+  "backend": "prometheus_client",
+  "metrics": [
+    "backtest_total",
+    "backtest_duration_seconds",
+    "api_request_total",
+    "live_trading_active_instances"
+  ]
+}
+```
+
+> **注意**: 如果未安装 `prometheus_client`，`/metrics` 端点返回 503 状态码。
 
 ---
 
@@ -199,12 +286,59 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 
 | Path | 用途 |
 |------|------|
-| `/backtests/ws/backtest/{task_id}` | 回测进度实时推送 |
+| `/ws/backtest/{task_id}` | 回测进度实时推送 |
 | `/paper-trading/ws/account/{id}` | 模拟账户实时推送 |
 | `/strategy-versions/ws/strategies/{id}` | 策略版本变更推送 |
 | `/realtime/ws/ticks/{broker_id}` | 实时行情推送 |
 | `/monitoring/ws/alerts` | 告警实时推送 |
-| `/live-trading-crypto/ws/live/{id}` | 加密货币交易推送 |
+| `/live-trading-crypto/ws/live/{id}` | 加密货币交易推送 ⚠️ Deprecated |
+
+### WebSocket 鉴权协议
+
+所有需要认证的 WebSocket 端点使用 **子协议鉴权** 方式传递 JWT Token：
+
+```javascript
+// 前端连接示例
+const token = getAccessToken()
+const ws = new WebSocket(
+  'ws://localhost:8000/ws/backtest/task-123',
+  ['access-token', token]  // 子协议数组：[协议名, Token值]
+)
+```
+
+**鉴权流程**:
+1. 客户端在 WebSocket 握手时通过 `Sec-WebSocket-Protocol` 头传递 `access-token` 和 Token 值
+2. 服务端验证 Token 有效性
+3. 验证失败时连接被拒绝（关闭码 1002）
+4. 验证成功后建立连接，开始接收消息
+
+### WebSocket 消息格式
+
+回测进度推送消息类型：
+
+| type | 描述 | 字段 |
+|------|------|------|
+| `task_created` | 任务创建 | `task_id` |
+| `progress` | 进度更新 | `task_id`, `progress`, `message` |
+| `completed` | 回测完成 | `task_id`, `result` |
+| `failed` | 回测失败 | `task_id`, `message`, `error` |
+| `cancelled` | 回测取消 | `task_id` |
+| `pong` | 心跳响应 | - |
+
+---
+
+## Deprecated 入口完整清单
+
+以下入口已废弃，计划在 **v2.0.0** (预计 2026-Q2) 移除：
+
+| 模块 | 入口 | 替代方案 |
+|------|------|----------|
+| Backtest | `/backtest/*` | `/backtests/*` |
+| Crypto Trading | `/live-trading-crypto/*` | `/live-trading/*` |
+| Optimization | `/backtests/optimization/grid` | `/optimization/submit/backtest` |
+| Optimization | `/backtests/optimization/bayesian` | `/optimization/submit/backtest` |
+
+**识别方式**: 所有 deprecated 入口返回 HTTP 响应头 `Deprecation: true`
 
 ---
 
@@ -312,6 +446,66 @@ curl -X POST http://localhost:8000/api/v1/live-trading/ \
   "id": "lt-h8i9j0...",
   "status": "stopped",
   "strategy_id": "ma_cross"
+}
+```
+
+---
+
+## Error Codes
+
+API 返回的错误码遵循以下规范：
+
+### HTTP 状态码
+
+| 状态码 | 说明 | 常见原因 |
+|--------|------|----------|
+| 200 | 成功 | 请求正常处理 |
+| 201 | 已创建 | 资源创建成功 |
+| 204 | 无内容 | 删除成功（无返回体） |
+| 400 | 请求错误 | 参数格式错误、缺少必填字段 |
+| 401 | 未授权 | Token 无效或已过期 |
+| 403 | 禁止访问 | 无权限访问该资源 |
+| 404 | 未找到 | 资源不存在 |
+| 422 | 验证失败 | 参数值不符合要求 |
+| 429 | 请求过多 | 触发限流 |
+| 500 | 服务器错误 | 内部错误（请报告） |
+| 501 | 未实现 | 功能规划中 |
+
+### 业务错误码（detail 字段）
+
+| 错误码 | HTTP状态 | 说明 |
+|--------|----------|------|
+| `INVALID_CREDENTIALS` | 401 | 用户名或密码错误 |
+| `TOKEN_EXPIRED` | 401 | Token 已过期，请刷新 |
+| `TOKEN_INVALID` | 401 | Token 格式无效 |
+| `USER_NOT_FOUND` | 404 | 用户不存在 |
+| `STRATEGY_NOT_FOUND` | 404 | 策略不存在 |
+| `TASK_NOT_FOUND` | 404 | 任务不存在 |
+| `DUPLICATE_USERNAME` | 400 | 用户名已存在 |
+| `DUPLICATE_EMAIL` | 400 | 邮箱已存在 |
+| `VALIDATION_ERROR` | 422 | 参数验证失败 |
+| `RATE_LIMIT_EXCEEDED` | 429 | 请求频率超限 |
+| `INTERNAL_ERROR` | 500 | 服务器内部错误 |
+
+### 错误响应格式
+
+```json
+{
+  "detail": "错误描述信息"
+}
+```
+
+或验证错误时：
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "strategy_id"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
 }
 ```
 

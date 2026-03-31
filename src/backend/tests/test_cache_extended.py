@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -36,6 +37,42 @@ async def test_memory_cache_max_entries_eviction(monkeypatch):
     assert await cache.get("k1") is None
     assert await cache.get("k2") == 2
     assert await cache.get("k3") == 3
+
+
+@pytest.mark.asyncio
+async def test_memory_cache_get_refreshes_lru(monkeypatch):
+    from app.db.cache import MemoryCache
+
+    cache = MemoryCache()
+    cache._cache.clear()
+    monkeypatch.setattr(cache, "MAX_ENTRIES", 2, raising=True)
+
+    await cache.set("k1", 1, ttl=60)
+    await cache.set("k2", 2, ttl=60)
+    assert await cache.get("k1") == 1
+    await cache.set("k3", 3, ttl=60)
+
+    assert await cache.get("k1") == 1
+    assert await cache.get("k2") is None
+    assert await cache.get("k3") == 3
+
+
+@pytest.mark.asyncio
+async def test_memory_cache_concurrent_access_keeps_consistent_state():
+    from app.db.cache import MemoryCache
+
+    cache = MemoryCache()
+    cache._cache.clear()
+
+    async def worker(index: int):
+        key = f"k{index % 5}"
+        await cache.set(key, index, ttl=60)
+        value = await cache.get(key)
+        assert value is not None
+
+    await asyncio.gather(*(worker(index) for index in range(50)))
+
+    assert len(cache._cache) <= cache.MAX_ENTRIES
 
 
 @pytest.mark.asyncio
@@ -85,6 +122,7 @@ async def test_redis_cache_get_set_branches(monkeypatch):
 def test_get_cache_uses_redis_when_configured(monkeypatch):
     import app.db.cache as cache_module
 
+    original_instance = cache_module._cache_instance
     cache_module._cache_instance = None
     monkeypatch.setattr(
         cache_module, "get_settings", lambda: SimpleNamespace(REDIS_URL="redis://x"), raising=True
@@ -100,3 +138,6 @@ def test_get_cache_uses_redis_when_configured(monkeypatch):
     cache = cache_module.get_cache()
     assert isinstance(cache, DummyRedisCache)
     assert cache.url == "redis://x"
+
+    # Restore original singleton to prevent leaking into other tests
+    cache_module._cache_instance = original_instance

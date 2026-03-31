@@ -2,6 +2,7 @@
 Strategy API routes.
 """
 
+import logging
 from functools import lru_cache
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,7 +14,14 @@ from app.schemas.strategy import (
     StrategyResponse,
     StrategyUpdate,
 )
-from app.services.strategy_service import StrategyService, get_strategy_readme, get_template_by_id
+from app.services.strategy_service import (
+    StrategyService,
+    get_strategy_dir,
+    get_strategy_readme,
+    get_template_by_id,
+)
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -91,8 +99,8 @@ async def get_templates(
     if strategy_type:
         try:
             stype = StrategyType(strategy_type)
-        except ValueError:
-            pass
+        except ValueError as e:
+            _logger.debug(f"Invalid strategy_type '{strategy_type}': {e}")
 
     templates = await service.get_templates(stype)
     if category:
@@ -138,9 +146,11 @@ async def get_template_config(template_id: str):
     """
     import yaml as _yaml
 
-    from app.services.strategy_service import STRATEGIES_DIR
+    try:
+        config_path = get_strategy_dir(template_id) / "config.yaml"
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
-    config_path = STRATEGIES_DIR / template_id / "config.yaml"
     if not config_path.is_file():
         raise HTTPException(status_code=404, detail="Strategy configuration file not found")
 
@@ -194,7 +204,7 @@ async def get_strategy(
     Raises:
         HTTPException: If strategy not found.
     """
-    strategy = await service.get_strategy(strategy_id)
+    strategy = await service.get_strategy(strategy_id, current_user.sub)
     if strategy is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

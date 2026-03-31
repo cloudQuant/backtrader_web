@@ -47,6 +47,9 @@ def detect_sql_injection(value: str) -> bool:
     return bool(DANGEROUS_SQL_REGEX.search(value))
 
 
+_SQL_IDENTIFIER_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_.]*$")
+
+
 def sanitize_sql_identifier(identifier: str) -> str:
     """Sanitize a SQL identifier (table name, column name, etc.).
 
@@ -59,8 +62,7 @@ def sanitize_sql_identifier(identifier: str) -> str:
     Raises:
         ValueError: If identifier contains dangerous characters.
     """
-    # Only allow alphanumeric characters, underscores, and dots
-    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.]*$", identifier):
+    if not _SQL_IDENTIFIER_RE.match(identifier):
         raise ValueError(f"Invalid SQL identifier: {identifier}")
     return identifier
 
@@ -186,6 +188,7 @@ PATH_TRAVERSAL_PATTERNS = [
 ]
 
 PATH_TRAVERSAL_REGEX = re.compile("|".join(PATH_TRAVERSAL_PATTERNS), re.IGNORECASE)
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:\\")  # Pre-compiled for detect_path_traversal
 
 
 def detect_path_traversal(path: str) -> bool:
@@ -209,7 +212,7 @@ def detect_path_traversal(path: str) -> bool:
         return True
 
     # Check for Windows drive letters
-    if re.match(r"^[A-Za-z]:\\", path):
+    if _WINDOWS_DRIVE_RE.match(path):
         return True
 
     return False
@@ -458,7 +461,7 @@ def validate_url(url: str) -> bool:
         result = urllib.parse.urlparse(url)
         # Must have scheme and netloc
         return all([result.scheme, result.netloc]) and result.scheme in ("http", "https", "")
-    except Exception:
+    except (ValueError, AttributeError):
         return False
 
 

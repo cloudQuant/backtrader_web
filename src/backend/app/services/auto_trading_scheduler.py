@@ -29,6 +29,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _SHANGHAI_TZ = timezone(timedelta(hours=8))
+_TRIGGER_TOLERANCE_SECONDS = 60
 
 _DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 _CONFIG_FILE = _DATA_DIR / "auto_trading_config.json"
@@ -47,7 +48,8 @@ def _load_config() -> dict[str, Any]:
     if _CONFIG_FILE.is_file():
         try:
             return json.loads(_CONFIG_FILE.read_text("utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to load auto-trading config: %s", e)
             return {}
     return {}
 
@@ -64,12 +66,21 @@ def _parse_time(s: str) -> time:
     return time(int(parts[0]), int(parts[1]))
 
 
+def _trigger_key(action: str, session_name: str, scheduled_at: datetime) -> str:
+    return f"{action}:{session_name}:{scheduled_at.isoformat()}"
+
+
+def _is_within_trigger_window(now: datetime, scheduled_at: datetime) -> bool:
+    return abs((now - scheduled_at).total_seconds()) <= _TRIGGER_TOLERANCE_SECONDS
+
+
 class AutoTradingScheduler:
     """Scheduler that starts/stops strategy instances around market hours."""
 
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._running = False
+        self._triggered_actions: set[str] = set()
 
     # ------------------------------------------------------------------
     # Config helpers
@@ -169,10 +180,21 @@ class AutoTradingScheduler:
     def stop(self) -> None:
         """Stop the background scheduler loop."""
         self._running = False
+        self._triggered_actions.clear()
         if self._task and not self._task.done():
             self._task.cancel()
             self._task = None
         logger.info("Auto-trading scheduler stopped")
+
+    def _should_trigger(self, action: str, session_name: str, scheduled_at: datetime, now: datetime) -> bool:
+        key = _trigger_key(action, session_name, scheduled_at)
+        if not _is_within_trigger_window(now, scheduled_at):
+            self._triggered_actions.discard(key)
+            return False
+        if key in self._triggered_actions:
+            return False
+        self._triggered_actions.add(key)
+        return True
 
     async def _loop(self) -> None:
         """Background loop that checks every 30 seconds."""
@@ -185,9 +207,7 @@ class AutoTradingScheduler:
                     break
 
                 now_sh = datetime.now(_SHANGHAI_TZ)
-                now_hm = now_sh.strftime("%H:%M")
                 buf = cfg["buffer_minutes"]
-                scope = cfg.get("scope", "all")
                 mgr = get_live_trading_manager()
 
                 for sess in cfg["sessions"]:
@@ -195,23 +215,24 @@ class AutoTradingScheduler:
                     close_t = _parse_time(sess["close"])
                     start_dt = datetime.combine(now_sh.date(), open_t) - timedelta(minutes=buf)
                     stop_dt = datetime.combine(now_sh.date(), close_t) + timedelta(minutes=buf)
-                    start_hm = start_dt.strftime("%H:%M")
-                    stop_hm = stop_dt.strftime("%H:%M")
+                    start_dt = start_dt.replace(tzinfo=_SHANGHAI_TZ)
+                    stop_dt = stop_dt.replace(tzinfo=_SHANGHAI_TZ)
+                    session_name = sess.get("name", "")
 
-                    if now_hm == start_hm:
+                    if self._should_trigger("start", session_name, start_dt, now_sh):
                         logger.info(
                             "Auto-trading: starting instances for session %s",
-                            sess.get("name", ""),
+                            session_name,
                         )
                         try:
                             await mgr.start_all()
                         except Exception:
                             logger.exception("Auto-trading start_all failed")
 
-                    if now_hm == stop_hm:
+                    if self._should_trigger("stop", session_name, stop_dt, now_sh):
                         logger.info(
                             "Auto-trading: stopping instances for session %s",
-                            sess.get("name", ""),
+                            session_name,
                         )
                         try:
                             await mgr.stop_all()

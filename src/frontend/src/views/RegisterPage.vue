@@ -1,13 +1,13 @@
 <template>
   <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-500 to-purple-600">
-    <el-card class="w-96 shadow-2xl">
+    <el-card class="register-card shadow-2xl">
       <template #header>
         <div class="text-center">
           <h1 class="text-2xl font-bold text-gray-800">
-            注册账号
+            {{ t('auth.registerTitle') }}
           </h1>
           <p class="text-gray-500 mt-2">
-            创建您的 Backtrader Web 账号
+            {{ t('auth.registerSubtitle') }}
           </p>
         </div>
       </template>
@@ -21,7 +21,7 @@
         <el-form-item prop="username">
           <el-input
             v-model="form.username"
-            placeholder="用户名"
+            :placeholder="t('auth.username')"
             prefix-icon="User"
             size="large"
           />
@@ -30,7 +30,7 @@
         <el-form-item prop="email">
           <el-input
             v-model="form.email"
-            placeholder="邮箱"
+            :placeholder="t('auth.email')"
             prefix-icon="Message"
             size="large"
           />
@@ -40,7 +40,7 @@
           <el-input
             v-model="form.password"
             type="password"
-            placeholder="密码"
+            :placeholder="t('auth.password')"
             prefix-icon="Lock"
             size="large"
             show-password
@@ -51,7 +51,7 @@
           <el-input
             v-model="form.confirmPassword"
             type="password"
-            placeholder="确认密码"
+            :placeholder="t('auth.confirmPassword')"
             prefix-icon="Lock"
             size="large"
             show-password
@@ -66,18 +66,18 @@
             :loading="loading"
             native-type="submit"
           >
-            注册
+            {{ t('auth.register') }}
           </el-button>
         </el-form-item>
       </el-form>
       
       <div class="text-center text-gray-500">
-        已有账号？
+        {{ t('auth.hasAccount') }}
         <router-link
           to="/login"
           class="text-blue-500 hover:underline"
         >
-          立即登录
+          {{ t('auth.loginNow') }}
         </router-link>
       </div>
     </el-card>
@@ -88,9 +88,11 @@
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRule, FormRules } from 'element-plus'
+import type { FormInstance, FormRules } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
+const { t } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -105,12 +107,12 @@ const form = reactive({
 })
 
 const validateConfirmPassword = (
-  _rule: FormRule,
+  _rule: unknown,
   value: string,
   callback: (error?: string | Error) => void,
 ) => {
   if (value !== form.password) {
-    callback(new Error('两次输入的密码不一致'))
+    callback(new Error(t('auth.passwordMismatch')))
   } else {
     callback()
   }
@@ -118,43 +120,56 @@ const validateConfirmPassword = (
 
 const rules: FormRules = {
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 50, message: '用户名长度在 3-50 个字符', trigger: 'blur' },
+    { required: true, message: t('auth.usernameRequired'), trigger: 'blur' },
+    { min: 3, max: 50, message: t('auth.usernameLength'), trigger: 'blur' },
   ],
   email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入有效的邮箱地址', trigger: 'blur' },
+    { required: true, message: t('auth.emailRequired'), trigger: 'blur' },
+    { type: 'email', message: t('auth.emailInvalid'), trigger: 'blur' },
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 8, message: '密码至少 8 个字符', trigger: 'blur' },
+    { required: true, message: t('auth.passwordRequired'), trigger: 'blur' },
+    { min: 8, message: t('auth.passwordMinLength'), trigger: 'blur' },
   ],
   confirmPassword: [
-    { required: true, message: '请确认密码', trigger: 'blur' },
+    { required: true, message: t('auth.confirmPasswordRequired'), trigger: 'blur' },
     { validator: validateConfirmPassword, trigger: 'blur' },
   ],
 }
 
 async function handleRegister() {
   if (!formRef.value) return
-  
-  await formRef.value.validate(async (valid) => {
-    if (!valid) return
-    
-    loading.value = true
-    try {
-      await authStore.register({
-        username: form.username,
-        email: form.email,
-        password: form.password,
-      })
-      ElMessage.success('注册成功，请登录')
-      router.push('/login')
-    } catch (error) {
-      // 错误已在拦截器中处理
-    } finally {
-      loading.value = false
-    }
-  })
+
+  const valid = await formRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  loading.value = true
+  try {
+    await authStore.register({
+      username: form.username,
+      email: form.email,
+      password: form.password,
+    })
+    ElMessage.success(t('auth.registerSuccessMsg'))
+    router.push('/login')
+  } catch (error) {
+    // 错误已在拦截器中处理
+  } finally {
+    loading.value = false
+  }
 }
 </script>
+
+<style scoped lang="scss">
+@use '@/styles/responsive' as *;
+
+.register-card {
+  width: 384px;
+  
+  @include respond-to('sm') {
+    width: 100%;
+    max-width: 90%;
+    margin: 12px;
+  }
+}
+</style>

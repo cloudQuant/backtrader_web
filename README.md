@@ -42,7 +42,7 @@ Backtrader Web 是一个为量化交易开发者打造的**全功能量化交易
 
 ```bash
 # 克隆项目
-git clone https://gitee.com/xxx/backtrader_web.git
+git clone https://github.com/cloudQuant/backtrader_web.git
 cd backtrader_web
 
 # 步骤 1：安装前环境检查
@@ -142,6 +142,28 @@ JWT_EXPIRE_MINUTES=1440
 - [测试指南](docs/TESTING.md) - 单元测试、E2E 测试
 - [贡献指南](CONTRIBUTING.md) - 开发流程与 PR 规范
 - [CI/CD](docs/CI_CD.md) - GitHub Actions 流水线
+
+## 版本计划
+
+### v1.x (当前)
+
+- 稳定版本，持续优化和bug修复
+- 部分API已标记废弃，但仍保持向后兼容
+
+### v2.0.0 (计划中)
+
+**预计时间**: 2026-Q2
+
+**重大变更**:
+- 移除废弃API端点：
+  - `/api/v1/backtest/*` → 使用 `/api/v1/backtests/*`
+  - `/api/v1/live-trading-crypto/*` → 使用 `/api/v1/live-trading/*`
+  - `/api/v1/backtests/optimization/grid` → 使用 `/api/v1/optimization/submit`
+  - `/api/v1/backtests/optimization/bayesian` → 使用 `/api/v1/optimization/submit`
+
+**迁移建议**: 新项目请直接使用新端点，现有项目请在v2.0.0发布前完成迁移。
+
+详见 [API文档](docs/API.md) 的废弃入口清单。
 
 ## 参与贡献
 

@@ -2,6 +2,8 @@
 Database module tests.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 from sqlalchemy import delete, select, text
 
@@ -12,6 +14,7 @@ from app.db.database import (
     create_default_admin,
     create_tables,
     engine,
+    ensure_database_ready,
     get_db,
     init_db,
 )
@@ -106,6 +109,75 @@ class TestDatabaseInitialization:
             admins = list(result.scalars().all())
 
         assert len(admins) == 1
+
+    async def test_ensure_database_ready_creates_schema_when_enabled(self, monkeypatch):
+        create_tables_mock = AsyncMock()
+        verify_connection_mock = AsyncMock()
+        create_default_admin_mock = AsyncMock()
+
+        monkeypatch.setattr("app.db.database.create_tables", create_tables_mock)
+        monkeypatch.setattr("app.db.database.verify_database_connection", verify_connection_mock)
+        monkeypatch.setattr("app.db.database.create_default_admin", create_default_admin_mock)
+        monkeypatch.setattr(
+            "app.db.database.settings",
+            type(
+                "S",
+                (),
+                {"DB_AUTO_CREATE_SCHEMA": True, "DB_AUTO_CREATE_DEFAULT_ADMIN": False},
+            )(),
+        )
+
+        await ensure_database_ready()
+
+        assert create_tables_mock.await_count == 1
+        assert verify_connection_mock.await_count == 0
+        assert create_default_admin_mock.await_count == 0
+
+    async def test_ensure_database_ready_only_verifies_connection_when_disabled(self, monkeypatch):
+        create_tables_mock = AsyncMock()
+        verify_connection_mock = AsyncMock()
+        create_default_admin_mock = AsyncMock()
+
+        monkeypatch.setattr("app.db.database.create_tables", create_tables_mock)
+        monkeypatch.setattr("app.db.database.verify_database_connection", verify_connection_mock)
+        monkeypatch.setattr("app.db.database.create_default_admin", create_default_admin_mock)
+        monkeypatch.setattr(
+            "app.db.database.settings",
+            type(
+                "S",
+                (),
+                {"DB_AUTO_CREATE_SCHEMA": False, "DB_AUTO_CREATE_DEFAULT_ADMIN": False},
+            )(),
+        )
+
+        await ensure_database_ready()
+
+        assert create_tables_mock.await_count == 0
+        assert verify_connection_mock.await_count == 1
+        assert create_default_admin_mock.await_count == 0
+
+    async def test_ensure_database_ready_creates_default_admin_when_enabled(self, monkeypatch):
+        create_tables_mock = AsyncMock()
+        verify_connection_mock = AsyncMock()
+        create_default_admin_mock = AsyncMock()
+
+        monkeypatch.setattr("app.db.database.create_tables", create_tables_mock)
+        monkeypatch.setattr("app.db.database.verify_database_connection", verify_connection_mock)
+        monkeypatch.setattr("app.db.database.create_default_admin", create_default_admin_mock)
+        monkeypatch.setattr(
+            "app.db.database.settings",
+            type(
+                "S",
+                (),
+                {"DB_AUTO_CREATE_SCHEMA": True, "DB_AUTO_CREATE_DEFAULT_ADMIN": True},
+            )(),
+        )
+
+        await ensure_database_ready()
+
+        assert create_tables_mock.await_count == 1
+        assert verify_connection_mock.await_count == 0
+        assert create_default_admin_mock.await_count == 1
 
 
 @pytest.mark.asyncio

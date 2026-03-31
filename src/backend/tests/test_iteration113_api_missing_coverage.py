@@ -178,6 +178,12 @@ async def test_realtime_data_websocket_disconnect_on_exception(monkeypatch):
 
     monkeypatch.setattr(asyncio, "sleep", _boom)
     await api.realtime_tick_websocket(ws, broker_id="binance")
+    api.ws_manager.send_to_task.assert_awaited_once()
+    task_id, payload = api.ws_manager.send_to_task.await_args.args
+    assert task_id == "ticks:binance"
+    assert payload["type"] == api.MessageType.CONNECTED
+    assert payload["streaming_enabled"] is False
+    assert payload["push_mode"] == "keepalive_only"
     api.ws_manager.disconnect.assert_called()
 
 
@@ -225,6 +231,10 @@ async def test_strategy_templates_and_config_missing_branches(tmp_path: Path):
         )
         cfg = await api.get_template_config("t1")
         assert cfg["strategy"]["name"] == "T1"
+
+        with pytest.raises(HTTPException) as ei:
+            await api.get_template_config("../escape")
+        assert ei.value.status_code == 400
 
 
 @pytest.mark.asyncio

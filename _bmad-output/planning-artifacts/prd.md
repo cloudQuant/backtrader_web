@@ -424,7 +424,7 @@ backtrader_web is a full-stack quantitative trading platform consisting of:
 
 | Endpoint | Method | Request | Response | Description |
 |----------|--------|---------|----------|-------------|
-| `/api/v1/optimization/run` | POST | OptimizationRequest | - | Submit optimization |
+| `/api/v1/optimization/submit/backtest` | POST | OptimizationRequest | - | Submit optimization |
 | `/api/v1/optimization/results/{task_id}` | GET | - | OptimizationResult | Get results |
 
 #### Paper Trading Endpoints

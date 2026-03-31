@@ -4,13 +4,20 @@
 
 ## 重要变更
 
-**自 2026-03-08 起，数据库初始化不再在应用启动时自动执行。**
+**默认情况下，数据库初始化不再在应用启动时自动执行。**
 
 这是为了更好的生产环境部署实践：
 1. 明确区分应用启动和基础设施初始化
 2. 避免在生产环境中隐式执行数据库结构变更
 3. 为后续引入数据库迁移工具（如 Alembic）预留接口
 4. 提供更清晰的权限和审计边界
+
+当前运行时契约如下：
+
+- 默认配置下，应用启动只验证数据库可用性，不会隐式执行建表。
+- 仅在显式设置 `DB_AUTO_CREATE_SCHEMA=true` 时，启动阶段才会执行自动建表。
+- 仅在显式设置 `DB_AUTO_CREATE_DEFAULT_ADMIN=true` 时，启动阶段才会尝试创建默认管理员。
+- 上述两个开关属于兼容/开发便利选项，不是默认生产契约。
 
 ## 开发环境初始化
 
@@ -38,7 +45,15 @@ python scripts/init_db.py --create-admin
 ### 启动应用
 
 ```bash
-# 启动应用（不再自动初始化数据库）
+# 启动应用（默认不自动初始化数据库）
+uvicorn app.main:app --reload --port 8000
+```
+
+如需在本地开发时临时启用兼容自举行为，可显式设置：
+
+```bash
+export DB_AUTO_CREATE_SCHEMA=true
+export DB_AUTO_CREATE_DEFAULT_ADMIN=true
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -86,6 +101,10 @@ python scripts/init_db.py --create-admin
 2. **数据库迁移**
 
 目前版本使用 SQLAlchemy 的 `create_all` 方法。未来的版本将引入 Alembic 进行迁移管理。
+
+3. **启动期兼容自举开关**
+
+`DB_AUTO_CREATE_SCHEMA` 和 `DB_AUTO_CREATE_DEFAULT_ADMIN` 仅建议用于本地开发、一次性初始化或兼容过渡场景。生产环境应优先使用显式初始化脚本或迁移流程。
 
 ## 初始化脚本说明
 
@@ -153,8 +172,9 @@ ADMIN_EMAIL=admin@example.com
 
 ## 版本历史
 
+- **2026-03-23**: 明确默认启动只做数据库可用性检查，自动建表/默认管理员改为显式环境开关控制
 - **2026-03-08**: 移除应用启动时的隐式初始化，引入显式初始化脚本
 
 ---
 
-*最后更新: 2026-03-08*
+*最后更新: 2026-03-23*

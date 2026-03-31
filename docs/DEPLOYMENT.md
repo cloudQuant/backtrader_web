@@ -53,7 +53,7 @@ sudo su - backtrader
 
 # Clone repository
 cd /opt
-sudo git clone https://github.com/your-org/backtrader_web.git
+sudo git clone https://github.com/cloudQuant/backtrader_web.git
 sudo chown -R backtrader:backtrader backtrader_web
 cd backtrader_web
 

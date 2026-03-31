@@ -72,7 +72,7 @@ class TestLiveTradingCryptoSubmitAPI:
         response = await client.post(
             "/api/v1/live-trading-crypto/live/submit", json=VALID_LIVE_TRADING_REQUEST
         )
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_submit_live_strategy_success(self, client: AsyncClient, auth_headers):
         """Test successful strategy submission.
@@ -169,7 +169,7 @@ class TestLiveTradingCryptoTasksAPI:
             client: Async HTTP client fixture.
         """
         response = await client.get("/api/v1/live-trading-crypto/live/tasks")
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_list_live_tasks_with_auth(self, client: AsyncClient, auth_headers):
         """Test getting task list with authentication.
@@ -259,7 +259,7 @@ class TestLiveTradingCryptoTaskStatusAPI:
             client: Async HTTP client fixture.
         """
         response = await client.get("/api/v1/live-trading-crypto/live/tasks/task_123")
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_get_live_task_status_not_found(self, client: AsyncClient, auth_headers):
         """Test getting status for non-existent task.
@@ -320,7 +320,7 @@ class TestLiveTradingCryptoControlAPI:
             client: Async HTTP client fixture.
         """
         response = await client.post("/api/v1/live-trading-crypto/live/tasks/task_123/stop")
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_stop_live_strategy_not_found(self, client: AsyncClient, auth_headers):
         """Test stopping non-existent task.
@@ -370,7 +370,7 @@ class TestLiveTradingCryptoDataAPI:
             client: Async HTTP client fixture.
         """
         response = await client.get("/api/v1/live-trading-crypto/live/tasks/task_123/data")
-        assert response.status_code in [401, 403]
+        assert response.status_code == 401  # Unauthorized
 
     async def test_get_live_data_with_auth(self, client: AsyncClient, auth_headers):
         """Test getting live trading data.
@@ -467,12 +467,11 @@ class TestLiveTradingCryptoWebSocket:
             mock_mgr.send_to_task = AsyncMock()
 
             with patch("asyncio.sleep", side_effect=Exception("Exit loop")):
-                try:
-                    await live_trading_websocket(mock_ws, "task_123")
-                except Exception:
-                    pass
+                await live_trading_websocket(mock_ws, "task_123")
 
-                assert True
+                client_id = mock_mgr.connect.await_args.args[2]
+                mock_mgr.connect.assert_awaited_once_with(mock_ws, "live:task_123", client_id)
+                mock_mgr.disconnect.assert_called_once_with(mock_ws, "live:task_123", client_id)
 
 
 @pytest.mark.asyncio

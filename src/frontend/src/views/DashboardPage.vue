@@ -9,7 +9,7 @@
         <div class="flex items-center justify-between">
           <div>
             <div class="text-gray-500 text-sm">
-              回测次数
+              {{ t('dashboard.backtestCount') }}
             </div>
             <div class="text-3xl font-bold text-gray-800 mt-2">
               {{ stats.backtestCount }}
@@ -30,7 +30,7 @@
         <div class="flex items-center justify-between">
           <div>
             <div class="text-gray-500 text-sm">
-              策略数量
+              {{ t('dashboard.strategyCount') }}
             </div>
             <div class="text-3xl font-bold text-gray-800 mt-2">
               {{ stats.strategyCount }}
@@ -51,7 +51,7 @@
         <div class="flex items-center justify-between">
           <div>
             <div class="text-gray-500 text-sm">
-              平均收益率
+              {{ t('dashboard.avgReturn') }}
             </div>
             <div
               class="text-3xl font-bold mt-2"
@@ -75,7 +75,7 @@
         <div class="flex items-center justify-between">
           <div>
             <div class="text-gray-500 text-sm">
-              最佳夏普比率
+              {{ t('dashboard.bestSharpe') }}
             </div>
             <div class="text-3xl font-bold text-gray-800 mt-2">
               {{ (stats.bestSharpe ?? 0).toFixed(2) }}
@@ -93,7 +93,7 @@
     <!-- 快速操作 -->
     <el-card>
       <template #header>
-        <span class="font-bold">快速开始</span>
+        <span class="font-bold">{{ t('dashboard.quickStart') }}</span>
       </template>
       
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -105,10 +105,10 @@
             <DataLine />
           </el-icon>
           <h3 class="font-bold text-lg mb-2">
-            运行回测
+            {{ t('dashboard.runBacktest') }}
           </h3>
           <p class="text-gray-500 text-sm">
-            选择策略和数据，运行回测分析
+            {{ t('dashboard.runBacktestDesc') }}
           </p>
         </div>
         
@@ -120,10 +120,10 @@
             <Document />
           </el-icon>
           <h3 class="font-bold text-lg mb-2">
-            创建策略
+            {{ t('dashboard.createStrategy') }}
           </h3>
           <p class="text-gray-500 text-sm">
-            编写自定义交易策略
+            {{ t('dashboard.createStrategyDesc') }}
           </p>
         </div>
         
@@ -135,10 +135,10 @@
             <Grid />
           </el-icon>
           <h3 class="font-bold text-lg mb-2">
-            查询数据
+            {{ t('dashboard.queryData') }}
           </h3>
           <p class="text-gray-500 text-sm">
-            查看和导入行情数据
+            {{ t('dashboard.queryDataDesc') }}
           </p>
         </div>
       </div>
@@ -148,13 +148,13 @@
     <el-card>
       <template #header>
         <div class="flex justify-between items-center">
-          <span class="font-bold">最近回测</span>
+          <span class="font-bold">{{ t('dashboard.recentBacktests') }}</span>
           <el-button
             type="primary"
             link
             @click="$router.push('/backtest')"
           >
-            查看全部
+            {{ t('dashboard.viewAll') }}
           </el-button>
         </div>
       </template>
@@ -164,7 +164,7 @@
         stripe
       >
         <el-table-column
-          label="策略"
+          :label="t('dashboard.strategy')"
           width="150"
         >
           <template #default="{ row }">
@@ -173,11 +173,11 @@
         </el-table-column>
         <el-table-column
           prop="symbol"
-          label="标的"
+          :label="t('dashboard.symbol')"
           width="120"
         />
         <el-table-column
-          label="收益率"
+          :label="t('dashboard.returnRate')"
           width="120"
         >
           <template #default="{ row }">
@@ -187,7 +187,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="夏普比率"
+          :label="t('dashboard.sharpeRatio')"
           width="120"
         >
           <template #default="{ row }">
@@ -195,7 +195,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="最大回撤"
+          :label="t('dashboard.maxDrawdown')"
           width="120"
         >
           <template #default="{ row }">
@@ -203,7 +203,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="状态"
+          :label="t('common.status')"
           width="100"
         >
           <template #default="{ row }">
@@ -217,7 +217,7 @@
         </el-table-column>
         <el-table-column
           prop="created_at"
-          label="创建时间"
+          :label="t('dashboard.createdAt')"
         />
       </el-table>
     </el-card>
@@ -227,9 +227,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { DataLine, Document, Grid, TrendCharts, Trophy } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { useBacktestStore } from '@/stores/backtest'
 import { useStrategyStore } from '@/stores/strategy'
 import type { BacktestResult } from '@/types'
+
+const { t } = useI18n()
 
 const backtestStore = useBacktestStore()
 const strategyStore = useStrategyStore()
@@ -256,11 +259,11 @@ function getStatusType(status: string) {
 
 function getStatusText(status: string) {
   const texts: Record<string, string> = {
-    completed: '完成',
-    running: '运行中',
-    pending: '等待中',
-    failed: '失败',
-    cancelled: '已取消',
+    completed: t('backtest.completed'),
+    running: t('backtest.running'),
+    pending: t('backtest.pending'),
+    failed: t('backtest.failed'),
+    cancelled: t('dashboard.cancelled'),
   }
   return texts[status] || status
 }
@@ -272,7 +275,7 @@ function getStrategyName(id: string): string {
 }
 
 onMounted(async () => {
-  await Promise.all([
+  await Promise.allSettled([
     backtestStore.fetchResults(5),
     strategyStore.fetchStrategies(100),
     strategyStore.fetchTemplates(),
@@ -293,11 +296,28 @@ onMounted(async () => {
 })
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+@use '@/styles/responsive' as *;
+
 .stat-card {
   transition: transform 0.2s;
+  
+  @include respond-to('sm') {
+    padding: 12px;
+  }
 }
+
 .stat-card:hover {
   transform: translateY(-4px);
+  
+  @include respond-to('sm') {
+    transform: none;
+  }
+}
+
+.page-container {
+  @include respond-to('sm') {
+    padding: 12px;
+  }
 }
 </style>

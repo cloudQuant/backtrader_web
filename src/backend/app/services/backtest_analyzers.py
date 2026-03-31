@@ -9,14 +9,14 @@ import logging
 import backtrader as bt
 
 logger = logging.getLogger(__name__)
-AnalyzerBase = getattr(bt, "Analyzer", object)
+AnalyzerBase = getattr(bt, "Analyzer", object)  # type: ignore[misc,assignment]
 if AnalyzerBase is object:
     logger.warning(
         "backtrader.Analyzer is unavailable; custom analyzers are running in fallback mode"
     )
 
 
-class DetailedTradeAnalyzer(AnalyzerBase):
+class DetailedTradeAnalyzer(AnalyzerBase):  # type: ignore[misc,valid-type]
     """Detailed trade analyzer that records detailed information for each trade.
 
     Attributes:

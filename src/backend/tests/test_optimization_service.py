@@ -20,8 +20,10 @@ from unittest.mock import Mock, patch
 import pytest
 
 from app.services.param_optimization_service import (
+    _ensure_async_runner_loop,
     _get_task,
     _parse_trial_logs,
+    _run_async,
     _run_single_trial,
     _safe_float,
     _set_task,
@@ -104,6 +106,19 @@ class TestTaskManagement:
         _update_task("nonexistent_task", completed=10)
         result = _get_task("nonexistent_task")
         assert result is None
+
+
+class TestAsyncRunner:
+    @pytest.mark.asyncio
+    async def test_run_async_works_with_active_event_loop(self):
+        async def _sample():
+            return "ok"
+
+        loop = _ensure_async_runner_loop()
+
+        assert loop.is_running()
+        assert _run_async(_sample()) == "ok"
+        assert _ensure_async_runner_loop() is loop
 
 
 class TestGenerateParamGrid:
@@ -302,11 +317,18 @@ class TestSubmitOptimization:
 
                 # Patch threading at the module level since it's imported locally
                 with patch("threading.Thread") as mock_thread:
+                    mock_thread_instance = mock_thread.return_value
                     task_id = submit_optimization("test_strategy", param_ranges, n_workers=2)
 
                     assert task_id is not None
                     assert len(task_id) == 8  # uuid hex[:8]
-                    assert mock_thread.called
+                    mock_thread.assert_called_once()
+                    assert mock_thread.call_args.kwargs["target"].__name__ == "_run_optimization_thread"
+                    assert mock_thread.call_args.kwargs["args"][0] == task_id
+                    assert mock_thread.call_args.kwargs["args"][1].endswith("test_strategy")
+                    assert mock_thread.call_args.kwargs["args"][3] == 2
+                    assert mock_thread.call_args.kwargs["daemon"] is True
+                    mock_thread_instance.start.assert_called_once()
 
     def test_submit_optimization_no_run_py(self):
         """Test strategy directory without run.py."""
@@ -316,6 +338,14 @@ class TestSubmitOptimization:
             with patch("pathlib.Path.is_file", return_value=False):
                 with pytest.raises(ValueError, match="not found or missing run.py"):
                     submit_optimization("test_strategy", param_ranges)
+
+    def test_submit_optimization_rejects_invalid_strategy_id(self):
+        """Test invalid strategy_id is rejected before any file access."""
+        param_ranges = {"period": {"start": 10, "end": 20, "step": 5}}
+
+        with patch("app.services.strategy_service.STRATEGIES_DIR", Path("/tmp/strategies")):
+            with pytest.raises(ValueError, match="Invalid strategy_id"):
+                submit_optimization("../escape", param_ranges)
 
     def test_submit_optimization_empty_grid(self):
         """Test empty parameter grid."""
@@ -382,6 +412,115 @@ class TestGetOptimizationProgress:
 
         assert progress is not None
         assert progress["progress"] == 0
+
+    def test_get_progress_prefers_db_state(self):
+        """Test persisted DB state is preferred over runtime cache."""
+        task_id = "db_progress_test"
+        _set_task(
+            task_id,
+            {
+                "status": "running",
+                "strategy_id": "runtime_strategy",
+                "total": 10,
+                "completed": 1,
+                "failed": 0,
+                "n_workers": 2,
+                "created_at": "runtime-created-at",
+            },
+        )
+
+        db_task = Mock()
+        db_task.status = "completed"
+        db_task.strategy_id = "db_strategy"
+        db_task.param_ranges = {"fast": {"start": 5, "end": 10, "step": 5}}
+        db_task.total = 20
+        db_task.completed = 12
+        db_task.failed = 3
+        db_task.results = []
+        db_task.n_workers = 8
+        db_task.created_at = Mock(isoformat=Mock(return_value="db-created-at"))
+        db_task.error_message = None
+
+        with patch(
+            "app.services.param_optimization_service.get_optimization_execution_manager"
+        ) as mock_get_mgr:
+            mock_mgr = Mock()
+            mock_mgr.get_task = Mock(return_value=Mock())
+            mock_get_mgr.return_value = mock_mgr
+            with patch(
+                "app.services.param_optimization_service._run_async", return_value=db_task
+            ):
+                progress = get_optimization_progress(task_id)
+
+        assert progress is not None
+        assert progress["status"] == "completed"
+        assert progress["strategy_id"] == "db_strategy"
+        assert progress["completed"] == 12
+        assert progress["failed"] == 3
+        assert progress["progress"] == 75.0
+        assert progress["n_workers"] == 8
+        assert progress["created_at"] == "db-created-at"
+
+    def test_get_progress_with_user_id_does_not_fallback_when_db_returns_none(self):
+        """Test ownership-aware progress query does not fall back to runtime cache."""
+        task_id = "db_progress_user_guard"
+        _set_task(
+            task_id,
+            {
+                "status": "running",
+                "strategy_id": "runtime_strategy",
+                "total": 10,
+                "completed": 4,
+                "failed": 0,
+                "results": [],
+            },
+        )
+
+        with patch(
+            "app.services.param_optimization_service.get_optimization_execution_manager"
+        ) as mock_get_mgr:
+            mock_mgr = Mock()
+            mock_mgr.get_task = Mock(return_value=Mock())
+            mock_get_mgr.return_value = mock_mgr
+            with patch(
+                "app.services.param_optimization_service._run_async", return_value=None
+            ):
+                progress = get_optimization_progress(task_id, user_id="user-1")
+
+        assert progress is None
+
+    def test_get_progress_falls_back_to_runtime_when_db_lookup_errors(self):
+        """Test progress query falls back to runtime cache when DB lookup raises."""
+        task_id = "db_progress_exception_fallback"
+        _set_task(
+            task_id,
+            {
+                "status": "running",
+                "strategy_id": "runtime_strategy",
+                "total": 10,
+                "completed": 6,
+                "failed": 1,
+                "results": [],
+                "n_workers": 2,
+                "created_at": "runtime-created-at",
+            },
+        )
+
+        with patch(
+            "app.services.param_optimization_service.get_optimization_execution_manager"
+        ) as mock_get_mgr:
+            mock_mgr = Mock()
+            mock_mgr.get_task = Mock(return_value=Mock())
+            mock_get_mgr.return_value = mock_mgr
+            with patch(
+                "app.services.param_optimization_service._run_async",
+                side_effect=RuntimeError("db unavailable"),
+            ):
+                progress = get_optimization_progress(task_id, user_id="user-1")
+
+        assert progress is not None
+        assert progress["strategy_id"] == "runtime_strategy"
+        assert progress["progress"] == 70.0
 
 
 class TestGetOptimizationResults:
@@ -500,6 +639,98 @@ class TestGetOptimizationResults:
         results = get_optimization_results("nonexistent")
         assert results is None
 
+    def test_get_results_prefers_db_state(self):
+        """Test persisted DB state is preferred over runtime cache."""
+        task_id = "db_results_test"
+        _set_task(
+            task_id,
+            {
+                "status": "running",
+                "strategy_id": "runtime_strategy",
+                "param_names": ["runtime_only"],
+                "total": 1,
+                "completed": 0,
+                "failed": 0,
+                "results": [],
+            },
+        )
+
+        db_task = Mock()
+        db_task.status = "completed"
+        db_task.strategy_id = "db_strategy"
+        db_task.param_ranges = {
+            "fast": {"start": 5, "end": 10, "step": 5},
+            "slow": {"start": 20, "end": 30, "step": 10},
+        }
+        db_task.total = 2
+        db_task.completed = 2
+        db_task.failed = 0
+        db_task.results = [
+            {
+                "params": {"fast": 10, "slow": 20},
+                "metrics": {"annual_return": 15.0, "total_return": 11.0},
+            },
+            {
+                "params": {"fast": 5, "slow": 20},
+                "metrics": {"annual_return": 10.0, "total_return": 7.0},
+            },
+        ]
+        db_task.n_workers = 4
+        db_task.created_at = Mock(isoformat=Mock(return_value="db-created-at"))
+        db_task.error_message = None
+
+        with patch(
+            "app.services.param_optimization_service.get_optimization_execution_manager"
+        ) as mock_get_mgr:
+            mock_mgr = Mock()
+            mock_mgr.get_task = Mock(return_value=Mock())
+            mock_get_mgr.return_value = mock_mgr
+            with patch(
+                "app.services.param_optimization_service._run_async", return_value=db_task
+            ):
+                results = get_optimization_results(task_id)
+
+        assert results is not None
+        assert results["status"] == "completed"
+        assert results["strategy_id"] == "db_strategy"
+        assert results["param_names"] == ["fast", "slow"]
+        assert results["rows"][0]["fast"] == 10
+        assert results["best"]["annual_return"] == 15.0
+
+    def test_get_results_with_user_id_does_not_fallback_when_db_returns_none(self):
+        """Test ownership-aware result query does not fall back to runtime cache."""
+        task_id = "db_results_user_guard"
+        _set_task(
+            task_id,
+            {
+                "status": "completed",
+                "strategy_id": "runtime_strategy",
+                "param_names": ["runtime_only"],
+                "total": 1,
+                "completed": 1,
+                "failed": 0,
+                "results": [
+                    {
+                        "params": {"runtime_only": 1},
+                        "metrics": {"annual_return": 1.0, "total_return": 1.0},
+                    }
+                ],
+            },
+        )
+
+        with patch(
+            "app.services.param_optimization_service.get_optimization_execution_manager"
+        ) as mock_get_mgr:
+            mock_mgr = Mock()
+            mock_mgr.get_task = Mock(return_value=Mock())
+            mock_get_mgr.return_value = mock_mgr
+            with patch(
+                "app.services.param_optimization_service._run_async", return_value=None
+            ):
+                results = get_optimization_results(task_id, user_id="user-1")
+
+        assert results is None
+
 
 class TestCancelOptimization:
     """Tests for canceling optimization tasks."""
@@ -519,6 +750,50 @@ class TestCancelOptimization:
         """Test canceling non-existent task."""
         result = cancel_optimization("nonexistent")
         assert result is False
+
+    def test_cancel_with_user_id_does_not_fallback_when_db_rejects(self):
+        """Test DB ownership rejection does not silently cancel in-memory task."""
+        task_id = "cancel_db_reject_test"
+        _set_task(task_id, {"status": "running"})
+
+        mock_mgr = Mock()
+        mock_mgr.set_cancelled.return_value = None
+
+        with patch(
+            "app.services.param_optimization_service.get_optimization_execution_manager",
+            return_value=mock_mgr,
+        ):
+            with patch(
+                "app.services.param_optimization_service._run_async",
+                return_value=False,
+            ):
+                result = cancel_optimization(task_id, user_id="user-1", use_db=True)
+
+        assert result is False
+        task = _get_task(task_id)
+        assert task["status"] == "running"
+
+    def test_cancel_falls_back_to_runtime_when_db_errors(self):
+        """Test cancel falls back to runtime task when DB call errors."""
+        task_id = "cancel_db_exception_fallback"
+        _set_task(task_id, {"status": "running"})
+
+        mock_mgr = Mock()
+        mock_mgr.set_cancelled.return_value = None
+
+        with patch(
+            "app.services.param_optimization_service.get_optimization_execution_manager",
+            return_value=mock_mgr,
+        ):
+            with patch(
+                "app.services.param_optimization_service._run_async",
+                side_effect=RuntimeError("db unavailable"),
+            ):
+                result = cancel_optimization(task_id, user_id="user-1", use_db=True)
+
+        assert result is True
+        task = _get_task(task_id)
+        assert task["status"] == "cancelled"
 
 
 class TestRunSingleTrial:
