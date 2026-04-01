@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <teleport to="#page-header-actions">
+    <teleport v-if="headerActionsTargetReady" to="#page-header-actions">
       <div class="flex items-center gap-2 flex-wrap">
         <el-tag :type="healthyCount > 0 ? 'success' : 'info'" size="small">
           {{ healthyCount }} 健康 / {{ gateways.length }} 总计
@@ -22,6 +22,14 @@
       </div>
     </teleport>
 
+    <el-alert
+      v-if="loadError"
+      :title="loadError"
+      type="error"
+      :closable="false"
+      show-icon
+    />
+
     <!-- Loading -->
     <div v-if="loading && gateways.length === 0" class="flex justify-center py-12">
       <el-icon class="is-loading text-4xl text-blue-500"><Loading /></el-icon>
@@ -29,7 +37,7 @@
 
     <!-- Empty -->
     <div v-else-if="gateways.length === 0" class="text-center py-12">
-      <el-empty description="暂无活跃 Gateway，请先在实盘交易页面启动策略" />
+      <el-empty description="暂无 Gateway。你可以在本页手动连接，或在实盘交易页面启动带 Gateway 的策略。" />
     </div>
 
     <!-- Gateway Cards -->
@@ -47,7 +55,7 @@
               <el-tag v-if="gw.gateway_key.startsWith('direct:')" size="small" type="warning" effect="plain">直连</el-tag>
             </div>
             <div class="flex items-center gap-2">
-              <el-tag :type="stateTagType(gw.state)" size="small">{{ gw.state }}</el-tag>
+              <el-tag :type="stateTagType(gw.state)" size="small">{{ stateLabel(gw.state) }}</el-tag>
               <el-popconfirm
                 v-if="gw.gateway_key.startsWith('manual:')"
                 title="确定断开此 Gateway？"
@@ -85,7 +93,7 @@
             <span class="text-gray-500">行情连接</span>
             <div>
               <el-tag :type="connTagType(gw.market_connection)" size="small">
-                {{ gw.market_connection }}
+                {{ connLabel(gw.market_connection) }}
               </el-tag>
             </div>
           </div>
@@ -93,7 +101,7 @@
             <span class="text-gray-500">交易连接</span>
             <div>
               <el-tag :type="connTagType(gw.trade_connection)" size="small">
-                {{ gw.trade_connection }}
+                {{ connLabel(gw.trade_connection) }}
               </el-tag>
             </div>
           </div>
@@ -196,14 +204,14 @@
 
         <el-table-column label="状态" min-width="110">
           <template #default="{ row }">
-            <el-tag :type="stateTagType(row.state)" size="small">{{ row.state }}</el-tag>
+            <el-tag :type="stateTagType(row.state)" size="small">{{ stateLabel(row.state) }}</el-tag>
           </template>
         </el-table-column>
 
         <el-table-column label="行情连接" min-width="110">
           <template #default="{ row }">
             <el-tag :type="connTagType(row.market_connection)" size="small">
-              {{ row.market_connection }}
+              {{ connLabel(row.market_connection) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -211,7 +219,7 @@
         <el-table-column label="交易连接" min-width="110">
           <template #default="{ row }">
             <el-tag :type="connTagType(row.trade_connection)" size="small">
-              {{ row.trade_connection }}
+              {{ connLabel(row.trade_connection) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -554,7 +562,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   Refresh,
   Loading,
@@ -565,13 +573,17 @@ import {
   List,
 } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { getErrorMessage } from '@/api'
 import { liveTradingApi } from '@/api/liveTrading'
 import type { GatewayHealthInfo } from '@/api/liveTrading'
 
 const loading = ref(false)
 const gateways = ref<GatewayHealthInfo[]>([])
+const loadError = ref('')
 const viewMode = ref<'card' | 'table'>('card')
+const headerActionsTargetReady = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let headerTargetTimer: ReturnType<typeof setInterval> | null = null
 
 const healthyCount = computed(() => gateways.value.filter((g) => g.is_healthy).length)
 
@@ -767,8 +779,9 @@ async function fetchHealth() {
   try {
     const res = await liveTradingApi.listGatewayHealth()
     gateways.value = res.gateways
-  } catch {
-    // silent
+    loadError.value = ''
+  } catch (error) {
+    loadError.value = getErrorMessage(error, 'Gateway 状态加载失败')
   } finally {
     loading.value = false
   }
@@ -788,6 +801,23 @@ function stateTagType(state: string) {
   }
 }
 
+function stateLabel(state: string) {
+  switch (state) {
+    case 'running':
+      return '运行中'
+    case 'starting':
+      return '启动中'
+    case 'stopping':
+      return '停止中'
+    case 'error':
+      return '异常'
+    case 'registered':
+      return '已注册'
+    default:
+      return state
+  }
+}
+
 function connTagType(conn: string) {
   switch (conn) {
     case 'connected':
@@ -799,6 +829,25 @@ function connTagType(conn: string) {
       return 'danger'
     default:
       return 'info'
+  }
+}
+
+function connLabel(conn: string) {
+  switch (conn) {
+    case 'connected':
+      return '已连接'
+    case 'connecting':
+      return '连接中'
+    case 'reconnecting':
+      return '重连中'
+    case 'error':
+      return '异常'
+    case 'disconnected':
+      return '已断开'
+    case 'not_started':
+      return '未启动'
+    default:
+      return conn
   }
 }
 
@@ -825,7 +874,25 @@ function formatNumber(n: number) {
   return String(n)
 }
 
-onMounted(() => {
+function updateHeaderActionsTargetReady() {
+  if (typeof document === 'undefined') {
+    headerActionsTargetReady.value = false
+    return false
+  }
+  headerActionsTargetReady.value = document.getElementById('page-header-actions') !== null
+  return headerActionsTargetReady.value
+}
+
+onMounted(async () => {
+  await nextTick()
+  if (!updateHeaderActionsTargetReady()) {
+    headerTargetTimer = setInterval(() => {
+      if (updateHeaderActionsTargetReady() && headerTargetTimer) {
+        clearInterval(headerTargetTimer)
+        headerTargetTimer = null
+      }
+    }, 100)
+  }
   fetchHealth()
   fetchSavedCredentials()
   pollTimer = setInterval(fetchHealth, 10_000)
@@ -833,5 +900,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  if (headerTargetTimer) clearInterval(headerTargetTimer)
 })
 </script>

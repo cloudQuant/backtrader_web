@@ -187,6 +187,84 @@ class TestLiveTradingManagerInitialization:
 
 
 class TestGatewayLifecycle:
+    def test_connect_gateway_persists_manual_gateway(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]):
+                with patch("app.services.live_trading_manager._save_manual_gateways") as mock_save:
+                    with patch(
+                        "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
+                        return_value={
+                            "gateway_key": "manual:MT5:123456",
+                            "status": "connected",
+                            "message": "ok",
+                        },
+                    ):
+                        manager = LiveTradingManager()
+                        result = manager.connect_gateway("MT5", {"login": 123456, "password": "secret"})
+
+        assert result["status"] == "connected"
+        mock_save.assert_called_once_with(
+            [
+                {
+                    "gateway_key": "manual:MT5:123456",
+                    "exchange_type": "MT5",
+                    "credentials": {"login": 123456, "password": "secret"},
+                }
+            ]
+        )
+
+    def test_restore_manual_gateways_on_boot(self):
+        persisted = [
+            {
+                "gateway_key": "manual:IB_WEB:DU123456",
+                "exchange_type": "IB_WEB",
+                "credentials": {"account_id": "DU123456", "base_url": "https://localhost:5000"},
+            }
+        ]
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._load_manual_gateways", return_value=persisted):
+                with patch(
+                    "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
+                    return_value={
+                        "gateway_key": "manual:IB_WEB:DU123456",
+                        "status": "connected",
+                        "message": "ok",
+                    },
+                ) as mock_connect:
+                    LiveTradingManager()
+
+        mock_connect.assert_called_once()
+        assert mock_connect.call_args.kwargs["exchange_type"] == "IB_WEB"
+        assert mock_connect.call_args.kwargs["credentials"] == {
+            "account_id": "DU123456",
+            "base_url": "https://localhost:5000",
+        }
+
+    def test_disconnect_gateway_removes_persisted_manual_gateway(self):
+        persisted = [
+            {
+                "gateway_key": "manual:MT5:123456",
+                "exchange_type": "MT5",
+                "credentials": {"login": 123456, "password": "secret"},
+            }
+        ]
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._load_manual_gateways", return_value=persisted):
+                with patch("app.services.live_trading_manager._save_manual_gateways") as mock_save:
+                    with patch(
+                        "app.services.live_trading_manager.manual_gateway_service.disconnect_gateway",
+                        return_value={
+                            "gateway_key": "manual:MT5:123456",
+                            "status": "disconnected",
+                            "message": "ok",
+                        },
+                    ):
+                        manager = LiveTradingManager()
+                        result = manager.disconnect_gateway("manual:MT5:123456")
+
+        assert result["status"] == "disconnected"
+        mock_save.assert_called_once_with([])
+
     def test_build_subprocess_env_with_gateway(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()

@@ -68,6 +68,7 @@ logs/
 *.log
 *.db
 *.db-journal
+data/manual_gateways.json
 
 # =====================================================
 # 构建产物

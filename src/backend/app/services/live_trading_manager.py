@@ -6,6 +6,7 @@ in subprocesses.
 """
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -54,6 +55,7 @@ _BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
 _BT_API_PY_DIR = _WORKSPACE_DIR / "bt_api_py"
 _DATA_DIR = Path(__file__).resolve().parents[4] / "data"
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
+_MANUAL_GATEWAYS_FILE = _DATA_DIR / "manual_gateways.json"
 
 _DEFAULT_TRANSPORT = "tcp" if sys.platform == "win32" else "ipc"
 
@@ -80,6 +82,45 @@ def _save_instances(data: dict[str, dict]) -> None:
         Delegates to InstanceStore. Kept for backward compatibility.
     """
     InstanceStore(instances_file=_INSTANCES_FILE).save_all(data)
+
+
+def _load_manual_gateways() -> list[dict[str, Any]]:
+    """Load manually connected gateways from the JSON file."""
+    if not _MANUAL_GATEWAYS_FILE.is_file():
+        return []
+    try:
+        raw = json.loads(_MANUAL_GATEWAYS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to load manual gateways: %s", exc)
+        return []
+    if not isinstance(raw, list):
+        return []
+    results: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        exchange_type = str(item.get("exchange_type") or "").strip()
+        credentials = item.get("credentials")
+        gateway_key = str(item.get("gateway_key") or "").strip()
+        if not exchange_type or not isinstance(credentials, dict):
+            continue
+        entry: dict[str, Any] = {
+            "exchange_type": exchange_type,
+            "credentials": credentials,
+        }
+        if gateway_key:
+            entry["gateway_key"] = gateway_key
+        results.append(entry)
+    return results
+
+
+def _save_manual_gateways(data: list[dict[str, Any]]) -> None:
+    """Persist manually connected gateways to disk."""
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _MANUAL_GATEWAYS_FILE.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _find_latest_log_dir(strategy_dir: Path) -> str | None:
@@ -137,6 +178,7 @@ class LiveTradingManager:
         self._stopping_instances: set[str] = set()
         # Sync process status on startup
         self._sync_status_on_boot()
+        self._restore_manual_gateways()
 
     def _sync_status_on_boot(self) -> None:
         live_instance_service.sync_status_on_boot(
@@ -171,7 +213,7 @@ class LiveTradingManager:
     def connect_gateway(
         self, exchange_type: str, credentials: GatewayCredentials
     ) -> ConnectResult:
-        return manual_gateway_service.connect_gateway(
+        result = manual_gateway_service.connect_gateway(
             gateways=self._gateways,
             exchange_type=exchange_type,
             credentials=credentials,
@@ -182,6 +224,11 @@ class LiveTradingManager:
             default_transport=_DEFAULT_TRANSPORT,
             logger=logger,
         )
+        if result.get("status") != "error":
+            gateway_key = str(result.get("gateway_key") or "").strip()
+            normalized_exchange_type = self._normalize_gateway_exchange_type(exchange_type)
+            self._persist_manual_gateway(gateway_key, normalized_exchange_type, credentials)
+        return result
 
     def _connect_ctp_gateway(
         self, key: str, credentials: GatewayCredentials
@@ -230,7 +277,62 @@ class LiveTradingManager:
         return manual_gateway_service.list_connected_gateways(self._gateways)
 
     def disconnect_gateway(self, gateway_key: str) -> OperationResult:
-        return manual_gateway_service.disconnect_gateway(self._gateways, gateway_key)
+        result = manual_gateway_service.disconnect_gateway(self._gateways, gateway_key)
+        if result.get("status") != "error":
+            self._remove_persisted_manual_gateway(gateway_key)
+        return result
+
+    def _restore_manual_gateways(self) -> None:
+        for entry in _load_manual_gateways():
+            exchange_type = str(entry.get("exchange_type") or "").strip()
+            credentials = entry.get("credentials")
+            gateway_key = str(entry.get("gateway_key") or "").strip()
+            if not exchange_type or not isinstance(credentials, dict):
+                continue
+            result = manual_gateway_service.connect_gateway(
+                gateways=self._gateways,
+                exchange_type=exchange_type,
+                credentials=credentials,
+                normalize_exchange_type=self._normalize_gateway_exchange_type,
+                coerce_bool=self._coerce_bool,
+                coerce_float=self._coerce_float,
+                import_gateway_runtime_classes=self._import_gateway_runtime_classes,
+                default_transport=_DEFAULT_TRANSPORT,
+                logger=logger,
+            )
+            if result.get("status") == "error":
+                target = gateway_key or exchange_type
+                logger.warning(
+                    "Failed to restore manual gateway %s: %s",
+                    target,
+                    result.get("message", "unknown error"),
+                )
+
+    def _persist_manual_gateway(
+        self,
+        gateway_key: str,
+        exchange_type: str,
+        credentials: GatewayCredentials,
+    ) -> None:
+        serialized_credentials = json.loads(
+            json.dumps(dict(credentials), ensure_ascii=False, default=str)
+        )
+        records = _load_manual_gateways()
+        records = [item for item in records if item.get("gateway_key") != gateway_key]
+        records.append(
+            {
+                "gateway_key": gateway_key,
+                "exchange_type": exchange_type,
+                "credentials": serialized_credentials,
+            }
+        )
+        _save_manual_gateways(records)
+
+    def _remove_persisted_manual_gateway(self, gateway_key: str) -> None:
+        records = _load_manual_gateways()
+        new_records = [item for item in records if item.get("gateway_key") != gateway_key]
+        if len(new_records) != len(records):
+            _save_manual_gateways(new_records)
 
     def get_gateway_presets(self) -> list[dict[str, str | list[dict[str, str]]]]:
         return _get_gateway_presets()

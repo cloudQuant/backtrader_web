@@ -28,17 +28,26 @@ vi.mock('@/api/liveTrading', () => ({
 }))
 
 describe('GatewayStatusPage', () => {
-  beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
+    document.body.innerHTML = '<div id="page-header-actions"></div>'
+  })
 
-  const doMount = () => mount(GatewayStatusPage, { global: { stubs: elStubs } })
+  const doMount = () => mount(GatewayStatusPage, { attachTo: document.body, global: { stubs: elStubs } })
 
   it('mounts without error', () => {
     expect(doMount().exists()).toBe(true)
   })
 
-  it('renders gateway status header', () => {
+  it('renders gateway status header actions into page header target', async () => {
     const wrapper = doMount()
-    expect(wrapper.text()).toContain('Gateway 状态监控')
+    await vi.dynamicImportSettled()
+    await new Promise(r => setTimeout(r, 50))
+    const headerActions = document.getElementById('page-header-actions')
+    expect(headerActions?.textContent || '').toContain('连接 Gateway')
+    expect(headerActions?.textContent || '').toContain('刷新')
+    expect(wrapper.text()).not.toContain('连接 Gateway')
   })
 
   it('computes healthyCount', async () => {
