@@ -422,8 +422,8 @@ class TestManualGatewayService:
         gateways: dict[str, dict] = {}
         result = manual_gateway_service.connect_gateway(
             gateways=gateways,
-            exchange_type="BINANCE",
-            credentials={"account_id": "acc-binance"},
+            exchange_type="CUSTOM_EXCHANGE",
+            credentials={"account_id": "acc-custom"},
             normalize_exchange_type=lambda value: str(value).upper(),
             coerce_bool=lambda value, default=False: default,
             coerce_float=lambda value, default=0.0: default,
@@ -432,9 +432,325 @@ class TestManualGatewayService:
             logger=Mock(),
         )
         assert result["status"] == "connected"
+        assert "manual:CUSTOM_EXCHANGE:acc-custom" in gateways
+        assert gateways["manual:CUSTOM_EXCHANGE:acc-custom"]["manual"] is True
+        assert gateways["manual:CUSTOM_EXCHANGE:acc-custom"]["runtime"] is None
+
+    def test_connect_gateway_starts_binance_runtime(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+
+        result = manual_gateway_service.connect_gateway(
+            gateways=gateways,
+            exchange_type="BINANCE",
+            credentials={
+                "account_id": "acc-binance",
+                "api_key": "binance-key",
+                "secret_key": "binance-secret",
+                "asset_type": "SWAP",
+            },
+            normalize_exchange_type=lambda value: str(value).upper(),
+            coerce_bool=lambda value, default=False: default,
+            coerce_float=lambda value, default=0.0: default,
+            import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+            default_transport="ipc",
+            logger=Mock(),
+        )
+
+        assert result["status"] == "connected"
+        assert result["message"] == "Binance gateway started successfully"
+        runtime_cls.assert_called_once()
+        runtime.start_in_thread.assert_called_once()
         assert "manual:BINANCE:acc-binance" in gateways
-        assert gateways["manual:BINANCE:acc-binance"]["manual"] is True
-        assert gateways["manual:BINANCE:acc-binance"]["runtime"] is None
+        assert gateways["manual:BINANCE:acc-binance"]["runtime"] is runtime
+        assert gateways["manual:BINANCE:acc-binance"]["asset_type"] == "SWAP"
+
+    def test_connect_gateway_starts_ctp_runtime_after_waiting_ready(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            startup_timeout_sec = 10.0
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls()
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+
+        with patch.object(manual_gateway_service, "_wait_for_runtime_ready") as mock_wait:
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="CTP",
+                credentials={
+                    "account_id": "089763",
+                    "broker_id": "9999",
+                    "user_id": "089763",
+                    "password": "secret",
+                    "td_front": "tcp://td.example:41205",
+                    "md_front": "tcp://md.example:41213",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        assert result["message"] == "CTP gateway started successfully"
+        runtime_cls.assert_called_once()
+        runtime.start_in_thread.assert_called_once()
+        mock_wait.assert_called_once_with(runtime, mock_wait.call_args.args[1], timeout_sec=34.0)
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["startup_timeout_sec"] == 20.0
+        assert runtime_kwargs["gateway_startup_timeout_sec"] == 20.0
+        assert "manual:CTP:089763" in gateways
+        assert gateways["manual:CTP:089763"]["runtime"] is runtime
+
+    def test_connect_gateway_uses_custom_ctp_timeout_when_provided(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            startup_timeout_sec = 25.0
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls()
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+
+        with patch.object(manual_gateway_service, "_wait_for_runtime_ready"):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="CTP",
+                credentials={
+                    "account_id": "089763",
+                    "broker_id": "9999",
+                    "user_id": "089763",
+                    "password": "secret",
+                    "td_front": "tcp://td.example:41205",
+                    "md_front": "tcp://md.example:41213",
+                    "timeout": 25,
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["startup_timeout_sec"] == 25.0
+        assert runtime_kwargs["gateway_startup_timeout_sec"] == 25.0
+
+    def test_connect_gateway_starts_ib_runtime_after_ensuring_clientportal(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            startup_timeout_sec = 10.0
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls()
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+
+        with patch.object(manual_gateway_service, "_ensure_ib_clientportal_running") as mock_ensure, patch.object(
+            manual_gateway_service,
+            "_wait_for_runtime_ready",
+        ) as mock_wait:
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="IB_WEB",
+                credentials={
+                    "account_id": "DU123456",
+                    "asset_type": "STK",
+                    "base_url": "https://localhost:5000",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default if value is None else bool(value),
+                coerce_float=lambda value, default=0.0: default if value is None else float(value),
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        assert result["message"] == "IB Web gateway started successfully"
+        mock_ensure.assert_called_once()
+        runtime_cls.assert_called_once()
+        runtime.start_in_thread.assert_called_once()
+        mock_wait.assert_called_once_with(runtime, mock_wait.call_args.args[1], timeout_sec=34.0)
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["proxies"] == {}
+        assert runtime_kwargs["async_proxy"] == ""
+        assert "manual:IB_WEB:DU123456" in gateways
+        assert gateways["manual:IB_WEB:DU123456"]["runtime"] is runtime
+
+    def test_connect_gateway_returns_error_when_ctp_runtime_not_ready(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            startup_timeout_sec = 10.0
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls()
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+
+        with patch.object(
+            manual_gateway_service,
+            "_wait_for_runtime_ready",
+            side_effect=RuntimeError("attempt 3/3 RuntimeError: ctp market not ready"),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="CTP",
+                credentials={
+                    "account_id": "089763",
+                    "broker_id": "9999",
+                    "user_id": "089763",
+                    "password": "secret",
+                    "td_front": "tcp://td.example:41205",
+                    "md_front": "tcp://md.example:41213",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "error"
+        assert "ctp market not ready" in result["message"]
+        runtime.stop.assert_called_once()
+        assert gateways == {}
+
+    def test_connect_gateway_starts_okx_runtime(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+
+        result = manual_gateway_service.connect_gateway(
+            gateways=gateways,
+            exchange_type="OKX",
+            credentials={
+                "account_id": "acc-okx",
+                "api_key": "okx-key",
+                "secret_key": "okx-secret",
+                "passphrase": "okx-passphrase",
+                "asset_type": "SPOT",
+            },
+            normalize_exchange_type=lambda value: str(value).upper(),
+            coerce_bool=lambda value, default=False: default,
+            coerce_float=lambda value, default=0.0: default,
+            import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+            default_transport="ipc",
+            logger=Mock(),
+        )
+
+        assert result["status"] == "connected"
+        assert result["message"] == "OKX gateway started successfully"
+        runtime_cls.assert_called_once()
+        runtime.start_in_thread.assert_called_once()
+        assert "manual:OKX:acc-okx" in gateways
+        assert gateways["manual:OKX:acc-okx"]["runtime"] is runtime
+        assert gateways["manual:OKX:acc-okx"]["asset_type"] == "SPOT"
+
+    def test_ensure_ib_clientportal_running_starts_background_process_when_local_port_down(self):
+        logger = Mock()
+        process = Mock()
+        process.poll.return_value = None
+
+        with patch.object(
+            manual_gateway_service,
+            "_should_manage_ib_clientportal",
+            return_value=True,
+        ), patch.object(
+            manual_gateway_service,
+            "_parse_base_url_endpoint",
+            return_value=("localhost", 5000),
+        ), patch.object(
+            manual_gateway_service,
+            "_is_tcp_endpoint_reachable",
+            side_effect=[False, False],
+        ), patch.object(
+            manual_gateway_service,
+            "_find_ib_clientportal_dir",
+            return_value=Path("/tmp/clientportal.gw"),
+        ), patch.object(
+            manual_gateway_service,
+            "_start_ib_clientportal_background",
+            return_value=process,
+        ) as mock_start, patch.object(
+            manual_gateway_service,
+            "_wait_for_tcp_endpoint",
+            return_value=True,
+        ) as mock_wait:
+            manual_gateway_service._ib_clientportal_process = None
+            manual_gateway_service._ensure_ib_clientportal_running(
+                "https://localhost:5000",
+                logger,
+                startup_wait_sec=1.0,
+            )
+
+        mock_start.assert_called_once_with(Path("/tmp/clientportal.gw"))
+        mock_wait.assert_called_once_with("localhost", 5000, timeout_sec=1.0)
+        logger.info.assert_called_once()
+
+    def test_wait_for_runtime_ready_raises_latest_adapter_connect_error(self):
+        logger = Mock()
+        health = Mock()
+        health.snapshot.side_effect = [
+            {
+                "state": "running",
+                "market_connection": "connecting",
+                "recent_errors": [],
+            },
+            {
+                "state": "running",
+                "market_connection": "error",
+                "recent_errors": [
+                    {
+                        "source": "adapter_connect",
+                        "message": "attempt 3/3 RuntimeError: ctp market not ready",
+                    }
+                ],
+            },
+        ]
+        runtime = Mock()
+        runtime._adapter_connected = False
+        runtime.health = health
+
+        with pytest.raises(RuntimeError, match="ctp market not ready"):
+            manual_gateway_service._wait_for_runtime_ready(
+                runtime,
+                logger,
+                timeout_sec=1.0,
+                poll_interval_sec=0.0,
+            )
 
     def test_query_gateway_account_uses_health_snapshot(self):
         health = Mock()
