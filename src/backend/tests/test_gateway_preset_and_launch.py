@@ -187,8 +187,8 @@ class TestBuildCtpGatewayRuntimeKwargs:
                 "password": "secret",
                 "fronts": {
                     "simnow": {
-                        "td_address": "tcp://180.168.146.187:10201",
-                        "md_address": "tcp://180.168.146.187:10211",
+                        "td_address": "tcp://182.254.243.31:30001",
+                        "md_address": "tcp://182.254.243.31:30011",
                     }
                 },
             },
@@ -275,6 +275,19 @@ class TestBuildIbWebGatewayRuntimeKwargs:
         )
         assert result["cookie_source"] == "browser"
         assert result["cookies"] == {"sid": "abc"}
+
+    def test_local_base_url_disables_proxies(self):
+        result = build_ib_web_gateway_runtime_kwargs(
+            config_data={},
+            env_data={},
+            gateway_params={
+                "account_id": "DU123",
+                "base_url": "https://localhost:5000/v1/api",
+            },
+            default_transport="tcp",
+        )
+        assert result["proxies"] == {}
+        assert result["async_proxy"] == ""
 
 
 # ---- MT5 builder tests ----

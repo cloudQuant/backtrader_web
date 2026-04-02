@@ -11,6 +11,30 @@ import { useAuthStore } from './stores/auth'
 import i18n from './i18n'
 import './style.css'
 
+function installPerformanceMeasureGuard(): void {
+  if (typeof window === 'undefined' || typeof Performance === 'undefined') {
+    return
+  }
+
+  const originalMeasure = Performance.prototype.measure
+  Performance.prototype.measure = function (...args: Parameters<Performance['measure']>) {
+    try {
+      return originalMeasure.apply(this, args)
+    } catch (error) {
+      if (
+        error instanceof TypeError
+        && typeof error.message === 'string'
+        && error.message.includes('cannot have a negative time stamp')
+      ) {
+        return undefined
+      }
+      throw error
+    }
+  }
+}
+
+installPerformanceMeasureGuard()
+
 const app = createApp(App)
 
 // 注册Element Plus图标

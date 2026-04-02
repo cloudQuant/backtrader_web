@@ -14,6 +14,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from app.db.cache import get_cache
 from app.db.sql_repository import SQLRepository
@@ -92,6 +93,90 @@ class BacktestService:
         return task.created_at or datetime.now()
 
     @staticmethod
+    def _normalize_trade_date(value: Any) -> str | None:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        if not text:
+            return None
+        candidate = text.replace("Z", "+00:00")
+        try:
+            return datetime.fromisoformat(candidate).isoformat()
+        except ValueError:
+            pass
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(text, fmt).isoformat()
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
+    def _normalize_trade_type(value: Any) -> str | None:
+        text = str(value or "").strip().lower()
+        if text in {"buy", "b", "long", "open", "open_long", "buy_long"}:
+            return "buy"
+        if text in {"sell", "s", "short", "close", "close_long", "sell_short"}:
+            return "sell"
+        return None
+
+    @classmethod
+    def _sanitize_trades(cls, trades: Any) -> list[dict[str, Any]]:
+        if not isinstance(trades, list):
+            return []
+        normalized: list[dict[str, Any]] = []
+        for trade in trades:
+            if not isinstance(trade, dict):
+                continue
+            date_value = cls._normalize_trade_date(
+                trade.get("date") or trade.get("datetime") or trade.get("dtopen") or trade.get("dtclose")
+            )
+            trade_type = cls._normalize_trade_type(trade.get("type") or trade.get("direction"))
+            if not date_value or not trade_type:
+                continue
+            try:
+                price = float(trade.get("price") or 0)
+            except (TypeError, ValueError):
+                continue
+            if price <= 0:
+                continue
+            size_raw = trade.get("size")
+            if size_raw is None:
+                size_raw = trade.get("qty")
+            if size_raw is None:
+                size_raw = trade.get("volume")
+            try:
+                size = int(abs(float(size_raw or 0)))
+            except (TypeError, ValueError):
+                continue
+            if size <= 0:
+                continue
+            try:
+                value = float(trade.get("value")) if trade.get("value") is not None else price * size
+            except (TypeError, ValueError):
+                value = price * size
+            if value <= 0:
+                value = price * size
+            pnl_raw = trade.get("pnl")
+            try:
+                pnl = float(pnl_raw) if pnl_raw is not None else None
+            except (TypeError, ValueError):
+                pnl = None
+            normalized.append(
+                {
+                    "date": date_value,
+                    "type": trade_type,
+                    "price": price,
+                    "size": size,
+                    "value": value,
+                    "pnl": pnl,
+                }
+            )
+        return normalized
+
+    @staticmethod
     def _build_backtest_result(
         task: BacktestTask, result_model: BacktestResultModel | None
     ) -> BacktestResult:
@@ -114,7 +199,7 @@ class BacktestService:
             equity_curve=result_model.equity_curve if result_model else [],
             equity_dates=result_model.equity_dates if result_model else [],
             drawdown_curve=result_model.drawdown_curve if result_model else [],
-            trades=result_model.trades if result_model else [],
+            trades=BacktestService._sanitize_trades(result_model.trades if result_model else []),
             created_at=task.created_at,
             error_message=task.error_message,
         )
@@ -449,7 +534,9 @@ class BacktestService:
         cache_key = f"backtest:result:{task_id}"
         cached = await self.cache.get(cache_key)
         if cached:
-            return BacktestResult(**cached)
+            cached_payload = dict(cached)
+            cached_payload["trades"] = self._sanitize_trades(cached_payload.get("trades", []))
+            return BacktestResult(**cached_payload)
 
         # Query result
         results = await self.result_repo.list(filters={"task_id": task_id}, limit=1)

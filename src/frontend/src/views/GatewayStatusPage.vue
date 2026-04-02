@@ -133,8 +133,8 @@
         <div class="text-sm space-y-2">
           <div class="flex justify-between">
             <span class="text-gray-500">心跳延迟</span>
-            <span :class="heartbeatClass(gw.heartbeat_age_sec)">
-              {{ gw.heartbeat_age_sec != null ? gw.heartbeat_age_sec + 's' : '-' }}
+            <span :class="heartbeatClass(getHeartbeatAge(gw))">
+              {{ formatHeartbeatAge(gw) }}
             </span>
           </div>
           <div class="flex justify-between">
@@ -243,8 +243,8 @@
 
         <el-table-column label="心跳延迟" min-width="100">
           <template #default="{ row }">
-            <span :class="heartbeatClass(row.heartbeat_age_sec)">
-              {{ row.heartbeat_age_sec != null ? row.heartbeat_age_sec + 's' : '-' }}
+            <span :class="heartbeatClass(getHeartbeatAge(row))">
+              {{ formatHeartbeatAge(row) }}
             </span>
           </template>
         </el-table-column>
@@ -582,8 +582,11 @@ const gateways = ref<GatewayHealthInfo[]>([])
 const loadError = ref('')
 const viewMode = ref<'card' | 'table'>('card')
 const headerActionsTargetReady = ref(false)
+const nowMs = ref(Date.now())
+const lastHealthFetchMs = ref(Date.now())
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let headerTargetTimer: ReturnType<typeof setInterval> | null = null
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
 const healthyCount = computed(() => gateways.value.filter((g) => g.is_healthy).length)
 
@@ -779,6 +782,8 @@ async function fetchHealth() {
   try {
     const res = await liveTradingApi.listGatewayHealth()
     gateways.value = res.gateways
+    nowMs.value = Date.now()
+    lastHealthFetchMs.value = nowMs.value
     loadError.value = ''
   } catch (error) {
     loadError.value = getErrorMessage(error, 'Gateway 状态加载失败')
@@ -858,6 +863,23 @@ function heartbeatClass(age: number | null) {
   return 'text-red-600 font-medium'
 }
 
+function getHeartbeatAge(gateway: GatewayHealthInfo): number | null {
+  const lastHeartbeat = gateway.last_heartbeat
+  if (lastHeartbeat != null && Number.isFinite(lastHeartbeat)) {
+    return Math.max(0, Math.floor(nowMs.value / 1000 - lastHeartbeat))
+  }
+  if (gateway.heartbeat_age_sec == null || !Number.isFinite(gateway.heartbeat_age_sec)) {
+    return null
+  }
+  const elapsedSinceFetch = Math.floor(Math.max(0, nowMs.value - lastHealthFetchMs.value) / 1000)
+  return Math.max(0, Math.floor(gateway.heartbeat_age_sec) + elapsedSinceFetch)
+}
+
+function formatHeartbeatAge(gateway: GatewayHealthInfo): string {
+  const age = getHeartbeatAge(gateway)
+  return age != null ? `${age}s` : '-'
+}
+
 function formatUptime(sec: number) {
   if (!sec || sec <= 0) return '-'
   const h = Math.floor(sec / 3600)
@@ -895,11 +917,15 @@ onMounted(async () => {
   }
   fetchHealth()
   fetchSavedCredentials()
+  heartbeatTimer = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 1_000)
   pollTimer = setInterval(fetchHealth, 10_000)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
   if (headerTargetTimer) clearInterval(headerTargetTimer)
+  if (heartbeatTimer) clearInterval(heartbeatTimer)
 })
 </script>

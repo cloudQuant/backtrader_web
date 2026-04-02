@@ -99,7 +99,7 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
           class="p-6 border rounded-lg hover:border-blue-500 hover:shadow-md transition-all cursor-pointer"
-          @click="$router.push('/backtest')"
+          @click="$router.push('/workspace')"
         >
           <el-icon class="text-4xl text-blue-500 mb-4">
             <DataLine />
@@ -152,7 +152,7 @@
           <el-button
             type="primary"
             link
-            @click="$router.push('/backtest')"
+            @click="$router.push('/workspace')"
           >
             {{ t('dashboard.viewAll') }}
           </el-button>

@@ -402,6 +402,172 @@ class TestStrategyRuntimeSupport:
 
 
 class TestManualGatewayService:
+    def test_to_backend_env_relative_path_returns_bt_api_relative_cookie_path(self):
+        result = manual_gateway_service._to_backend_env_relative_path(
+            "/Users/yunjinqi/Documents/new_projects/bt_api_py/configs/ibkr_cookies.json"
+        )
+
+        assert result == "configs/ibkr_cookies.json"
+
+    def test_bootstrap_ib_web_session_does_not_browser_login_when_cookie_config_exists(self):
+        with patch.object(
+            manual_gateway_service,
+            "_load_ib_web_session_state",
+            return_value=({}, {}, False, [], ""),
+        ), patch.object(
+            manual_gateway_service,
+            "_import_ib_web_session_helpers",
+        ) as mock_helpers:
+            result = manual_gateway_service._bootstrap_ib_web_session(
+                {
+                    "account_id": "DU123456",
+                    "cookie_source": "file:configs/ibkr_cookies.json",
+                    "username": "test-ib-user",
+                    "password": "test-ib-pass",
+                },
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+            )
+
+        assert result is None
+        mock_helpers.assert_not_called()
+
+    def test_resolve_ib_web_base_url_falls_back_to_http_for_localhost(self):
+        auth_status = Mock(side_effect=[RuntimeError("ssl eof"), Mock(status_code=200)])
+        logger = Mock()
+
+        with patch.object(
+            manual_gateway_service,
+            "_import_ib_web_session_helpers",
+            return_value=(auth_status, Mock(), Mock()),
+        ):
+            resolved = manual_gateway_service._resolve_ib_web_base_url(
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+                logger=logger,
+            )
+
+        assert resolved == "http://localhost:5000/v1/api"
+        logger.warning.assert_called_once()
+
+    def test_resolve_ib_web_base_url_retries_until_http_is_ready(self):
+        auth_status = Mock(
+            side_effect=[
+                RuntimeError("ssl eof"),
+                RuntimeError("gateway starting"),
+                RuntimeError("ssl eof"),
+                Mock(status_code=200),
+            ]
+        )
+        logger = Mock()
+
+        with patch.object(
+            manual_gateway_service,
+            "_import_ib_web_session_helpers",
+            return_value=(auth_status, Mock(), Mock()),
+        ), patch.object(
+            manual_gateway_service.time,
+            "monotonic",
+            side_effect=[0.0, 0.0, 0.2, 1.2],
+        ), patch.object(
+            manual_gateway_service.time,
+            "sleep",
+        ) as mock_sleep:
+            resolved = manual_gateway_service._resolve_ib_web_base_url(
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+                logger=logger,
+            )
+
+        assert resolved == "http://localhost:5000/v1/api"
+        assert auth_status.call_count == 4
+        mock_sleep.assert_called_once_with(1.0)
+        logger.warning.assert_called_once()
+
+    def test_connect_gateway_bootstraps_ib_session_and_persists_env_updates(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            startup_timeout_sec = 10.0
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls()
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        auth_status = Mock(return_value=Mock(status_code=200))
+        ensure_session = Mock(
+            return_value={
+                "account_id": "DU654321",
+                "cookie_output": "/Users/yunjinqi/Documents/new_projects/bt_api_py/configs/ibkr_cookies.json",
+                "cookies": {"api": "cookie-value"},
+            }
+        )
+        upsert_env_file = Mock()
+
+        with patch.object(
+            manual_gateway_service,
+            "_ensure_ib_clientportal_running",
+        ) as mock_ensure, patch.object(
+            manual_gateway_service,
+            "_wait_for_runtime_ready",
+        ) as mock_wait, patch.object(
+            manual_gateway_service,
+            "_import_ib_web_session_helpers",
+            return_value=(auth_status, ensure_session, upsert_env_file),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="IB_WEB",
+                credentials={
+                    "account_id": "DU123456",
+                    "asset_type": "STK",
+                    "base_url": "https://localhost:5000",
+                    "cookie_source": "browser",
+                    "cookie_browser": "chrome",
+                    "cookie_path": "/sso",
+                    "username": "test-ib-user",
+                    "password": "test-ib-pass",
+                    "login_mode": "paper",
+                    "login_browser": "chrome",
+                    "login_headless": False,
+                    "login_timeout": 180,
+                    "cookie_output": "configs/ibkr_cookies.json",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=(
+                    lambda value, default=False: default if value is None else bool(value)
+                ),
+                coerce_float=(
+                    lambda value, default=0.0: default if value is None else float(value)
+                ),
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        ensure_args = mock_ensure.call_args.args
+        assert ensure_args[0] == "https://localhost:5000/v1/api"
+        mock_wait.assert_called_once_with(runtime, mock_wait.call_args.args[1], timeout_sec=34.0)
+        ensure_session.assert_called_once()
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["base_url"] == "https://localhost:5000/v1/api"
+        assert runtime_kwargs["account_id"] == "DU654321"
+        assert runtime_kwargs["cookie_source"] == "file:configs/ibkr_cookies.json"
+        assert runtime_kwargs["cookie_output"] == "configs/ibkr_cookies.json"
+        assert runtime_kwargs["cookies"] == {"api": "cookie-value"}
+        upsert_env_file.assert_called()
+        env_updates = upsert_env_file.call_args.args[1]
+        assert env_updates["IB_WEB_BASE_URL"] == "https://localhost:5000/v1/api"
+        assert env_updates["IB_WEB_ACCOUNT_ID"] == "DU654321"
+        assert env_updates["IB_WEB_COOKIE_SOURCE"] == "file:configs/ibkr_cookies.json"
+        assert env_updates["IB_WEB_COOKIE_OUTPUT"] == "configs/ibkr_cookies.json"
+
     def test_connect_gateway_returns_existing_manual_gateway(self):
         gateways = {"manual:CTP:acc1": {"manual": True}}
         result = manual_gateway_service.connect_gateway(
@@ -579,6 +745,17 @@ class TestManualGatewayService:
                     "account_id": "DU123456",
                     "asset_type": "STK",
                     "base_url": "https://localhost:5000",
+                    "cookie_source": "file:../bt_api_py/configs/ibkr_cookies.json",
+                    "cookie_browser": "chrome",
+                    "cookie_path": "/sso",
+                    "cookies": {"api": "cookie-value"},
+                    "username": "test-ib-user",
+                    "password": "test-ib-pass",
+                    "login_mode": "paper",
+                    "login_browser": "chrome",
+                    "login_headless": False,
+                    "login_timeout": 180,
+                    "cookie_output": "../bt_api_py/configs/ibkr_cookies.json",
                 },
                 normalize_exchange_type=lambda value: str(value).upper(),
                 coerce_bool=lambda value, default=False: default if value is None else bool(value),
@@ -597,6 +774,17 @@ class TestManualGatewayService:
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["proxies"] == {}
         assert runtime_kwargs["async_proxy"] == ""
+        assert runtime_kwargs["cookie_source"] == "file:../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["cookie_browser"] == "chrome"
+        assert runtime_kwargs["cookie_path"] == "/sso"
+        assert runtime_kwargs["cookies"] == {"api": "cookie-value"}
+        assert runtime_kwargs["username"] == "test-ib-user"
+        assert runtime_kwargs["password"] == "test-ib-pass"
+        assert runtime_kwargs["login_mode"] == "paper"
+        assert runtime_kwargs["login_browser"] == "chrome"
+        assert runtime_kwargs["login_headless"] is False
+        assert runtime_kwargs["login_timeout"] == 180.0
+        assert runtime_kwargs["cookie_output"] == "../bt_api_py/configs/ibkr_cookies.json"
         assert "manual:IB_WEB:DU123456" in gateways
         assert gateways["manual:IB_WEB:DU123456"]["runtime"] is runtime
 
@@ -640,6 +828,121 @@ class TestManualGatewayService:
         assert result["status"] == "error"
         assert "ctp market not ready" in result["message"]
         runtime.stop.assert_called_once()
+        assert gateways == {}
+
+    def test_connect_gateway_returns_actionable_error_when_ctp_native_sdk_missing(self):
+        gateways: dict[str, dict] = {}
+
+        native_error = RuntimeError(
+            "CTP native API 'CThostFtdcTraderApi' is unavailable: Git LFS pointer detected"
+        )
+
+        def _raise_import_error():
+            raise native_error
+
+        result = manual_gateway_service.connect_gateway(
+            gateways=gateways,
+            exchange_type="CTP",
+            credentials={
+                "account_id": "089763",
+                "broker_id": "9999",
+                "user_id": "089763",
+                "password": "secret",
+                "td_front": "tcp://td.example:41205",
+                "md_front": "tcp://md.example:41213",
+            },
+            normalize_exchange_type=lambda value: str(value).upper(),
+            coerce_bool=lambda value, default=False: default,
+            coerce_float=lambda value, default=0.0: default,
+            import_gateway_runtime_classes=_raise_import_error,
+            default_transport="ipc",
+            logger=Mock(),
+        )
+
+        assert result["status"] == "error"
+        assert "git lfs pull" in result["message"].lower()
+        assert "CTP原生SDK不可用" in result["message"]
+        assert gateways == {}
+
+    def test_connect_gateway_switches_to_reachable_current_simnow_front(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            startup_timeout_sec = 10.0
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls()
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        logger = Mock()
+
+        reachable_map = {
+            ("182.254.243.31", 30001): False,
+            ("182.254.243.31", 30011): False,
+            ("182.254.243.31", 30002): True,
+            ("182.254.243.31", 30012): True,
+        }
+
+        def _reachable(host, port, timeout=1.0):
+            return reachable_map.get((host, port), False)
+
+        with patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", side_effect=_reachable), patch.object(
+            manual_gateway_service,
+            "_wait_for_runtime_ready",
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="CTP",
+                credentials={
+                    "account_id": "089763",
+                    "broker_id": "9999",
+                    "user_id": "089763",
+                    "password": "secret",
+                    "td_front": "tcp://182.254.243.31:30001",
+                    "md_front": "tcp://182.254.243.31:30011",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=logger,
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["td_address"] == "tcp://182.254.243.31:30002"
+        assert runtime_kwargs["md_address"] == "tcp://182.254.243.31:30012"
+        logger.warning.assert_called_once()
+
+    def test_connect_gateway_returns_clear_error_when_all_current_simnow_fronts_unreachable(self):
+        gateways: dict[str, dict] = {}
+        logger = Mock()
+
+        with patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", return_value=False):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="CTP",
+                credentials={
+                    "account_id": "089763",
+                    "broker_id": "9999",
+                    "user_id": "089763",
+                    "password": "secret",
+                    "td_front": "tcp://182.254.243.31:30001",
+                    "md_front": "tcp://182.254.243.31:30011",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=Mock(),
+                default_transport="ipc",
+                logger=logger,
+            )
+
+        assert result["status"] == "error"
+        assert "simnow当前三组前置均不可达" in result["message"].lower() or "SimNow当前三组前置均不可达" in result["message"]
         assert gateways == {}
 
     def test_connect_gateway_starts_okx_runtime(self):

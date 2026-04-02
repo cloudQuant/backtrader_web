@@ -144,7 +144,7 @@ export function useKeyboardShortcuts() {
     registerShortcut({
       key: '3',
       description: '导航到回测',
-      action: () => router.push('/backtest')
+      action: () => router.push('/workspace')
     })
 
     // 导航 - 优化: 4

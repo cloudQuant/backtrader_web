@@ -27,10 +27,6 @@
           <el-icon><Stopwatch /></el-icon>
           <span>行情报价</span>
         </el-menu-item>
-        <el-menu-item index="/backtest">
-          <el-icon><DataLine /></el-icon>
-          <span>回测分析</span>
-        </el-menu-item>
         <el-menu-item index="/workspace">
           <el-icon><Aim /></el-icon>
           <span>策略研究</span>
@@ -153,7 +149,6 @@ import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import {
   Aim,
   HomeFilled,
-  DataLine,
   Document,
   Grid,
   Setting,
@@ -174,8 +169,11 @@ const portfolioUiStore = usePortfolioUiStore()
 
 const currentRoute = computed(() => {
   const p = route.path
+  if (p === '/backtest' || p.startsWith('/backtest/')) {
+    return '/workspace'
+  }
   // Match top-level menu items for nested routes
-  const prefixes = ['/workspace', '/backtest', '/optimization', '/strategy', '/data', '/simulate', '/live-trading', '/gateways', '/quote', '/portfolio', '/settings']
+  const prefixes = ['/workspace', '/optimization', '/strategy', '/data', '/simulate', '/live-trading', '/gateways', '/quote', '/portfolio', '/settings']
   for (const prefix of prefixes) {
     if (p.startsWith(prefix + '/') || p === prefix) return prefix
   }
@@ -200,7 +198,6 @@ onMounted(() => {
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
     '/': '仪表盘',
-    '/backtest': '回测分析',
     '/optimization': '参数优化',
     '/strategy': '策略管理',
     '/data': '数据管理',

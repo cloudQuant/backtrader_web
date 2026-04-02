@@ -1,6 +1,6 @@
 """Tests for gateway health service."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.services.gateway_health_service import get_gateway_health
 
@@ -65,6 +65,66 @@ class TestGetGatewayHealth:
         assert results[0]["ref_count"] == 2
         assert sorted(results[0]["instances"]) == ["inst-1", "inst-2"]
 
+    def test_gateway_with_runtime_connected_market_normalizes_trade_connection(self):
+        health_mock = MagicMock()
+        health_mock.snapshot.return_value = _make_health_snap(trade_connection="disconnected")
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+
+        gateways = {
+            "manual:BINANCE:acc1": {
+                "runtime": runtime_mock,
+                "manual": True,
+                "ref_count": 0,
+                "instances": set(),
+            }
+        }
+
+        results = get_gateway_health(
+            gateways=gateways,
+            load_instances=lambda: {},
+            is_pid_alive=lambda pid: False,
+            resolve_strategy_dir=lambda s: f"/strategies/{s}",
+            load_strategy_config=lambda d: {},
+            load_strategy_env=lambda d: {},
+        )
+
+        assert len(results) == 1
+        assert results[0]["market_connection"] == "connected"
+        assert results[0]["trade_connection"] == "connected"
+        assert results[0]["ref_count"] == 1
+
+    def test_gateway_with_runtime_derives_heartbeat_age_from_last_heartbeat(self):
+        health_mock = MagicMock()
+        health_mock.snapshot.return_value = _make_health_snap(
+            heartbeat_age_sec=None,
+            last_heartbeat=95.0,
+        )
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+
+        gateways = {
+            "binance:spot:acc1": {
+                "runtime": runtime_mock,
+                "ref_count": 0,
+                "instances": {"inst-1", "inst-2"},
+            }
+        }
+
+        with patch("app.services.gateway_health_service.time.time", return_value=100.0):
+            results = get_gateway_health(
+                gateways=gateways,
+                load_instances=lambda: {},
+                is_pid_alive=lambda pid: False,
+                resolve_strategy_dir=lambda s: f"/strategies/{s}",
+                load_strategy_config=lambda d: {},
+                load_strategy_env=lambda d: {},
+            )
+
+        assert len(results) == 1
+        assert results[0]["heartbeat_age_sec"] == 5
+        assert results[0]["ref_count"] == 2
+
     def test_gateway_without_runtime_skipped(self):
         gateways = {"orphan": {"runtime": None}}
         results = get_gateway_health(
@@ -76,6 +136,36 @@ class TestGetGatewayHealth:
             load_strategy_env=lambda d: {},
         )
         assert results == []
+
+    def test_manual_gateway_without_runtime_reported_as_registered(self):
+        gateways = {
+            "manual:BINANCE:test-account": {
+                "runtime": None,
+                "manual": True,
+                "exchange_type": "BINANCE",
+                "asset_type": "SPOT",
+                "account_id": "test-account",
+                "ref_count": 0,
+                "instances": set(),
+            }
+        }
+        results = get_gateway_health(
+            gateways=gateways,
+            load_instances=lambda: {},
+            is_pid_alive=lambda pid: False,
+            resolve_strategy_dir=lambda s: f"/strategies/{s}",
+            load_strategy_config=lambda d: {},
+            load_strategy_env=lambda d: {},
+        )
+        assert len(results) == 1
+        snap = results[0]
+        assert snap["gateway_key"] == "manual:BINANCE:test-account"
+        assert snap["state"] == "registered"
+        assert snap["market_connection"] == "not_started"
+        assert snap["trade_connection"] == "not_started"
+        assert snap["exchange"] == "BINANCE"
+        assert snap["asset_type"] == "SPOT"
+        assert snap["account_id"] == "test-account"
 
     def test_direct_process_instance(self):
         """Running instances not attached to a gateway get a 'direct:' entry."""

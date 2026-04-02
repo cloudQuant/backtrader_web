@@ -21,6 +21,7 @@ Object.defineProperty(global, 'localStorage', { value: localStorageMock })
 
 // Element Plus 图标 mock
 vi.mock('@element-plus/icons-vue', () => ({
+  Aim: { template: '<span>Aim</span>' },
   HomeFilled: { template: '<span>Home</span>' },
   DataLine: { template: '<span>Data</span>' },
   Document: { template: '<span>Doc</span>' },
@@ -33,6 +34,7 @@ vi.mock('@element-plus/icons-vue', () => ({
   VideoPlay: { template: '<span>Video</span>' },
   MagicStick: { template: '<span>Magic</span>' },
   Monitor: { template: '<span>Monitor</span>' },
+  Stopwatch: { template: '<span>Stopwatch</span>' },
   Refresh: { template: '<span>Refresh</span>' },
   Plus: { template: '<span>Plus</span>' },
   Delete: { template: '<span>Delete</span>' },
@@ -203,7 +205,7 @@ describe('AppLayout', () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('首页')
-      expect(wrapper.text()).toContain('回测分析')
+      expect(wrapper.text()).toContain('策略研究')
       expect(wrapper.text()).toContain('参数优化')
       expect(wrapper.text()).toContain('策略管理')
     })
@@ -214,10 +216,10 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('首页')
     })
 
-    it('应该包含回测分析菜单项', async () => {
+    it('应该包含策略研究菜单项', async () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      expect(wrapper.text()).toContain('回测分析')
+      expect(wrapper.text()).toContain('策略研究')
     })
 
     it('应该包含策略管理菜单项', async () => {
@@ -235,11 +237,11 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('仪表盘')
     })
 
-    it('回测页面应该显示"回测分析"', async () => {
+    it('回测页面应该显示"策略研究"', async () => {
       await router.push('/backtest')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      expect(wrapper.text()).toContain('回测分析')
+      expect(wrapper.text()).toContain('策略研究')
     })
   })
 

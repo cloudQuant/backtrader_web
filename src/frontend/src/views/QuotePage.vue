@@ -274,7 +274,7 @@
               align="right"
             >
               <template #default="{ row }">
-                <span :class="priceClass(row)">{{ fmtPrice(row.last_price) }}</span>
+                <span :class="priceClass(row)">{{ fmtPrice(row.last_price, row) }}</span>
               </template>
             </el-table-column>
             <el-table-column
@@ -286,7 +286,7 @@
               align="right"
             >
               <template #default="{ row }">
-                <span :class="changeClass(row.change)">{{ fmtChange(row.change) }}</span>
+                <span :class="changeClass(row.change)">{{ fmtChange(row.change, row) }}</span>
               </template>
             </el-table-column>
             <el-table-column
@@ -331,7 +331,7 @@
               sortable="custom"
               align="right"
             >
-              <template #default="{ row }">{{ fmtPrice(row[col.prop]) }}</template>
+              <template #default="{ row }">{{ fmtPrice(row[col.prop], row) }}</template>
             </el-table-column>
           </template>
           <!-- Actions column -->
@@ -488,6 +488,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useQuoteStore } from '@/stores/quote'
 import type { DataSourceInfo, QuoteTick } from '@/api/quote'
+import { formatQuoteChange, formatQuotePrice } from '@/utils/quoteFormat'
 
 const store = useQuoteStore()
 
@@ -670,14 +671,18 @@ watch(showColumnDialog, (v) => {
 })
 
 // ---- formatting helpers ----
-function fmtPrice(v: number | null): string {
-  if (v == null) return '--'
-  return v.toFixed(2)
+function fmtPrice(v: number | null, row?: QuoteTick): string {
+  return formatQuotePrice(v, {
+    source: row?.source,
+    symbol: row?.symbol,
+  })
 }
 
-function fmtChange(v: number | null): string {
-  if (v == null) return '--'
-  return (v >= 0 ? '+' : '') + v.toFixed(2)
+function fmtChange(v: number | null, row?: QuoteTick): string {
+  return formatQuoteChange(v, {
+    source: row?.source,
+    symbol: row?.symbol,
+  })
 }
 
 function fmtPct(v: number | null): string {

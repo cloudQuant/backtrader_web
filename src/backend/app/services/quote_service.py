@@ -129,10 +129,10 @@ _DEFAULT_SYMBOLS: dict[str, list[dict[str, str]]] = {
         {"symbol": "USDJPY", "name": "美元/日元", "exchange": "FOREX", "category": "外汇"},
         {"symbol": "AUDUSD", "name": "澳元/美元", "exchange": "FOREX", "category": "外汇"},
         {"symbol": "USDCAD", "name": "美元/加元", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "XAGUSD", "name": "白银/美元", "exchange": "FOREX", "category": "贵金属"},
-        {"symbol": "US30", "name": "道琼斯30", "exchange": "INDEX", "category": "指数"},
-        {"symbol": "NAS100", "name": "纳斯达克100", "exchange": "INDEX", "category": "指数"},
-        {"symbol": "USOIL", "name": "美原油", "exchange": "COMMODITY", "category": "能源"},
+        {"symbol": "USDCHF", "name": "美元/瑞郎", "exchange": "FOREX", "category": "外汇"},
+        {"symbol": "NZDUSD", "name": "纽元/美元", "exchange": "FOREX", "category": "外汇"},
+        {"symbol": "EURJPY", "name": "欧元/日元", "exchange": "FOREX", "category": "外汇"},
+        {"symbol": "EURGBP", "name": "欧元/英镑", "exchange": "FOREX", "category": "外汇"},
     ],
     "BINANCE": [
         {"symbol": "BTCUSDT", "name": "比特币/USDT", "exchange": "BINANCE", "category": "加密货币"},
@@ -237,6 +237,19 @@ class _ZmqTickReceiver:
     def get_all_ticks(self) -> dict[str, dict[str, Any]]:
         with self._lock:
             return dict(self._tick_cache)
+
+    def seed_tick(self, symbol: str, payload: dict[str, Any]) -> None:
+        normalized = dict(payload)
+        if symbol:
+            normalized["symbol"] = normalized.get("symbol") or symbol
+        key = str(normalized.get("symbol") or symbol or "").strip()
+        if not key:
+            return
+        with self._lock:
+            self._tick_cache[key] = normalized
+            instrument_id = str(normalized.get("instrument_id") or "").strip()
+            if instrument_id and instrument_id != key:
+                self._tick_cache[instrument_id] = normalized
 
     # -- internal --
 
@@ -446,6 +459,13 @@ class QuoteService:
 
         receiver = self._receivers.get(source)
         cached_ticks = self._wait_for_initial_ticks(receiver, all_syms)
+        if source == "IB_WEB":
+            cached_ticks = self._hydrate_ib_web_snapshot_ticks(
+                manager,
+                receiver,
+                all_syms,
+                cached_ticks,
+            )
         has_receiver = receiver is not None and receiver.is_alive
 
         now = datetime.now(timezone.utc).isoformat()
@@ -583,6 +603,7 @@ class QuoteService:
             import zmq
 
             ctx = zmq.Context.instance()
+            recv_timeout_ms = 12000 if source == "IB_WEB" else 3000
             result = self._send_gateway_command(
                 command_endpoint,
                 "subscribe",
@@ -591,14 +612,33 @@ class QuoteService:
                     "strategy_id": "quote_page",
                 },
                 send_timeout_ms=3000,
-                recv_timeout_ms=3000,
+                recv_timeout_ms=recv_timeout_ms,
             )
             if result is not None:
-                self._subscribed_symbols[source].update(new_syms)
-                logger.info(
-                    "Subscribed %d symbols on %s: %s",
-                    len(new_syms), source, new_syms[:5],
-                )
+                accepted_symbols = list(new_syms)
+                skipped_symbols: list[str] = []
+                if isinstance(result, dict):
+                    accepted_candidate = (
+                        result.get("accepted")
+                        or result.get("symbols")
+                        or result.get("subscribed")
+                    )
+                    if isinstance(accepted_candidate, list):
+                        accepted_symbols = [str(symbol) for symbol in accepted_candidate if str(symbol)]
+                    skipped_candidate = result.get("skipped") or result.get("skipped_symbols")
+                    if isinstance(skipped_candidate, list):
+                        skipped_symbols = [str(symbol) for symbol in skipped_candidate if str(symbol)]
+                if accepted_symbols:
+                    self._subscribed_symbols[source].update(accepted_symbols)
+                    logger.info(
+                        "Subscribed %d symbols on %s: %s",
+                        len(accepted_symbols), source, accepted_symbols[:5],
+                    )
+                if skipped_symbols:
+                    logger.warning(
+                        "Skipped %d symbols on %s due to gateway rejection: %s",
+                        len(skipped_symbols), source, skipped_symbols[:5],
+                    )
         except ImportError:
             logger.warning("pyzmq not installed; cannot subscribe symbols on %s", source)
         except Exception:
@@ -754,6 +794,77 @@ class QuoteService:
             if any(value.startswith(target) for value in normalized):
                 return payload
         return None
+
+    def _hydrate_ib_web_snapshot_ticks(
+        self,
+        manager: Any,
+        receiver: _ZmqTickReceiver | None,
+        symbols: list[str],
+        cached_ticks: dict[str, dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        if not symbols:
+            return cached_ticks
+        runtime = self._get_gateway_runtime(manager, "IB_WEB")
+        adapter = getattr(runtime, "adapter", None)
+        feed = getattr(adapter, "feed", None)
+        if feed is None or not hasattr(feed, "get_tick"):
+            return cached_ticks
+        hydrated = dict(cached_ticks)
+        for symbol in symbols:
+            if self._match_cached_tick(hydrated, symbol) is not None:
+                continue
+            raw = self._fetch_ib_web_snapshot_tick(feed, symbol)
+            if raw is None:
+                continue
+            hydrated[symbol] = raw
+            if receiver is not None:
+                receiver.seed_tick(symbol, raw)
+        return hydrated
+
+    def _get_gateway_runtime(self, manager: Any, source: str) -> Any | None:
+        state = self._find_gateway_state(manager, source)
+        if state is None:
+            return None
+        return state.get("runtime")
+
+    @staticmethod
+    def _fetch_ib_web_snapshot_tick(feed: Any, symbol: str) -> dict[str, Any] | None:
+        try:
+            snapshot = feed.get_tick(symbol)
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch IB_WEB snapshot for %s: %s: %s",
+                symbol,
+                type(exc).__name__,
+                exc,
+            )
+            return None
+        if not isinstance(snapshot, dict) or not snapshot:
+            return None
+
+        price = _opt_float(snapshot.get("31") or snapshot.get("last") or snapshot.get("lastPrice"))
+        bid_price = _opt_float(snapshot.get("84") or snapshot.get("bid") or snapshot.get("bidPrice"))
+        ask_price = _opt_float(snapshot.get("86") or snapshot.get("ask") or snapshot.get("askPrice"))
+        volume = _opt_float(snapshot.get("87") or snapshot.get("volume") or snapshot.get("lastSize"))
+        if price is None and bid_price is None and ask_price is None and volume is None:
+            return None
+
+        raw: dict[str, Any] = {
+            "timestamp": time.time(),
+            "symbol": symbol,
+            "exchange": "IB_WEB",
+            "instrument_id": str(snapshot.get("conid") or snapshot.get("conidEx") or ""),
+            "exchange_id": str(snapshot.get("listingExchange") or snapshot.get("exchange") or ""),
+        }
+        if price is not None:
+            raw["price"] = price
+        if bid_price is not None:
+            raw["bid_price"] = bid_price
+        if ask_price is not None:
+            raw["ask_price"] = ask_price
+        if volume is not None:
+            raw["volume"] = volume
+        return raw
 
     @staticmethod
     def _send_gateway_command(

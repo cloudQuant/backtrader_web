@@ -1,5 +1,12 @@
 import json
 from typing import Any
+from urllib.parse import urlparse
+
+
+def _is_local_ib_base_url(base_url: str) -> bool:
+    parsed = urlparse(base_url or "https://localhost:5000")
+    host = (parsed.hostname or "localhost").lower()
+    return host in {"localhost", "127.0.0.1"}
 
 
 def normalize_gateway_exchange_type(value: Any, provider: str = "") -> str:
@@ -222,6 +229,9 @@ def build_ib_web_gateway_runtime_kwargs(
         runtime_kwargs["cookie_path"] = cookie_path
     if cookies:
         runtime_kwargs["cookies"] = cookies
+    if _is_local_ib_base_url(base_url):
+        runtime_kwargs["proxies"] = {}
+        runtime_kwargs["async_proxy"] = ""
     return runtime_kwargs
 
 

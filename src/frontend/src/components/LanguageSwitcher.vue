@@ -40,8 +40,9 @@ const currentLocale = computed(() => locale.value)
 const currentLabel = computed(() => getLocaleLabel(currentLocale.value))
 
 function handleChange(lang: string): void {
-  setLocale(lang)
-  locale.value = lang as 'zh-CN' | 'en-US'
+  if (locale.value !== lang) {
+    setLocale(lang)
+  }
 }
 </script>
 

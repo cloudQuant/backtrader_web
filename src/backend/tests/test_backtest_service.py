@@ -90,6 +90,31 @@ class TestBacktestServiceHelpers:
         assert result.start_date == created_at
         assert result.end_date == created_at
 
+    def test_sanitize_trades_normalizes_legacy_trade_records(self):
+        trades = BacktestService._sanitize_trades(
+            [
+                {
+                    "datetime": "2024-01-02 09:30:00",
+                    "direction": "long",
+                    "price": 12.5,
+                    "size": 2.0,
+                    "value": 25.0,
+                    "pnl": 1.5,
+                },
+                {
+                    "date": None,
+                    "type": None,
+                    "price": 0,
+                    "size": 0,
+                },
+            ]
+        )
+
+        assert len(trades) == 1
+        assert trades[0]["type"] == "buy"
+        assert trades[0]["size"] == 2
+        assert trades[0]["price"] == 12.5
+
 
 @pytest.mark.asyncio
 class TestRunBacktest:
