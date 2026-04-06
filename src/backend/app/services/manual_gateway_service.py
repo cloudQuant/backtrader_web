@@ -1,4 +1,5 @@
 import logging
+import os
 import socket
 import subprocess
 import sys
@@ -11,6 +12,210 @@ from urllib.parse import urlparse
 _logger = logging.getLogger(__name__)
 _ib_clientportal_lock = threading.Lock()
 _ib_clientportal_process: subprocess.Popen | None = None
+
+
+def _release_gateway_zmq_ports(runtime) -> None:
+    """Clear bt_api_py TCP port caches for a stopped runtime so reconnect
+    can reuse or reallocate the same ports without 'Address in use' errors."""
+    try:
+        from bt_api_py.gateway.config import (
+            _TCP_PORT_ASSIGNMENTS,
+            _TCP_RESERVED_BASE_PORTS,
+        )
+    except ImportError:
+        return
+    config = getattr(runtime, "config", None)
+    if config is None:
+        return
+    # Remove the cached port assignment for this runtime name
+    runtime_name = getattr(config, "runtime_name", "")
+    if runtime_name:
+        base_port = _TCP_PORT_ASSIGNMENTS.pop(runtime_name, None)
+        if base_port is not None:
+            _TCP_RESERVED_BASE_PORTS.discard(base_port)
+    # Also try the seed_input key used internally
+    for key in list(_TCP_PORT_ASSIGNMENTS):
+        port = _TCP_PORT_ASSIGNMENTS[key]
+        cmd_ep = getattr(config, "command_endpoint", "")
+        if cmd_ep and str(port) in cmd_ep:
+            _TCP_PORT_ASSIGNMENTS.pop(key, None)
+            _TCP_RESERVED_BASE_PORTS.discard(port)
+
+
+def _start_runtime_with_retry(
+    gateway_config_cls,
+    gateway_runtime_cls,
+    kwargs: dict[str, Any],
+    max_attempts: int = 2,
+) -> tuple:
+    """Create config+runtime and start, retrying with fresh ports on ZMQ
+    bind failure.  Returns (config, runtime) on success."""
+    last_exc = None
+    for attempt in range(max_attempts):
+        config = gateway_config_cls.from_kwargs(**kwargs)
+        runtime = gateway_runtime_cls(config, **kwargs)
+        runtime.start_in_thread()
+        # Check if start actually bound the sockets (health not in ERROR)
+        time.sleep(0.3)
+        health = getattr(runtime, "health", None)
+        if health is not None:
+            snap = health.snapshot() if callable(getattr(health, "snapshot", None)) else {}
+            if snap.get("state") == "error":
+                errors = snap.get("recent_errors", [])
+                err_msg = str(errors[-1]) if errors else "unknown"
+                if "Address in use" in err_msg and attempt < max_attempts - 1:
+                    _logger.warning(
+                        "ZMQ bind failed (attempt %d/%d): %s — retrying with fresh ports",
+                        attempt + 1, max_attempts, err_msg,
+                    )
+                    _release_gateway_zmq_ports(runtime)
+                    try:
+                        runtime.stop()
+                    except Exception:
+                        pass
+                    time.sleep(0.5)
+                    last_exc = RuntimeError(err_msg)
+                    continue
+                raise RuntimeError(err_msg)
+        return config, runtime
+    raise last_exc or RuntimeError("Failed to start gateway runtime")
+
+
+# ---------------------------------------------------------------------------
+# Proxy auto-detection for exchange gateways (Binance / OKX / MT5)
+# ---------------------------------------------------------------------------
+# The .env file may contain HTTPS_PROXY / HTTP_PROXY pointing to a local
+# proxy (e.g. Clash, V2Ray).  If that proxy is not running, ALL network
+# libraries (httpx, websocket-client, requests …) that honour these env vars
+# will fail with WinError 10061 "Connection refused".
+#
+# Strategy:
+#   1. On first gateway connect, TCP-probe the proxy host:port.
+#   2. Proxy alive  → keep env vars, return proxy URL for explicit use.
+#   3. Proxy dead   → **remove** env vars from os.environ so every library
+#      in this process falls back to direct connections automatically.
+# ---------------------------------------------------------------------------
+
+_PROXY_ENV_KEYS = (
+    "HTTPS_PROXY", "https_proxy",
+    "HTTP_PROXY", "http_proxy",
+    "ALL_PROXY", "all_proxy",
+    "SOCKS_PROXY", "socks_proxy",
+)
+
+_proxy_checked = False
+_proxy_checked_lock = threading.Lock()
+
+
+def _detect_working_proxy(timeout: float = 3.0, force_recheck: bool = False) -> str:
+    """Auto-detect a working HTTP(S) proxy from environment variables.
+
+    Returns the proxy URL if reachable, or ``""`` if no proxy / proxy dead.
+    When the proxy is unreachable the corresponding env vars are **removed**
+    from ``os.environ`` so that downstream libraries (httpx, websocket-client)
+    will not attempt to use a dead proxy.
+    """
+    global _proxy_checked
+    with _proxy_checked_lock:
+        if not force_recheck and _proxy_checked:
+            # Already probed — env vars have been sanitised if needed.
+            # Return whatever is (still) in the env.
+            return os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY") or ""
+
+    # Collect candidate proxy URL from environment
+    proxy_url = ""
+    for key in _PROXY_ENV_KEYS:
+        val = os.environ.get(key, "")
+        if val:
+            proxy_url = val
+            break
+
+    if not proxy_url:
+        _logger.info("Proxy auto-detect: no proxy env vars set — using direct connection")
+        with _proxy_checked_lock:
+            _proxy_checked = True
+        return ""
+
+    # Parse proxy URL to get host:port for TCP probe
+    parsed = urlparse(proxy_url)
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (1080 if "socks" in (parsed.scheme or "") else 8080)
+
+    alive = False
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        sock.close()
+        alive = True
+    except (OSError, TimeoutError):
+        alive = False
+
+    if alive:
+        _logger.info(
+            "Proxy auto-detect: %s is reachable — all traffic will use proxy",
+            proxy_url,
+        )
+    else:
+        _logger.warning(
+            "Proxy auto-detect: %s is NOT reachable — clearing proxy env vars, "
+            "falling back to direct connection",
+            proxy_url,
+        )
+        for key in _PROXY_ENV_KEYS:
+            os.environ.pop(key, None)
+        proxy_url = ""
+
+    with _proxy_checked_lock:
+        _proxy_checked = True
+    return proxy_url
+
+
+def _get_gateway_proxies_kwarg() -> dict[str, str]:
+    """Return a ``proxies`` dict suitable for bt_api_py ``Feed`` / ``HttpClient``.
+
+    Also triggers the one-time proxy health check which may clear dead proxy
+    env vars from ``os.environ``.
+
+    - Proxy alive  → ``{"https": "<url>", "http": "<url>"}``
+    - Proxy dead   → ``{"https": "", "http": ""}`` (disables ``trust_env``)
+    """
+    proxy = _detect_working_proxy()
+    if proxy:
+        return {"https": proxy, "http": proxy}
+    return {"https": "", "http": ""}
+
+
+def _get_gateway_ws_proxy_kwargs() -> dict[str, Any]:
+    proxy = _detect_working_proxy()
+    if not proxy:
+        return {
+            "http_proxy_host": "",
+            "http_proxy_port": None,
+            "async_proxy": "",
+        }
+    parsed = urlparse(proxy)
+    return {
+        "http_proxy_host": parsed.hostname or "",
+        "http_proxy_port": parsed.port,
+        "async_proxy": proxy,
+    }
+
+
+def _get_gateway_direct_proxies_kwarg() -> dict[str, str]:
+    return {"https": "", "http": ""}
+
+
+def _get_gateway_direct_ws_proxy_kwargs() -> dict[str, Any]:
+    return {
+        "http_proxy_host": "",
+        "http_proxy_port": None,
+        "async_proxy": "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Proxy auto-detection for exchange gateways (Binance / OKX / MT5)
+# ---------------------------------------------------------------------------
+
 _CURRENT_CTP_SIMNOW_FRONTS = [
     {
         "name": "simnow_1",
@@ -32,8 +237,16 @@ _CURRENT_CTP_SIMNOW_FRONTS = [
 
 def _find_ib_clientportal_dir() -> Path | None:
     current = Path(__file__).resolve()
+    jar_name = "ibgroup.web.core.iblink.router.clientportal.gw.jar"
+    candidates: list[Path] = []
     for parent in current.parents:
-        candidate = parent / "src" / "clientportal.gw"
+        candidates.append(parent / "src" / "clientportal.gw")
+    workspace_root = current.parents[4]
+    candidates.append(workspace_root.parent / "tools" / "clientportal")
+    for candidate in candidates:
+        if candidate.is_dir() and (candidate / "dist" / jar_name).is_file():
+            return candidate
+    for candidate in candidates:
         if candidate.is_dir():
             return candidate
     return None
@@ -240,6 +453,15 @@ def _bootstrap_ib_web_session(
         or credentials.get("cookie_output")
     )
     has_login_credentials = bool(credentials.get("username") and credentials.get("password"))
+    _logger.info(
+        "IB_WEB bootstrap: has_cookie_config=%s, has_login_credentials=%s, "
+        "cookie_source=%r, cookie_output=%r, username=%r",
+        has_cookie_config,
+        has_login_credentials,
+        credentials.get("cookie_source"),
+        credentials.get("cookie_output"),
+        credentials.get("username"),
+    )
     if has_cookie_config:
         settings, cookies, authenticated, _, account_id = _load_ib_web_session_state(
             credentials,
@@ -256,10 +478,47 @@ def _bootstrap_ib_web_session(
                 "status_code": 200,
                 "used_login": False,
             }
-        return None
-    if not has_login_credentials:
-        return None
+        _logger.info("IB_WEB bootstrap: cookies expired/invalid, will try login")
+        # Fall through to ensure_authenticated_session for browser login
     _, ensure_authenticated_session, _ = _import_ib_web_session_helpers()
+    if not has_login_credentials:
+        # Fallback: auto-detect credentials and cookies from .env / default
+        # cookie output path.  ensure_authenticated_session reads IB_WEB_*
+        # env vars, checks existing cookies, and falls back to browser login.
+        # NOTE: We must explicitly pass username/password in overrides because
+        # Windows ``os.environ["USERNAME"]`` (the OS login name) shadows the
+        # ``pick("username", ...)`` lookup before the .env ``IB_WEB_USERNAME``
+        # value is reached.
+        try:
+            from dotenv import dotenv_values as _dotenv_values
+
+            _env = _dotenv_values(_backend_env_file())
+            return ensure_authenticated_session(
+                overrides={
+                    "base_url": base_url,
+                    "account_id": credentials.get("account_id", ""),
+                    "verify_ssl": verify_ssl,
+                    "timeout": timeout,
+                    "username": _env.get("IB_WEB_USERNAME", ""),
+                    "password": _env.get("IB_WEB_PASSWORD", ""),
+                    "login_mode": _env.get("IB_WEB_LOGIN_MODE", "paper"),
+                    "login_browser": _env.get("IB_WEB_LOGIN_BROWSER", "chrome"),
+                    "login_headless": _env.get("IB_WEB_LOGIN_HEADLESS", "false"),
+                    "login_timeout": _env.get("IB_WEB_LOGIN_TIMEOUT", "180"),
+                    "cookie_source": _env.get("IB_WEB_COOKIE_SOURCE", ""),
+                    "cookie_output": _env.get("IB_WEB_COOKIE_OUTPUT", ""),
+                    "cookie_browser": _env.get("IB_WEB_COOKIE_BROWSER", "chrome"),
+                    "cookie_path": _env.get("IB_WEB_COOKIE_PATH", "/sso"),
+                },
+                base_dir=_ib_web_cookie_base_dir(),
+                env_file=_backend_env_file(),
+            )
+        except Exception as exc:
+            _logger.warning(
+                "IB_WEB auto-session bootstrap failed: %s: %s",
+                type(exc).__name__, exc,
+            )
+            return None
     return ensure_authenticated_session(
         overrides={
             "base_url": base_url,
@@ -531,6 +790,10 @@ def connect_gateway(
     default_transport: str,
     logger,
 ) -> dict[str, Any]:
+    # One-time proxy health check: clears dead proxy env vars so ALL
+    # downstream libraries (httpx, websocket-client, …) use direct connections.
+    _detect_working_proxy()
+
     exchange_type = normalize_exchange_type(exchange_type)
     account_id = _resolve_manual_account_id(exchange_type, credentials)
     key = f"manual:{exchange_type}:{account_id}"
@@ -829,6 +1092,8 @@ def connect_binance_gateway(
     try:
         gateway_config_cls, gateway_runtime_cls = import_gateway_runtime_classes()
         account_id = _resolve_manual_account_id("BINANCE", credentials)
+        gateway_proxies = _get_gateway_direct_proxies_kwarg()
+        ws_proxy_kwargs = _get_gateway_direct_ws_proxy_kwargs()
         kwargs = {
             "exchange_type": "BINANCE",
             "asset_type": credentials.get("asset_type", "SWAP"),
@@ -837,12 +1102,14 @@ def connect_binance_gateway(
             "api_key": credentials["api_key"],
             "secret_key": credentials["secret_key"],
             "testnet": bool(credentials.get("testnet", False)),
+            "proxies": gateway_proxies,
+            **ws_proxy_kwargs,
         }
         if credentials.get("base_url"):
             kwargs["base_url"] = credentials["base_url"]
-        config = gateway_config_cls.from_kwargs(**kwargs)
-        runtime = gateway_runtime_cls(config, **kwargs)
-        runtime.start_in_thread()
+        config, runtime = _start_runtime_with_retry(
+            gateway_config_cls, gateway_runtime_cls, kwargs,
+        )
         gateways[key] = {
             "config": config,
             "runtime": runtime,
@@ -887,6 +1154,8 @@ def connect_okx_gateway(
     try:
         gateway_config_cls, gateway_runtime_cls = import_gateway_runtime_classes()
         account_id = _resolve_manual_account_id("OKX", credentials)
+        gateway_proxies = _get_gateway_direct_proxies_kwarg()
+        ws_proxy_kwargs = _get_gateway_direct_ws_proxy_kwargs()
         kwargs = {
             "exchange_type": "OKX",
             "asset_type": credentials.get("asset_type", "SWAP"),
@@ -896,12 +1165,14 @@ def connect_okx_gateway(
             "secret_key": credentials["secret_key"],
             "passphrase": credentials["passphrase"],
             "testnet": bool(credentials.get("testnet", False)),
+            "proxies": gateway_proxies,
+            **ws_proxy_kwargs,
         }
         if credentials.get("base_url"):
             kwargs["base_url"] = credentials["base_url"]
-        config = gateway_config_cls.from_kwargs(**kwargs)
-        runtime = gateway_runtime_cls(config, **kwargs)
-        runtime.start_in_thread()
+        config, runtime = _start_runtime_with_retry(
+            gateway_config_cls, gateway_runtime_cls, kwargs,
+        )
         gateways[key] = {
             "config": config,
             "runtime": runtime,
@@ -958,9 +1229,9 @@ def connect_mt5_gateway(
         }
         if credentials.get("symbol_map"):
             kwargs["symbol_map"] = credentials["symbol_map"]
-        config = gateway_config_cls.from_kwargs(**kwargs)
-        runtime = gateway_runtime_cls(config, **kwargs)
-        runtime.start_in_thread()
+        config, runtime = _start_runtime_with_retry(
+            gateway_config_cls, gateway_runtime_cls, kwargs,
+        )
         gateways[key] = {
             "config": config,
             "runtime": runtime,
@@ -1070,6 +1341,12 @@ def disconnect_gateway(
             runtime.stop()
         except Exception as e:
             _logger.warning(f"Error stopping gateway {gateway_key}: {e}")
+        # Wait for the runtime thread to fully exit so ZMQ ports are released
+        thread = getattr(runtime, "thread", None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=5.0)
+        # Clear bt_api_py port caches so reconnect can reuse the ports
+        _release_gateway_zmq_ports(runtime)
     gateways.pop(gateway_key, None)
     return {
         "gateway_key": gateway_key,
