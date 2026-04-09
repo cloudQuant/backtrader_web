@@ -68,6 +68,24 @@ async def lifespan(app: FastAPI):
         await ensure_database_ready()
         logger.info("Database connection verified (schema auto-creation skipped)")
 
+    try:
+        from app.services.backtest_manager import BacktestExecutionManager
+        from app.services.workspace_service import WorkspaceService
+
+        workspace_service = WorkspaceService()
+        reconciled_tasks = await BacktestExecutionManager().reconcile_orphaned_tasks()
+        reconciled_units = await workspace_service.reconcile_orphaned_run_statuses()
+        reconciled_bar_counts = await workspace_service.reconcile_completed_bar_counts()
+        if reconciled_tasks or reconciled_units or reconciled_bar_counts:
+            logger.warning(
+                "Recovered stale runtime state on startup: backtest_tasks=%s, workspace_units=%s, unit_bar_counts=%s",
+                reconciled_tasks,
+                reconciled_units,
+                reconciled_bar_counts,
+            )
+    except Exception:
+        logger.exception("Failed to reconcile stale runtime state during startup")
+
     # Cache initialization status
     cache_type = "Redis" if settings.REDIS_URL else "Memory"
     logger.info(f"Cache backend: {cache_type}")

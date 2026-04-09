@@ -1,0 +1,262 @@
+# ===========================================================================
+# 默认合约/品种配置
+# 修改后重启后端即可生效，无需改代码
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 每个数据源的默认资产类型
+# ---------------------------------------------------------------------------
+default_asset_types:
+  CTP: FUTURE
+  IB_WEB: STK
+  MT5: OTC
+  BINANCE: SWAP
+  OKX: SWAP
+
+# ---------------------------------------------------------------------------
+# 每个数据源的默认合约列表
+# ---------------------------------------------------------------------------
+symbols:
+  CTP:
+    - symbol: IF2609
+      name: 沪深300主力
+      exchange: CFFEX
+      category: 股指期货
+    - symbol: IC2609
+      name: 中证500主力
+      exchange: CFFEX
+      category: 股指期货
+    - symbol: IH2609
+      name: 上证50主力
+      exchange: CFFEX
+      category: 股指期货
+    - symbol: IM2609
+      name: 中证1000主力
+      exchange: CFFEX
+      category: 股指期货
+    - symbol: au2606
+      name: 黄金主力
+      exchange: SHFE
+      category: 贵金属
+    - symbol: ag2606
+      name: 白银主力
+      exchange: SHFE
+      category: 贵金属
+    - symbol: cu2606
+      name: 铜主力
+      exchange: SHFE
+      category: 有色金属
+    - symbol: rb2610
+      name: 螺纹钢主力
+      exchange: SHFE
+      category: 黑色系
+    - symbol: i2609
+      name: 铁矿石主力
+      exchange: DCE
+      category: 黑色系
+    - symbol: m2609
+      name: 豆粕主力
+      exchange: DCE
+      category: 农产品
+
+  IB_WEB:
+    - symbol: AAPL
+      name: Apple Inc.
+      exchange: NASDAQ
+      category: 科技
+    - symbol: MSFT
+      name: Microsoft Corp.
+      exchange: NASDAQ
+      category: 科技
+    - symbol: GOOGL
+      name: Alphabet Inc.
+      exchange: NASDAQ
+      category: 科技
+    - symbol: AMZN
+      name: Amazon.com Inc.
+      exchange: NASDAQ
+      category: 科技
+    - symbol: TSLA
+      name: Tesla Inc.
+      exchange: NASDAQ
+      category: 汽车
+    - symbol: NVDA
+      name: NVIDIA Corp.
+      exchange: NASDAQ
+      category: 半导体
+    - symbol: META
+      name: Meta Platforms
+      exchange: NASDAQ
+      category: 科技
+    - symbol: SPY
+      name: S&P 500 ETF
+      exchange: NYSE
+      category: ETF
+    - symbol: QQQ
+      name: Nasdaq 100 ETF
+      exchange: NASDAQ
+      category: ETF
+    - symbol: ES
+      name: E-mini S&P 500
+      exchange: CME
+      category: 股指期货
+
+  MT5:
+    - symbol: XAUUSD
+      name: 黄金/美元
+      exchange: FOREX
+      category: 贵金属
+    - symbol: EURUSD
+      name: 欧元/美元
+      exchange: FOREX
+      category: 外汇
+    - symbol: GBPUSD
+      name: 英镑/美元
+      exchange: FOREX
+      category: 外汇
+    - symbol: USDJPY
+      name: 美元/日元
+      exchange: FOREX
+      category: 外汇
+    - symbol: AUDUSD
+      name: 澳元/美元
+      exchange: FOREX
+      category: 外汇
+    - symbol: USDCAD
+      name: 美元/加元
+      exchange: FOREX
+      category: 外汇
+    - symbol: USDCHF
+      name: 美元/瑞郎
+      exchange: FOREX
+      category: 外汇
+    - symbol: NZDUSD
+      name: 纽元/美元
+      exchange: FOREX
+      category: 外汇
+    - symbol: EURJPY
+      name: 欧元/日元
+      exchange: FOREX
+      category: 外汇
+    - symbol: EURGBP
+      name: 欧元/英镑
+      exchange: FOREX
+      category: 外汇
+
+  BINANCE:
+    - symbol: BTCUSDT
+      name: 比特币/USDT
+      exchange: BINANCE
+      category: 加密货币
+    - symbol: ETHUSDT
+      name: 以太坊/USDT
+      exchange: BINANCE
+      category: 加密货币
+    - symbol: BNBUSDT
+      name: BNB/USDT
+      exchange: BINANCE
+      category: 加密货币
+    - symbol: SOLUSDT
+      name: Solana/USDT
+      exchange: BINANCE
+      category: 加密货币
+    - symbol: XRPUSDT
+      name: XRP/USDT
+      exchange: BINANCE
+      category: 加密货币
+
+  OKX:
+    - symbol: BTC-USDT
+      name: 比特币/USDT
+      exchange: OKX
+      category: 加密货币
+    - symbol: ETH-USDT
+      name: 以太坊/USDT
+      exchange: OKX
+      category: 加密货币
+    - symbol: OKB-USDT
+      name: OKB/USDT
+      exchange: OKX
+      category: 加密货币
+    - symbol: SOL-USDT
+      name: Solana/USDT
+      exchange: OKX
+      category: 加密货币
+    - symbol: DOGE-USDT
+      name: 狗狗币/USDT
+      exchange: OKX
+      category: 加密货币
+
+# ---------------------------------------------------------------------------
+# 按 (数据源, 资产类型) 细分的合约列表
+# 如果某个 (source, asset_type) 组合不在这里，会 fallback 到上面的 symbols
+# ---------------------------------------------------------------------------
+symbols_by_asset:
+  IB_WEB:
+    FUT:
+      - symbol: ES
+        name: E-mini S&P 500
+        exchange: CME
+        category: 股指期货
+      - symbol: NQ
+        name: E-mini Nasdaq 100
+        exchange: CME
+        category: 股指期货
+      - symbol: YM
+        name: E-mini Dow Jones
+        exchange: CBOT
+        category: 股指期货
+      - symbol: RTY
+        name: E-mini Russell 2000
+        exchange: CME
+        category: 股指期货
+      - symbol: CL
+        name: WTI 原油
+        exchange: NYMEX
+        category: 能源
+
+  BINANCE:
+    SWAP:
+      - symbol: BTCUSDT
+        name: BTC 永续
+        exchange: BINANCE
+        category: 加密货币
+      - symbol: ETHUSDT
+        name: ETH 永续
+        exchange: BINANCE
+        category: 加密货币
+      - symbol: BNBUSDT
+        name: BNB 永续
+        exchange: BINANCE
+        category: 加密货币
+      - symbol: SOLUSDT
+        name: SOL 永续
+        exchange: BINANCE
+        category: 加密货币
+      - symbol: XRPUSDT
+        name: XRP 永续
+        exchange: BINANCE
+        category: 加密货币
+
+  OKX:
+    SWAP:
+      - symbol: BTC-USDT-SWAP
+        name: BTC 永续
+        exchange: OKX
+        category: 加密货币
+      - symbol: ETH-USDT-SWAP
+        name: ETH 永续
+        exchange: OKX
+        category: 加密货币
+      - symbol: SOL-USDT-SWAP
+        name: SOL 永续
+        exchange: OKX
+        category: 加密货币
+      - symbol: DOGE-USDT-SWAP
+        name: DOGE 永续
+        exchange: OKX
+        category: 加密货币
+      - symbol: LTC-USDT-SWAP
+        name: LTC 永续
+        exchange: OKX
+        category: 加密货币

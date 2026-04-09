@@ -8,13 +8,15 @@ and workspace-level run orchestration (Phase 3).
 import asyncio
 import logging
 import time
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.database import async_session_maker
+from app.models.backtest import BacktestTask
 from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.backtest import BacktestRequest, TaskStatus
 from app.schemas.workspace import (
@@ -28,6 +30,15 @@ from app.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceResponse,
     WorkspaceUpdate,
+)
+from app.services import workspace_unit_runtime
+from app.services.fincore_metrics_helper import calculate_extended_metrics
+from app.services.optimization_execution_manager import get_optimization_execution_manager
+from app.services.optimization_task_state import build_results_response
+from app.services.param_optimization_service import (
+    get_optimization_progress,
+    get_optimization_results,
+    submit_optimization,
 )
 
 logger = logging.getLogger(__name__)
@@ -115,6 +126,13 @@ def _aggregate_workspace_status(units: list[StrategyUnit]) -> str:
     return "idle"
 
 
+def _workspace_settings_dict(ws: Workspace) -> dict[str, Any]:
+    raw_settings = ws.__dict__.get("settings")
+    if isinstance(raw_settings, dict):
+        return _normalize_workspace_settings(raw_settings)
+    return _normalize_workspace_settings(None)
+
+
 def _workspace_to_response(ws: Workspace) -> WorkspaceResponse:
     """Convert a Workspace ORM object to a WorkspaceResponse, including aggregated fields."""
     units = ws.strategy_units or []
@@ -136,6 +154,123 @@ def _workspace_to_response(ws: Workspace) -> WorkspaceResponse:
 class WorkspaceService:
     """Service for workspace and strategy unit management."""
 
+    @staticmethod
+    def _requested_bar_count(unit: StrategyUnit) -> int | None:
+        data_cfg = unit.data_config or {}
+        value = data_cfg.get("bar_count")
+        try:
+            bar_count = int(value) if value is not None else 0
+        except (TypeError, ValueError):
+            return None
+        return bar_count if bar_count > 0 else None
+
+    @staticmethod
+    async def _resolve_unit_bar_count(
+        backtest_service: "BacktestService",  # noqa: F821
+        task_id: str,
+        user_id: str | None,
+        bt_result: Any | None = None,
+    ) -> int:
+        task = await backtest_service.task_manager.get_task(task_id, user_id=user_id)
+        if task and task.log_dir:
+            from app.services.log_parser_service import parse_log_dir
+
+            persisted_log_dir = Path(task.log_dir)
+            if persisted_log_dir.is_dir():
+                log_result = parse_log_dir(persisted_log_dir)
+                if log_result:
+                    kline = log_result.get("kline")
+                    if isinstance(kline, dict):
+                        dates = kline.get("dates")
+                        if isinstance(dates, list) and dates:
+                            return len(dates)
+
+        if bt_result is not None:
+            equity_dates = getattr(bt_result, "equity_dates", None) or []
+            if equity_dates:
+                return len(equity_dates)
+            equity_curve = getattr(bt_result, "equity_curve", None) or []
+            if equity_curve:
+                return len(equity_curve)
+
+        return 0
+
+    async def reconcile_orphaned_run_statuses(self) -> int:
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(StrategyUnit).where(StrategyUnit.run_status.in_(["queued", "running"]))
+            )
+            units = list(result.scalars().all())
+            if not units:
+                return 0
+
+            task_ids = [str(unit.last_task_id) for unit in units if unit.last_task_id]
+            task_by_id: dict[str, BacktestTask] = {}
+            if task_ids:
+                task_result = await session.execute(
+                    select(BacktestTask).where(BacktestTask.id.in_(task_ids))
+                )
+                task_by_id = {str(task.id): task for task in task_result.scalars().all()}
+
+            changed = 0
+            for unit in units:
+                last_task_id = str(unit.last_task_id or "").strip()
+                if not last_task_id:
+                    next_status = "idle"
+                else:
+                    task = task_by_id.get(last_task_id)
+                    if task is None:
+                        next_status = "failed"
+                    else:
+                        task_status = str(task.status)
+                        if task_status == TaskStatus.COMPLETED.value:
+                            next_status = "completed"
+                        elif task_status == TaskStatus.CANCELLED.value:
+                            next_status = "cancelled"
+                        elif task_status == TaskStatus.FAILED.value:
+                            next_status = "failed"
+                        else:
+                            continue
+
+                if str(unit.run_status or "") != next_status:
+                    unit.run_status = next_status
+                    changed += 1
+
+            if changed:
+                await session.commit()
+            return changed
+
+    async def reconcile_completed_bar_counts(self) -> int:
+        from app.services.backtest_service import BacktestService
+
+        backtest_service = BacktestService()
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(StrategyUnit).where(
+                    StrategyUnit.run_status == "completed",
+                    StrategyUnit.last_task_id.is_not(None),
+                )
+            )
+            units = list(result.scalars().all())
+            changed = 0
+            for unit in units:
+                unit_obj = cast(Any, unit)
+                task_id = str(unit_obj.last_task_id or "").strip()
+                if not task_id:
+                    continue
+                resolved_bar_count = await self._resolve_unit_bar_count(
+                    backtest_service,
+                    task_id,
+                    None,
+                )
+                if resolved_bar_count > 0 and int(unit_obj.bar_count or 0) != resolved_bar_count:
+                    unit_obj.bar_count = resolved_bar_count
+                    changed += 1
+
+            if changed:
+                await session.commit()
+            return changed
+
     # ------------------------------------------------------------------
     # Workspace CRUD
     # ------------------------------------------------------------------
@@ -151,6 +286,7 @@ class WorkspaceService:
             session.add(ws)
             await session.commit()
             await session.refresh(ws, attribute_names=["strategy_units"])
+            workspace_unit_runtime.ensure_workspace_dir(ws.id)
             return _workspace_to_response(ws)
 
     async def get_workspace(self, workspace_id: str, user_id: str) -> WorkspaceResponse | None:
@@ -213,6 +349,8 @@ class WorkspaceService:
                     setattr(ws, key, value)
             await session.commit()
             await session.refresh(ws, attribute_names=["strategy_units"])
+            for unit in ws.strategy_units or []:
+                workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
             return _workspace_to_response(ws)
 
     async def delete_workspace(self, workspace_id: str, user_id: str) -> bool:
@@ -222,6 +360,7 @@ class WorkspaceService:
                 return False
             await session.delete(ws)
             await session.commit()
+            workspace_unit_runtime.remove_workspace_dir(workspace_id)
             return True
 
     # ------------------------------------------------------------------
@@ -262,6 +401,7 @@ class WorkspaceService:
             session.add(unit)
             await session.commit()
             await session.refresh(unit)
+            workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
             return self._unit_to_dict(unit)
 
     async def batch_create_units(
@@ -302,6 +442,7 @@ class WorkspaceService:
             await session.commit()
             for u in created:
                 await session.refresh(u)
+                workspace_unit_runtime.sync_unit_runtime(u, ws.settings or {})
             return [self._unit_to_dict(u) for u in created]
 
     async def list_units(
@@ -348,6 +489,7 @@ class WorkspaceService:
                 setattr(unit, key, value)
             await session.commit()
             await session.refresh(unit)
+            workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
             return self._unit_to_dict(unit)
 
     async def delete_unit(
@@ -362,6 +504,7 @@ class WorkspaceService:
                 return False
             await session.delete(unit)
             await session.commit()
+            workspace_unit_runtime.remove_unit_dir(workspace_id, unit_id)
             return True
 
     async def bulk_delete_units(
@@ -380,6 +523,8 @@ class WorkspaceService:
                 )
             )
             await session.commit()
+            for unit_id in unit_ids:
+                workspace_unit_runtime.remove_unit_dir(workspace_id, unit_id)
             return result.rowcount or 0
 
     # ------------------------------------------------------------------
@@ -489,8 +634,22 @@ class WorkspaceService:
             # Submit backtest for each unit, write back task_id immediately
             async def _submit_single(unit: StrategyUnit) -> dict[str, Any]:
                 try:
+                    workspace_settings = cast(dict[str, Any], _workspace_settings_dict(ws))
+                    workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
                     bt_request = self._build_backtest_request(unit)
-                    response = await backtest_service.run_backtest(user_id, bt_request)
+                    response = None
+                    deadline = time.monotonic() + 1800
+                    while response is None:
+                        try:
+                            response = await backtest_service.run_backtest(user_id, bt_request)
+                        except ValueError as exc:
+                            if "concurrent task limit" not in str(exc).lower():
+                                raise
+                            if time.monotonic() >= deadline:
+                                raise TimeoutError(
+                                    "Timed out waiting for an available backtest execution slot"
+                                ) from exc
+                            await asyncio.sleep(2)
                     task_id = response.task_id
 
                     # Immediately write task_id and set running (Bug-2 fix)
@@ -570,6 +729,10 @@ class WorkspaceService:
         self, workspace_id: str, user_id: str
     ) -> list[UnitStatusResponse] | None:
         """Get run status of all units (polling endpoint)."""
+        from app.services.backtest_service import BacktestService
+
+        backtest_service = BacktestService()
+
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -583,14 +746,91 @@ class WorkspaceService:
             result = await session.execute(q)
             units = list(result.scalars().all())
 
+            changed = False
+            for unit in units:
+                unit_obj = cast(Any, unit)
+                metrics_snapshot = cast(dict[str, Any], unit_obj.metrics_snapshot or {})
+                last_task_id = str(unit_obj.last_task_id or "").strip()
+                run_status = str(unit_obj.run_status or "")
+                bar_count = int(unit_obj.bar_count or 0)
+                if run_status in {"queued", "running"}:
+                    if not last_task_id:
+                        unit_obj.run_status = "idle"
+                        run_status = "idle"
+                        changed = True
+                    else:
+                        task_status = await backtest_service.get_task_status(last_task_id, user_id)
+                        if task_status == TaskStatus.COMPLETED:
+                            unit_obj.run_status = "completed"
+                            run_status = "completed"
+                            changed = True
+                        elif task_status == TaskStatus.CANCELLED:
+                            unit_obj.run_status = "cancelled"
+                            run_status = "cancelled"
+                            changed = True
+                        elif task_status == TaskStatus.FAILED or task_status is None:
+                            unit_obj.run_status = "failed"
+                            run_status = "failed"
+                            changed = True
+                if (
+                    run_status == "completed"
+                    and last_task_id
+                    and (
+                        bar_count == 0
+                        or not metrics_snapshot.get("total_trades")
+                    )
+                ):
+                    bt_result = await backtest_service.get_result(last_task_id, user_id)
+                    if bt_result and (bt_result.equity_curve or bt_result.trades):
+                        log_data = {
+                            "equity_curve": bt_result.equity_curve or [],
+                            "equity_dates": bt_result.equity_dates or [],
+                            "trades": [
+                                t.model_dump() if hasattr(t, "model_dump") else t
+                                for t in (bt_result.trades or [])
+                            ],
+                        }
+                        try:
+                            metrics = calculate_extended_metrics(log_data)
+                            unit_obj.metrics_snapshot = metrics
+                        except Exception:
+                            unit_obj.metrics_snapshot = {
+                                "total_return": bt_result.total_return,
+                                "annual_return": bt_result.annual_return,
+                                "sharpe_ratio": bt_result.sharpe_ratio,
+                                "max_drawdown": bt_result.max_drawdown,
+                                "win_rate": bt_result.win_rate,
+                                "total_trades": bt_result.total_trades,
+                                "profitable_trades": bt_result.profitable_trades,
+                                "losing_trades": bt_result.losing_trades,
+                                "initial_cash": 100000.0,
+                                "final_value": (bt_result.equity_curve or [100000.0])[-1]
+                                if (bt_result.equity_curve or [])
+                                else 100000.0,
+                            }
+                        unit_obj.bar_count = await self._resolve_unit_bar_count(
+                            backtest_service,
+                            last_task_id,
+                            user_id,
+                            bt_result,
+                        )
+                        changed = True
+
+            if changed:
+                await session.commit()
+
             return [
                 UnitStatusResponse(
-                    id=u.id,
-                    run_status=u.run_status or "idle",
-                    last_task_id=u.last_task_id,
-                    metrics_snapshot=u.metrics_snapshot or {},
-                    run_count=u.run_count or 0,
-                    last_run_time=u.last_run_time,
+                    id=str(cast(Any, u).id),
+                    run_status=str(cast(Any, u).run_status or "idle"),
+                    last_task_id=str(cast(Any, u).last_task_id) if cast(Any, u).last_task_id else None,
+                    metrics_snapshot=cast(dict[str, Any], cast(Any, u).metrics_snapshot or {}),
+                    run_count=int(cast(Any, u).run_count or 0),
+                    last_run_time=(
+                        float(cast(Any, u).last_run_time)
+                        if cast(Any, u).last_run_time is not None
+                        else None
+                    ),
                 )
                 for u in units
             ]
@@ -603,8 +843,7 @@ class WorkspaceService:
         self, workspace_id: str, user_id: str, req: UnitOptimizationRequest
     ) -> dict[str, Any] | None:
         """Submit optimization for a strategy unit. Delegates to existing optimization service."""
-        from app.services.optimization_execution_manager import get_optimization_execution_manager
-        from app.services.param_optimization_service import generate_param_grid, submit_optimization
+        from app.services.param_optimization_service import generate_param_grid
 
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
@@ -673,8 +912,6 @@ class WorkspaceService:
         self, workspace_id: str, user_id: str, unit_id: str
     ) -> dict[str, Any] | None:
         """Get optimization progress for a unit."""
-        from app.services.param_optimization_service import get_optimization_progress
-
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -697,12 +934,6 @@ class WorkspaceService:
         (from ``optimization_config.objective``), defaulting to
         ``annual_return`` if not set.
         """
-        from app.services.param_optimization_service import (
-            _build_results_response,
-            get_optimization_results,
-        )
-        from app.services.optimization_execution_manager import get_optimization_execution_manager
-
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -729,7 +960,12 @@ class WorkspaceService:
                     "failed": db_task.failed,
                     "results": db_task.results,
                 }
-                return _build_results_response(task_dict, task_id, objective=objective)
+                results_response = build_results_response(task_id, task_dict)
+                rows = list(results_response.get("rows") or [])
+                rows.sort(key=lambda row: row.get(objective, -999999), reverse=True)
+                results_response["rows"] = rows
+                results_response["best"] = rows[0] if rows else None
+                return results_response
 
             return get_optimization_results(task_id, user_id=user_id, use_db=False)
 
@@ -981,6 +1217,16 @@ class WorkspaceService:
                         "id": u.id,
                         "strategy_name": u.strategy_name or u.strategy_id or "",
                         "symbol": u.symbol or "",
+                        "symbol_name": u.symbol_name or "",
+                        "timeframe": u.timeframe or "",
+                        "group_name": u.group_name or "",
+                        "category": u.category or "",
+                        "run_status": u.run_status or "idle",
+                        "run_count": u.run_count or 0,
+                        "last_run_time": u.last_run_time,
+                        "last_task_id": u.last_task_id,
+                        "start_date": (u.data_config or {}).get("start_date"),
+                        "data_source": f"{u.symbol or ''}_{u.timeframe or ''}",
                         "value": (u.metrics_snapshot or {}).get(
                             "total_return" if key == "best_return_unit" else "max_drawdown"
                         ),
@@ -1031,6 +1277,7 @@ class WorkspaceService:
 
         return BacktestRequest(
             strategy_id=unit.strategy_id or "",
+            runtime_dir=str(workspace_unit_runtime.unit_dir(unit.workspace_id, unit.id)),
             symbol=unit.symbol or data_cfg.get("symbol", ""),
             start_date=data_cfg.get("start_date", "2023-01-01T00:00:00"),
             end_date=data_cfg.get("end_date", "2024-01-01T00:00:00"),
@@ -1038,7 +1285,7 @@ class WorkspaceService:
             commission=settings.get("commission", 0.001),
             timeframe=unit.timeframe or "1d",
             timeframe_n=unit.timeframe_n or 1,
-            bar_count=unit.bar_count,
+            bar_count=WorkspaceService._requested_bar_count(unit),
             params=params,
         )
 
@@ -1077,13 +1324,13 @@ class WorkspaceService:
             async with async_session_maker() as s:
                 u = await self._get_unit(s, workspace_id, unit_id)
                 if u:
-                    u.run_count = (u.run_count or 0) + 1
-                    u.last_run_time = round(elapsed, 2)
+                    unit_obj = cast(Any, u)
+                    unit_obj.run_count = (unit_obj.run_count or 0) + 1
+                    unit_obj.last_run_time = round(elapsed, 2)
                     if final_status == TaskStatus.COMPLETED:
-                        u.run_status = "completed"
+                        unit_obj.run_status = "completed"
                         bt_result = await backtest_service.get_result(task_id, user_id)
                         if bt_result:
-                            from app.services.fincore_metrics_helper import calculate_extended_metrics
                             log_data = {
                                 "equity_curve": bt_result.equity_curve or [],
                                 "equity_dates": bt_result.equity_dates or [],
@@ -1094,11 +1341,10 @@ class WorkspaceService:
                             }
                             try:
                                 metrics = calculate_extended_metrics(log_data)
-                                u.metrics_snapshot = metrics
-                                u.bar_count = len(bt_result.equity_curve or [])
+                                unit_obj.metrics_snapshot = metrics
                             except Exception as me:
                                 logger.warning("Extended metrics failed for unit %s: %s", unit_id, me)
-                                u.metrics_snapshot = {
+                                unit_obj.metrics_snapshot = {
                                     "total_return": bt_result.total_return,
                                     "annual_return": bt_result.annual_return,
                                     "sharpe_ratio": bt_result.sharpe_ratio,
@@ -1106,10 +1352,16 @@ class WorkspaceService:
                                     "win_rate": bt_result.win_rate,
                                     "total_trades": bt_result.total_trades,
                                 }
+                            unit_obj.bar_count = await self._resolve_unit_bar_count(
+                                backtest_service,
+                                task_id,
+                                user_id,
+                                bt_result,
+                            )
                     elif final_status == TaskStatus.CANCELLED:
-                        u.run_status = "cancelled"
+                        unit_obj.run_status = "cancelled"
                     else:
-                        u.run_status = "failed"
+                        unit_obj.run_status = "failed"
                     await s.commit()
 
         except Exception as e:

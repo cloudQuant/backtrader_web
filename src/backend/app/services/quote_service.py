@@ -20,12 +20,15 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -94,98 +97,156 @@ _SOURCE_REGISTRY: list[dict[str, Any]] = [
 _SOURCE_TO_LABEL: dict[str, str] = {s["source"]: s["source_label"] for s in _SOURCE_REGISTRY}
 
 # ---------------------------------------------------------------------------
-# Default symbols per data source
+# Default symbols per data source — loaded from config/default_symbols.yaml
 # ---------------------------------------------------------------------------
 
-_DEFAULT_SYMBOLS: dict[str, list[dict[str, str]]] = {
-    "CTP": [
-        {"symbol": "IF2406", "name": "沪深300主力", "exchange": "CFFEX", "category": "股指期货"},
-        {"symbol": "IC2406", "name": "中证500主力", "exchange": "CFFEX", "category": "股指期货"},
-        {"symbol": "IH2406", "name": "上证50主力", "exchange": "CFFEX", "category": "股指期货"},
-        {"symbol": "IM2406", "name": "中证1000主力", "exchange": "CFFEX", "category": "股指期货"},
-        {"symbol": "au2406", "name": "黄金主力", "exchange": "SHFE", "category": "贵金属"},
-        {"symbol": "ag2406", "name": "白银主力", "exchange": "SHFE", "category": "贵金属"},
-        {"symbol": "cu2406", "name": "铜主力", "exchange": "SHFE", "category": "有色金属"},
-        {"symbol": "rb2410", "name": "螺纹钢主力", "exchange": "SHFE", "category": "黑色系"},
-        {"symbol": "i2409", "name": "铁矿石主力", "exchange": "DCE", "category": "黑色系"},
-        {"symbol": "m2409", "name": "豆粕主力", "exchange": "DCE", "category": "农产品"},
-    ],
-    "IB_WEB": [
-        {"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "category": "科技"},
-        {"symbol": "MSFT", "name": "Microsoft Corp.", "exchange": "NASDAQ", "category": "科技"},
-        {"symbol": "GOOGL", "name": "Alphabet Inc.", "exchange": "NASDAQ", "category": "科技"},
-        {"symbol": "AMZN", "name": "Amazon.com Inc.", "exchange": "NASDAQ", "category": "科技"},
-        {"symbol": "TSLA", "name": "Tesla Inc.", "exchange": "NASDAQ", "category": "汽车"},
-        {"symbol": "NVDA", "name": "NVIDIA Corp.", "exchange": "NASDAQ", "category": "半导体"},
-        {"symbol": "META", "name": "Meta Platforms", "exchange": "NASDAQ", "category": "科技"},
-        {"symbol": "SPY", "name": "S&P 500 ETF", "exchange": "NYSE", "category": "ETF"},
-        {"symbol": "QQQ", "name": "Nasdaq 100 ETF", "exchange": "NASDAQ", "category": "ETF"},
-        {"symbol": "ES", "name": "E-mini S&P 500", "exchange": "CME", "category": "股指期货"},
-    ],
-    "MT5": [
-        {"symbol": "XAUUSD", "name": "黄金/美元", "exchange": "FOREX", "category": "贵金属"},
-        {"symbol": "EURUSD", "name": "欧元/美元", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "GBPUSD", "name": "英镑/美元", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "USDJPY", "name": "美元/日元", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "AUDUSD", "name": "澳元/美元", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "USDCAD", "name": "美元/加元", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "USDCHF", "name": "美元/瑞郎", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "NZDUSD", "name": "纽元/美元", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "EURJPY", "name": "欧元/日元", "exchange": "FOREX", "category": "外汇"},
-        {"symbol": "EURGBP", "name": "欧元/英镑", "exchange": "FOREX", "category": "外汇"},
-    ],
-    "BINANCE": [
-        {"symbol": "BTCUSDT", "name": "比特币/USDT", "exchange": "BINANCE", "category": "加密货币"},
-        {"symbol": "ETHUSDT", "name": "以太坊/USDT", "exchange": "BINANCE", "category": "加密货币"},
-        {"symbol": "BNBUSDT", "name": "BNB/USDT", "exchange": "BINANCE", "category": "加密货币"},
-        {"symbol": "SOLUSDT", "name": "Solana/USDT", "exchange": "BINANCE", "category": "加密货币"},
-        {"symbol": "XRPUSDT", "name": "XRP/USDT", "exchange": "BINANCE", "category": "加密货币"},
-    ],
-    "OKX": [
-        {"symbol": "BTC-USDT", "name": "比特币/USDT", "exchange": "OKX", "category": "加密货币"},
-        {"symbol": "ETH-USDT", "name": "以太坊/USDT", "exchange": "OKX", "category": "加密货币"},
-        {"symbol": "OKB-USDT", "name": "OKB/USDT", "exchange": "OKX", "category": "加密货币"},
-        {"symbol": "SOL-USDT", "name": "Solana/USDT", "exchange": "OKX", "category": "加密货币"},
-        {"symbol": "DOGE-USDT", "name": "狗狗币/USDT", "exchange": "OKX", "category": "加密货币"},
-    ],
-}
+_SYMBOLS_CONFIG_FILE = Path(__file__).resolve().parents[2] / "config" / "default_symbols.yaml"
 
-_DEFAULT_ASSET_TYPES: dict[str, str] = {
-    "CTP": "FUTURE",
-    "IB_WEB": "STK",
-    "MT5": "OTC",
-    "BINANCE": "SWAP",
-    "OKX": "SWAP",
-}
 
-_DEFAULT_SYMBOLS_BY_ASSET: dict[tuple[str, str], list[dict[str, str]]] = {
-    ("CTP", "FUTURE"): _DEFAULT_SYMBOLS["CTP"],
-    ("IB_WEB", "STK"): _DEFAULT_SYMBOLS["IB_WEB"],
-    ("IB_WEB", "FUT"): [
-        {"symbol": "ES", "name": "E-mini S&P 500", "exchange": "CME", "category": "股指期货"},
-        {"symbol": "NQ", "name": "E-mini Nasdaq 100", "exchange": "CME", "category": "股指期货"},
-        {"symbol": "YM", "name": "E-mini Dow Jones", "exchange": "CBOT", "category": "股指期货"},
-        {"symbol": "RTY", "name": "E-mini Russell 2000", "exchange": "CME", "category": "股指期货"},
-        {"symbol": "CL", "name": "WTI 原油", "exchange": "NYMEX", "category": "能源"},
-    ],
-    ("MT5", "OTC"): _DEFAULT_SYMBOLS["MT5"],
-    ("BINANCE", "SPOT"): _DEFAULT_SYMBOLS["BINANCE"],
-    ("BINANCE", "SWAP"): [
-        {"symbol": "BTCUSDT", "name": "BTC 永续", "exchange": "BINANCE", "category": "加密货币"},
-        {"symbol": "ETHUSDT", "name": "ETH 永续", "exchange": "BINANCE", "category": "加密货币"},
-        {"symbol": "BNBUSDT", "name": "BNB 永续", "exchange": "BINANCE", "category": "加密货币"},
-        {"symbol": "SOLUSDT", "name": "SOL 永续", "exchange": "BINANCE", "category": "加密货币"},
-        {"symbol": "XRPUSDT", "name": "XRP 永续", "exchange": "BINANCE", "category": "加密货币"},
-    ],
-    ("OKX", "SPOT"): _DEFAULT_SYMBOLS["OKX"],
-    ("OKX", "SWAP"): [
-        {"symbol": "BTC-USDT-SWAP", "name": "BTC 永续", "exchange": "OKX", "category": "加密货币"},
-        {"symbol": "ETH-USDT-SWAP", "name": "ETH 永续", "exchange": "OKX", "category": "加密货币"},
-        {"symbol": "SOL-USDT-SWAP", "name": "SOL 永续", "exchange": "OKX", "category": "加密货币"},
-        {"symbol": "DOGE-USDT-SWAP", "name": "DOGE 永续", "exchange": "OKX", "category": "加密货币"},
-        {"symbol": "LTC-USDT-SWAP", "name": "LTC 永续", "exchange": "OKX", "category": "加密货币"},
-    ],
-}
+def _load_symbols_config() -> dict[str, Any]:
+    """Load default symbols config from YAML file. Returns empty dict on error."""
+    if not _SYMBOLS_CONFIG_FILE.is_file():
+        logger.warning("Default symbols config not found: %s", _SYMBOLS_CONFIG_FILE)
+        return {}
+    try:
+        import yaml
+
+        with _SYMBOLS_CONFIG_FILE.open(encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.warning("Failed to load %s: %s", _SYMBOLS_CONFIG_FILE, exc)
+        return {}
+
+
+def _build_symbols_from_config() -> (
+    tuple[
+        dict[str, list[dict[str, str]]],
+        dict[str, str],
+        dict[tuple[str, str], list[dict[str, str]]],
+    ]
+):
+    cfg = _load_symbols_config()
+    symbols: dict[str, list[dict[str, str]]] = cfg.get("symbols", {})
+    asset_types: dict[str, str] = cfg.get("default_asset_types", {})
+    symbols_by_asset: dict[tuple[str, str], list[dict[str, str]]] = {}
+
+    # Build symbols_by_asset from the nested structure in YAML
+    for source, asset_map in cfg.get("symbols_by_asset", {}).items():
+        if isinstance(asset_map, dict):
+            for asset_type, sym_list in asset_map.items():
+                if isinstance(sym_list, list):
+                    symbols_by_asset[(source, asset_type)] = sym_list
+
+    # Auto-populate symbols_by_asset with default asset type mappings
+    for source, default_at in asset_types.items():
+        key = (source, default_at)
+        if key not in symbols_by_asset and source in symbols:
+            symbols_by_asset[key] = symbols[source]
+
+    # Also map BINANCE SPOT → BINANCE symbols, OKX SPOT → OKX symbols (if not overridden)
+    for source in symbols:
+        if (source, "SPOT") not in symbols_by_asset:
+            symbols_by_asset[(source, "SPOT")] = symbols[source]
+
+    return symbols, asset_types, symbols_by_asset
+
+
+_DEFAULT_SYMBOLS, _DEFAULT_ASSET_TYPES, _DEFAULT_SYMBOLS_BY_ASSET = (
+    _build_symbols_from_config()
+)
+
+_QUOTE_FIELDS_CONFIG_FILE = Path(__file__).resolve().parents[2] / "config" / "quote_fields.yaml"
+
+_GENERIC_QUOTE_FIELDS: list[dict[str, Any]] = [
+    {"prop": "symbol", "label": "代码", "visible": True, "always_show": True},
+    {"prop": "name", "label": "名称", "visible": True, "always_show": False},
+    {"prop": "category", "label": "分类", "visible": True, "always_show": False},
+    {"prop": "last_price", "label": "最新价", "visible": True, "always_show": False},
+    {"prop": "change", "label": "涨跌", "visible": True, "always_show": False},
+    {"prop": "change_pct", "label": "涨跌幅", "visible": True, "always_show": False},
+    {"prop": "bid_price", "label": "买价", "visible": True, "always_show": False},
+    {"prop": "ask_price", "label": "卖价", "visible": True, "always_show": False},
+    {"prop": "high_price", "label": "最高", "visible": True, "always_show": False},
+    {"prop": "low_price", "label": "最低", "visible": True, "always_show": False},
+    {"prop": "open_price", "label": "开盘", "visible": True, "always_show": False},
+    {"prop": "prev_close", "label": "昨收", "visible": True, "always_show": False},
+    {"prop": "volume", "label": "成交量", "visible": True, "always_show": False},
+    {"prop": "turnover", "label": "成交额", "visible": True, "always_show": False},
+    {"prop": "open_interest", "label": "持仓量", "visible": True, "always_show": False},
+    {"prop": "update_time", "label": "更新时间", "visible": True, "always_show": False},
+]
+
+
+def _normalize_quote_fields_config(fields: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    if not isinstance(fields, list):
+        return normalized
+    for item in fields:
+        if not isinstance(item, dict):
+            continue
+        prop = str(item.get("prop") or "").strip()
+        if not prop:
+            continue
+        normalized.append(
+            {
+                "prop": prop,
+                "label": str(item.get("label") or prop),
+                "visible": bool(item.get("visible", True)),
+                "always_show": bool(item.get("always_show", False)),
+            }
+        )
+    return normalized
+
+
+def _load_quote_fields_by_source() -> dict[str, list[dict[str, Any]]]:
+    if not _QUOTE_FIELDS_CONFIG_FILE.is_file():
+        logger.warning("Quote fields config not found: %s", _QUOTE_FIELDS_CONFIG_FILE)
+        return {}
+    try:
+        import yaml
+
+        with _QUOTE_FIELDS_CONFIG_FILE.open(encoding="utf-8") as fh:
+            data = yaml.safe_load(fh)
+    except Exception as exc:
+        logger.warning("Failed to load %s: %s", _QUOTE_FIELDS_CONFIG_FILE, exc)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    raw_sources = data.get("sources", {})
+    if not isinstance(raw_sources, dict):
+        return {}
+    normalized_sources: dict[str, list[dict[str, Any]]] = {}
+    for source, fields in raw_sources.items():
+        normalized_fields = _normalize_quote_fields_config(fields)
+        if normalized_fields:
+            normalized_sources[str(source).strip().upper()] = normalized_fields
+    return normalized_sources
+
+
+def _has_quote_field_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (int, float)):
+        return math.isfinite(float(value))
+    return True
+
+
+def _resolve_quote_fields(source: str, ticks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    configured_fields = _QUOTE_FIELDS_BY_SOURCE.get(source, _GENERIC_QUOTE_FIELDS)
+    resolved: list[dict[str, Any]] = []
+    for field in configured_fields:
+        prop = str(field.get("prop") or "").strip()
+        if not prop:
+            continue
+        if field.get("always_show") or any(_has_quote_field_value(tick.get(prop)) for tick in ticks):
+            resolved.append(dict(field))
+    return resolved
+
+
+_QUOTE_FIELDS_BY_SOURCE = _load_quote_fields_by_source()
 
 
 # ===================================================================
@@ -334,6 +395,7 @@ class QuoteService:
     def get_data_sources(self) -> list[dict[str, Any]]:
         """Return all data sources with their current status."""
         manager = self._get_live_trading_manager()
+        self._ensure_mt5_gateway_connected(manager)
         connected_gateways = self._get_connected_gateway_exchanges(manager)
 
         results = []
@@ -441,6 +503,8 @@ class QuoteService:
         """
         label = _SOURCE_TO_LABEL.get(source, source)
         manager = self._get_live_trading_manager()
+        if source == "MT5":
+            self._ensure_mt5_gateway_connected(manager)
 
         if symbols is None:
             sym_info = self.get_symbols(source, user_id)
@@ -476,12 +540,14 @@ class QuoteService:
             raw = self._match_cached_tick(cached_ticks, sym)
             tick = self._build_tick(source, label, sym, meta, raw, now)
             ticks.append(tick)
+        fields = _resolve_quote_fields(source, ticks)
 
         return {
             "source": source,
             "source_label": label,
             "total": len(ticks),
             "ticks": ticks,
+            "fields": fields,
             "update_time": now,
             "refresh_mode": "push" if has_receiver else "polling",
         }
@@ -600,9 +666,6 @@ class QuoteService:
             return
 
         try:
-            import zmq
-
-            ctx = zmq.Context.instance()
             recv_timeout_ms = 12000 if source == "IB_WEB" else 3000
             result = self._send_gateway_command(
                 command_endpoint,
@@ -667,6 +730,39 @@ class QuoteService:
             return {g.get("exchange_type", "") for g in gateways}
         except Exception:
             return set()
+
+    def _ensure_mt5_gateway_connected(self, manager: Any) -> None:
+        if manager is None:
+            return
+        if self._find_gateway_state(manager, "MT5") is not None:
+            return
+        settings = get_settings()
+        login = str(settings.MT5_LOGIN or "").strip()
+        password = str(settings.MT5_PASSWORD or "").strip()
+        if not login or not password:
+            return
+        credentials = {
+            "login": login,
+            "password": password,
+            "ws_uri": str(settings.MT5_WS_URI or "").strip(),
+            "symbol_suffix": str(settings.MT5_SYMBOL_SUFFIX or "").strip(),
+        }
+        try:
+            result = manager.connect_gateway("MT5", credentials)
+        except Exception as exc:
+            logger.warning(
+                "Auto-connect MT5 gateway failed: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+            return
+        if result.get("status") == "error":
+            logger.warning(
+                "Auto-connect MT5 gateway failed: %s",
+                result.get("message", "unknown error"),
+            )
+            return
+        logger.info("Auto-connected MT5 gateway for quote service")
 
     def _get_default_symbols_for_source(self, source: str) -> list[dict[str, str]]:
         manager = self._get_live_trading_manager()
@@ -990,11 +1086,10 @@ class QuoteService:
         if raw.get("exchange"):
             tick["exchange"] = raw["exchange"]
 
-        # Update time — prefer the tick's own update_time, else use timestamp
         if raw.get("update_time"):
-            tick["update_time"] = raw["update_time"]
+            tick["update_time"] = _normalize_tick_update_time(raw.get("update_time"), raw, now)
         elif raw.get("datetime"):
-            tick["update_time"] = raw["datetime"]
+            tick["update_time"] = _normalize_tick_update_time(raw.get("datetime"), raw, now)
         elif raw.get("timestamp"):
             try:
                 tick["update_time"] = datetime.fromtimestamp(
@@ -1015,14 +1110,51 @@ class QuoteService:
         self._receivers.clear()
 
 
+def _normalize_tick_date_part(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if len(text) == 8 and text.isdigit():
+        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+    if len(text) == 10 and text[4] == "-" and text[7] == "-":
+        return text
+    return None
+
+
+def _normalize_tick_update_time(value: Any, raw: dict[str, Any], now: str) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return parsed.isoformat()
+    except ValueError:
+        pass
+
+    time_part = text
+    if text.count(":") >= 2:
+        date_part = (
+            _normalize_tick_date_part(raw.get("trading_day"))
+            or _normalize_tick_date_part(raw.get("action_day"))
+            or _normalize_tick_date_part(raw.get("date"))
+            or now.split("T", 1)[0]
+        )
+        return f"{date_part}T{time_part}"
+
+    return text
+
+
 def _opt_float(v: Any) -> float | None:
     """Convert a value to float, returning None only for missing values."""
     if v is None:
         return None
     try:
-        return float(v)
+        number = float(v)
     except (ValueError, TypeError):
         return None
+    if not math.isfinite(number) or abs(number) >= 1e308:
+        return None
+    return number
 
 
 def get_quote_service() -> QuoteService:

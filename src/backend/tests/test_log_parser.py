@@ -44,6 +44,28 @@ class TestParseValueLog:
         result = parse_value_log(tmp_path)
         assert result == {} or result.get("dates") == []
 
+    def test_parse_json_value_log(self, tmp_path: Path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "value.log").write_text(
+            "\n".join(
+                [
+                    '{"datetime":"2024-01-01 00:00:00","broker_value":100000.0,'
+                    '"broker_cash":50000.0}',
+                    '{"datetime":"2024-01-02 00:00:00","broker_value":101000.0,'
+                    '"broker_cash":51000.0}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        result = parse_value_log(log_dir)
+
+        assert result["dates"] == ["2024-01-01", "2024-01-02"]
+        assert result["equity_curve"] == [100000.0, 101000.0]
+        assert result["cash_curve"] == [50000.0, 51000.0]
+
     def test_parse_nonexistent_dir(self, tmp_path: Path):
         """Test parsing a non-existent directory.
 

@@ -105,7 +105,7 @@ class TradeRecord(BaseModel):
     symbol: str
     direction: str
     price: float
-    size: int
+    size: float
     value: float
     commission: float
     pnl: float | None = None

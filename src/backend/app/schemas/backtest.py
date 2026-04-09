@@ -23,6 +23,7 @@ class BacktestRequest(BaseModel):
     """Backtest request schema."""
 
     strategy_id: str = Field(..., description="Strategy ID")
+    runtime_dir: str | None = Field(None, description="Optional unit runtime directory")
     symbol: str = Field(..., description="Stock symbol")
     start_date: datetime = Field(..., description="Start date")
     end_date: datetime = Field(..., description="End date")

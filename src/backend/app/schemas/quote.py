@@ -6,9 +6,6 @@ Unified quote data models for the multi-source quote display page.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 
@@ -70,6 +67,13 @@ class QuoteTick(BaseModel):
     error_message: str | None = Field(None)
 
 
+class QuoteField(BaseModel):
+    prop: str = Field(..., description="Quote field key")
+    label: str = Field(..., description="Display label")
+    visible: bool = Field(True, description="Whether the field is visible by default")
+    always_show: bool = Field(False, description="Whether the field is always shown")
+
+
 class QuoteListResponse(BaseModel):
     """Batch quote response."""
 
@@ -77,6 +81,7 @@ class QuoteListResponse(BaseModel):
     source_label: str
     total: int
     ticks: list[QuoteTick]
+    fields: list[QuoteField] = Field(default_factory=list)
     update_time: str | None = Field(None, description="Server-side fetch timestamp")
     refresh_mode: str = Field(
         "polling",

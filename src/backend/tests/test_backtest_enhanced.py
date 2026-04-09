@@ -3,12 +3,14 @@ Enhanced Backtest API Tests.
 """
 
 import asyncio
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
 
 from app.api import backtest, backtest_enhanced
+from app.schemas.backtest_enhanced import BacktestResult, TaskStatus
 
 # Valid backtest request configuration
 VALID_BACKTEST_REQUEST = {
@@ -90,6 +92,34 @@ class TestStrategyReportMetadata:
             "name": "Strategy missing",
             "description": "Strategy metadata unavailable",
         }
+
+
+class TestEnhancedBacktestSchema:
+    def test_backtest_result_allows_negative_max_drawdown(self):
+        result = BacktestResult(
+            task_id="task-1",
+            strategy_id="s1",
+            symbol="000001.SZ",
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 6, 1),
+            status=TaskStatus.COMPLETED,
+            total_return=12.5,
+            annual_return=10.2,
+            sharpe_ratio=1.4,
+            max_drawdown=-8.3,
+            win_rate=55.0,
+            total_trades=10,
+            profitable_trades=6,
+            losing_trades=4,
+            equity_curve=[],
+            equity_dates=[],
+            drawdown_curve=[],
+            trades=[],
+            created_at=datetime(2024, 6, 2),
+            error_message=None,
+        )
+
+        assert result.max_drawdown == -8.3
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,10 @@
-from typing import Any
+import logging
+import math
 import time
+from datetime import date, datetime
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _resolve_ref_count(state: dict[str, Any]) -> int:
@@ -8,6 +13,189 @@ def _resolve_ref_count(state: dict[str, Any]) -> int:
     if state.get("manual") and state.get("runtime") is not None and ref_count == 0:
         return 1
     return ref_count
+
+
+def _coerce_string(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value)
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    if value in (None, "") or isinstance(value, bool):
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if math.isnan(number) or math.isinf(number):
+        return default
+    return int(number)
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if math.isnan(number) or math.isinf(number):
+        return None
+    return int(number)
+
+
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in (None, ""):
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    lowered = str(value).strip().lower()
+    if lowered in {"1", "true", "yes", "y", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _coerce_timestamp(value: Any) -> int | None:
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    if isinstance(value, date):
+        return int(datetime.combine(value, datetime.min.time()).timestamp())
+    return _coerce_optional_int(value)
+
+
+def _normalize_instances(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return sorted(str(item) for item in value if item is not None)
+    if value in (None, ""):
+        return []
+    return [str(value)]
+
+
+def _normalize_recent_errors(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    results: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            entry = {
+                "source": _coerce_string(item.get("source"), ""),
+                "message": _coerce_string(item.get("message"), ""),
+            }
+            timestamp = _coerce_timestamp(item.get("timestamp"))
+            if timestamp is not None:
+                entry["timestamp"] = timestamp
+            results.append(entry)
+            continue
+        if item is not None:
+            results.append({"source": "gateway", "message": _coerce_string(item)})
+    return results
+
+
+def _build_default_snapshot(
+    key: str,
+    state: dict[str, Any],
+    *,
+    gateway_state: str = "unknown",
+    is_healthy: bool = False,
+    market_connection: str = "unknown",
+    trade_connection: str = "unknown",
+) -> dict[str, Any]:
+    return {
+        "gateway_key": key,
+        "state": gateway_state,
+        "is_healthy": is_healthy,
+        "exchange": _coerce_string(state.get("exchange_type"), ""),
+        "asset_type": _coerce_string(state.get("asset_type"), ""),
+        "account_id": _coerce_string(state.get("account_id"), ""),
+        "market_connection": market_connection,
+        "trade_connection": trade_connection,
+        "uptime_sec": 0,
+        "last_heartbeat": None,
+        "heartbeat_age_sec": None,
+        "last_tick_time": None,
+        "last_order_time": None,
+        "strategy_count": 0,
+        "symbol_count": 0,
+        "tick_count": 0,
+        "order_count": 0,
+        "ref_count": _resolve_ref_count(state),
+        "instances": _normalize_instances(state.get("instances", set())),
+        "recent_errors": [],
+    }
+
+
+def _build_error_snapshot(key: str, state: dict[str, Any], exc: Exception) -> dict[str, Any]:
+    snap = _build_default_snapshot(
+        key,
+        state,
+        gateway_state="error",
+        is_healthy=False,
+        market_connection="error",
+        trade_connection="error",
+    )
+    message = str(exc).strip()
+    snap["recent_errors"] = [
+        {
+            "source": "health_snapshot",
+            "message": (
+                f"{type(exc).__name__}: {message}" if message else type(exc).__name__
+            ),
+        }
+    ]
+    return snap
+
+
+def _normalize_runtime_snapshot(
+    key: str,
+    state: dict[str, Any],
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    snap = _build_default_snapshot(key, state)
+    snap["state"] = _coerce_string(snapshot.get("state"), snap["state"])
+    snap["exchange"] = _coerce_string(snapshot.get("exchange"), snap["exchange"])
+    snap["asset_type"] = _coerce_string(snapshot.get("asset_type"), snap["asset_type"])
+    snap["account_id"] = _coerce_string(snapshot.get("account_id"), snap["account_id"])
+    snap["market_connection"] = _coerce_string(
+        snapshot.get("market_connection"), snap["market_connection"]
+    )
+    snap["trade_connection"] = _coerce_string(
+        snapshot.get("trade_connection"), snap["trade_connection"]
+    )
+    if (
+        snap["state"] == "running"
+        and snap["market_connection"] == "connected"
+        and snap["trade_connection"] in {"", "disconnected"}
+    ):
+        snap["trade_connection"] = "connected"
+    snap["uptime_sec"] = _coerce_int(snapshot.get("uptime_sec"), 0)
+    snap["last_heartbeat"] = _coerce_timestamp(snapshot.get("last_heartbeat"))
+    snap["heartbeat_age_sec"] = _coerce_optional_int(snapshot.get("heartbeat_age_sec"))
+    snap["last_tick_time"] = _coerce_timestamp(snapshot.get("last_tick_time"))
+    snap["last_order_time"] = _coerce_timestamp(snapshot.get("last_order_time"))
+    snap["strategy_count"] = _coerce_int(snapshot.get("strategy_count"), 0)
+    snap["symbol_count"] = _coerce_int(snapshot.get("symbol_count"), 0)
+    snap["tick_count"] = _coerce_int(snapshot.get("tick_count"), 0)
+    snap["order_count"] = _coerce_int(snapshot.get("order_count"), 0)
+    snap["ref_count"] = max(_resolve_ref_count(state), _coerce_int(snapshot.get("ref_count"), 0))
+    snap["instances"] = _normalize_instances(snapshot.get("instances", state.get("instances", set())))
+    snap["recent_errors"] = _normalize_recent_errors(snapshot.get("recent_errors"))
+    if snapshot.get("strategy_name") not in (None, ""):
+        snap["strategy_name"] = _coerce_string(snapshot.get("strategy_name"))
+    is_healthy = snapshot.get("is_healthy")
+    if is_healthy is None:
+        snap["is_healthy"] = (
+            snap["state"] == "running"
+            and snap["market_connection"] == "connected"
+            and snap["trade_connection"] == "connected"
+        )
+    else:
+        snap["is_healthy"] = _coerce_bool(is_healthy)
+    return snap
 
 
 def _populate_heartbeat_age(snap: dict[str, Any]) -> None:
@@ -38,41 +226,30 @@ def get_gateway_health(
         if runtime is None:
             if state.get("manual"):
                 results.append(
-                    {
-                        "gateway_key": key,
-                        "state": "registered",
-                        "is_healthy": False,
-                        "exchange": state.get("exchange_type", ""),
-                        "asset_type": state.get("asset_type", ""),
-                        "account_id": state.get("account_id", ""),
-                        "market_connection": "not_started",
-                        "trade_connection": "not_started",
-                        "uptime_sec": 0,
-                        "strategy_count": 0,
-                        "symbol_count": 0,
-                        "tick_count": 0,
-                        "order_count": 0,
-                        "heartbeat_age_sec": None,
-                        "ref_count": _resolve_ref_count(state),
-                        "instances": sorted(state.get("instances", set())),
-                        "recent_errors": [],
-                    }
+                    _build_default_snapshot(
+                        key,
+                        state,
+                        gateway_state="registered",
+                        is_healthy=False,
+                        market_connection="not_started",
+                        trade_connection="not_started",
+                    )
                 )
             continue
-        health = getattr(runtime, "health", None)
-        snap: dict[str, Any] = health.snapshot() if health is not None else {}
+        try:
+            health = getattr(runtime, "health", None)
+            raw_snapshot = health.snapshot() if health is not None else {}
+            if not isinstance(raw_snapshot, dict):
+                raise TypeError(
+                    f"health.snapshot() returned {type(raw_snapshot).__name__}, expected dict"
+                )
+            snap = _normalize_runtime_snapshot(key, state, raw_snapshot)
+        except Exception as exc:
+            logger.warning("Failed to build gateway health snapshot for %s: %s", key, exc)
+            snap = _build_error_snapshot(key, state, exc)
         _populate_heartbeat_age(snap)
-        if (
-            snap.get("state") == "running"
-            and snap.get("market_connection") == "connected"
-            and snap.get("trade_connection") in {None, "", "disconnected"}
-        ):
-            snap["trade_connection"] = "connected"
-        snap["gateway_key"] = key
-        snap["ref_count"] = _resolve_ref_count(state)
-        snap["instances"] = sorted(state.get("instances", set()))
         results.append(snap)
-        gateway_instance_ids.update(state.get("instances", set()))
+        gateway_instance_ids.update(_normalize_instances(snap.get("instances")))
 
     instances = load_instances()
     for instance_id, inst in instances.items():

@@ -24,6 +24,7 @@ from app.services.log_parser_service import (
     parse_order_log,
     parse_position_log,
     parse_run_info,
+    parse_trade_log,
 )
 
 
@@ -104,6 +105,17 @@ class TestParseOrderLog:
         """Test parsing with empty directory."""
         assert parse_order_log(tmp_path) == []
 
+    def test_parse_pipe_orders(self, tmp_path: Path):
+        (tmp_path / "order.log").write_text(
+            "2026-04-08T15:42:14.393+08:00 | SELL | ref=1 | status=Completed | size=-952244.9173927535 | price=None\n",
+            encoding="utf-8",
+        )
+        orders = parse_order_log(tmp_path)
+        assert len(orders) == 1
+        assert orders[0]["ref"] == 1
+        assert orders[0]["type"] == "SELL"
+        assert orders[0]["dt"] == "2026-04-08T15:42:14.393+08:00"
+
 
 class TestParseDataLog:
     """Tests for data.log parsing."""
@@ -167,6 +179,36 @@ class TestParseCurrentPosition:
         """Test parsing with invalid JSON content."""
         (tmp_path / "current_position.json").write_text("not json")
         assert parse_current_position(tmp_path) == []
+
+    def test_parse_yaml(self, tmp_path: Path):
+        (tmp_path / "current_position.yaml").write_text(
+            "datetime: '2026-04-07 00:00:00'\n"
+            "positions:\n"
+            "  EURUSD:\n"
+            "    size: -10\n"
+            "    price: 1.1427\n"
+            "    value: -11.55\n",
+            encoding="utf-8",
+        )
+        result = parse_current_position(tmp_path)
+        assert len(result) == 1
+        assert result[0]["data_name"] == "EURUSD"
+        assert result[0]["dt"] == "2026-04-07"
+        assert result[0]["value"] == -11.55
+
+
+class TestParsePipeTradeLog:
+    def test_parse_pipe_trade_log(self, tmp_path: Path):
+        (tmp_path / "trade.log").write_text(
+            "2026-04-08T15:42:14.393+08:00 | OPEN | ref=1 | data=EURUSD | size=-952244.9173927535 | pnl=0.00 | pnlcomm=-99.99\n"
+            "2026-04-08T15:42:14.398+08:00 | CLOSED | ref=1 | data=EURUSD | size=0.0 | pnl=-35947.25 | pnlcomm=-36150.83\n",
+            encoding="utf-8",
+        )
+        trades = parse_trade_log(tmp_path)
+        assert len(trades) == 1
+        assert trades[0]["data_name"] == "EURUSD"
+        assert trades[0]["direction"] == "sell"
+        assert trades[0]["pnlcomm"] == -36150.83
 
 
 class TestParseRunInfo:
@@ -266,3 +308,34 @@ class TestParseAllLogs:
         assert result["equity_dates"] == ["2026-03-13 09:00:00", "2026-03-13 09:15:00"]
         assert len(result["equity_curve"]) == 2
         assert result["total_trades"] == 1
+
+    def test_parse_all_logs_synthesizes_equity_for_pipe_workspace_logs(self, tmp_path: Path):
+        strategy_dir = tmp_path / "strategy"
+        logs_dir = strategy_dir / "logs" / "task_1"
+        logs_dir.mkdir(parents=True)
+        (strategy_dir / "config.yaml").write_text("backtest:\n  initial_cash: 100000\n", encoding="utf-8")
+        (logs_dir / "trade.log").write_text(
+            "2026-04-08T15:42:14.393+08:00 | OPEN | ref=1 | data=EURUSD | size=-952244.9173927535 | pnl=0.00 | pnlcomm=-99.99\n"
+            "2026-04-08T15:42:14.398+08:00 | CLOSED | ref=1 | data=EURUSD | size=0.0 | pnl=-35947.25 | pnlcomm=-36150.83\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "order.log").write_text(
+            "2026-04-08T15:42:14.393+08:00 | SELL | ref=1 | status=Completed | size=-952244.9173927535 | price=None\n",
+            encoding="utf-8",
+        )
+        (logs_dir / "current_position.yaml").write_text(
+            "datetime: '2026-04-07 00:00:00'\n"
+            "positions:\n"
+            "  EURUSD:\n"
+            "    size: -826123.8794732849\n"
+            "    price: 1.1427\n"
+            "    value: -954082.21\n",
+            encoding="utf-8",
+        )
+
+        result = parse_all_logs(strategy_dir)
+        assert result is not None
+        assert result["total_trades"] == 1
+        assert len(result["trades"]) == 1
+        assert len(result["orders"]) == 1
+        assert len(result["equity_curve"]) >= 1

@@ -295,3 +295,85 @@ class TestGetGatewayHealth:
         )
         assert len(results) == 1
         assert results[0]["gateway_key"] == "key"
+
+    def test_runtime_snapshot_error_degrades_to_error_entry(self):
+        """Snapshot failures should not crash the entire health listing."""
+        health_mock = MagicMock()
+        health_mock.snapshot.side_effect = RuntimeError("adapter state unavailable")
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+
+        gateways = {
+            "manual:CTP:089763": {
+                "runtime": runtime_mock,
+                "manual": True,
+                "exchange_type": "CTP",
+                "asset_type": "FUTURE",
+                "account_id": "089763",
+                "ref_count": 0,
+                "instances": set(),
+            }
+        }
+
+        results = get_gateway_health(
+            gateways=gateways,
+            load_instances=lambda: {},
+            is_pid_alive=lambda pid: False,
+            resolve_strategy_dir=lambda s: "",
+            load_strategy_config=lambda d: {},
+            load_strategy_env=lambda d: {},
+        )
+
+        assert len(results) == 1
+        snap = results[0]
+        assert snap["gateway_key"] == "manual:CTP:089763"
+        assert snap["state"] == "error"
+        assert snap["is_healthy"] is False
+        assert snap["market_connection"] == "error"
+        assert snap["trade_connection"] == "error"
+        assert snap["recent_errors"] == [
+            {
+                "source": "health_snapshot",
+                "message": "RuntimeError: adapter state unavailable",
+            }
+        ]
+
+    def test_runtime_snapshot_non_dict_degrades_to_error_entry(self):
+        """Unexpected snapshot types should be converted into an error entry."""
+        health_mock = MagicMock()
+        health_mock.snapshot.return_value = ["unexpected"]
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+
+        gateways = {
+            "manual:BINANCE:acc-1": {
+                "runtime": runtime_mock,
+                "manual": True,
+                "exchange_type": "BINANCE",
+                "asset_type": "SPOT",
+                "account_id": "acc-1",
+                "ref_count": 1,
+                "instances": {"inst-1"},
+            }
+        }
+
+        results = get_gateway_health(
+            gateways=gateways,
+            load_instances=lambda: {},
+            is_pid_alive=lambda pid: False,
+            resolve_strategy_dir=lambda s: "",
+            load_strategy_config=lambda d: {},
+            load_strategy_env=lambda d: {},
+        )
+
+        assert len(results) == 1
+        snap = results[0]
+        assert snap["gateway_key"] == "manual:BINANCE:acc-1"
+        assert snap["state"] == "error"
+        assert snap["instances"] == ["inst-1"]
+        assert snap["recent_errors"] == [
+            {
+                "source": "health_snapshot",
+                "message": "TypeError: health.snapshot() returned list, expected dict",
+            }
+        ]

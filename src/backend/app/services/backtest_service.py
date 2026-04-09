@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -159,21 +160,68 @@ class BacktestService:
                 value = price * size
             if value <= 0:
                 value = price * size
+            if value <= 0:
+                continue
             pnl_raw = trade.get("pnl")
             try:
                 pnl = float(pnl_raw) if pnl_raw is not None else None
             except (TypeError, ValueError):
                 pnl = None
+            pnlcomm_raw = trade.get("pnlcomm")
+            try:
+                pnlcomm = float(pnlcomm_raw) if pnlcomm_raw is not None else pnl
+            except (TypeError, ValueError):
+                pnlcomm = pnl
+            commission_raw = trade.get("commission")
+            try:
+                commission = float(commission_raw) if commission_raw is not None else 0.0
+            except (TypeError, ValueError):
+                commission = 0.0
             normalized.append(
                 {
                     "date": date_value,
+                    "datetime": cls._normalize_trade_date(trade.get("datetime")),
+                    "dtopen": cls._normalize_trade_date(trade.get("dtopen")),
+                    "dtclose": cls._normalize_trade_date(trade.get("dtclose")),
+                    "direction": trade.get("direction"),
                     "type": trade_type,
                     "price": price,
                     "size": size,
                     "value": value,
+                    "commission": commission,
                     "pnl": pnl,
+                    "pnlcomm": pnlcomm,
+                    "barlen": cls._coerce_int(trade.get("barlen"), 0),
                 }
             )
+        return normalized
+
+    @staticmethod
+    def _coerce_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value) if value is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _coerce_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value) if value is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _sanitize_cached_result_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        normalized["total_return"] = cls._coerce_float(normalized.get("total_return"), 0.0)
+        normalized["annual_return"] = cls._coerce_float(normalized.get("annual_return"), 0.0)
+        normalized["sharpe_ratio"] = cls._coerce_float(normalized.get("sharpe_ratio"), 0.0)
+        normalized["max_drawdown"] = cls._coerce_float(normalized.get("max_drawdown"), 0.0)
+        normalized["win_rate"] = cls._coerce_float(normalized.get("win_rate"), 0.0)
+        normalized["total_trades"] = cls._coerce_int(normalized.get("total_trades"), 0)
+        normalized["profitable_trades"] = cls._coerce_int(normalized.get("profitable_trades"), 0)
+        normalized["losing_trades"] = cls._coerce_int(normalized.get("losing_trades"), 0)
+        normalized["trades"] = cls._sanitize_trades(normalized.get("trades", []))
         return normalized
 
     @staticmethod
@@ -187,15 +235,39 @@ class BacktestService:
             start_date=BacktestService._get_request_date(task, "start_date"),
             end_date=BacktestService._get_request_date(task, "end_date"),
             status=TaskStatus(task.status),
-            total_return=result_model.total_return if result_model else 0,
-            annual_return=result_model.annual_return if result_model else 0,
-            sharpe_ratio=result_model.sharpe_ratio if result_model else 0,
-            max_drawdown=result_model.max_drawdown if result_model else 0,
-            win_rate=result_model.win_rate if result_model else 0,
+            total_return=BacktestService._coerce_float(
+                result_model.total_return if result_model else None,
+                0.0,
+            ),
+            annual_return=BacktestService._coerce_float(
+                result_model.annual_return if result_model else None,
+                0.0,
+            ),
+            sharpe_ratio=BacktestService._coerce_float(
+                result_model.sharpe_ratio if result_model else None,
+                0.0,
+            ),
+            max_drawdown=BacktestService._coerce_float(
+                result_model.max_drawdown if result_model else None,
+                0.0,
+            ),
+            win_rate=BacktestService._coerce_float(
+                result_model.win_rate if result_model else None,
+                0.0,
+            ),
             metrics_source=getattr(result_model, "metrics_source", None) or "manual",
-            total_trades=result_model.total_trades if result_model else 0,
-            profitable_trades=result_model.profitable_trades if result_model else 0,
-            losing_trades=result_model.losing_trades if result_model else 0,
+            total_trades=BacktestService._coerce_int(
+                result_model.total_trades if result_model else None,
+                0,
+            ),
+            profitable_trades=BacktestService._coerce_int(
+                result_model.profitable_trades if result_model else None,
+                0,
+            ),
+            losing_trades=BacktestService._coerce_int(
+                result_model.losing_trades if result_model else None,
+                0,
+            ),
             equity_curve=result_model.equity_curve if result_model else [],
             equity_dates=result_model.equity_dates if result_model else [],
             drawdown_curve=result_model.drawdown_curve if result_model else [],
@@ -248,22 +320,36 @@ class BacktestService:
             from app.services.strategy_service import get_strategy_dir
 
             strategy_dir = get_strategy_dir(request.strategy_id)
-            if not (strategy_dir / "run.py").is_file():
-                raise ValueError(f"Strategy {request.strategy_id} run.py not found")
+            runtime_dir = Path(request.runtime_dir).expanduser() if request.runtime_dir else None
+            use_runtime_dir = bool(runtime_dir and runtime_dir.is_dir())
+            if use_runtime_dir:
+                task_work_dir = runtime_dir
+                if not (task_work_dir / "run.py").is_file():
+                    raise ValueError(f"Unit runtime run.py not found: {task_work_dir}")
+                await self._notify_progress(task_id, 20, "Preparing unit runtime configuration...")
+            else:
+                if not (strategy_dir / "run.py").is_file():
+                    raise ValueError(f"Strategy {request.strategy_id} run.py not found")
 
-            tmp_base, task_work_dir = self._setup_workspace(task_id, request.strategy_id, strategy_dir)
-            await self._notify_progress(task_id, 20, "Writing configuration parameters...")
+                tmp_base, task_work_dir = self._setup_workspace(task_id, request.strategy_id, strategy_dir)
+                await self._notify_progress(task_id, 20, "Writing configuration parameters...")
 
-            config_path = task_work_dir / "config.yaml"
-            if self._has_custom_params(request):
-                original_text = config_path.read_text(encoding="utf-8") if config_path.is_file() else None
-                self._write_temp_config(config_path, request, original_text)
+                config_path = task_work_dir / "config.yaml"
+                if self._has_custom_params(request):
+                    original_text = config_path.read_text(encoding="utf-8") if config_path.is_file() else None
+                    self._write_temp_config(config_path, request, original_text)
 
             await self._notify_progress(task_id, 30, "Running backtest...")
             await self._run_strategy_subprocess(task_work_dir, str(strategy_dir), task_id)
 
             await self._notify_progress(task_id, 80, "Parsing logs...")
-            await self._persist_results(task_id, user_id, task_work_dir, strategy_dir)
+            await self._persist_results(
+                task_id,
+                user_id,
+                task_work_dir,
+                strategy_dir,
+                persist_in_runtime_dir=use_runtime_dir,
+            )
 
         except asyncio.CancelledError:
             logger.info(f"Backtest cancelled: {task_id}")
@@ -312,9 +398,14 @@ class BacktestService:
         # Symlink shared data directory
         project_root = STRATEGIES_DIR.parent
         datas_src = project_root / "datas"
-        datas_link = tmp_base / "datas"
+        datas_link = tmp_base / "strategies" / "datas"
         if datas_src.is_dir() and not datas_link.exists():
-            os.symlink(str(datas_src), str(datas_link))
+            datas_link.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                os.symlink(str(datas_src), str(datas_link))
+            except OSError as exc:
+                logger.warning("Failed to symlink datas dir for backtest workspace: %s", exc)
+                shutil.copytree(datas_src, datas_link, dirs_exist_ok=True)
 
         # Clear temp directory logs to avoid stale output
         tmp_logs = task_work_dir / "logs"
@@ -324,22 +415,34 @@ class BacktestService:
         return tmp_base, task_work_dir
 
     async def _persist_results(
-        self, task_id: str, user_id: str, task_work_dir: Path, strategy_dir: Path,
+        self,
+        task_id: str,
+        user_id: str,
+        task_work_dir: Path,
+        strategy_dir: Path,
+        persist_in_runtime_dir: bool = False,
     ) -> None:
         """Parse logs, calculate metrics, persist results and notify completion."""
         from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
-        from app.services.log_parser_service import parse_all_logs
+        from app.services.log_parser_service import parse_all_logs, parse_log_dir
 
-        log_result = parse_all_logs(task_work_dir)
+        task_log_dir = task_work_dir / "logs" / f"task_{task_id}"
+        if task_log_dir.is_dir():
+            log_result = parse_log_dir(task_log_dir, strategy_dir=task_work_dir)
+        else:
+            log_result = parse_all_logs(task_work_dir)
         if not log_result:
             raise ValueError("Backtest completed but no log file found")
 
         metrics = calculate_metrics_from_log_data(log_result, use_fincore=True)
 
-        # Copy temp logs back to strategy directory for persistence
-        persist_log_dir = strategy_dir / "logs" / f"task_{task_id}"
+        persist_log_dir = (
+            task_work_dir / "logs" / f"task_{task_id}"
+            if persist_in_runtime_dir
+            else strategy_dir / "logs" / f"task_{task_id}"
+        )
         tmp_log_dir = log_result.get("log_dir")
-        if tmp_log_dir and Path(tmp_log_dir).is_dir():
+        if tmp_log_dir and Path(tmp_log_dir).is_dir() and Path(tmp_log_dir) != persist_log_dir:
             shutil.copytree(tmp_log_dir, persist_log_dir, dirs_exist_ok=True)
 
         await self.task_manager.create_result(
@@ -451,6 +554,73 @@ class BacktestService:
                 cleaned.append(line)
         run_py.write_text("\n".join(cleaned), encoding="utf-8")
 
+    @staticmethod
+    def _write_subprocess_sitecustomize(work_dir: Path) -> None:
+        """Install runtime compatibility patches for strategy subprocesses.
+
+        Several generated strategy runners still pass legacy TradeLogger kwargs
+        (for example ``log_data``) that are not params in the current
+        backtrader observer. The patch is written only into the temporary
+        strategy workspace, so original strategy files remain unchanged.
+        """
+        marker = "# Backtrader Web subprocess compatibility"
+        compat_path = work_dir / "sitecustomize.py"
+        existing = compat_path.read_text(encoding="utf-8") if compat_path.is_file() else ""
+        if marker in existing:
+            existing = existing.split(marker, 1)[0].rstrip()
+
+        compat_code = textwrap.dedent(
+            f"""
+            {marker}
+            try:
+                import backtrader as bt
+
+                _BaseTradeLogger = getattr(bt.observers, "TradeLogger", None)
+                if _BaseTradeLogger is not None and not getattr(
+                    _BaseTradeLogger, "_bt_web_compat", False
+                ):
+                    _base_params = getattr(
+                        getattr(_BaseTradeLogger, "params", None),
+                        "_gettuple",
+                        lambda: (),
+                    )()
+                    _extra_params = (
+                        ("log_data", None),
+                        ("log_file_enabled", None),
+                        ("file_format", None),
+                    )
+                    _base_param_names = {{name for name, _value in _base_params}}
+                    _compat_params = _base_params + tuple(
+                        item for item in _extra_params if item[0] not in _base_param_names
+                    )
+
+                    class BacktraderWebTradeLogger(_BaseTradeLogger):
+                        params = _compat_params
+
+                        def __init__(self):
+                            super().__init__()
+                            log_data = getattr(self.p, "log_data", None)
+                            if log_data is not None and hasattr(self.p, "log_bars"):
+                                self.p.log_bars = log_data
+
+                            file_format = getattr(self.p, "file_format", None)
+                            if file_format is not None and hasattr(self.p, "log_format"):
+                                normalized = str(file_format).lower()
+                                if normalized in {{"json", "text"}}:
+                                    self.p.log_format = normalized
+
+                    BacktraderWebTradeLogger._bt_web_compat = True
+                    bt.observers.TradeLogger = BacktraderWebTradeLogger
+            except Exception:
+                pass
+            """
+        ).lstrip()
+
+        compat_path.write_text(
+            f"{existing.rstrip()}\n\n{compat_code}" if existing else compat_code,
+            encoding="utf-8",
+        )
+
     async def _run_strategy_subprocess(
         self,
         work_dir: Path,
@@ -472,6 +642,7 @@ class BacktestService:
         """
         python_exec = sys.executable
         run_py = work_dir / "run.py"
+        self._write_subprocess_sitecustomize(work_dir)
 
         # Prepare environment variables
         from app.services.strategy_service import STRATEGIES_DIR
@@ -534,13 +705,72 @@ class BacktestService:
         cache_key = f"backtest:result:{task_id}"
         cached = await self.cache.get(cache_key)
         if cached:
-            cached_payload = dict(cached)
-            cached_payload["trades"] = self._sanitize_trades(cached_payload.get("trades", []))
-            return BacktestResult(**cached_payload)
+            cached_payload = self._sanitize_cached_result_payload(dict(cached))
+            if not (
+                task.status == TaskStatus.COMPLETED
+                and task.log_dir
+                and (
+                    (
+                        not cached_payload.get("equity_curve")
+                        and not cached_payload.get("trades")
+                    )
+                    or str(cached_payload.get("metrics_source") or "") != "fincore"
+                )
+            ):
+                return BacktestResult(**cached_payload)
 
         # Query result
         results = await self.result_repo.list(filters={"task_id": task_id}, limit=1)
         result_model = results[0] if results else None
+
+        if (
+            task.status == TaskStatus.COMPLETED
+            and task.log_dir
+            and (
+                result_model is None
+                or (
+                    not getattr(result_model, "equity_curve", None)
+                    and not getattr(result_model, "trades", None)
+                )
+                or str(getattr(result_model, "metrics_source", "") or "") != "fincore"
+            )
+        ):
+            from app.services.fincore_metrics_helper import calculate_metrics_from_log_data
+            from app.services.log_parser_service import parse_log_dir
+
+            persisted_log_dir = Path(task.log_dir)
+            if persisted_log_dir.is_dir():
+                log_result = parse_log_dir(persisted_log_dir)
+                if log_result:
+                    metrics = calculate_metrics_from_log_data(log_result, use_fincore=True)
+                    result = BacktestResult(
+                        task_id=task.id,
+                        strategy_id=task.strategy_id,
+                        symbol=task.symbol,
+                        start_date=BacktestService._get_request_date(task, "start_date"),
+                        end_date=BacktestService._get_request_date(task, "end_date"),
+                        status=TaskStatus(task.status),
+                        total_return=BacktestService._coerce_float(metrics.get("total_return"), 0.0),
+                        annual_return=BacktestService._coerce_float(metrics.get("annual_return"), 0.0),
+                        sharpe_ratio=BacktestService._coerce_float(metrics.get("sharpe_ratio"), 0.0),
+                        max_drawdown=BacktestService._coerce_float(metrics.get("max_drawdown"), 0.0),
+                        win_rate=BacktestService._coerce_float(metrics.get("win_rate"), 0.0),
+                        metrics_source=str(metrics.get("metrics_source") or "manual"),
+                        total_trades=BacktestService._coerce_int(metrics.get("total_trades"), 0),
+                        profitable_trades=BacktestService._coerce_int(
+                            metrics.get("profitable_trades"),
+                            0,
+                        ),
+                        losing_trades=BacktestService._coerce_int(metrics.get("losing_trades"), 0),
+                        equity_curve=log_result.get("equity_curve", []),
+                        equity_dates=log_result.get("equity_dates", []),
+                        drawdown_curve=log_result.get("drawdown_curve", []),
+                        trades=BacktestService._sanitize_trades(log_result.get("trades", [])),
+                        created_at=task.created_at,
+                        error_message=task.error_message,
+                    )
+                    await self.cache.set(cache_key, result.model_dump(mode="json"), ttl=3600)
+                    return result
 
         # Use unified result builder to avoid code duplication
         result = self._build_backtest_result(task, result_model)

@@ -158,6 +158,7 @@
     <el-table
       :data="store.units"
       @selection-change="onSelectionChange"
+      @row-click="handleRowClick"
       stripe
       border
       size="small"
@@ -294,6 +295,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 import {
   Plus, Delete, VideoPlay, VideoPause, SwitchButton,
   DataLine, Setting, Document, Aim, EditPen, Edit,
@@ -325,6 +327,7 @@ const emit = defineEmits<{
 }>()
 
 const store = useWorkspaceStore()
+const router = useRouter()
 
 const hasSelection = computed(() => store.selectedUnitIds.length > 0)
 const hasSingleSelection = computed(() => store.selectedUnitIds.length === 1)
@@ -356,7 +359,22 @@ function onSelectionChange(rows: StrategyUnit[]) {
   store.setSelectedUnitIds(rows.map(r => r.id))
 }
 
-// --- Events from child dialogs ---
+function canOpenReport(unit: StrategyUnit): boolean {
+  return unit.run_status === 'completed' && !!unit.last_task_id
+}
+
+function handleRowClick(row: StrategyUnit, column?: { type?: string }, event?: Event) {
+  if (!canOpenReport(row)) return
+  if (column?.type === 'selection') return
+  const target = event?.target as HTMLElement | null
+  if (target?.closest('button, a, .el-checkbox')) return
+  router.push({
+    name: 'BacktestResult',
+    params: { id: row.last_task_id as string },
+    query: { workspaceId: props.workspaceId },
+  })
+}
+
 function onUnitCreated() {
   store.fetchUnits(props.workspaceId)
 }

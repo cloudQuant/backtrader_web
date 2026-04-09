@@ -43,11 +43,19 @@ export interface QuoteTick {
   error_message: string | null
 }
 
+export interface QuoteField {
+  prop: string
+  label: string
+  visible: boolean
+  always_show?: boolean
+}
+
 export interface QuoteListResponse {
   source: string
   source_label: string
   total: number
   ticks: QuoteTick[]
+  fields?: QuoteField[]
   update_time: string | null
   refresh_mode: string
 }

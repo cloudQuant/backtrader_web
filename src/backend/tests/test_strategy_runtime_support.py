@@ -1,10 +1,12 @@
 """Tests for strategy_runtime_support module."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
+from app.services import workspace_unit_runtime
 from app.services.strategy_runtime_support import (
     _FLAT_LOG_FILENAMES,
     find_latest_log_dir,
@@ -268,3 +270,69 @@ class TestFlatLogFilenames:
     def test_is_frozenset(self):
         """Test is a frozenset for immutability."""
         assert isinstance(_FLAT_LOG_FILENAMES, frozenset)
+
+
+class TestWorkspaceUnitRuntime:
+    def test_sync_unit_runtime_writes_config_and_run_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "workspace_units")
+
+        template_dir = tmp_path / "strategies" / "backtest" / "011_abberation"
+        template_dir.mkdir(parents=True)
+        (template_dir / "config.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "strategy": {"name": "Abberation布林带突破策略"},
+                    "params": {"boll_period": 200, "boll_mult": 2},
+                    "data": {"symbol": "RB889", "data_type": "future"},
+                    "backtest": {"initial_cash": 1000000, "commission": 0.0001},
+                },
+                allow_unicode=True,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        (template_dir / "strategy_abberation.py").write_text("class Dummy: pass\n", encoding="utf-8")
+
+        monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda strategy_id: template_dir)
+
+        unit = SimpleNamespace(
+            id="unit-1",
+            workspace_id="ws-1",
+            group_name="布林带策略",
+            strategy_id="backtest/011_abberation",
+            strategy_name="Abberation布林带突破策略",
+            symbol="AAPL",
+            symbol_name="Apple",
+            timeframe="1d",
+            timeframe_n=1,
+            category="外汇",
+            data_config={
+                "start_date": "2020-01-01T00:00:00Z",
+                "end_date": "2021-01-01T00:00:00Z",
+                "sample_count": 500,
+            },
+            unit_settings={"initial_cash": 250000, "commission": 0.0003},
+            params={"boll_period": 20},
+            optimization_config={},
+        )
+        workspace_settings = {
+            "data_source": {
+                "type": "csv",
+                "csv": {"directory_path": str(tmp_path / "market_data")},
+            }
+        }
+
+        runtime_dir = workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
+
+        assert runtime_dir == tmp_path / "workspace_units" / "ws-1" / "unit-1"
+        assert (runtime_dir / "run.py").is_file()
+        assert (runtime_dir / "config.yaml").is_file()
+
+        config = yaml.safe_load((runtime_dir / "config.yaml").read_text(encoding="utf-8"))
+        assert config["data"]["symbol"] == "AAPL"
+        assert config["data"]["asset_type"] == "forex"
+        assert config["data"]["directory_path"].endswith("market_data\\forex")
+        assert config["params"]["boll_period"] == 20
+        assert config["backtest"]["initial_cash"] == 250000
+        assert config["workspace_unit"]["template_dir"] == str(template_dir)
+        assert config["workspace_unit"]["strategy_module"] == "strategy_abberation.py"

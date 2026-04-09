@@ -699,12 +699,15 @@ function fmtVol(v: number | null): string {
 
 function formatTime(iso: string | null): string {
   if (!iso) return '--'
-  try {
-    const d = new Date(iso)
-    return d.toLocaleTimeString('zh-CN', { hour12: false })
-  } catch {
-    return '--'
+  const text = iso.trim()
+  if (/^\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(text)) {
+    return text.slice(0, 8)
   }
+  const d = new Date(text)
+  if (Number.isNaN(d.getTime())) {
+    return text
+  }
+  return d.toLocaleTimeString('zh-CN', { hour12: false })
 }
 
 function priceClass(row: { change_pct: number | null }): string {

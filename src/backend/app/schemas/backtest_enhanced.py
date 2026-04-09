@@ -270,7 +270,7 @@ class BacktestResult(BaseModel):
     total_return: float = Field(0, ge=-100, le=10000, description="Total return (%)")
     annual_return: float = Field(0, ge=-100, le=10000, description="Annualized return (%)")
     sharpe_ratio: float = Field(0, description="Sharpe ratio")
-    max_drawdown: float = Field(0, ge=0, le=100, description="Maximum drawdown (%)")
+    max_drawdown: float = Field(0, ge=-100, le=100, description="Maximum drawdown (%)")
     win_rate: float = Field(0, ge=0, le=100, description="Win rate (%)")
 
     # Trade statistics

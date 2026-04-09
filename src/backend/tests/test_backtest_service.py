@@ -57,6 +57,18 @@ class TestBacktestServiceHelpers:
         assert "x = 1" in content
         assert "y = 2" in content
 
+    def test_write_subprocess_sitecustomize_installs_trade_logger_compat(self, tmp_path: Path):
+        BacktestService._write_subprocess_sitecustomize(tmp_path)
+        BacktestService._write_subprocess_sitecustomize(tmp_path)
+
+        content = (tmp_path / "sitecustomize.py").read_text(encoding="utf-8")
+
+        assert content.count("Backtrader Web subprocess compatibility") == 1
+        assert '"log_data"' in content
+        assert '"log_file_enabled"' in content
+        assert '"file_format"' in content
+        assert "BacktraderWebTradeLogger" in content
+
     def test_write_temp_config(self, tmp_path: Path):
         svc = BacktestService()
         config_path = tmp_path / "config.yaml"

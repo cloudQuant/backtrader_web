@@ -23,6 +23,25 @@ class BacktestExecutionManager:
     MAX_GLOBAL_TASKS = 10
     MAX_USER_TASKS = 3
 
+    async def reconcile_orphaned_tasks(self) -> int:
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(BacktestTask).where(
+                    BacktestTask.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING])
+                )
+            )
+            tasks = list(result.scalars().all())
+            if not tasks:
+                return 0
+
+            for task in tasks:
+                task.status = TaskStatus.FAILED
+                if not task.error_message:
+                    task.error_message = "Task interrupted because the backtest service restarted"
+
+            await session.commit()
+            return len(tasks)
+
     async def get_user_task_count(self, user_id: str) -> int:
         """Return the current active task count for one user."""
         async with async_session_maker() as session:

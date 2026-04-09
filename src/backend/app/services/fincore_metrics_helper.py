@@ -224,13 +224,12 @@ def calculate_extended_metrics(
 
     equity = log_data.get("equity_curve", [])
     trades = log_data.get("trades", [])
-    dates_raw = log_data.get("equity_dates", log_data.get("dates", []))
 
     ic = initial_cash if initial_cash else (equity[0] if equity else 100000.0)
     fv = equity[-1] if equity else ic
 
     # ---- basic ----
-    basic = calculate_metrics_from_log_data(log_data)
+    basic = calculate_metrics_from_log_data(log_data, use_fincore=True)
 
     # ---- daily returns ----
     daily_returns: list[float] = []

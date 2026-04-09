@@ -20,7 +20,14 @@
         </el-col>
         <el-col :span="12">
           <el-form-item label="分类">
-            <el-input v-model="form.category" placeholder="例如: 金属" />
+            <el-select v-model="form.category" placeholder="选择分类" style="width: 100%">
+              <el-option
+                v-for="category in UNIT_CATEGORY_OPTIONS"
+                :key="category"
+                :label="category"
+                :value="category"
+              />
+            </el-select>
           </el-form-item>
         </el-col>
       </el-row>
@@ -170,13 +177,15 @@ const emit = defineEmits<{
 const strategyStore = useStrategyStore()
 const workspaceStore = useWorkspaceStore()
 
+const UNIT_CATEGORY_OPTIONS = ['股票', '期货', '期权', '外汇', '基金', '债券', 'crypto']
+
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 
 const defaultForm = () => ({
   create_mode: 'batch' as const,
   group_name: '',
-  category: '',
+  category: '股票',
   strategy_id: '',
   strategy_name: '',
   symbols: [{ code: '', name: '' }],

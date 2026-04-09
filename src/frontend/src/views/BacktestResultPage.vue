@@ -171,6 +171,10 @@ const route = useRoute()
 const router = useRouter()
 
 const taskId = computed(() => route.params.id as string)
+const workspaceId = computed(() => {
+  const value = route.query.workspaceId
+  return typeof value === 'string' && value ? value : null
+})
 
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -211,6 +215,13 @@ function handleExport(format: 'csv' | 'json') {
 }
 
 function handleBack() {
+  if (workspaceId.value) {
+    router.push({
+      name: 'BacktestWorkspaceDetail',
+      params: { id: workspaceId.value },
+    })
+    return
+  }
   router.push('/backtest/legacy')
 }
 

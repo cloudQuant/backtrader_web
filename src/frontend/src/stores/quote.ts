@@ -10,6 +10,7 @@ import { quoteApi } from '@/api/quote'
 import type {
   DataSourceInfo,
   KlineBar,
+  QuoteField,
   QuoteTick,
   SymbolItem,
 } from '@/api/quote'
@@ -33,6 +34,61 @@ function lsSet(key: string, value: unknown): void {
   try {
     localStorage.setItem(LS_PREFIX + key, JSON.stringify(value))
   } catch { /* quota exceeded – ignore */ }
+}
+
+type ColumnDef = QuoteField
+
+const DEFAULT_COLUMNS: ColumnDef[] = [
+  { prop: 'symbol', label: '代码', visible: true, always_show: true },
+  { prop: 'name', label: '名称', visible: true },
+  { prop: 'category', label: '分类', visible: true },
+  { prop: 'last_price', label: '最新价', visible: true },
+  { prop: 'change', label: '涨跌', visible: true },
+  { prop: 'change_pct', label: '涨跌幅', visible: true },
+  { prop: 'bid_price', label: '买价', visible: true },
+  { prop: 'ask_price', label: '卖价', visible: true },
+  { prop: 'high_price', label: '最高', visible: true },
+  { prop: 'low_price', label: '最低', visible: true },
+  { prop: 'open_price', label: '开盘', visible: true },
+  { prop: 'prev_close', label: '昨收', visible: true },
+  { prop: 'volume', label: '成交量', visible: true },
+  { prop: 'turnover', label: '成交额', visible: true },
+  { prop: 'open_interest', label: '持仓量', visible: true },
+  { prop: 'update_time', label: '更新时间', visible: true },
+]
+
+function cloneColumns(columns: ColumnDef[]): ColumnDef[] {
+  return columns.map((column) => ({ ...column }))
+}
+
+function getColumnStorageKey(source: string): string {
+  return `columnConfig_${source}`
+}
+
+function mergeColumnConfig(baseColumns: ColumnDef[], savedColumns: ColumnDef[]): ColumnDef[] {
+  if (!savedColumns.length) {
+    return cloneColumns(baseColumns)
+  }
+
+  const baseMap = new Map(baseColumns.map((column) => [column.prop, column]))
+  const merged: ColumnDef[] = []
+
+  for (const saved of savedColumns) {
+    const base = baseMap.get(saved.prop)
+    if (!base) {
+      continue
+    }
+    merged.push({ ...base, visible: saved.visible })
+    baseMap.delete(saved.prop)
+  }
+
+  for (const column of baseColumns) {
+    if (baseMap.has(column.prop)) {
+      merged.push({ ...column })
+    }
+  }
+
+  return merged
 }
 
 // ---------------------------------------------------------------------------
@@ -87,30 +143,8 @@ export const useQuoteStore = defineStore('quote', () => {
   const chartError = ref<string | null>(null)
 
   // ---- column config (P1) ----
-  interface ColumnDef {
-    prop: string
-    label: string
-    visible: boolean
-  }
-  const ALL_COLUMNS: ColumnDef[] = [
-    { prop: 'symbol', label: '代码', visible: true },
-    { prop: 'name', label: '名称', visible: true },
-    { prop: 'category', label: '分类', visible: true },
-    { prop: 'last_price', label: '最新价', visible: true },
-    { prop: 'change', label: '涨跌', visible: true },
-    { prop: 'change_pct', label: '涨跌幅', visible: true },
-    { prop: 'bid_price', label: '买价', visible: true },
-    { prop: 'ask_price', label: '卖价', visible: true },
-    { prop: 'high_price', label: '最高', visible: true },
-    { prop: 'low_price', label: '最低', visible: true },
-    { prop: 'open_price', label: '开盘', visible: true },
-    { prop: 'prev_close', label: '昨收', visible: true },
-    { prop: 'volume', label: '成交量', visible: true },
-    { prop: 'turnover', label: '成交额', visible: true },
-    { prop: 'open_interest', label: '持仓量', visible: true },
-    { prop: 'update_time', label: '更新时间', visible: true },
-  ]
-  const columnConfig = ref<ColumnDef[]>(lsGet('columnConfig', ALL_COLUMNS))
+  const quoteFields = ref<ColumnDef[]>(cloneColumns(DEFAULT_COLUMNS))
+  const columnConfig = ref<ColumnDef[]>(cloneColumns(DEFAULT_COLUMNS))
 
   // ---- advanced filter (P1) ----
   const filterChangePctMin = ref<number | null>(null)
@@ -275,6 +309,12 @@ export const useQuoteStore = defineStore('quote', () => {
         await new Promise((resolve) => window.setTimeout(resolve, 1200))
         res = await quoteApi.getQuotes(activeSource.value)
       }
+      const responseFields = Array.isArray(res.fields) ? res.fields : []
+      quoteFields.value = cloneColumns(responseFields.length ? responseFields : DEFAULT_COLUMNS)
+      columnConfig.value = mergeColumnConfig(
+        quoteFields.value,
+        lsGet(getColumnStorageKey(activeSource.value), [] as ColumnDef[]),
+      )
       ticks.value = res.ticks
       updateTime.value = res.update_time
       refreshMode.value = res.refresh_mode
@@ -414,13 +454,13 @@ export const useQuoteStore = defineStore('quote', () => {
   // ---- column config actions (P1) ----
 
   function setColumnConfig(config: ColumnDef[]) {
-    columnConfig.value = config
-    lsSet('columnConfig', config)
+    columnConfig.value = mergeColumnConfig(quoteFields.value, config)
+    lsSet(getColumnStorageKey(activeSource.value), columnConfig.value)
   }
 
   function resetColumnConfig() {
-    columnConfig.value = ALL_COLUMNS.map((c) => ({ ...c }))
-    lsSet('columnConfig', columnConfig.value)
+    columnConfig.value = cloneColumns(quoteFields.value)
+    lsSet(getColumnStorageKey(activeSource.value), columnConfig.value)
   }
 
   // ---- advanced filter actions (P1) ----

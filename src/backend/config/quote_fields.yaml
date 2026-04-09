@@ -1,0 +1,200 @@
+sources:
+  CTP:
+    - prop: symbol
+      label: 代码
+      visible: true
+      always_show: true
+    - prop: name
+      label: 名称
+      visible: true
+    - prop: category
+      label: 分类
+      visible: true
+    - prop: last_price
+      label: 最新价
+      visible: true
+    - prop: change
+      label: 涨跌
+      visible: true
+    - prop: change_pct
+      label: 涨跌幅
+      visible: true
+    - prop: bid_price
+      label: 买价
+      visible: true
+    - prop: ask_price
+      label: 卖价
+      visible: true
+    - prop: volume
+      label: 成交量
+      visible: true
+    - prop: turnover
+      label: 成交额
+      visible: true
+    - prop: open_interest
+      label: 持仓量
+      visible: true
+    - prop: update_time
+      label: 更新时间
+      visible: true
+  IB_WEB:
+    - prop: symbol
+      label: 代码
+      visible: true
+      always_show: true
+    - prop: name
+      label: 名称
+      visible: true
+    - prop: category
+      label: 分类
+      visible: true
+    - prop: last_price
+      label: 最新价
+      visible: true
+    - prop: change
+      label: 涨跌
+      visible: true
+    - prop: change_pct
+      label: 涨跌幅
+      visible: true
+    - prop: bid_price
+      label: 买价
+      visible: true
+    - prop: ask_price
+      label: 卖价
+      visible: true
+    - prop: volume
+      label: 成交量
+      visible: true
+    - prop: update_time
+      label: 更新时间
+      visible: true
+  MT5:
+    - prop: symbol
+      label: 代码
+      visible: true
+      always_show: true
+    - prop: name
+      label: 名称
+      visible: true
+    - prop: category
+      label: 分类
+      visible: true
+    - prop: last_price
+      label: 最新价
+      visible: true
+    - prop: change
+      label: 涨跌
+      visible: true
+    - prop: change_pct
+      label: 涨跌幅
+      visible: true
+    - prop: bid_price
+      label: 买价
+      visible: true
+    - prop: ask_price
+      label: 卖价
+      visible: true
+    - prop: high_price
+      label: 最高
+      visible: true
+    - prop: low_price
+      label: 最低
+      visible: true
+    - prop: open_price
+      label: 开盘
+      visible: true
+    - prop: volume
+      label: 成交量
+      visible: true
+    - prop: update_time
+      label: 更新时间
+      visible: true
+  BINANCE:
+    - prop: symbol
+      label: 代码
+      visible: true
+      always_show: true
+    - prop: name
+      label: 名称
+      visible: true
+    - prop: category
+      label: 分类
+      visible: true
+    - prop: last_price
+      label: 最新价
+      visible: true
+    - prop: change
+      label: 涨跌
+      visible: true
+    - prop: change_pct
+      label: 涨跌幅
+      visible: true
+    - prop: bid_price
+      label: 买价
+      visible: true
+    - prop: ask_price
+      label: 卖价
+      visible: true
+    - prop: high_price
+      label: 最高
+      visible: true
+    - prop: low_price
+      label: 最低
+      visible: true
+    - prop: open_price
+      label: 开盘
+      visible: true
+    - prop: volume
+      label: 成交量
+      visible: true
+    - prop: turnover
+      label: 成交额
+      visible: true
+    - prop: update_time
+      label: 更新时间
+      visible: true
+  OKX:
+    - prop: symbol
+      label: 代码
+      visible: true
+      always_show: true
+    - prop: name
+      label: 名称
+      visible: true
+    - prop: category
+      label: 分类
+      visible: true
+    - prop: last_price
+      label: 最新价
+      visible: true
+    - prop: change
+      label: 涨跌
+      visible: true
+    - prop: change_pct
+      label: 涨跌幅
+      visible: true
+    - prop: bid_price
+      label: 买价
+      visible: true
+    - prop: ask_price
+      label: 卖价
+      visible: true
+    - prop: high_price
+      label: 最高
+      visible: true
+    - prop: low_price
+      label: 最低
+      visible: true
+    - prop: open_price
+      label: 开盘
+      visible: true
+    - prop: volume
+      label: 成交量
+      visible: true
+    - prop: turnover
+      label: 成交额
+      visible: true
+    - prop: update_time
+      label: 更新时间
+      visible: true

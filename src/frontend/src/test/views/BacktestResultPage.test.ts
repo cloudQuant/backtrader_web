@@ -1,12 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import BacktestResultPage from '@/views/BacktestResultPage.vue'
 import { elStubs } from '@/test/stubs'
 
+const mockPush = vi.fn()
+const mockRoute = {
+  params: { id: 't1' },
+  query: {} as Record<string, unknown>,
+}
+
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn(), back: vi.fn() }),
-  useRoute: () => ({ params: { id: 't1' } }),
+  useRouter: () => ({ push: mockPush, back: vi.fn() }),
+  useRoute: () => mockRoute,
 }))
 
 vi.mock('element-plus', () => ({
@@ -96,10 +102,42 @@ vi.mock('@/api/analytics', () => ({
 }))
 
 describe('BacktestResultPage', () => {
-  beforeEach(() => { setActivePinia(createPinia()) })
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    mockPush.mockReset()
+    mockRoute.params = { id: 't1' }
+    mockRoute.query = {}
+  })
 
   it('mounts without error', () => {
     const wrapper = mount(BacktestResultPage, { global: { stubs: { ...elStubs, EquityCurve: true, DrawdownChart: true, TradeRecordsTable: true, TradeSignalChart: true, ReturnHeatmap: true, MetricCard: true, PerformancePanel: true } } })
     expect(wrapper.exists()).toBe(true)
+  })
+
+  it('returns to workspace detail when workspaceId is present', async () => {
+    mockRoute.query = { workspaceId: 'ws-1' }
+    const wrapper = mount(BacktestResultPage, {
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    const buttons = wrapper.findAll('.el-button')
+    await buttons[1].trigger('click')
+
+    expect(mockPush).toHaveBeenCalledWith({
+      name: 'BacktestWorkspaceDetail',
+      params: { id: 'ws-1' },
+    })
   })
 })

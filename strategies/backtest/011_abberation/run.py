@@ -146,11 +146,10 @@ def run():
         log_orders=True,
         log_trades=True,
         log_positions=True,
-        log_data=True,
-        log_indicators=True,       # Include strategy indicators in data log
+        log_bars=True,
+        log_indicators=True,
         log_dir=log_dir,
-        log_file_enabled=True,
-        file_format='log',         # Default log (tab-separated), 'csv' also available
+        log_format='text',
         # MySQL disabled by default - uncomment to enable
         # mysql_enabled=True,
         # mysql_host='localhost',

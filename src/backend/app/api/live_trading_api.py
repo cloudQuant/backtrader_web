@@ -224,7 +224,14 @@ async def get_gateway_health(
         A list of gateway health snapshots with state, connection,
         heartbeat, tick/order counts, and recent errors.
     """
-    gateways = mgr.get_gateway_health()
+    try:
+        gateways = mgr.get_gateway_health()
+    except Exception as exc:
+        _logger.exception("Unhandled error in get_gateway_health")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取网关健康状态失败: {type(exc).__name__}: {exc}",
+        )
     return {"total": len(gateways), "gateways": gateways}
 
 
@@ -244,7 +251,14 @@ def connect_gateway(
     Uses ``def`` (not ``async def``) so the blocking subprocess start
     runs in a thread-pool instead of stalling the event loop.
     """
-    result = mgr.connect_gateway(req.exchange_type, req.credentials)
+    try:
+        result = mgr.connect_gateway(req.exchange_type, req.credentials)
+    except Exception as exc:
+        _logger.exception("Unhandled error in connect_gateway")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"连接网关失败: {type(exc).__name__}: {exc}",
+        )
     if result["status"] == "error":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
     return result

@@ -81,6 +81,15 @@ for %%p in (fastapi uvicorn sqlalchemy pydantic email_validator slowapi jose pas
         exit /b 1
     )
 )
+if "%NEEDS_MT5%"=="1" (
+    "%PYTHON_EXE%" -c "import pymt5" >nul 2>nul
+    if errorlevel 1 (
+        echo [ERROR] 当前 Python 缺少 MT5 依赖: pymt5
+        echo [HINT] 请切换到已安装 pymt5 的解释器，或为 "%PYTHON_EXE%" 安装 pymt5
+        popd >nul
+        exit /b 1
+    )
+)
 if not exist ".env" (
     > ".env" (
         echo DEBUG=true
@@ -138,47 +147,69 @@ if errorlevel 1 (
     echo [OK] 前端服务启动成功 - PID: !FRONTEND_PID!
 )
 
-echo [5/5] 服务状态
-echo(  前端: http://localhost:3000
-echo(  后端: http://localhost:8000
-echo(  API文档: http://localhost:8000/docs
-echo(  日志目录: %LOG_DIR%
-echo(  PID目录: %PID_DIR%
+echo [5/5] Status
+echo   Frontend : http://localhost:3000
+echo   Backend  : http://localhost:8000
+echo   API Docs : http://localhost:8000/docs
+echo   Logs     : %LOG_DIR%
+echo   PIDs     : %PID_DIR%
 echo.
 exit /b 0
 
 :resolve_python
 set "PYTHON_EXE="
-set "VENV_PY=%BACKEND_DIR%\venv\Scripts\python.exe"
-if exist "%VENV_PY%" (
-    call :python_supports_ctp "%VENV_PY%"
-    if not errorlevel 1 (
-        set "PYTHON_EXE=%VENV_PY%"
-    ) else (
-        echo [WARN] 虚拟环境 Python 无法稳定加载 CTP 模块，尝试切换解释器
-    )
-)
+call :mt5_enabled
 if not defined PYTHON_EXE if exist "C:\anaconda3\python.exe" (
     call :python_supports_ctp "C:\anaconda3\python.exe"
     if not errorlevel 1 (
-        set "PYTHON_EXE=C:\anaconda3\python.exe"
+        if "%NEEDS_MT5%"=="1" (
+            call :python_supports_mt5 "C:\anaconda3\python.exe"
+            if not errorlevel 1 (
+                set "PYTHON_EXE=C:\anaconda3\python.exe"
+            )
+        ) else (
+            set "PYTHON_EXE=C:\anaconda3\python.exe"
+        )
     )
 )
 if not defined PYTHON_EXE (
     for %%P in (python.exe) do set "PYTHON_EXE=%%~$PATH:P"
 )
 if not defined PYTHON_EXE (
-    echo [ERROR] 未找到 Python，可先创建虚拟环境或激活 Conda
+    echo [ERROR] 未找到系统 Python，请先安装或激活 Conda / 系统环境
     exit /b 1
 )
 for /f "delims=" %%i in ('"%PYTHON_EXE%" --version') do set "PYTHON_VERSION=%%i"
 echo [INFO] Python 版本: %PYTHON_VERSION%
+echo [INFO] Python 解释器: %PYTHON_EXE%
+exit /b 0
+
+:mt5_enabled
+set "NEEDS_MT5=0"
+if exist "%PROJECT_ROOT%\data\manual_gateways.json" (
+    findstr /I /C:"\"exchange_type\": \"MT5\"" "%PROJECT_ROOT%\data\manual_gateways.json" >nul 2>nul
+    if not errorlevel 1 set "NEEDS_MT5=1"
+)
+if "%NEEDS_MT5%"=="0" if exist "%BACKEND_DIR%\.env" (
+    findstr /R /C:"^MT5_LOGIN=." "%BACKEND_DIR%\.env" >nul 2>nul
+    if not errorlevel 1 (
+        findstr /R /C:"^MT5_PASSWORD=." "%BACKEND_DIR%\.env" >nul 2>nul
+        if not errorlevel 1 set "NEEDS_MT5=1"
+    )
+)
 exit /b 0
 
 :python_supports_ctp
 set "CANDIDATE_PY=%~1"
 if not defined CANDIDATE_PY exit /b 1
 "%CANDIDATE_PY%" -c "import sys; sys.path.insert(0, r'%PROJECT_ROOT%\..\bt_api_py'); from bt_api_py.ctp.client import MdClient; print('ok')" >nul 2>nul
+if errorlevel 1 exit /b 1
+exit /b 0
+
+:python_supports_mt5
+set "CANDIDATE_PY=%~1"
+if not defined CANDIDATE_PY exit /b 1
+"%CANDIDATE_PY%" -c "import pymt5; print('ok')" >nul 2>nul
 if errorlevel 1 exit /b 1
 exit /b 0
 
@@ -223,5 +254,5 @@ set /a WAIT_INDEX=0
 for /f "tokens=5" %%i in ('netstat -ano ^| findstr /R /C:":%WAIT_PORT% .*LISTENING"') do exit /b 0
 set /a WAIT_INDEX+=1
 if %WAIT_INDEX% geq %WAIT_COUNT% exit /b 1
-timeout /t 1 /nobreak >nul 2>nul
+ping -n 2 127.0.0.1 >nul 2>nul
 goto :wait_port_loop
