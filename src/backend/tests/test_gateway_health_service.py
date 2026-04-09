@@ -377,3 +377,90 @@ class TestGetGatewayHealth:
                 "message": "TypeError: health.snapshot() returned list, expected dict",
             }
         ]
+
+    def test_ib_web_health_uses_cached_quote_metrics_when_runtime_tick_count_is_zero(self):
+        health_mock = MagicMock()
+        health_mock.snapshot.return_value = _make_health_snap(
+            exchange="IB_WEB",
+            asset_type="STK",
+            market_connection="connected",
+            trade_connection="connected",
+            symbol_count=0,
+            tick_count=0,
+            last_tick_time=None,
+        )
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+
+        gateways = {
+            "manual:IB_WEB:DU123": {
+                "runtime": runtime_mock,
+                "manual": True,
+                "exchange_type": "IB_WEB",
+                "asset_type": "STK",
+                "account_id": "DU123",
+                "ref_count": 1,
+                "instances": set(),
+            }
+        }
+
+        quote_service = MagicMock()
+        quote_service.get_cached_tick_metrics.return_value = {
+            "tick_count": 3,
+            "last_tick_time": 1712840400,
+        }
+
+        with patch("app.services.quote_service.QuoteService", return_value=quote_service):
+            results = get_gateway_health(
+                gateways=gateways,
+                load_instances=lambda: {},
+                is_pid_alive=lambda pid: False,
+                resolve_strategy_dir=lambda s: "",
+                load_strategy_config=lambda d: {},
+                load_strategy_env=lambda d: {},
+            )
+
+        assert len(results) == 1
+        snap = results[0]
+        assert snap["tick_count"] == 3
+        assert snap["symbol_count"] == 3
+        assert snap["last_tick_time"] == 1712840400
+
+    def test_non_ib_web_health_does_not_use_cached_quote_metrics(self):
+        health_mock = MagicMock()
+        health_mock.snapshot.return_value = _make_health_snap(
+            exchange="BINANCE",
+            symbol_count=0,
+            tick_count=0,
+            last_tick_time=None,
+        )
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+
+        gateways = {
+            "manual:BINANCE:acc-1": {
+                "runtime": runtime_mock,
+                "manual": True,
+                "exchange_type": "BINANCE",
+                "asset_type": "SPOT",
+                "account_id": "acc-1",
+                "ref_count": 1,
+                "instances": set(),
+            }
+        }
+
+        with patch("app.services.quote_service.QuoteService") as quote_service_cls:
+            results = get_gateway_health(
+                gateways=gateways,
+                load_instances=lambda: {},
+                is_pid_alive=lambda pid: False,
+                resolve_strategy_dir=lambda s: "",
+                load_strategy_config=lambda d: {},
+                load_strategy_env=lambda d: {},
+            )
+
+        assert len(results) == 1
+        snap = results[0]
+        assert snap["tick_count"] == 0
+        assert snap["symbol_count"] == 0
+        quote_service_cls.assert_not_called()

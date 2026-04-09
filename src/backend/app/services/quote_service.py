@@ -234,6 +234,14 @@ def _has_quote_field_value(value: Any) -> bool:
     return True
 
 
+def _first_present(mapping: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = mapping.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def _resolve_quote_fields(source: str, ticks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     configured_fields = _QUOTE_FIELDS_BY_SOURCE.get(source, _GENERIC_QUOTE_FIELDS)
     resolved: list[dict[str, Any]] = []
@@ -387,6 +395,49 @@ class QuoteService:
         self._receivers: dict[str, _ZmqTickReceiver] = {}
         # Symbols we have already asked gateways to subscribe
         self._subscribed_symbols: dict[str, set[str]] = {}
+        # Sources explicitly disconnected by the user; auto-connect should stay paused
+        self._auto_connect_suppressed_sources: set[str] = set()
+
+    def suppress_auto_connect(self, source: str) -> None:
+        normalized = str(source or "").strip().upper()
+        if not normalized:
+            return
+        self._auto_connect_suppressed_sources.add(normalized)
+
+    def resume_auto_connect(self, source: str) -> None:
+        normalized = str(source or "").strip().upper()
+        if not normalized:
+            return
+        self._auto_connect_suppressed_sources.discard(normalized)
+
+    def get_cached_tick_metrics(self, source: str) -> dict[str, Any]:
+        normalized = str(source or "").strip().upper()
+        if not normalized:
+            return {"tick_count": 0, "last_tick_time": None}
+        receiver = self._receivers.get(normalized)
+        if receiver is None:
+            return {"tick_count": 0, "last_tick_time": None}
+        cached_ticks = receiver.get_all_ticks()
+        last_tick_time: int | None = None
+        for payload in cached_ticks.values():
+            if not isinstance(payload, dict):
+                continue
+            raw_timestamp = payload.get("timestamp")
+            if raw_timestamp in (None, ""):
+                continue
+            try:
+                timestamp = float(raw_timestamp)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if math.isnan(timestamp) or math.isinf(timestamp):
+                continue
+            normalized_timestamp = int(timestamp / 1000.0) if timestamp > 1e12 else int(timestamp)
+            if last_tick_time is None or normalized_timestamp > last_tick_time:
+                last_tick_time = normalized_timestamp
+        return {
+            "tick_count": len(cached_ticks),
+            "last_tick_time": last_tick_time,
+        }
 
     # ------------------------------------------------------------------
     # Data-source status
@@ -523,9 +574,10 @@ class QuoteService:
 
         receiver = self._receivers.get(source)
         cached_ticks = self._wait_for_initial_ticks(receiver, all_syms)
-        if source == "IB_WEB":
-            cached_ticks = self._hydrate_ib_web_snapshot_ticks(
+        if source in {"IB_WEB", "BINANCE", "OKX"}:
+            cached_ticks = self._hydrate_snapshot_ticks(
                 manager,
+                source,
                 receiver,
                 all_syms,
                 cached_ticks,
@@ -734,6 +786,8 @@ class QuoteService:
     def _ensure_mt5_gateway_connected(self, manager: Any) -> None:
         if manager is None:
             return
+        if "MT5" in self._auto_connect_suppressed_sources:
+            return
         if self._find_gateway_state(manager, "MT5") is not None:
             return
         settings = get_settings()
@@ -891,9 +945,10 @@ class QuoteService:
                 return payload
         return None
 
-    def _hydrate_ib_web_snapshot_ticks(
+    def _hydrate_snapshot_ticks(
         self,
         manager: Any,
+        source: str,
         receiver: _ZmqTickReceiver | None,
         symbols: list[str],
         cached_ticks: dict[str, dict[str, Any]],
@@ -901,6 +956,8 @@ class QuoteService:
         if not symbols:
             return cached_ticks
         runtime = self._get_gateway_runtime(manager, "IB_WEB")
+        if source != "IB_WEB":
+            runtime = self._get_gateway_runtime(manager, source)
         adapter = getattr(runtime, "adapter", None)
         feed = getattr(adapter, "feed", None)
         if feed is None or not hasattr(feed, "get_tick"):
@@ -909,13 +966,19 @@ class QuoteService:
         for symbol in symbols:
             if self._match_cached_tick(hydrated, symbol) is not None:
                 continue
-            raw = self._fetch_ib_web_snapshot_tick(feed, symbol)
+            raw = self._fetch_gateway_snapshot_tick(source, feed, symbol)
             if raw is None:
                 continue
             hydrated[symbol] = raw
             if receiver is not None:
                 receiver.seed_tick(symbol, raw)
         return hydrated
+
+    @staticmethod
+    def _fetch_gateway_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[str, Any] | None:
+        if source == "IB_WEB":
+            return QuoteService._fetch_ib_web_snapshot_tick(feed, symbol)
+        return QuoteService._fetch_standard_snapshot_tick(source, feed, symbol)
 
     def _get_gateway_runtime(self, manager: Any, source: str) -> Any | None:
         state = self._find_gateway_state(manager, source)
@@ -960,6 +1023,98 @@ class QuoteService:
             raw["ask_price"] = ask_price
         if volume is not None:
             raw["volume"] = volume
+        return raw
+
+    @staticmethod
+    def _fetch_standard_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[str, Any] | None:
+        try:
+            snapshot = feed.get_tick(symbol)
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch %s snapshot for %s: %s: %s",
+                source,
+                symbol,
+                type(exc).__name__,
+                exc,
+            )
+            return None
+
+        data = snapshot.get_data() if hasattr(snapshot, "get_data") else snapshot
+        if isinstance(data, list):
+            item = data[0] if data else None
+        elif isinstance(data, dict):
+            item = data
+        else:
+            item = None
+        if item is None:
+            return None
+
+        payload = item.get_all_data() if hasattr(item, "get_all_data") else item
+        if not isinstance(payload, dict) or not payload:
+            return None
+
+        bid_price = _opt_float(_first_present(payload, "bid_price"))
+        ask_price = _opt_float(_first_present(payload, "ask_price"))
+        price = _opt_float(_first_present(payload, "last_price", "price"))
+        if price is None and bid_price is not None and ask_price is not None:
+            price = (bid_price + ask_price) / 2.0
+        volume = _opt_float(_first_present(payload, "volume_24h", "vol_24h", "volume"))
+        turnover = _opt_float(_first_present(payload, "turnover_24h", "vol_ccy_24h", "turnover"))
+        high_price = _opt_float(_first_present(payload, "high_price", "high_24h"))
+        low_price = _opt_float(_first_present(payload, "low_price", "low_24h"))
+        open_price = _opt_float(_first_present(payload, "open_price", "open_24h"))
+        prev_close = _opt_float(_first_present(payload, "prev_close"))
+        bid_volume = _opt_float(_first_present(payload, "bid_volume"))
+        ask_volume = _opt_float(_first_present(payload, "ask_volume"))
+        if all(
+            value is None
+            for value in (
+                price,
+                bid_price,
+                ask_price,
+                volume,
+                turnover,
+                high_price,
+                low_price,
+                open_price,
+                prev_close,
+            )
+        ):
+            return None
+
+        server_time = _opt_float(_first_present(payload, "server_time"))
+        if server_time is None:
+            timestamp = time.time()
+        else:
+            timestamp = server_time / 1000.0 if server_time > 1e12 else server_time
+
+        raw: dict[str, Any] = {
+            "timestamp": timestamp,
+            "symbol": str(_first_present(payload, "ticker_symbol_name", "symbol_name") or symbol),
+            "exchange": source,
+        }
+        if price is not None:
+            raw["price"] = price
+        if bid_price is not None:
+            raw["bid_price"] = bid_price
+        if ask_price is not None:
+            raw["ask_price"] = ask_price
+        if bid_volume is not None:
+            raw["bid_volume"] = bid_volume
+        if ask_volume is not None:
+            raw["ask_volume"] = ask_volume
+        if volume is not None:
+            raw["volume"] = volume
+        if turnover is not None:
+            raw["turnover"] = turnover
+        if high_price is not None:
+            raw["high_price"] = high_price
+        if low_price is not None:
+            raw["low_price"] = low_price
+        if open_price is not None:
+            raw["open_price"] = open_price
+        if prev_close is not None:
+            raw["prev_close"] = prev_close
         return raw
 
     @staticmethod

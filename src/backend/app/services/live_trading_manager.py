@@ -214,6 +214,7 @@ class LiveTradingManager:
     def connect_gateway(
         self, exchange_type: str, credentials: GatewayCredentials
     ) -> ConnectResult:
+        normalized_exchange_type = self._normalize_gateway_exchange_type(exchange_type)
         result = manual_gateway_service.connect_gateway(
             gateways=self._gateways,
             exchange_type=exchange_type,
@@ -227,7 +228,13 @@ class LiveTradingManager:
         )
         if result.get("status") != "error":
             gateway_key = str(result.get("gateway_key") or "").strip()
-            normalized_exchange_type = self._normalize_gateway_exchange_type(exchange_type)
+            if normalized_exchange_type == "MT5":
+                try:
+                    from app.services.quote_service import QuoteService
+
+                    QuoteService().resume_auto_connect("MT5")
+                except Exception:
+                    logger.debug("Failed to resume MT5 auto-connect after manual connect", exc_info=True)
             self._persist_manual_gateway(gateway_key, normalized_exchange_type, credentials)
         return result
 
@@ -280,7 +287,18 @@ class LiveTradingManager:
     def disconnect_gateway(self, gateway_key: str) -> OperationResult:
         result = manual_gateway_service.disconnect_gateway(self._gateways, gateway_key)
         if result.get("status") != "error":
-            self._remove_persisted_manual_gateway(gateway_key)
+            normalized_gateway_key = str(gateway_key or "").strip()
+            if normalized_gateway_key.startswith("manual:MT5:"):
+                try:
+                    from app.services.quote_service import QuoteService
+
+                    QuoteService().suppress_auto_connect("MT5")
+                except Exception:
+                    logger.debug("Failed to suppress MT5 auto-connect after manual disconnect", exc_info=True)
+            try:
+                self._remove_persisted_manual_gateway(gateway_key)
+            except Exception:
+                logger.exception("Failed to remove persisted manual gateway %s", gateway_key)
         return result
 
     def _restore_manual_gateways(self) -> None:
@@ -300,6 +318,7 @@ class LiveTradingManager:
                 import_gateway_runtime_classes=self._import_gateway_runtime_classes,
                 default_transport=_DEFAULT_TRANSPORT,
                 logger=logger,
+                allow_interactive_login=False,
             )
             if result.get("status") == "error":
                 target = gateway_key or exchange_type

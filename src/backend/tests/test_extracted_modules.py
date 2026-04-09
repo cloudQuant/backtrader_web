@@ -202,7 +202,7 @@ class TestGatewayLaunchBuilder:
         assert params["asset_type"] == "STK"
         assert params["account_id"] == "du123456"
         assert params["base_url"] == "https://localhost:5000"
-        assert params["transport"] == "ipc"
+        assert params["transport"] == "tcp"
 
     def test_build_ib_web_gateway_runtime_kwargs(self):
         runtime_kwargs = gateway_launch_builder.build_ib_web_gateway_runtime_kwargs(
@@ -224,7 +224,6 @@ class TestGatewayLaunchBuilder:
                 "provider": "gateway",
                 "exchange_type": "IB_WEB",
                 "asset_type": "stock",
-                "transport": "ipc",
                 "account_id": "",
                 "base_dir": "/tmp/gateway",
                 "base_url": "",
@@ -244,6 +243,7 @@ class TestGatewayLaunchBuilder:
         assert runtime_kwargs["access_token"] == "test-token"
         assert runtime_kwargs["verify_ssl"] is True
         assert runtime_kwargs["timeout"] == 15.0
+        assert runtime_kwargs["transport"] == "tcp"
 
     def test_build_gateway_launch_uses_runtime_class(self):
         class FakeGatewayConfig:
@@ -267,7 +267,6 @@ class TestGatewayLaunchBuilder:
                 "provider": "gateway",
                 "exchange_type": "IB_WEB",
                 "asset_type": "stock",
-                "transport": "ipc",
                 "account_id": "",
                 "base_dir": "/tmp/gateway",
                 "base_url": "",
@@ -285,6 +284,7 @@ class TestGatewayLaunchBuilder:
         assert launch["runtime_cls"] is FakeGatewayRuntime
         assert launch["config"] == launch["runtime_kwargs"]
         assert launch["runtime_kwargs"]["account_id"] == "env-acc"
+        assert launch["runtime_kwargs"]["transport"] == "tcp"
 
 
 class TestStrategyRuntimeSupport:
@@ -584,6 +584,51 @@ class TestManualGatewayService:
         assert result["status"] == "connected"
         assert result["message"] == "Gateway already active"
 
+    def test_connect_gateway_restore_ib_web_skips_interactive_login_when_session_invalid(self):
+        gateways: dict[str, dict] = {}
+        runtime_cls = Mock()
+        auth_status = Mock(return_value=Mock(status_code=200))
+        ensure_session = Mock()
+        upsert_env_file = Mock()
+
+        with patch.object(
+            manual_gateway_service,
+            "_ensure_ib_clientportal_running",
+        ), patch.object(
+            manual_gateway_service,
+            "_load_ib_web_session_state",
+            return_value=({"cookie_output": "configs/ibkr_cookies.json", "cookie_source": "file:configs/ibkr_cookies.json"}, {}, False, None, "DU123456"),
+        ), patch.object(
+            manual_gateway_service,
+            "_import_ib_web_session_helpers",
+            return_value=(auth_status, ensure_session, upsert_env_file),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="IB_WEB",
+                credentials={
+                    "account_id": "DU123456",
+                    "base_url": "https://localhost:5000",
+                    "cookie_source": "file:configs/ibkr_cookies.json",
+                    "cookie_output": "configs/ibkr_cookies.json",
+                    "username": "test-ib-user",
+                    "password": "test-ib-pass",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default if value is None else bool(value),
+                coerce_float=lambda value, default=0.0: default if value is None else float(value),
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+                allow_interactive_login=False,
+            )
+
+        assert result["status"] == "error"
+        assert "手动重新连接" in result["message"]
+        ensure_session.assert_not_called()
+        runtime_cls.assert_not_called()
+        assert gateways == {}
+
     def test_connect_gateway_registers_placeholder_for_unknown_exchange(self):
         gateways: dict[str, dict] = {}
         result = manual_gateway_service.connect_gateway(
@@ -638,6 +683,98 @@ class TestManualGatewayService:
         assert gateways["manual:BINANCE:acc-binance"]["runtime"] is runtime
         assert gateways["manual:BINANCE:acc-binance"]["asset_type"] == "SWAP"
 
+    def test_connect_gateway_starts_binance_runtime_with_detected_proxy_settings(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+
+        with patch.object(
+            manual_gateway_service,
+            "_get_gateway_proxies_kwarg",
+            return_value={"https": "http://127.0.0.1:7890", "http": "http://127.0.0.1:7890"},
+        ), patch.object(
+            manual_gateway_service,
+            "_get_gateway_ws_proxy_kwargs",
+            return_value={"http_proxy_host": "127.0.0.1", "http_proxy_port": 7890, "async_proxy": "http://127.0.0.1:7890"},
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="BINANCE",
+                credentials={
+                    "account_id": "acc-binance",
+                    "api_key": "binance-key",
+                    "secret_key": "binance-secret",
+                    "asset_type": "SWAP",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["proxies"] == {
+            "https": "http://127.0.0.1:7890",
+            "http": "http://127.0.0.1:7890",
+        }
+        assert runtime_kwargs["http_proxy_host"] == "127.0.0.1"
+        assert runtime_kwargs["http_proxy_port"] == 7890
+        assert runtime_kwargs["async_proxy"] == "http://127.0.0.1:7890"
+
+    def test_detect_working_proxy_uses_system_proxy_when_env_missing(self):
+        with patch.dict(manual_gateway_service.os.environ, {}, clear=True), patch.object(
+            manual_gateway_service, "_proxy_checked", False
+        ), patch.object(
+            manual_gateway_service, "_detected_proxy_url", ""
+        ), patch.object(
+            manual_gateway_service.urllib.request,
+            "getproxies",
+            return_value={"https": "http://127.0.0.1:7890"},
+        ), patch.object(
+            manual_gateway_service.socket,
+            "create_connection",
+        ) as mock_create_connection:
+            mock_socket = Mock()
+            mock_create_connection.return_value = mock_socket
+
+            proxy = manual_gateway_service._detect_working_proxy(force_recheck=True)
+
+        assert proxy == "http://127.0.0.1:7890"
+        mock_create_connection.assert_called_once_with(("127.0.0.1", 7890), timeout=3.0)
+        mock_socket.close.assert_called_once()
+
+    def test_detect_working_proxy_reuses_cached_system_proxy(self):
+        with patch.dict(manual_gateway_service.os.environ, {}, clear=True), patch.object(
+            manual_gateway_service, "_proxy_checked", False
+        ), patch.object(
+            manual_gateway_service, "_detected_proxy_url", ""
+        ), patch.object(
+            manual_gateway_service.urllib.request,
+            "getproxies",
+            return_value={"https": "http://127.0.0.1:7890"},
+        ), patch.object(
+            manual_gateway_service.socket,
+            "create_connection",
+        ) as mock_create_connection:
+            mock_socket = Mock()
+            mock_create_connection.return_value = mock_socket
+
+            first = manual_gateway_service._detect_working_proxy(force_recheck=True)
+            second = manual_gateway_service._detect_working_proxy()
+
+        assert first == "http://127.0.0.1:7890"
+        assert second == "http://127.0.0.1:7890"
+        mock_create_connection.assert_called_once_with(("127.0.0.1", 7890), timeout=3.0)
+
     def test_connect_gateway_starts_ctp_runtime_after_waiting_ready(self):
         gateways: dict[str, dict] = {}
 
@@ -679,6 +816,7 @@ class TestManualGatewayService:
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["startup_timeout_sec"] == 20.0
         assert runtime_kwargs["gateway_startup_timeout_sec"] == 20.0
+        assert runtime_kwargs["transport"] == "tcp"
         assert "manual:CTP:089763" in gateways
         assert gateways["manual:CTP:089763"]["runtime"] is runtime
 
@@ -785,6 +923,7 @@ class TestManualGatewayService:
         assert runtime_kwargs["login_headless"] is False
         assert runtime_kwargs["login_timeout"] == 180.0
         assert runtime_kwargs["cookie_output"] == "../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["transport"] == "tcp"
         assert "manual:IB_WEB:DU123456" in gateways
         assert gateways["manual:IB_WEB:DU123456"]["runtime"] is runtime
 
@@ -981,6 +1120,54 @@ class TestManualGatewayService:
         assert "manual:OKX:acc-okx" in gateways
         assert gateways["manual:OKX:acc-okx"]["runtime"] is runtime
         assert gateways["manual:OKX:acc-okx"]["asset_type"] == "SPOT"
+
+    def test_connect_gateway_starts_okx_runtime_with_detected_proxy_settings(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+
+        with patch.object(
+            manual_gateway_service,
+            "_get_gateway_proxies_kwarg",
+            return_value={"https": "http://127.0.0.1:7890", "http": "http://127.0.0.1:7890"},
+        ), patch.object(
+            manual_gateway_service,
+            "_get_gateway_ws_proxy_kwargs",
+            return_value={"http_proxy_host": "127.0.0.1", "http_proxy_port": 7890, "async_proxy": "http://127.0.0.1:7890"},
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="OKX",
+                credentials={
+                    "account_id": "acc-okx",
+                    "api_key": "okx-key",
+                    "secret_key": "okx-secret",
+                    "passphrase": "okx-passphrase",
+                    "asset_type": "SPOT",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["proxies"] == {
+            "https": "http://127.0.0.1:7890",
+            "http": "http://127.0.0.1:7890",
+        }
+        assert runtime_kwargs["http_proxy_host"] == "127.0.0.1"
+        assert runtime_kwargs["http_proxy_port"] == 7890
+        assert runtime_kwargs["async_proxy"] == "http://127.0.0.1:7890"
 
     def test_ensure_ib_clientportal_running_starts_background_process_when_local_port_down(self):
         logger = Mock()

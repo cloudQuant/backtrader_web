@@ -210,6 +210,29 @@ def _populate_heartbeat_age(snap: dict[str, Any]) -> None:
         return
 
 
+def _augment_snapshot_from_quote_cache(snap: dict[str, Any]) -> None:
+    exchange = _coerce_string(snap.get("exchange"), "").upper()
+    if exchange != "IB_WEB":
+        return
+    if _coerce_int(snap.get("tick_count"), 0) > 0:
+        return
+    try:
+        from app.services.quote_service import QuoteService
+
+        cached_metrics = QuoteService().get_cached_tick_metrics(exchange)
+    except Exception:
+        logger.debug("Failed to read cached quote metrics for %s", exchange, exc_info=True)
+        return
+
+    cached_tick_count = _coerce_int(cached_metrics.get("tick_count"), 0)
+    if cached_tick_count <= 0:
+        return
+    snap["tick_count"] = cached_tick_count
+    snap["symbol_count"] = max(_coerce_int(snap.get("symbol_count"), 0), cached_tick_count)
+    if snap.get("last_tick_time") is None:
+        snap["last_tick_time"] = _coerce_timestamp(cached_metrics.get("last_tick_time"))
+
+
 def get_gateway_health(
     gateways: dict[str, dict[str, Any]],
     load_instances,
@@ -247,6 +270,7 @@ def get_gateway_health(
         except Exception as exc:
             logger.warning("Failed to build gateway health snapshot for %s: %s", key, exc)
             snap = _build_error_snapshot(key, state, exc)
+        _augment_snapshot_from_quote_cache(snap)
         _populate_heartbeat_age(snap)
         results.append(snap)
         gateway_instance_ids.update(_normalize_instances(snap.get("instances")))

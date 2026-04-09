@@ -203,6 +203,7 @@ class TestBuildCtpGatewayRuntimeKwargs:
         assert result["investor_id"] == "inv001"
         assert result["account_id"] == "acc1"
         assert result["exchange_type"] == "CTP"
+        assert result["transport"] == "tcp"
 
     def test_raises_on_missing_credentials(self):
         with pytest.raises(ValueError, match="CTP gateway requires"):
@@ -236,6 +237,7 @@ class TestBuildCtpGatewayRuntimeKwargs:
         )
         assert result["investor_id"] == "env_inv"
         assert result["password"] == "env_pwd"
+        assert result["transport"] == "tcp"
 
 
 # ---- IB Web builder tests ----
@@ -252,6 +254,7 @@ class TestBuildIbWebGatewayRuntimeKwargs:
         assert result["account_id"] == "DU123"
         assert result["exchange_type"] == "IB_WEB"
         assert result["base_url"] == "https://localhost:5000"
+        assert result["transport"] == "tcp"
 
     def test_raises_without_account_id(self):
         with pytest.raises(ValueError, match="IB_WEB gateway requires account_id"):
@@ -275,6 +278,7 @@ class TestBuildIbWebGatewayRuntimeKwargs:
         )
         assert result["cookie_source"] == "browser"
         assert result["cookies"] == {"sid": "abc"}
+        assert result["transport"] == "tcp"
 
     def test_local_base_url_disables_proxies(self):
         result = build_ib_web_gateway_runtime_kwargs(
@@ -288,6 +292,7 @@ class TestBuildIbWebGatewayRuntimeKwargs:
         )
         assert result["proxies"] == {}
         assert result["async_proxy"] == ""
+        assert result["transport"] == "tcp"
 
 
 # ---- MT5 builder tests ----

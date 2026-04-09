@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 
 const FRONTEND_DEV_PORT = 3000
-const BACKEND_PROXY_TARGET = process.env.VITE_API_TARGET || 'http://localhost:8000'
+const BACKEND_PROXY_TARGET = process.env.VITE_API_TARGET || 'http://127.0.0.1:8000'
 
 export default defineConfig({
   plugins: [vue()],

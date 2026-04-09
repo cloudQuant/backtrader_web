@@ -3,6 +3,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 
+_TCP_TRANSPORT_GATEWAY_TYPES = {"CTP", "IB_WEB"}
+
+
 def _is_local_ib_base_url(base_url: str) -> bool:
     parsed = urlparse(base_url or "https://localhost:5000")
     host = (parsed.hostname or "localhost").lower()
@@ -67,6 +70,19 @@ def parse_json_dict(value: Any) -> dict[str, Any] | None:
     return None
 
 
+def resolve_gateway_transport(
+    exchange_type: str,
+    requested_transport: Any,
+    default_transport: str,
+) -> str:
+    transport = str(requested_transport or "").strip().lower()
+    if transport:
+        return transport
+    if exchange_type in _TCP_TRANSPORT_GATEWAY_TYPES:
+        return "tcp"
+    return str(default_transport or "tcp").strip().lower() or "tcp"
+
+
 def get_gateway_params(instance: dict[str, Any], default_transport: str) -> dict[str, Any]:
     params = instance.get("params") or {}
     if not isinstance(params, dict):
@@ -91,7 +107,11 @@ def get_gateway_params(instance: dict[str, Any], default_transport: str) -> dict
         "enabled": enabled,
         "provider": provider or "ctp",
         "exchange_type": exchange_type,
-        "transport": str(gateway.get("transport") or default_transport),
+        "transport": resolve_gateway_transport(
+            exchange_type,
+            gateway.get("transport"),
+            default_transport,
+        ),
         "asset_type": normalize_gateway_asset_type(
             exchange_type, gateway.get("asset_type") or params.get("asset_type")
         ),
@@ -139,7 +159,11 @@ def build_ctp_gateway_runtime_kwargs(
         "exchange_type": "CTP",
         "asset_type": normalize_gateway_asset_type("CTP", gateway_params.get("asset_type")),
         "account_id": account_id,
-        "transport": gateway_params.get("transport") or default_transport,
+        "transport": resolve_gateway_transport(
+            "CTP",
+            gateway_params.get("transport"),
+            default_transport,
+        ),
         "gateway_base_dir": gateway_params.get("base_dir") or "",
         "md_address": md_address,
         "td_address": td_address,
@@ -213,7 +237,11 @@ def build_ib_web_gateway_runtime_kwargs(
             "IB_WEB", gateway_params.get("asset_type") or ib_web.get("asset_type")
         ),
         "account_id": account_id,
-        "transport": gateway_params.get("transport") or default_transport,
+        "transport": resolve_gateway_transport(
+            "IB_WEB",
+            gateway_params.get("transport"),
+            default_transport,
+        ),
         "gateway_base_dir": gateway_params.get("base_dir") or "",
         "base_url": base_url,
         "verify_ssl": verify_ssl,

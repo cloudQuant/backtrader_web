@@ -239,6 +239,7 @@ class TestGatewayLifecycle:
             "account_id": "DU123456",
             "base_url": "https://localhost:5000",
         }
+        assert mock_connect.call_args.kwargs["allow_interactive_login"] is False
 
     def test_disconnect_gateway_removes_persisted_manual_gateway(self):
         persisted = [
@@ -264,6 +265,40 @@ class TestGatewayLifecycle:
 
         assert result["status"] == "disconnected"
         mock_save.assert_called_once_with([])
+
+    def test_disconnect_gateway_suppresses_mt5_auto_connect(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
+            "app.services.live_trading_manager.manual_gateway_service.disconnect_gateway",
+            return_value={
+                "gateway_key": "manual:MT5:123456",
+                "status": "disconnected",
+                "message": "ok",
+            },
+        ), patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]), patch(
+            "app.services.live_trading_manager._save_manual_gateways"
+        ), patch("app.services.quote_service.QuoteService") as mock_quote_service:
+            manager = LiveTradingManager()
+            result = manager.disconnect_gateway("manual:MT5:123456")
+
+        assert result["status"] == "disconnected"
+        mock_quote_service.return_value.suppress_auto_connect.assert_called_once_with("MT5")
+
+    def test_connect_gateway_resumes_mt5_auto_connect(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
+            "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
+            return_value={
+                "gateway_key": "manual:MT5:123456",
+                "status": "connected",
+                "message": "ok",
+            },
+        ), patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]), patch(
+            "app.services.live_trading_manager._save_manual_gateways"
+        ), patch("app.services.quote_service.QuoteService") as mock_quote_service:
+            manager = LiveTradingManager()
+            result = manager.connect_gateway("MT5", {"login": 123456, "password": "secret"})
+
+        assert result["status"] == "connected"
+        mock_quote_service.return_value.resume_auto_connect.assert_called_once_with("MT5")
 
     def test_build_subprocess_env_with_gateway(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
