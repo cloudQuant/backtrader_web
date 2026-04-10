@@ -24,6 +24,7 @@ from app.schemas.analytics import (
 from app.services.analytics_service import AnalyticsService
 from app.services.backtest_service import BacktestService
 from app.services.log_parser_service import find_latest_log_dir, parse_data_log, parse_value_log
+from app.services.strategy_runtime_support import has_log_artifacts
 from app.services.strategy_service import get_strategy_dir
 
 logger = logging.getLogger(__name__)
@@ -56,8 +57,10 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
         task = await task_repo.get_by_id(task_id)
         if task and getattr(task, "log_dir", None):
             p = Path(task.log_dir)
-            if p.is_dir():
+            if p.is_dir() and has_log_artifacts(p):
                 return p
+            if p.is_dir() and p.parent.is_dir() and has_log_artifacts(p.parent):
+                return p.parent
     except Exception as e:
         # Task lookup failed; fallback to strategy dir
         logger.debug("Task log dir lookup failed: %s", e)

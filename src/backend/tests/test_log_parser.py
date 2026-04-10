@@ -132,6 +132,8 @@ class TestFindLatestLogDir:
         logs_dir.mkdir()
         (logs_dir / "log_20240101").mkdir()
         (logs_dir / "log_20240102").mkdir()
+        (logs_dir / "log_20240101" / "trade.log").write_text("ok")
+        (logs_dir / "log_20240102" / "trade.log").write_text("ok")
         result = find_latest_log_dir(tmp_path)
         assert result is not None
         assert "20240102" in str(result)

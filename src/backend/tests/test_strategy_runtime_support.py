@@ -32,9 +32,21 @@ class TestFindLatestLogDir:
         (logs_dir / "2024-01-01").mkdir()
         (logs_dir / "2024-01-02").mkdir()
         (logs_dir / "2024-01-03").mkdir()
+        (logs_dir / "2024-01-01" / "value.log").write_text("ok")
+        (logs_dir / "2024-01-02" / "value.log").write_text("ok")
+        (logs_dir / "2024-01-03" / "value.log").write_text("ok")
 
         result = find_latest_log_dir(tmp_path)
         assert result.endswith("2024-01-03")
+
+    def test_ignores_empty_subdir_and_falls_back_to_flat_logs(self, tmp_path: Path):
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "task-empty").mkdir()
+        (logs_dir / "value.log").write_text("datetime\tvalue\tcash\n2024-01-01\t1\t1\n")
+
+        result = find_latest_log_dir(tmp_path)
+        assert result == str(logs_dir)
 
     def test_returns_logs_dir_when_flat_files_exist(self, tmp_path: Path):
         """Test returns logs directory when flat log files exist."""
@@ -331,7 +343,7 @@ class TestWorkspaceUnitRuntime:
         config = yaml.safe_load((runtime_dir / "config.yaml").read_text(encoding="utf-8"))
         assert config["data"]["symbol"] == "AAPL"
         assert config["data"]["asset_type"] == "forex"
-        assert config["data"]["directory_path"].endswith("market_data\\forex")
+        assert Path(config["data"]["directory_path"]).name == "forex"
         assert config["params"]["boll_period"] == 20
         assert config["backtest"]["initial_cash"] == 250000
         assert config["workspace_unit"]["template_dir"] == str(template_dir)

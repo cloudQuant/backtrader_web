@@ -19,6 +19,24 @@ _FLAT_LOG_FILENAMES = frozenset(
     }
 )
 
+_LOG_METADATA_FILENAMES = frozenset(
+    {
+        "current_position.yaml",
+        "current_position.json",
+        "run_info.json",
+        "monitor.log",
+        "error.log",
+        "signal.log",
+    }
+)
+
+
+def has_log_artifacts(log_dir: Path) -> bool:
+    if not log_dir.is_dir():
+        return False
+    known_files = _FLAT_LOG_FILENAMES | _LOG_METADATA_FILENAMES
+    return any((log_dir / file_name).is_file() for file_name in known_files)
+
 
 def find_latest_log_dir(strategy_dir: Path) -> str | None:
     logs_dir = strategy_dir / "logs"
@@ -29,9 +47,10 @@ def find_latest_log_dir(strategy_dir: Path) -> str | None:
         key=lambda p: p.name,
         reverse=True,
     )
-    if subdirs:
-        return str(subdirs[0])
-    if any((logs_dir / file_name).is_file() for file_name in _FLAT_LOG_FILENAMES):
+    meaningful_subdirs = [d for d in subdirs if has_log_artifacts(d)]
+    if meaningful_subdirs:
+        return str(meaningful_subdirs[0])
+    if has_log_artifacts(logs_dir):
         return str(logs_dir)
     return None
 

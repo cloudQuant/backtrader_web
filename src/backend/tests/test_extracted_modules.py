@@ -352,8 +352,8 @@ class TestStrategyRuntimeSupport:
         new_dir = logs_dir / "log_20240102"
         old_dir.mkdir(parents=True)
         new_dir.mkdir(parents=True)
-        old_dir.touch()
-        new_dir.touch()
+        (old_dir / "trade.log").write_text("ok", encoding="utf-8")
+        (new_dir / "trade.log").write_text("ok", encoding="utf-8")
         result = strategy_runtime_support.find_latest_log_dir(tmp_path)
         assert result == str(new_dir)
 

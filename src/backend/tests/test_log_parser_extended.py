@@ -25,6 +25,7 @@ from app.services.log_parser_service import (
     parse_position_log,
     parse_run_info,
     parse_trade_log,
+    parse_value_log,
 )
 
 
@@ -114,7 +115,7 @@ class TestParseOrderLog:
         assert len(orders) == 1
         assert orders[0]["ref"] == 1
         assert orders[0]["type"] == "SELL"
-        assert orders[0]["dt"] == "2026-04-08T15:42:14.393+08:00"
+        assert orders[0]["dt"] == "2026-04-08"
 
 
 class TestParseDataLog:
@@ -209,6 +210,77 @@ class TestParsePipeTradeLog:
         assert trades[0]["data_name"] == "EURUSD"
         assert trades[0]["direction"] == "sell"
         assert trades[0]["pnlcomm"] == -36150.83
+
+
+class TestParseTextTradeLoggerLogs:
+    def test_parse_text_value_log(self, tmp_path: Path):
+        (tmp_path / "value.log").write_text(
+            "2026-04-10T07:57:30.133+08:00 | datetime=2020-01-02 00:00:00 | value=100000.00 | cash=100000.00\n"
+            "2026-04-10T07:57:30.134+08:00 | datetime=2020-01-03 00:00:00 | value=100100.00 | cash=99900.00\n",
+            encoding="utf-8",
+        )
+
+        result = parse_value_log(tmp_path)
+
+        assert result["dates"] == ["2020-01-02", "2020-01-03"]
+        assert result["equity_curve"] == [100000.0, 100100.0]
+        assert result["cash_curve"] == [100000.0, 99900.0]
+
+    def test_parse_text_bar_and_indicator_logs(self, tmp_path: Path):
+        (tmp_path / "value.log").write_text(
+            "2026-04-10T07:57:30.133+08:00 | datetime=2020-01-02 00:00:00 | value=100000.00 | cash=100000.00\n"
+            "2026-04-10T07:57:30.134+08:00 | datetime=2020-01-03 00:00:00 | value=100100.00 | cash=99900.00\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "bar.log").write_text(
+            "2026-04-10T07:57:30.133+08:00 | BAR | data_name=AAPL | open=74.0600 | high=75.1500 | low=73.8000 | close=75.1500 | volume=88333.00 | broker_value=100000.00 | broker_cash=100000.00\n"
+            "2026-04-10T07:57:30.134+08:00 | BAR | data_name=AAPL | open=74.2800 | high=75.1500 | low=74.1300 | close=74.3500 | volume=86262.00 | broker_value=100100.00 | broker_cash=99900.00\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "indicator.log").write_text(
+            "2026-04-10T07:57:30.133+08:00 | INDICATOR | datetime=2020-01-02 00:00:00 | CrossOver=0.0000 | dema_fast_DoubleExponentialMovingAverage_dema=78.8130\n"
+            "2026-04-10T07:57:30.134+08:00 | INDICATOR | datetime=2020-01-03 00:00:00 | CrossOver=1.0000 | dema_fast_DoubleExponentialMovingAverage_dema=79.1200\n",
+            encoding="utf-8",
+        )
+
+        result = parse_data_log(tmp_path)
+
+        assert result["dates"] == ["2020-01-02 00:00:00", "2020-01-03 00:00:00"]
+        assert result["ohlc"][0] == [74.06, 75.15, 73.8, 75.15]
+        assert result["volumes"] == [88333.0, 86262.0]
+        assert result["indicators"]["CrossOver"] == [0.0, 1.0]
+
+    def test_parse_text_position_log(self, tmp_path: Path):
+        (tmp_path / "value.log").write_text(
+            "2026-04-10T07:57:30.133+08:00 | datetime=2020-01-02 00:00:00 | value=100000.00 | cash=100000.00\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "position.log").write_text(
+            "2026-04-10T07:57:30.133+08:00 | AAPL | size=10 | price=254.3000 | value=2543.00 | broker_value=100000.00 | broker_cash=97457.00\n",
+            encoding="utf-8",
+        )
+
+        result = parse_position_log(tmp_path)
+
+        assert len(result) == 1
+        assert result[0]["dt"] == "2020-01-02"
+        assert result[0]["data_name"] == "AAPL"
+        assert result[0]["value"] == 2543.0
+
+    def test_parse_pipe_trade_log_with_explicit_datetime_and_price(self, tmp_path: Path):
+        (tmp_path / "trade.log").write_text(
+            "2026-04-10T08:00:00.000+08:00 | OPEN | datetime=2020-01-02 00:00:00 | ref=1 | data=AAPL | size=10 | price=83.3800 | value=833.80 | commission=0.17 | pnl=0.00 | pnlcomm=-0.17\n"
+            "2026-04-10T08:01:00.000+08:00 | CLOSED | datetime=2020-01-09 00:00:00 | ref=1 | data=AAPL | size=0 | price=88.4500 | value=0.00 | commission=0.17 | pnl=53.30 | pnlcomm=52.96\n",
+            encoding="utf-8",
+        )
+
+        trades = parse_trade_log(tmp_path)
+
+        assert len(trades) == 1
+        assert trades[0]["dtopen"] == "2020-01-02 00:00:00"
+        assert trades[0]["dtclose"] == "2020-01-09 00:00:00"
+        assert trades[0]["price"] == 83.38
+        assert trades[0]["value"] == 833.8
 
 
 class TestParseRunInfo:

@@ -124,6 +124,35 @@ def _parse_pipe_lines(filepath: Path) -> list[dict[str, str]]:
     return rows
 
 
+def _parse_pipe_key_value_lines(filepath: Path) -> list[dict[str, str]]:
+    if not filepath.is_file():
+        return []
+
+    rows: list[dict[str, str]] = []
+    with open(filepath, encoding="utf-8") as f:
+        for line in f:
+            text = line.strip()
+            if not text or "|" not in text:
+                continue
+            parts = [part.strip() for part in text.split("|")]
+            if len(parts) < 2:
+                continue
+            row: dict[str, str] = {"log_time": parts[0]}
+            unlabeled: list[str] = []
+            for part in parts[1:]:
+                if not part:
+                    continue
+                if "=" in part:
+                    key, value = part.split("=", 1)
+                    row[key.strip()] = value.strip()
+                    continue
+                unlabeled.append(part)
+            if unlabeled:
+                row["event"] = unlabeled[0]
+            rows.append(row)
+    return rows
+
+
 def _normalize_dt_text(value: Any) -> str:
     text = str(value or "").strip()
     return text
@@ -133,6 +162,8 @@ def _normalize_date_text(value: Any) -> str:
     text = _normalize_dt_text(value)
     if " " in text:
         return text.split(" ")[0]
+    if "T" in text:
+        return text.split("T")[0]
     return text
 
 
@@ -156,12 +187,25 @@ def _extract_indicator_values(row: dict[str, Any]) -> dict[str, float]:
         "volume",
         "openinterest",
     }
+    ignored_suffixes = (
+        "_open",
+        "_high",
+        "_low",
+        "_close",
+        "_volume",
+        "_openinterest",
+        "_datetime",
+    )
     values: dict[str, float] = {}
     for key, value in row.items():
         if key in ignored:
             continue
-        if isinstance(value, (int, float)):
-            values[key] = _safe_float(value)
+        if key.endswith(ignored_suffixes):
+            continue
+        if isinstance(value, (int, float, str)):
+            numeric_value = _safe_float(value, default=math.nan)
+            if not math.isnan(numeric_value):
+                values[key] = numeric_value
     return values
 
 
@@ -305,14 +349,17 @@ def parse_value_log(log_dir: Path) -> dict[str, Any]:
     rows = _parse_tsv(log_dir / "value.log")
     if not rows:
         rows = _parse_json_lines(log_dir / "value.log")
+    if not rows:
+        rows = _parse_pipe_key_value_lines(log_dir / "value.log")
     dates = []
     equity = []
     cash = []
 
     for row in rows:
-        dt = _normalize_dt_text(row.get("dt") or row.get("datetime") or row.get("event_time"))
-        if " " in dt:
-            dt = dt.split(" ")[0]
+        dt = _normalize_dt_text(
+            row.get("dt") or row.get("datetime") or row.get("event_time") or row.get("log_time")
+        )
+        dt = _normalize_date_text(dt)
         dates.append(dt)
         equity.append(_safe_float(row.get("value", row.get("broker_value", "0"))))
         cash.append(_safe_float(row.get("cash", row.get("broker_cash", "0"))))
@@ -332,6 +379,18 @@ def parse_value_log(log_dir: Path) -> dict[str, Any]:
         "cash_curve": cash,
         "drawdown_curve": drawdown,
     }
+
+
+def _value_log_datetimes(log_dir: Path) -> list[str]:
+    rows = _parse_json_lines(log_dir / "value.log")
+    if not rows:
+        rows = _parse_pipe_key_value_lines(log_dir / "value.log")
+    result: list[str] = []
+    for row in rows:
+        dt = _normalize_dt_text(row.get("dt") or row.get("datetime") or row.get("event_time"))
+        if dt:
+            result.append(dt)
+    return result
 
 
 def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
@@ -360,7 +419,9 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
             if ref == ungrouped_index:
                 ungrouped_index += 1
             item = grouped.setdefault(ref, {"ref": ref})
-            dt_value = _normalize_dt_text(row.get("datetime"))
+            dt_value = _normalize_dt_text(
+                row.get("datetime") or row.get("event_time") or row.get("log_time")
+            )
             event = str(row.get("event", "")).strip().upper()
             is_open = _is_truthy(row.get("isopen")) or event == "OPEN"
             is_closed = _is_truthy(row.get("isclosed")) or event == "CLOSED"
@@ -387,11 +448,9 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
             item["commission_open"] = item.get("commission_open", 0.0) + (
                 _safe_float(row.get("commission", 0.0)) if is_open else 0.0
             )
-            item["direction"] = (
-                "buy"
-                if _safe_float(row.get("size", item.get("open_size", 0.0)), 0.0) >= 0
-                else "sell"
-            )
+            size_for_direction = _safe_float(row.get("size", item.get("open_size", 0.0)), 0.0)
+            if is_open or "direction" not in item:
+                item["direction"] = "buy" if size_for_direction >= 0 else "sell"
 
         trades: list[dict[str, Any]] = []
         for item in sorted(grouped.values(), key=lambda payload: payload.get("dtclose") or payload.get("dtopen") or ""):
@@ -402,6 +461,10 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
                 item.get("commission_close", 0.0),
                 0.0,
             )
+            open_price = _safe_float(item.get("open_price", item.get("close_price", 0.0)), 0.0)
+            open_value = _safe_float(item.get("open_value", 0.0), 0.0)
+            if open_value <= 0 and open_size > 0 and open_price > 0:
+                open_value = open_size * open_price
             trades.append(
                 {
                     "ref": int(item.get("ref", 0)),
@@ -411,8 +474,8 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
                     "data_name": str(item.get("data_name", "")),
                     "direction": item.get("direction", "buy"),
                     "size": open_size,
-                    "price": round(_safe_float(item.get("open_price", item.get("close_price", 0.0))), 4),
-                    "value": round(abs(_safe_float(item.get("open_value", 0.0))), 2),
+                    "price": round(open_price, 4),
+                    "value": round(abs(open_value), 2),
                     "commission": round(commission, 4),
                     "pnl": round(_safe_float(item.get("pnl", 0.0)), 2),
                     "pnlcomm": round(_safe_float(item.get("pnlcomm", item.get("pnl", 0.0))), 2),
@@ -532,29 +595,46 @@ def parse_data_log(log_dir: Path) -> dict[str, Any]:
     if not rows:
         bar_rows = _parse_json_lines(log_dir / "bar.log")
         if not bar_rows:
+            bar_rows = _parse_pipe_key_value_lines(log_dir / "bar.log")
+        if not bar_rows:
             return {"dates": [], "ohlc": [], "volumes": [], "indicators": {}}
         indicator_rows = _parse_json_lines(log_dir / "indicator.log")
-        indicator_map = {
-            _normalize_dt_text(row.get("datetime")): _extract_indicator_values(row)
-            for row in indicator_rows
-            if _normalize_dt_text(row.get("datetime"))
-        }
+        if not indicator_rows:
+            indicator_rows = _parse_pipe_key_value_lines(log_dir / "indicator.log")
+        fallback_dates = _value_log_datetimes(log_dir)
+        if not fallback_dates:
+            fallback_dates = parse_value_log(log_dir).get("dates", [])
+        indicator_map: dict[str, dict[str, float]] = {}
+        indicator_by_index: dict[int, dict[str, float]] = {}
+        for index, row in enumerate(indicator_rows):
+            dt = _normalize_dt_text(row.get("datetime") or row.get("dt"))
+            if not dt and index < len(fallback_dates):
+                dt = fallback_dates[index]
+            values = _extract_indicator_values(row)
+            if not values:
+                continue
+            if dt:
+                indicator_map[dt] = values
+            indicator_by_index[index] = values
         dates = []
         ohlc = []
         volumes = []
         indicators: dict[str, list[float]] = {}
-        for row in bar_rows:
-            dt = _normalize_dt_text(row.get("datetime"))
+        for index, row in enumerate(bar_rows):
+            dt = _normalize_dt_text(row.get("datetime") or row.get("dt"))
+            if not dt and index < len(fallback_dates):
+                dt = fallback_dates[index]
             if not dt:
                 continue
             dates.append(dt)
-            open_price = _safe_float(row.get("open", 0.0))
-            high_price = _safe_float(row.get("high", 0.0))
-            low_price = _safe_float(row.get("low", 0.0))
-            close_price = _safe_float(row.get("close", 0.0))
+            open_price = _safe_float(row.get("open", row.get("o", row.get("O", 0.0))))
+            high_price = _safe_float(row.get("high", row.get("h", row.get("H", 0.0))))
+            low_price = _safe_float(row.get("low", row.get("l", row.get("L", 0.0))))
+            close_price = _safe_float(row.get("close", row.get("c", row.get("C", 0.0))))
             ohlc.append([open_price, close_price, low_price, high_price])
-            volumes.append(_safe_float(row.get("volume", 0.0)))
-            for key, value in indicator_map.get(dt, {}).items():
+            volumes.append(_safe_float(row.get("volume", row.get("vol", row.get("Volume", 0.0)))))
+            row_indicators = indicator_map.get(dt) or indicator_by_index.get(index, {})
+            for key, value in row_indicators.items():
                 indicators.setdefault(key, [None] * (len(dates) - 1))
                 indicators[key].append(value)
             for _key, values in indicators.items():
@@ -625,21 +705,46 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
     rows = _parse_tsv(log_dir / "position.log")
     if not rows:
         json_rows = _parse_json_lines(log_dir / "position.log")
-        if not json_rows:
+        if json_rows:
+            return [
+                {
+                    "dt": _normalize_date_text(row.get("datetime")),
+                    "datetime": _normalize_dt_text(row.get("datetime")),
+                    "data_name": row.get("data_name", ""),
+                    "size": _safe_float(row.get("size", 0.0)),
+                    "price": round(_safe_float(row.get("price", 0.0)), 4),
+                    "market_value": round(_safe_float(row.get("value", 0.0)), 2),
+                    "value": round(_safe_float(row.get("value", 0.0)), 2),
+                }
+                for row in json_rows
+                if _normalize_dt_text(row.get("datetime"))
+            ]
+        pipe_rows = _parse_pipe_key_value_lines(log_dir / "position.log")
+        if not pipe_rows:
             return []
-        return [
-            {
-                "dt": _normalize_date_text(row.get("datetime")),
-                "datetime": _normalize_dt_text(row.get("datetime")),
-                "data_name": row.get("data_name", ""),
-                "size": _safe_float(row.get("size", 0.0)),
-                "price": round(_safe_float(row.get("price", 0.0)), 4),
-                "market_value": round(_safe_float(row.get("value", 0.0)), 2),
-                "value": round(_safe_float(row.get("value", 0.0)), 2),
-            }
-            for row in json_rows
-            if _normalize_dt_text(row.get("datetime"))
-        ]
+        fallback_dates = _value_log_datetimes(log_dir)
+        if not fallback_dates:
+            fallback_dates = parse_value_log(log_dir).get("dates", [])
+        positions = []
+        for index, row in enumerate(pipe_rows):
+            dt = _normalize_dt_text(row.get("datetime") or row.get("dt"))
+            if not dt and index < len(fallback_dates):
+                dt = fallback_dates[index]
+            size = _safe_float(row.get("size", 0.0))
+            price = _safe_float(row.get("price", 0.0))
+            market_value = _safe_float(row.get("value", abs(size) * price))
+            positions.append(
+                {
+                    "dt": _normalize_date_text(dt),
+                    "datetime": dt,
+                    "data_name": str(row.get("data_name") or row.get("event") or ""),
+                    "size": size,
+                    "price": round(price, 4),
+                    "market_value": round(market_value, 2),
+                    "value": round(market_value, 2),
+                }
+            )
+        return positions
     positions = []
     for row in rows:
         size = _safe_float(row.get("size", "0"))

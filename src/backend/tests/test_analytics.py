@@ -623,8 +623,30 @@ class TestGetBacktestDataExtended:
             MockRepo.return_value = mock_repo_instance
 
             with patch("pathlib.Path.is_dir", return_value=True):
-                result = await _resolve_log_dir("task-123", "test_strategy")
-                assert result == Path("/tmp/test_logs")
+                with patch("app.api.analytics.has_log_artifacts", return_value=True):
+                    result = await _resolve_log_dir("task-123", "test_strategy")
+                    assert result == Path("/tmp/test_logs")
+
+    async def test_resolve_log_dir_falls_back_to_parent_when_task_dir_empty(self):
+        from pathlib import Path
+
+        from app.api.analytics import _resolve_log_dir
+
+        mock_task = MagicMock()
+        mock_task.log_dir = "/tmp/test_logs/task-123"
+
+        with patch("app.api.analytics.SQLRepository") as MockRepo:
+            mock_repo_instance = AsyncMock()
+            mock_repo_instance.get_by_id = AsyncMock(return_value=mock_task)
+            MockRepo.return_value = mock_repo_instance
+
+            with patch("pathlib.Path.is_dir", return_value=True):
+                with patch(
+                    "app.api.analytics.has_log_artifacts",
+                    side_effect=lambda path: Path(path) == Path("/tmp/test_logs"),
+                ):
+                    result = await _resolve_log_dir("task-123", "test_strategy")
+                    assert result == Path("/tmp/test_logs")
 
     async def test_get_backtest_data_with_klines_from_log(self):
         """Test getting K-line data from logs.
