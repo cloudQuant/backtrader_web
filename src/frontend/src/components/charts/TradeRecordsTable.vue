@@ -106,12 +106,6 @@
         sortable
       />
       <el-table-column
-        prop="datetime"
-        label="时间"
-        width="160"
-        sortable
-      />
-      <el-table-column
         prop="direction"
         label="方向"
         width="70"
@@ -126,13 +120,35 @@
         </template>
       </el-table-column>
       <el-table-column
+        prop="dtopen"
+        label="开仓日期"
+        width="110"
+        sortable
+      />
+      <el-table-column
         prop="price"
-        label="价格"
+        label="开仓价"
         width="90"
         sortable
       >
         <template #default="{ row }">
           {{ row.price.toFixed(2) }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        prop="dtclose"
+        label="平仓日期"
+        width="110"
+        sortable
+      />
+      <el-table-column
+        prop="close_price"
+        label="平仓价"
+        width="90"
+        sortable
+      >
+        <template #default="{ row }">
+          {{ row.close_price !== null ? row.close_price.toFixed(2) : '--' }}
         </template>
       </el-table-column>
       <el-table-column
@@ -251,12 +267,14 @@ const lossCount = computed(() => props.trades.filter(t => t.pnl !== null && t.pn
 const totalCommission = computed(() => props.trades.reduce((sum, t) => sum + t.commission, 0))
 
 function handleExport() {
-  const headers = ['序号', '时间', '方向', '价格', '数量', '金额', '手续费', '盈亏', '收益率', '持仓天数', '累计盈亏']
+  const headers = ['序号', '方向', '开仓日期', '开仓价', '平仓日期', '平仓价', '数量', '金额', '手续费', '盈亏', '收益率', '持仓天数', '累计盈亏']
   const rows = filteredTrades.value.map(t => [
     t.id,
-    t.datetime,
     t.direction === 'buy' ? '买入' : '卖出',
+    t.dtopen ?? '',
     t.price,
+    t.dtclose ?? '',
+    t.close_price ?? '',
     t.size,
     t.value,
     t.commission,

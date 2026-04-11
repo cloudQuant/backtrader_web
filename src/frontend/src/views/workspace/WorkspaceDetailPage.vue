@@ -29,27 +29,30 @@
 
     <!-- Content -->
     <template v-else>
-      <el-tabs v-model="activeTab" type="border-card">
+      <el-tabs v-model="activeTab" type="border-card" @tab-remove="handleTabRemove">
         <el-tab-pane label="策略单元" name="units">
           <WorkspaceUnitsTab
             :workspace-id="workspaceId"
             :active="activeTab === 'units'"
             :toolbar-in-header="true"
-            @switch-tab="(t: string) => activeTab = t"
+            @switch-tab="handleSwitchTab"
           />
         </el-tab-pane>
-        <el-tab-pane label="优化结果" name="optimization">
+        <el-tab-pane v-if="showOptTab" label="优化结果" name="optimization" closable>
           <WorkspaceOptimizationTab
             :workspace-id="workspaceId"
             :active="activeTab === 'optimization'"
             :toolbar-in-header="true"
+            :initial-unit-id="initialOptUnitId"
           />
         </el-tab-pane>
-        <el-tab-pane label="组合报告" name="report">
+        <el-tab-pane v-if="showReportTab" label="组合报告" name="report" closable>
           <WorkspaceReportTab
             :workspace-id="workspaceId"
             :active="activeTab === 'report'"
             :toolbar-in-header="true"
+            :initial-unit-id="initialReportUnitId"
+            :initial-unit-ids="initialReportUnitIds"
           />
         </el-tab-pane>
       </el-tabs>
@@ -80,6 +83,33 @@ const store = useWorkspaceStore()
 const workspaceId = route.params.id as string
 const activeTab = ref('units')
 const showDataSourceDialog = ref(false)
+const showOptTab = ref(false)
+const showReportTab = ref(false)
+
+const initialOptUnitId = ref('')
+const initialReportUnitId = ref('')
+const initialReportUnitIds = ref<string[]>([])
+
+function handleSwitchTab(tab: string, unitId?: string, unitIds?: string[]) {
+  if (tab === 'optimization') {
+    showOptTab.value = true
+    if (unitId) initialOptUnitId.value = unitId
+  } else if (tab === 'report') {
+    showReportTab.value = true
+    if (unitId) initialReportUnitId.value = unitId
+    initialReportUnitIds.value = unitIds?.length ? [...unitIds] : (unitId ? [unitId] : [])
+  }
+  activeTab.value = tab
+}
+
+function handleTabRemove(name: string | number) {
+  if (name === 'optimization') {
+    showOptTab.value = false
+  } else if (name === 'report') {
+    showReportTab.value = false
+  }
+  activeTab.value = 'units'
+}
 
 const dataSourceTypeLabel = computed(() => {
   const type = store.currentWorkspace?.settings?.data_source?.type || 'csv'

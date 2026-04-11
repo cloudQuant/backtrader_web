@@ -18,7 +18,7 @@ import tempfile
 import threading
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -175,6 +175,7 @@ def _run_single_trial(
     params: dict[str, Any],
     trial_index: int,
     tmp_base: str,
+    artifact_root: str | None = None,
 ) -> dict[str, Any]:
     """Run a single backtest trial in an isolated process.
 
@@ -201,6 +202,7 @@ def _run_single_trial(
         params,
         trial_index,
         tmp_base,
+        artifact_root,
         parse_trial_logs_fn=_parse_trial_logs,
         subprocess_module=subprocess,
     )
@@ -264,6 +266,8 @@ def submit_optimization(
     n_workers: int = 4,
     task_id: str | None = None,
     persist_to_db: bool = True,
+    strategy_dir: str | None = None,
+    artifact_root: str | None = None,
 ) -> str:
     """Submit an optimization task to run asynchronously.
 
@@ -273,6 +277,8 @@ def submit_optimization(
         n_workers: Number of parallel worker processes to use.
         task_id: Optional task ID (e.g. from DB). If not provided, generates one.
         persist_to_db: If True and task_id is from DB, persist results to DB on completion.
+        strategy_dir: Pre-resolved strategy directory (e.g. unit runtime dir).
+            If provided, skips get_strategy_dir lookup.
 
     Returns:
         The task ID for tracking optimization progress.
@@ -288,15 +294,17 @@ def submit_optimization(
         n_workers=n_workers,
         task_id=task_id,
         persist_to_db=persist_to_db,
+        artifact_root=artifact_root,
         get_strategy_dir=get_strategy_dir,
         generate_param_grid_fn=generate_param_grid,
         set_task_fn=_set_task,
         build_initial_runtime_task_fn=build_initial_runtime_task,
-        created_at_fn=lambda: datetime.now().isoformat(),
+        created_at_fn=lambda: datetime.now(timezone.utc).isoformat(),
         running_status=TaskStatus.RUNNING.value,
         thread_cls=threading.Thread,
         run_optimization_thread_fn=_run_optimization_thread,
         task_id_factory=lambda: uuid.uuid4().hex[:8],
+        strategy_dir_override=strategy_dir,
     )
 
 
@@ -306,6 +314,7 @@ def _run_optimization_thread(
     grid: list[dict[str, Any]],
     n_workers: int,
     persist_to_db: bool = True,
+    artifact_root: str | None = None,
 ):
     """Run multiprocess optimization in a background thread.
 
@@ -322,6 +331,7 @@ def _run_optimization_thread(
         grid,
         n_workers,
         persist_to_db=persist_to_db,
+        artifact_root=artifact_root,
         run_single_trial_fn=_run_single_trial,
         is_cancelled_fn=_is_optimization_cancelled,
         persist_runtime_task_fn=_persist_runtime_task,
@@ -422,7 +432,7 @@ def _build_backtest_optimization_runtime_task(
         "failed": 0,
         "results": [],
         "n_workers": 1 if request.method == "bayesian" else 4,
-        "created_at": datetime.now().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
         "error": None,
     }
 

@@ -641,12 +641,35 @@ class TestGetBacktestDataExtended:
             MockRepo.return_value = mock_repo_instance
 
             with patch("pathlib.Path.is_dir", return_value=True):
-                with patch(
-                    "app.api.analytics.has_log_artifacts",
-                    side_effect=lambda path: Path(path) == Path("/tmp/test_logs"),
-                ):
-                    result = await _resolve_log_dir("task-123", "test_strategy")
-                    assert result == Path("/tmp/test_logs")
+                with patch("app.api.analytics.latest_meaningful_log_subdir", return_value=None):
+                    with patch(
+                        "app.api.analytics.has_log_artifacts",
+                        side_effect=lambda path: Path(path) == Path("/tmp/test_logs"),
+                    ):
+                        result = await _resolve_log_dir("task-123", "test_strategy")
+                        assert result == Path("/tmp/test_logs")
+
+    async def test_resolve_log_dir_prefers_latest_meaningful_sibling_task_dir(self):
+        from pathlib import Path
+
+        from app.api.analytics import _resolve_log_dir
+
+        mock_task = MagicMock()
+        mock_task.log_dir = "/tmp/test_logs/task-older"
+
+        with patch("app.api.analytics.SQLRepository") as MockRepo:
+            mock_repo_instance = AsyncMock()
+            mock_repo_instance.get_by_id = AsyncMock(return_value=mock_task)
+            MockRepo.return_value = mock_repo_instance
+
+            with patch("pathlib.Path.is_dir", return_value=True):
+                with patch("app.api.analytics.has_log_artifacts", return_value=False):
+                    with patch(
+                        "app.api.analytics.latest_meaningful_log_subdir",
+                        return_value=Path("/tmp/test_logs/task-newer"),
+                    ):
+                        result = await _resolve_log_dir("task-123", "test_strategy")
+                        assert result == Path("/tmp/test_logs/task-newer")
 
     async def test_get_backtest_data_with_klines_from_log(self):
         """Test getting K-line data from logs.
@@ -697,6 +720,62 @@ class TestGetBacktestDataExtended:
                     assert result["klines"][0]["high"] == 10.5
                     assert result["klines"][0]["low"] == 9.8
                     assert "log_indicators" in result
+
+    async def test_get_backtest_data_normalizes_dates_across_series(self):
+        from pathlib import Path
+
+        from app.api.analytics import get_backtest_data
+
+        mock_result = Mock()
+        mock_result.strategy_id = "test_strategy"
+        mock_result.symbol = "AAPL"
+        mock_result.start_date = "2004-03-10"
+        mock_result.end_date = "2004-03-11"
+        mock_result.created_at = "2004-03-11"
+        mock_result.equity_curve = [100000, 101000]
+        mock_result.equity_dates = ["2004-03-10T00:00:00+00:00", "2004-03-11T00:00:00+00:00"]
+        mock_result.drawdown_curve = [0, -0.01]
+        mock_result.trades = []
+
+        mock_service = AsyncMock()
+        mock_service.get_result = AsyncMock(return_value=mock_result)
+
+        with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
+            mock_resolve.return_value = Path("/tmp/logs")
+
+            with patch("app.api.analytics.parse_value_log", return_value={
+                "dates": ["2004-03-10", "2004-03-11"],
+                "cash_curve": [50000, 49000],
+            }):
+                with patch("app.api.analytics.parse_data_log", return_value={
+                    "dates": ["2004-03-10 00:00:00", "2004-03-11 00:00:00"],
+                    "ohlc": [[10.0, 10.3, 9.8, 10.5], [10.3, 10.4, 10.1, 10.6]],
+                    "volumes": [1000, 1200],
+                    "indicators": {"ma5": [10.1, 10.2]},
+                }):
+                    with patch("app.services.log_parser_service.parse_trade_log", return_value=[{
+                        "direction": "buy",
+                        "price": 10.0,
+                        "size": 100,
+                        "value": 1000,
+                        "commission": 1.0,
+                        "pnl": 100.0,
+                        "dtopen": "2004-03-10 00:00:00",
+                        "dtclose": "2004-03-11 00:00:00",
+                        "datetime": "2004-03-11 00:00:00",
+                    }]):
+                        result = await get_backtest_data("task-123", mock_service)
+
+        assert result is not None
+        assert result["equity_curve"][0]["date"] == "2004-03-10"
+        assert result["equity_curve"][0]["cash"] == 50000
+        assert result["equity_curve"][1]["date"] == "2004-03-11"
+        assert result["klines"][0]["date"] == "2004-03-10"
+        assert result["klines"][1]["date"] == "2004-03-11"
+        assert result["signals"][0]["date"] == "2004-03-10"
+        assert result["signals"][0]["price"] == 10.3
+        assert result["signals"][1]["date"] == "2004-03-11"
+        assert result["signals"][1]["price"] == 10.4
 
     async def test_get_backtest_data_with_parse_exception(self):
         """Test K-line data parsing exception handling.

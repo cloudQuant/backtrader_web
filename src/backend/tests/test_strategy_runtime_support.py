@@ -1,5 +1,6 @@
 """Tests for strategy_runtime_support module."""
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,6 +39,21 @@ class TestFindLatestLogDir:
 
         result = find_latest_log_dir(tmp_path)
         assert result.endswith("2024-01-03")
+
+    def test_returns_latest_subdir_by_mtime_for_task_dirs(self, tmp_path: Path):
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        older_dir = logs_dir / "task_zzzz-old"
+        newer_dir = logs_dir / "task_aaaa-new"
+        older_dir.mkdir()
+        newer_dir.mkdir()
+        (older_dir / "value.log").write_text("datetime\tvalue\tcash\n2024-01-01\t1\t1\n")
+        (newer_dir / "value.log").write_text("datetime\tvalue\tcash\n2024-01-02\t1\t1\n")
+        os.utime(older_dir, (1_700_000_000, 1_700_000_000))
+        os.utime(newer_dir, (1_800_000_000, 1_800_000_000))
+
+        result = find_latest_log_dir(tmp_path)
+        assert result == str(newer_dir)
 
     def test_ignores_empty_subdir_and_falls_back_to_flat_logs(self, tmp_path: Path):
         logs_dir = tmp_path / "logs"

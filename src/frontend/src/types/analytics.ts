@@ -41,9 +41,12 @@ export interface DrawdownPoint {
 export interface TradeRecord {
   id: number
   datetime: string
+  dtopen: string | null
+  dtclose: string | null
   symbol: string
   direction: 'buy' | 'sell'
   price: number
+  close_price: number | null
   size: number
   value: number
   commission: number
@@ -98,6 +101,11 @@ export interface BacktestDetailResponse {
   drawdown_curve: DrawdownPoint[]
   trades: TradeRecord[]
   created_at: string
+  artifact_path?: string | null
+  artifact_manifest_path?: string | null
+  artifact_summary_path?: string | null
+  artifact_status?: string | null
+  artifact_error?: string | null
 }
 
 export interface KlineWithSignalsResponse {

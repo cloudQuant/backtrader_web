@@ -57,17 +57,51 @@ class TestBacktestServiceHelpers:
         assert "x = 1" in content
         assert "y = 2" in content
 
-    def test_write_subprocess_sitecustomize_installs_trade_logger_compat(self, tmp_path: Path):
-        BacktestService._write_subprocess_sitecustomize(tmp_path)
-        BacktestService._write_subprocess_sitecustomize(tmp_path)
+    def test_normalize_trade_logger_params_rewrites_legacy_kwargs(self, tmp_path: Path):
+        run_py = tmp_path / "run.py"
+        run_py.write_text(
+            "cerebro.addobserver(\n"
+            "    bt.observers.TradeLogger,\n"
+            "    log_data=True,\n"
+            "    log_file_enabled=True,\n"
+            "    file_format='log',\n"
+            "    log_dir=log_dir,\n"
+            ")\n",
+            encoding="utf-8",
+        )
+        BacktestService._normalize_trade_logger_params(run_py)
+        content = run_py.read_text(encoding="utf-8")
+        assert "log_bars=True" in content
+        assert "log_data=" not in content
+        assert "log_file_enabled" not in content
+        assert "file_format=" not in content
+        assert "log_format='text'" in content
 
-        content = (tmp_path / "sitecustomize.py").read_text(encoding="utf-8")
+    def test_normalize_trade_logger_params_noop_on_current_params(self, tmp_path: Path):
+        run_py = tmp_path / "run.py"
+        original = (
+            "cerebro.addobserver(\n"
+            "    bt.observers.TradeLogger,\n"
+            "    log_bars=True,\n"
+            "    log_format='text',\n"
+            "    log_dir=str(log_dir),\n"
+            ")\n"
+        )
+        run_py.write_text(original, encoding="utf-8")
+        BacktestService._normalize_trade_logger_params(run_py)
+        assert run_py.read_text(encoding="utf-8") == original
 
-        assert content.count("Backtrader Web subprocess compatibility") == 1
-        assert '"log_data"' in content
-        assert '"log_file_enabled"' in content
-        assert '"file_format"' in content
-        assert "BacktraderWebTradeLogger" in content
+    def test_copy_log_artifacts_copies_flat_logs_into_task_dir(self, tmp_path: Path):
+        source_dir = tmp_path / "logs"
+        source_dir.mkdir()
+        target_dir = source_dir / "task_task123"
+        (source_dir / "bar.log").write_text("bar-data\n", encoding="utf-8")
+        (source_dir / "value.log").write_text("value-data\n", encoding="utf-8")
+
+        BacktestService._copy_log_artifacts(source_dir, target_dir)
+
+        assert (target_dir / "bar.log").read_text(encoding="utf-8") == "bar-data\n"
+        assert (target_dir / "value.log").read_text(encoding="utf-8") == "value-data\n"
 
     def test_write_temp_config(self, tmp_path: Path):
         svc = BacktestService()
@@ -186,7 +220,7 @@ class TestRunStrategySubprocess:
             process.returncode = 0
             process.communicate.return_value = ("output", "")
 
-            with patch("subprocess.Popen", return_value=process):
+            with patch("subprocess.Popen", return_value=process) as mock_popen:
                 with patch("app.config.get_settings") as mock_settings:
                     mock_settings.return_value = MagicMock(BACKTEST_TIMEOUT=60)
                     result = await svc._run_strategy_subprocess(work_dir, task_id="task123")
@@ -194,6 +228,8 @@ class TestRunStrategySubprocess:
         assert result == {"stdout": "output", "stderr": ""}
         task_runner.register_process.assert_called_once_with("task123", process)
         task_runner.unregister_process.assert_called_once_with("task123")
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["BACKTRADER_LOG_DIR"].endswith("logs/task_task123")
 
     async def test_run_strategy_subprocess_raises_on_failure(self):
         svc = BacktestService(task_runner=MagicMock(spec=BacktestExecutionRunner))

@@ -6,8 +6,10 @@ and workspace-level run orchestration (Phase 3).
 """
 
 import asyncio
+import json
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -17,6 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.database import async_session_maker
 from app.models.backtest import BacktestTask
+from app.models.optimization import OptimizationTask
 from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.backtest import BacktestRequest, TaskStatus
 from app.schemas.workspace import (
@@ -34,7 +37,11 @@ from app.schemas.workspace import (
 from app.services import workspace_unit_runtime
 from app.services.fincore_metrics_helper import calculate_extended_metrics
 from app.services.optimization_execution_manager import get_optimization_execution_manager
-from app.services.optimization_task_state import build_results_response
+from app.services.optimization_task_state import (
+    build_results_response,
+    estimate_remaining_seconds,
+    get_runtime_task,
+)
 from app.services.param_optimization_service import (
     get_optimization_progress,
     get_optimization_results,
@@ -42,6 +49,14 @@ from app.services.param_optimization_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_UNIT_START_DATE = datetime(2020, 1, 1, tzinfo=timezone.utc)
+_ACTIVE_OPTIMIZATION_STATUSES = {"pending", "queued", "running"}
+_TERMINAL_OPTIMIZATION_STATUSES = {
+    TaskStatus.COMPLETED.value,
+    TaskStatus.FAILED.value,
+    TaskStatus.CANCELLED.value,
+}
 
 
 def _default_workspace_settings() -> dict[str, Any]:
@@ -133,6 +148,38 @@ def _workspace_settings_dict(ws: Workspace) -> dict[str, Any]:
     return _normalize_workspace_settings(None)
 
 
+def _default_unit_start_date_iso() -> str:
+    return _DEFAULT_UNIT_START_DATE.isoformat()
+
+
+def _default_unit_end_date_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _write_json_file(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+
+def _normalize_unit_data_config(data_config: dict[str, Any] | None) -> dict[str, Any]:
+    normalized = dict(data_config or {})
+    range_type = str(normalized.get("range_type") or "date").strip().lower()
+    normalized["range_type"] = range_type if range_type in {"date", "sample"} else "date"
+    if normalized["range_type"] == "date":
+        if not str(normalized.get("start_date") or "").strip():
+            normalized["start_date"] = _default_unit_start_date_iso()
+        normalized["use_end_date"] = normalized.get("use_end_date") is not False
+        if normalized["use_end_date"] and not str(normalized.get("end_date") or "").strip():
+            normalized["end_date"] = _default_unit_end_date_iso()
+        normalized.pop("sample_count", None)
+        normalized.pop("bar_count", None)
+    else:
+        if normalized.get("sample_count") in (None, "", 0):
+            normalized["sample_count"] = 1000
+    return normalized
+
+
 def _workspace_to_response(ws: Workspace) -> WorkspaceResponse:
     """Convert a Workspace ORM object to a WorkspaceResponse, including aggregated fields."""
     units = ws.strategy_units or []
@@ -156,7 +203,7 @@ class WorkspaceService:
 
     @staticmethod
     def _requested_bar_count(unit: StrategyUnit) -> int | None:
-        data_cfg = unit.data_config or {}
+        data_cfg = _normalize_unit_data_config(unit.data_config)
         value = data_cfg.get("bar_count")
         try:
             bar_count = int(value) if value is not None else 0
@@ -165,25 +212,186 @@ class WorkspaceService:
         return bar_count if bar_count > 0 else None
 
     @staticmethod
+    async def _resolve_unit_log_dir(
+        backtest_service: "BacktestService",  # noqa: F821
+        task_id: str,
+        user_id: str | None,
+    ) -> Path | None:
+        task = await backtest_service.task_manager.get_task(task_id, user_id=user_id)
+        if not task or not task.log_dir:
+            return None
+
+        try:
+            from app.api.analytics import _resolve_log_dir
+
+            strategy_id = str(getattr(task, "strategy_id", "") or "").strip()
+            if strategy_id:
+                resolved = await _resolve_log_dir(task_id, strategy_id)
+                if resolved and resolved.is_dir():
+                    return resolved
+        except Exception as exc:
+            logger.debug("Failed to resolve unit log dir for task %s: %s", task_id, exc)
+
+        persisted_log_dir = Path(task.log_dir)
+        return persisted_log_dir if persisted_log_dir.is_dir() else None
+
+    @staticmethod
+    def _db_task_elapsed_seconds(task: BacktestTask | OptimizationTask | None) -> float | None:
+        if task is None or task.created_at is None:
+            return None
+        end_time = task.updated_at
+        if str(getattr(task, "status", "") or "") in {
+            TaskStatus.RUNNING.value,
+            "pending",
+            "queued",
+            "running",
+        }:
+            end_time = datetime.now(timezone.utc)
+        if end_time is None:
+            return None
+        elapsed = (end_time - task.created_at).total_seconds()
+        if elapsed < 0:
+            return None
+        return round(elapsed, 2)
+
+    @staticmethod
+    def _task_elapsed_seconds(task: BacktestTask | None) -> float | None:
+        return WorkspaceService._db_task_elapsed_seconds(task)
+
+    @staticmethod
+    def _runtime_optimization_elapsed_seconds(task: dict[str, Any] | None) -> float | None:
+        if not task:
+            return None
+        created_at = WorkspaceService._parse_runtime_datetime(task.get("created_at"))
+        if created_at is None:
+            return None
+        status = str(task.get("status") or "")
+        if not status or status in _ACTIVE_OPTIMIZATION_STATUSES:
+            end_time = datetime.now(timezone.utc)
+        else:
+            end_time = WorkspaceService._parse_runtime_datetime(task.get("updated_at")) or created_at
+        elapsed = (end_time - created_at).total_seconds()
+        if elapsed < 0:
+            return None
+        return round(elapsed, 2)
+
+    @staticmethod
+    def _parse_runtime_datetime(value: Any) -> datetime | None:
+        if not value:
+            return None
+        try:
+            resolved = datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+        if resolved.tzinfo is None:
+            resolved = resolved.replace(tzinfo=timezone.utc)
+        return resolved
+
+    @staticmethod
+    def _build_runtime_optimization_progress(task: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not task:
+            return None
+        total_c = int(task.get("total") or 0)
+        completed_c = int(task.get("completed") or 0) + int(task.get("failed") or 0)
+        pct = round(completed_c / total_c * 100, 1) if total_c > 0 else 0
+        elapsed_seconds = WorkspaceService._runtime_optimization_elapsed_seconds(task)
+        status = str(task.get("status") or "")
+        return {
+            "opt_status": task.get("status"),
+            "opt_total": total_c,
+            "opt_completed": completed_c,
+            "opt_progress": pct,
+            "opt_elapsed_time": elapsed_seconds if elapsed_seconds is not None else 0.0,
+            "opt_remaining_time": estimate_remaining_seconds(
+                total=total_c,
+                finished=completed_c,
+                n_workers=int(task.get("n_workers") or 1),
+                elapsed_time=elapsed_seconds,
+                status=status,
+                task=task,
+            ),
+        }
+
+    @staticmethod
+    def _build_db_optimization_progress(task: OptimizationTask | None) -> dict[str, Any] | None:
+        if task is None:
+            return None
+        total_c = int(task.total or 0)
+        completed_c = int(task.completed or 0) + int(task.failed or 0)
+        pct = round(completed_c / total_c * 100, 1) if total_c > 0 else 0
+        elapsed_seconds = WorkspaceService._db_task_elapsed_seconds(task)
+        status = str(task.status or "")
+        return {
+            "opt_status": task.status,
+            "opt_total": total_c,
+            "opt_completed": completed_c,
+            "opt_progress": pct,
+            "opt_elapsed_time": elapsed_seconds if elapsed_seconds is not None else 0.0,
+            "opt_remaining_time": estimate_remaining_seconds(
+                total=total_c,
+                finished=completed_c,
+                n_workers=int(task.n_workers or 1),
+                elapsed_time=elapsed_seconds,
+                status=status,
+            ),
+        }
+
+    @staticmethod
+    def _resolve_optimization_progress(
+        runtime_task: dict[str, Any] | None,
+        db_task: OptimizationTask | None,
+    ) -> dict[str, Any] | None:
+        runtime_progress = WorkspaceService._build_runtime_optimization_progress(runtime_task)
+        db_progress = WorkspaceService._build_db_optimization_progress(db_task)
+
+        db_status = str((db_progress or {}).get("opt_status") or "")
+        if db_progress and db_status in _TERMINAL_OPTIMIZATION_STATUSES:
+            return db_progress
+
+        runtime_status = str((runtime_progress or {}).get("opt_status") or "")
+        if runtime_progress and runtime_status in _TERMINAL_OPTIMIZATION_STATUSES:
+            return runtime_progress
+
+        return runtime_progress or db_progress
+
+    @staticmethod
+    def _optimization_progress_response_to_opt_info(
+        progress: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not progress:
+            return None
+        completed = int(progress.get("completed") or 0) + int(progress.get("failed") or 0)
+        return {
+            "opt_status": progress.get("status"),
+            "opt_total": int(progress.get("total") or 0),
+            "opt_completed": completed,
+            "opt_progress": float(progress.get("progress") or 0.0),
+            "opt_elapsed_time": float(progress.get("elapsed_time") or 0.0),
+            "opt_remaining_time": float(progress.get("remaining_time") or 0.0),
+        }
+
+    @staticmethod
     async def _resolve_unit_bar_count(
         backtest_service: "BacktestService",  # noqa: F821
         task_id: str,
         user_id: str | None,
         bt_result: Any | None = None,
     ) -> int:
-        task = await backtest_service.task_manager.get_task(task_id, user_id=user_id)
-        if task and task.log_dir:
+        resolved_log_dir = await WorkspaceService._resolve_unit_log_dir(
+            backtest_service,
+            task_id,
+            user_id,
+        )
+        if resolved_log_dir:
             from app.services.log_parser_service import parse_log_dir
 
-            persisted_log_dir = Path(task.log_dir)
-            if persisted_log_dir.is_dir():
-                log_result = parse_log_dir(persisted_log_dir)
-                if log_result:
-                    kline = log_result.get("kline")
-                    if isinstance(kline, dict):
-                        dates = kline.get("dates")
-                        if isinstance(dates, list) and dates:
-                            return len(dates)
+            log_result = parse_log_dir(resolved_log_dir)
+            if log_result:
+                kline = log_result.get("kline")
+                if isinstance(kline, dict):
+                    dates = kline.get("dates")
+                    if isinstance(dates, list) and dates:
+                        return len(dates)
 
         if bt_result is not None:
             equity_dates = getattr(bt_result, "equity_dates", None) or []
@@ -194,6 +402,275 @@ class WorkspaceService:
                 return len(equity_curve)
 
         return 0
+
+    @staticmethod
+    def _resolve_optimization_artifact_log_dir(result_entry: dict[str, Any]) -> Path | None:
+        artifact_path = Path(str(result_entry.get("artifact_path") or "")).expanduser()
+        if not artifact_path.is_dir():
+            return None
+        logs_dir = artifact_path / "logs"
+        if logs_dir.is_dir():
+            return logs_dir
+        return artifact_path
+
+    @staticmethod
+    def _build_optimization_artifact_metadata(
+        task_id: str,
+        result_index: int,
+        result_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        artifact_path = str(result_entry.get("artifact_path") or "")
+        artifact_dir = Path(artifact_path).expanduser() if artifact_path else None
+        manifest_path = artifact_dir.parent / "manifest.json" if artifact_dir else None
+        summary_path = artifact_dir.parent / "summary.json" if artifact_dir else None
+        is_success = bool(result_entry.get("success")) or bool(result_entry.get("metrics"))
+        return {
+            "artifact_path": artifact_path or None,
+            "artifact_manifest_path": str(manifest_path) if manifest_path and manifest_path.is_file() else None,
+            "artifact_summary_path": str(summary_path) if summary_path and summary_path.is_file() else None,
+            "artifact_status": "success" if is_success else "failed",
+            "artifact_error": result_entry.get("error"),
+            "optimization_task_id": task_id,
+            "optimization_result_index": result_index,
+            "trial_index": result_entry.get("trial_index"),
+        }
+
+    @staticmethod
+    def _build_optimization_trial_payload(
+        task_id: str,
+        result_index: int,
+        unit: StrategyUnit,
+        log_result: dict[str, Any],
+        created_at: str,
+        result_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        equity_values = [float(v or 0.0) for v in (log_result.get("equity_curve") or [])]
+        equity_dates = [str(v or "") for v in (log_result.get("equity_dates") or [])]
+        cash_values = [float(v or 0.0) for v in (log_result.get("cash_curve") or [])]
+        raw_trades = list(log_result.get("trades") or [])
+        kline = cast(dict[str, Any], log_result.get("kline") or {})
+        kline_dates = [str(v or "") for v in (kline.get("dates") or [])]
+        kline_ohlc = list(kline.get("ohlc") or [])
+        kline_volumes = list(kline.get("volumes") or [])
+        log_indicators = cast(dict[str, list[float | None]], kline.get("indicators") or {})
+
+        equity_curve: list[dict[str, Any]] = []
+        drawdown_curve: list[dict[str, Any]] = []
+        peak = 0.0
+        for index, value in enumerate(equity_values):
+            if value > peak:
+                peak = value
+            date = (equity_dates[index] if index < len(equity_dates) else "")[:10]
+            cash = cash_values[index] if index < len(cash_values) else value
+            position_value = value - cash
+            drawdown = ((value - peak) / peak) if peak > 0 else 0.0
+            equity_curve.append(
+                {
+                    "date": date,
+                    "total_assets": round(value, 2),
+                    "cash": round(cash, 2),
+                    "position_value": round(position_value, 2),
+                }
+            )
+            drawdown_curve.append(
+                {
+                    "date": date,
+                    "drawdown": round(drawdown, 6),
+                    "peak": round(peak, 2),
+                    "trough": round(value, 2),
+                }
+            )
+
+        klines: list[dict[str, Any]] = []
+        kline_close_map: dict[str, float] = {}
+        for index, date in enumerate(kline_dates):
+            normalized_date = date[:10]
+            ohlc = kline_ohlc[index] if index < len(kline_ohlc) else [0.0, 0.0, 0.0, 0.0]
+            open_price = float(ohlc[0]) if len(ohlc) > 0 else 0.0
+            close_price = float(ohlc[1]) if len(ohlc) > 1 else 0.0
+            low_price = float(ohlc[2]) if len(ohlc) > 2 else 0.0
+            high_price = float(ohlc[3]) if len(ohlc) > 3 else 0.0
+            klines.append(
+                {
+                    "date": normalized_date,
+                    "open": round(open_price, 4),
+                    "high": round(high_price, 4),
+                    "low": round(low_price, 4),
+                    "close": round(close_price, 4),
+                    "volume": kline_volumes[index] if index < len(kline_volumes) else 0,
+                }
+            )
+            if normalized_date:
+                kline_close_map[normalized_date] = round(close_price, 4)
+
+        trades: list[dict[str, Any]] = []
+        signals: list[dict[str, Any]] = []
+        symbol = str(unit.symbol or unit.symbol_name or unit.strategy_name or "Unknown")
+        for index, trade in enumerate(raw_trades):
+            trade_data = dict(trade or {})
+            pnl = trade_data.get("pnl")
+            if pnl is None:
+                pnl = trade_data.get("pnlcomm")
+            open_price = float(trade_data.get("price", 0) or 0)
+            size = float(trade_data.get("size", 0) or 0)
+            direction = str(trade_data.get("direction", "buy") or "buy")
+            dtopen = str(trade_data.get("dtopen", "") or "")[:10]
+            dtclose = str(trade_data.get("dtclose", trade_data.get("datetime", "")) or "")[:10]
+
+            trade_payload = {
+                "id": index + 1,
+                "datetime": str(trade_data.get("datetime", dtclose) or dtclose)[:10],
+                "dtopen": dtopen,
+                "dtclose": dtclose,
+                "symbol": symbol,
+                "direction": direction,
+                "price": open_price,
+                "close_price": trade_data.get("close_price"),
+                "size": size,
+                "value": float(trade_data.get("value", 0) or 0),
+                "commission": float(trade_data.get("commission", 0) or 0),
+                "pnl": pnl,
+                "barlen": trade_data.get("barlen"),
+            }
+            trades.append(trade_payload)
+
+            is_long = direction == "buy"
+            if dtopen:
+                signals.append(
+                    {
+                        "date": dtopen,
+                        "type": "buy" if is_long else "sell",
+                        "price": kline_close_map.get(dtopen, open_price),
+                        "size": abs(size),
+                    }
+                )
+            if dtclose:
+                signals.append(
+                    {
+                        "date": dtclose,
+                        "type": "sell" if is_long else "buy",
+                        "price": kline_close_map.get(dtclose, open_price),
+                        "size": abs(size),
+                    }
+                )
+
+        monthly_returns: dict[tuple[int, int], float] = {}
+        if equity_dates and equity_values:
+            month_start_value = equity_values[0]
+            current_month: tuple[int, int] | None = None
+            for date_text, value in zip(equity_dates, equity_values, strict=False):
+                try:
+                    dt = datetime.strptime(str(date_text)[:10], "%Y-%m-%d")
+                except ValueError:
+                    continue
+                month_key = (dt.year, dt.month)
+                if current_month != month_key:
+                    if current_month and month_start_value > 0:
+                        monthly_returns[current_month] = round(
+                            (value - month_start_value) / month_start_value,
+                            6,
+                        )
+                    month_start_value = value
+                    current_month = month_key
+            if current_month and month_start_value > 0:
+                monthly_returns[current_month] = round(
+                    (equity_values[-1] - month_start_value) / month_start_value,
+                    6,
+                )
+
+        data_config = _normalize_unit_data_config(unit.data_config)
+        start_date = str(data_config.get("start_date") or (equity_dates[0] if equity_dates else ""))[:10]
+        end_date = str(data_config.get("end_date") or (equity_dates[-1] if equity_dates else ""))[:10]
+        strategy_name = str(unit.strategy_name or unit.strategy_id or "Unknown")
+        artifact_metadata = WorkspaceService._build_optimization_artifact_metadata(
+            task_id,
+            result_index,
+            result_entry,
+        )
+
+        return {
+            "task_id": f"{task_id}:{result_index}",
+            "strategy_name": strategy_name,
+            "symbol": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+            "equity_curve": equity_curve,
+            "drawdown_curve": drawdown_curve,
+            "trades": trades,
+            "signals": signals,
+            "klines": klines,
+            "log_indicators": log_indicators,
+            "monthly_returns": monthly_returns,
+            "created_at": created_at,
+            **artifact_metadata,
+        }
+
+    async def get_unit_optimization_result_artifact_metadata(
+        self,
+        workspace_id: str,
+        user_id: str,
+        unit_id: str,
+        result_index: int,
+    ) -> dict[str, Any] | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None:
+                return None
+            unit = await self._get_unit(session, workspace_id, unit_id)
+            if unit is None or not unit.last_optimization_task_id:
+                return None
+
+            task_id = unit.last_optimization_task_id
+            mgr = get_optimization_execution_manager()
+            db_task = await mgr.get_task(task_id, user_id=user_id)
+            if not db_task or not db_task.results or result_index < 0 or result_index >= len(db_task.results):
+                return None
+
+            result_entry = cast(dict[str, Any], db_task.results[result_index] or {})
+            return self._build_optimization_artifact_metadata(task_id, result_index, result_entry)
+
+    async def get_unit_optimization_result_payload(
+        self,
+        workspace_id: str,
+        user_id: str,
+        unit_id: str,
+        result_index: int,
+    ) -> dict[str, Any] | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None:
+                return None
+            unit = await self._get_unit(session, workspace_id, unit_id)
+            if unit is None or not unit.last_optimization_task_id:
+                return None
+
+            task_id = unit.last_optimization_task_id
+            mgr = get_optimization_execution_manager()
+            db_task = await mgr.get_task(task_id, user_id=user_id)
+            if not db_task or not db_task.results or result_index < 0 or result_index >= len(db_task.results):
+                return None
+
+            result_entry = cast(dict[str, Any], db_task.results[result_index] or {})
+            log_dir = self._resolve_optimization_artifact_log_dir(result_entry)
+            if log_dir is None:
+                return None
+
+            from app.services.log_parser_service import parse_log_dir
+
+            strategy_root = log_dir.parent if log_dir.name == "logs" else log_dir
+            log_result = parse_log_dir(log_dir, strategy_dir=strategy_root)
+            if not log_result:
+                return None
+
+            created_at = db_task.created_at.isoformat() if db_task.created_at else ""
+            return self._build_optimization_trial_payload(
+                task_id,
+                result_index,
+                unit,
+                log_result,
+                created_at,
+                result_entry,
+            )
 
     async def reconcile_orphaned_run_statuses(self) -> int:
         async with async_session_maker() as session:
@@ -393,7 +870,7 @@ class WorkspaceService:
                 timeframe_n=data.timeframe_n,
                 category=data.category,
                 sort_order=max_order + 1,
-                data_config=data.data_config,
+                data_config=_normalize_unit_data_config(data.data_config),
                 unit_settings=data.unit_settings,
                 params=data.params,
                 optimization_config=data.optimization_config,
@@ -431,7 +908,7 @@ class WorkspaceService:
                     timeframe_n=data.timeframe_n,
                     category=data.category,
                     sort_order=max_order + 1 + i,
-                    data_config=data.data_config,
+                    data_config=_normalize_unit_data_config(data.data_config),
                     unit_settings=data.unit_settings,
                     params=data.params,
                     optimization_config=data.optimization_config,
@@ -460,7 +937,77 @@ class WorkspaceService:
             )
             result = await session.execute(q)
             units = list(result.scalars().all())
-            return [self._unit_to_dict(u) for u in units]
+
+            task_ids = [str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id]
+            task_by_id: dict[str, BacktestTask] = {}
+            if task_ids:
+                task_result = await session.execute(
+                    select(BacktestTask).where(BacktestTask.id.in_(task_ids))
+                )
+                task_by_id = {str(task.id): task for task in task_result.scalars().all()}
+
+            changed = False
+            backtest_service = None
+            for unit in units:
+                unit_obj = cast(Any, unit)
+                last_task_id = str(unit_obj.last_task_id or "").strip()
+                if not last_task_id:
+                    continue
+
+                task = task_by_id.get(last_task_id)
+                elapsed_seconds = self._task_elapsed_seconds(task)
+                if elapsed_seconds is not None and unit_obj.last_run_time != elapsed_seconds:
+                    unit_obj.last_run_time = elapsed_seconds
+                    changed = True
+
+                if str(unit_obj.run_status or "") != "completed":
+                    continue
+
+                if backtest_service is None:
+                    from app.services.backtest_service import BacktestService
+
+                    backtest_service = BacktestService()
+
+                resolved_bar_count = await self._resolve_unit_bar_count(
+                    backtest_service,
+                    last_task_id,
+                    user_id,
+                )
+                if resolved_bar_count > 0 and int(unit_obj.bar_count or 0) != resolved_bar_count:
+                    unit_obj.bar_count = resolved_bar_count
+                    changed = True
+
+            if changed:
+                await session.commit()
+
+            opt_progress_map: dict[str, dict[str, Any]] = {}
+            opt_task_ids = {
+                str(cast(Any, u).last_optimization_task_id)
+                for u in units
+                if cast(Any, u).last_optimization_task_id
+            }
+            if opt_task_ids:
+                for tid in opt_task_ids:
+                    try:
+                        progress = get_optimization_progress(tid, user_id=user_id, use_db=True)
+                        opt_info = self._optimization_progress_response_to_opt_info(progress)
+                        if opt_info:
+                            opt_progress_map[tid] = opt_info
+                    except Exception:
+                        pass
+
+            return [
+                self._unit_to_dict(
+                    u,
+                    opt_progress_map.get(
+                        str(cast(Any, u).last_optimization_task_id),
+                        {},
+                    )
+                    if cast(Any, u).last_optimization_task_id
+                    else {},
+                )
+                for u in units
+            ]
 
     async def get_unit(
         self, workspace_id: str, unit_id: str, user_id: str
@@ -486,6 +1033,8 @@ class WorkspaceService:
                 return None
             update_data = data.model_dump(exclude_unset=True)
             for key, value in update_data.items():
+                if key == "data_config":
+                    value = _normalize_unit_data_config(cast(dict[str, Any] | None, value))
                 setattr(unit, key, value)
             await session.commit()
             await session.refresh(unit)
@@ -746,6 +1295,14 @@ class WorkspaceService:
             result = await session.execute(q)
             units = list(result.scalars().all())
 
+            task_ids = [str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id]
+            task_by_id: dict[str, BacktestTask] = {}
+            if task_ids:
+                task_result = await session.execute(
+                    select(BacktestTask).where(BacktestTask.id.in_(task_ids))
+                )
+                task_by_id = {str(task.id): task for task in task_result.scalars().all()}
+
             changed = False
             for unit in units:
                 unit_obj = cast(Any, unit)
@@ -753,6 +1310,11 @@ class WorkspaceService:
                 last_task_id = str(unit_obj.last_task_id or "").strip()
                 run_status = str(unit_obj.run_status or "")
                 bar_count = int(unit_obj.bar_count or 0)
+                task = task_by_id.get(last_task_id) if last_task_id else None
+                if task is not None:
+                    elapsed_seconds = self._task_elapsed_seconds(task)
+                    if elapsed_seconds is not None and unit_obj.last_run_time != elapsed_seconds:
+                        unit_obj.last_run_time = elapsed_seconds
                 if run_status in {"queued", "running"}:
                     if not last_task_id:
                         unit_obj.run_status = "idle"
@@ -819,21 +1381,54 @@ class WorkspaceService:
             if changed:
                 await session.commit()
 
-            return [
-                UnitStatusResponse(
-                    id=str(cast(Any, u).id),
-                    run_status=str(cast(Any, u).run_status or "idle"),
-                    last_task_id=str(cast(Any, u).last_task_id) if cast(Any, u).last_task_id else None,
-                    metrics_snapshot=cast(dict[str, Any], cast(Any, u).metrics_snapshot or {}),
-                    run_count=int(cast(Any, u).run_count or 0),
-                    last_run_time=(
-                        float(cast(Any, u).last_run_time)
-                        if cast(Any, u).last_run_time is not None
-                        else None
-                    ),
-                )
+            # Collect optimization progress for units with active tasks
+            opt_progress_map: dict[str, dict[str, Any]] = {}
+            opt_task_ids = {
+                str(cast(Any, u).last_optimization_task_id)
                 for u in units
-            ]
+                if cast(Any, u).last_optimization_task_id
+            }
+            if opt_task_ids:
+                for tid in opt_task_ids:
+                    try:
+                        progress = get_optimization_progress(tid, user_id=user_id, use_db=True)
+                        opt_info = self._optimization_progress_response_to_opt_info(progress)
+                        if opt_info:
+                            opt_progress_map[tid] = opt_info
+                    except Exception:
+                        pass
+
+            responses: list[UnitStatusResponse] = []
+            for u in units:
+                u_obj = cast(Any, u)
+                opt_tid = str(u_obj.last_optimization_task_id) if u_obj.last_optimization_task_id else None
+                opt_info = opt_progress_map.get(opt_tid, {}) if opt_tid else {}
+                responses.append(
+                    UnitStatusResponse(
+                        id=str(u_obj.id),
+                        run_status=str(u_obj.run_status or "idle"),
+                        last_task_id=str(u_obj.last_task_id) if u_obj.last_task_id else None,
+                        metrics_snapshot=cast(dict[str, Any], u_obj.metrics_snapshot or {}),
+                        run_count=int(u_obj.run_count or 0),
+                        last_run_time=(
+                            float(u_obj.last_run_time)
+                            if u_obj.last_run_time is not None
+                            else None
+                        ),
+                        bar_count=(
+                            int(u_obj.bar_count)
+                            if u_obj.bar_count is not None
+                            else None
+                        ),
+                        opt_status=opt_info.get("opt_status"),
+                        opt_total=opt_info.get("opt_total"),
+                        opt_completed=opt_info.get("opt_completed"),
+                        opt_progress=opt_info.get("opt_progress"),
+                        opt_elapsed_time=opt_info.get("opt_elapsed_time"),
+                        opt_remaining_time=opt_info.get("opt_remaining_time"),
+                    )
+                )
+            return responses
 
     # ------------------------------------------------------------------
     # Optimization orchestration (Phase 4)
@@ -869,6 +1464,12 @@ class WorkspaceService:
 
             strategy_id = unit.strategy_id or ""
 
+            # Sync unit runtime dir so optimization uses unit's symbol/data config
+            workspace_settings = cast(dict[str, Any], _workspace_settings_dict(ws))
+            unit_runtime_dir = workspace_unit_runtime.sync_unit_runtime(
+                unit, workspace_settings
+            )
+
             # Create persisted task in DB
             mgr = get_optimization_execution_manager()
             db_task = await mgr.create_task(
@@ -879,6 +1480,21 @@ class WorkspaceService:
                 n_workers=req.n_workers,
             )
             task_id = db_task.id
+            artifact_root = unit_runtime_dir / "optimization_runs" / task_id
+            artifact_root.mkdir(parents=True, exist_ok=True)
+            _write_json_file(
+                artifact_root / "manifest.json",
+                {
+                    "task_id": task_id,
+                    "workspace_id": workspace_id,
+                    "unit_id": unit.id,
+                    "strategy_id": strategy_id,
+                    "param_names": list(param_ranges.keys()),
+                    "param_ranges": param_ranges,
+                    "n_workers": req.n_workers,
+                    "created_at": db_task.created_at.isoformat() if db_task.created_at else "",
+                },
+            )
 
             submit_optimization(
                 strategy_id=strategy_id,
@@ -886,6 +1502,8 @@ class WorkspaceService:
                 n_workers=req.n_workers,
                 task_id=task_id,
                 persist_to_db=True,
+                strategy_dir=str(unit_runtime_dir),
+                artifact_root=str(artifact_root),
             )
 
             # Update unit with optimization task id — merge into existing config
@@ -894,9 +1512,8 @@ class WorkspaceService:
             existing_oc.update({
                 "param_ranges": param_ranges,
                 "n_workers": req.n_workers,
-                "mode": req.mode,
-                "timeout": req.timeout,
-                "task_id": task_id,
+                "artifact_root": str(artifact_root),
+                "submitted_at": datetime.now(timezone.utc).isoformat(),
             })
             unit.optimization_config = existing_oc
             await session.commit()
@@ -945,7 +1562,14 @@ class WorkspaceService:
             task_id = unit.last_optimization_task_id
             # Read user-configured objective from optimization_config
             oc = unit.optimization_config or {}
-            objective = oc.get("objective", "annual_return") or "annual_return"
+            objective_key = oc.get("objective", "sharpe_max") or "sharpe_max"
+            objective_map = {
+                "sharpe_max": "sharpe_ratio",
+                "max_return": "annual_return",
+                "min_drawdown": "max_drawdown",
+            }
+            objective = objective_map.get(str(objective_key), str(objective_key))
+            reverse_sort = objective != "max_drawdown"
 
             # Try DB first
             mgr = get_optimization_execution_manager()
@@ -962,12 +1586,26 @@ class WorkspaceService:
                 }
                 results_response = build_results_response(task_id, task_dict)
                 rows = list(results_response.get("rows") or [])
-                rows.sort(key=lambda row: row.get(objective, -999999), reverse=True)
+                rows.sort(
+                    key=lambda row: row.get(objective, 999999 if not reverse_sort else -999999),
+                    reverse=reverse_sort,
+                )
                 results_response["rows"] = rows
                 results_response["best"] = rows[0] if rows else None
+                results_response["objective"] = objective
                 return results_response
 
-            return get_optimization_results(task_id, user_id=user_id, use_db=False)
+            results_response = get_optimization_results(task_id, user_id=user_id, use_db=False)
+            if results_response:
+                rows = list(results_response.get("rows") or [])
+                rows.sort(
+                    key=lambda row: row.get(objective, 999999 if not reverse_sort else -999999),
+                    reverse=reverse_sort,
+                )
+                results_response["rows"] = rows
+                results_response["best"] = rows[0] if rows else None
+                results_response["objective"] = objective
+            return results_response
 
     async def cancel_unit_optimization(
         self, workspace_id: str, user_id: str, unit_id: str
@@ -985,7 +1623,7 @@ class WorkspaceService:
 
             task_id = unit.last_optimization_task_id
             mgr = get_optimization_execution_manager()
-            cancelled = await mgr.cancel_task(task_id, user_id=user_id)
+            cancelled = await mgr.set_cancelled(task_id, user_id=user_id)
             return {"task_id": task_id, "cancelled": cancelled}
 
     async def apply_best_params(
@@ -1272,15 +1910,15 @@ class WorkspaceService:
     def _build_backtest_request(unit: StrategyUnit) -> BacktestRequest:
         """Build a BacktestRequest from a strategy unit's configuration."""
         settings = unit.unit_settings or {}
-        data_cfg = unit.data_config or {}
+        data_cfg = _normalize_unit_data_config(unit.data_config)
         params = unit.params or {}
 
         return BacktestRequest(
             strategy_id=unit.strategy_id or "",
             runtime_dir=str(workspace_unit_runtime.unit_dir(unit.workspace_id, unit.id)),
             symbol=unit.symbol or data_cfg.get("symbol", ""),
-            start_date=data_cfg.get("start_date", "2023-01-01T00:00:00"),
-            end_date=data_cfg.get("end_date", "2024-01-01T00:00:00"),
+            start_date=data_cfg.get("start_date", _default_unit_start_date_iso()),
+            end_date=data_cfg.get("end_date", _default_unit_end_date_iso()),
             initial_cash=settings.get("initial_cash", 100000),
             commission=settings.get("commission", 0.001),
             timeframe=unit.timeframe or "1d",
@@ -1319,14 +1957,17 @@ class WorkspaceService:
             final_status = await self._poll_task_completion(
                 backtest_service, task_id, user_id
             )
-            elapsed = time.monotonic() - start_ts
+            task = await backtest_service.task_manager.get_task(task_id, user_id=user_id)
+            elapsed = self._task_elapsed_seconds(task)
+            if elapsed is None:
+                elapsed = round(time.monotonic() - start_ts, 2)
 
             async with async_session_maker() as s:
                 u = await self._get_unit(s, workspace_id, unit_id)
                 if u:
                     unit_obj = cast(Any, u)
                     unit_obj.run_count = (unit_obj.run_count or 0) + 1
-                    unit_obj.last_run_time = round(elapsed, 2)
+                    unit_obj.last_run_time = elapsed
                     if final_status == TaskStatus.COMPLETED:
                         unit_obj.run_status = "completed"
                         bt_result = await backtest_service.get_result(task_id, user_id)
@@ -1419,7 +2060,8 @@ class WorkspaceService:
         return result.scalar_one_or_none()
 
     @staticmethod
-    def _unit_to_dict(unit: StrategyUnit) -> dict[str, Any]:
+    def _unit_to_dict(unit: StrategyUnit, opt_info: dict[str, Any] | None = None) -> dict[str, Any]:
+        opt_info = opt_info or {}
         return {
             "id": unit.id,
             "workspace_id": unit.workspace_id,
@@ -1432,7 +2074,7 @@ class WorkspaceService:
             "timeframe_n": unit.timeframe_n or 1,
             "category": unit.category or "",
             "sort_order": unit.sort_order or 0,
-            "data_config": unit.data_config or {},
+            "data_config": _normalize_unit_data_config(unit.data_config),
             "unit_settings": unit.unit_settings or {},
             "params": unit.params or {},
             "optimization_config": unit.optimization_config or {},
@@ -1443,8 +2085,14 @@ class WorkspaceService:
             "last_optimization_task_id": unit.last_optimization_task_id,
             "bar_count": unit.bar_count,
             "metrics_snapshot": unit.metrics_snapshot or {},
-            "created_at": unit.created_at.isoformat() if unit.created_at else None,
-            "updated_at": unit.updated_at.isoformat() if unit.updated_at else None,
+            "opt_status": opt_info.get("opt_status"),
+            "opt_total": opt_info.get("opt_total"),
+            "opt_completed": opt_info.get("opt_completed"),
+            "opt_progress": opt_info.get("opt_progress"),
+            "opt_elapsed_time": opt_info.get("opt_elapsed_time"),
+            "opt_remaining_time": opt_info.get("opt_remaining_time"),
+            "created_at": unit.created_at,
+            "updated_at": unit.updated_at,
         }
 
     @staticmethod

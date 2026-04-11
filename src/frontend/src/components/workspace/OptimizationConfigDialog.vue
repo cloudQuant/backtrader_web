@@ -174,6 +174,46 @@ function addParamLayer() {
   })
 }
 
+function inferParamType(layer: ParamLayer): 'int' | 'float' {
+  const values = [layer.current_value, layer.start, layer.end, layer.step]
+  return values.every(v => Number.isInteger(v)) ? 'int' : 'float'
+}
+
+function calculateTotalCombinations(
+  paramRanges: Record<string, { start: number; end: number; step: number; type: string }>,
+): number {
+  const counts = Object.values(paramRanges).map(spec => {
+    const distance = spec.end - spec.start
+    if (distance <= 0 || spec.step <= 0) {
+      return 0
+    }
+    return Math.floor(distance / spec.step) + 1
+  })
+  if (!counts.length) {
+    return 0
+  }
+  return counts.reduce((product, count) => product * count, 1)
+}
+
+function initializeLocalOptimizationState(
+  unit: StrategyUnit,
+  totalCombinations: number | null,
+  taskId?: string,
+) {
+  const now = Date.now()
+  if (taskId) {
+    unit.last_optimization_task_id = taskId
+  }
+  unit.opt_status = 'pending'
+  unit.opt_elapsed_time = 0
+  unit.opt_remaining_time = 0
+  unit.opt_total = totalCombinations
+  unit.opt_completed = totalCombinations == null ? null : 0
+  unit.opt_progress = 0
+  unit.opt_started_at_ms = now
+  unit.opt_last_sync_at_ms = now
+}
+
 async function handleSave() {
   if (!props.unit) return
   saving.value = true
@@ -208,7 +248,7 @@ function _buildParamRanges(): Record<string, { start: number; end: number; step:
         start: layer.start,
         end: layer.end,
         step: layer.step,
-        type: 'float',
+        type: inferParamType(layer),
       }
     }
   }
@@ -222,14 +262,18 @@ async function handleSubmitOptimization() {
     ElMessage.warning('请至少设置一个有效的等差优化参数（起始 < 结束，步长 > 0）')
     return
   }
+  const totalCombinations = calculateTotalCombinations(paramRanges)
 
   submitting.value = true
   try {
+    // Capture unit info before async operations (props.unit may become null after store refresh)
+    const unitId = props.unit.id
+    const existingOc = { ...(props.unit.optimization_config || {}) } as Record<string, unknown>
+
     // Save config first — merge to preserve thread settings (n_workers/mode/timeout)
-    const existingOc2 = props.unit.optimization_config || {}
-    await store.updateUnit(props.workspaceId, props.unit.id, {
+    await store.updateUnit(props.workspaceId, unitId, {
       optimization_config: {
-        ...existingOc2,
+        ...existingOc,
         objective: form.value.objective,
         max_display: form.value.max_display,
         initial_cash_wan: form.value.initial_cash_wan,
@@ -238,18 +282,30 @@ async function handleSubmitOptimization() {
       },
     })
 
-    // Submit optimization task — read thread config from saved optimization_config
-    const oc = props.unit.optimization_config || {} as Record<string, unknown>
-    const nWorkers = (oc as Record<string, unknown>).n_workers as number || 4
-    const mode = (oc as Record<string, unknown>).mode as string || 'grid'
-    const timeout = (oc as Record<string, unknown>).timeout as number || 0
+    // Submit optimization task — read thread config from captured config
+    const nWorkers = (existingOc.n_workers as number) || 4
+    const mode = (existingOc.mode as string) || 'grid'
+    const timeout = (existingOc.timeout as number) || 0
+
+    const localUnit = store.units.find(u => u.id === unitId)
+    if (localUnit) {
+      initializeLocalOptimizationState(localUnit, totalCombinations || null)
+    }
+
     const result = await workspaceApi.submitOptimization(props.workspaceId, {
-      unit_id: props.unit.id,
+      unit_id: unitId,
       param_ranges: paramRanges,
       n_workers: nWorkers,
       mode,
       timeout,
     })
+
+    if (localUnit) {
+      initializeLocalOptimizationState(localUnit, result.total_combinations, result.task_id)
+    }
+
+    await store.pollStatus(props.workspaceId)
+
     ElMessage.success(`优化任务已提交，共 ${result.total_combinations} 种组合`)
     emit('update:modelValue', false)
     emit('saved')

@@ -7,7 +7,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ---------------------------------------------------------------------------
 # Workspace schemas
 # ---------------------------------------------------------------------------
@@ -123,6 +122,12 @@ class StrategyUnitResponse(BaseModel):
     last_optimization_task_id: str | None = None
     bar_count: int | None = None
     metrics_snapshot: dict[str, Any] = Field(default_factory=dict)
+    opt_status: str | None = None
+    opt_total: int | None = None
+    opt_completed: int | None = None
+    opt_progress: float | None = None
+    opt_elapsed_time: float | None = None
+    opt_remaining_time: float | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -203,6 +208,14 @@ class UnitStatusResponse(BaseModel):
     metrics_snapshot: dict[str, Any] = Field(default_factory=dict)
     run_count: int = 0
     last_run_time: float | None = None
+    bar_count: int | None = None
+    # Optimization progress (filled during polling)
+    opt_status: str | None = None
+    opt_total: int | None = None
+    opt_completed: int | None = None
+    opt_progress: float | None = None
+    opt_elapsed_time: float | None = None
+    opt_remaining_time: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +248,19 @@ class ApplyBestParamsRequest(BaseModel):
     unit_id: str
     optimization_task_id: str
     result_index: int = Field(0, ge=0, description="Index of result to apply (0 = best)")
+
+
+class OptimizationArtifactResponse(BaseModel):
+    """Persisted optimization artifact metadata."""
+
+    artifact_path: str | None = None
+    artifact_manifest_path: str | None = None
+    artifact_summary_path: str | None = None
+    artifact_status: str | None = None
+    artifact_error: str | None = None
+    optimization_task_id: str
+    optimization_result_index: int
+    trial_index: int | None = None
 
 
 # ---------------------------------------------------------------------------

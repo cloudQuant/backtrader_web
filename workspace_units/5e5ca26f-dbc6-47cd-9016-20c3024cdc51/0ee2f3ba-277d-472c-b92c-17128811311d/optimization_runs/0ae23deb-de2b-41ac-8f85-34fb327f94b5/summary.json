@@ -1,0 +1,11 @@
+{
+  "task_id": "0ae23deb-de2b-41ac-8f85-34fb327f94b5",
+  "artifact_root": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/5e5ca26f-dbc6-47cd-9016-20c3024cdc51/0ee2f3ba-277d-472c-b92c-17128811311d/optimization_runs/0ae23deb-de2b-41ac-8f85-34fb327f94b5",
+  "status": "completed",
+  "total_trials": 20,
+  "completed": 0,
+  "failed": 20,
+  "success_rate": 0.0,
+  "best_result": null,
+  "updated_at": "2026-04-10T14:08:25.884565+00:00"
+}

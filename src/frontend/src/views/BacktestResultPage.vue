@@ -43,7 +43,13 @@
           </p>
         </div>
         <div class="flex gap-2">
-          <el-button @click="handleExport('csv')">
+          <el-button v-if="isOptimizationArtifactMode" @click="handleOpenArtifactDir">
+            <el-icon><FolderOpened /></el-icon>打开 artifact 目录
+          </el-button>
+          <el-button v-if="isOptimizationArtifactMode" @click="handleDownloadArtifact">
+            <el-icon><Download /></el-icon>下载结果
+          </el-button>
+          <el-button v-if="!isOptimizationArtifactMode" @click="handleExport('csv')">
             <el-icon><Download /></el-icon>导出CSV
           </el-button>
           <el-button
@@ -83,7 +89,7 @@
           label="资金曲线"
           name="equity"
         >
-          <el-card v-show="activeTab === 'equity'">
+          <el-card v-if="activeTab === 'equity'">
             <EquityCurve
               :data="detail.equity_curve"
               :height="350"
@@ -101,7 +107,7 @@
           name="analysis"
         >
           <div
-            v-show="activeTab === 'analysis'"
+            v-if="activeTab === 'analysis'"
             class="space-y-4"
           >
             <el-card>
@@ -152,9 +158,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Loading, CircleCloseFilled, Download, Back } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { Loading, CircleCloseFilled, Download, Back, FolderOpened } from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/api'
 import { analyticsApi } from '@/api/analytics'
+import { workspaceApi } from '@/api/workspace'
 import PerformancePanel from '@/components/charts/PerformancePanel.vue'
 import TradeSignalChart from '@/components/charts/TradeSignalChart.vue'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
@@ -175,6 +183,19 @@ const workspaceId = computed(() => {
   const value = route.query.workspaceId
   return typeof value === 'string' && value ? value : null
 })
+const optimizationUnitId = computed(() => {
+  const value = route.query.optimizationUnitId
+  return typeof value === 'string' && value ? value : null
+})
+const optimizationResultIndex = computed(() => {
+  const value = route.query.optimizationResultIndex
+  if (typeof value !== 'string' || !value) return null
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : null
+})
+const isOptimizationArtifactMode = computed(() => (
+  !!workspaceId.value && !!optimizationUnitId.value && optimizationResultIndex.value !== null
+))
 
 const loading = ref(true)
 const error = ref<string | null>(null)
@@ -193,11 +214,23 @@ async function loadData() {
   error.value = null
   
   try {
-    const [detailRes, klineRes, returnsRes] = await Promise.all([
-      analyticsApi.getBacktestDetail(taskId.value),
-      analyticsApi.getKlineWithSignals(taskId.value),
-      analyticsApi.getMonthlyReturns(taskId.value),
-    ])
+    let detailRes: BacktestDetailResponse
+    let klineRes: KlineWithSignalsResponse
+    let returnsRes: MonthlyReturnsResponse
+
+    if (isOptimizationArtifactMode.value && workspaceId.value && optimizationUnitId.value && optimizationResultIndex.value !== null) {
+      [detailRes, klineRes, returnsRes] = await Promise.all([
+        workspaceApi.getOptimizationResultDetail(workspaceId.value, optimizationUnitId.value, optimizationResultIndex.value),
+        workspaceApi.getOptimizationResultKline(workspaceId.value, optimizationUnitId.value, optimizationResultIndex.value),
+        workspaceApi.getOptimizationResultMonthlyReturns(workspaceId.value, optimizationUnitId.value, optimizationResultIndex.value),
+      ])
+    } else {
+      [detailRes, klineRes, returnsRes] = await Promise.all([
+        analyticsApi.getBacktestDetail(taskId.value),
+        analyticsApi.getKlineWithSignals(taskId.value),
+        analyticsApi.getMonthlyReturns(taskId.value),
+      ])
+    }
     
     detail.value = detailRes
     klineData.value = klineRes
@@ -212,6 +245,40 @@ async function loadData() {
 
 function handleExport(format: 'csv' | 'json') {
   analyticsApi.exportResults(taskId.value, format)
+}
+
+async function handleOpenArtifactDir() {
+  if (!workspaceId.value || !optimizationUnitId.value || optimizationResultIndex.value === null) return
+  let artifactPath = detail.value?.artifact_path || null
+  if (!artifactPath) {
+    const artifact = await workspaceApi.getOptimizationResultArtifact(
+      workspaceId.value,
+      optimizationUnitId.value,
+      optimizationResultIndex.value,
+    )
+    artifactPath = artifact.artifact_path
+  }
+  if (!artifactPath) {
+    ElMessage.warning('未找到本地 artifact 目录')
+    return
+  }
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(artifactPath)
+    }
+  } catch {
+  }
+  window.open(`file://${encodeURI(artifactPath.replace(/\\/g, '/'))}`, '_blank', 'noopener')
+  ElMessage.success('已尝试打开 artifact 目录，并复制路径到剪贴板')
+}
+
+async function handleDownloadArtifact() {
+  if (!workspaceId.value || !optimizationUnitId.value || optimizationResultIndex.value === null) return
+  await workspaceApi.downloadOptimizationResultArtifact(
+    workspaceId.value,
+    optimizationUnitId.value,
+    optimizationResultIndex.value,
+  )
 }
 
 function handleBack() {

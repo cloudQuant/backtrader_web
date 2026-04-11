@@ -49,8 +49,10 @@ const emit = defineEmits<{
 const store = useWorkspaceStore()
 const saving = ref(false)
 
+type RenameMode = 'custom' | 'strategy' | 'symbol' | 'symbol_name' | 'category' | 'replace'
+
 const form = ref({
-  mode: 'custom' as string,
+  mode: 'custom' as RenameMode,
   value: '',
   search: '',
   replace: '',

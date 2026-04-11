@@ -35,6 +35,7 @@ from app.schemas.backtest_enhanced import (
 )
 from app.services.backtest_manager import BacktestExecutionManager
 from app.services.backtest_runner import BacktestExecutionRunner
+from app.services.strategy_runtime_support import has_log_artifacts
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -414,6 +415,19 @@ class BacktestService:
 
         return tmp_base, task_work_dir
 
+    @staticmethod
+    def _copy_log_artifacts(source_dir: Path, target_dir: Path) -> None:
+        """Copy flat log artifacts into a task-specific directory safely."""
+        if not source_dir.is_dir():
+            return
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for child in source_dir.iterdir():
+            if child == target_dir:
+                continue
+            if child.is_file():
+                shutil.copy2(child, target_dir / child.name)
+
     async def _persist_results(
         self,
         task_id: str,
@@ -427,7 +441,7 @@ class BacktestService:
         from app.services.log_parser_service import parse_all_logs, parse_log_dir
 
         task_log_dir = task_work_dir / "logs" / f"task_{task_id}"
-        if task_log_dir.is_dir():
+        if has_log_artifacts(task_log_dir):
             log_result = parse_log_dir(task_log_dir, strategy_dir=task_work_dir)
         else:
             log_result = parse_all_logs(task_work_dir)
@@ -443,7 +457,7 @@ class BacktestService:
         )
         tmp_log_dir = log_result.get("log_dir")
         if tmp_log_dir and Path(tmp_log_dir).is_dir() and Path(tmp_log_dir) != persist_log_dir:
-            shutil.copytree(tmp_log_dir, persist_log_dir, dirs_exist_ok=True)
+            self._copy_log_artifacts(Path(tmp_log_dir), persist_log_dir)
 
         await self.task_manager.create_result(
             task_id=task_id,
@@ -555,71 +569,35 @@ class BacktestService:
         run_py.write_text("\n".join(cleaned), encoding="utf-8")
 
     @staticmethod
-    def _write_subprocess_sitecustomize(work_dir: Path) -> None:
-        """Install runtime compatibility patches for strategy subprocesses.
+    def _normalize_trade_logger_params(run_py: Path) -> None:
+        """Rewrite legacy TradeLogger kwargs in run.py so the real observer works.
 
-        Several generated strategy runners still pass legacy TradeLogger kwargs
-        (for example ``log_data``) that are not params in the current
-        backtrader observer. The patch is written only into the temporary
-        strategy workspace, so original strategy files remain unchanged.
+        Maps ``log_data`` → ``log_bars``, ``log_file_enabled`` → removed,
+        ``file_format`` → ``log_format``.
+        Only touches the text of the file; safe to call on files that already
+        use the current param names (no-op in that case).
         """
-        marker = "# Backtrader Web subprocess compatibility"
-        compat_path = work_dir / "sitecustomize.py"
-        existing = compat_path.read_text(encoding="utf-8") if compat_path.is_file() else ""
-        if marker in existing:
-            existing = existing.split(marker, 1)[0].rstrip()
-
-        compat_code = textwrap.dedent(
-            f"""
-            {marker}
-            try:
-                import backtrader as bt
-
-                _BaseTradeLogger = getattr(bt.observers, "TradeLogger", None)
-                if _BaseTradeLogger is not None and not getattr(
-                    _BaseTradeLogger, "_bt_web_compat", False
-                ):
-                    _base_params = getattr(
-                        getattr(_BaseTradeLogger, "params", None),
-                        "_gettuple",
-                        lambda: (),
-                    )()
-                    _extra_params = (
-                        ("log_data", None),
-                        ("log_file_enabled", None),
-                        ("file_format", None),
-                    )
-                    _base_param_names = {{name for name, _value in _base_params}}
-                    _compat_params = _base_params + tuple(
-                        item for item in _extra_params if item[0] not in _base_param_names
-                    )
-
-                    class BacktraderWebTradeLogger(_BaseTradeLogger):
-                        params = _compat_params
-
-                        def __init__(self):
-                            super().__init__()
-                            log_data = getattr(self.p, "log_data", None)
-                            if log_data is not None and hasattr(self.p, "log_bars"):
-                                self.p.log_bars = log_data
-
-                            file_format = getattr(self.p, "file_format", None)
-                            if file_format is not None and hasattr(self.p, "log_format"):
-                                normalized = str(file_format).lower()
-                                if normalized in {{"json", "text"}}:
-                                    self.p.log_format = normalized
-
-                    BacktraderWebTradeLogger._bt_web_compat = True
-                    bt.observers.TradeLogger = BacktraderWebTradeLogger
-            except Exception:
-                pass
-            """
-        ).lstrip()
-
-        compat_path.write_text(
-            f"{existing.rstrip()}\n\n{compat_code}" if existing else compat_code,
-            encoding="utf-8",
-        )
+        if not run_py.is_file():
+            return
+        code = run_py.read_text(encoding="utf-8")
+        original = code
+        # log_data=<val>  →  log_bars=<val>
+        code = code.replace("log_data=", "log_bars=")
+        # file_format='log'  →  log_format='text'
+        code = code.replace("file_format='log'", "log_format='text'")
+        code = code.replace('file_format="log"', 'log_format="text"')
+        code = code.replace("file_format='csv'", "log_format='text'")
+        code = code.replace('file_format="csv"', 'log_format="text"')
+        code = code.replace("file_format='json'", "log_format='json'")
+        code = code.replace('file_format="json"', 'log_format="json"')
+        code = code.replace("file_format='text'", "log_format='text'")
+        code = code.replace('file_format="text"', 'log_format="text"')
+        # Remove log_file_enabled lines entirely (not a valid TradeLogger param)
+        lines = code.split("\n")
+        cleaned = [ln for ln in lines if "log_file_enabled" not in ln]
+        code = "\n".join(cleaned)
+        if code != original:
+            run_py.write_text(code, encoding="utf-8")
 
     async def _run_strategy_subprocess(
         self,
@@ -642,7 +620,8 @@ class BacktestService:
         """
         python_exec = sys.executable
         run_py = work_dir / "run.py"
-        self._write_subprocess_sitecustomize(work_dir)
+        # Normalize legacy TradeLogger param names so the real observer works
+        self._normalize_trade_logger_params(run_py)
 
         # Prepare environment variables
         from app.services.strategy_service import STRATEGIES_DIR
@@ -652,6 +631,8 @@ class BacktestService:
         env["BACKTRADER_DATA_DIR"] = str(project_root / "datas")
         orig_dir = original_strategy_dir or str(work_dir)
         env["PYTHONPATH"] = os.pathsep.join([orig_dir, str(work_dir), env.get("PYTHONPATH", "")])
+        if task_id:
+            env["BACKTRADER_LOG_DIR"] = str(work_dir / "logs" / f"task_{task_id}")
 
         def _run():
             proc = subprocess.Popen(

@@ -10,6 +10,8 @@ import { useSimulationStore } from '@/stores/simulation'
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(getAccessToken())
   const user = ref<UserInfo | null>(null)
+  const initialized = ref(false)
+  let initializePromise: Promise<void> | null = null
 
   const isAuthenticated = computed(() => !!token.value)
 
@@ -17,7 +19,9 @@ export const useAuthStore = defineStore('auth', () => {
     const response = await authApi.login(data)
     token.value = response.access_token
     setAccessToken(response.access_token)
+    initialized.value = false
     await fetchUser()
+    initialized.value = true
   }
 
   async function register(data: RegisterRequest) {
@@ -33,9 +37,33 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function initialize() {
+    if (initialized.value) {
+      return
+    }
+    if (initializePromise) {
+      await initializePromise
+      return
+    }
+
+    initializePromise = (async () => {
+      if (token.value) {
+        await fetchUser()
+      }
+      initialized.value = true
+    })()
+
+    try {
+      await initializePromise
+    } finally {
+      initializePromise = null
+    }
+  }
+
   function logout() {
     token.value = null
     user.value = null
+    initialized.value = true
     clearAccessToken()
     // Clear business store state so stale data doesn't persist after logout
     try {
@@ -58,16 +86,18 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 初始化时获取用户信息
   if (token.value) {
-    fetchUser()
+    void initialize()
   }
 
   return {
     token,
     user,
+    initialized,
     isAuthenticated,
     login,
     register,
     fetchUser,
+    initialize,
     logout,
   }
 })

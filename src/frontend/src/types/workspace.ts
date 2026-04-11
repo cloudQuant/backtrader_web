@@ -108,6 +108,15 @@ export interface StrategyUnit {
   last_optimization_task_id: string | null
   bar_count: number | null
   metrics_snapshot: Record<string, unknown>
+  // Optimization progress (populated by polling)
+  opt_status?: string | null
+  opt_total?: number | null
+  opt_completed?: number | null
+  opt_progress?: number | null
+  opt_elapsed_time?: number | null
+  opt_remaining_time?: number | null
+  opt_started_at_ms?: number | null
+  opt_last_sync_at_ms?: number | null
   created_at: string
   updated_at: string
 }
@@ -195,6 +204,13 @@ export interface UnitStatusResponse {
   metrics_snapshot: Record<string, unknown>
   run_count: number
   last_run_time: number | null
+  bar_count: number | null
+  opt_status: string | null
+  opt_total: number | null
+  opt_completed: number | null
+  opt_progress: number | null
+  opt_elapsed_time: number | null
+  opt_remaining_time: number | null
 }
 
 export interface RunUnitResult {
@@ -234,4 +250,15 @@ export interface OptimizationSubmitResult {
   unit_id: string
   total_combinations: number
   n_workers: number
+}
+
+export interface OptimizationArtifactResponse {
+  artifact_path: string | null
+  artifact_manifest_path: string | null
+  artifact_summary_path: string | null
+  artifact_status: string | null
+  artifact_error: string | null
+  optimization_task_id: string
+  optimization_result_index: number
+  trial_index: number | null
 }

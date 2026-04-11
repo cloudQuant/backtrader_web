@@ -199,4 +199,24 @@ describe('useAuthStore', () => {
       expect(clearAccessToken).toHaveBeenCalled()
     })
   })
+
+  describe('initialize', () => {
+    it('should initialize only once for stored token', async () => {
+      vi.mocked(getAccessToken).mockReturnValue('stored-token')
+      vi.mocked(authApi.getMe).mockResolvedValue({
+        id: '1',
+        username: 'testuser',
+        email: 'test@example.com',
+        is_active: true,
+        created_at: '2024-01-01',
+      })
+
+      const store = useAuthStore()
+      await store.initialize()
+      await store.initialize()
+
+      expect(store.initialized).toBe(true)
+      expect(authApi.getMe).toHaveBeenCalledTimes(1)
+    })
+  })
 })

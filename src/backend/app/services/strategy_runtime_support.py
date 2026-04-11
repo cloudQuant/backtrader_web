@@ -38,18 +38,22 @@ def has_log_artifacts(log_dir: Path) -> bool:
     return any((log_dir / file_name).is_file() for file_name in known_files)
 
 
+def latest_meaningful_log_subdir(logs_dir: Path) -> Path | None:
+    if not logs_dir.is_dir():
+        return None
+    subdirs = [d for d in logs_dir.iterdir() if d.is_dir() and has_log_artifacts(d)]
+    if not subdirs:
+        return None
+    return max(subdirs, key=lambda p: (p.stat().st_mtime, p.name))
+
+
 def find_latest_log_dir(strategy_dir: Path) -> str | None:
     logs_dir = strategy_dir / "logs"
     if not logs_dir.is_dir():
         return None
-    subdirs = sorted(
-        [d for d in logs_dir.iterdir() if d.is_dir()],
-        key=lambda p: p.name,
-        reverse=True,
-    )
-    meaningful_subdirs = [d for d in subdirs if has_log_artifacts(d)]
-    if meaningful_subdirs:
-        return str(meaningful_subdirs[0])
+    latest_subdir = latest_meaningful_log_subdir(logs_dir)
+    if latest_subdir is not None:
+        return str(latest_subdir)
     if has_log_artifacts(logs_dir):
         return str(logs_dir)
     return None

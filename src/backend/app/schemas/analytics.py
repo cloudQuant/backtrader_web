@@ -102,9 +102,12 @@ class TradeRecord(BaseModel):
 
     id: int
     datetime: str
+    dtopen: str | None = None
+    dtclose: str | None = None
     symbol: str
     direction: str
     price: float
+    close_price: float | None = None
     size: float
     value: float
     commission: float
@@ -117,10 +120,13 @@ class TradeRecord(BaseModel):
         json_schema_extra={
             "example": {
                 "id": 1,
-                "datetime": "2023-01-15 09:30:00",
+                "datetime": "2023-01-15",
+                "dtopen": "2023-01-10",
+                "dtclose": "2023-01-15",
                 "symbol": "000001.SZ",
                 "direction": "buy",
                 "price": 10.5,
+                "close_price": 11.0,
                 "size": 1000,
                 "value": 10500.0,
                 "commission": 10.5,
@@ -238,6 +244,11 @@ class BacktestDetailResponse(BaseModel):
     drawdown_curve: list[DrawdownPoint]
     trades: list[TradeRecord]
     created_at: str
+    artifact_path: str | None = None
+    artifact_manifest_path: str | None = None
+    artifact_summary_path: str | None = None
+    artifact_status: str | None = None
+    artifact_error: str | None = None
 
 
 class KlineWithSignalsResponse(BaseModel):

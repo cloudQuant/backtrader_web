@@ -13,6 +13,59 @@ import type {
   UnitStatusResponse,
 } from '@/types/workspace'
 
+function isOptimizationActiveStatus(status: string | null | undefined): boolean {
+  return status === 'pending' || status === 'queued' || status === 'running'
+}
+
+function isOptimizationTerminalStatus(status: string | null | undefined): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
+}
+
+function mergeOptimizationRuntimeState(incoming: StrategyUnit, existing?: StrategyUnit): StrategyUnit {
+  if (!existing) {
+    return incoming
+  }
+
+  // If existing has a recently-started active optimization and incoming
+  // does NOT report an active status, the backend is still returning stale
+  // data (old task or not-yet-committed new task).  Preserve local state.
+  const existingActive = isOptimizationActiveStatus(existing.opt_status)
+  if (existingActive) {
+    const startedAt = existing.opt_started_at_ms ?? 0
+    const recentlyStarted = Date.now() - startedAt < 15000
+    const preserveQueuedLocalState =
+      recentlyStarted &&
+      (existing.opt_status === 'pending' || existing.opt_status === 'queued') &&
+      !isOptimizationActiveStatus(incoming.opt_status)
+    if (preserveQueuedLocalState) {
+      return {
+        ...incoming,
+        last_optimization_task_id: existing.last_optimization_task_id ?? incoming.last_optimization_task_id,
+        opt_status: existing.opt_status,
+        opt_total: existing.opt_total,
+        opt_completed: existing.opt_completed,
+        opt_progress: existing.opt_progress,
+        opt_elapsed_time: existing.opt_elapsed_time,
+        opt_remaining_time: existing.opt_remaining_time,
+        opt_started_at_ms: existing.opt_started_at_ms,
+        opt_last_sync_at_ms: existing.opt_last_sync_at_ms,
+      }
+    }
+  }
+
+  const incomingActive = isOptimizationActiveStatus(incoming.opt_status)
+  // Otherwise use incoming data but carry over local timing fields
+  return {
+    ...incoming,
+    opt_started_at_ms: incomingActive
+      ? (existing.opt_started_at_ms ?? incoming.opt_started_at_ms ?? null)
+      : (incoming.opt_started_at_ms ?? null),
+    opt_last_sync_at_ms: incomingActive
+      ? (existing.opt_last_sync_at_ms ?? incoming.opt_last_sync_at_ms ?? null)
+      : (incoming.opt_last_sync_at_ms ?? null),
+  }
+}
+
 export const useWorkspaceStore = defineStore('workspace', () => {
   const workspaces = ref<Workspace[]>([])
   const currentWorkspace = ref<Workspace | null>(null)
@@ -76,7 +129,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     loading.value = true
     try {
       const res = await workspaceApi.listUnits(workspaceId)
-      units.value = res.items
+      const existingMap = new Map(units.value.map(unit => [unit.id, unit]))
+      units.value = res.items.map(unit => mergeOptimizationRuntimeState(unit, existingMap.get(unit.id)))
     } finally {
       loading.value = false
     }
@@ -184,14 +238,89 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function pollStatus(workspaceId: string) {
     try {
       const statuses: UnitStatusResponse[] = await workspaceApi.getUnitsStatus(workspaceId)
+      const now = Date.now()
       for (const s of statuses) {
         const idx = units.value.findIndex(u => u.id === s.id)
         if (idx >= 0) {
-          units.value[idx].run_status = s.run_status
-          units.value[idx].last_task_id = s.last_task_id
-          units.value[idx].metrics_snapshot = s.metrics_snapshot
-          units.value[idx].run_count = s.run_count
-          units.value[idx].last_run_time = s.last_run_time
+          const unit = units.value[idx]
+
+          // Always update non-optimization fields
+          unit.run_status = s.run_status
+          unit.last_task_id = s.last_task_id
+          unit.metrics_snapshot = s.metrics_snapshot
+          unit.run_count = s.run_count
+          unit.last_run_time = s.last_run_time
+          unit.bar_count = s.bar_count
+
+          // Bug8 protection: if local has a recently-started active optimization
+          // but backend returns stale/terminal/null (e.g. because the submission
+          // hasn't been committed to the DB yet or the unit is still waiting in
+          // a batch queue), preserve the locally-initialized pending state so the
+          // UI doesn't flip back to "已完成".  For units still waiting in the batch
+          // queue, refresh opt_started_at_ms to "now" so the elapsed clock stays
+          // at zero until the unit actually starts running.
+          const localActive = isOptimizationActiveStatus(unit.opt_status)
+          const incomingTotal = Math.max(0, Number(s.opt_total ?? 0))
+          const incomingCompleted = Math.max(0, Number(s.opt_completed ?? 0))
+          const prematureCompleted =
+            s.opt_status === 'completed' &&
+            incomingTotal > 0 &&
+            incomingCompleted < incomingTotal
+
+          if (localActive && prematureCompleted) {
+            continue
+          }
+
+          const preserveQueuedLocalState =
+            localActive &&
+            (unit.opt_status === 'pending' || unit.opt_status === 'queued') &&
+            !isOptimizationActiveStatus(s.opt_status)
+          if (preserveQueuedLocalState) {
+            const startedAt = unit.opt_started_at_ms ?? 0
+            if (now - startedAt < 15000) {
+              unit.opt_started_at_ms = now
+              unit.opt_elapsed_time = 0
+              unit.opt_remaining_time = 0
+              continue
+            }
+          }
+
+          const preserveRunningLocalState =
+            unit.opt_status === 'running' &&
+            !isOptimizationTerminalStatus(s.opt_status) &&
+            !isOptimizationActiveStatus(s.opt_status)
+          if (preserveRunningLocalState) {
+            const lastSyncAt = unit.opt_last_sync_at_ms ?? unit.opt_started_at_ms ?? 0
+            if (now - lastSyncAt < 10000) {
+              continue
+            }
+          }
+
+          unit.opt_status = s.opt_status
+          unit.opt_total = s.opt_total
+          unit.opt_completed = s.opt_completed
+          unit.opt_progress = s.opt_progress
+          unit.opt_elapsed_time = s.opt_elapsed_time
+          unit.opt_remaining_time = s.opt_remaining_time
+          unit.opt_last_sync_at_ms = now
+          if (s.opt_status === 'running') {
+            // Backend reports running: trust its elapsed as ground truth and
+            // recompute opt_started_at_ms so the frontend live clock is aligned.
+            const baseElapsed = Math.max(0, s.opt_elapsed_time ?? 0)
+            unit.opt_started_at_ms = now - Math.round(baseElapsed * 1000)
+          } else if (s.opt_status === 'pending' || s.opt_status === 'queued') {
+            // Backend reports pending/queued: keep the clock at zero.
+            unit.opt_started_at_ms = now
+            unit.opt_elapsed_time = 0
+            unit.opt_remaining_time = 0
+          } else if (s.opt_status) {
+            unit.opt_started_at_ms = null
+            unit.opt_last_sync_at_ms = null
+            unit.opt_remaining_time = 0
+          } else if (s.opt_status == null) {
+            unit.opt_started_at_ms = null
+            unit.opt_last_sync_at_ms = null
+          }
         }
       }
     } catch {
@@ -201,6 +330,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   function startPolling(workspaceId: string, intervalMs = 3000) {
     stopPolling()
+    void pollStatus(workspaceId)
     pollTimer = setInterval(() => pollStatus(workspaceId), intervalMs)
   }
 

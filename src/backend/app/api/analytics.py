@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -24,7 +25,7 @@ from app.schemas.analytics import (
 from app.services.analytics_service import AnalyticsService
 from app.services.backtest_service import BacktestService
 from app.services.log_parser_service import find_latest_log_dir, parse_data_log, parse_value_log
-from app.services.strategy_runtime_support import has_log_artifacts
+from app.services.strategy_runtime_support import has_log_artifacts, latest_meaningful_log_subdir
 from app.services.strategy_service import get_strategy_dir
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,17 @@ def get_analytics_service():
 @lru_cache
 def get_backtest_service():
     return BacktestService()
+
+
+def _normalize_chart_date(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if " " in text:
+        return text.split(" ")[0]
+    if "T" in text:
+        return text.split("T")[0]
+    return text
 
 
 async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
@@ -59,6 +71,10 @@ async def _resolve_log_dir(task_id: str, strategy_id: str) -> Path:
             p = Path(task.log_dir)
             if p.is_dir() and has_log_artifacts(p):
                 return p
+            logs_root = p.parent if p.parent.is_dir() else None
+            latest_sibling = latest_meaningful_log_subdir(logs_root) if logs_root else None
+            if latest_sibling is not None:
+                return latest_sibling
             if p.is_dir() and p.parent.is_dir() and has_log_artifacts(p.parent):
                 return p.parent
     except Exception as e:
@@ -108,7 +124,9 @@ async def get_backtest_data(
             for d, c in zip(
                 value_data.get("dates", []), value_data.get("cash_curve", []), strict=False
             ):
-                real_cash_map[d] = c
+                normalized_date = _normalize_chart_date(d)
+                if normalized_date:
+                    real_cash_map[normalized_date] = c
     except Exception as e:
         # Value log parsing failed; use default cash calculation
         logger.debug("Failed to parse value log: %s", e)
@@ -120,7 +138,7 @@ async def get_backtest_data(
             peak = value
         dd = (value - peak) / peak if peak > 0 else 0
 
-        date_str = date if isinstance(date, str) else str(date)
+        date_str = _normalize_chart_date(date if isinstance(date, str) else str(date))
         cash = real_cash_map.get(date_str, value * 0.3)
         position = value - cash
 
@@ -156,9 +174,10 @@ async def get_backtest_data(
             log_indicators = kline_data.get("indicators", {})
             for j in range(len(kline_dates)):
                 ohlc = kline_ohlc[j] if j < len(kline_ohlc) else [0, 0, 0, 0]
+                kline_date = _normalize_chart_date(kline_dates[j])
                 klines.append(
                     {
-                        "date": kline_dates[j],
+                        "date": kline_date,
                         "open": round(ohlc[0], 4),
                         "high": round(ohlc[3], 4),
                         "low": round(ohlc[2], 4),
@@ -166,7 +185,8 @@ async def get_backtest_data(
                         "volume": kline_volumes[j] if j < len(kline_volumes) else 0,
                     }
                 )
-                kline_close_map[kline_dates[j]] = round(ohlc[1], 4)
+                if kline_date:
+                    kline_close_map[kline_date] = round(ohlc[1], 4)
     except Exception as e:
         # K-line parsing failed; continue without klines
         logger.debug("K-line data parsing failed: %s", e)
@@ -192,17 +212,45 @@ async def get_backtest_data(
 
     for i, t in enumerate(source_trades):
         td = t.model_dump() if hasattr(t, "model_dump") else (t if isinstance(t, dict) else {})
+        pnl = td.get("pnl") or td.get("pnlcomm")
+        open_price = td.get("price", 0)
+        size = td.get("size", 0)
+        direction = td.get("direction", "buy")
+        dtopen_raw = td.get("dtopen", "") or ""
+        dtclose_raw = td.get("dtclose", "") or td.get("datetime", "") or ""
+
+        # Derive close_price from pnl when possible
+        close_price = None
+        if pnl is not None and size and open_price:
+            if direction == "buy":
+                close_price = round(open_price + pnl / abs(size), 4)
+            else:
+                close_price = round(open_price - pnl / abs(size), 4)
+
+        # Calculate holding days from dtopen/dtclose when barlen is missing or 0
+        barlen = td.get("barlen") or 0
+        if not barlen and dtopen_raw and dtclose_raw:
+            try:
+                d_open = datetime.strptime(_normalize_chart_date(dtopen_raw), "%Y-%m-%d")
+                d_close = datetime.strptime(_normalize_chart_date(dtclose_raw), "%Y-%m-%d")
+                barlen = max((d_close - d_open).days, 0)
+            except (ValueError, TypeError):
+                pass
+
         trade = {
             "id": i + 1,
             "datetime": td.get("datetime", "") or td.get("dtclose", ""),
+            "dtopen": _normalize_chart_date(dtopen_raw),
+            "dtclose": _normalize_chart_date(dtclose_raw),
             "symbol": result.symbol,
-            "direction": td.get("direction", "buy"),
-            "price": td.get("price", 0),
-            "size": td.get("size", 0),
+            "direction": direction,
+            "price": open_price,
+            "close_price": close_price,
+            "size": size,
             "value": td.get("value", 0),
             "commission": td.get("commission", 0),
-            "pnl": td.get("pnl") or td.get("pnlcomm"),
-            "barlen": td.get("barlen"),
+            "pnl": pnl,
+            "barlen": barlen or None,
         }
         trades.append(trade)
 
@@ -212,7 +260,7 @@ async def get_backtest_data(
         dtopen = td.get("dtopen", "") or ""
         dtclose = td.get("dtclose", "") or trade["datetime"] or ""
         if dtopen:
-            open_date = dtopen[:10]
+            open_date = _normalize_chart_date(dtopen)
             signals.append(
                 {
                     "date": open_date,
@@ -222,7 +270,7 @@ async def get_backtest_data(
                 }
             )
         if dtclose:
-            close_date = dtclose[:10]
+            close_date = _normalize_chart_date(dtclose)
             signals.append(
                 {
                     "date": close_date,
@@ -239,9 +287,10 @@ async def get_backtest_data(
             if i > 0 and equity_values[i - 1] > 0:
                 change = (equity_values[i] - equity_values[i - 1]) / equity_values[i - 1]
                 base_price = base_price * (1 + change * 0.5)
+            normalized_date = _normalize_chart_date(date if isinstance(date, str) else str(date))
             klines.append(
                 {
-                    "date": date if isinstance(date, str) else str(date),
+                    "date": normalized_date,
                     "open": round(base_price * 0.998, 2),
                     "high": round(base_price * 1.01, 2),
                     "low": round(base_price * 0.99, 2),
@@ -258,7 +307,8 @@ async def get_backtest_data(
 
         for date, value in zip(equity_dates, equity_values, strict=False):
             try:
-                dt = datetime.strptime(date, "%Y-%m-%d") if isinstance(date, str) else date
+                normalized_date = _normalize_chart_date(date if isinstance(date, str) else str(date))
+                dt = datetime.strptime(normalized_date, "%Y-%m-%d")
                 month_key = (dt.year, dt.month)
 
                 if current_month != month_key:

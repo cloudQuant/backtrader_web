@@ -54,9 +54,10 @@ const form = reactive({
 
 watch(() => props.unit, (u) => {
   if (u?.optimization_config) {
-    form.n_workers = u.optimization_config.n_workers ?? 4
-    form.mode = (u.optimization_config as Record<string, unknown>).mode as 'grid' | 'random' ?? 'grid'
-    form.timeout = (u.optimization_config as Record<string, unknown>).timeout as number ?? 0
+    const oc = u.optimization_config as Record<string, unknown>
+    form.n_workers = (oc.n_workers as number) ?? 4
+    form.mode = (oc.mode as 'grid' | 'random') ?? 'grid'
+    form.timeout = (oc.timeout as number) ?? 0
   }
 }, { immediate: true })
 

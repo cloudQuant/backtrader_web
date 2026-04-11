@@ -17,7 +17,7 @@ function installPerformanceMeasureGuard(): void {
   }
 
   const originalMeasure = Performance.prototype.measure
-  Performance.prototype.measure = function (...args: Parameters<Performance['measure']>) {
+  ;(Performance.prototype as any).measure = function (...args: Parameters<Performance['measure']>) {
     try {
       return originalMeasure.apply(this, args)
     } catch (error) {
@@ -35,32 +35,41 @@ function installPerformanceMeasureGuard(): void {
 
 installPerformanceMeasureGuard()
 
-const app = createApp(App)
+async function bootstrap() {
+  const app = createApp(App)
+  const pinia = createPinia()
 
-// 注册Element Plus图标
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
-}
-
-app.use(createPinia())
-app.use(router)
-app.use(i18n)
-app.use(ElementPlus)
-
-window.addEventListener(AUTH_EXPIRED_EVENT, () => {
-  const currentRoute = router.currentRoute.value
-  if (currentRoute.name === 'Login') {
-    return
+  // 注册Element Plus图标
+  for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+    app.component(key, component)
   }
 
-  // Clear all business store state on auth expiry
-  const authStore = useAuthStore()
-  authStore.logout()
+  app.use(pinia)
+  app.use(i18n)
+  app.use(ElementPlus)
 
-  void router.push({
-    name: 'Login',
-    query: currentRoute.fullPath ? { redirect: currentRoute.fullPath } : undefined,
+  const authStore = useAuthStore(pinia)
+  await authStore.initialize()
+
+  app.use(router)
+  await router.isReady()
+
+  window.addEventListener(AUTH_EXPIRED_EVENT, () => {
+    const currentRoute = router.currentRoute.value
+    if (currentRoute.name === 'Login') {
+      return
+    }
+
+    // Clear all business store state on auth expiry
+    authStore.logout()
+
+    void router.push({
+      name: 'Login',
+      query: currentRoute.fullPath ? { redirect: currentRoute.fullPath } : undefined,
+    })
   })
-})
 
-app.mount('#app')
+  app.mount('#app')
+}
+
+void bootstrap()

@@ -162,67 +162,67 @@
         <!-- Summary cards -->
         <div v-if="report" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold">{{ report.summary?.total_units ?? 0 }}</div>
+            <div class="text-2xl font-bold">{{ filteredSummary.total_units ?? 0 }}</div>
             <div class="text-xs text-gray-400 mt-1">总单元数</div>
           </el-card>
           <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold">{{ report.summary?.completed_units ?? 0 }}</div>
+            <div class="text-2xl font-bold">{{ filteredSummary.completed_units ?? 0 }}</div>
             <div class="text-xs text-gray-400 mt-1">已完成</div>
           </el-card>
           <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold" :class="returnColor(report.summary?.avg_total_return)">
-              {{ fmtPct(report.summary?.avg_total_return) }}
+            <div class="text-2xl font-bold" :class="returnColor(filteredSummary.avg_total_return)">
+              {{ fmtPct(filteredSummary.avg_total_return) }}
             </div>
             <div class="text-xs text-gray-400 mt-1">平均收益率</div>
           </el-card>
           <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold" :class="returnColor(report.summary?.avg_sharpe_ratio)">
-              {{ fmtNum(report.summary?.avg_sharpe_ratio) }}
+            <div class="text-2xl font-bold" :class="returnColor(filteredSummary.avg_sharpe_ratio)">
+              {{ fmtNum(filteredSummary.avg_sharpe_ratio) }}
             </div>
             <div class="text-xs text-gray-400 mt-1">平均夏普比</div>
           </el-card>
           <el-card shadow="hover" class="text-center">
             <div class="text-2xl font-bold text-red-500">
-              {{ fmtPct(report.summary?.avg_max_drawdown) }}
+              {{ fmtPct(filteredSummary.avg_max_drawdown) }}
             </div>
             <div class="text-xs text-gray-400 mt-1">平均最大回撤</div>
           </el-card>
           <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold">{{ fmtPct(report.summary?.avg_win_rate) }}</div>
+            <div class="text-2xl font-bold">{{ fmtPct(filteredSummary.avg_win_rate) }}</div>
             <div class="text-xs text-gray-400 mt-1">平均胜率</div>
           </el-card>
           <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold">{{ report.summary?.total_trades ?? '-' }}</div>
+            <div class="text-2xl font-bold">{{ filteredSummary.total_trades ?? '-' }}</div>
             <div class="text-xs text-gray-400 mt-1">总交易次数</div>
           </el-card>
           <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold" :class="returnColor(report.summary?.avg_annual_return)">
-              {{ fmtPct(report.summary?.avg_annual_return) }}
+            <div class="text-2xl font-bold" :class="returnColor(filteredSummary.avg_annual_return)">
+              {{ fmtPct(filteredSummary.avg_annual_return) }}
             </div>
             <div class="text-xs text-gray-400 mt-1">平均年化收益</div>
           </el-card>
         </div>
 
         <!-- Highlights -->
-        <div v-if="report?.summary?.best_return_unit || report?.summary?.worst_drawdown_unit" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <el-card v-if="report.summary.best_return_unit" shadow="hover">
+        <div v-if="filteredSummary.best_return_unit || filteredSummary.worst_drawdown_unit" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <el-card v-if="filteredSummary.best_return_unit" shadow="hover">
             <template #header><span class="text-sm font-medium">最佳收益单元</span></template>
             <div class="flex justify-between items-center">
-              <span>{{ report.summary.best_return_unit.strategy_name }} / {{ report.summary.best_return_unit.symbol }}</span>
-              <span class="text-green-500 font-bold">{{ fmtPct(report.summary.best_return_unit.value) }}</span>
+              <span>{{ filteredSummary.best_return_unit.strategy_name }} / {{ filteredSummary.best_return_unit.symbol }}</span>
+              <span class="text-green-500 font-bold">{{ fmtPct(filteredSummary.best_return_unit.value) }}</span>
             </div>
           </el-card>
-          <el-card v-if="report.summary.worst_drawdown_unit" shadow="hover">
+          <el-card v-if="filteredSummary.worst_drawdown_unit" shadow="hover">
             <template #header><span class="text-sm font-medium">最大回撤单元</span></template>
             <div class="flex justify-between items-center">
-              <span>{{ report.summary.worst_drawdown_unit.strategy_name }} / {{ report.summary.worst_drawdown_unit.symbol }}</span>
-              <span class="text-red-500 font-bold">{{ fmtPct(report.summary.worst_drawdown_unit.value) }}</span>
+              <span>{{ filteredSummary.worst_drawdown_unit.strategy_name }} / {{ filteredSummary.worst_drawdown_unit.symbol }}</span>
+              <span class="text-red-500 font-bold">{{ fmtPct(filteredSummary.worst_drawdown_unit.value) }}</span>
             </div>
           </el-card>
         </div>
 
         <!-- Per-unit table with dynamic columns -->
-        <el-table v-if="report?.units?.length" :data="report.units" stripe border size="small" class="w-full" max-height="500">
+        <el-table v-if="filteredUnits.length" :data="filteredUnits" stripe border size="small" class="w-full" max-height="500">
           <el-table-column label="#" width="50" align="center" fixed>
             <template #default="{ $index }">{{ $index + 1 }}</template>
           </el-table-column>
@@ -242,7 +242,7 @@
           </template>
         </el-table>
 
-        <el-empty v-if="report && !report.units?.length" description="暂无单元数据" />
+        <el-empty v-if="report && !filteredUnits.length" description="当前选中范围暂无单元数据" />
         <el-empty v-if="!report && !loading" description="点击刷新加载报告" />
       </template>
     </el-skeleton>
@@ -250,7 +250,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import {
   Refresh, FolderOpened, Delete, Close, Download,
   Timer, Wallet, Operation, Histogram, SetUp, Star,
@@ -264,11 +264,14 @@ const props = defineProps<{
   workspaceId: string
   active?: boolean
   toolbarInHeader?: boolean
+  initialUnitId?: string
+  initialUnitIds?: string[]
 }>()
 
 const store = useWorkspaceStore()
 const loading = ref(false)
 const report = ref<Record<string, any> | null>(null)
+const selectedReportUnitIds = ref<string[]>([])
 
 const showStatTimeDialog = ref(false)
 const showMaxCashDialog = ref(false)
@@ -281,7 +284,6 @@ const reportCalcMethod = ref('simple')
 const reportAnnualDays = ref(252)
 const weightMode = ref('equal')
 
-// --- Bug-10 fix: restore saved report config on mount ---
 function _restoreDefaults() {
   const rc = (store.currentWorkspace?.settings as Record<string, any>)?.report_config
   if (!rc) return
@@ -298,6 +300,7 @@ interface RptColDef {
   key: string; label: string; width?: number; align?: string;
   sortable?: boolean; money?: boolean; int?: boolean;
 }
+
 const reportColumnDefs: RptColDef[] = [
   { key: 'initial_cash', label: '最大投入资金', width: 110, money: true },
   { key: 'net_value', label: '净值', width: 80 },
@@ -339,6 +342,67 @@ const reportActiveColumns = computed(() =>
   reportColumnDefs.filter(c => reportVisibleFields.value.includes(c.key))
 )
 
+const filteredUnits = computed(() => {
+  const rows = Array.isArray(report.value?.units) ? report.value.units : []
+  if (!selectedReportUnitIds.value.length) return rows
+  return rows.filter((row: Record<string, unknown>) => selectedReportUnitIds.value.includes(String(row.id || '')))
+})
+
+const filteredSummary = computed(() => {
+  const rows = filteredUnits.value as Array<Record<string, any>>
+  if (!rows.length) {
+    return {
+      total_units: 0,
+      completed_units: 0,
+      avg_total_return: null,
+      avg_annual_return: null,
+      avg_sharpe_ratio: null,
+      avg_max_drawdown: null,
+      avg_win_rate: null,
+      total_trades: null,
+      best_return_unit: null,
+      worst_drawdown_unit: null,
+    }
+  }
+  const avg = (key: string) => {
+    const values = rows.map(r => r[key]).filter((v: unknown) => typeof v === 'number') as number[]
+    if (!values.length) return null
+    return values.reduce((sum, v) => sum + v, 0) / values.length
+  }
+  const totalTrades = rows
+    .map(r => r.total_trades)
+    .filter((v: unknown) => typeof v === 'number')
+    .reduce((sum: number, v: number) => sum + v, 0)
+  const bestReturnUnit = rows.reduce((best: Record<string, any> | null, row) => {
+    if (!best) return row
+    return (row.total_return ?? Number.NEGATIVE_INFINITY) > (best.total_return ?? Number.NEGATIVE_INFINITY) ? row : best
+  }, null)
+  const worstDrawdownUnit = rows.reduce((worst: Record<string, any> | null, row) => {
+    if (!worst) return row
+    return Math.abs(row.max_drawdown ?? 0) > Math.abs(worst.max_drawdown ?? 0) ? row : worst
+  }, null)
+  return {
+    total_units: rows.length,
+    completed_units: rows.filter(r => r.run_status === 'completed' || r.last_task_id).length,
+    avg_total_return: avg('total_return'),
+    avg_annual_return: avg('annual_return'),
+    avg_sharpe_ratio: avg('sharpe_ratio'),
+    avg_max_drawdown: avg('max_drawdown'),
+    avg_win_rate: avg('win_rate'),
+    total_trades: totalTrades || null,
+    best_return_unit: bestReturnUnit ? {
+      strategy_name: bestReturnUnit.strategy_name,
+      symbol: bestReturnUnit.symbol,
+      value: bestReturnUnit.total_return,
+    } : null,
+    worst_drawdown_unit: worstDrawdownUnit ? {
+      strategy_name: worstDrawdownUnit.strategy_name,
+      symbol: worstDrawdownUnit.symbol,
+      value: worstDrawdownUnit.max_drawdown,
+    } : null,
+  }
+})
+
 async function fetchReport() {
   loading.value = true
   try {
@@ -350,7 +414,6 @@ async function fetchReport() {
   }
 }
 
-// Recalculate report with current config params (Bug-10 fix)
 async function recalculateReport() {
   loading.value = true
   try {
@@ -373,10 +436,21 @@ async function recalculateReport() {
 
 onMounted(() => {
   _restoreDefaults()
+  selectedReportUnitIds.value = props.initialUnitIds?.length ? [...props.initialUnitIds] : (props.initialUnitId ? [props.initialUnitId] : [])
   fetchReport()
 })
 
-// --- Open ---
+watch(() => props.initialUnitIds, (newIds) => {
+  selectedReportUnitIds.value = newIds?.length ? [...newIds] : (props.initialUnitId ? [props.initialUnitId] : [])
+}, { deep: true })
+
+watch(() => props.active, async (isActive) => {
+  if (isActive) {
+    selectedReportUnitIds.value = props.initialUnitIds?.length ? [...props.initialUnitIds] : (props.initialUnitId ? [props.initialUnitId] : [])
+    await fetchReport()
+  }
+})
+
 function handleOpenReport() {
   const input = document.createElement('input')
   input.type = 'file'

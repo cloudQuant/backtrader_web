@@ -95,18 +95,28 @@
               <el-icon><Cpu /></el-icon>
             </el-button>
           </el-tooltip>
+          <el-tooltip content="批量优化参数设置" placement="top">
+            <el-button :disabled="!hasSelection" size="small" @click="showBatchOptConfig = true">
+              <el-icon><Operation /></el-icon>
+            </el-button>
+          </el-tooltip>
+          <el-tooltip content="批量提交优化" placement="top">
+            <el-button :disabled="!hasSelection || batchSubmittingOptimization" :loading="batchSubmittingOptimization" size="small" type="success" @click="handleBatchSubmitOpt">
+              <el-icon><Promotion /></el-icon>
+            </el-button>
+          </el-tooltip>
           <el-tooltip content="优化参数复制" placement="top">
             <el-button :disabled="!hasSingleSelection || !hasSelection" size="small" @click="handleCopyOptParams">
               <el-icon><CopyDocument /></el-icon>
             </el-button>
           </el-tooltip>
           <el-tooltip content="优化任务结果" placement="top">
-            <el-button size="small" @click="emit('switch-tab', 'optimization')">
+            <el-button :disabled="!hasSingleSelection" size="small" @click="emit('switch-tab', 'optimization', store.selectedUnitIds[0])">
               <el-icon><Odometer /></el-icon>
             </el-button>
           </el-tooltip>
           <el-tooltip content="多任务组合报告" placement="top">
-            <el-button size="small" @click="emit('switch-tab', 'report')">
+            <el-button :disabled="!hasSelection" size="small" @click="emit('switch-tab', 'report', store.selectedUnitIds[0], [...store.selectedUnitIds])">
               <el-icon><Notebook /></el-icon>
             </el-button>
           </el-tooltip>
@@ -158,7 +168,7 @@
     <el-table
       :data="store.units"
       @selection-change="onSelectionChange"
-      @row-click="handleRowClick"
+      @row-dblclick="handleRowDblClick"
       stripe
       border
       size="small"
@@ -186,22 +196,36 @@
       <el-table-column label="策略目标" width="100" align="center">
         <template #default="{ row }">{{ objectiveLabel(row.optimization_config?.objective) }}</template>
       </el-table-column>
-      <el-table-column label="运行状态" width="90" align="center">
+      <el-table-column label="运行状态" width="120" align="center">
         <template #default="{ row }">
-          <el-tag :type="runStatusTagType(row.run_status)" size="small">
-            {{ runStatusLabel(row.run_status) }}
-          </el-tag>
+          <!--
+            Bug8 follow-up: show "completed/total" from initialization so the
+            column always reflects optimization task cardinality.
+          -->
+          <template v-if="shouldShowOptimizationProgress(row)">
+            {{ formatOptimizationCount(row) }}
+          </template>
+          <template v-else-if="shouldShowOptimizationTerminal(row)">
+            <el-tag :type="optimizationStatusTagType(row.opt_status)" size="small">
+              {{ optimizationStatusLabel(row.opt_status) }}
+            </el-tag>
+          </template>
+          <template v-else>
+            <el-tag :type="runStatusTagType(row.run_status)" size="small">
+              {{ runStatusLabel(row.run_status) }}
+            </el-tag>
+          </template>
         </template>
       </el-table-column>
       <el-table-column prop="run_count" label="运行次数" width="80" align="center" />
       <el-table-column label="已用时间" width="90" align="center">
         <template #default="{ row }">
-          {{ row.last_run_time != null ? row.last_run_time.toFixed(1) + 's' : '-' }}
+          {{ formatElapsedTime(row) }}
         </template>
       </el-table-column>
-      <el-table-column label="剩余时间" width="90" align="center">
+      <el-table-column label="剩余时间" width="130" align="center">
         <template #default="{ row }">
-          {{ estimateRemaining(row) }}
+          {{ formatRemainingTime(row) }}
         </template>
       </el-table-column>
       <el-table-column label="创建时间" width="150">
@@ -256,6 +280,15 @@
       @saved="onUnitUpdated"
     />
 
+    <!-- Batch Optimization Config Dialog -->
+    <BatchOptimizationConfigDialog
+      v-model="showBatchOptConfig"
+      :workspace-id="props.workspaceId"
+      :unit-ids="store.selectedUnitIds"
+      :units="store.units"
+      @saved="onUnitUpdated"
+    />
+
     <!-- Change Symbol Dialog -->
     <ChangeSymbolDialog
       v-model="showChangeSymbol"
@@ -301,6 +334,7 @@ import {
   DataLine, Setting, Document, Aim, EditPen, Edit,
   Top, Bottom, Upload, Download, RefreshRight,
   Switch, TrendCharts, Cpu, CopyDocument, Odometer, Notebook,
+  Operation, Promotion,
 } from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { workspaceApi } from '@/api/workspace'
@@ -312,6 +346,7 @@ import UnitSettingsDialog from './UnitSettingsDialog.vue'
 import StrategyParamsDialog from './StrategyParamsDialog.vue'
 import OptimizationConfigDialog from './OptimizationConfigDialog.vue'
 import OptimizationThreadDialog from './OptimizationThreadDialog.vue'
+import BatchOptimizationConfigDialog from './BatchOptimizationConfigDialog.vue'
 import ChangeSymbolDialog from './ChangeSymbolDialog.vue'
 import GroupRenameDialog from './GroupRenameDialog.vue'
 import UnitRenameDialog from './UnitRenameDialog.vue'
@@ -323,7 +358,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'switch-tab': [tab: string]
+  'switch-tab': [tab: string, unitId?: string, unitIds?: string[]]
 }>()
 
 const store = useWorkspaceStore()
@@ -343,16 +378,27 @@ const showUnitSettings = ref(false)
 const showStrategyParams = ref(false)
 const showOptConfig = ref(false)
 const showOptThread = ref(false)
+const showBatchOptConfig = ref(false)
 const showChangeSymbol = ref(false)
 const showGroupRename = ref(false)
 const showUnitRename = ref(false)
 const importFileInput = ref<HTMLInputElement | null>(null)
+const batchSubmittingOptimization = ref(false)
+const nowMs = ref(Date.now())
+let clockTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   store.startPolling(props.workspaceId)
+  clockTimer = setInterval(() => {
+    nowMs.value = Date.now()
+  }, 1000)
 })
 onUnmounted(() => {
   store.stopPolling()
+  if (clockTimer) {
+    clearInterval(clockTimer)
+    clockTimer = null
+  }
 })
 
 function onSelectionChange(rows: StrategyUnit[]) {
@@ -363,7 +409,7 @@ function canOpenReport(unit: StrategyUnit): boolean {
   return unit.run_status === 'completed' && !!unit.last_task_id
 }
 
-function handleRowClick(row: StrategyUnit, column?: { type?: string }, event?: Event) {
+function handleRowDblClick(row: StrategyUnit, column?: { type?: string }, event?: Event) {
   if (!canOpenReport(row)) return
   if (column?.type === 'selection') return
   const target = event?.target as HTMLElement | null
@@ -378,11 +424,13 @@ function handleRowClick(row: StrategyUnit, column?: { type?: string }, event?: E
 function onUnitCreated() {
   store.fetchUnits(props.workspaceId)
 }
-function onUnitUpdated() {
-  store.fetchUnits(props.workspaceId)
+async function onUnitUpdated() {
+  await store.fetchUnits(props.workspaceId)
+  await store.pollStatus(props.workspaceId)
 }
-function onUnitsRefresh() {
-  store.fetchUnits(props.workspaceId)
+async function onUnitsRefresh() {
+  await store.fetchUnits(props.workspaceId)
+  await store.pollStatus(props.workspaceId)
 }
 
 // --- Bulk delete ---
@@ -510,6 +558,298 @@ function handleOpenKline() {
   window.open(url, '_blank')
 }
 
+function inferBatchParamType(layer: { start: number; end: number; step: number }): 'int' | 'float' {
+  const values = [layer.start, layer.end, layer.step]
+  return values.every(v => Number.isInteger(v)) ? 'int' : 'float'
+}
+
+function calculateBatchTotalCombinations(
+  paramRanges: Record<string, { start: number; end: number; step: number; type: string }>,
+): number {
+  const counts = Object.values(paramRanges).map(spec => {
+    const distance = spec.end - spec.start
+    if (distance <= 0 || spec.step <= 0) {
+      return 0
+    }
+    return Math.floor(distance / spec.step) + 1
+  })
+  if (!counts.length) {
+    return 0
+  }
+  return counts.reduce((product, count) => product * count, 1)
+}
+
+function initializeUnitOptimizationState(
+  unit: StrategyUnit,
+  totalCombinations: number | null,
+  taskId?: string,
+) {
+  const now = Date.now()
+  if (taskId) {
+    unit.last_optimization_task_id = taskId
+  }
+  unit.opt_status = 'pending'
+  unit.opt_elapsed_time = 0
+  unit.opt_remaining_time = 0
+  unit.opt_total = totalCombinations
+  unit.opt_completed = totalCombinations == null ? null : 0
+  unit.opt_progress = 0
+  unit.opt_started_at_ms = now
+  unit.opt_last_sync_at_ms = now
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+function isOptimizationActiveStatus(status: string | null | undefined) {
+  return status === 'pending' || status === 'queued' || status === 'running'
+}
+
+function isOptimizationPendingStatus(status: string | null | undefined) {
+  return status === 'pending' || status === 'queued'
+}
+
+function isOptimizationTerminalStatus(status: string | null | undefined) {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
+}
+
+function getOptimizationTotal(row: StrategyUnit): number {
+  return Math.max(0, Number(row.opt_total ?? 0))
+}
+
+function getOptimizationCompleted(row: StrategyUnit): number {
+  return Math.max(0, Number(row.opt_completed ?? 0))
+}
+
+function hasOptimizationInProgressSnapshot(row: StrategyUnit): boolean {
+  const total = getOptimizationTotal(row)
+  if (total <= 0) return false
+  return getOptimizationCompleted(row) < total
+}
+
+function shouldShowOptimizationProgress(row: StrategyUnit): boolean {
+  if (isOptimizationActiveStatus(row.opt_status)) {
+    return true
+  }
+  if (isOptimizationTerminalStatus(row.opt_status)) {
+    return false
+  }
+  return hasOptimizationInProgressSnapshot(row)
+}
+
+function shouldShowOptimizationTerminal(row: StrategyUnit): boolean {
+  if (!isOptimizationTerminalStatus(row.opt_status)) {
+    return false
+  }
+  if (row.opt_status !== 'completed') {
+    return true
+  }
+  const total = getOptimizationTotal(row)
+  return total <= 0 || getOptimizationCompleted(row) >= total
+}
+
+async function waitForUnitOptimizationCompletion(unitId: string, pendingUnitIds: string[] = [], timeoutMs = 12 * 60 * 60 * 1000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    // Refresh protection window for units still queued in the batch
+    const nowTs = Date.now()
+    for (const pid of pendingUnitIds) {
+      const pu = store.units.find(item => item.id === pid)
+      if (pu && isOptimizationPendingStatus(pu.opt_status)) {
+        pu.opt_started_at_ms = nowTs
+      }
+    }
+    await store.pollStatus(props.workspaceId)
+    const unit = store.units.find(item => item.id === unitId)
+    if (unit && shouldShowOptimizationTerminal(unit)) {
+      return unit.opt_status
+    }
+
+    const progress = await workspaceApi.getOptimizationProgress(props.workspaceId, unitId).catch(() => null)
+    if (unit && progress) {
+      const status = typeof progress.status === 'string' ? progress.status : unit.opt_status ?? null
+      const completed = Number(progress.completed ?? 0)
+      const failed = Number(progress.failed ?? 0)
+      const total = Number(progress.total ?? unit.opt_total ?? 0)
+      const elapsed = Number(progress.elapsed_time ?? unit.opt_elapsed_time ?? 0)
+      const remaining = Number(progress.remaining_time ?? unit.opt_remaining_time ?? 0)
+      const done = completed + failed
+      const prematureCompleted = status === 'completed' && total > 0 && done < total
+      if (!prematureCompleted) {
+        unit.opt_status = status
+      }
+      unit.opt_total = Number.isFinite(total) ? total : unit.opt_total
+      unit.opt_completed = Number.isFinite(done) ? done : unit.opt_completed
+      unit.opt_progress = Number(progress.progress ?? unit.opt_progress ?? 0)
+      unit.opt_elapsed_time = Number.isFinite(elapsed) ? elapsed : unit.opt_elapsed_time
+      unit.opt_remaining_time = Number.isFinite(remaining) ? remaining : unit.opt_remaining_time
+      unit.opt_last_sync_at_ms = nowTs
+      if (unit.opt_status === 'running') {
+        unit.opt_started_at_ms = nowTs - Math.round(Math.max(0, unit.opt_elapsed_time ?? 0) * 1000)
+      } else if (unit.opt_status === 'pending' || unit.opt_status === 'queued') {
+        unit.opt_started_at_ms = nowTs
+        unit.opt_elapsed_time = 0
+        unit.opt_remaining_time = 0
+      } else if (unit.opt_status) {
+        unit.opt_started_at_ms = null
+        unit.opt_last_sync_at_ms = null
+        unit.opt_remaining_time = 0
+      }
+      if (shouldShowOptimizationTerminal(unit)) {
+        return unit.opt_status
+      }
+    }
+    if (unit && shouldShowOptimizationTerminal(unit)) {
+      return unit.opt_status
+    }
+    await sleep(3000)
+  }
+  throw new Error('等待优化任务完成超时')
+}
+
+// --- Batch submit optimization ---
+async function handleBatchSubmitOpt() {
+  const ids = store.selectedUnitIds
+  if (!ids.length) return
+
+  batchSubmittingOptimization.value = true
+  try {
+    await store.fetchUnits(props.workspaceId)
+
+    const unitsWithConfig = store.units.filter(
+      u => ids.includes(u.id) && u.optimization_config && (u.optimization_config as Record<string, unknown>).param_layers
+    )
+    if (!unitsWithConfig.length) {
+      ElMessage.warning('选中的单元尚未设置优化参数（param_layers），请先通过"批量优化参数设置"配置')
+      return
+    }
+
+    let validCount = 0
+    const invalidNames: string[] = []
+    for (const u of unitsWithConfig) {
+      const oc = u.optimization_config as Record<string, unknown>
+      const layers = (oc.param_layers || []) as Array<{ param_name: string; opt_type: string; start: number; end: number; step: number }>
+      const hasValid = layers.some(l => l.param_name && l.opt_type === 'equal_diff' && l.step > 0 && l.end > l.start)
+      if (hasValid) {
+        validCount++
+      } else {
+        invalidNames.push(u.strategy_name || u.strategy_id || u.id)
+      }
+    }
+    if (validCount === 0) {
+      ElMessage.warning('所有选中单元的优化参数范围无效（请确保 结束值 > 起始值 且 步长 > 0）')
+      return
+    }
+
+    const invalidHint = invalidNames.length > 0 ? `\n（${invalidNames.length} 个单元参数范围无效将被跳过）` : ''
+    try {
+      await ElMessageBox.confirm(
+        `确认顺序为 ${validCount} 个单元串行提交优化任务？${invalidHint}`,
+        '批量提交优化',
+        { type: 'info' },
+      )
+    } catch { return }
+
+    // Bug8 fix: Pre-initialize optimization status / elapsed / remaining for ALL
+    // selected units so the UI immediately shows a fresh 0/N progress state and
+    // zeroed timers, instead of keeping the previous completed task snapshot.
+    for (const u of unitsWithConfig) {
+      const localUnit = store.units.find(item => item.id === u.id)
+      if (!localUnit) continue
+      const oc = u.optimization_config as Record<string, unknown>
+      const layers = (oc.param_layers || []) as Array<{ param_name: string; opt_type: string; start: number; end: number; step: number }>
+      const ranges: Record<string, { start: number; end: number; step: number; type: string }> = {}
+      for (const l of layers) {
+        if (!l.param_name || l.opt_type !== 'equal_diff' || l.step <= 0 || l.end <= l.start) continue
+        ranges[l.param_name] = {
+          start: l.start,
+          end: l.end,
+          step: l.step,
+          type: inferBatchParamType(l),
+        }
+      }
+      const total = Object.keys(ranges).length ? calculateBatchTotalCombinations(ranges) : 0
+      initializeUnitOptimizationState(localUnit, total || null)
+    }
+
+    const remainingQueue = unitsWithConfig.map(u => u.id)
+
+    let completed = 0
+    let failed = 0
+    let submitFailed = 0
+    const errors: string[] = []
+
+    for (const u of unitsWithConfig) {
+      const name = u.strategy_name || u.id
+      const localUnit = store.units.find(item => item.id === u.id)
+      const qIdx = remainingQueue.indexOf(u.id)
+      if (qIdx >= 0) remainingQueue.splice(qIdx, 1)
+      try {
+        const oc = u.optimization_config as Record<string, unknown>
+        const layers = (oc.param_layers || []) as Array<{ param_name: string; opt_type: string; start: number; end: number; step: number }>
+        const paramRanges: Record<string, { start: number; end: number; step: number; type: string }> = {}
+        for (const l of layers) {
+          if (!l.param_name || l.opt_type !== 'equal_diff' || l.step <= 0 || l.end <= l.start) continue
+          paramRanges[l.param_name] = {
+            start: l.start,
+            end: l.end,
+            step: l.step,
+            type: inferBatchParamType(l),
+          }
+        }
+        if (!Object.keys(paramRanges).length) {
+          errors.push(`${name}: 无有效参数范围`)
+          submitFailed++
+          continue
+        }
+
+        const totalCombinations = calculateBatchTotalCombinations(paramRanges)
+        if (localUnit) {
+          initializeUnitOptimizationState(localUnit, totalCombinations || null)
+        }
+
+        const nWorkers = (oc.n_workers as number) || 4
+        const mode = (oc.mode as string) || 'grid'
+        const timeout = (oc.timeout as number) || 0
+        const result = await workspaceApi.submitOptimization(props.workspaceId, {
+          unit_id: u.id,
+          param_ranges: paramRanges,
+          n_workers: nWorkers,
+          mode,
+          timeout,
+        })
+
+        if (localUnit) {
+          initializeUnitOptimizationState(localUnit, result.total_combinations, result.task_id)
+        }
+
+        await store.pollStatus(props.workspaceId)
+
+        const terminalStatus = await waitForUnitOptimizationCompletion(u.id, [...remainingQueue])
+        if (terminalStatus === 'completed') {
+          completed++
+        } else {
+          failed++
+          errors.push(`${name}: 优化结束状态 ${terminalStatus}`)
+        }
+      } catch (e: unknown) {
+        errors.push(`${name}: ${getErrorMessage(e, '提交失败')}`)
+        submitFailed++
+      }
+    }
+
+    if (failed > 0 || submitFailed > 0) {
+      ElMessage.warning(`串行优化完成：${completed} 个完成，${failed} 个运行失败，${submitFailed} 个提交失败\n${errors.slice(0, 3).join('; ')}`)
+    } else {
+      ElMessage.success(`串行优化完成：${completed} 个单元已依次执行完成`)
+    }
+  } finally {
+    batchSubmittingOptimization.value = false
+    await store.fetchUnits(props.workspaceId)
+  }
+}
+
 // --- Copy optimization params ---
 async function handleCopyOptParams() {
   if (!selectedUnit.value) return
@@ -551,12 +891,78 @@ function runStatusLabel(status: string) {
   return map[status] || status
 }
 
+function optimizationStatusTagType(status: string | null | undefined) {
+  const map: Record<string, string> = {
+    completed: 'success', failed: 'danger', cancelled: 'warning',
+  }
+  return map[status || ''] || 'info'
+}
+
+function optimizationStatusLabel(status: string | null | undefined) {
+  const map: Record<string, string> = {
+    completed: '已完成', failed: '失败', cancelled: '已取消',
+  }
+  return map[status || ''] || '-'
+}
+
 function objectiveLabel(obj: string | undefined) {
   if (!obj) return '-'
   const map: Record<string, string> = {
     sharpe_max: '夏普最大', max_return: '最大收益', min_drawdown: '最小回撤',
   }
   return map[obj] || obj
+}
+
+function formatOptimizationCount(row: StrategyUnit): string {
+  const total = getOptimizationTotal(row)
+  if (total <= 0) return '-'
+  return `${getOptimizationCompleted(row)}/${total}`
+}
+
+function getLiveOptimizationElapsedSeconds(row: StrategyUnit): number {
+  const syncedElapsed = Math.max(0, row.opt_elapsed_time ?? 0)
+  if (row.opt_status !== 'running') {
+    return syncedElapsed
+  }
+  const startedAt = row.opt_started_at_ms
+  if (!startedAt) {
+    return syncedElapsed
+  }
+  const liveElapsed = Math.max(0, (nowMs.value - startedAt) / 1000)
+  return Math.max(syncedElapsed, liveElapsed)
+}
+
+function getLiveOptimizationRemainingSeconds(row: StrategyUnit): number {
+  return Math.max(0, row.opt_remaining_time ?? 0)
+}
+
+function formatElapsedTime(row: StrategyUnit): string {
+  if (row.opt_status === 'running') {
+    return `${getLiveOptimizationElapsedSeconds(row).toFixed(1)}s`
+  }
+  if (shouldShowOptimizationTerminal(row) && row.opt_elapsed_time != null) {
+    return `${row.opt_elapsed_time.toFixed(1)}s`
+  }
+  if (shouldShowOptimizationProgress(row) && row.opt_elapsed_time != null) {
+    return `${Math.max(0, row.opt_elapsed_time).toFixed(1)}s`
+  }
+  return row.last_run_time != null ? `${row.last_run_time.toFixed(1)}s` : '-'
+}
+
+function formatRemainingTime(row: StrategyUnit): string {
+  if (row.opt_status === 'running') {
+    return `${getLiveOptimizationRemainingSeconds(row).toFixed(1)}s`
+  }
+  if (row.opt_status === 'pending' || row.opt_status === 'queued') {
+    return '0.0s'
+  }
+  if (shouldShowOptimizationTerminal(row)) {
+    return '0.0s'
+  }
+  if (shouldShowOptimizationProgress(row)) {
+    return `${Math.max(0, row.opt_remaining_time ?? 0).toFixed(1)}s`
+  }
+  return estimateRemaining(row)
 }
 
 function estimateRemaining(row: StrategyUnit): string {

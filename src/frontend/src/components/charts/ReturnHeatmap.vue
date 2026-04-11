@@ -45,8 +45,10 @@ function renderChart() {
     return [r.month - 1, yearIndex, (r.return_pct * 100).toFixed(2)]
   })
 
-  const values = data.map(d => Math.abs(parseFloat(d[2] as string)))
-  const max = Math.max(...values, 10)
+  const numericValues = data.map(d => parseFloat(d[2] as string))
+  const dataMin = Math.min(...numericValues)
+  const dataMax = Math.max(...numericValues)
+  const absMax = Math.max(Math.abs(dataMin), Math.abs(dataMax), 0.01)
 
   const option: echarts.EChartsOption = {
     tooltip: {
@@ -77,14 +79,14 @@ function renderChart() {
       splitArea: { show: true },
     },
     visualMap: {
-      min: -max,
-      max: max,
+      min: -absMax,
+      max: absMax,
       calculable: true,
       orient: 'horizontal',
       left: 'center',
       bottom: '5%',
       inRange: {
-        color: ['#00da3c', '#ffffff', '#ec0000'],
+        color: ['#c0392b', '#e74c3c', '#f1948a', '#fadbd8', '#fdfefe', '#d5f5e3', '#82e0aa', '#27ae60', '#1e8449'],
       },
     },
     series: [
@@ -95,6 +97,11 @@ function renderChart() {
           show: true,
           formatter: (params: unknown) => `${(params as { data?: [number, number, number | string] }).data?.[2]}%`,
           fontSize: 9,
+          color: '#333',
+        },
+        itemStyle: {
+          borderWidth: 1,
+          borderColor: '#fff',
         },
         emphasis: {
           itemStyle: {

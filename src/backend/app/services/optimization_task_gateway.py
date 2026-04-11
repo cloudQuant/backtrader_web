@@ -14,6 +14,11 @@ from app.services.optimization_task_state import (
 )
 
 logger = logging.getLogger(__name__)
+_TERMINAL_OPTIMIZATION_STATUSES = {
+    TaskStatus.COMPLETED.value,
+    TaskStatus.FAILED.value,
+    TaskStatus.CANCELLED.value,
+}
 
 
 def load_optimization_task_state(
@@ -26,18 +31,24 @@ def load_optimization_task_state(
     get_task: Callable[[str], dict[str, Any] | None] = get_runtime_task,
     build_runtime_task: Callable[[Any], dict[str, Any]] = build_runtime_task_from_db_task,
 ) -> dict[str, Any] | None:
+    runtime_task = get_task(task_id)
     if use_db:
         try:
             mgr = get_manager()
             db_task = run_async(mgr.get_task(task_id, user_id=user_id))
             if db_task:
-                return build_runtime_task(db_task)
+                db_runtime_task = build_runtime_task(db_task)
+                if str(getattr(db_task, "status", "") or "") in _TERMINAL_OPTIMIZATION_STATUSES:
+                    return db_runtime_task
+                if runtime_task is not None:
+                    return runtime_task
+                return db_runtime_task
             if user_id is not None:
                 return None
         except Exception as e:
             logger.debug("DB task lookup failed: %s", e)
 
-    return get_task(task_id)
+    return runtime_task
 
 
 def is_optimization_cancelled(

@@ -55,14 +55,9 @@
               <el-icon><Grid /></el-icon>
             </el-button>
           </el-tooltip>
-          <el-tooltip content="折线图" placement="top">
-            <el-button size="small" :type="viewMode === 'line' ? 'primary' : ''" @click="viewMode = 'line'">
-              <el-icon><TrendCharts /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="面积图" placement="top">
-            <el-button size="small" :type="viewMode === 'area' ? 'primary' : ''" @click="viewMode = 'area'">
-              <el-icon><DataLine /></el-icon>
+          <el-tooltip content="参数分析" placement="top">
+            <el-button size="small" :type="viewMode === 'analysis' ? 'primary' : ''" @click="viewMode = 'analysis'">
+              <el-icon><Operation /></el-icon>
             </el-button>
           </el-tooltip>
         </el-button-group>
@@ -196,7 +191,7 @@
     </div>
 
     <!-- No results -->
-    <el-empty v-else-if="!hasResults" description="该单元暂无优化结果。请先在策略单元工具栏中设置优化参数并提交优化。" />
+    <el-empty v-else-if="!hasResults" :description="emptyStateDescription" />
 
     <!-- Results -->
     <template v-else>
@@ -230,9 +225,11 @@
         <el-table-column label="#" width="55" align="center" fixed>
           <template #default="{ $index }">{{ $index + 1 }}</template>
         </el-table-column>
-        <el-table-column label="参数值" min-width="150" fixed>
-          <template #default="{ row }">{{ formatParams(row.params) }}</template>
-        </el-table-column>
+        <template v-for="paramName in paramNames" :key="`param-${paramName}`">
+          <el-table-column :label="paramName" min-width="110" align="center">
+            <template #default="{ row }">{{ row[paramName] ?? '-' }}</template>
+          </el-table-column>
+        </template>
         <template v-for="col in activeColumns" :key="col.key">
           <el-table-column
             :label="col.label"
@@ -243,23 +240,54 @@
             <template #default="{ row }">{{ col.money ? fmtMoney(row[col.key]) : col.int ? (row[col.key] ?? '-') : fmtVal(row[col.key]) }}</template>
           </el-table-column>
         </template>
+        <el-table-column label="操作" width="120" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" :loading="runningRow === row" @click="handleRunWithParams(row)">
+              回测详情
+            </el-button>
+          </template>
+        </el-table-column>
       </el-table>
 
-      <!-- Line chart (real ECharts) -->
-      <div v-else-if="viewMode === 'line'">
+      <!-- Analysis view -->
+      <div v-else-if="viewMode === 'analysis'">
         <el-card shadow="never" class="mb-4">
-          <div class="text-sm text-gray-500 mb-2">折线图 - 按 {{ sortLabel }} 排序的前 {{ Math.min(displayRows.length, 200) }} 条优化结果</div>
-          <v-chart v-if="displayRows.length" :option="lineChartOption" style="height: 360px; width: 100%" autoresize />
-          <div v-else class="text-center text-gray-400 py-10">暂无数据</div>
-        </el-card>
-      </div>
-
-      <!-- Area chart (real ECharts) -->
-      <div v-else-if="viewMode === 'area'">
-        <el-card shadow="never" class="mb-4">
-          <div class="text-sm text-gray-500 mb-2">面积图 - 按 {{ sortLabel }} 排序的前 {{ Math.min(displayRows.length, 200) }} 条优化结果</div>
-          <v-chart v-if="displayRows.length" :option="areaChartOption" style="height: 360px; width: 100%" autoresize />
-          <div v-else class="text-center text-gray-400 py-10">暂无数据</div>
+          <div class="flex flex-wrap items-center gap-3 mb-4">
+            <span class="text-sm text-gray-500">参数</span>
+            <el-select
+              v-model="selectedAnalysisParams"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              :multiple-limit="3"
+              placeholder="选择 1-3 个参数"
+              size="small"
+              style="width: 360px"
+            >
+              <el-option
+                v-for="paramName in paramNames"
+                :key="`analysis-param-${paramName}`"
+                :label="paramName"
+                :value="paramName"
+              />
+            </el-select>
+            <span class="text-sm text-gray-500">目标值</span>
+            <el-select v-model="analysisMetric" placeholder="选择目标值" size="small" style="width: 220px">
+              <el-option
+                v-for="option in metricOptions"
+                :key="`analysis-metric-${option.value}`"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </div>
+          <div class="text-sm text-gray-500 mb-3">{{ analysisDescription }}</div>
+          <div
+            v-if="selectedAnalysisMode"
+            ref="analysisChartRef"
+            :style="{ height: selectedAnalysisMode === 'scatter3d' ? '520px' : '420px', width: '100%' }"
+          />
+          <div v-else class="text-center text-gray-400 py-12">请选择 1-3 个参数进行分析</div>
         </el-card>
       </div>
     </template>
@@ -267,11 +295,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import VChart from 'vue-echarts'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import * as echarts from 'echarts'
+import 'echarts-gl'
+import { useRouter } from 'vue-router'
 import {
   Loading, Check, Document, Filter, Refresh, Download,
-  FolderOpened, Position, Grid, TrendCharts, DataLine,
+  FolderOpened, Position, Grid,
   RefreshLeft, Timer, Operation, SetUp, Star,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -283,9 +313,11 @@ const props = defineProps<{
   workspaceId: string
   active?: boolean
   toolbarInHeader?: boolean
+  initialUnitId?: string
 }>()
 
 const store = useWorkspaceStore()
+const router = useRouter()
 const units = computed(() => store.units)
 
 const selectedUnitId = ref('')
@@ -293,13 +325,14 @@ const loading = ref(false)
 const optimizationStatus = ref('')
 const total = ref(0)
 const completed = ref(0)
+const failed = ref(0)
 const resultRows = ref<Record<string, unknown>[]>([])
-// Original rows as returned by backend (sorted by objective) — used to map apply-best index
-const backendRows = ref<Record<string, unknown>[]>([])
+const paramNames = ref<string[]>([])
+const optimizationTaskId = ref('')
 const showFilter = ref(false)
 const sortKey = ref('sharpe_ratio')
 const sortDir = ref<'asc' | 'desc'>('desc')
-const viewMode = ref<'table' | 'line' | 'area'>('table')
+const viewMode = ref<'table' | 'analysis'>('table')
 
 const showStatTimeDialog = ref(false)
 const showCalcMethodDialog = ref(false)
@@ -307,6 +340,10 @@ const showCustomFieldsDialog = ref(false)
 const statTimeRange = ref<[string | null, string | null]>([null, null])
 const calcMethod = ref('simple')
 const annualDays = ref(252)
+const selectedAnalysisParams = ref<string[]>([])
+const analysisMetric = ref('sharpe_ratio')
+const analysisChartRef = ref<HTMLElement | null>(null)
+let analysisChart: echarts.ECharts | null = null
 
 interface ColDef {
   key: string; label: string; width?: number; align?: string;
@@ -352,10 +389,24 @@ const visibleFields = ref(allFields.map(f => f.key))
 const activeColumns = computed(() =>
   allColumnDefs.filter(c => visibleFields.value.includes(c.key))
 )
-const openFileInput = ref<HTMLInputElement | null>(null)
 
 const hasResults = computed(() => resultRows.value.length > 0 || optimizationStatus.value === 'running')
 const progressPct = computed(() => total.value > 0 ? Math.round((completed.value / total.value) * 100) : 0)
+const emptyStateDescription = computed(() => {
+  if (optimizationStatus.value === 'cancelled') {
+    return '该优化任务已取消。'
+  }
+  if (optimizationStatus.value === 'failed') {
+    return '该优化任务执行失败，请检查参数范围、数据配置或后端日志。'
+  }
+  if (optimizationStatus.value === 'completed' && failed.value > 0 && completed.value === 0) {
+    return `该单元优化已结束，但 ${failed.value} 组参数全部失败，因此没有可展示的优化结果。`
+  }
+  if (optimizationStatus.value === 'completed' && failed.value > 0) {
+    return `该单元优化已结束，但仅部分组合成功。当前无可展示结果，请检查失败任务日志。`
+  }
+  return '该单元暂无优化结果。请先在策略单元工具栏中设置优化参数并提交优化。'
+})
 
 // Recalculate annual_return based on user's calcMethod + annualDays settings
 function _recalcAnnual(row: Record<string, unknown>): number | null {
@@ -363,7 +414,7 @@ function _recalcAnnual(row: Record<string, unknown>): number | null {
   const td = row.trading_days as number | undefined
   if (tr == null || !td || td <= 0) return (row.annual_return as number) ?? null
   if (calcMethod.value === 'compound') {
-    try { return Math.pow(1 + tr, annualDays.value / td) - 1 } catch { return (row.annual_return as number) ?? null }
+    try { return (Math.pow(1 + tr / 100, annualDays.value / td) - 1) * 100 } catch { return (row.annual_return as number) ?? null }
   }
   return tr * (annualDays.value / td)
 }
@@ -405,17 +456,38 @@ function _restoreOptDefaults() {
   if (!oc) return
   if (oc.sort_key) sortKey.value = oc.sort_key
   if (oc.sort_dir) sortDir.value = oc.sort_dir
-  if (oc.view_mode) viewMode.value = oc.view_mode
+  if (oc.view_mode === 'analysis' || oc.view_mode === 'table') viewMode.value = oc.view_mode
   if (oc.calc_method) calcMethod.value = oc.calc_method
   if (oc.annual_days) annualDays.value = oc.annual_days
   if (oc.stat_time_range) statTimeRange.value = oc.stat_time_range
   if (oc.visible_fields) visibleFields.value = oc.visible_fields
+  if (Array.isArray(oc.analysis_params)) selectedAnalysisParams.value = oc.analysis_params.slice(0, 3)
+  if (oc.analysis_metric) analysisMetric.value = oc.analysis_metric
 }
 
-onMounted(() => {
+onMounted(async () => {
   _restoreOptDefaults()
   if (!store.units.length) {
-    store.fetchUnits(props.workspaceId)
+    await store.fetchUnits(props.workspaceId)
+  }
+  window.addEventListener('resize', handleResize)
+  // Auto-select initial unit if provided
+  if (props.initialUnitId) {
+    selectedUnitId.value = props.initialUnitId
+    await loadResults()
+  }
+})
+
+watch(() => props.initialUnitId, async (newId) => {
+  if (newId && newId !== selectedUnitId.value) {
+    selectedUnitId.value = newId
+    await loadResults()
+  }
+})
+
+watch(() => props.active, async (isActive) => {
+  if (isActive && selectedUnitId.value) {
+    await loadResults()
   }
 })
 
@@ -428,6 +500,7 @@ async function loadResults() {
       optimizationStatus.value = (progress.status as string) || ''
       total.value = (progress.total as number) || 0
       completed.value = (progress.completed as number) || 0
+      failed.value = (progress.failed as number) || 0
     }
 
     const results = await workspaceApi.getOptimizationResults(props.workspaceId, selectedUnitId.value).catch(() => null)
@@ -436,21 +509,29 @@ async function loadResults() {
     if (results && rowsData) {
       const rows = rowsData as Record<string, unknown>[]
       resultRows.value = rows
-      backendRows.value = [...rows]  // snapshot of backend sort order
+      paramNames.value = Array.isArray(results.param_names) ? (results.param_names as string[]) : deriveParamNames(rows)
+      optimizationTaskId.value = typeof results.task_id === 'string' ? results.task_id : ''
       optimizationStatus.value = (results.status as string) || optimizationStatus.value
       total.value = (results.total as number) || total.value
       completed.value = (results.completed as number) || completed.value
+      failed.value = (results.failed as number) || failed.value
       // Sync default sort to backend's objective
       if (results.objective && typeof results.objective === 'string') {
         sortKey.value = results.objective
         sortDir.value = results.objective === 'max_drawdown' ? 'asc' : 'desc'
       }
+      initializeAnalysisControls(typeof results.objective === 'string' ? results.objective : sortKey.value)
     } else {
       resultRows.value = []
-      backendRows.value = []
+      paramNames.value = []
+      optimizationTaskId.value = ''
+      selectedAnalysisParams.value = []
     }
   } catch {
     resultRows.value = []
+    paramNames.value = []
+    optimizationTaskId.value = ''
+    selectedAnalysisParams.value = []
   } finally {
     loading.value = false
   }
@@ -473,6 +554,7 @@ function startPolling() {
         optimizationStatus.value = (progress.status as string) || ''
         total.value = (progress.total as number) || 0
         completed.value = (progress.completed as number) || 0
+        failed.value = (progress.failed as number) || 0
       }
       // If terminal state, load final results and stop polling
       if (['completed', 'failed', 'cancelled'].includes(optimizationStatus.value)) {
@@ -498,8 +580,6 @@ watch(optimizationStatus, (val) => {
   }
 })
 
-onBeforeUnmount(() => stopPolling())
-
 // --- Open / Save ---
 function handleOpenFile() {
   const input = document.createElement('input')
@@ -509,14 +589,16 @@ function handleOpenFile() {
     const file = (e.target as HTMLInputElement).files?.[0]
     if (!file) return
     try {
-      const text = await file.text()
-      const data = JSON.parse(text)
-      if (data.results && Array.isArray(data.results)) {
-        resultRows.value = data.results
-        ElMessage.success(`已加载 ${data.results.length} 条优化结果`)
-      } else {
-        ElMessage.warning('文件格式不正确')
-      }
+     const text = await file.text()
+     const data = JSON.parse(text)
+     if (data.results && Array.isArray(data.results)) {
+       resultRows.value = data.results
+       paramNames.value = Array.isArray(data.param_names) ? (data.param_names as string[]) : deriveParamNames(data.results)
+       initializeAnalysisControls(typeof data.objective === 'string' ? data.objective : sortKey.value)
+       ElMessage.success(`已加载 ${data.results.length} 条优化结果`)
+     } else {
+       ElMessage.warning('文件格式不正确')
+     }
     } catch {
       ElMessage.error('读取文件失败')
     }
@@ -526,14 +608,16 @@ function handleOpenFile() {
 
 function handleSaveResults() {
   if (!resultRows.value.length) return
-  const data = {
-    unit_id: selectedUnitId.value,
-    exported_at: new Date().toISOString(),
-    results: resultRows.value,
-  }
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
+   const data = {
+     unit_id: selectedUnitId.value,
+     exported_at: new Date().toISOString(),
+     param_names: paramNames.value,
+     objective: sortKey.value,
+     results: resultRows.value,
+   }
+   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+   const url = URL.createObjectURL(blob)
+   const a = document.createElement('a')
   a.href = url
   a.download = `opt_results_${selectedUnitId.value.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.json`
   a.click()
@@ -586,19 +670,21 @@ function handleReset() {
 async function handleSetDefault() {
   try {
     await workspaceApi.update(props.workspaceId, {
-      settings: {
-        optimization_config: {
-          sort_key: sortKey.value,
-          sort_dir: sortDir.value,
-          view_mode: viewMode.value,
-          calc_method: calcMethod.value,
-          annual_days: annualDays.value,
-          stat_time_range: statTimeRange.value,
-          visible_fields: visibleFields.value,
-        },
-      },
-    })
-    ElMessage.success('已保存为默认优化结果配置')
+       settings: {
+         optimization_config: {
+           sort_key: sortKey.value,
+           sort_dir: sortDir.value,
+           view_mode: viewMode.value,
+           calc_method: calcMethod.value,
+           annual_days: annualDays.value,
+           stat_time_range: statTimeRange.value,
+           visible_fields: visibleFields.value,
+           analysis_params: selectedAnalysisParams.value,
+           analysis_metric: analysisMetric.value,
+         },
+       },
+     })
+     ElMessage.success('已保存为默认优化结果配置')
   } catch (e: unknown) {
     ElMessage.error(getErrorMessage(e, '保存默认配置失败'))
   }
@@ -623,11 +709,8 @@ async function handleApplyBest() {
     ElMessage.warning('未找到优化任务ID')
     return
   }
-  // The displayed best row (index 0 after local sort)
   const bestRow = displayRows.value[0]
-  // Find the matching index in the backend's sorted rows
-  let backendIdx = backendRows.value.indexOf(bestRow)
-  if (backendIdx < 0) backendIdx = 0
+  const backendIdx = typeof bestRow.result_index === 'number' ? bestRow.result_index : 0
   try {
     await ElMessageBox.confirm('确认将最佳参数应用到该策略单元？', '应用最佳参数', { type: 'info' })
     await workspaceApi.applyBestParams(props.workspaceId, {
@@ -641,6 +724,79 @@ async function handleApplyBest() {
     if (e !== 'cancel' && (e as { message?: string })?.message !== 'cancel') {
       ElMessage.error(getErrorMessage(e, '应用失败'))
     }
+  }
+}
+
+const runningRow = ref<Record<string, unknown> | null>(null)
+
+async function handleRunWithParams(row: Record<string, unknown>) {
+  if (!selectedUnitId.value) return
+  const resultIndex = typeof row.result_index === 'number' ? row.result_index : null
+  const artifactPath = typeof row.artifact_path === 'string' ? row.artifact_path : ''
+  if (optimizationTaskId.value && resultIndex !== null && artifactPath) {
+    router.push({
+      name: 'BacktestResult',
+      params: { id: optimizationTaskId.value },
+      query: {
+        workspaceId: props.workspaceId,
+        optimizationUnitId: selectedUnitId.value,
+        optimizationResultIndex: String(resultIndex),
+      },
+    })
+    return
+  }
+  const unit = units.value.find(u => u.id === selectedUnitId.value)
+  if (!unit) return
+  const params = row.params as Record<string, number> | undefined
+  if (!params) {
+    ElMessage.warning('该行无参数信息')
+    return
+  }
+  runningRow.value = row
+  let pollStarted = false
+  try {
+    // 1. Apply params to unit, preserving non-optimized params
+    await workspaceApi.updateUnit(props.workspaceId, unit.id, {
+      params: {
+        ...(unit.params || {}),
+        ...params,
+      },
+    })
+    // 2. Run the unit
+    const res = await workspaceApi.runUnits(props.workspaceId, [unit.id], false)
+    const result = res.results?.[0]
+    if (result?.task_id) {
+      pollStarted = true
+      ElMessage.success('回测已提交，待完成后自动跳转')
+      // 3. Poll until done, then navigate
+      const pollId = setInterval(async () => {
+        try {
+          const statuses = await workspaceApi.getUnitsStatus(props.workspaceId)
+          const s = statuses.find(x => x.id === unit.id)
+          if (s && (s.run_status === 'completed' || s.run_status === 'failed')) {
+            clearInterval(pollId)
+            runningRow.value = null
+            if (s.run_status === 'completed' && s.last_task_id) {
+              router.push({
+                name: 'BacktestResult',
+                params: { id: s.last_task_id as string },
+                query: { workspaceId: props.workspaceId },
+              })
+            } else {
+              ElMessage.error('回测失败')
+            }
+          }
+        } catch { /* ignore */ }
+      }, 2000)
+      // Safety timeout: stop polling after 10 minutes
+      setTimeout(() => { clearInterval(pollId); runningRow.value = null }, 600000)
+    } else {
+      ElMessage.warning('回测提交未返回任务ID')
+    }
+  } catch (e: unknown) {
+    ElMessage.error(getErrorMessage(e, '提交回测失败'))
+  } finally {
+    if (!pollStarted && runningRow.value === row) runningRow.value = null
   }
 }
 
@@ -658,64 +814,385 @@ function fmtVal(val: unknown) {
 
 function fmtMoney(val: unknown) {
   if (val == null) return '-'
-  return typeof val === 'number' ? val.toLocaleString('zh-CN', { maximumFractionDigits: 2 }) : String(val)
+  return typeof val === 'number'
+    ? val.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+    : String(val)
 }
 
-function getBarHeight(row: Record<string, unknown>): number {
-  const val = row[sortKey.value]
-  if (typeof val !== 'number') return 5
-  const rows = displayRows.value
-  const vals = rows.map(r => (typeof r[sortKey.value] === 'number' ? r[sortKey.value] as number : 0))
-  const maxV = Math.max(...vals.map(Math.abs), 1)
-  return Math.max(5, Math.round((Math.abs(val) / maxV) * 180))
+function formatMetricValue(metricKey: string, value: number | null) {
+  if (value == null || !Number.isFinite(value)) return '-'
+  const col = allColumnDefs.find(item => item.key === metricKey)
+  if (col?.money) {
+    return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+  }
+  if (col?.int) {
+    return String(Math.round(value))
+  }
+  return value.toFixed(4)
 }
 
-// --- ECharts options (Bug-9 fix) ---
-const chartData = computed(() => {
-  const rows = displayRows.value.slice(0, 200)
-  const labels = rows.map((_, i) => `#${i + 1}`)
-  const values = rows.map(r => {
-    const v = r[sortKey.value]
-    return typeof v === 'number' ? v : 0
+const metricOptions = computed(() =>
+  allColumnDefs
+    .filter(col => displayRows.value.some(row => toNumber(row[col.key]) !== null))
+    .map(col => ({ label: col.label, value: col.key }))
+)
+
+const selectedAnalysisMode = computed<'boxplot' | 'heatmap' | 'scatter3d' | ''>(() => {
+  if (selectedAnalysisParams.value.length === 1) return 'boxplot'
+  if (selectedAnalysisParams.value.length === 2) return 'heatmap'
+  if (selectedAnalysisParams.value.length === 3) return 'scatter3d'
+  return ''
+})
+
+const analysisDescription = computed(() => {
+  if (selectedAnalysisMode.value === 'boxplot') {
+    return `已选择 1 个参数，将展示 ${getMetricLabel(analysisMetric.value)} 在 ${selectedAnalysisParams.value[0]} 各取值下的分布。`
+  }
+  if (selectedAnalysisMode.value === 'heatmap') {
+    return `已选择 2 个参数，将展示 ${getMetricLabel(analysisMetric.value)} 在参数组合上的热力分布。`
+  }
+  if (selectedAnalysisMode.value === 'scatter3d') {
+    return `已选择 3 个参数，将展示三维参数空间中 ${getMetricLabel(analysisMetric.value)} 的分布。`
+  }
+  return '选择 1 个参数显示箱体图，选择 2 个参数显示热力图，选择 3 个参数显示立体三维图。'
+})
+
+function deriveParamNames(rows: Record<string, unknown>[]): string[] {
+  const row = rows.find(item => item.params && typeof item.params === 'object')
+  if (!row || !row.params || typeof row.params !== 'object') return []
+  return Object.keys(row.params as Record<string, unknown>)
+}
+
+function initializeAnalysisControls(preferredMetric?: string) {
+  const allowed = new Set(paramNames.value)
+  const filtered = selectedAnalysisParams.value.filter(name => allowed.has(name)).slice(0, 3)
+  if (filtered.length > 0) {
+    selectedAnalysisParams.value = filtered
+  } else if (paramNames.value.length >= 2) {
+    selectedAnalysisParams.value = paramNames.value.slice(0, 2)
+  } else {
+    selectedAnalysisParams.value = paramNames.value.slice(0, 1)
+  }
+
+  const availableMetricKeys = new Set(metricOptions.value.map(option => option.value))
+  const nextMetric = preferredMetric && availableMetricKeys.has(preferredMetric)
+    ? preferredMetric
+    : availableMetricKeys.has(analysisMetric.value)
+      ? analysisMetric.value
+      : metricOptions.value[0]?.value
+
+  if (nextMetric) {
+    analysisMetric.value = nextMetric
+  }
+}
+
+function getMetricLabel(metricKey: string) {
+  return allColumnDefs.find(col => col.key === metricKey)?.label || metricKey
+}
+
+function toNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return null
+}
+
+function compareAxisValues(a: unknown, b: unknown) {
+  const numA = toNumber(a)
+  const numB = toNumber(b)
+  if (numA !== null && numB !== null) return numA - numB
+  return String(a).localeCompare(String(b), 'zh-CN', { numeric: true })
+}
+
+function getAxisCategories(key: string): string[] {
+  return [...new Set(displayRows.value.map(row => row[key]).filter(value => value != null))]
+    .sort(compareAxisValues)
+    .map(value => String(value))
+}
+
+function quantile(sortedValues: number[], ratio: number): number {
+  if (!sortedValues.length) return 0
+  const position = (sortedValues.length - 1) * ratio
+  const base = Math.floor(position)
+  const rest = position - base
+  const next = sortedValues[base + 1]
+  if (next == null) return sortedValues[base]
+  return sortedValues[base] + rest * (next - sortedValues[base])
+}
+
+function renderAnalysisChart() {
+  if (!analysisChartRef.value || !selectedAnalysisMode.value) return
+  if (!analysisChart) analysisChart = echarts.init(analysisChartRef.value)
+
+  if (selectedAnalysisMode.value === 'boxplot') {
+    renderBoxplotChart()
+    return
+  }
+  if (selectedAnalysisMode.value === 'heatmap') {
+    renderHeatmapChart()
+    return
+  }
+  renderScatter3dChart()
+}
+
+function disposeAnalysisChart() {
+  if (!analysisChart) return
+  analysisChart.dispose()
+  analysisChart = null
+}
+
+function renderBoxplotChart() {
+  if (!analysisChart || selectedAnalysisParams.value.length !== 1) return
+  const paramKey = selectedAnalysisParams.value[0]
+  const metricKey = analysisMetric.value
+  const groups = new Map<string, number[]>()
+
+  for (const row of displayRows.value) {
+    const metricValue = toNumber(row[metricKey])
+    const paramValue = row[paramKey]
+    if (metricValue === null || paramValue == null) continue
+    const key = String(paramValue)
+    const current = groups.get(key) || []
+    current.push(metricValue)
+    groups.set(key, current)
+  }
+
+  const categories = getAxisCategories(paramKey).filter(label => groups.has(label))
+  const boxData = categories.map(category => {
+    const values = [...(groups.get(category) || [])].sort((a, b) => a - b)
+    return [
+      values[0] ?? 0,
+      quantile(values, 0.25),
+      quantile(values, 0.5),
+      quantile(values, 0.75),
+      values[values.length - 1] ?? 0,
+    ]
   })
-  return { labels, values }
+
+  analysisChart.setOption({
+    tooltip: { trigger: 'item' },
+    grid: { left: 70, right: 30, top: 30, bottom: 60 },
+    xAxis: { type: 'category', data: categories, name: paramKey },
+    yAxis: { type: 'value', name: getMetricLabel(metricKey) },
+    series: [{
+      type: 'boxplot',
+      data: boxData,
+      itemStyle: { color: '#5470c6', borderColor: '#1f2937' },
+    }],
+  }, true)
+}
+
+function renderHeatmapChart() {
+  if (!analysisChart || selectedAnalysisParams.value.length !== 2) return
+  const [xKey, yKey] = selectedAnalysisParams.value
+  const metricKey = analysisMetric.value
+  const tooltipMetricKeys = ['net_profit', 'max_drawdown', 'annual_return', 'total_trades', 'win_rate']
+  const summaryMetricKeys = [...new Set([metricKey, ...tooltipMetricKeys])]
+  const xCategories = getAxisCategories(xKey)
+  const yCategories = getAxisCategories(yKey)
+  const xIndexMap = new Map(xCategories.map((label, index) => [label, index]))
+  const yIndexMap = new Map(yCategories.map((label, index) => [label, index]))
+
+  interface MetricAccumulator {
+    sum: number
+    count: number
+  }
+
+  interface HeatmapCellAccumulator {
+    targetSum: number
+    targetCount: number
+    metrics: Record<string, MetricAccumulator>
+  }
+
+  interface HeatmapPoint {
+    value: [number, number, number]
+    sampleCount: number
+    metrics: Record<string, number | null>
+  }
+
+  const cellMap = new Map<string, HeatmapCellAccumulator>()
+
+  for (const row of displayRows.value) {
+    const metricValue = toNumber(row[metricKey])
+    const xValue = row[xKey]
+    const yValue = row[yKey]
+    if (metricValue === null || xValue == null || yValue == null) continue
+    const cellKey = `${String(xValue)}__${String(yValue)}`
+    const current = cellMap.get(cellKey) || {
+      targetSum: 0,
+      targetCount: 0,
+      metrics: {},
+    }
+    current.targetSum += metricValue
+    current.targetCount += 1
+    for (const summaryKey of summaryMetricKeys) {
+      const summaryValue = toNumber(row[summaryKey])
+      if (summaryValue === null) continue
+      const accumulator = current.metrics[summaryKey] || { sum: 0, count: 0 }
+      accumulator.sum += summaryValue
+      accumulator.count += 1
+      current.metrics[summaryKey] = accumulator
+    }
+    cellMap.set(cellKey, current)
+  }
+
+  const data: HeatmapPoint[] = []
+  let minValue = Number.POSITIVE_INFINITY
+  let maxValue = Number.NEGATIVE_INFINITY
+
+  for (const [cellKey, current] of cellMap.entries()) {
+    const [xValue, yValue] = cellKey.split('__')
+    const xIndex = xIndexMap.get(xValue)
+    const yIndex = yIndexMap.get(yValue)
+    if (xIndex == null || yIndex == null || current.targetCount === 0) continue
+    const avgValue = current.targetSum / current.targetCount
+    const metrics: Record<string, number | null> = {}
+    for (const summaryKey of summaryMetricKeys) {
+      const accumulator = current.metrics[summaryKey]
+      metrics[summaryKey] = accumulator && accumulator.count > 0
+        ? accumulator.sum / accumulator.count
+        : null
+    }
+    data.push({
+      value: [xIndex, yIndex, avgValue],
+      sampleCount: current.targetCount,
+      metrics,
+    })
+    minValue = Math.min(minValue, avgValue)
+    maxValue = Math.max(maxValue, avgValue)
+  }
+
+  const safeMin = Number.isFinite(minValue) ? minValue : 0
+  const safeMax = Number.isFinite(maxValue) ? maxValue : 0
+
+  analysisChart.setOption({
+    tooltip: {
+      position: 'top',
+      formatter: (params: { data: HeatmapPoint }) => {
+        const point = params.data
+        const [xIndex, yIndex] = point.value
+        const metricLabel = getMetricLabel(metricKey)
+        const lines = [
+          `${xKey}: ${xCategories[xIndex]}`,
+          `${yKey}: ${yCategories[yIndex]}`,
+          `目标值（${metricLabel}）: ${formatMetricValue(metricKey, point.metrics[metricKey] ?? point.value[2])}`,
+        ]
+        for (const summaryKey of tooltipMetricKeys) {
+          if (summaryKey === metricKey) continue
+          lines.push(`${getMetricLabel(summaryKey)}: ${formatMetricValue(summaryKey, point.metrics[summaryKey] ?? null)}`)
+        }
+        lines.push(`样本数: ${point.sampleCount}`)
+        return lines.join('<br/>')
+      },
+    },
+    grid: { left: 80, right: 110, top: 30, bottom: 60 },
+    xAxis: { type: 'category', data: xCategories, name: xKey },
+    yAxis: { type: 'category', data: yCategories, name: yKey },
+    visualMap: {
+      min: safeMin,
+      max: safeMax,
+      calculable: true,
+      orient: 'vertical',
+      right: 10,
+      top: 'center',
+      inRange: { color: ['#313695', '#4575b4', '#74add1', '#fee090', '#f46d43', '#d73027', '#a50026'] },
+    },
+    series: [{
+      type: 'heatmap',
+      data,
+      label: { show: data.length <= 100 },
+      emphasis: { itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.35)' } },
+    }],
+  }, true)
+}
+
+function renderScatter3dChart() {
+  if (!analysisChart || selectedAnalysisParams.value.length !== 3) return
+  const [xKey, yKey, zKey] = selectedAnalysisParams.value
+  const metricKey = analysisMetric.value
+  const xCategories = getAxisCategories(xKey)
+  const yCategories = getAxisCategories(yKey)
+  const zCategories = getAxisCategories(zKey)
+  const xIndexMap = new Map(xCategories.map((label, index) => [label, index]))
+  const yIndexMap = new Map(yCategories.map((label, index) => [label, index]))
+  const zIndexMap = new Map(zCategories.map((label, index) => [label, index]))
+  const data = displayRows.value
+    .map(row => {
+      const metricValue = toNumber(row[metricKey])
+      const xValue = row[xKey]
+      const yValue = row[yKey]
+      const zValue = row[zKey]
+      if (metricValue === null || xValue == null || yValue == null || zValue == null) return null
+      return [
+        xIndexMap.get(String(xValue)) ?? 0,
+        yIndexMap.get(String(yValue)) ?? 0,
+        zIndexMap.get(String(zValue)) ?? 0,
+        metricValue,
+      ]
+    })
+    .filter((item): item is [number, number, number, number] => item !== null)
+
+  const metricValues = data.map(item => item[3])
+  const minValue = metricValues.length ? Math.min(...metricValues) : 0
+  const maxValue = metricValues.length ? Math.max(...metricValues) : 0
+
+  analysisChart.setOption({
+    tooltip: {
+      formatter: (params: { data: [number, number, number, number] }) => (
+        `${xKey}=${xCategories[params.data[0]]}<br/>${yKey}=${yCategories[params.data[1]]}<br/>${zKey}=${zCategories[params.data[2]]}<br/>${getMetricLabel(metricKey)}: ${params.data[3].toFixed(4)}`
+      ),
+    },
+    visualMap: {
+      min: minValue,
+      max: maxValue,
+      dimension: 3,
+      orient: 'vertical',
+      right: 10,
+      top: 'center',
+      inRange: { color: ['#313695', '#4575b4', '#74add1', '#fee090', '#f46d43', '#d73027', '#a50026'] },
+    },
+    xAxis3D: { type: 'category', data: xCategories, name: xKey },
+    yAxis3D: { type: 'category', data: yCategories, name: yKey },
+    zAxis3D: { type: 'category', data: zCategories, name: zKey },
+    grid3D: {
+      viewControl: { autoRotate: false, distance: 180 },
+      light: { main: { intensity: 1.2 }, ambient: { intensity: 0.4 } },
+    },
+    series: [{
+      type: 'scatter3D',
+      data,
+      symbolSize: 10,
+      itemStyle: { opacity: 0.85 },
+      emphasis: { itemStyle: { borderColor: '#111827', borderWidth: 1 } },
+    }],
+  }, true)
+}
+
+function handleResize() {
+  analysisChart?.resize()
+}
+
+watch(selectedAnalysisParams, (value) => {
+  if (value.length > 3) {
+    selectedAnalysisParams.value = value.slice(0, 3)
+  }
 })
 
-const sortLabel = computed(() => {
-  const col = allColumnDefs.find(c => c.key === sortKey.value)
-  return col ? col.label : sortKey.value
+watch([selectedAnalysisParams, analysisMetric, displayRows, viewMode], () => {
+  if (viewMode.value === 'analysis' && selectedAnalysisMode.value) {
+    nextTick(() => {
+      renderAnalysisChart()
+    })
+  } else {
+    disposeAnalysisChart()
+  }
+}, { deep: true })
+
+onBeforeUnmount(() => {
+  stopPolling()
+  window.removeEventListener('resize', handleResize)
+  disposeAnalysisChart()
 })
-
-const lineChartOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
-  xAxis: { type: 'category', data: chartData.value.labels, axisLabel: { show: false } },
-  yAxis: { type: 'value', name: sortLabel.value },
-  grid: { left: 60, right: 20, top: 30, bottom: 30 },
-  series: [{
-    name: sortLabel.value,
-    type: 'line',
-    data: chartData.value.values,
-    smooth: true,
-    lineStyle: { width: 2, color: '#3b82f6' },
-    itemStyle: { color: '#3b82f6' },
-    symbolSize: 0,
-  }],
-}))
-
-const areaChartOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
-  xAxis: { type: 'category', data: chartData.value.labels, axisLabel: { show: false } },
-  yAxis: { type: 'value', name: sortLabel.value },
-  grid: { left: 60, right: 20, top: 30, bottom: 30 },
-  series: [{
-    name: sortLabel.value,
-    type: 'line',
-    data: chartData.value.values,
-    smooth: true,
-    areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(16,185,129,0.4)' }, { offset: 1, color: 'rgba(16,185,129,0.05)' }] } },
-    lineStyle: { width: 2, color: '#10b981' },
-    itemStyle: { color: '#10b981' },
-    symbolSize: 0,
-  }],
-}))
 </script>

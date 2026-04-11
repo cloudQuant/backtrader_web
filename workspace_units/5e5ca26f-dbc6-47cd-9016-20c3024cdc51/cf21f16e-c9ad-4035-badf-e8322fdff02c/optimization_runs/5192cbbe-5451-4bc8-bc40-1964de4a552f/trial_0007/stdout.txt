@@ -1,0 +1,2 @@
+Loading data from /Users/yunjinqi/Documents/new_projects/backtrader_web/datas/forex/D1/AAON_D1.csv
+Final value: 100598.99954000012

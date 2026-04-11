@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import textwrap
 from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,12 +27,14 @@ _ASSET_TYPE_ALIASES = {
     "option": "option",
     "options": "option",
 }
+_DEFAULT_UNIT_START_DATE = datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 _UNIT_RUN_PY = textwrap.dedent(
     """
     from __future__ import annotations
 
     import importlib.util
+    import os
     import sys
     from pathlib import Path
 
@@ -255,7 +258,8 @@ _UNIT_RUN_PY = textwrap.dedent(
             cerebro.broker.setcommission(commission=commission)
         cerebro.broker.setcash(_safe_float(backtest_cfg.get('initial_cash'), 100000.0))
         cerebro.addstrategy(strategy_class, **params)
-        log_dir = BASE_DIR / 'logs'
+        forced_log_dir = os.environ.get('BACKTRADER_LOG_DIR', '').strip()
+        log_dir = Path(forced_log_dir) if forced_log_dir else (BASE_DIR / 'logs')
         cerebro.addobserver(
             bt.observers.TradeLogger,
             log_orders=True,
@@ -321,6 +325,32 @@ def _strategy_module_name(template_dir: Path) -> str:
     return candidates[0].name
 
 
+def _default_unit_start_date_iso() -> str:
+    return _DEFAULT_UNIT_START_DATE.isoformat()
+
+
+def _default_unit_end_date_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _normalize_unit_data_config(data_config: dict[str, Any] | None) -> dict[str, Any]:
+    normalized = dict(data_config or {})
+    range_type = str(normalized.get("range_type") or "date").strip().lower()
+    normalized["range_type"] = range_type if range_type in {"date", "sample"} else "date"
+    if normalized["range_type"] == "date":
+        if not str(normalized.get("start_date") or "").strip():
+            normalized["start_date"] = _default_unit_start_date_iso()
+        normalized["use_end_date"] = normalized.get("use_end_date") is not False
+        if normalized["use_end_date"] and not str(normalized.get("end_date") or "").strip():
+            normalized["end_date"] = _default_unit_end_date_iso()
+        normalized.pop("sample_count", None)
+        normalized.pop("bar_count", None)
+    else:
+        if normalized.get("sample_count") in (None, "", 0):
+            normalized["sample_count"] = 1000
+    return normalized
+
+
 def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -> dict[str, Any]:
     strategy_id = str(unit.strategy_id or "").strip()
     if not strategy_id:
@@ -347,7 +377,7 @@ def _build_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -
     data_root = str(csv_section.get("directory_path") or "").strip()
     asset_root = str((Path(data_root) / asset_type).resolve()) if data_root else ""
     data_section = dict(template_config.get("data") or {})
-    data_section.update(unit.data_config or {})
+    data_section.update(_normalize_unit_data_config(unit.data_config))
     data_section["symbol"] = unit.symbol or data_section.get("symbol", "")
     data_section["symbol_name"] = unit.symbol_name or data_section.get("symbol_name", "")
     data_section["asset_type"] = asset_type

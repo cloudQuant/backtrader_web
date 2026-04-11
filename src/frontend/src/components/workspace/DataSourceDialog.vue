@@ -89,7 +89,6 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { FormInstance } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
@@ -107,16 +106,32 @@ const emit = defineEmits<{
 }>()
 
 const store = useWorkspaceStore()
-const formRef = ref<FormInstance>()
 const saving = ref(false)
+
+function defaultStartDate(): Date {
+  return new Date('2020-01-01T00:00:00.000Z')
+}
+
+function defaultEndDate(): Date {
+  return new Date()
+}
+
+function toPickerDate(value: unknown, fallback: Date): Date {
+  if (value instanceof Date) return value
+  if (typeof value === 'string' && value) {
+    const parsed = new Date(value)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return fallback
+}
 
 const form = ref({
   timeframe: '1d',
   timeframe_n: 1,
   range_type: 'date' as 'date' | 'sample',
   sample_count: 1000,
-  start_date: '',
-  end_date: '',
+  start_date: defaultStartDate(),
+  end_date: defaultEndDate(),
   use_end_date: true,
   adjust_type: 'none',
   split_type: 'natural',
@@ -126,13 +141,14 @@ const form = ref({
 function initForm() {
   if (!props.unit) return
   const dc = props.unit.data_config || {}
+  const rangeType: 'date' | 'sample' = dc.range_type === 'sample' ? 'sample' : 'date'
   form.value = {
     timeframe: props.unit.timeframe || '1d',
     timeframe_n: props.unit.timeframe_n || 1,
-    range_type: (dc.range_type as string) || 'date',
+    range_type: rangeType,
     sample_count: (dc.sample_count as number) || 1000,
-    start_date: (dc.start_date as string) || '',
-    end_date: (dc.end_date as string) || '',
+    start_date: toPickerDate(dc.start_date, defaultStartDate()),
+    end_date: toPickerDate(dc.end_date, defaultEndDate()),
     use_end_date: dc.use_end_date !== false,
     adjust_type: (dc.adjust_type as string) || 'none',
     split_type: (dc.split_type as string) || 'natural',
@@ -150,8 +166,8 @@ async function handleSave() {
       data_config: {
         range_type: form.value.range_type,
         sample_count: form.value.sample_count,
-        start_date: form.value.start_date,
-        end_date: form.value.end_date,
+        start_date: form.value.start_date ? new Date(form.value.start_date).toISOString() : '',
+        end_date: form.value.end_date ? new Date(form.value.end_date).toISOString() : '',
         use_end_date: form.value.use_end_date,
         adjust_type: form.value.adjust_type,
         split_type: form.value.split_type,

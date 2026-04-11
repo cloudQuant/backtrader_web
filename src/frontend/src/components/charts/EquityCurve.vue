@@ -38,7 +38,7 @@ const props = withDefaults(defineProps<{
   height: 350,
 })
 
-const { chartRef, initChart: baseInitChart } = useChartResize()
+const { chartRef, getChart } = useChartResize(renderChart)
 
 const chartDates = computed(() => {
   if (props.dates?.length) return props.dates
@@ -55,11 +55,9 @@ const chartDrawdown = computed(() => {
   return []
 })
 
-function initChart() {
-  if (!chartRef.value || !chartDates.value.length) return
-
-  const chart = baseInitChart()
-  if (!chart) return
+function renderChart() {
+  const chart = getChart()
+  if (!chart || !chartDates.value.length) return
   
   const hasDrawdown = chartDrawdown.value.length > 0
   const hasDetailData = props.data?.length > 0 && props.data[0].cash !== undefined
@@ -82,9 +80,18 @@ function initChart() {
   const xAxes: echarts.XAXisComponentOption[] = [
     { type: 'category', data: chartDates.value, boundaryGap: false },
   ]
+  const equityNumbers = chartEquity.value.filter((v): v is number => typeof v === 'number' && isFinite(v))
+  const equityMin = equityNumbers.length ? Math.min(...equityNumbers) : 0
+  const equityMax = equityNumbers.length ? Math.max(...equityNumbers) : 0
+  const equityRange = equityMax - equityMin || equityMax * 0.1 || 1
+  const yMin = equityMin - equityRange * 0.05
+  const yMax = equityMax + equityRange * 0.02
+
   const yAxes: echarts.YAXisComponentOption[] = [
     {
       type: 'value', name: '金额',
+      min: Math.floor(yMin),
+      max: Math.ceil(yMax),
       axisLabel: { formatter: (v: number) => {
         if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(1) + '亿'
         if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(1) + '万'
@@ -218,12 +225,12 @@ function initChart() {
     series,
   }
   
-  chart.setOption(option)
+  chart.setOption(option, true)
 }
 
 // Use data identity instead of deep watch for performance
 watch(
   () => `${props.data?.length}:${props.equity?.length}:${props.drawdown?.length}:${props.trades?.length}`,
-  initChart,
+  renderChart,
 )
 </script>

@@ -182,6 +182,14 @@ const UNIT_CATEGORY_OPTIONS = ['股票', '期货', '期权', '外汇', '基金',
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 
+function defaultStartDate(): Date {
+  return new Date('2020-01-01T00:00:00.000Z')
+}
+
+function defaultEndDate(): Date {
+  return new Date()
+}
+
 const defaultForm = () => ({
   create_mode: 'batch' as const,
   group_name: '',
@@ -193,8 +201,8 @@ const defaultForm = () => ({
   timeframe_n: 1,
   range_type: 'date' as 'date' | 'sample',
   sample_count: 1000,
-  start_date: '',
-  end_date: '',
+  start_date: defaultStartDate(),
+  end_date: defaultEndDate(),
   use_end_date: true,
   adjust_type: 'none',
   split_type: 'natural',

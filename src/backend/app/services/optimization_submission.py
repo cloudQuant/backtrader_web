@@ -33,6 +33,7 @@ def submit_optimization(
     n_workers: int = 4,
     task_id: str | None = None,
     persist_to_db: bool = True,
+    artifact_root: str | None = None,
     *,
     get_strategy_dir: Callable[[str], Path],
     generate_param_grid_fn: Callable[[dict[str, dict[str, float]]], list[dict[str, Any]]] = generate_param_grid,
@@ -41,10 +42,14 @@ def submit_optimization(
     created_at_fn: Callable[[], str],
     running_status: str,
     thread_cls: Callable[..., Any],
-    run_optimization_thread_fn: Callable[[str, str, list[dict[str, Any]], int, bool], Any],
+    run_optimization_thread_fn: Callable[[str, str, list[dict[str, Any]], int, bool, str | None], Any],
     task_id_factory: Callable[[], str],
+    strategy_dir_override: str | Path | None = None,
 ) -> str:
-    strategy_dir = get_strategy_dir(strategy_id)
+    if strategy_dir_override:
+        strategy_dir = Path(strategy_dir_override)
+    else:
+        strategy_dir = get_strategy_dir(strategy_id)
     if not (strategy_dir / "run.py").is_file():
         raise ValueError(f"Strategy {strategy_id} not found or missing run.py")
 
@@ -67,7 +72,7 @@ def submit_optimization(
 
     thread = thread_cls(
         target=run_optimization_thread_fn,
-        args=(resolved_task_id, str(strategy_dir), grid, n_workers, persist_to_db),
+        args=(resolved_task_id, str(strategy_dir), grid, n_workers, persist_to_db, artifact_root),
         daemon=True,
     )
     thread.start()

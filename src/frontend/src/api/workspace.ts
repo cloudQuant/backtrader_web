@@ -1,5 +1,10 @@
 import api from './index'
 import type {
+  BacktestDetailResponse,
+  KlineWithSignalsResponse,
+  MonthlyReturnsResponse,
+} from '@/types/analytics'
+import type {
   Workspace,
   WorkspaceCreate,
   WorkspaceUpdate,
@@ -17,6 +22,7 @@ import type {
   UnitOptimizationRequest,
   ApplyBestParamsRequest,
   OptimizationSubmitResult,
+  OptimizationArtifactResponse,
 } from '@/types/workspace'
 
 export const workspaceApi = {
@@ -107,6 +113,61 @@ export const workspaceApi = {
 
   async getOptimizationResults(workspaceId: string, unitId: string): Promise<Record<string, unknown>> {
     return api.get(`/workspace/${workspaceId}/optimize/${unitId}/results`)
+  },
+
+  async getOptimizationResultDetail(
+    workspaceId: string,
+    unitId: string,
+    resultIndex: number,
+  ): Promise<BacktestDetailResponse> {
+    return api.get(`/workspace/${workspaceId}/optimize/${unitId}/results/${resultIndex}/detail`)
+  },
+
+  async getOptimizationResultKline(
+    workspaceId: string,
+    unitId: string,
+    resultIndex: number,
+    startDate?: string,
+    endDate?: string,
+  ): Promise<KlineWithSignalsResponse> {
+    const params: Record<string, string> = {}
+    if (startDate) params.start_date = startDate
+    if (endDate) params.end_date = endDate
+    return api.get(`/workspace/${workspaceId}/optimize/${unitId}/results/${resultIndex}/kline`, { params })
+  },
+
+  async getOptimizationResultMonthlyReturns(
+    workspaceId: string,
+    unitId: string,
+    resultIndex: number,
+  ): Promise<MonthlyReturnsResponse> {
+    return api.get(`/workspace/${workspaceId}/optimize/${unitId}/results/${resultIndex}/monthly-returns`)
+  },
+
+  async getOptimizationResultArtifact(
+    workspaceId: string,
+    unitId: string,
+    resultIndex: number,
+  ): Promise<OptimizationArtifactResponse> {
+    return api.get(`/workspace/${workspaceId}/optimize/${unitId}/results/${resultIndex}/artifact`)
+  },
+
+  async downloadOptimizationResultArtifact(
+    workspaceId: string,
+    unitId: string,
+    resultIndex: number,
+  ): Promise<void> {
+    const response = await api.get<Blob>(
+      `/workspace/${workspaceId}/optimize/${unitId}/results/${resultIndex}/artifact/download`,
+      { responseType: 'blob' }
+    )
+    const blob = response instanceof Blob ? response : new Blob([response as BlobPart])
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `optimization_artifact_${resultIndex + 1}.zip`
+    link.click()
+    URL.revokeObjectURL(url)
   },
 
   async cancelOptimization(workspaceId: string, unitId: string): Promise<Record<string, unknown>> {
