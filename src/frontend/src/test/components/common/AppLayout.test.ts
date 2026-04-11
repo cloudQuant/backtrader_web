@@ -32,7 +32,6 @@ vi.mock('@element-plus/icons-vue', () => ({
   Sunny: { template: '<span>Sunny</span>' },
   Moon: { template: '<span>Moon</span>' },
   VideoPlay: { template: '<span>Video</span>' },
-  MagicStick: { template: '<span>Magic</span>' },
   Monitor: { template: '<span>Monitor</span>' },
   Stopwatch: { template: '<span>Stopwatch</span>' },
   Refresh: { template: '<span>Refresh</span>' },
@@ -126,7 +125,6 @@ describe('AppLayout', () => {
       routes: [
         { path: '/', component: { template: '<div>Home</div>' } },
         { path: '/backtest', component: { template: '<div>Backtest</div>' } },
-        { path: '/optimization', component: { template: '<div>Optimization</div>' } },
         { path: '/strategy', component: { template: '<div>Strategy</div>' } },
         { path: '/data', component: { template: '<div>Data</div>' } },
         { path: '/live-trading', component: { template: '<div>LiveTrading</div>' } },
@@ -206,7 +204,6 @@ describe('AppLayout', () => {
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('首页')
       expect(wrapper.text()).toContain('策略研究')
-      expect(wrapper.text()).toContain('参数优化')
       expect(wrapper.text()).toContain('策略管理')
     })
 

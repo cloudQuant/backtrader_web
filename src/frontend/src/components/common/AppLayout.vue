@@ -31,10 +31,6 @@
           <el-icon><Aim /></el-icon>
           <span>策略研究</span>
         </el-menu-item>
-        <el-menu-item index="/optimization">
-          <el-icon><MagicStick /></el-icon>
-          <span>参数优化</span>
-        </el-menu-item>
         <el-menu-item index="/strategy">
           <el-icon><Document /></el-icon>
           <span>策略管理</span>
@@ -157,7 +153,6 @@ import {
   Sunny,
   Moon,
   VideoPlay,
-  MagicStick,
   Monitor,
   Stopwatch,
 } from '@element-plus/icons-vue'
@@ -173,7 +168,7 @@ const currentRoute = computed(() => {
     return '/workspace'
   }
   // Match top-level menu items for nested routes
-  const prefixes = ['/workspace', '/optimization', '/strategy', '/data', '/simulate', '/live-trading', '/gateways', '/quote', '/portfolio', '/settings']
+  const prefixes = ['/workspace', '/strategy', '/data', '/simulate', '/live-trading', '/gateways', '/quote', '/portfolio', '/settings']
   for (const prefix of prefixes) {
     if (p.startsWith(prefix + '/') || p === prefix) return prefix
   }
@@ -198,7 +193,6 @@ onMounted(() => {
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
     '/': '仪表盘',
-    '/optimization': '参数优化',
     '/strategy': '策略管理',
     '/data': '数据管理',
     '/simulate': '模拟交易',

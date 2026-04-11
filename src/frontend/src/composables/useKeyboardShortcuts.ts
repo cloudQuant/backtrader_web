@@ -147,13 +147,6 @@ export function useKeyboardShortcuts() {
       action: () => router.push('/workspace')
     })
 
-    // 导航 - 优化: 4
-    registerShortcut({
-      key: '4',
-      description: '导航到参数优化',
-      action: () => router.push('/optimization')
-    })
-
     // 导航 - 实盘交易: 5
     registerShortcut({
       key: '5',

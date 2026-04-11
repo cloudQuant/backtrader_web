@@ -50,11 +50,6 @@ const routes: RouteRecordRaw[] = [
         redirect: to => ({ path: `/backtest/result/${String(to.params.id ?? '')}` }),
       },
       {
-        path: 'optimization',
-        name: 'Optimization',
-        component: () => import('@/views/OptimizationPage.vue'),
-      },
-      {
         path: 'strategy',
         name: 'Strategy',
         component: () => import('@/views/StrategyPage.vue'),

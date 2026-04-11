@@ -12,7 +12,6 @@ vi.mock('@/views/RegisterPage.vue', () => ({ default: { template: '<div>Register
 vi.mock('@/views/DashboardPage.vue', () => ({ default: { template: '<div>Dashboard</div>' } }))
 vi.mock('@/views/BacktestPage.vue', () => ({ default: { template: '<div>Backtest</div>' } }))
 vi.mock('@/views/BacktestResultPage.vue', () => ({ default: { template: '<div>Result</div>' } }))
-vi.mock('@/views/OptimizationPage.vue', () => ({ default: { template: '<div>Optimization</div>' } }))
 vi.mock('@/views/StrategyPage.vue', () => ({ default: { template: '<div>Strategy</div>' } }))
 vi.mock('@/views/DataPage.vue', () => ({ default: { template: '<div>Data</div>' } }))
 vi.mock('@/views/LiveTradingPage.vue', () => ({ default: { template: '<div>LiveTrading</div>' } }))
@@ -52,7 +51,6 @@ describe('router', () => {
     expect(names).toContain('Portfolio')
     expect(names).toContain('LiveTrading')
     expect(names).toContain('LiveTradingDetail')
-    expect(names).toContain('Optimization')
     expect(names).toContain('Data')
   })
 
