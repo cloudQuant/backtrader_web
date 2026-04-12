@@ -1,0 +1,131 @@
+###############################################################################
+# Backtrader Web - Production Docker Compose
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   - Create .env file at project root (see scripts/docker_deploy.sh)
+#   - Docker Engine 24+ and Docker Compose v2
+###############################################################################
+
+services:
+  # ========================= PostgreSQL =========================
+  postgres:
+    image: postgres:16-alpine
+    container_name: backtrader_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-backtrader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-backtrader_web}
+      TZ: Asia/Shanghai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-backtrader}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backtrader
+
+  # ========================= Redis =========================
+  redis:
+    image: redis:7-alpine
+    container_name: backtrader_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backtrader
+
+  # ========================= Backend API =========================
+  backend:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    container_name: backtrader_backend
+    restart: unless-stopped
+    environment:
+      # App
+      APP_NAME: backtrader_web
+      DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      # Database
+      DATABASE_TYPE: postgresql
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-backtrader}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-backtrader_web}
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+      # JWT
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: "10080"
+      # Server
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      # Admin
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      # DB init (first startup)
+      DB_AUTO_CREATE_SCHEMA: "true"
+      DB_AUTO_CREATE_DEFAULT_ADMIN: "true"
+      # Backtest
+      BACKTEST_TIMEOUT: "300"
+      # Akshare
+      AKSHARE_SCHEDULER_TIMEZONE: Asia/Shanghai
+      AKSHARE_SCRIPT_ROOT: app/data_fetch/scripts
+      AKSHARE_INTERFACE_BOOTSTRAP_MODE: manual
+      # Timezone
+      TZ: Asia/Shanghai
+    volumes:
+      - backend_logs:/app/logs
+      - backend_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - backtrader
+
+  # ========================= Frontend (Nginx) =========================
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: backtrader_frontend
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./docker/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - backtrader
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_logs:
+  backend_data:
+
+networks:
+  backtrader:
+    driver: bridge
