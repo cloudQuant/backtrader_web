@@ -20,6 +20,7 @@ from app.db.database import (
 )
 from app.db.session_provider import unit_of_work
 from app.db.sql_repository import SQLRepository
+from app.models.permission import Role, user_roles
 from app.models.user import User
 
 
@@ -55,6 +56,10 @@ class TestDatabaseInitialization:
                 text("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
             )
             assert len(result.fetchall()) == 1
+            ak_result = await conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='ak_data_scripts'")
+            )
+            assert len(ak_result.fetchall()) == 1
 
     async def test_init_db_only_creates_tables(self):
         settings = get_settings()
@@ -76,6 +81,7 @@ class TestDatabaseInitialization:
 
         async with async_session_maker() as session:
             await session.execute(delete(User).where(User.username == settings.ADMIN_USERNAME))
+            await session.execute(delete(user_roles))
             await session.commit()
 
         await create_default_admin()
@@ -85,11 +91,16 @@ class TestDatabaseInitialization:
                 select(User).where(User.username == settings.ADMIN_USERNAME)
             )
             admin = result.scalar_one_or_none()
+            role_result = await session.execute(
+                select(user_roles.c.role).where(user_roles.c.user_id == admin.id)
+            )
+            roles = set(role_result.scalars().all())
 
         assert admin is not None
         assert admin.username == settings.ADMIN_USERNAME
         assert admin.email == settings.ADMIN_EMAIL
         assert admin.is_active is True
+        assert Role.ADMIN.value in roles
 
     async def test_create_default_admin_is_idempotent(self):
         settings = get_settings()
@@ -97,6 +108,7 @@ class TestDatabaseInitialization:
 
         async with async_session_maker() as session:
             await session.execute(delete(User).where(User.username == settings.ADMIN_USERNAME))
+            await session.execute(delete(user_roles))
             await session.commit()
 
         await create_default_admin()
@@ -107,8 +119,13 @@ class TestDatabaseInitialization:
                 select(User).where(User.username == settings.ADMIN_USERNAME)
             )
             admins = list(result.scalars().all())
+            role_result = await session.execute(
+                select(user_roles.c.role).where(user_roles.c.user_id == admins[0].id)
+            )
+            roles = list(role_result.scalars().all())
 
         assert len(admins) == 1
+        assert roles.count(Role.ADMIN.value) == 1
 
     async def test_ensure_database_ready_creates_schema_when_enabled(self, monkeypatch):
         create_tables_mock = AsyncMock()

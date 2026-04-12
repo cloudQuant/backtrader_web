@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db.session_provider import unit_of_work
 from app.db.sql_repository import SQLRepository
+from app.models.permission import Role, user_roles
 from app.models.user import RefreshToken, User
 from app.schemas.auth import (
     RefreshTokenRequest,
@@ -46,6 +47,29 @@ class AuthService:
         """
         self.user_repo = SQLRepository(User)
         self.refresh_token_repo = SQLRepository(RefreshToken)
+
+    async def _is_admin_user(self, user: User, session: AsyncSession | None = None) -> bool:
+        """Return whether the user has admin privileges."""
+        if user.username == settings.ADMIN_USERNAME:
+            return True
+
+        if session is not None:
+            result = await session.execute(
+                select(user_roles.c.role).where(
+                    user_roles.c.user_id == user.id,
+                    user_roles.c.role == Role.ADMIN.value,
+                )
+            )
+            return result.scalar_one_or_none() is not None
+
+        async with unit_of_work() as scoped_session:
+            result = await scoped_session.execute(
+                select(user_roles.c.role).where(
+                    user_roles.c.user_id == user.id,
+                    user_roles.c.role == Role.ADMIN.value,
+                )
+            )
+            return result.scalar_one_or_none() is not None
 
     def _get_user_repo(self, session: AsyncSession | None = None) -> SQLRepository[User]:
         """Return a user repository bound to the requested session scope."""
@@ -153,6 +177,7 @@ class AuthService:
             username=user.username,
             email=user.email,
             is_active=user.is_active,
+            is_admin=False,
             created_at=user.created_at,
         )
 
@@ -365,17 +390,19 @@ class AuthService:
         Returns:
             UserResponse if found, None otherwise.
         """
-        user = await self.user_repo.get_by_id(user_id)
-        if not user:
-            return None
+        async with unit_of_work() as session:
+            user = await self._get_user_repo(session).get_by_id(user_id)
+            if not user:
+                return None
 
-        return UserResponse(
-            id=user.id,
-            username=user.username,
-            email=user.email,
-            is_active=user.is_active,
-            created_at=user.created_at,
-        )
+            return UserResponse(
+                id=user.id,
+                username=user.username,
+                email=user.email,
+                is_active=user.is_active,
+                is_admin=await self._is_admin_user(user, session=session),
+                created_at=user.created_at,
+            )
 
     async def logout(self, refresh_token: str) -> bool:
         """Logout user by revoking their refresh token.

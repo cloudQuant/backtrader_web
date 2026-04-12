@@ -3,8 +3,8 @@ Configuration management - Load configuration from environment variables.
 """
 
 import os
-from pathlib import Path
 import warnings
+from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -63,6 +63,24 @@ class Settings(BaseSettings):
     )
     DATABASE_URL: str = Field(
         default="sqlite+aiosqlite:///./backtrader.db", description="Database connection URL"
+    )
+    AKSHARE_DATA_DATABASE_URL: str = Field(
+        default="", description="Akshare data warehouse database connection URL"
+    )
+    LEGACY_SQLITE_DATABASE_URL: str = Field(
+        default="", description="Legacy SQLite database connection URL used during migration"
+    )
+    LEGACY_AKSHARE_DATABASE_URL: str = Field(
+        default="", description="Legacy akshare_web database connection URL used during migration"
+    )
+    AKSHARE_SCHEDULER_TIMEZONE: str = Field(
+        default="Asia/Shanghai", description="Scheduler timezone for akshare tasks"
+    )
+    AKSHARE_SCRIPT_ROOT: str = Field(
+        default="app/data_fetch/scripts", description="Root directory for akshare scripts"
+    )
+    AKSHARE_INTERFACE_BOOTSTRAP_MODE: str = Field(
+        default="manual", description="Akshare interface bootstrap mode: manual or refresh"
     )
     DB_AUTO_CREATE_SCHEMA: bool = Field(default=False)
     DB_AUTO_CREATE_DEFAULT_ADMIN: bool = Field(default=False)
@@ -288,6 +306,19 @@ class Settings(BaseSettings):
         if not (1 <= v <= 65535):
             raise ValueError(f"PORT must be between 1 and 65535, got: {v}")
         return v
+
+    @field_validator("AKSHARE_INTERFACE_BOOTSTRAP_MODE")
+    @classmethod
+    def validate_akshare_interface_bootstrap_mode(cls, v: str) -> str:
+        """Validate akshare interface bootstrap mode."""
+        normalized = v.strip().lower()
+        supported_modes = {"manual", "refresh"}
+        if normalized not in supported_modes:
+            raise ValueError(
+                "AKSHARE_INTERFACE_BOOTSTRAP_MODE must be one of: "
+                f"{', '.join(sorted(supported_modes))}"
+            )
+        return normalized
 
     @field_validator("JWT_EXPIRE_MINUTES")
     @classmethod

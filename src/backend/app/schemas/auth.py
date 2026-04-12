@@ -39,6 +39,7 @@ class UserResponse(BaseModel):
     username: str = Field(..., description="Username")
     email: str = Field(..., description="Email")
     is_active: bool = Field(True, description="Whether active")
+    is_admin: bool = Field(False, description="Whether the user has admin access")
     created_at: datetime = Field(..., description="Creation time")
 
     model_config = ConfigDict(from_attributes=True)

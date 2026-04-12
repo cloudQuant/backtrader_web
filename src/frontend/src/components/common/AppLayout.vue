@@ -23,6 +23,10 @@
           <el-icon><HomeFilled /></el-icon>
           <span>首页</span>
         </el-menu-item>
+        <el-menu-item index="/data">
+          <el-icon><Grid /></el-icon>
+          <span>数据管理</span>
+        </el-menu-item>
         <el-menu-item index="/quote">
           <el-icon><Stopwatch /></el-icon>
           <span>行情报价</span>
@@ -35,10 +39,6 @@
           <el-icon><Document /></el-icon>
           <span>策略管理</span>
         </el-menu-item>
-        <el-menu-item index="/data">
-          <el-icon><Grid /></el-icon>
-          <span>数据管理</span>
-        </el-menu-item>
         <el-menu-item index="/simulate">
           <el-icon><VideoPlay /></el-icon>
           <span>模拟交易</span>
@@ -47,13 +47,13 @@
           <el-icon><TrendCharts /></el-icon>
           <span>实盘交易</span>
         </el-menu-item>
-        <el-menu-item index="/gateways">
-          <el-icon><Monitor /></el-icon>
-          <span>Gateway 状态</span>
-        </el-menu-item>
         <el-menu-item index="/portfolio">
           <el-icon><TrendCharts /></el-icon>
           <span>组合管理</span>
+        </el-menu-item>
+        <el-menu-item index="/gateways">
+          <el-icon><Monitor /></el-icon>
+          <span>账户管理</span>
         </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
@@ -197,7 +197,7 @@ const pageTitle = computed(() => {
     '/data': '数据管理',
     '/simulate': '模拟交易',
     '/live-trading': '实盘交易',
-    '/gateways': 'Gateway 状态',
+    '/gateways': '账户管理',
     '/quote': '行情报价',
     '/workspace': '策略研究',
     '/portfolio': '组合管理',

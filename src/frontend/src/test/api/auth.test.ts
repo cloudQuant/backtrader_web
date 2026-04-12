@@ -14,6 +14,7 @@ const mockUser: UserInfo = {
   username: 'u',
   email: 'e@e.com',
   is_active: true,
+  is_admin: false,
   created_at: '2024-01-01T00:00:00',
 }
 

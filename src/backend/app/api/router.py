@@ -95,6 +95,11 @@ _OPTIONAL_ROUTERS = [
     ("realtime_data",       "app.api.realtime_data",    "/realtime",            ["Realtime Data"]),
     ("monitoring",          "app.api.monitoring",       "/monitoring",          ["Monitoring"]),
     ("data",                "app.api.data",             "/data",                ["Market Data"]),
+    ("akshare_scripts",     "app.api.akshare_scripts",  "/data",                ["Data Scripts"]),
+    ("akshare_tasks",       "app.api.akshare_tasks",    "/data",                ["Data Tasks"]),
+    ("akshare_executions",  "app.api.akshare_executions","/data",               ["Data Executions"]),
+    ("akshare_tables",      "app.api.akshare_tables",   "/data",                ["Data Tables"]),
+    ("akshare_interfaces",  "app.api.akshare_interfaces","/data",               ["Data Interfaces"]),
     ("risk_control",        "app.api.risk_control",     "",                     ["Risk Control"]),
 ]
 

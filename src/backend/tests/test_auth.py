@@ -6,6 +6,24 @@ import uuid
 
 from httpx import AsyncClient
 
+from app.config import get_settings
+from app.db.database import create_default_admin
+
+settings = get_settings()
+
+
+async def get_admin_headers(client: AsyncClient) -> dict[str, str]:
+    await create_default_admin()
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": settings.ADMIN_USERNAME,
+            "password": settings.ADMIN_PASSWORD,
+        },
+    )
+    assert login.status_code == 200
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
 
 class TestRegister:
     """Registration endpoint tests."""
@@ -138,6 +156,15 @@ class TestMe:
         data = resp.json()
         assert data["username"] == user_data["username"]
         assert data["email"] == user_data["email"]
+        assert data["is_admin"] is False
+
+    async def test_get_me_returns_admin_flag_for_default_admin(self, client: AsyncClient):
+        headers = await get_admin_headers(client)
+        resp = await client.get("/api/v1/auth/me", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["username"] == settings.ADMIN_USERNAME
+        assert data["is_admin"] is True
 
     async def test_get_me_no_token(self, client: AsyncClient):
         resp = await client.get("/api/v1/auth/me")

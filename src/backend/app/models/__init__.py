@@ -4,6 +4,15 @@ Importing this package registers all ORM models with ``Base.metadata`` so
 schema creation helpers and tests can safely call ``create_all()``.
 """
 
+from app.models.akshare_mgmt import (
+    DataInterface,
+    DataScript,
+    DataTable,
+    InterfaceCategory,
+    InterfaceParameter,
+    ScheduledTask,
+    TaskExecution,
+)
 from app.models.alerts import Alert, AlertNotification, AlertRule
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.models.comparison import Comparison, ComparisonShare
@@ -30,14 +39,21 @@ __all__ = [
     "BacktestTask",
     "Comparison",
     "ComparisonShare",
+    "DataInterface",
+    "DataScript",
+    "DataTable",
+    "InterfaceCategory",
+    "InterfaceParameter",
     "Order",
     "PaperTrade",
     "Permission",
     "Position",
     "RefreshToken",
     "Role",
+    "ScheduledTask",
     "Strategy",
     "StrategyVersion",
+    "TaskExecution",
     "User",
     "VersionBranch",
     "VersionComparison",

@@ -4,6 +4,7 @@ export interface UserInfo {
   username: string
   email: string
   is_active: boolean
+  is_admin?: boolean
   created_at: string
 }
 
@@ -236,4 +237,258 @@ export interface Signal {
   date: string
   type: 'buy' | 'sell'
   price: number
+}
+
+export interface PaginationQuery {
+  page?: number
+  page_size?: number
+}
+
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface ScriptStatsResponse {
+  total_scripts: number
+  active_scripts: number
+  custom_scripts: number
+  categories: string[]
+}
+
+export type ScriptFrequency =
+  | 'hourly'
+  | 'daily'
+  | 'weekly'
+  | 'monthly'
+  | 'once'
+  | 'manual'
+
+export interface DataScript {
+  id: number
+  script_id: string
+  script_name: string
+  category: string
+  sub_category: string | null
+  frequency: ScriptFrequency | null
+  description: string | null
+  source: string
+  target_table: string | null
+  module_path: string | null
+  function_name: string | null
+  dependencies: Record<string, unknown> | null
+  estimated_duration: number
+  timeout: number
+  is_active: boolean
+  is_custom: boolean
+  created_by: string | null
+  updated_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DataScriptFormPayload {
+  script_id: string
+  script_name: string
+  category: string
+  sub_category?: string | null
+  frequency?: ScriptFrequency | null
+  description?: string | null
+  source?: string
+  target_table?: string | null
+  module_path?: string | null
+  function_name?: string | null
+  dependencies?: Record<string, unknown> | null
+  estimated_duration?: number
+  timeout?: number
+  is_active?: boolean
+}
+
+export interface ScriptRunRequest {
+  parameters: Record<string, unknown>
+}
+
+export interface ExecutionTriggerResponse {
+  execution_id: string
+  status: string
+  task_id?: number | null
+}
+
+export type ScheduleTypeValue = 'once' | 'daily' | 'weekly' | 'monthly' | 'cron' | 'interval'
+
+export interface ScheduledTask {
+  id: number
+  name: string
+  description: string | null
+  user_id: string
+  script_id: string
+  schedule_type: ScheduleTypeValue
+  schedule_expression: string
+  parameters: Record<string, unknown>
+  is_active: boolean
+  retry_on_failure: boolean
+  max_retries: number
+  timeout: number
+  last_execution_at: string | null
+  next_execution_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ScheduledTaskFormPayload {
+  name: string
+  description?: string | null
+  script_id: string
+  schedule_type: ScheduleTypeValue
+  schedule_expression: string
+  parameters?: Record<string, unknown>
+  is_active?: boolean
+  retry_on_failure?: boolean
+  max_retries?: number
+  timeout?: number
+}
+
+export interface ScheduleTemplateResponse {
+  value: string
+  label: string
+  description: string
+  cron_expression: string
+}
+
+export type AkshareTaskStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'timeout'
+  | 'cancelled'
+
+export type TriggeredByType = 'scheduler' | 'manual' | 'api'
+
+export interface TaskExecution {
+  id: number
+  execution_id: string
+  task_id: number | null
+  script_id: string
+  params: Record<string, unknown> | null
+  status: AkshareTaskStatus
+  start_time: string | null
+  end_time: string | null
+  duration: number | null
+  result: Record<string, unknown> | null
+  error_message: string | null
+  error_trace: string | null
+  rows_before: number | null
+  rows_after: number | null
+  retry_count: number
+  triggered_by: TriggeredByType
+  operator_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ExecutionStatsResponse {
+  total_count: number
+  success_count: number
+  failed_count: number
+  running_count: number
+  success_rate: number
+  avg_duration: number
+}
+
+export interface DataTable {
+  id: number
+  table_name: string
+  table_comment: string | null
+  category: string | null
+  script_id: string | null
+  row_count: number
+  last_update_time: string | null
+  last_update_status: string | null
+  data_start_date: string | null
+  data_end_date: string | null
+  symbol_raw: string | null
+  symbol_normalized: string | null
+  market: string | null
+  asset_type: string | null
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface DataTableSchemaColumn {
+  name: string
+  type: string
+  nullable: boolean
+  default: unknown
+}
+
+export interface DataTableSchemaResponse {
+  table_name: string
+  columns: DataTableSchemaColumn[]
+  row_count: number
+  last_update_time: string | null
+}
+
+export interface DataTableRowsResponse {
+  table_name: string
+  columns: string[]
+  rows: Record<string, unknown>[]
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface InterfaceCategory {
+  id: number
+  name: string
+  description: string | null
+  icon: string | null
+  sort_order: number
+}
+
+export interface InterfaceParameter {
+  id: number
+  name: string
+  display_name: string
+  param_type: string
+  description: string | null
+  default_value: string | null
+  required: boolean
+  options: string[] | null
+  sort_order: number
+}
+
+export interface DataInterface {
+  id: number
+  name: string
+  display_name: string
+  description: string | null
+  category_id: number
+  module_path: string | null
+  function_name: string | null
+  parameters: Record<string, unknown>
+  extra_config: Record<string, unknown>
+  return_type: string
+  example: string | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  params: InterfaceParameter[]
+}
+
+export interface DataInterfaceFormPayload {
+  name: string
+  display_name: string
+  description?: string | null
+  category_id: number
+  module_path?: string | null
+  function_name?: string | null
+  parameters?: Record<string, unknown>
+  extra_config?: Record<string, unknown>
+  return_type?: string
+  example?: string | null
+  is_active?: boolean
 }

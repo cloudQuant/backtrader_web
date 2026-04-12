@@ -57,7 +57,55 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'data',
         name: 'Data',
-        component: () => import('@/views/DataPage.vue'),
+        component: () => import('@/views/data/DataLayout.vue'),
+        children: [
+          {
+            path: '',
+            name: 'DataHome',
+            redirect: { name: 'DataMarket' },
+          },
+          {
+            path: 'market',
+            name: 'DataMarket',
+            component: () => import('@/views/data/DataMarketPage.vue'),
+          },
+          {
+            path: 'scripts',
+            name: 'DataScripts',
+            component: () => import('@/views/data/DataScriptsPage.vue'),
+          },
+          {
+            path: 'scripts/:id',
+            name: 'DataScriptDetail',
+            component: () => import('@/views/data/DataScriptDetailPage.vue'),
+          },
+          {
+            path: 'tasks',
+            name: 'DataTasks',
+            component: () => import('@/views/data/DataTasksPage.vue'),
+          },
+          {
+            path: 'executions',
+            name: 'DataExecutions',
+            component: () => import('@/views/data/DataExecutionsPage.vue'),
+          },
+          {
+            path: 'tables',
+            name: 'DataTables',
+            component: () => import('@/views/data/DataTablesPage.vue'),
+          },
+          {
+            path: 'tables/:id',
+            name: 'DataTableDetail',
+            component: () => import('@/views/data/DataTableDetailPage.vue'),
+          },
+          {
+            path: 'interfaces',
+            name: 'DataInterfaces',
+            component: () => import('@/views/data/DataInterfacesPage.vue'),
+            meta: { requiresAdmin: true },
+          },
+        ],
       },
       {
         path: 'simulate',
@@ -121,11 +169,16 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, _from, next) => {
   const authStore = useAuthStore()
-  
+
   if (to.meta.requiresAuth && !authStore.isAuthenticated) {
     next({ name: 'Login', query: { redirect: to.fullPath } })
   } else if ((to.name === 'Login' || to.name === 'Register') && authStore.isAuthenticated) {
     next({ name: 'Dashboard' })
+  } else if (
+    to.matched.some((record) => record.meta.requiresAdmin)
+    && !(authStore.user?.is_admin ?? false)
+  ) {
+    next({ name: 'DataMarket' })
   } else {
     next()
   }

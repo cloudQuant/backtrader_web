@@ -57,6 +57,7 @@ monitoring.
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting Backtrader Web API...")
+    akshare_scheduler_service = None
 
     # Database initialization with clear status logging
     if settings.DB_AUTO_CREATE_SCHEMA:
@@ -96,9 +97,24 @@ async def lifespan(app: FastAPI):
     if settings.ADMIN_PASSWORD.lower() in _DEFAULT_PASSWORDS:
         logger.warning("Default admin password detected. Change ADMIN_PASSWORD in production.")
 
+    if settings.AKSHARE_DATA_DATABASE_URL:
+        try:
+            from app.services.akshare_scheduler_service import get_akshare_scheduler_service
+
+            akshare_scheduler_service = get_akshare_scheduler_service()
+            await akshare_scheduler_service.start()
+            logger.info("Akshare scheduler started")
+        except Exception:
+            logger.exception("Failed to start akshare scheduler")
+
     logger.info("Application ready - accepting requests")
     yield
     logger.info("Shutting down Backtrader Web API...")
+    if akshare_scheduler_service is not None:
+        try:
+            await akshare_scheduler_service.shutdown()
+        except Exception:
+            logger.exception("Failed to shutdown akshare scheduler")
     # Clean up ZMQ tick receivers
     try:
         from app.services.quote_service import get_quote_service

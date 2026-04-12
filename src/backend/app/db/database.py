@@ -4,9 +4,10 @@ Database connection management.
 
 import logging
 
-from sqlalchemy import text
+from sqlalchemy import insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.config import get_settings
 
@@ -14,19 +15,67 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-# Create async engine
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.SQL_ECHO,
-    pool_pre_ping=True,
-)
+# Lazy engine / session-maker to avoid "Future attached to a different loop"
+# when using MySQL async drivers (asyncmy / aiomysql).
+_engine = None
+_async_session_maker = None
 
-# Create session factory
-async_session_maker = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+
+def _get_engine():
+    global _engine
+    if _engine is None:
+        # Use NullPool for MySQL async drivers to prevent connection-pool futures
+        # from being reused across different asyncio Tasks, which causes
+        # "Future attached to a different loop" errors.
+        extra_kwargs = {}
+        if settings.DATABASE_URL.startswith("mysql"):
+            extra_kwargs["poolclass"] = NullPool
+        else:
+            extra_kwargs["pool_pre_ping"] = True
+        _engine = create_async_engine(
+            settings.DATABASE_URL,
+            echo=settings.SQL_ECHO,
+            **extra_kwargs,
+        )
+    return _engine
+
+
+def _get_session_maker():
+    global _async_session_maker
+    if _async_session_maker is None:
+        _async_session_maker = async_sessionmaker(
+            _get_engine(),
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+    return _async_session_maker
+
+
+class _EngineProxy:
+    """Proxy that lazily resolves the real engine on first use."""
+
+    def __getattr__(self, name):
+        return getattr(_get_engine(), name)
+
+    def begin(self):
+        return _get_engine().begin()
+
+    async def dispose(self):
+        return await _get_engine().dispose()
+
+
+class _SessionMakerProxy:
+    """Proxy that lazily resolves the real session maker on first use."""
+
+    def __call__(self, *args, **kwargs):
+        return _get_session_maker()(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(_get_session_maker(), name)
+
+
+engine = _EngineProxy()
+async_session_maker = _SessionMakerProxy()
 
 
 class Base(DeclarativeBase):
@@ -73,9 +122,7 @@ async def ensure_database_ready() -> None:
 
 async def create_default_admin():
     """Create default admin account (if it doesn't exist)."""
-    from sqlalchemy import select
-
-    from app.config import get_settings
+    from app.models.permission import Role, user_roles
     from app.models.user import User
     from app.utils.security import get_password_hash
 
@@ -86,7 +133,7 @@ async def create_default_admin():
         result = await session.execute(select(User).where(User.username == settings.ADMIN_USERNAME))
         existing_user = result.scalar_one_or_none()
 
-        if not existing_user:
+        if existing_user is None:
             # Create admin account
             admin_user = User(
                 username=settings.ADMIN_USERNAME,
@@ -95,8 +142,20 @@ async def create_default_admin():
                 is_active=True,
             )
             session.add(admin_user)
-            await session.commit()
-            logger.info(f"Default admin account created: {settings.ADMIN_USERNAME}")
+            await session.flush()
+            existing_user = admin_user
+            logger.info("Default admin account created: %s", settings.ADMIN_USERNAME)
+
+        role_result = await session.execute(
+            select(user_roles.c.role).where(user_roles.c.user_id == existing_user.id)
+        )
+        assigned_roles = {str(role) for role in role_result.scalars().all()}
+        if Role.ADMIN.value not in assigned_roles:
+            await session.execute(
+                insert(user_roles).values(user_id=existing_user.id, role=Role.ADMIN.value)
+            )
+
+        await session.commit()
 
 
 async def get_db() -> AsyncSession:

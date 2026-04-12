@@ -16,17 +16,24 @@ Implemented security headers:
 Reference: https://owasp.org/www-project-secure-headers/
 """
 
-from fastapi import FastAPI, Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import FastAPI
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.config import get_settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+_AUTH_PATHS = frozenset([
+    "/api/v1/auth/login",
+    "/api/v1/auth/register",
+    "/api/v1/auth/refresh",
+])
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Middleware to add security headers to all responses.
+
+class SecurityHeadersMiddleware:
+    """Pure ASGI middleware to add security headers to all responses.
 
     This middleware adds important security headers to help prevent:
     - Cross-Site Scripting (XSS) attacks
@@ -36,57 +43,18 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     - Man-in-the-Middle attacks
     """
 
-    def __init__(self, app: FastAPI):
-        """Initialize the security headers middleware.
-
-        Args:
-            app: The FastAPI application instance.
-        """
-        super().__init__(app)
+    def __init__(self, app: ASGIApp, **kwargs):
+        """Initialize the security headers middleware."""
+        self.app = app
         self.settings = get_settings()
 
-    async def dispatch(self, request: Request, call_next):
-        """Process request and add security headers to response.
-
-        Args:
-            request: Incoming request.
-            call_next: Next middleware or route handler.
-
-        Returns:
-            Response with security headers added.
-        """
-        response: Response = await call_next(request)
-
-        # X-Content-Type-Options: nosniff
-        # Prevents MIME-type sniffing
-        response.headers["X-Content-Type-Options"] = "nosniff"
-
-        # X-Frame-Options: DENY
-        # Prevents clickjacking by denying framing
-        response.headers["X-Frame-Options"] = "DENY"
-
-        # X-XSS-Protection: 1; mode=block
-        # Enables browser XSS filtering
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-
-        # Referrer-Policy: strict-origin-when-cross-origin
-        # Controls how much referrer information is sent
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-
-        # Permissions-Policy: restrictive default
-        # Controls which browser features can be used
-        response.headers["Permissions-Policy"] = (
-            "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
-        )
-
-        # Content-Security-Policy: 分环境
-        # 生产环境已移除 unsafe-eval，降低 XSS 风险；开发环境保留以支持 HMR
+        # Pre-compute CSP header
         script_src = (
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
             if self.settings.DEBUG
             else "script-src 'self' 'unsafe-inline'; "
         )
-        csp = (
+        self._csp = (
             "default-src 'self'; "
             f"{script_src}"
             "style-src 'self' 'unsafe-inline'; "
@@ -97,44 +65,47 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "base-uri 'self'; "
             "form-action 'self';"
         )
-        response.headers["Content-Security-Policy"] = csp
 
-        # Only add HSTS in production with HTTPS
-        if not self.settings.DEBUG:
-            # Check if request is HTTPS
-            if request.url.scheme == "https":
-                # Strict-Transport-Security: max-age=31536000; includeSubDomains
-                # Enforces HTTPS for 1 year
-                response.headers["Strict-Transport-Security"] = (
-                    "max-age=31536000; includeSubDomains"
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        scheme = scope.get("scheme", "http")
+
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.append("X-Content-Type-Options", "nosniff")
+                headers.append("X-Frame-Options", "DENY")
+                headers.append("X-XSS-Protection", "1; mode=block")
+                headers.append("Referrer-Policy", "strict-origin-when-cross-origin")
+                headers.append(
+                    "Permissions-Policy",
+                    "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
                 )
+                headers.append("Content-Security-Policy", self._csp)
 
-        # Cache control for sensitive endpoints
-        if request.url.path in [
-            "/api/v1/auth/login",
-            "/api/v1/auth/register",
-            "/api/v1/auth/refresh",
-        ]:
-            # Prevent caching of auth endpoints
-            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-        else:
-            # Default cache policy
-            response.headers["Cache-Control"] = "no-cache"
+                if not self.settings.DEBUG and scheme == "https":
+                    headers.append(
+                        "Strict-Transport-Security",
+                        "max-age=31536000; includeSubDomains",
+                    )
 
-        # Remove server information
-        if "Server" in response.headers:
-            del response.headers["Server"]
+                if path in _AUTH_PATHS:
+                    headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                    headers.append("Pragma", "no-cache")
+                    headers.append("Expires", "0")
+                else:
+                    headers["Cache-Control"] = "no-cache"
 
-        # X-Powered-By: hide implementation details
-        # Only show in debug mode
-        if self.settings.DEBUG:
-            response.headers["X-Powered-By"] = "Backtrader Web"
-        elif "X-Powered-By" in response.headers:
-            del response.headers["X-Powered-By"]
+                if self.settings.DEBUG:
+                    headers.append("X-Powered-By", "Backtrader Web")
 
-        return response
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 def add_security_headers(app: FastAPI) -> None:

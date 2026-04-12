@@ -14,6 +14,15 @@ vi.mock('@/views/BacktestPage.vue', () => ({ default: { template: '<div>Backtest
 vi.mock('@/views/BacktestResultPage.vue', () => ({ default: { template: '<div>Result</div>' } }))
 vi.mock('@/views/StrategyPage.vue', () => ({ default: { template: '<div>Strategy</div>' } }))
 vi.mock('@/views/DataPage.vue', () => ({ default: { template: '<div>Data</div>' } }))
+vi.mock('@/views/data/DataLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
+vi.mock('@/views/data/DataMarketPage.vue', () => ({ default: { template: '<div>Data Market</div>' } }))
+vi.mock('@/views/data/DataScriptsPage.vue', () => ({ default: { template: '<div>Data Scripts</div>' } }))
+vi.mock('@/views/data/DataScriptDetailPage.vue', () => ({ default: { template: '<div>Data Script Detail</div>' } }))
+vi.mock('@/views/data/DataTasksPage.vue', () => ({ default: { template: '<div>Data Tasks</div>' } }))
+vi.mock('@/views/data/DataExecutionsPage.vue', () => ({ default: { template: '<div>Data Executions</div>' } }))
+vi.mock('@/views/data/DataTablesPage.vue', () => ({ default: { template: '<div>Data Tables</div>' } }))
+vi.mock('@/views/data/DataTableDetailPage.vue', () => ({ default: { template: '<div>Data Table Detail</div>' } }))
+vi.mock('@/views/data/DataInterfacesPage.vue', () => ({ default: { template: '<div>Data Interfaces</div>' } }))
 vi.mock('@/views/LiveTradingPage.vue', () => ({ default: { template: '<div>LiveTrading</div>' } }))
 vi.mock('@/views/LiveTradingDetailPage.vue', () => ({ default: { template: '<div>Detail</div>' } }))
 vi.mock('@/views/PortfolioPage.vue', () => ({ default: { template: '<div>Portfolio</div>' } }))
@@ -23,9 +32,10 @@ vi.mock('@/components/common/AppLayout.vue', () => ({ default: { template: '<div
 import { useAuthStore } from '@/stores/auth'
 import router from '@/router/index'
 
-function mockAuthStore(isAuthenticated: boolean) {
+function mockAuthStore(isAuthenticated: boolean, isAdmin = false) {
   vi.mocked(useAuthStore).mockReturnValue({
     isAuthenticated,
+    user: isAuthenticated ? { is_admin: isAdmin } : null,
   } as ReturnType<typeof useAuthStore>)
 }
 
@@ -109,5 +119,19 @@ describe('router', () => {
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Login')
     expect(router.currentRoute.value.query.redirect).toBe('/backtest')
+  })
+
+  it('guard redirects non-admin user away from /data/interfaces', async () => {
+    mockAuthStore(true, false)
+    await router.push('/data/interfaces')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataMarket')
+  })
+
+  it('guard allows admin user to access /data/interfaces', async () => {
+    mockAuthStore(true, true)
+    await router.push('/data/interfaces')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataInterfaces')
   })
 })

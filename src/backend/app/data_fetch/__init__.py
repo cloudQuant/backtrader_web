@@ -1,0 +1,1 @@
+"""Akshare data fetch package."""
