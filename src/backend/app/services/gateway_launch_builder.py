@@ -2,7 +2,6 @@ import json
 from typing import Any
 from urllib.parse import urlparse
 
-
 _TCP_TRANSPORT_GATEWAY_TYPES = {"CTP", "IB_WEB"}
 
 
@@ -231,6 +230,8 @@ def build_ib_web_gateway_runtime_kwargs(
         or env_data.get("IB_WEB_COOKIE_OUTPUT")
         or ib_web.get("cookie_output", "")
     )
+    if not cookie_source and cookie_output:
+        cookie_source = f"file:{cookie_output}"
     username = (
         gateway_params.get("username")
         or env_data.get("IB_WEB_USERNAME")
@@ -251,6 +252,8 @@ def build_ib_web_gateway_runtime_kwargs(
         or env_data.get("IB_WEB_LOGIN_BROWSER")
         or ib_web.get("login_browser", "")
     )
+    if not login_browser:
+        login_browser = cookie_browser
     login_headless_value = gateway_params.get("login_headless")
     if login_headless_value is None:
         login_headless_value = env_data.get("IB_WEB_LOGIN_HEADLESS", ib_web.get("login_headless"))

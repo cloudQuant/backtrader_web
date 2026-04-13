@@ -6,9 +6,9 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from pathlib import Path
 from typing import Any
-import urllib.request
 from urllib.parse import urlparse
 
 from app.services.gateway_launch_builder import resolve_gateway_transport
@@ -366,6 +366,192 @@ def _find_ib_clientportal_dir() -> Path | None:
 
 def _backend_env_file() -> Path:
     return Path(__file__).resolve().parents[2] / ".env"
+
+
+def _pick_explicit_or_setting(
+    explicit_value: Any,
+    settings: Any,
+    *setting_names: str,
+    default: Any = "",
+) -> Any:
+    if explicit_value not in {None, ""}:
+        return explicit_value
+    for name in setting_names:
+        value = getattr(settings, name, None)
+        if value not in {None, ""}:
+            return value
+    return default
+
+
+def _merge_ib_web_default_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
+    from app.config import get_settings
+
+    settings = get_settings()
+    resolved = dict(credentials)
+    login_mode = str(
+        _pick_explicit_or_setting(
+            resolved.get("login_mode"),
+            settings,
+            "IB_WEB_LOGIN_MODE",
+            default="paper",
+        )
+        or "paper"
+    ).strip().lower()
+    if login_mode not in {"paper", "live"}:
+        login_mode = "paper"
+    mode_prefix = "LIVE" if login_mode == "live" else "PAPER"
+
+    resolved["login_mode"] = login_mode
+    resolved["account_id"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("account_id"),
+            settings,
+            "IB_WEB_ACCOUNT_ID",
+            f"IB_{mode_prefix}_ACCOUNT_ID",
+            "IB_ACCOUNT_ID",
+            default="",
+        )
+        or ""
+    ).strip()
+    resolved["asset_type"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("asset_type"),
+            settings,
+            "IB_WEB_ASSET_TYPE",
+            f"IB_{mode_prefix}_ASSET_TYPE",
+            "IB_ASSET_TYPE",
+            default="STK",
+        )
+        or "STK"
+    ).strip() or "STK"
+    resolved["base_url"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("base_url"),
+            settings,
+            "IB_WEB_BASE_URL",
+            f"IB_{mode_prefix}_BASE_URL",
+            "IB_BASE_URL",
+            default="https://localhost:5000",
+        )
+        or "https://localhost:5000"
+    ).strip()
+    resolved["access_token"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("access_token"),
+            settings,
+            "IB_WEB_ACCESS_TOKEN",
+            f"IB_{mode_prefix}_ACCESS_TOKEN",
+            "IB_ACCESS_TOKEN",
+            default="",
+        )
+        or ""
+    ).strip()
+    resolved["verify_ssl"] = _pick_explicit_or_setting(
+        resolved.get("verify_ssl"),
+        settings,
+        "IB_WEB_VERIFY_SSL",
+        f"IB_{mode_prefix}_VERIFY_SSL",
+        "IB_VERIFY_SSL",
+        default=False,
+    )
+    resolved["timeout"] = _pick_explicit_or_setting(
+        resolved.get("timeout"),
+        settings,
+        "IB_WEB_TIMEOUT",
+        f"IB_{mode_prefix}_TIMEOUT",
+        "IB_TIMEOUT",
+        default=10.0,
+    )
+    resolved["cookie_browser"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("cookie_browser"),
+            settings,
+            "IB_WEB_COOKIE_BROWSER",
+            f"IB_{mode_prefix}_COOKIE_BROWSER",
+            "IB_COOKIE_BROWSER",
+            default="chrome",
+        )
+        or "chrome"
+    ).strip() or "chrome"
+    resolved["cookie_path"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("cookie_path"),
+            settings,
+            "IB_WEB_COOKIE_PATH",
+            f"IB_{mode_prefix}_COOKIE_PATH",
+            "IB_COOKIE_PATH",
+            default="/sso",
+        )
+        or "/sso"
+    ).strip() or "/sso"
+    resolved["cookie_output"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("cookie_output"),
+            settings,
+            "IB_WEB_COOKIE_OUTPUT",
+            "IB_COOKIE_OUTPUT",
+            default="",
+        )
+        or ""
+    ).strip()
+    resolved["cookie_source"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("cookie_source"),
+            settings,
+            "IB_WEB_COOKIE_SOURCE",
+            f"IB_{mode_prefix}_COOKIE_SOURCE",
+            "IB_COOKIE_SOURCE",
+            default="",
+        )
+        or ""
+    ).strip()
+    if not resolved["cookie_source"] and resolved["cookie_output"]:
+        resolved["cookie_source"] = f"file:{resolved['cookie_output']}"
+    resolved["username"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("username"),
+            settings,
+            "IB_WEB_USERNAME",
+            "IB_USERNAME",
+            default="",
+        )
+        or ""
+    ).strip()
+    resolved["password"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("password"),
+            settings,
+            "IB_WEB_PASSWORD",
+            "IB_PASSWORD",
+            default="",
+        )
+        or ""
+    ).strip()
+    resolved["login_browser"] = str(
+        _pick_explicit_or_setting(
+            resolved.get("login_browser"),
+            settings,
+            "IB_WEB_LOGIN_BROWSER",
+            "IB_LOGIN_BROWSER",
+            default=resolved["cookie_browser"],
+        )
+        or resolved["cookie_browser"]
+    ).strip() or resolved["cookie_browser"]
+    resolved["login_headless"] = _pick_explicit_or_setting(
+        resolved.get("login_headless"),
+        settings,
+        "IB_WEB_LOGIN_HEADLESS",
+        "IB_LOGIN_HEADLESS",
+        default=False,
+    )
+    resolved["login_timeout"] = _pick_explicit_or_setting(
+        resolved.get("login_timeout"),
+        settings,
+        "IB_WEB_LOGIN_TIMEOUT",
+        "IB_LOGIN_TIMEOUT",
+        default=180,
+    )
+    return resolved
 
 
 def _workspace_root() -> Path:
@@ -1013,7 +1199,7 @@ def _add_ips_to_proxy_bypass_file(ips: list[str], logger) -> bool:
             continue
         try:
             existing = set()
-            with open(fpath, "r", encoding="utf-8") as fh:
+            with open(fpath, encoding="utf-8") as fh:
                 for line in fh:
                     stripped = line.strip()
                     if stripped:
@@ -1040,7 +1226,6 @@ def _find_clash_external_controller() -> tuple[str, str] | tuple[None, None]:
     Searches common Clash Verge / Clash Meta / mihomo config locations.
     Returns (base_url, secret) or (None, None).
     """
-    import json as _json
     home = os.path.expanduser("~")
     config_dirs = [
         os.path.join(home, ".config", "clash"),
@@ -1060,7 +1245,7 @@ def _find_clash_external_controller() -> tuple[str, str] | tuple[None, None]:
             if not os.path.isfile(fpath):
                 continue
             try:
-                with open(fpath, "r", encoding="utf-8") as fh:
+                with open(fpath, encoding="utf-8") as fh:
                     content = fh.read(16384)
                 port = secret = None
                 for line in content.splitlines():
@@ -1190,7 +1375,7 @@ def _maybe_tunnel_ctp_fronts(
 
     Returns (td_front, md_front) — possibly rewritten to ``tcp://127.0.0.1:<port>``.
     """
-    from app.services.ctp_tunnel import is_proxy_tunnel_needed, ensure_tunnel
+    from app.services.ctp_tunnel import ensure_tunnel, is_proxy_tunnel_needed
 
     if not is_proxy_tunnel_needed():
         return td_front, md_front
@@ -1484,6 +1669,7 @@ def connect_ib_web_gateway(
     logger,
     allow_interactive_login: bool = True,
 ) -> dict[str, Any]:
+    credentials = _merge_ib_web_default_credentials(credentials)
     account_id = credentials.get("account_id", "")
     if not account_id:
         return {

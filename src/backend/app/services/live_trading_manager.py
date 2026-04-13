@@ -222,11 +222,65 @@ class LiveTradingManager:
             find_latest_log_dir=_find_latest_log_dir,
         )
 
+    @staticmethod
+    def _subprocess_gateway_recent_errors(stderr_path: str) -> list[dict[str, str]]:
+        path = Path(str(stderr_path or "")).expanduser()
+        if not path.is_file():
+            return []
+        try:
+            lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        except OSError:
+            return []
+        if not lines:
+            return []
+        return [{"source": "gateway", "message": lines[-1]}]
+
+    def _ping_subprocess_gateway_ready(self, state: dict[str, Any]) -> bool:
+        config = state.get("config")
+        command_endpoint = str(getattr(config, "command_endpoint", "") or "").strip()
+        return bool(command_endpoint)
+
+    def _build_subprocess_gateway_health(self, key: str, state: dict[str, Any]) -> HealthStatus:
+        process = state.get("process")
+        pid = getattr(process, "pid", None)
+        is_alive = bool(pid and _is_pid_alive(pid))
+        recent_errors = self._subprocess_gateway_recent_errors(str(state.get("stderr_path") or ""))
+        is_ready = is_alive and self._ping_subprocess_gateway_ready(state)
+        gateway_state = "running" if is_ready else ("error" if is_alive else "stopped")
+        market_connection = "connected" if is_ready else "error"
+        trade_connection = "connected" if is_ready else "error"
+        instances = state.get("instances", set()) or set()
+        ref_count = max(int(state.get("ref_count", 0) or 0), len(instances))
+        if state.get("manual") and ref_count == 0:
+            ref_count = 1
+        return {
+            "gateway_key": key,
+            "state": gateway_state,
+            "is_healthy": is_ready,
+            "exchange": str(state.get("exchange_type") or ""),
+            "asset_type": str(state.get("asset_type") or ""),
+            "account_id": str(state.get("account_id") or ""),
+            "market_connection": market_connection,
+            "trade_connection": trade_connection,
+            "uptime_sec": 0,
+            "last_heartbeat": None,
+            "heartbeat_age_sec": None,
+            "last_tick_time": None,
+            "last_order_time": None,
+            "strategy_count": 0,
+            "symbol_count": 0,
+            "tick_count": 0,
+            "order_count": 0,
+            "ref_count": ref_count,
+            "instances": sorted(str(item) for item in instances if item is not None),
+            "recent_errors": [] if is_ready else recent_errors,
+        }
+
     def get_gateway_health(self) -> list[HealthStatus]:
         with self._gateway_lock:
             gateways = dict(self._gateways)
         try:
-            return gateway_health_service.get_gateway_health(
+            results = gateway_health_service.get_gateway_health(
                 gateways=gateways,
                 load_instances=_load_instances,
                 is_pid_alive=_is_pid_alive,
@@ -237,6 +291,28 @@ class LiveTradingManager:
         except Exception:
             logger.exception("Failed to collect gateway health snapshots")
             return []
+        overrides: dict[str, HealthStatus] = {}
+        for key, state in gateways.items():
+            if not isinstance(state, dict):
+                continue
+            if state.get("process_mode") != "subprocess" or state.get("runtime") is not None:
+                continue
+            overrides[key] = self._build_subprocess_gateway_health(key, state)
+        if not overrides:
+            return results
+        merged: list[HealthStatus] = []
+        seen: set[str] = set()
+        for item in results:
+            gateway_key = str(item.get("gateway_key") or "")
+            if gateway_key in overrides:
+                merged.append(overrides[gateway_key])
+                seen.add(gateway_key)
+            else:
+                merged.append(item)
+        for gateway_key, item in overrides.items():
+            if gateway_key not in seen:
+                merged.append(item)
+        return merged
 
     def connect_gateway(
         self, exchange_type: str, credentials: GatewayCredentials

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from app.config import get_settings
 from app.schemas.sync import (
@@ -41,7 +42,12 @@ class SyncService:
         )
 
     def get_config(self) -> SyncConfig:
-        defaults = SyncConfig()
+        defaults = SyncConfig(
+            local_mysql_host=getattr(settings, "SYNC_LOCAL_MYSQL_HOST", "127.0.0.1"),
+            local_mysql_port=int(getattr(settings, "SYNC_LOCAL_MYSQL_PORT", 3306)),
+            local_mysql_user=getattr(settings, "SYNC_LOCAL_MYSQL_USER", "root"),
+            local_mysql_password=self._get_local_mysql_password(None),
+        )
         if self._config_file.is_file():
             try:
                 payload = json.loads(self._config_file.read_text("utf-8"))
@@ -71,10 +77,17 @@ class SyncService:
         checks["local_tools"] = not missing_tools
         details["local_tools"] = "依赖完整" if not missing_tools else f"缺少命令: {', '.join(missing_tools)}"
 
-        local_password = self._get_local_mysql_password()
+        local_password = self._get_local_mysql_password(config)
         if local_password:
             try:
-                await self._query_local_database_info(["information_schema"])
+                await self._run_exec(
+                    self._build_local_mysql_query_args(
+                        config,
+                        "SELECT 1",
+                        local_password,
+                    ),
+                    timeout=self._connect_timeout,
+                )
                 checks["local_mysql"] = True
                 details["local_mysql"] = "本地 MySQL 可访问"
             except Exception as exc:
@@ -82,9 +95,7 @@ class SyncService:
                 details["local_mysql"] = str(exc)
         else:
             checks["local_mysql"] = False
-            details["local_mysql"] = (
-                "未配置本地 MySQL 密码（SYNC_LOCAL_MYSQL_PASSWORD 或 LOCAL_MYSQL_PASSWORD）"
-            )
+            details["local_mysql"] = "未配置本地 MySQL 密码"
 
         if not config.remote_host.strip():
             checks["ssh"] = False
@@ -135,7 +146,11 @@ class SyncService:
         try:
             await self._get_remote_mysql_password(config)
             checks["remote_env"] = True
-            details["remote_env"] = "已读取远程 MYSQL_ROOT_PASSWORD"
+            details["remote_env"] = (
+                "已使用页面填写的远程 MySQL 密码"
+                if str(config.remote_mysql_password or "").strip()
+                else "已读取远程 MYSQL_ROOT_PASSWORD"
+            )
         except Exception as exc:
             checks["remote_env"] = False
             details["remote_env"] = str(exc)
@@ -236,11 +251,9 @@ class SyncService:
                 progress_pct=5,
                 message="正在校验同步环境",
             )
-            local_password = self._get_local_mysql_password()
+            local_password = self._get_local_mysql_password(config)
             if not local_password:
-                raise RuntimeError(
-                    "未配置本地 MySQL 密码（SYNC_LOCAL_MYSQL_PASSWORD 或 LOCAL_MYSQL_PASSWORD）"
-                )
+                raise RuntimeError("未配置本地 MySQL 密码")
             remote_password = await self._get_remote_mysql_password(config)
             total = max(len(request.databases), 1)
             for index, database in enumerate(request.databases):
@@ -323,7 +336,7 @@ class SyncService:
         local_dump_path = task_tmp_dir / f"{database}{suffix}"
         remote_dump_path = f"/tmp/backtrader_sync_{task_id}_{database}{suffix}"
         self._update_task(task_id, stage="dumping", progress_pct=20, message=f"正在导出本地数据库 {database}")
-        await self._dump_local_database(database, local_dump_path, request, local_password)
+        await self._dump_local_database(database, local_dump_path, request, config, local_password)
         self._update_task(task_id, stage="transferring", progress_pct=55, message=f"正在上传 {database} 到远程服务器")
         await self._scp_upload(config, local_dump_path, remote_dump_path)
         self._update_task(task_id, stage="importing", progress_pct=80, message=f"正在导入远程数据库 {database}")
@@ -350,7 +363,7 @@ class SyncService:
         self._update_task(task_id, stage="transferring", progress_pct=55, message=f"正在下载 {database} 到本地")
         await self._scp_download(config, remote_dump_path, local_dump_path)
         self._update_task(task_id, stage="importing", progress_pct=80, message=f"正在导入本地数据库 {database}")
-        await self._import_local_database(database, local_dump_path, request, local_password)
+        await self._import_local_database(database, local_dump_path, request, config, local_password)
         self._update_task(task_id, stage="verifying", progress_pct=95, message=f"正在校验本地数据库 {database}")
         await self._query_local_database_info([database])
         try:
@@ -363,10 +376,11 @@ class SyncService:
         database: str,
         output_path: Path,
         request: SyncRequest,
+        config: SyncConfig,
         local_password: str,
     ) -> None:
         cmd = self._compose_dump_command(
-            self._build_local_mysqldump_args(database, request.sync_mode, local_password),
+            self._build_local_mysqldump_args(config, database, request.sync_mode, local_password),
             output_path,
             request.compress,
         )
@@ -380,7 +394,12 @@ class SyncService:
         request: SyncRequest,
         remote_password: str,
     ) -> None:
-        inner = self._build_remote_mysqldump_command(database, request.sync_mode, remote_password)
+        inner = self._build_remote_mysqldump_command(
+            config,
+            database,
+            request.sync_mode,
+            remote_password,
+        )
         remote_cmd = self._compose_remote_dump_command(config.remote_container, inner, remote_output_path, request.compress)
         await self._run_ssh(config, remote_cmd, timeout=self._timeout_seconds)
 
@@ -389,14 +408,20 @@ class SyncService:
         database: str,
         input_path: Path,
         request: SyncRequest,
+        config: SyncConfig,
         local_password: str,
     ) -> None:
         if request.sync_mode != "data_only":
             sql = self._build_recreate_database_sql(database)
-            await self._run_exec(self._build_local_mysql_query_args(sql, local_password), timeout=self._connect_timeout)
+            await self._run_exec(
+                self._build_local_mysql_query_args(config, sql, local_password),
+                timeout=self._connect_timeout,
+            )
         import_cmd = self._compose_import_command(
             input_path=str(input_path),
-            mysql_command=self._join_command(self._build_local_mysql_import_args(database, local_password)),
+            mysql_command=self._join_command(
+                self._build_local_mysql_import_args(config, database, local_password)
+            ),
             compressed=request.compress,
         )
         await self._run_bash(import_cmd, timeout=self._timeout_seconds)
@@ -415,13 +440,13 @@ class SyncService:
             recreate_inner = self._join_command([
                 "sh",
                 "-lc",
-                self._build_remote_mysql_query_command(recreate_sql, remote_password),
+                self._build_remote_mysql_query_command(config, recreate_sql, remote_password),
             ])
             steps.append(f"docker exec {shlex.quote(config.remote_container)} {recreate_inner}")
         import_inner = self._join_command([
             "sh",
             "-lc",
-            self._build_remote_mysql_import_command(database, remote_password),
+            self._build_remote_mysql_import_command(config, database, remote_password),
         ])
         cat_command = "gunzip -c" if request.compress else "cat"
         steps.append(
@@ -431,11 +456,15 @@ class SyncService:
         await self._run_ssh(config, "; ".join(steps), timeout=self._timeout_seconds)
 
     async def _query_local_database_info(self, databases: list[str]) -> dict[str, DatabaseInfo]:
-        password = self._get_local_mysql_password()
+        config = self.get_config()
+        password = self._get_local_mysql_password(config)
         if not password:
-            raise RuntimeError("未配置本地 MySQL 密码（SYNC_LOCAL_MYSQL_PASSWORD 或 LOCAL_MYSQL_PASSWORD）")
+            raise RuntimeError("未配置本地 MySQL 密码")
         sql = self._build_database_info_sql(databases)
-        stdout = await self._run_exec(self._build_local_mysql_query_args(sql, password), timeout=self._connect_timeout)
+        stdout = await self._run_exec(
+            self._build_local_mysql_query_args(config, sql, password),
+            timeout=self._connect_timeout,
+        )
         return self._parse_database_info(databases, stdout)
 
     async def _query_remote_database_info(
@@ -447,7 +476,7 @@ class SyncService:
         sql = self._build_database_info_sql(databases)
         remote_cmd = (
             f"docker exec {shlex.quote(config.remote_container)} sh -lc "
-            f"{shlex.quote(self._build_remote_mysql_query_command(sql, password))}"
+            f"{shlex.quote(self._build_remote_mysql_query_command(config, sql, password))}"
         )
         stdout = await self._run_ssh(config, remote_cmd, timeout=self._connect_timeout)
         return self._parse_database_info(databases, stdout)
@@ -465,6 +494,9 @@ class SyncService:
         )
 
     async def _get_remote_mysql_password(self, config: SyncConfig) -> str:
+        explicit_password = str(config.remote_mysql_password or "").strip()
+        if explicit_password:
+            return explicit_password
         env_path = f"{config.remote_install_dir.rstrip('/')}/src/backend/.env"
         command = (
             f"if [ ! -f {shlex.quote(env_path)} ]; then "
@@ -478,8 +510,10 @@ class SyncService:
             raise RuntimeError("远程 .env 中未找到 MYSQL_ROOT_PASSWORD")
         return password
 
-    def _get_local_mysql_password(self) -> str:
+    def _get_local_mysql_password(self, config: SyncConfig | None = None) -> str:
         value = (
+            getattr(config, "local_mysql_password", "") if config is not None else ""
+        ) or (
             os.environ.get("SYNC_LOCAL_MYSQL_PASSWORD")
             or getattr(settings, "SYNC_LOCAL_MYSQL_PASSWORD", "")
             or os.environ.get("LOCAL_MYSQL_PASSWORD")
@@ -488,11 +522,19 @@ class SyncService:
 
     def _normalize_config(self, config: SyncConfig) -> SyncConfig:
         payload = config.model_copy(deep=True)
-        payload.remote_host = payload.remote_host.strip()
+        payload.local_mysql_host = payload.local_mysql_host.strip() or "127.0.0.1"
+        payload.local_mysql_port = int(payload.local_mysql_port or 3306)
+        payload.local_mysql_user = payload.local_mysql_user.strip() or "root"
+        payload.local_mysql_password = str(payload.local_mysql_password or "").strip()
+        payload.remote_host = self._normalize_host(payload.remote_host)
         payload.remote_user = payload.remote_user.strip() or "root"
         payload.remote_ssh_key = payload.remote_ssh_key.strip() or "~/.ssh/id_rsa"
         payload.remote_container = payload.remote_container.strip() or "backtrader_mysql"
         payload.remote_install_dir = payload.remote_install_dir.strip() or "/opt/backtrader_web"
+        payload.remote_mysql_host = payload.remote_mysql_host.strip() or "127.0.0.1"
+        payload.remote_mysql_port = int(payload.remote_mysql_port or 3306)
+        payload.remote_mysql_user = payload.remote_mysql_user.strip() or "root"
+        payload.remote_mysql_password = str(payload.remote_mysql_password or "").strip()
         payload.sync_databases = [name.strip() for name in payload.sync_databases if name.strip()]
         if not payload.sync_databases:
             payload.sync_databases = ["backtrader_web", "akshare_data"]
@@ -542,7 +584,13 @@ class SyncService:
             f"CREATE DATABASE {identifier} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
         )
 
-    def _build_local_mysqldump_args(self, database: str, sync_mode: str, password: str) -> list[str]:
+    def _build_local_mysqldump_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        sync_mode: str,
+        password: str,
+    ) -> list[str]:
         args = [
             "mysqldump",
             "--single-transaction",
@@ -553,11 +601,11 @@ class SyncService:
             "--triggers",
             "--events",
             "-h",
-            getattr(settings, "SYNC_LOCAL_MYSQL_HOST", "127.0.0.1"),
+            config.local_mysql_host,
             "-P",
-            str(getattr(settings, "SYNC_LOCAL_MYSQL_PORT", 3306)),
+            str(config.local_mysql_port),
             "-u",
-            getattr(settings, "SYNC_LOCAL_MYSQL_USER", "root"),
+            config.local_mysql_user,
             f"-p{password}",
         ]
         if sync_mode == "schema_only":
@@ -567,15 +615,20 @@ class SyncService:
         args.append(database)
         return args
 
-    def _build_local_mysql_query_args(self, sql: str, password: str) -> list[str]:
+    def _build_local_mysql_query_args(
+        self,
+        config: SyncConfig,
+        sql: str,
+        password: str,
+    ) -> list[str]:
         return [
             "mysql",
             "-h",
-            getattr(settings, "SYNC_LOCAL_MYSQL_HOST", "127.0.0.1"),
+            config.local_mysql_host,
             "-P",
-            str(getattr(settings, "SYNC_LOCAL_MYSQL_PORT", 3306)),
+            str(config.local_mysql_port),
             "-u",
-            getattr(settings, "SYNC_LOCAL_MYSQL_USER", "root"),
+            config.local_mysql_user,
             f"-p{password}",
             "-N",
             "-B",
@@ -583,20 +636,31 @@ class SyncService:
             sql,
         ]
 
-    def _build_local_mysql_import_args(self, database: str, password: str) -> list[str]:
+    def _build_local_mysql_import_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> list[str]:
         return [
             "mysql",
             "-h",
-            getattr(settings, "SYNC_LOCAL_MYSQL_HOST", "127.0.0.1"),
+            config.local_mysql_host,
             "-P",
-            str(getattr(settings, "SYNC_LOCAL_MYSQL_PORT", 3306)),
+            str(config.local_mysql_port),
             "-u",
-            getattr(settings, "SYNC_LOCAL_MYSQL_USER", "root"),
+            config.local_mysql_user,
             f"-p{password}",
             database,
         ]
 
-    def _build_remote_mysqldump_command(self, database: str, sync_mode: str, password: str) -> str:
+    def _build_remote_mysqldump_command(
+        self,
+        config: SyncConfig,
+        database: str,
+        sync_mode: str,
+        password: str,
+    ) -> str:
         args = [
             "mysqldump",
             "--single-transaction",
@@ -606,8 +670,12 @@ class SyncService:
             "--routines",
             "--triggers",
             "--events",
+            "-h",
+            config.remote_mysql_host,
+            "-P",
+            str(config.remote_mysql_port),
             "-u",
-            "root",
+            config.remote_mysql_user,
         ]
         if sync_mode == "schema_only":
             args.append("--no-data")
@@ -616,12 +684,43 @@ class SyncService:
         args.append(database)
         return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
 
-    def _build_remote_mysql_query_command(self, sql: str, password: str) -> str:
-        args = ["mysql", "-u", "root", "-N", "-B", "-e", sql]
+    def _build_remote_mysql_query_command(
+        self,
+        config: SyncConfig,
+        sql: str,
+        password: str,
+    ) -> str:
+        args = [
+            "mysql",
+            "-h",
+            config.remote_mysql_host,
+            "-P",
+            str(config.remote_mysql_port),
+            "-u",
+            config.remote_mysql_user,
+            "-N",
+            "-B",
+            "-e",
+            sql,
+        ]
         return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
 
-    def _build_remote_mysql_import_command(self, database: str, password: str) -> str:
-        args = ["mysql", "-u", "root", database]
+    def _build_remote_mysql_import_command(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> str:
+        args = [
+            "mysql",
+            "-h",
+            config.remote_mysql_host,
+            "-P",
+            str(config.remote_mysql_port),
+            "-u",
+            config.remote_mysql_user,
+            database,
+        ]
         return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
 
     def _compose_dump_command(self, dump_args: list[str], output_path: Path, compress: bool) -> str:
@@ -736,6 +835,15 @@ class SyncService:
 
     def _quote_identifier(self, value: str) -> str:
         return "`" + value.replace("`", "``") + "`"
+
+    def _normalize_host(self, value: str) -> str:
+        host = str(value or "").strip()
+        if not host:
+            return ""
+        if host.startswith("http://") or host.startswith("https://"):
+            parsed = urlparse(host)
+            return parsed.hostname or host
+        return host
 
     def _format_bytes(self, value: int) -> str:
         units = ["B", "KB", "MB", "GB", "TB"]

@@ -510,11 +510,19 @@ export type SyncStage =
 export type SyncTaskState = 'pending' | 'running' | 'completed' | 'failed'
 
 export interface SyncConfig {
+  local_mysql_host: string
+  local_mysql_port: number
+  local_mysql_user: string
+  local_mysql_password: string
   remote_host: string
   remote_user: string
   remote_ssh_key: string
   remote_container: string
   remote_install_dir: string
+  remote_mysql_host: string
+  remote_mysql_port: number
+  remote_mysql_user: string
+  remote_mysql_password: string
   sync_databases: string[]
 }
 

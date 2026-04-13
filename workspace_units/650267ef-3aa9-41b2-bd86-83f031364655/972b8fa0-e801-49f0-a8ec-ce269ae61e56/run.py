@@ -22,10 +22,10 @@ _PYMT5 = _BT_WEB.parent / "pymt5"
 if _PYMT5.exists() and str(_PYMT5) not in sys.path:
     sys.path.insert(0, str(_PYMT5))
 
-import backtrader as bt
-import yaml
-from backtrader.feeds.btapifeed import BtApiFeed
-from backtrader.stores.btapistore import BtApiStore
+import backtrader as bt  # noqa: E402
+import yaml  # noqa: E402
+from backtrader.feeds.btapifeed import BtApiFeed  # noqa: E402
+from backtrader.stores.btapistore import BtApiStore  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)

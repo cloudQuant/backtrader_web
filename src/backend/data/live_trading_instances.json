@@ -1090,8 +1090,8 @@
       "trading_mode": "paper"
     },
     "created_at": "2026-04-13 21:27:12",
-    "started_at": "2026-04-13 21:27:13",
-    "stopped_at": "2026-04-13 21:27:17",
+    "started_at": "2026-04-13 23:24:47",
+    "stopped_at": "2026-04-13 23:24:54",
     "log_dir": null,
     "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/df658c60-6567-475b-a211-0a1c2da3dfd8"
   },
@@ -1157,8 +1157,8 @@
       "trading_mode": "paper"
     },
     "created_at": "2026-04-13 21:27:17",
-    "started_at": "2026-04-13 21:27:17",
-    "stopped_at": "2026-04-13 21:27:21",
+    "started_at": "2026-04-13 23:24:42",
+    "stopped_at": "2026-04-13 23:24:47",
     "log_dir": null,
     "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/650267ef-3aa9-41b2-bd86-83f031364655/d78d2494-b7b3-4d62-8f19-dfdfd2fae9e6"
   },
@@ -1221,8 +1221,8 @@
       "trading_mode": "paper"
     },
     "created_at": "2026-04-13 21:27:21",
-    "started_at": "2026-04-13 21:27:21",
-    "stopped_at": "2026-04-13 21:27:24",
+    "started_at": "2026-04-13 23:24:37",
+    "stopped_at": "2026-04-13 23:24:42",
     "log_dir": null,
     "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/d4838c01-06ff-4d86-90ba-b285de683240"
   }

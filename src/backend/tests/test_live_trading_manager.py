@@ -533,7 +533,6 @@ class TestGatewayLifecycle:
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
 
-        fake_proc = MagicMock()
         fake_settings = SimpleNamespace(
             IB_ACCESS_TOKEN="",
             IB_PAPER_COOKIE_SOURCE="file:../bt_api_py/configs/ibkr_cookies.json",
@@ -549,30 +548,81 @@ class TestGatewayLifecycle:
             IB_LOGIN_BROWSER="chrome",
             IB_LOGIN_HEADLESS=False,
             IB_LOGIN_TIMEOUT=180,
+            IB_WEB_LOGIN_MODE="",
+            IB_WEB_LOGIN_BROWSER="",
+            IB_WEB_LOGIN_HEADLESS=False,
+            IB_WEB_LOGIN_TIMEOUT=0,
+            IB_WEB_COOKIE_SOURCE="",
+            IB_WEB_COOKIE_BROWSER="",
+            IB_WEB_COOKIE_PATH="",
+            IB_WEB_COOKIE_OUTPUT="",
+            IB_WEB_USERNAME="",
+            IB_WEB_PASSWORD="",
+            IB_WEB_ACCOUNT_ID="",
+            IB_WEB_ASSET_TYPE="",
+            IB_WEB_BASE_URL="",
+            IB_WEB_ACCESS_TOKEN="",
+            IB_WEB_VERIFY_SSL=False,
+            IB_WEB_TIMEOUT=0.0,
+            IB_PAPER_ACCOUNT_ID="",
+            IB_PAPER_ASSET_TYPE="",
+            IB_PAPER_BASE_URL="",
+            IB_PAPER_ACCESS_TOKEN="",
+            IB_PAPER_VERIFY_SSL=False,
+            IB_PAPER_TIMEOUT=0.0,
+            IB_PAPER_COOKIE_BROWSER="",
+            IB_LIVE_COOKIE_BROWSER="",
         )
-        with patch.object(manager, "_get_gateway_proxy_kwargs", return_value={}):
-            with patch("app.config.get_settings", return_value=fake_settings):
-                with patch.object(
-                    manager,
-                    "_start_ctp_gateway_process",
-                    return_value=(
-                        MagicMock(),
-                        fake_proc,
-                        tmp_path / "manual.pid",
-                        tmp_path / "stdout.log",
-                        tmp_path / "stderr.log",
-                    ),
-                ) as mock_start:
-                    result = manager._connect_ib_web_gateway(
-                        "manual:IB_WEB:DU123456",
-                        {
-                            "account_id": "DU123456",
-                            "base_url": "https://localhost:5000/v1/api",
-                        },
-                    )
+
+        class FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return kwargs
+
+        class FakeGatewayRuntime:
+            def __init__(self, config, **kwargs):
+                self.config = config
+                self.kwargs = kwargs
+
+            def start_in_thread(self):
+                return None
+
+        with patch("app.config.get_settings", return_value=fake_settings):
+            with patch.object(
+                manager,
+                "_import_gateway_runtime_classes",
+                return_value=(FakeGatewayConfig, FakeGatewayRuntime),
+            ):
+                with patch(
+                    "app.services.manual_gateway_service._ensure_ib_clientportal_running",
+                    return_value=None,
+                ):
+                    with patch(
+                        "app.services.manual_gateway_service._resolve_ib_web_base_url",
+                        side_effect=lambda base_url, *_args: base_url,
+                    ):
+                        with patch(
+                            "app.services.manual_gateway_service._bootstrap_ib_web_session",
+                            return_value=None,
+                        ):
+                            with patch(
+                                "app.services.manual_gateway_service._wait_for_runtime_ready",
+                                return_value=None,
+                            ):
+                                with patch(
+                                    "app.services.manual_gateway_service._persist_ib_web_env_updates",
+                                    return_value=None,
+                                ):
+                                    result = manager._connect_ib_web_gateway(
+                                        "manual:IB_WEB:DU123456",
+                                        {
+                                            "account_id": "DU123456",
+                                            "base_url": "https://localhost:5000/v1/api",
+                                        },
+                                    )
 
         assert result["status"] == "connected"
-        runtime_kwargs = mock_start.call_args.args[0]
+        runtime_kwargs = manager._gateways["manual:IB_WEB:DU123456"]["config"]
         assert runtime_kwargs["cookie_source"] == "file:../bt_api_py/configs/ibkr_cookies.json"
         assert runtime_kwargs["cookie_browser"] == "chrome"
         assert runtime_kwargs["cookie_path"] == "/sso"
@@ -586,7 +636,6 @@ class TestGatewayLifecycle:
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
 
-        fake_proc = MagicMock()
         fake_settings = SimpleNamespace(
             IB_ACCESS_TOKEN="",
             IB_PAPER_COOKIE_SOURCE="",
@@ -602,30 +651,81 @@ class TestGatewayLifecycle:
             IB_LOGIN_BROWSER="chrome",
             IB_LOGIN_HEADLESS=False,
             IB_LOGIN_TIMEOUT=180,
+            IB_WEB_LOGIN_MODE="",
+            IB_WEB_LOGIN_BROWSER="",
+            IB_WEB_LOGIN_HEADLESS=False,
+            IB_WEB_LOGIN_TIMEOUT=0,
+            IB_WEB_COOKIE_SOURCE="",
+            IB_WEB_COOKIE_BROWSER="",
+            IB_WEB_COOKIE_PATH="",
+            IB_WEB_COOKIE_OUTPUT="",
+            IB_WEB_USERNAME="",
+            IB_WEB_PASSWORD="",
+            IB_WEB_ACCOUNT_ID="",
+            IB_WEB_ASSET_TYPE="",
+            IB_WEB_BASE_URL="",
+            IB_WEB_ACCESS_TOKEN="",
+            IB_WEB_VERIFY_SSL=False,
+            IB_WEB_TIMEOUT=0.0,
+            IB_PAPER_ACCOUNT_ID="",
+            IB_PAPER_ASSET_TYPE="",
+            IB_PAPER_BASE_URL="",
+            IB_PAPER_ACCESS_TOKEN="",
+            IB_PAPER_VERIFY_SSL=False,
+            IB_PAPER_TIMEOUT=0.0,
+            IB_PAPER_COOKIE_BROWSER="",
+            IB_LIVE_COOKIE_BROWSER="",
         )
-        with patch.object(manager, "_get_gateway_proxy_kwargs", return_value={}):
-            with patch("app.config.get_settings", return_value=fake_settings):
-                with patch.object(
-                    manager,
-                    "_start_ctp_gateway_process",
-                    return_value=(
-                        MagicMock(),
-                        fake_proc,
-                        tmp_path / "manual.pid",
-                        tmp_path / "stdout.log",
-                        tmp_path / "stderr.log",
-                    ),
-                ) as mock_start:
-                    result = manager._connect_ib_web_gateway(
-                        "manual:IB_WEB:DU123456",
-                        {
-                            "account_id": "DU123456",
-                            "cookie_source": "file:C:/definitely/not/exist/ibkr_cookies.json",
-                        },
-                    )
+
+        class FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return kwargs
+
+        class FakeGatewayRuntime:
+            def __init__(self, config, **kwargs):
+                self.config = config
+                self.kwargs = kwargs
+
+            def start_in_thread(self):
+                return None
+
+        with patch("app.config.get_settings", return_value=fake_settings):
+            with patch.object(
+                manager,
+                "_import_gateway_runtime_classes",
+                return_value=(FakeGatewayConfig, FakeGatewayRuntime),
+            ):
+                with patch(
+                    "app.services.manual_gateway_service._ensure_ib_clientportal_running",
+                    return_value=None,
+                ):
+                    with patch(
+                        "app.services.manual_gateway_service._resolve_ib_web_base_url",
+                        side_effect=lambda base_url, *_args: base_url,
+                    ):
+                        with patch(
+                            "app.services.manual_gateway_service._bootstrap_ib_web_session",
+                            return_value=None,
+                        ):
+                            with patch(
+                                "app.services.manual_gateway_service._wait_for_runtime_ready",
+                                return_value=None,
+                            ):
+                                with patch(
+                                    "app.services.manual_gateway_service._persist_ib_web_env_updates",
+                                    return_value=None,
+                                ):
+                                    result = manager._connect_ib_web_gateway(
+                                        "manual:IB_WEB:DU123456",
+                                        {
+                                            "account_id": "DU123456",
+                                            "cookie_source": "file:C:/definitely/not/exist/ibkr_cookies.json",
+                                        },
+                                    )
 
         assert result["status"] == "connected"
-        runtime_kwargs = mock_start.call_args.args[0]
+        runtime_kwargs = manager._gateways["manual:IB_WEB:DU123456"]["config"]
         assert runtime_kwargs["cookie_source"] == "file:C:/definitely/not/exist/ibkr_cookies.json"
         assert runtime_kwargs["cookie_output"] == "../bt_api_py/configs/ibkr_cookies.json"
         assert runtime_kwargs["username"] == "test-ib-user"

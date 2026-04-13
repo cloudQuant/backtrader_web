@@ -21,11 +21,19 @@ SyncTaskState = Literal["pending", "running", "completed", "failed"]
 
 
 class SyncConfig(BaseModel):
+    local_mysql_host: str = "127.0.0.1"
+    local_mysql_port: int = 3306
+    local_mysql_user: str = "root"
+    local_mysql_password: str = ""
     remote_host: str = ""
     remote_user: str = "root"
     remote_ssh_key: str = "~/.ssh/id_rsa"
     remote_container: str = "backtrader_mysql"
     remote_install_dir: str = "/opt/backtrader_web"
+    remote_mysql_host: str = "127.0.0.1"
+    remote_mysql_port: int = 3306
+    remote_mysql_user: str = "root"
+    remote_mysql_password: str = ""
     sync_databases: list[str] = Field(
         default_factory=lambda: ["backtrader_web", "akshare_data"]
     )

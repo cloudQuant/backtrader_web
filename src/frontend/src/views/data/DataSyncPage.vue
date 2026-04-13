@@ -29,21 +29,38 @@
         :model="configForm"
         label-width="120px"
       >
+        <div class="config-section-title">本地 MySQL</div>
         <div class="form-grid">
-          <el-form-item label="远程服务器">
-            <el-input v-model="configForm.remote_host" placeholder="例如 123.45.67.89" />
+          <el-form-item label="本地主机">
+            <el-input v-model="configForm.local_mysql_host" placeholder="127.0.0.1" />
+          </el-form-item>
+          <el-form-item label="本地端口">
+            <el-input-number v-model="configForm.local_mysql_port" class="full-width" :min="1" :max="65535" />
+          </el-form-item>
+          <el-form-item label="本地用户">
+            <el-input v-model="configForm.local_mysql_user" placeholder="root" />
+          </el-form-item>
+          <el-form-item label="本地密码">
+            <el-input v-model="configForm.local_mysql_password" show-password placeholder="输入本地 MySQL 密码" />
+          </el-form-item>
+        </div>
+
+        <div class="config-section-title">远程服务器</div>
+        <div class="form-grid">
+          <el-form-item label="服务器 IP">
+            <el-input v-model="configForm.remote_host" placeholder="43.167.221.188（不要带 http://）" />
           </el-form-item>
           <el-form-item label="SSH 用户">
-            <el-input v-model="configForm.remote_user" />
+            <el-input v-model="configForm.remote_user" placeholder="root 或 backtrader" />
           </el-form-item>
           <el-form-item label="SSH 密钥">
-            <el-input v-model="configForm.remote_ssh_key" />
+            <el-input v-model="configForm.remote_ssh_key" placeholder="~/.ssh/id_rsa" />
           </el-form-item>
           <el-form-item label="Docker 容器">
-            <el-input v-model="configForm.remote_container" />
+            <el-input v-model="configForm.remote_container" placeholder="backtrader_mysql" />
           </el-form-item>
           <el-form-item label="部署目录">
-            <el-input v-model="configForm.remote_install_dir" />
+            <el-input v-model="configForm.remote_install_dir" placeholder="/opt/backtrader_web" />
           </el-form-item>
           <el-form-item label="同步模式">
             <el-select v-model="syncMode" class="full-width">
@@ -53,18 +70,49 @@
             </el-select>
           </el-form-item>
         </div>
+
+        <div class="config-section-title">远程 MySQL</div>
+        <div class="form-grid">
+          <el-form-item label="远程 MySQL 主机">
+            <el-input v-model="configForm.remote_mysql_host" placeholder="127.0.0.1" />
+          </el-form-item>
+          <el-form-item label="远程 MySQL 端口">
+            <el-input-number v-model="configForm.remote_mysql_port" class="full-width" :min="1" :max="65535" />
+          </el-form-item>
+          <el-form-item label="远程 MySQL 用户">
+            <el-input v-model="configForm.remote_mysql_user" placeholder="root" />
+          </el-form-item>
+          <el-form-item label="远程 MySQL 密码">
+            <el-input v-model="configForm.remote_mysql_password" show-password placeholder="留空则尝试从远程 .env 读取 MYSQL_ROOT_PASSWORD" />
+          </el-form-item>
+        </div>
+
+        <div class="config-section-title">同步范围</div>
+        <div class="form-grid single-column">
+          <el-form-item label="同步数据库">
+            <el-input
+              v-model="syncDatabasesInput"
+              type="textarea"
+              :rows="2"
+              placeholder="例如：backtrader_web, akshare_data"
+            />
+          </el-form-item>
+        </div>
       </el-form>
 
-      <div class="database-tags">
-        <span class="hint-label">同步数据库</span>
-        <el-tag
-          v-for="db in configForm.sync_databases"
-          :key="db"
-          class="db-tag"
-          type="info"
-        >
-          {{ db }}
-        </el-tag>
+      <div class="tips-grid">
+        <div class="tip-card">
+          <div class="tip-title">填写提示</div>
+          <div class="tip-text">服务器地址填写 IP 或域名，不要带 <code>http://</code>。SSH 用户需要能登录服务器并执行 <code>docker exec</code>。</div>
+        </div>
+        <div class="tip-card">
+          <div class="tip-title">远程库账号建议</div>
+          <div class="tip-text">同步涉及导出、导入、重建数据库，远程 MySQL 通常建议填写有完整权限的账号，默认推荐 <code>root</code>。</div>
+        </div>
+        <div class="tip-card">
+          <div class="tip-title">数据库列表</div>
+          <div class="tip-text">如果服务器当前只有 <code>backtrader_web</code>，先只填它；确认远端存在 <code>akshare_data</code> 后再加入。</div>
+        </div>
       </div>
 
       <div v-if="connectionStatus" class="connection-grid">
@@ -244,11 +292,19 @@ import type {
 } from '@/types'
 
 const configForm = reactive<SyncConfig>({
+  local_mysql_host: '127.0.0.1',
+  local_mysql_port: 3306,
+  local_mysql_user: 'root',
+  local_mysql_password: '',
   remote_host: '',
   remote_user: 'root',
   remote_ssh_key: '~/.ssh/id_rsa',
   remote_container: 'backtrader_mysql',
   remote_install_dir: '/opt/backtrader_web',
+  remote_mysql_host: '127.0.0.1',
+  remote_mysql_port: 3306,
+  remote_mysql_user: 'root',
+  remote_mysql_password: '',
   sync_databases: ['backtrader_web', 'akshare_data'],
 })
 
@@ -257,6 +313,7 @@ const databaseRows = ref<DatabaseSyncInfo[]>([])
 const history = ref<SyncTaskStatus[]>([])
 const activeTaskMap = ref<Record<string, SyncTaskStatus>>({})
 const pollers = new Map<string, number>()
+const syncDatabasesInput = ref('backtrader_web, akshare_data')
 
 const loadingDatabases = ref(false)
 const loadingHistory = ref(false)
@@ -308,9 +365,24 @@ function formatLocalState(row: DatabaseSyncInfo) {
   return `已存在（${row.local.size_display} / ${row.local.table_count}表）`
 }
 
+function normalizeDatabaseNames(value: string) {
+  return value
+    .split(/[\n,，]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function buildConfigPayload(): SyncConfig {
+  return {
+    ...configForm,
+    sync_databases: normalizeDatabaseNames(syncDatabasesInput.value),
+  }
+}
+
 async function loadConfig() {
   const response = await syncApi.getConfig()
   Object.assign(configForm, response)
+  syncDatabasesInput.value = response.sync_databases.join(', ')
 }
 
 async function loadDatabases() {
@@ -340,8 +412,9 @@ async function loadHistory() {
 async function handleSaveConfig() {
   savingConfig.value = true
   try {
-    const response = await syncApi.saveConfig({ ...configForm, sync_databases: [...configForm.sync_databases] })
+    const response = await syncApi.saveConfig(buildConfigPayload())
     Object.assign(configForm, response)
+    syncDatabasesInput.value = response.sync_databases.join(', ')
     ElMessage.success('同步配置已保存')
     await loadDatabases()
   } catch (error) {
@@ -354,7 +427,7 @@ async function handleSaveConfig() {
 async function handleTestConnection() {
   testingConnection.value = true
   try {
-    connectionStatus.value = await syncApi.testConnection({ ...configForm, sync_databases: [...configForm.sync_databases] })
+    connectionStatus.value = await syncApi.testConnection(buildConfigPayload())
     ElMessage.success(connectionStatus.value.success ? '连接测试通过' : '连接测试完成，请查看结果')
   } catch (error) {
     ElMessage.error(getErrorMessage(error, '测试连接失败'))
@@ -491,7 +564,6 @@ onBeforeUnmount(() => {
 .page-subtitle,
 .task-subtitle,
 .connection-detail,
-.hint-label,
 .task-db {
   color: #64748b;
   font-size: 12px;
@@ -499,7 +571,8 @@ onBeforeUnmount(() => {
 
 .form-grid,
 .dual-grid,
-.connection-grid {
+.connection-grid,
+.tips-grid {
   display: grid;
   gap: 16px;
 }
@@ -508,8 +581,17 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+.form-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
 .dual-grid {
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.tips-grid {
+  margin-top: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
 .connection-grid {
@@ -518,7 +600,8 @@ onBeforeUnmount(() => {
 }
 
 .connection-item,
-.task-item {
+.task-item,
+.tip-card {
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 14px;
@@ -535,6 +618,19 @@ onBeforeUnmount(() => {
 .task-title {
   font-weight: 600;
   color: #0f172a;
+}
+
+.config-section-title,
+.tip-title {
+  font-weight: 700;
+  color: #0f172a;
+  margin: 4px 0 12px;
+}
+
+.tip-text {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .task-list,
