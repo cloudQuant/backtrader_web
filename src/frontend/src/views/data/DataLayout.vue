@@ -58,6 +58,7 @@ const tabs = computed<DataTab[]>(() => {
   ]
 
   if (isAdmin.value) {
+    items.push({ label: '数据同步', path: '/data/sync' })
     items.push({ label: '接口管理', path: '/data/interfaces' })
   }
 

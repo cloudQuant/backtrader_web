@@ -492,3 +492,78 @@ export interface DataInterfaceFormPayload {
   example?: string | null
   is_active?: boolean
 }
+
+export type SyncMode = 'full' | 'schema_only' | 'data_only'
+
+export type SyncDirection = 'upload' | 'download'
+
+export type SyncStage =
+  | 'queued'
+  | 'validating'
+  | 'dumping'
+  | 'transferring'
+  | 'importing'
+  | 'verifying'
+  | 'done'
+  | 'failed'
+
+export type SyncTaskState = 'pending' | 'running' | 'completed' | 'failed'
+
+export interface SyncConfig {
+  remote_host: string
+  remote_user: string
+  remote_ssh_key: string
+  remote_container: string
+  remote_install_dir: string
+  sync_databases: string[]
+}
+
+export interface SyncRequest {
+  databases: string[]
+  compress?: boolean
+  confirm: boolean
+  sync_mode?: SyncMode
+}
+
+export interface DatabaseInfo {
+  name: string
+  size_bytes: number
+  size_display: string
+  table_count: number
+  exists: boolean
+}
+
+export interface DatabaseSyncInfo {
+  name: string
+  local: DatabaseInfo
+  remote: DatabaseInfo
+}
+
+export interface SyncTaskStatus {
+  task_id: string
+  status: SyncTaskState
+  direction: SyncDirection
+  databases: string[]
+  current_database: string | null
+  completed_databases: string[]
+  stage: SyncStage
+  progress_pct: number
+  message: string
+  started_at: string
+  finished_at: string | null
+  duration_seconds: number | null
+  error: string | null
+  sync_mode: SyncMode
+}
+
+export interface SyncTaskCreateResponse {
+  task_id: string
+  status: SyncTaskState
+  message: string
+}
+
+export interface SyncConnectionStatus {
+  success: boolean
+  checks: Record<string, boolean>
+  details: Record<string, string>
+}

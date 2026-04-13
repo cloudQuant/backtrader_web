@@ -102,6 +102,12 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/data/DataTableDetailPage.vue'),
           },
           {
+            path: 'sync',
+            name: 'DataSync',
+            component: () => import('@/views/data/DataSyncPage.vue'),
+            meta: { requiresAdmin: true },
+          },
+          {
             path: 'interfaces',
             name: 'DataInterfaces',
             component: () => import('@/views/data/DataInterfacesPage.vue'),

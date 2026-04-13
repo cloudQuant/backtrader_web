@@ -149,6 +149,11 @@ class Settings(BaseSettings):
     )
     ADMIN_EMAIL: str = Field(default="admin@example.com", description="Default admin email")
 
+    SYNC_LOCAL_MYSQL_HOST: str = Field(default="127.0.0.1", description="Local MySQL host for data sync")
+    SYNC_LOCAL_MYSQL_PORT: int = Field(default=3306, description="Local MySQL port for data sync")
+    SYNC_LOCAL_MYSQL_USER: str = Field(default="root", description="Local MySQL user for data sync")
+    SYNC_LOCAL_MYSQL_PASSWORD: str = Field(default="", description="Local MySQL password for data sync")
+
     # CTP credentials (read from .env for form pre-fill)
     CTP_BROKER_ID: str = Field(default="", description="CTP broker ID")
     CTP_USER_ID: str = Field(default="", description="CTP user/investor ID")

@@ -1,0 +1,569 @@
+<template>
+  <div class="space-y-6">
+    <el-card>
+      <template #header>
+        <div class="header-row">
+          <div>
+            <div class="page-title">数据同步</div>
+            <div class="page-subtitle">在本地 MySQL 与远程 Docker MySQL 之间同步数据库。</div>
+          </div>
+          <div class="toolbar-actions">
+            <el-button
+              :loading="testingConnection"
+              @click="handleTestConnection"
+            >
+              测试连接
+            </el-button>
+            <el-button
+              type="primary"
+              :loading="savingConfig"
+              @click="handleSaveConfig"
+            >
+              保存配置
+            </el-button>
+          </div>
+        </div>
+      </template>
+
+      <el-form
+        :model="configForm"
+        label-width="120px"
+      >
+        <div class="form-grid">
+          <el-form-item label="远程服务器">
+            <el-input v-model="configForm.remote_host" placeholder="例如 123.45.67.89" />
+          </el-form-item>
+          <el-form-item label="SSH 用户">
+            <el-input v-model="configForm.remote_user" />
+          </el-form-item>
+          <el-form-item label="SSH 密钥">
+            <el-input v-model="configForm.remote_ssh_key" />
+          </el-form-item>
+          <el-form-item label="Docker 容器">
+            <el-input v-model="configForm.remote_container" />
+          </el-form-item>
+          <el-form-item label="部署目录">
+            <el-input v-model="configForm.remote_install_dir" />
+          </el-form-item>
+          <el-form-item label="同步模式">
+            <el-select v-model="syncMode" class="full-width">
+              <el-option label="完整同步" value="full" />
+              <el-option label="仅结构" value="schema_only" />
+              <el-option label="仅数据" value="data_only" />
+            </el-select>
+          </el-form-item>
+        </div>
+      </el-form>
+
+      <div class="database-tags">
+        <span class="hint-label">同步数据库</span>
+        <el-tag
+          v-for="db in configForm.sync_databases"
+          :key="db"
+          class="db-tag"
+          type="info"
+        >
+          {{ db }}
+        </el-tag>
+      </div>
+
+      <div v-if="connectionStatus" class="connection-grid">
+        <div
+          v-for="(passed, key) in connectionStatus.checks"
+          :key="key"
+          class="connection-item"
+        >
+          <el-tag :type="passed ? 'success' : 'danger'">
+            {{ passed ? '通过' : '失败' }}
+          </el-tag>
+          <div class="connection-content">
+            <div class="connection-title">{{ labelForCheck(key) }}</div>
+            <div class="connection-detail">{{ connectionStatus.details[key] || '-' }}</div>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
+    <el-card v-if="activeTasks.length > 0">
+      <template #header>
+        <div class="page-title small">同步进度</div>
+      </template>
+
+      <div class="task-list">
+        <div
+          v-for="task in activeTasks"
+          :key="task.task_id"
+          class="task-item"
+        >
+          <div class="task-top">
+            <div>
+              <div class="task-title">
+                {{ task.direction === 'upload' ? '上传到服务器' : '从服务器拉取' }}
+                <span class="task-db">{{ task.current_database || task.databases.join(', ') }}</span>
+              </div>
+              <div class="task-subtitle">{{ task.message }}</div>
+            </div>
+            <el-tag :type="task.status === 'failed' ? 'danger' : task.status === 'completed' ? 'success' : 'warning'">
+              {{ statusLabel(task.status) }}
+            </el-tag>
+          </div>
+          <el-progress :percentage="task.progress_pct" :status="task.status === 'failed' ? 'exception' : undefined" />
+        </div>
+      </div>
+    </el-card>
+
+    <div class="dual-grid">
+      <el-card>
+        <template #header>
+          <div class="section-header">
+            <div>
+              <div class="page-title small">上传到服务器</div>
+              <div class="page-subtitle">把本地数据库覆盖同步到远程环境。</div>
+            </div>
+            <el-button type="primary" :loading="submittingBulkUpload" @click="startSync('upload', databaseNames)">
+              全部上传
+            </el-button>
+          </div>
+        </template>
+
+        <el-table :data="databaseRows" v-loading="loadingDatabases" stripe>
+          <el-table-column prop="name" label="数据库" min-width="160" />
+          <el-table-column label="本地大小" width="120">
+            <template #default="{ row }">
+              {{ row.local.exists ? row.local.size_display : '不存在' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="远程状态" min-width="160">
+            <template #default="{ row }">
+              {{ formatRemoteState(row) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="startSync('upload', [row.name])">上传</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+
+      <el-card>
+        <template #header>
+          <div class="section-header">
+            <div>
+              <div class="page-title small">从服务器拉取</div>
+              <div class="page-subtitle">把远程数据库覆盖同步到本地环境。</div>
+            </div>
+            <el-button :loading="submittingBulkDownload" @click="startSync('download', databaseNames)">
+              全部拉取
+            </el-button>
+          </div>
+        </template>
+
+        <el-table :data="databaseRows" v-loading="loadingDatabases" stripe>
+          <el-table-column prop="name" label="数据库" min-width="160" />
+          <el-table-column label="远程大小" width="120">
+            <template #default="{ row }">
+              {{ row.remote.exists ? row.remote.size_display : '不存在' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="本地状态" min-width="160">
+            <template #default="{ row }">
+              {{ formatLocalState(row) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="120">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="startSync('download', [row.name])">拉取</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+    </div>
+
+    <el-card>
+      <template #header>
+        <div class="section-header">
+          <div>
+            <div class="page-title small">同步历史</div>
+            <div class="page-subtitle">展示最近一次同步结果与耗时。</div>
+          </div>
+          <el-button @click="loadHistory">刷新历史</el-button>
+        </div>
+      </template>
+
+      <el-table :data="history" v-loading="loadingHistory" stripe>
+        <el-table-column label="时间" width="220">
+          <template #default="{ row }">
+            {{ formatDateTime(row.started_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="方向" width="120">
+          <template #default="{ row }">
+            {{ row.direction === 'upload' ? '上传' : '拉取' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="数据库" min-width="180">
+          <template #default="{ row }">
+            {{ row.databases.join(', ') }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="120">
+          <template #default="{ row }">
+            <el-tag :type="row.status === 'completed' ? 'success' : 'danger'">
+              {{ statusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="耗时" width="120">
+          <template #default="{ row }">
+            {{ formatDuration(row.duration_seconds) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="消息" min-width="260">
+          <template #default="{ row }">
+            {{ row.error || row.message }}
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getErrorMessage } from '@/api/index'
+import { syncApi } from '@/api/sync'
+import type {
+  DatabaseSyncInfo,
+  SyncConfig,
+  SyncConnectionStatus,
+  SyncDirection,
+  SyncMode,
+  SyncTaskStatus,
+} from '@/types'
+
+const configForm = reactive<SyncConfig>({
+  remote_host: '',
+  remote_user: 'root',
+  remote_ssh_key: '~/.ssh/id_rsa',
+  remote_container: 'backtrader_mysql',
+  remote_install_dir: '/opt/backtrader_web',
+  sync_databases: ['backtrader_web', 'akshare_data'],
+})
+
+const connectionStatus = ref<SyncConnectionStatus | null>(null)
+const databaseRows = ref<DatabaseSyncInfo[]>([])
+const history = ref<SyncTaskStatus[]>([])
+const activeTaskMap = ref<Record<string, SyncTaskStatus>>({})
+const pollers = new Map<string, number>()
+
+const loadingDatabases = ref(false)
+const loadingHistory = ref(false)
+const savingConfig = ref(false)
+const testingConnection = ref(false)
+const submittingBulkUpload = ref(false)
+const submittingBulkDownload = ref(false)
+const syncMode = ref<SyncMode>('full')
+
+const activeTasks = computed(() => Object.values(activeTaskMap.value))
+const databaseNames = computed(() => databaseRows.value.map(item => item.name))
+
+function formatDateTime(value: string | null) {
+  if (!value) return '-'
+  return new Date(value).toLocaleString('zh-CN', { hour12: false })
+}
+
+function formatDuration(value: number | null) {
+  if (value === null || Number.isNaN(value)) return '-'
+  if (value < 60) return `${value.toFixed(1)}s`
+  const minutes = Math.floor(value / 60)
+  const seconds = Math.round(value % 60)
+  return `${minutes}m${seconds}s`
+}
+
+function statusLabel(status: SyncTaskStatus['status']) {
+  if (status === 'pending') return '等待中'
+  if (status === 'running') return '执行中'
+  if (status === 'completed') return '已完成'
+  return '失败'
+}
+
+function labelForCheck(key: string) {
+  if (key === 'local_tools') return '本地命令依赖'
+  if (key === 'local_mysql') return '本地 MySQL'
+  if (key === 'ssh') return 'SSH 连通性'
+  if (key === 'docker') return 'Docker 容器状态'
+  if (key === 'remote_env') return '远程密码读取'
+  return key
+}
+
+function formatRemoteState(row: DatabaseSyncInfo) {
+  if (!row.remote.exists) return '不存在'
+  return `已存在（${row.remote.size_display} / ${row.remote.table_count}表）`
+}
+
+function formatLocalState(row: DatabaseSyncInfo) {
+  if (!row.local.exists) return '不存在'
+  return `已存在（${row.local.size_display} / ${row.local.table_count}表）`
+}
+
+async function loadConfig() {
+  const response = await syncApi.getConfig()
+  Object.assign(configForm, response)
+}
+
+async function loadDatabases() {
+  loadingDatabases.value = true
+  try {
+    const response = await syncApi.getDatabases()
+    databaseRows.value = response.items
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载数据库状态失败'))
+  } finally {
+    loadingDatabases.value = false
+  }
+}
+
+async function loadHistory() {
+  loadingHistory.value = true
+  try {
+    const response = await syncApi.getHistory()
+    history.value = response.items
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载同步历史失败'))
+  } finally {
+    loadingHistory.value = false
+  }
+}
+
+async function handleSaveConfig() {
+  savingConfig.value = true
+  try {
+    const response = await syncApi.saveConfig({ ...configForm, sync_databases: [...configForm.sync_databases] })
+    Object.assign(configForm, response)
+    ElMessage.success('同步配置已保存')
+    await loadDatabases()
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '保存同步配置失败'))
+  } finally {
+    savingConfig.value = false
+  }
+}
+
+async function handleTestConnection() {
+  testingConnection.value = true
+  try {
+    connectionStatus.value = await syncApi.testConnection({ ...configForm, sync_databases: [...configForm.sync_databases] })
+    ElMessage.success(connectionStatus.value.success ? '连接测试通过' : '连接测试完成，请查看结果')
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '测试连接失败'))
+  } finally {
+    testingConnection.value = false
+  }
+}
+
+async function startSync(direction: SyncDirection, databases: string[]) {
+  if (databases.length === 0) {
+    ElMessage.warning('没有可同步的数据库')
+    return
+  }
+
+  const actionLabel = direction === 'upload' ? '上传到服务器' : '从服务器拉取'
+  const loadingFlag = direction === 'upload' ? submittingBulkUpload : submittingBulkDownload
+
+  try {
+    await ElMessageBox.confirm(
+      `${actionLabel}会覆盖目标数据库，是否继续？\n\n数据库：${databases.join(', ')}`,
+      '同步确认',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  loadingFlag.value = true
+  try {
+    const payload = { databases, confirm: true, compress: true, sync_mode: syncMode.value }
+    const response = direction === 'upload'
+      ? await syncApi.upload(payload)
+      : await syncApi.download(payload)
+
+    activeTaskMap.value = {
+      ...activeTaskMap.value,
+      [response.task_id]: {
+        task_id: response.task_id,
+        status: response.status,
+        direction,
+        databases,
+        current_database: databases[0] ?? null,
+        completed_databases: [],
+        stage: 'queued',
+        progress_pct: 0,
+        message: response.message,
+        started_at: new Date().toISOString(),
+        finished_at: null,
+        duration_seconds: null,
+        error: null,
+        sync_mode: syncMode.value,
+      },
+    }
+    ElMessage.success('同步任务已创建')
+    void pollTask(response.task_id)
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '启动同步任务失败'))
+  } finally {
+    loadingFlag.value = false
+  }
+}
+
+async function pollTask(taskId: string) {
+  clearPoller(taskId)
+  try {
+    const status = await syncApi.getStatus(taskId)
+    activeTaskMap.value = {
+      ...activeTaskMap.value,
+      [taskId]: status,
+    }
+    if (status.status === 'completed' || status.status === 'failed') {
+      clearPoller(taskId)
+      await Promise.all([loadDatabases(), loadHistory()])
+      if (status.status === 'completed') {
+        ElMessage.success(`同步完成：${status.databases.join(', ')}`)
+      } else {
+        ElMessage.error(status.error || status.message)
+      }
+      return
+    }
+    const timer = window.setTimeout(() => {
+      void pollTask(taskId)
+    }, 2000)
+    pollers.set(taskId, timer)
+  } catch (error) {
+    clearPoller(taskId)
+    ElMessage.error(getErrorMessage(error, '查询同步任务状态失败'))
+  }
+}
+
+function clearPoller(taskId: string) {
+  const timer = pollers.get(taskId)
+  if (timer !== undefined) {
+    window.clearTimeout(timer)
+    pollers.delete(taskId)
+  }
+}
+
+onMounted(async () => {
+  try {
+    await loadConfig()
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '加载同步配置失败'))
+  }
+  await Promise.all([loadDatabases(), loadHistory()])
+})
+
+onBeforeUnmount(() => {
+  Array.from(pollers.values()).forEach(timer => window.clearTimeout(timer))
+  pollers.clear()
+})
+</script>
+
+<style scoped>
+.header-row,
+.section-header,
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.page-title.small {
+  font-size: 16px;
+}
+
+.page-subtitle,
+.task-subtitle,
+.connection-detail,
+.hint-label,
+.task-db {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.form-grid,
+.dual-grid,
+.connection-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.dual-grid {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.connection-grid {
+  margin-top: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.connection-item,
+.task-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px;
+  background: #f8fafc;
+}
+
+.connection-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.connection-title,
+.task-title {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.task-list,
+.database-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.database-tags {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.db-tag {
+  margin-right: 8px;
+}
+
+.full-width {
+  width: 100%;
+}
+</style>
