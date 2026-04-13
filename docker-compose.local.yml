@@ -46,7 +46,6 @@ services:
     ports:
       - "${LOCAL_BACKEND_PORT:-8000}:8000"
     volumes:
-      - ./data:/opt/workspace/backtrader_web/data
       - ./datas:/opt/workspace/backtrader_web/datas
       - ./strategies:/opt/workspace/backtrader_web/strategies
       - ./workspace_units:/opt/workspace/backtrader_web/workspace_units

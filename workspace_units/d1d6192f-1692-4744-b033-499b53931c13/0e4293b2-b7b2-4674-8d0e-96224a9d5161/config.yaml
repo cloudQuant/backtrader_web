@@ -1,0 +1,116 @@
+strategy:
+  name: 期货布林突破04-i2609-1m
+  description: 适用于 CTP / IB / MT5 的统一布林带突破策略模板，默认用于 1 分钟纸面模拟。
+  author: backtrader_web
+  category: simulate
+symbol:
+  code: i2609
+  name: 铁矿石主力
+  category: future
+params:
+  boll_period: 24
+  boll_dev: 2.2
+  position_size: 1
+  allow_short: true
+data:
+  symbol: i2609
+  symbol_name: 铁矿石主力
+  data_type: stock
+  exchange: IB_WEB
+  asset_type: future
+  timeframe: 1m
+  timeframe_n: 1
+  warmup_bars: 200
+  range_type: sample
+  sample_count: 300
+  category: future
+simulate:
+  initial_cash: 1000000
+  commission: 0.0001
+  slippage: 5.0e-05
+  position_size: 1
+  duration_seconds: 7200
+  session_timeout: 7260
+gateway:
+  enabled: true
+  provider: ctp_gateway
+  exchange_type: CTP
+  asset_type: FUTURE
+  account_id: 089763
+ctp:
+  broker_id: '9999'
+  investor_id: 089763
+  user_id: 089763
+  password: yunjinqi2015!
+  app_id: simnow_client_test
+  auth_code: '0000000000000000'
+  fronts:
+    telecom:
+      md_address: tcp://182.254.243.31:40011
+      td_address: tcp://182.254.243.31:40001
+ib_web:
+  account_id: ''
+  base_url: https://localhost:5000
+  verify_ssl: false
+  timeout: 10
+  access_token: ''
+  cookie_source: ''
+  cookie_browser: chrome
+  cookie_path: /sso
+mt5:
+  login: ''
+  password: ''
+  ws_uri: wss://web.metatrader.app/terminal
+  symbol_suffix: ''
+live:
+  symbol: i2609
+  bar_seconds: 60
+  duration_seconds: 7200
+  session_timeout: 7260
+unit_settings:
+  slippage: 5.0e-05
+  commission: 0.0001
+  initial_cash: 1000000
+  session_timeout: 7260
+  duration_seconds: 7200
+optimization_config: {}
+workspace_unit:
+  workspace_id: d1d6192f-1692-4744-b033-499b53931c13
+  unit_id: 0e4293b2-b7b2-4674-8d0e-96224a9d5161
+  group_name: 布林突破
+  strategy_id: simulate/gateway_boll_breakout
+  strategy_name: 期货布林突破04-i2609-1m
+  template_dir: /Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/gateway_boll_breakout
+  strategy_module: strategy_gateway_boll_breakout.py
+  asset_type: future
+  runtime_mode: trading
+  workspace_settings:
+    data_source:
+      csv:
+        encoding: utf-8
+        delimiter: ','
+        has_header: true
+        directory_path: ''
+      type: csv
+      mysql:
+        host: 127.0.0.1
+        port: 3306
+        table: ''
+        database: ''
+        password: ''
+        username: ''
+      mongodb:
+        uri: mongodb://127.0.0.1:27017
+        database: ''
+        password: ''
+        username: ''
+        collection: ''
+        auth_source: admin
+      postgresql:
+        host: 127.0.0.1
+        port: 5432
+        table: ''
+        schema: public
+        database: ''
+        password: ''
+        username: ''

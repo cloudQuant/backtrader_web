@@ -409,12 +409,17 @@ class LiveTradingManager:
         return _get_gateway_presets()
 
     def add_instance(
-        self, strategy_id: str, params: dict[str, str | int | float | bool] | None = None, user_id: str = None
+        self,
+        strategy_id: str,
+        params: dict[str, str | int | float | bool] | None = None,
+        user_id: str = None,
+        runtime_dir: str | None = None,
     ) -> InstanceData:
         return live_instance_service.add_instance(
             strategy_id=strategy_id,
             params=params,
             user_id=user_id,
+            runtime_dir=runtime_dir,
             load_instances=_load_instances,
             save_instances=_save_instances,
             resolve_strategy_dir=self._resolve_strategy_dir,

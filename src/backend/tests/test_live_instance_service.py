@@ -111,9 +111,6 @@ class TestListInstances:
 
 class TestAddInstance:
     def test_creates_instance_with_defaults(self):
-        from pathlib import Path
-
-        strategy_dir = Path("/strategies/test_strat")
         run_py = MagicMock()
         run_py.is_file.return_value = True
         strategy_dir_mock = MagicMock()
@@ -151,8 +148,6 @@ class TestAddInstance:
             )
 
     def test_merges_inferred_gateway_params(self):
-        from pathlib import Path
-
         strategy_dir = MagicMock()
         run_py_mock = MagicMock()
         run_py_mock.is_file.return_value = True
@@ -171,6 +166,26 @@ class TestAddInstance:
             find_latest_log_dir=MagicMock(return_value=None),
         )
         assert result["params"]["gateway"] == inferred
+
+    def test_allows_runtime_dir_without_resolving_strategy_path(self, tmp_path):
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        (runtime_dir / "run.py").write_text("print('ok')", encoding="utf-8")
+
+        result = add_instance(
+            strategy_id="simulate/gateway_dual_ma",
+            params={},
+            user_id="user-1",
+            runtime_dir=str(runtime_dir),
+            load_instances=MagicMock(return_value={}),
+            save_instances=MagicMock(),
+            resolve_strategy_dir=MagicMock(side_effect=ValueError("should not be used")),
+            get_template_by_id=MagicMock(return_value=None),
+            infer_gateway_params=MagicMock(return_value=None),
+            find_latest_log_dir=MagicMock(return_value=None),
+        )
+
+        assert result["runtime_dir"] == str(runtime_dir)
 
 
 class TestRemoveInstance:
@@ -291,6 +306,35 @@ class TestGetInstance:
             find_latest_log_dir=MagicMock(return_value=None),
         )
         assert result["status"] == "stopped"
+
+    def test_prefers_runtime_dir_for_log_lookup(self, tmp_path):
+        runtime_dir = tmp_path / "runtime"
+        runtime_dir.mkdir()
+        instances = {
+            "inst-1": {
+                "strategy_id": "simulate/gateway_dual_ma",
+                "runtime_dir": str(runtime_dir),
+                "status": "stopped",
+                "pid": None,
+            },
+        }
+
+        resolve_strategy_dir = MagicMock()
+        find_latest_log_dir = MagicMock(return_value=str(runtime_dir / "logs"))
+
+        result = get_instance(
+            instance_id="inst-1",
+            user_id=None,
+            load_instances=MagicMock(return_value=instances),
+            save_instances=MagicMock(),
+            is_pid_alive=MagicMock(),
+            resolve_strategy_dir=resolve_strategy_dir,
+            find_latest_log_dir=find_latest_log_dir,
+        )
+
+        assert result is not None
+        assert result["log_dir"] == str(runtime_dir / "logs")
+        resolve_strategy_dir.assert_not_called()
 
     def test_denies_access_to_other_user(self):
         instances = {

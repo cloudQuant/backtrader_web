@@ -411,3 +411,182 @@ def sync_unit_runtime(unit: StrategyUnit, workspace_settings: dict[str, Any]) ->
         yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)
     (target_dir / "run.py").write_text(_UNIT_RUN_PY, encoding="utf-8")
     return target_dir
+
+
+def _timeframe_to_bar_seconds(timeframe: str | None, timeframe_n: int | None = None) -> int | None:
+    text = str(timeframe or "").strip().lower()
+    multiplier = int(timeframe_n or 1)
+    if text in {"1m", "m1", "1min", "minute", "minutes", "m"}:
+        return 60 * max(multiplier, 1)
+    if text in {"5m", "m5", "5min"}:
+        return 300
+    if text in {"15m", "m15", "15min"}:
+        return 900
+    if text in {"30m", "m30", "30min"}:
+        return 1800
+    if text in {"1h", "h1", "hour"}:
+        return 3600 * max(multiplier, 1)
+    if text in {"1d", "d1", "day", "daily"}:
+        return 86400 * max(multiplier, 1)
+    if text.endswith("s"):
+        digits = "".join(ch for ch in text if ch.isdigit())
+        if digits:
+            return max(int(digits), 1)
+    return None
+
+
+def _merge_dict_section(
+    target: dict[str, Any],
+    key: str,
+    incoming: dict[str, Any] | None,
+) -> None:
+    if not isinstance(incoming, dict) or not incoming:
+        return
+    merged = dict(target.get(key) or {})
+    merged.update(incoming)
+    target[key] = merged
+
+
+def _apply_gateway_runtime_config(
+    template_config: dict[str, Any],
+    gateway_config: dict[str, Any] | None,
+) -> None:
+    params = (
+        dict((gateway_config or {}).get("params") or {})
+        if isinstance(gateway_config, dict)
+        else {}
+    )
+    if not params:
+        return
+    gateway = params.get("gateway")
+    if isinstance(gateway, dict) and gateway:
+        merged_gateway = dict(template_config.get("gateway") or {})
+        merged_gateway.update(gateway)
+        template_config["gateway"] = merged_gateway
+    for key in ("ctp", "ib_web", "mt5"):
+        value = params.get(key)
+        if isinstance(value, dict) and value:
+            _merge_dict_section(template_config, key, value)
+
+
+def _build_trading_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -> dict[str, Any]:
+    strategy_id = str(unit.strategy_id or "").strip()
+    if not strategy_id:
+        raise ValueError("Strategy unit is missing strategy_id")
+    template_dir = get_strategy_dir(strategy_id)
+    template_config = deepcopy(_read_yaml(template_dir / "config.yaml"))
+
+    strategy_section = dict(template_config.get("strategy") or {})
+    if unit.strategy_name:
+        strategy_section["name"] = unit.strategy_name
+    template_config["strategy"] = strategy_section
+
+    params_section = dict(template_config.get("params") or {})
+    params_section.update(unit.params or {})
+    template_config["params"] = params_section
+
+    symbol_section = dict(template_config.get("symbol") or {})
+    if unit.symbol:
+        symbol_section["code"] = unit.symbol
+    if unit.symbol_name:
+        symbol_section["name"] = unit.symbol_name
+    if unit.category:
+        symbol_section.setdefault("category", unit.category)
+    if symbol_section:
+        template_config["symbol"] = symbol_section
+
+    data_section = dict(template_config.get("data") or {})
+    data_section.update(_normalize_unit_data_config(unit.data_config))
+    if unit.symbol:
+        data_section["symbol"] = unit.symbol
+    if unit.symbol_name:
+        data_section["symbol_name"] = unit.symbol_name
+    if unit.timeframe:
+        data_section["timeframe"] = unit.timeframe
+    if unit.timeframe_n:
+        data_section["timeframe_n"] = unit.timeframe_n
+    if unit.category:
+        data_section["category"] = unit.category
+    asset_type = _asset_type_for_unit(
+        unit.category or str(data_section.get("data_type") or data_section.get("asset_type") or "")
+    )
+    data_section["asset_type"] = asset_type
+    template_config["data"] = data_section
+
+    simulate_section = dict(template_config.get("simulate") or {})
+    unit_settings = dict(unit.unit_settings or {})
+    for key in (
+        "initial_cash",
+        "commission",
+        "slippage",
+        "position_size",
+        "duration_seconds",
+        "session_timeout",
+    ):
+        if unit_settings.get(key) is not None:
+            simulate_section[key] = unit_settings[key]
+    if simulate_section:
+        template_config["simulate"] = simulate_section
+
+    live_section = dict(template_config.get("live") or {})
+    if unit.symbol:
+        live_section["symbol"] = unit.symbol
+    bar_seconds = _timeframe_to_bar_seconds(unit.timeframe, unit.timeframe_n)
+    if bar_seconds is not None:
+        live_section["bar_seconds"] = bar_seconds
+    for key in ("duration_seconds", "session_timeout"):
+        if simulate_section.get(key) is not None and live_section.get(key) is None:
+            live_section[key] = simulate_section[key]
+    if live_section:
+        template_config["live"] = live_section
+
+    _apply_gateway_runtime_config(
+        template_config,
+        unit.gateway_config if isinstance(unit.gateway_config, dict) else {},
+    )
+
+    template_config["unit_settings"] = unit_settings
+    template_config["optimization_config"] = dict(unit.optimization_config or {})
+    template_config["workspace_unit"] = {
+        "workspace_id": unit.workspace_id,
+        "unit_id": unit.id,
+        "group_name": unit.group_name or "",
+        "strategy_id": strategy_id,
+        "strategy_name": unit.strategy_name or "",
+        "template_dir": str(template_dir),
+        "strategy_module": _strategy_module_name(template_dir),
+        "asset_type": asset_type,
+        "runtime_mode": "trading",
+        "workspace_settings": deepcopy(workspace_settings or {}),
+    }
+    return template_config
+
+
+def _sync_trading_runtime_sources(template_dir: Path, target_dir: Path) -> None:
+    for source in template_dir.iterdir():
+        if not source.is_file():
+            continue
+        if source.suffix != ".py":
+            continue
+        shutil.copy2(source, target_dir / source.name)
+
+
+def sync_trading_unit_runtime(unit: StrategyUnit, workspace_settings: dict[str, Any]) -> Path:
+    target_dir = unit_dir(unit.workspace_id, unit.id)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    template_dir = get_strategy_dir(str(unit.strategy_id or "").strip())
+    _sync_trading_runtime_sources(template_dir, target_dir)
+    config = _build_trading_unit_config(unit, workspace_settings)
+    with (target_dir / "config.yaml").open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)
+    return target_dir
+
+
+def sync_workspace_unit_runtime(
+    unit: StrategyUnit,
+    workspace_settings: dict[str, Any],
+    workspace_type: str,
+) -> Path:
+    if str(workspace_type or "").strip().lower() == "trading":
+        return sync_trading_unit_runtime(unit, workspace_settings)
+    return sync_unit_runtime(unit, workspace_settings)

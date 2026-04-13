@@ -226,6 +226,40 @@ def build_ib_web_gateway_runtime_kwargs(
         or ib_web.get("cookie_path")
         or "/sso"
     )
+    cookie_output = (
+        gateway_params.get("cookie_output")
+        or env_data.get("IB_WEB_COOKIE_OUTPUT")
+        or ib_web.get("cookie_output", "")
+    )
+    username = (
+        gateway_params.get("username")
+        or env_data.get("IB_WEB_USERNAME")
+        or ib_web.get("username", "")
+    )
+    password = (
+        gateway_params.get("password")
+        or env_data.get("IB_WEB_PASSWORD")
+        or ib_web.get("password", "")
+    )
+    login_mode = (
+        gateway_params.get("login_mode")
+        or env_data.get("IB_WEB_LOGIN_MODE")
+        or ib_web.get("login_mode", "")
+    )
+    login_browser = (
+        gateway_params.get("login_browser")
+        or env_data.get("IB_WEB_LOGIN_BROWSER")
+        or ib_web.get("login_browser", "")
+    )
+    login_headless_value = gateway_params.get("login_headless")
+    if login_headless_value is None:
+        login_headless_value = env_data.get("IB_WEB_LOGIN_HEADLESS", ib_web.get("login_headless"))
+    login_timeout = coerce_float(
+        gateway_params.get("login_timeout")
+        or env_data.get("IB_WEB_LOGIN_TIMEOUT")
+        or ib_web.get("login_timeout"),
+        default=180.0,
+    )
     cookies = gateway_params.get("cookies") or parse_json_dict(
         env_data.get("IB_WEB_COOKIES_JSON")
     )
@@ -246,6 +280,7 @@ def build_ib_web_gateway_runtime_kwargs(
         "base_url": base_url,
         "verify_ssl": verify_ssl,
         "timeout": timeout,
+        "cookie_base_dir": gateway_params.get("base_dir") or "",
     }
     if access_token:
         runtime_kwargs["access_token"] = access_token
@@ -255,8 +290,22 @@ def build_ib_web_gateway_runtime_kwargs(
         runtime_kwargs["cookie_browser"] = cookie_browser
     if cookie_path:
         runtime_kwargs["cookie_path"] = cookie_path
+    if cookie_output:
+        runtime_kwargs["cookie_output"] = cookie_output
     if cookies:
         runtime_kwargs["cookies"] = cookies
+    if username:
+        runtime_kwargs["username"] = username
+    if password:
+        runtime_kwargs["password"] = password
+    if login_mode:
+        runtime_kwargs["login_mode"] = login_mode
+    if login_browser:
+        runtime_kwargs["login_browser"] = login_browser
+    if login_headless_value is not None:
+        runtime_kwargs["login_headless"] = coerce_bool(login_headless_value, default=False)
+    if login_timeout > 0:
+        runtime_kwargs["login_timeout"] = int(login_timeout)
     if _is_local_ib_base_url(base_url):
         runtime_kwargs["proxies"] = {}
         runtime_kwargs["async_proxy"] = ""

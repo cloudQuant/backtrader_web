@@ -1,7 +1,7 @@
 import json
 
-from httpx import AsyncClient
 import pytest
+from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
@@ -62,7 +62,7 @@ async def test_trading_workspace_unit_roundtrip_exposes_trading_fields(
         headers=auth_headers,
         json={
             "group_name": "交易组",
-            "strategy_id": "demo_strategy",
+            "strategy_id": "simulate/gateway_dual_ma",
             "strategy_name": "Demo Strategy",
             "symbol": "au000",
             "symbol_name": "黄金",
@@ -100,7 +100,13 @@ class _FakeTradingManager:
     def get_instance(self, instance_id: str, user_id: str | None = None):
         return self.instances.get(instance_id)
 
-    def add_instance(self, strategy_id: str, params: dict | None = None, user_id: str | None = None):
+    def add_instance(
+        self,
+        strategy_id: str,
+        params: dict | None = None,
+        user_id: str | None = None,
+        runtime_dir: str | None = None,
+    ):
         instance = {
             "id": "inst-001",
             "strategy_id": strategy_id,
@@ -112,6 +118,7 @@ class _FakeTradingManager:
             "started_at": None,
             "stopped_at": None,
             "log_dir": None,
+            "runtime_dir": runtime_dir,
         }
         self.instances[instance["id"]] = instance
         return instance
@@ -187,7 +194,7 @@ async def test_trading_workspace_run_and_status_use_trading_runtime_branch(
         headers=auth_headers,
         json={
             "group_name": "交易组",
-            "strategy_id": "demo_strategy",
+            "strategy_id": "simulate/gateway_dual_ma",
             "strategy_name": "Demo Strategy",
             "symbol": "au000",
             "symbol_name": "黄金",
@@ -298,7 +305,7 @@ async def test_trading_workspace_positions_and_daily_summary_endpoints(
         headers=auth_headers,
         json={
             "group_name": "交易组",
-            "strategy_id": "demo_strategy",
+            "strategy_id": "simulate/gateway_dual_ma",
             "strategy_name": "Demo Strategy",
             "symbol": "au000",
             "symbol_name": "黄金",

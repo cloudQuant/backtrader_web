@@ -1,0 +1,74 @@
+strategy:
+  name: "通用网关双均线金叉策略"
+  description: "适用于 CTP / IB / MT5 的统一双均线金叉策略模板，默认用于 1 分钟纸面模拟。"
+  author: "backtrader_web"
+  category: "simulate"
+
+symbol:
+  code: "AAPL"
+  name: "Apple Inc."
+
+params:
+  fast_period: 5
+  slow_period: 20
+  position_size: 1
+  allow_short: true
+
+data:
+  symbol: "AAPL"
+  symbol_name: "Apple Inc."
+  data_type: "stock"
+  exchange: "IB_WEB"
+  asset_type: "stock"
+  timeframe: "1m"
+  timeframe_n: 1
+  warmup_bars: 200
+
+simulate:
+  initial_cash: 100000
+  commission: 0.0005
+  slippage: 0.0001
+  position_size: 1
+  duration_seconds: 7200
+  session_timeout: 7260
+
+gateway:
+  enabled: true
+  provider: "gateway"
+  exchange_type: "IB_WEB"
+  asset_type: "STK"
+  account_id: ""
+
+ctp:
+  broker_id: ""
+  investor_id: ""
+  user_id: ""
+  password: ""
+  app_id: "simnow_client_test"
+  auth_code: "0000000000000000"
+  fronts:
+    telecom:
+      td_address: ""
+      md_address: ""
+
+ib_web:
+  account_id: ""
+  base_url: "https://localhost:5000"
+  verify_ssl: false
+  timeout: 10
+  access_token: ""
+  cookie_source: ""
+  cookie_browser: "chrome"
+  cookie_path: "/sso"
+
+mt5:
+  login: ""
+  password: ""
+  ws_uri: "wss://web.metatrader.app/terminal"
+  symbol_suffix: ""
+
+live:
+  symbol: "AAPL"
+  bar_seconds: 60
+  duration_seconds: 7200
+  session_timeout: 7260

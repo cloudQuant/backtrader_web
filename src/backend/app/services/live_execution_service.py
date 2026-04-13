@@ -2,6 +2,7 @@ import asyncio
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 
@@ -25,7 +26,8 @@ async def start_instance(
         raise ValueError("Strategy is already running")
 
     try:
-        strategy_dir = resolve_strategy_dir(inst["strategy_id"])
+        runtime_dir = str(inst.get("runtime_dir") or "").strip()
+        strategy_dir = Path(runtime_dir).expanduser() if runtime_dir else resolve_strategy_dir(inst["strategy_id"])
     except ValueError as exc:
         raise ValueError(f"Invalid strategy_id: {inst['strategy_id']}") from exc
     run_py = strategy_dir / "run.py"
@@ -215,7 +217,12 @@ async def wait_process(
             inst["pid"] = None
             inst["stopped_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
-                strategy_dir = resolve_strategy_dir(inst["strategy_id"])
+                runtime_dir = str(inst.get("runtime_dir") or "").strip()
+                strategy_dir = (
+                    Path(runtime_dir).expanduser()
+                    if runtime_dir
+                    else resolve_strategy_dir(inst["strategy_id"])
+                )
                 inst["log_dir"] = find_latest_log_dir(strategy_dir)
             except ValueError:
                 inst["log_dir"] = None

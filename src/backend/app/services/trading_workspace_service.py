@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Any
 
 from app.models.workspace import StrategyUnit
-from app.schemas.workspace import UnitStatusResponse
 from app.schemas.trading import PositionManagerResponse, TradingDailySummaryResponse
+from app.schemas.workspace import UnitStatusResponse
+from app.services import workspace_unit_runtime
 from app.services.auto_trading_scheduler import get_auto_trading_scheduler
 from app.services.live_trading_manager import get_live_trading_manager
 from app.services.log_parser_service import (
@@ -152,8 +153,11 @@ class TradingWorkspaceService:
                 raise ValueError("实盘单元缺少网关配置")
             params.update(gateway_params)
         else:
-            # Prevent automatic gateway inference for paper units.
-            params["gateway"] = {"enabled": False}
+            gateway_params = gateway_config.get("params")
+            if isinstance(gateway_params, dict) and isinstance(gateway_params.get("gateway"), dict):
+                params.update(gateway_params)
+            else:
+                params["gateway"] = {"enabled": False}
 
         params["trading_mode"] = trading_mode
         return params
@@ -325,9 +329,15 @@ class TradingWorkspaceService:
 
         return changed
 
-    async def start_units(self, units: list[StrategyUnit], user_id: str) -> list[dict[str, Any]]:
+    async def start_units(
+        self,
+        units: list[StrategyUnit],
+        user_id: str,
+        workspace_settings: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         manager = get_live_trading_manager()
         results: list[dict[str, Any]] = []
+        normalized_workspace_settings = dict(workspace_settings or {})
 
         for unit in units:
             try:
@@ -339,13 +349,24 @@ class TradingWorkspaceService:
                     raise ValueError("策略单元缺少策略模板")
 
                 instance = None
+                runtime_dir = workspace_unit_runtime.sync_trading_unit_runtime(
+                    unit,
+                    normalized_workspace_settings,
+                )
                 if unit.trading_instance_id:
                     instance = manager.get_instance(unit.trading_instance_id, user_id=user_id)
+                    if instance is not None:
+                        existing_runtime_dir = str(instance.get("runtime_dir") or "").strip()
+                        if existing_runtime_dir != str(runtime_dir):
+                            manager.remove_instance(unit.trading_instance_id, user_id=user_id)
+                            unit.trading_instance_id = None
+                            instance = None
                 if instance is None:
                     created = manager.add_instance(
                         str(unit.strategy_id),
                         self._build_instance_params(unit),
                         user_id=user_id,
+                        runtime_dir=str(runtime_dir),
                     )
                     unit.trading_instance_id = str(created.get("id") or "")
 

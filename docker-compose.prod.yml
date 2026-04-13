@@ -92,7 +92,6 @@ services:
       # Timezone
       TZ: Asia/Shanghai
     volumes:
-      - ./data:/opt/workspace/backtrader_web/data
       - ./datas:/opt/workspace/backtrader_web/datas
       - ./strategies:/opt/workspace/backtrader_web/strategies
       - ./workspace_units:/opt/workspace/backtrader_web/workspace_units

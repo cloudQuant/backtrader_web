@@ -1034,5 +1034,196 @@
     "started_at": "2026-03-13 13:54:01",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": null
+  },
+  "cd00d3d3": {
+    "id": "cd00d3d3",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "stopped",
+    "pid": null,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 3,
+      "slow_period": 8,
+      "position_size": 0.01,
+      "symbol": "XAUUSD",
+      "symbol_name": "黄金/美元",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "df658c60-6567-475b-a211-0a1c2da3dfd8",
+        "group_name": "均线金叉",
+        "strategy_name": "MT5均线金叉01-XAUUSD-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-13 21:27:12",
+    "started_at": "2026-04-13 21:27:13",
+    "stopped_at": "2026-04-13 21:27:17",
+    "log_dir": null,
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/df658c60-6567-475b-a211-0a1c2da3dfd8"
+  },
+  "06f7ab57": {
+    "id": "06f7ab57",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "stopped",
+    "pid": null,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 3,
+      "slow_period": 8,
+      "position_size": 1,
+      "symbol": "AAPL",
+      "symbol_name": "Apple Inc.",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "stock",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 0.0001,
+        "commission": 0.0005,
+        "initial_cash": 100000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "650267ef-3aa9-41b2-bd86-83f031364655",
+        "unit_id": "d78d2494-b7b3-4d62-8f19-dfdfd2fae9e6",
+        "group_name": "均线金叉",
+        "strategy_name": "IB均线金叉01-AAPL-1m"
+      },
+      "ib_web": {
+        "timeout": 10.0,
+        "base_url": "https://localhost:5000/v1/api",
+        "account_id": "DUP447807",
+        "verify_ssl": false,
+        "cookie_path": "/sso",
+        "access_token": "",
+        "cookie_source": "file:configs/ibkr_cookies.json",
+        "cookie_browser": "chrome"
+      },
+      "gateway": {
+        "enabled": true,
+        "timeout": 10.0,
+        "base_url": "https://localhost:5000/v1/api",
+        "provider": "gateway",
+        "account_id": "DUP447807",
+        "asset_type": "STK",
+        "verify_ssl": false,
+        "cookie_path": "/sso",
+        "access_token": "",
+        "cookie_source": "file:configs/ibkr_cookies.json",
+        "exchange_type": "IB_WEB",
+        "cookie_browser": "chrome"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-13 21:27:17",
+    "started_at": "2026-04-13 21:27:17",
+    "stopped_at": "2026-04-13 21:27:21",
+    "log_dir": null,
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/650267ef-3aa9-41b2-bd86-83f031364655/d78d2494-b7b3-4d62-8f19-dfdfd2fae9e6"
+  },
+  "b8116a97": {
+    "id": "b8116a97",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "stopped",
+    "pid": null,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 3,
+      "slow_period": 8,
+      "position_size": 1,
+      "symbol": "IF2609",
+      "symbol_name": "沪深300主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "d4838c01-06ff-4d86-90ba-b285de683240",
+        "group_name": "均线金叉",
+        "strategy_name": "期货均线金叉01-IF2609-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-13 21:27:21",
+    "started_at": "2026-04-13 21:27:21",
+    "stopped_at": "2026-04-13 21:27:24",
+    "log_dir": null,
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/d4838c01-06ff-4d86-90ba-b285de683240"
   }
 }

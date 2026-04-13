@@ -1,0 +1,123 @@
+strategy:
+  name: IB均线金叉03-NVDA-1m
+  description: 适用于 CTP / IB / MT5 的统一双均线金叉策略模板，默认用于 1 分钟纸面模拟。
+  author: backtrader_web
+  category: simulate
+symbol:
+  code: NVDA
+  name: NVIDIA Corp.
+  category: stock
+params:
+  fast_period: 6
+  slow_period: 15
+  position_size: 1
+  allow_short: true
+data:
+  symbol: NVDA
+  symbol_name: NVIDIA Corp.
+  data_type: stock
+  exchange: IB_WEB
+  asset_type: stock
+  timeframe: 1m
+  timeframe_n: 1
+  warmup_bars: 200
+  range_type: sample
+  sample_count: 300
+  category: stock
+simulate:
+  initial_cash: 100000
+  commission: 0.0005
+  slippage: 0.0001
+  position_size: 1
+  duration_seconds: 7200
+  session_timeout: 7260
+gateway:
+  enabled: true
+  provider: gateway
+  exchange_type: IB_WEB
+  asset_type: STK
+  account_id: DUP447807
+  timeout: 10.0
+  base_url: https://localhost:5000/v1/api
+  verify_ssl: false
+  cookie_path: /sso
+  access_token: ''
+  cookie_source: file:configs/ibkr_cookies.json
+  cookie_browser: chrome
+ctp:
+  broker_id: ''
+  investor_id: ''
+  user_id: ''
+  password: ''
+  app_id: simnow_client_test
+  auth_code: '0000000000000000'
+  fronts:
+    telecom:
+      td_address: ''
+      md_address: ''
+ib_web:
+  account_id: DUP447807
+  base_url: https://localhost:5000/v1/api
+  verify_ssl: false
+  timeout: 10.0
+  access_token: ''
+  cookie_source: file:configs/ibkr_cookies.json
+  cookie_browser: chrome
+  cookie_path: /sso
+mt5:
+  login: ''
+  password: ''
+  ws_uri: wss://web.metatrader.app/terminal
+  symbol_suffix: ''
+live:
+  symbol: NVDA
+  bar_seconds: 60
+  duration_seconds: 7200
+  session_timeout: 7260
+unit_settings:
+  slippage: 0.0001
+  commission: 0.0005
+  initial_cash: 100000
+  session_timeout: 7260
+  duration_seconds: 7200
+optimization_config: {}
+workspace_unit:
+  workspace_id: 650267ef-3aa9-41b2-bd86-83f031364655
+  unit_id: 7bde7459-0721-4c01-b14c-f9dc43bd4e5d
+  group_name: 均线金叉
+  strategy_id: simulate/gateway_dual_ma
+  strategy_name: IB均线金叉03-NVDA-1m
+  template_dir: /Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/gateway_dual_ma
+  strategy_module: strategy_gateway_dual_ma.py
+  asset_type: stock
+  runtime_mode: trading
+  workspace_settings:
+    data_source:
+      csv:
+        encoding: utf-8
+        delimiter: ','
+        has_header: true
+        directory_path: ''
+      type: csv
+      mysql:
+        host: 127.0.0.1
+        port: 3306
+        table: ''
+        database: ''
+        password: ''
+        username: ''
+      mongodb:
+        uri: mongodb://127.0.0.1:27017
+        database: ''
+        password: ''
+        username: ''
+        collection: ''
+        auth_source: admin
+      postgresql:
+        host: 127.0.0.1
+        port: 5432
+        table: ''
+        schema: public
+        database: ''
+        password: ''
+        username: ''

@@ -860,9 +860,12 @@ class WorkspaceService:
                     setattr(ws, key, value)
             await session.commit()
             await session.refresh(ws, attribute_names=["strategy_units"])
-            if not _is_trading_workspace(ws.workspace_type):
-                for unit in ws.strategy_units or []:
-                    workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
+            for unit in ws.strategy_units or []:
+                workspace_unit_runtime.sync_workspace_unit_runtime(
+                    unit,
+                    ws.settings or {},
+                    ws.workspace_type,
+                )
             return _workspace_to_response(ws)
 
     async def delete_workspace(self, workspace_id: str, user_id: str) -> bool:
@@ -926,8 +929,11 @@ class WorkspaceService:
             session.add(unit)
             await session.commit()
             await session.refresh(unit)
-            if not _is_trading_workspace(ws.workspace_type):
-                workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
+            workspace_unit_runtime.sync_workspace_unit_runtime(
+                unit,
+                ws.settings or {},
+                ws.workspace_type,
+            )
             return self._unit_to_dict(unit)
 
     async def batch_create_units(
@@ -981,8 +987,11 @@ class WorkspaceService:
             await session.commit()
             for u in created:
                 await session.refresh(u)
-                if not _is_trading_workspace(ws.workspace_type):
-                    workspace_unit_runtime.sync_unit_runtime(u, ws.settings or {})
+                workspace_unit_runtime.sync_workspace_unit_runtime(
+                    u,
+                    ws.settings or {},
+                    ws.workspace_type,
+                )
             return [self._unit_to_dict(u) for u in created]
 
     async def list_units(
@@ -1121,8 +1130,11 @@ class WorkspaceService:
                 setattr(unit, key, value)
             await session.commit()
             await session.refresh(unit)
-            if not _is_trading_workspace(ws.workspace_type):
-                workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
+            workspace_unit_runtime.sync_workspace_unit_runtime(
+                unit,
+                ws.settings or {},
+                ws.workspace_type,
+            )
             return self._unit_to_dict(unit)
 
     async def delete_unit(
@@ -1257,7 +1269,11 @@ class WorkspaceService:
                 return []
 
             if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
-                results = await self.trading_service.start_units(units, user_id)
+                results = await self.trading_service.start_units(
+                    units,
+                    user_id,
+                    cast(dict[str, Any], _workspace_settings_dict(ws)),
+                )
                 await session.commit()
                 return results
 

@@ -15,7 +15,6 @@ RUN true
 COPY src/backend /opt/workspace/backtrader_web/src/backend
 COPY src/bt_api_py /opt/workspace/bt_api_py
 COPY strategies /opt/workspace/backtrader_web/strategies
-COPY data /opt/workspace/backtrader_web/data
 
 RUN pip install --no-cache-dir -e ".[postgres,mysql,redis,backtrader,data]"
 
