@@ -36,6 +36,10 @@ class SyncService:
         self._tasks: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
         self._timeout_seconds = max(int(os.environ.get("SYNC_TIMEOUT_SECONDS", "7200")), 60)
+        self._incremental_key_batch_size = max(
+            int(os.environ.get("SYNC_INCREMENTAL_KEY_BATCH_SIZE", "500")),
+            1,
+        )
         self._connect_timeout = min(
             max(int(os.environ.get("SYNC_CONNECT_TIMEOUT_SECONDS", "10")), 5),
             60,
@@ -70,10 +74,10 @@ class SyncService:
         checks: dict[str, bool] = {}
         details: dict[str, str] = {}
 
-        missing_tools = [
-            name for name in ("mysql", "mysqldump", "gzip", "ssh", "scp")
-            if shutil.which(name) is None
-        ]
+        required_tools = ["mysql", "mysqldump", "gzip"]
+        if not self._is_direct_mode(config):
+            required_tools.extend(["ssh", "scp"])
+        missing_tools = [name for name in required_tools if shutil.which(name) is None]
         checks["local_tools"] = not missing_tools
         details["local_tools"] = "依赖完整" if not missing_tools else f"缺少命令: {', '.join(missing_tools)}"
 
@@ -97,63 +101,68 @@ class SyncService:
             checks["local_mysql"] = False
             details["local_mysql"] = "未配置本地 MySQL 密码"
 
-        if not config.remote_host.strip():
-            checks["ssh"] = False
-            checks["docker"] = False
-            checks["remote_env"] = False
-            details["ssh"] = "未配置远程服务器地址"
-            details["docker"] = "未配置远程服务器地址"
-            details["remote_env"] = "未配置远程服务器地址"
-            return SyncConnectionStatus(
-                success=all(checks.values()),
-                checks=checks,
-                details=details,
-            )
+        if self._is_direct_mode(config):
+            remote_password = await self._test_direct_remote_mysql(config, checks, details)
+            if remote_password is not None:
+                details["remote_env"] = "已使用页面填写的远程 MySQL 密码"
+        else:
+            if not config.remote_host.strip():
+                checks["ssh"] = False
+                checks["docker"] = False
+                checks["remote_env"] = False
+                details["ssh"] = "未配置远程服务器地址"
+                details["docker"] = "未配置远程服务器地址"
+                details["remote_env"] = "未配置远程服务器地址"
+                return SyncConnectionStatus(
+                    success=all(checks.values()),
+                    checks=checks,
+                    details=details,
+                )
 
-        try:
-            await self._run_ssh(config, "echo connected", timeout=self._connect_timeout)
-            checks["ssh"] = True
-            details["ssh"] = "SSH 连接成功"
-        except Exception as exc:
-            checks["ssh"] = False
-            details["ssh"] = str(exc)
-            checks["docker"] = False
-            checks["remote_env"] = False
-            details["docker"] = "SSH 未连通，无法检查容器"
-            details["remote_env"] = "SSH 未连通，无法读取 .env"
-            return SyncConnectionStatus(
-                success=all(checks.values()),
-                checks=checks,
-                details=details,
-            )
+            try:
+                await self._run_ssh(config, "echo connected", timeout=self._connect_timeout)
+                checks["ssh"] = True
+                details["ssh"] = "SSH 连接成功"
+            except Exception as exc:
+                checks["ssh"] = False
+                details["ssh"] = str(exc)
+                checks["docker"] = False
+                checks["remote_env"] = False
+                details["docker"] = "SSH 未连通，无法检查容器"
+                details["remote_env"] = "SSH 未连通，无法读取 .env"
+                return SyncConnectionStatus(
+                    success=all(checks.values()),
+                    checks=checks,
+                    details=details,
+                )
 
-        try:
-            container_state = await self._run_ssh(
-                config,
-                f"docker inspect -f '{{{{.State.Running}}}}' {shlex.quote(config.remote_container)}",
-                timeout=self._connect_timeout,
-            )
-            checks["docker"] = container_state.strip() == "true"
-            details["docker"] = (
-                f"容器 {config.remote_container} 正在运行"
-                if checks["docker"]
-                else f"容器 {config.remote_container} 未运行"
-            )
-        except Exception as exc:
-            checks["docker"] = False
-            details["docker"] = str(exc)
+            try:
+                container_state = await self._run_ssh(
+                    config,
+                    f"docker inspect -f '{{{{.State.Running}}}}' {shlex.quote(config.remote_container)}",
+                    timeout=self._connect_timeout,
+                )
+                checks["docker"] = container_state.strip() == "true"
+                details["docker"] = (
+                    f"容器 {config.remote_container} 正在运行"
+                    if checks["docker"]
+                    else f"容器 {config.remote_container} 未运行"
+                )
+            except Exception as exc:
+                checks["docker"] = False
+                details["docker"] = str(exc)
 
-        try:
-            await self._get_remote_mysql_password(config)
-            checks["remote_env"] = True
-            details["remote_env"] = (
-                "已使用页面填写的远程 MySQL 密码"
-                if str(config.remote_mysql_password or "").strip()
-                else "已读取远程 MYSQL_ROOT_PASSWORD"
-            )
-        except Exception as exc:
-            checks["remote_env"] = False
-            details["remote_env"] = str(exc)
+            try:
+                await self._get_remote_mysql_password(config)
+                checks["remote_env"] = True
+                details["remote_env"] = (
+                    "已使用页面填写的远程 MySQL 密码"
+                    if str(config.remote_mysql_password or "").strip()
+                    else "已读取远程 MYSQL_ROOT_PASSWORD"
+                )
+            except Exception as exc:
+                checks["remote_env"] = False
+                details["remote_env"] = str(exc)
 
         return SyncConnectionStatus(
             success=all(checks.values()),
@@ -161,13 +170,49 @@ class SyncService:
             details=details,
         )
 
+    async def _test_direct_remote_mysql(
+        self,
+        config: SyncConfig,
+        checks: dict[str, bool],
+        details: dict[str, str],
+    ) -> str | None:
+        if not config.remote_mysql_host.strip():
+            checks["remote_mysql"] = False
+            details["remote_mysql"] = "未配置远程 MySQL 主机"
+            checks["remote_env"] = False
+            details["remote_env"] = "直连模式必须填写远程 MySQL 密码"
+            return None
+        try:
+            password = await self._get_remote_mysql_password(config)
+        except Exception as exc:
+            checks["remote_mysql"] = False
+            details["remote_mysql"] = "缺少可用的远程 MySQL 凭据"
+            checks["remote_env"] = False
+            details["remote_env"] = str(exc)
+            return None
+        checks["remote_env"] = True
+        try:
+            await self._run_exec(
+                self._build_remote_mysql_query_args(config, "SELECT 1", password),
+                timeout=self._connect_timeout,
+            )
+            checks["remote_mysql"] = True
+            details["remote_mysql"] = "远程 MySQL 直连成功"
+        except Exception as exc:
+            checks["remote_mysql"] = False
+            details["remote_mysql"] = str(exc)
+        return password
+
     async def list_databases(self, config: SyncConfig) -> list[DatabaseSyncInfo]:
         config = self._normalize_config(config)
         try:
             local = await self._query_local_database_info(config.sync_databases)
         except Exception:
             local = {name: self._empty_database_info(name) for name in config.sync_databases}
-        if config.remote_host.strip():
+        remote_available = (
+            config.remote_mysql_host.strip() if self._is_direct_mode(config) else config.remote_host.strip()
+        )
+        if remote_available:
             try:
                 remote = await self._query_remote_database_info(config, config.sync_databases)
             except Exception:
@@ -205,7 +250,10 @@ class SyncService:
 
         config = self.get_config()
         config = self._normalize_config(config)
-        if not config.remote_host.strip():
+        if self._is_direct_mode(config):
+            if not config.remote_mysql_host.strip():
+                raise ValueError("请先保存远程 MySQL 配置")
+        elif not config.remote_host.strip():
             raise ValueError("请先保存远程同步配置")
 
         allowed = set(config.sync_databases)
@@ -334,13 +382,46 @@ class SyncService:
     ) -> None:
         suffix = ".sql.gz" if request.compress else ".sql"
         local_dump_path = task_tmp_dir / f"{database}{suffix}"
-        remote_dump_path = f"/tmp/backtrader_sync_{task_id}_{database}{suffix}"
-        self._update_task(task_id, stage="dumping", progress_pct=20, message=f"正在导出本地数据库 {database}")
-        await self._dump_local_database(database, local_dump_path, request, config, local_password)
-        self._update_task(task_id, stage="transferring", progress_pct=55, message=f"正在上传 {database} 到远程服务器")
-        await self._scp_upload(config, local_dump_path, remote_dump_path)
-        self._update_task(task_id, stage="importing", progress_pct=80, message=f"正在导入远程数据库 {database}")
-        await self._import_remote_database(config, database, remote_dump_path, request, remote_password)
+        if self._is_direct_mode(config):
+            tables = await self._list_local_tables(config, database, local_password)
+            if request.sync_mode != "data_only":
+                self._update_task(
+                    task_id,
+                    stage="dumping",
+                    progress_pct=20,
+                    message=f"正在同步数据库结构 {database}",
+                )
+                await self._import_remote_database_direct(
+                    config,
+                    database,
+                    None,
+                    request,
+                    remote_password,
+                    schema_only=True,
+                    local_password=local_password,
+                )
+            if request.sync_mode != "schema_only":
+                await self._sync_local_tables_to_remote_direct(
+                    task_id=task_id,
+                    config=config,
+                    database=database,
+                    tables=tables,
+                    local_password=local_password,
+                    remote_password=remote_password,
+                )
+        else:
+            self._update_task(task_id, stage="dumping", progress_pct=20, message=f"正在导出本地数据库 {database}")
+            await self._dump_local_database(database, local_dump_path, request, config, local_password)
+            self._update_task(task_id, stage="transferring", progress_pct=55, message=f"正在准备同步 {database} 到远程数据库")
+            self._update_task(task_id, stage="importing", progress_pct=80, message=f"正在导入远程数据库 {database}")
+            await self._scp_upload(config, local_dump_path, f"/tmp/backtrader_sync_{task_id}_{database}{suffix}")
+            await self._import_remote_database(
+                config,
+                database,
+                f"/tmp/backtrader_sync_{task_id}_{database}{suffix}",
+                request,
+                remote_password,
+            )
         self._update_task(task_id, stage="verifying", progress_pct=95, message=f"正在校验远程数据库 {database}")
         await self._query_remote_database_info(config, [database])
 
@@ -357,19 +438,55 @@ class SyncService:
     ) -> None:
         suffix = ".sql.gz" if request.compress else ".sql"
         local_dump_path = task_tmp_dir / f"{database}{suffix}"
-        remote_dump_path = f"/tmp/backtrader_sync_{task_id}_{database}{suffix}"
-        self._update_task(task_id, stage="dumping", progress_pct=20, message=f"正在导出远程数据库 {database}")
-        await self._dump_remote_database(config, database, remote_dump_path, request, remote_password)
-        self._update_task(task_id, stage="transferring", progress_pct=55, message=f"正在下载 {database} 到本地")
-        await self._scp_download(config, remote_dump_path, local_dump_path)
-        self._update_task(task_id, stage="importing", progress_pct=80, message=f"正在导入本地数据库 {database}")
-        await self._import_local_database(database, local_dump_path, request, config, local_password)
+        if self._is_direct_mode(config):
+            tables = await self._list_remote_tables_direct(config, database, remote_password)
+            if request.sync_mode != "data_only":
+                self._update_task(
+                    task_id,
+                    stage="dumping",
+                    progress_pct=20,
+                    message=f"正在同步数据库结构 {database}",
+                )
+                await self._import_local_database_direct_schema(
+                    config,
+                    database,
+                    request,
+                    local_password,
+                    remote_password,
+                )
+            if request.sync_mode != "schema_only":
+                await self._sync_remote_tables_to_local_direct(
+                    task_id=task_id,
+                    config=config,
+                    database=database,
+                    tables=tables,
+                    local_password=local_password,
+                    remote_password=remote_password,
+                )
+        else:
+            self._update_task(task_id, stage="dumping", progress_pct=20, message=f"正在导出远程数据库 {database}")
+            await self._dump_remote_database(
+                config,
+                database,
+                f"/tmp/backtrader_sync_{task_id}_{database}{suffix}",
+                request,
+                remote_password,
+            )
+            self._update_task(task_id, stage="transferring", progress_pct=55, message=f"正在下载 {database} 到本地")
+            await self._scp_download(config, f"/tmp/backtrader_sync_{task_id}_{database}{suffix}", local_dump_path)
+            self._update_task(task_id, stage="importing", progress_pct=80, message=f"正在导入本地数据库 {database}")
+            await self._import_local_database(database, local_dump_path, request, config, local_password)
         self._update_task(task_id, stage="verifying", progress_pct=95, message=f"正在校验本地数据库 {database}")
         await self._query_local_database_info([database])
-        try:
-            await self._run_ssh(config, f"rm -f {shlex.quote(remote_dump_path)}", timeout=self._connect_timeout)
-        except Exception:
-            pass
+        if not self._is_direct_mode(config):
+            try:
+                await self._run_ssh(
+                    config,
+                    f"rm -f {shlex.quote(f'/tmp/backtrader_sync_{task_id}_{database}{suffix}')}",
+                    timeout=self._connect_timeout,
+                )
+            except Exception:
+                pass
 
     async def _dump_local_database(
         self,
@@ -402,6 +519,21 @@ class SyncService:
         )
         remote_cmd = self._compose_remote_dump_command(config.remote_container, inner, remote_output_path, request.compress)
         await self._run_ssh(config, remote_cmd, timeout=self._timeout_seconds)
+
+    async def _dump_remote_database_direct(
+        self,
+        config: SyncConfig,
+        database: str,
+        output_path: Path,
+        request: SyncRequest,
+        remote_password: str,
+    ) -> None:
+        cmd = self._compose_dump_command(
+            self._build_remote_mysqldump_args(config, database, request.sync_mode, remote_password),
+            output_path,
+            request.compress,
+        )
+        await self._run_bash(cmd, timeout=self._timeout_seconds)
 
     async def _import_local_database(
         self,
@@ -455,6 +587,356 @@ class SyncService:
         steps.append(f"rm -f {shlex.quote(remote_input_path)}")
         await self._run_ssh(config, "; ".join(steps), timeout=self._timeout_seconds)
 
+    async def _import_remote_database_direct(
+        self,
+        config: SyncConfig,
+        database: str,
+        input_path: Path | None,
+        request: SyncRequest,
+        remote_password: str,
+        schema_only: bool = False,
+        local_password: str | None = None,
+    ) -> None:
+        if request.sync_mode != "data_only":
+            sql = self._build_recreate_database_sql(database)
+            await self._run_exec(
+                self._build_remote_mysql_query_args(config, sql, remote_password),
+                timeout=self._connect_timeout,
+            )
+        if schema_only:
+            if local_password is None:
+                raise RuntimeError("缺少本地 MySQL 密码，无法同步数据库结构")
+            stream_cmd = self._compose_stream_command(
+                self._join_command(
+                    self._build_local_mysqldump_args(config, database, "schema_only", local_password)
+                ),
+                self._join_command(
+                    self._build_remote_mysql_import_args(config, database, remote_password)
+                ),
+            )
+            await self._run_bash(stream_cmd, timeout=self._timeout_seconds)
+            return
+        if input_path is None:
+            raise RuntimeError("缺少导入文件，无法同步远程数据库")
+        import_cmd = self._compose_import_command(
+            input_path=str(input_path),
+            mysql_command=self._join_command(
+                self._build_remote_mysql_import_args(config, database, remote_password)
+            ),
+            compressed=request.compress,
+        )
+        await self._run_bash(import_cmd, timeout=self._timeout_seconds)
+
+    async def _import_local_database_direct_schema(
+        self,
+        config: SyncConfig,
+        database: str,
+        request: SyncRequest,
+        local_password: str,
+        remote_password: str,
+    ) -> None:
+        if request.sync_mode != "data_only":
+            sql = self._build_recreate_database_sql(database)
+            await self._run_exec(
+                self._build_local_mysql_query_args(config, sql, local_password),
+                timeout=self._connect_timeout,
+            )
+        stream_cmd = self._compose_stream_command(
+            self._join_command(
+                self._build_remote_mysqldump_args(config, database, "schema_only", remote_password)
+            ),
+            self._join_command(
+                self._build_local_mysql_import_args(config, database, local_password)
+            ),
+        )
+        await self._run_bash(stream_cmd, timeout=self._timeout_seconds)
+
+    async def _sync_local_tables_to_remote_direct(
+        self,
+        *,
+        task_id: str,
+        config: SyncConfig,
+        database: str,
+        tables: list[str],
+        local_password: str,
+        remote_password: str,
+    ) -> None:
+        total = max(len(tables), 1)
+        if not tables:
+            self._update_task(
+                task_id,
+                stage="importing",
+                progress_pct=85,
+                message=f"数据库 {database} 没有可同步的数据表",
+            )
+            return
+        for index, table in enumerate(tables):
+            progress = 45 + int(((index + 1) / total) * 45)
+            self._update_task(
+                task_id,
+                stage="importing",
+                progress_pct=min(progress, 90),
+                message=f"正在同步数据表 {database}.{table} ({index + 1}/{total})",
+            )
+            key_columns = await self._get_local_incremental_key_columns(
+                config,
+                database,
+                table,
+                local_password,
+            )
+            missing_keys = await self._collect_missing_keys_local_to_remote(
+                config,
+                database,
+                table,
+                key_columns,
+                local_password,
+                remote_password,
+            )
+            if not missing_keys:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=min(progress, 90),
+                    message=f"数据表 {database}.{table} 无新增数据",
+                )
+                continue
+            await self._stream_local_missing_rows_to_remote(
+                config,
+                database,
+                table,
+                key_columns,
+                missing_keys,
+                local_password,
+                remote_password,
+            )
+
+    async def _sync_remote_tables_to_local_direct(
+        self,
+        *,
+        task_id: str,
+        config: SyncConfig,
+        database: str,
+        tables: list[str],
+        local_password: str,
+        remote_password: str,
+    ) -> None:
+        total = max(len(tables), 1)
+        if not tables:
+            self._update_task(
+                task_id,
+                stage="importing",
+                progress_pct=85,
+                message=f"数据库 {database} 没有可同步的数据表",
+            )
+            return
+        for index, table in enumerate(tables):
+            progress = 45 + int(((index + 1) / total) * 45)
+            self._update_task(
+                task_id,
+                stage="importing",
+                progress_pct=min(progress, 90),
+                message=f"正在同步数据表 {database}.{table} ({index + 1}/{total})",
+            )
+            key_columns = await self._get_remote_incremental_key_columns(
+                config,
+                database,
+                table,
+                remote_password,
+            )
+            missing_keys = await self._collect_missing_keys_remote_to_local(
+                config,
+                database,
+                table,
+                key_columns,
+                local_password,
+                remote_password,
+            )
+            if not missing_keys:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=min(progress, 90),
+                    message=f"数据表 {database}.{table} 无新增数据",
+                )
+                continue
+            await self._stream_remote_missing_rows_to_local(
+                config,
+                database,
+                table,
+                key_columns,
+                missing_keys,
+                local_password,
+                remote_password,
+            )
+
+    async def _list_local_tables(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> list[str]:
+        sql = self._build_table_names_sql(database)
+        stdout = await self._run_exec(
+            self._build_local_mysql_query_args(config, sql, password),
+            timeout=self._connect_timeout,
+        )
+        return [line.strip() for line in stdout.splitlines() if line.strip()]
+
+    async def _list_remote_tables_direct(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> list[str]:
+        sql = self._build_table_names_sql(database)
+        stdout = await self._run_exec(
+            self._build_remote_mysql_query_args(config, sql, password),
+            timeout=self._connect_timeout,
+        )
+        return [line.strip() for line in stdout.splitlines() if line.strip()]
+
+    async def _get_local_incremental_key_columns(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        password: str,
+    ) -> tuple[str, ...]:
+        sql = self._build_index_metadata_sql(database, table)
+        stdout = await self._run_exec(
+            self._build_local_mysql_query_args(config, sql, password),
+            timeout=self._connect_timeout,
+        )
+        return self._select_incremental_key_columns(stdout, database, table)
+
+    async def _get_remote_incremental_key_columns(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        password: str,
+    ) -> tuple[str, ...]:
+        sql = self._build_index_metadata_sql(database, table)
+        stdout = await self._run_exec(
+            self._build_remote_mysql_query_args(config, sql, password),
+            timeout=self._connect_timeout,
+        )
+        return self._select_incremental_key_columns(stdout, database, table)
+
+    async def _collect_missing_keys_local_to_remote(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        key_columns: tuple[str, ...],
+        local_password: str,
+        remote_password: str,
+    ) -> list[tuple[str, ...]]:
+        source_keys = await self._fetch_local_key_rows(config, database, table, key_columns, local_password)
+        target_keys = await self._fetch_remote_key_rows(config, database, table, key_columns, remote_password)
+        target_set = set(target_keys)
+        return [key for key in source_keys if key not in target_set]
+
+    async def _collect_missing_keys_remote_to_local(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        key_columns: tuple[str, ...],
+        local_password: str,
+        remote_password: str,
+    ) -> list[tuple[str, ...]]:
+        source_keys = await self._fetch_remote_key_rows(config, database, table, key_columns, remote_password)
+        target_keys = await self._fetch_local_key_rows(config, database, table, key_columns, local_password)
+        target_set = set(target_keys)
+        return [key for key in source_keys if key not in target_set]
+
+    async def _fetch_local_key_rows(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        key_columns: tuple[str, ...],
+        password: str,
+    ) -> list[tuple[str, ...]]:
+        sql = self._build_table_key_values_sql(database, table, key_columns)
+        stdout = await self._run_exec(
+            self._build_local_mysql_query_args(config, sql, password),
+            timeout=self._timeout_seconds,
+        )
+        return self._parse_key_rows(stdout, len(key_columns))
+
+    async def _fetch_remote_key_rows(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        key_columns: tuple[str, ...],
+        password: str,
+    ) -> list[tuple[str, ...]]:
+        sql = self._build_table_key_values_sql(database, table, key_columns)
+        stdout = await self._run_exec(
+            self._build_remote_mysql_query_args(config, sql, password),
+            timeout=self._timeout_seconds,
+        )
+        return self._parse_key_rows(stdout, len(key_columns))
+
+    async def _stream_local_missing_rows_to_remote(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        key_columns: tuple[str, ...],
+        missing_keys: list[tuple[str, ...]],
+        local_password: str,
+        remote_password: str,
+    ) -> None:
+        for batch in self._chunk_keys(missing_keys):
+            where_sql = self._build_missing_keys_where_sql(key_columns, batch)
+            stream_cmd = self._compose_stream_command(
+                self._join_command(
+                    self._build_local_incremental_table_dump_args(
+                        config,
+                        database,
+                        table,
+                        local_password,
+                        where_sql,
+                    )
+                ),
+                self._join_command(
+                    self._build_remote_mysql_import_args(config, database, remote_password)
+                ),
+            )
+            await self._run_bash(stream_cmd, timeout=self._timeout_seconds)
+
+    async def _stream_remote_missing_rows_to_local(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        key_columns: tuple[str, ...],
+        missing_keys: list[tuple[str, ...]],
+        local_password: str,
+        remote_password: str,
+    ) -> None:
+        for batch in self._chunk_keys(missing_keys):
+            where_sql = self._build_missing_keys_where_sql(key_columns, batch)
+            stream_cmd = self._compose_stream_command(
+                self._join_command(
+                    self._build_remote_incremental_table_dump_args(
+                        config,
+                        database,
+                        table,
+                        remote_password,
+                        where_sql,
+                    )
+                ),
+                self._join_command(
+                    self._build_local_mysql_import_args(config, database, local_password)
+                ),
+            )
+            await self._run_bash(stream_cmd, timeout=self._timeout_seconds)
+
     async def _query_local_database_info(self, databases: list[str]) -> dict[str, DatabaseInfo]:
         config = self.get_config()
         password = self._get_local_mysql_password(config)
@@ -474,11 +956,17 @@ class SyncService:
     ) -> dict[str, DatabaseInfo]:
         password = await self._get_remote_mysql_password(config)
         sql = self._build_database_info_sql(databases)
-        remote_cmd = (
-            f"docker exec {shlex.quote(config.remote_container)} sh -lc "
-            f"{shlex.quote(self._build_remote_mysql_query_command(config, sql, password))}"
-        )
-        stdout = await self._run_ssh(config, remote_cmd, timeout=self._connect_timeout)
+        if self._is_direct_mode(config):
+            stdout = await self._run_exec(
+                self._build_remote_mysql_query_args(config, sql, password),
+                timeout=self._connect_timeout,
+            )
+        else:
+            remote_cmd = (
+                f"docker exec {shlex.quote(config.remote_container)} sh -lc "
+                f"{shlex.quote(self._build_remote_mysql_query_command(config, sql, password))}"
+            )
+            stdout = await self._run_ssh(config, remote_cmd, timeout=self._connect_timeout)
         return self._parse_database_info(databases, stdout)
 
     async def _scp_upload(self, config: SyncConfig, source: Path, target: str) -> None:
@@ -497,6 +985,8 @@ class SyncService:
         explicit_password = str(config.remote_mysql_password or "").strip()
         if explicit_password:
             return explicit_password
+        if self._is_direct_mode(config):
+            raise RuntimeError("直连模式必须填写远程 MySQL 密码")
         env_path = f"{config.remote_install_dir.rstrip('/')}/src/backend/.env"
         command = (
             f"if [ ! -f {shlex.quote(env_path)} ]; then "
@@ -522,6 +1012,7 @@ class SyncService:
 
     def _normalize_config(self, config: SyncConfig) -> SyncConfig:
         payload = config.model_copy(deep=True)
+        payload.connection_mode = payload.connection_mode or "direct_mysql"
         payload.local_mysql_host = payload.local_mysql_host.strip() or "127.0.0.1"
         payload.local_mysql_port = int(payload.local_mysql_port or 3306)
         payload.local_mysql_user = payload.local_mysql_user.strip() or "root"
@@ -531,7 +1022,7 @@ class SyncService:
         payload.remote_ssh_key = payload.remote_ssh_key.strip() or "~/.ssh/id_rsa"
         payload.remote_container = payload.remote_container.strip() or "backtrader_mysql"
         payload.remote_install_dir = payload.remote_install_dir.strip() or "/opt/backtrader_web"
-        payload.remote_mysql_host = payload.remote_mysql_host.strip() or "127.0.0.1"
+        payload.remote_mysql_host = self._normalize_host(payload.remote_mysql_host or payload.remote_host)
         payload.remote_mysql_port = int(payload.remote_mysql_port or 3306)
         payload.remote_mysql_user = payload.remote_mysql_user.strip() or "root"
         payload.remote_mysql_password = str(payload.remote_mysql_password or "").strip()
@@ -539,6 +1030,9 @@ class SyncService:
         if not payload.sync_databases:
             payload.sync_databases = ["backtrader_web", "akshare_data"]
         return payload
+
+    def _is_direct_mode(self, config: SyncConfig) -> bool:
+        return getattr(config, "connection_mode", "direct_mysql") == "direct_mysql"
 
     def _update_task(self, task_id: str, **changes: Any) -> None:
         current = self._tasks[task_id]
@@ -577,6 +1071,103 @@ class SyncService:
             "GROUP BY TABLE_SCHEMA"
         )
 
+    def _build_table_names_sql(self, database: str) -> str:
+        return (
+            "SELECT TABLE_NAME "
+            "FROM information_schema.TABLES "
+            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
+            "ORDER BY TABLE_NAME"
+        )
+
+    def _build_index_metadata_sql(self, database: str, table: str) -> str:
+        return (
+            "SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME "
+            "FROM information_schema.STATISTICS "
+            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
+            f"AND TABLE_NAME = {self._quote_sql_string(table)} "
+            "AND (INDEX_NAME = 'PRIMARY' OR NON_UNIQUE = 0) "
+            "ORDER BY CASE WHEN INDEX_NAME = 'PRIMARY' THEN 0 ELSE 1 END, INDEX_NAME, SEQ_IN_INDEX"
+        )
+
+    def _build_table_key_values_sql(
+        self,
+        database: str,
+        table: str,
+        key_columns: tuple[str, ...],
+    ) -> str:
+        key_select = ", ".join(self._quote_identifier(column) for column in key_columns)
+        key_order = ", ".join(self._quote_identifier(column) for column in key_columns)
+        return (
+            f"SELECT {key_select} "
+            f"FROM {self._quote_identifier(database)}.{self._quote_identifier(table)} "
+            f"ORDER BY {key_order}"
+        )
+
+    def _select_incremental_key_columns(
+        self,
+        stdout: str,
+        database: str,
+        table: str,
+    ) -> tuple[str, ...]:
+        indexes: dict[str, list[tuple[int, str]]] = {}
+        for line in stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 4:
+                continue
+            index_name, _non_unique, seq_in_index, column_name = parts
+            indexes.setdefault(index_name, []).append((int(seq_in_index), column_name))
+        if not indexes:
+            raise RuntimeError(
+                f"数据表 {database}.{table} 没有主键或唯一索引，无法执行增量同步"
+            )
+        if "PRIMARY" in indexes:
+            selected = indexes["PRIMARY"]
+        else:
+            first_name = next(iter(indexes))
+            selected = indexes[first_name]
+        return tuple(column for _, column in sorted(selected, key=lambda item: item[0]))
+
+    def _parse_key_rows(
+        self,
+        stdout: str,
+        expected_columns: int,
+    ) -> list[tuple[str | None, ...]]:
+        rows: list[tuple[str | None, ...]] = []
+        for line in stdout.splitlines():
+            if not line:
+                continue
+            parts = line.split("\t")
+            if len(parts) != expected_columns:
+                continue
+            rows.append(tuple(None if value == "\\N" else value for value in parts))
+        return rows
+
+    def _chunk_keys(
+        self,
+        keys: list[tuple[str | None, ...]],
+    ) -> list[list[tuple[str | None, ...]]]:
+        return [
+            keys[index : index + self._incremental_key_batch_size]
+            for index in range(0, len(keys), self._incremental_key_batch_size)
+        ]
+
+    def _build_missing_keys_where_sql(
+        self,
+        key_columns: tuple[str, ...],
+        key_rows: list[tuple[str | None, ...]],
+    ) -> str:
+        clauses: list[str] = []
+        for row in key_rows:
+            parts: list[str] = []
+            for column, value in zip(key_columns, row, strict=False):
+                identifier = self._quote_identifier(column)
+                if value is None:
+                    parts.append(f"{identifier} IS NULL")
+                else:
+                    parts.append(f"{identifier} = {self._quote_sql_string(value)}")
+            clauses.append("(" + " AND ".join(parts) + ")")
+        return " OR ".join(clauses) if clauses else "1 = 0"
+
     def _build_recreate_database_sql(self, database: str) -> str:
         identifier = self._quote_identifier(database)
         return (
@@ -614,6 +1205,45 @@ class SyncService:
             args.extend(["--no-create-info", "--replace"])
         args.append(database)
         return args
+
+    def _build_local_table_dump_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        password: str,
+    ) -> list[str]:
+        args = self._build_local_mysqldump_args(config, database, "data_only", password)
+        args.append(table)
+        return args
+
+    def _build_local_incremental_table_dump_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        password: str,
+        where_sql: str,
+    ) -> list[str]:
+        return [
+            "mysqldump",
+            "--single-transaction",
+            "--skip-lock-tables",
+            "--set-gtid-purged=OFF",
+            "--default-character-set=utf8mb4",
+            "--no-create-info",
+            "--replace",
+            f"--where={where_sql}",
+            "-h",
+            config.local_mysql_host,
+            "-P",
+            str(config.local_mysql_port),
+            "-u",
+            config.local_mysql_user,
+            f"-p{password}",
+            database,
+            table,
+        ]
 
     def _build_local_mysql_query_args(
         self,
@@ -684,6 +1314,115 @@ class SyncService:
         args.append(database)
         return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
 
+    def _build_remote_mysqldump_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        sync_mode: str,
+        password: str,
+    ) -> list[str]:
+        args = [
+            "mysqldump",
+            "--single-transaction",
+            "--skip-lock-tables",
+            "--set-gtid-purged=OFF",
+            "--default-character-set=utf8mb4",
+            "--routines",
+            "--triggers",
+            "--events",
+            "-h",
+            config.remote_mysql_host,
+            "-P",
+            str(config.remote_mysql_port),
+            "-u",
+            config.remote_mysql_user,
+            f"-p{password}",
+        ]
+        if sync_mode == "schema_only":
+            args.append("--no-data")
+        elif sync_mode == "data_only":
+            args.extend(["--no-create-info", "--replace"])
+        args.append(database)
+        return args
+
+    def _build_remote_table_dump_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        password: str,
+    ) -> list[str]:
+        args = self._build_remote_mysqldump_args(config, database, "data_only", password)
+        args.append(table)
+        return args
+
+    def _build_remote_incremental_table_dump_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        password: str,
+        where_sql: str,
+    ) -> list[str]:
+        return [
+            "mysqldump",
+            "--single-transaction",
+            "--skip-lock-tables",
+            "--set-gtid-purged=OFF",
+            "--default-character-set=utf8mb4",
+            "--no-create-info",
+            "--replace",
+            f"--where={where_sql}",
+            "-h",
+            config.remote_mysql_host,
+            "-P",
+            str(config.remote_mysql_port),
+            "-u",
+            config.remote_mysql_user,
+            f"-p{password}",
+            database,
+            table,
+        ]
+
+    def _build_remote_mysql_query_args(
+        self,
+        config: SyncConfig,
+        sql: str,
+        password: str,
+    ) -> list[str]:
+        return [
+            "mysql",
+            "-h",
+            config.remote_mysql_host,
+            "-P",
+            str(config.remote_mysql_port),
+            "-u",
+            config.remote_mysql_user,
+            f"-p{password}",
+            "-N",
+            "-B",
+            "-e",
+            sql,
+        ]
+
+    def _build_remote_mysql_import_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> list[str]:
+        return [
+            "mysql",
+            "-h",
+            config.remote_mysql_host,
+            "-P",
+            str(config.remote_mysql_port),
+            "-u",
+            config.remote_mysql_user,
+            f"-p{password}",
+            database,
+        ]
+
     def _build_remote_mysql_query_command(
         self,
         config: SyncConfig,
@@ -746,6 +1485,9 @@ class SyncService:
     def _compose_import_command(self, *, input_path: str, mysql_command: str, compressed: bool) -> str:
         cat_command = "gunzip -c" if compressed else "cat"
         return f"set -o pipefail; {cat_command} {shlex.quote(input_path)} | {mysql_command}"
+
+    def _compose_stream_command(self, dump_command: str, mysql_command: str) -> str:
+        return f"set -o pipefail; {dump_command} | {mysql_command}"
 
     def _build_ssh_base_args(self, config: SyncConfig) -> list[str]:
         key_path = str(Path(config.remote_ssh_key).expanduser())

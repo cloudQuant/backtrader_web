@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 SyncDirection = Literal["upload", "download"]
 SyncMode = Literal["full", "schema_only", "data_only"]
+SyncConnectionMode = Literal["direct_mysql", "ssh_docker"]
 SyncStage = Literal[
     "queued",
     "validating",
@@ -21,6 +22,7 @@ SyncTaskState = Literal["pending", "running", "completed", "failed"]
 
 
 class SyncConfig(BaseModel):
+    connection_mode: SyncConnectionMode = "direct_mysql"
     local_mysql_host: str = "127.0.0.1"
     local_mysql_port: int = 3306
     local_mysql_user: str = "root"
@@ -30,7 +32,7 @@ class SyncConfig(BaseModel):
     remote_ssh_key: str = "~/.ssh/id_rsa"
     remote_container: str = "backtrader_mysql"
     remote_install_dir: str = "/opt/backtrader_web"
-    remote_mysql_host: str = "127.0.0.1"
+    remote_mysql_host: str = ""
     remote_mysql_port: int = 3306
     remote_mysql_user: str = "root"
     remote_mysql_password: str = ""

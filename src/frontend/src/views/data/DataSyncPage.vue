@@ -5,7 +5,7 @@
         <div class="header-row">
           <div>
             <div class="page-title">数据同步</div>
-            <div class="page-subtitle">在本地 MySQL 与远程 Docker MySQL 之间同步数据库。</div>
+            <div class="page-subtitle">在本地 MySQL 与远程 MySQL 之间按表直连同步数据库。</div>
           </div>
           <div class="toolbar-actions">
             <el-button
@@ -29,6 +29,20 @@
         :model="configForm"
         label-width="120px"
       >
+        <div class="config-section-title">同步模式</div>
+        <div class="form-grid">
+          <el-form-item label="同步方式">
+            <el-input value="直连 MySQL（按表同步）" disabled />
+          </el-form-item>
+          <el-form-item label="同步模式">
+            <el-select v-model="syncMode" class="full-width">
+              <el-option label="完整同步" value="full" />
+              <el-option label="仅结构" value="schema_only" />
+              <el-option label="仅数据" value="data_only" />
+            </el-select>
+          </el-form-item>
+        </div>
+
         <div class="config-section-title">本地 MySQL</div>
         <div class="form-grid">
           <el-form-item label="本地主机">
@@ -45,36 +59,10 @@
           </el-form-item>
         </div>
 
-        <div class="config-section-title">远程服务器</div>
-        <div class="form-grid">
-          <el-form-item label="服务器 IP">
-            <el-input v-model="configForm.remote_host" placeholder="43.167.221.188（不要带 http://）" />
-          </el-form-item>
-          <el-form-item label="SSH 用户">
-            <el-input v-model="configForm.remote_user" placeholder="root 或 backtrader" />
-          </el-form-item>
-          <el-form-item label="SSH 密钥">
-            <el-input v-model="configForm.remote_ssh_key" placeholder="~/.ssh/id_rsa" />
-          </el-form-item>
-          <el-form-item label="Docker 容器">
-            <el-input v-model="configForm.remote_container" placeholder="backtrader_mysql" />
-          </el-form-item>
-          <el-form-item label="部署目录">
-            <el-input v-model="configForm.remote_install_dir" placeholder="/opt/backtrader_web" />
-          </el-form-item>
-          <el-form-item label="同步模式">
-            <el-select v-model="syncMode" class="full-width">
-              <el-option label="完整同步" value="full" />
-              <el-option label="仅结构" value="schema_only" />
-              <el-option label="仅数据" value="data_only" />
-            </el-select>
-          </el-form-item>
-        </div>
-
         <div class="config-section-title">远程 MySQL</div>
         <div class="form-grid">
           <el-form-item label="远程 MySQL 主机">
-            <el-input v-model="configForm.remote_mysql_host" placeholder="127.0.0.1" />
+            <el-input v-model="configForm.remote_mysql_host" placeholder="43.167.221.188" />
           </el-form-item>
           <el-form-item label="远程 MySQL 端口">
             <el-input-number v-model="configForm.remote_mysql_port" class="full-width" :min="1" :max="65535" />
@@ -83,7 +71,7 @@
             <el-input v-model="configForm.remote_mysql_user" placeholder="root" />
           </el-form-item>
           <el-form-item label="远程 MySQL 密码">
-            <el-input v-model="configForm.remote_mysql_password" show-password placeholder="留空则尝试从远程 .env 读取 MYSQL_ROOT_PASSWORD" />
+            <el-input v-model="configForm.remote_mysql_password" show-password placeholder="直连模式必须填写远程 MySQL 密码" />
           </el-form-item>
         </div>
 
@@ -100,20 +88,26 @@
         </div>
       </el-form>
 
-      <div class="tips-grid">
-        <div class="tip-card">
-          <div class="tip-title">填写提示</div>
-          <div class="tip-text">服务器地址填写 IP 或域名，不要带 <code>http://</code>。SSH 用户需要能登录服务器并执行 <code>docker exec</code>。</div>
+        <div class="tips-grid">
+          <div class="tip-card">
+            <div class="tip-title">填写提示</div>
+            <div class="tip-text">
+              当前页面只保留 MySQL 直连同步。只要远程 MySQL 主机、端口、用户名、密码可访问即可，不需要 SSH。
+            </div>
+          </div>
+          <div class="tip-card">
+            <div class="tip-title">增量同步规则</div>
+            <div class="tip-text">
+              数据同步会优先使用数据表的主键，其次使用唯一索引，先对比两端索引值，只传输目标库缺失的数据行。
+            </div>
+          </div>
+          <div class="tip-card">
+            <div class="tip-title">使用限制</div>
+            <div class="tip-text">
+              如果某张表没有主键或唯一索引，就无法安全判断哪些记录已存在，这类表暂时不支持“只同步缺失数据”。
+            </div>
+          </div>
         </div>
-        <div class="tip-card">
-          <div class="tip-title">远程库账号建议</div>
-          <div class="tip-text">同步涉及导出、导入、重建数据库，远程 MySQL 通常建议填写有完整权限的账号，默认推荐 <code>root</code>。</div>
-        </div>
-        <div class="tip-card">
-          <div class="tip-title">数据库列表</div>
-          <div class="tip-text">如果服务器当前只有 <code>backtrader_web</code>，先只填它；确认远端存在 <code>akshare_data</code> 后再加入。</div>
-        </div>
-      </div>
 
       <div v-if="connectionStatus" class="connection-grid">
         <div
@@ -292,6 +286,7 @@ import type {
 } from '@/types'
 
 const configForm = reactive<SyncConfig>({
+  connection_mode: 'direct_mysql',
   local_mysql_host: '127.0.0.1',
   local_mysql_port: 3306,
   local_mysql_user: 'root',
@@ -301,7 +296,7 @@ const configForm = reactive<SyncConfig>({
   remote_ssh_key: '~/.ssh/id_rsa',
   remote_container: 'backtrader_mysql',
   remote_install_dir: '/opt/backtrader_web',
-  remote_mysql_host: '127.0.0.1',
+  remote_mysql_host: '',
   remote_mysql_port: 3306,
   remote_mysql_user: 'root',
   remote_mysql_password: '',
@@ -349,9 +344,10 @@ function statusLabel(status: SyncTaskStatus['status']) {
 function labelForCheck(key: string) {
   if (key === 'local_tools') return '本地命令依赖'
   if (key === 'local_mysql') return '本地 MySQL'
+  if (key === 'remote_mysql') return '远程 MySQL'
   if (key === 'ssh') return 'SSH 连通性'
   if (key === 'docker') return 'Docker 容器状态'
-  if (key === 'remote_env') return '远程密码读取'
+  if (key === 'remote_env') return '远程密码配置'
   return key
 }
 
@@ -375,6 +371,7 @@ function normalizeDatabaseNames(value: string) {
 function buildConfigPayload(): SyncConfig {
   return {
     ...configForm,
+    connection_mode: 'direct_mysql',
     sync_databases: normalizeDatabaseNames(syncDatabasesInput.value),
   }
 }
@@ -382,6 +379,7 @@ function buildConfigPayload(): SyncConfig {
 async function loadConfig() {
   const response = await syncApi.getConfig()
   Object.assign(configForm, response)
+  configForm.connection_mode = 'direct_mysql'
   syncDatabasesInput.value = response.sync_databases.join(', ')
 }
 
@@ -409,24 +407,37 @@ async function loadHistory() {
   }
 }
 
-async function handleSaveConfig() {
+async function persistConfig(options: { showSuccess?: boolean; reloadDatabases?: boolean } = {}) {
+  const { showSuccess = false, reloadDatabases = false } = options
   savingConfig.value = true
   try {
     const response = await syncApi.saveConfig(buildConfigPayload())
     Object.assign(configForm, response)
+    configForm.connection_mode = 'direct_mysql'
     syncDatabasesInput.value = response.sync_databases.join(', ')
-    ElMessage.success('同步配置已保存')
-    await loadDatabases()
-  } catch (error) {
-    ElMessage.error(getErrorMessage(error, '保存同步配置失败'))
+    if (showSuccess) {
+      ElMessage.success('同步配置已保存')
+    }
+    if (reloadDatabases) {
+      await loadDatabases()
+    }
   } finally {
     savingConfig.value = false
+  }
+}
+
+async function handleSaveConfig() {
+  try {
+    await persistConfig({ showSuccess: true, reloadDatabases: true })
+  } catch (error) {
+    ElMessage.error(getErrorMessage(error, '保存同步配置失败'))
   }
 }
 
 async function handleTestConnection() {
   testingConnection.value = true
   try {
+    await persistConfig()
     connectionStatus.value = await syncApi.testConnection(buildConfigPayload())
     ElMessage.success(connectionStatus.value.success ? '连接测试通过' : '连接测试完成，请查看结果')
   } catch (error) {

@@ -495,6 +495,8 @@ export interface DataInterfaceFormPayload {
 
 export type SyncMode = 'full' | 'schema_only' | 'data_only'
 
+export type SyncConnectionMode = 'direct_mysql' | 'ssh_docker'
+
 export type SyncDirection = 'upload' | 'download'
 
 export type SyncStage =
@@ -510,6 +512,7 @@ export type SyncStage =
 export type SyncTaskState = 'pending' | 'running' | 'completed' | 'failed'
 
 export interface SyncConfig {
+  connection_mode: SyncConnectionMode
   local_mysql_host: string
   local_mysql_port: number
   local_mysql_user: string
