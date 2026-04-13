@@ -3,6 +3,8 @@
  */
 import request from './index'
 
+const GATEWAY_CONNECT_TIMEOUT_MS = 120000
+
 export interface LiveInstanceInfo {
   id: string
   strategy_id: string
@@ -134,7 +136,9 @@ export const liveTradingApi = {
   },
 
   connectGateway(data: GatewayConnectRequest): Promise<GatewayConnectResponse> {
-    return request.post('/live-trading/gateways/connect', data)
+    return request.post('/live-trading/gateways/connect', data, {
+      timeout: GATEWAY_CONNECT_TIMEOUT_MS,
+    })
   },
 
   disconnectGateway(gatewayKey: string): Promise<GatewayConnectResponse> {

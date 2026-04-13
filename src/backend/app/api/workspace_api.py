@@ -14,11 +14,22 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user
-from app.schemas.analytics import BacktestDetailResponse, KlineWithSignalsResponse, MonthlyReturnsResponse
+from app.schemas.analytics import (
+    BacktestDetailResponse,
+    KlineWithSignalsResponse,
+    MonthlyReturnsResponse,
+)
+from app.schemas.trading import (
+    AutoTradingConfigPayload,
+    AutoTradingScheduleItem,
+    PositionManagerResponse,
+    TradingDailySummaryResponse,
+)
 from app.schemas.workspace import (
     ApplyBestParamsRequest,
     BulkDeleteRequest,
     GroupRenameRequest,
+    OptimizationArtifactResponse,
     ReportCreateRequest,
     RunUnitsRequest,
     SortRequest,
@@ -28,7 +39,6 @@ from app.schemas.workspace import (
     StrategyUnitListResponse,
     StrategyUnitResponse,
     StrategyUnitUpdate,
-    OptimizationArtifactResponse,
     UnitOptimizationRequest,
     UnitRenameRequest,
     UnitStatusResponse,
@@ -69,9 +79,15 @@ async def list_workspaces(
     service: WorkspaceService = Depends(get_workspace_service),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
+    workspace_type: str | None = Query(None),
 ):
     """List workspaces for the current user."""
-    total, items = await service.list_workspaces(current_user.sub, skip=skip, limit=limit)
+    total, items = await service.list_workspaces(
+        current_user.sub,
+        skip=skip,
+        limit=limit,
+        workspace_type=workspace_type,
+    )
     return WorkspaceListResponse(total=total, items=items)
 
 
@@ -321,6 +337,106 @@ async def get_units_status(
     if statuses is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     return statuses
+
+
+@router.get(
+    "/{workspace_id}/trading/auto-config",
+    response_model=AutoTradingConfigPayload,
+    summary="Get trading workspace auto-trading config",
+)
+async def get_trading_auto_config(
+    workspace_id: str,
+    current_user=Depends(get_current_user),
+    service: WorkspaceService = Depends(get_workspace_service),
+):
+    config = await service.get_trading_auto_config(workspace_id, current_user.sub)
+    if config is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+    return config
+
+
+@router.put(
+    "/{workspace_id}/trading/auto-config",
+    response_model=AutoTradingConfigPayload,
+    summary="Update trading workspace auto-trading config",
+)
+async def update_trading_auto_config(
+    workspace_id: str,
+    data: AutoTradingConfigPayload,
+    current_user=Depends(get_current_user),
+    service: WorkspaceService = Depends(get_workspace_service),
+):
+    config = await service.update_trading_auto_config(
+        workspace_id,
+        current_user.sub,
+        data.model_dump(exclude_unset=True),
+    )
+    if config is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+    return config
+
+
+@router.get(
+    "/{workspace_id}/trading/auto-schedule",
+    response_model=list[AutoTradingScheduleItem],
+    summary="Get trading workspace auto-trading schedule",
+)
+async def get_trading_auto_schedule(
+    workspace_id: str,
+    current_user=Depends(get_current_user),
+    service: WorkspaceService = Depends(get_workspace_service),
+):
+    schedule = await service.get_trading_auto_schedule(workspace_id, current_user.sub)
+    if schedule is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+    return schedule
+
+
+@router.get(
+    "/{workspace_id}/trading/positions",
+    response_model=PositionManagerResponse,
+    summary="Get trading workspace aggregated positions",
+)
+async def get_trading_positions(
+    workspace_id: str,
+    unit_ids: str | None = Query(None),
+    current_user=Depends(get_current_user),
+    service: WorkspaceService = Depends(get_workspace_service),
+):
+    parsed_unit_ids = [value.strip() for value in str(unit_ids or "").split(",") if value.strip()]
+    positions = await service.get_trading_positions(
+        workspace_id,
+        current_user.sub,
+        unit_ids=parsed_unit_ids or None,
+    )
+    if positions is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+    return positions
+
+
+@router.get(
+    "/{workspace_id}/trading/daily-summary",
+    response_model=TradingDailySummaryResponse,
+    summary="Get trading workspace daily summary",
+)
+async def get_trading_daily_summary(
+    workspace_id: str,
+    unit_id: str | None = Query(None),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+    current_user=Depends(get_current_user),
+    service: WorkspaceService = Depends(get_workspace_service),
+):
+    summary = await service.get_trading_daily_summary(
+        workspace_id,
+        current_user.sub,
+        unit_id=unit_id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    if summary is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+    return summary
 
 
 # ---------------------------------------------------------------------------

@@ -186,8 +186,8 @@ exit /b 0
 
 :mt5_enabled
 set "NEEDS_MT5=0"
-if exist "%PROJECT_ROOT%\data\manual_gateways.json" (
-    findstr /I /C:"\"exchange_type\": \"MT5\"" "%PROJECT_ROOT%\data\manual_gateways.json" >nul 2>nul
+if exist "%BACKEND_DIR%\data\manual_gateways.json" (
+    findstr /I /C:"\"exchange_type\": \"MT5\"" "%BACKEND_DIR%\data\manual_gateways.json" >nul 2>nul
     if not errorlevel 1 set "NEEDS_MT5=1"
 )
 if "%NEEDS_MT5%"=="0" if exist "%BACKEND_DIR%\.env" (

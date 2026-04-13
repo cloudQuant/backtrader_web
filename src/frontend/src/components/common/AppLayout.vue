@@ -35,17 +35,13 @@
           <el-icon><Aim /></el-icon>
           <span>策略研究</span>
         </el-menu-item>
+        <el-menu-item index="/trading">
+          <el-icon><TrendCharts /></el-icon>
+          <span>策略交易</span>
+        </el-menu-item>
         <el-menu-item index="/strategy">
           <el-icon><Document /></el-icon>
           <span>策略管理</span>
-        </el-menu-item>
-        <el-menu-item index="/simulate">
-          <el-icon><VideoPlay /></el-icon>
-          <span>模拟交易</span>
-        </el-menu-item>
-        <el-menu-item index="/live-trading">
-          <el-icon><TrendCharts /></el-icon>
-          <span>实盘交易</span>
         </el-menu-item>
         <el-menu-item index="/portfolio">
           <el-icon><TrendCharts /></el-icon>
@@ -152,7 +148,6 @@ import {
   TrendCharts,
   Sunny,
   Moon,
-  VideoPlay,
   Monitor,
   Stopwatch,
 } from '@element-plus/icons-vue'
@@ -168,7 +163,7 @@ const currentRoute = computed(() => {
     return '/workspace'
   }
   // Match top-level menu items for nested routes
-  const prefixes = ['/workspace', '/strategy', '/data', '/simulate', '/live-trading', '/gateways', '/quote', '/portfolio', '/settings']
+  const prefixes = ['/workspace', '/trading', '/strategy', '/data', '/gateways', '/quote', '/portfolio', '/settings']
   for (const prefix of prefixes) {
     if (p.startsWith(prefix + '/') || p === prefix) return prefix
   }
@@ -195,11 +190,10 @@ const pageTitle = computed(() => {
     '/': '仪表盘',
     '/strategy': '策略管理',
     '/data': '数据管理',
-    '/simulate': '模拟交易',
-    '/live-trading': '实盘交易',
     '/gateways': '账户管理',
     '/quote': '行情报价',
     '/workspace': '策略研究',
+    '/trading': '策略交易',
     '/portfolio': '组合管理',
     '/settings': '系统设置',
   }

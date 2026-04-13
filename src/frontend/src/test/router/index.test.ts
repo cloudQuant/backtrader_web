@@ -23,8 +23,6 @@ vi.mock('@/views/data/DataExecutionsPage.vue', () => ({ default: { template: '<d
 vi.mock('@/views/data/DataTablesPage.vue', () => ({ default: { template: '<div>Data Tables</div>' } }))
 vi.mock('@/views/data/DataTableDetailPage.vue', () => ({ default: { template: '<div>Data Table Detail</div>' } }))
 vi.mock('@/views/data/DataInterfacesPage.vue', () => ({ default: { template: '<div>Data Interfaces</div>' } }))
-vi.mock('@/views/LiveTradingPage.vue', () => ({ default: { template: '<div>LiveTrading</div>' } }))
-vi.mock('@/views/LiveTradingDetailPage.vue', () => ({ default: { template: '<div>Detail</div>' } }))
 vi.mock('@/views/PortfolioPage.vue', () => ({ default: { template: '<div>Portfolio</div>' } }))
 vi.mock('@/views/SettingsPage.vue', () => ({ default: { template: '<div>Settings</div>' } }))
 vi.mock('@/components/common/AppLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
@@ -59,8 +57,8 @@ describe('router', () => {
     expect(names).toContain('Strategy')
     expect(names).toContain('Settings')
     expect(names).toContain('Portfolio')
-    expect(names).toContain('LiveTrading')
-    expect(names).toContain('LiveTradingDetail')
+    expect(names).toContain('TradingWorkspaceList')
+    expect(names).toContain('TradingWorkspaceDetail')
     expect(names).toContain('Data')
   })
 
@@ -133,5 +131,12 @@ describe('router', () => {
     await router.push('/data/interfaces')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('DataInterfaces')
+  })
+
+  it('redirects legacy /live-trading route to trading workspace', async () => {
+    mockAuthStore(true)
+    await router.push('/live-trading')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('TradingWorkspaceList')
   })
 })

@@ -1,0 +1,87 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: backtrader_redis_local
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ${LOCAL_REDIS_DATA_DIR:-./runtime/local/redis}:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backtrader_local
+
+  backend:
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    container_name: backtrader_backend_local
+    restart: unless-stopped
+    environment:
+      APP_NAME: backtrader_web
+      DEBUG: ${DEBUG:-false}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
+      DATABASE_TYPE: mysql
+      DATABASE_URL: mysql+aiomysql://root:${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}@host.docker.internal:${DB_PORT:-3306}/${MYSQL_DB_MAIN:-backtrader_web}
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: "10080"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      DB_AUTO_CREATE_SCHEMA: ${DB_AUTO_CREATE_SCHEMA:-false}
+      DB_AUTO_CREATE_DEFAULT_ADMIN: ${DB_AUTO_CREATE_DEFAULT_ADMIN:-false}
+      BACKTEST_TIMEOUT: "300"
+      AKSHARE_SCHEDULER_TIMEZONE: Asia/Shanghai
+      AKSHARE_SCRIPT_ROOT: app/data_fetch/scripts
+      AKSHARE_INTERFACE_BOOTSTRAP_MODE: manual
+      TZ: Asia/Shanghai
+    ports:
+      - "${LOCAL_BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./data:/opt/workspace/backtrader_web/data
+      - ./datas:/opt/workspace/backtrader_web/datas
+      - ./strategies:/opt/workspace/backtrader_web/strategies
+      - ./workspace_units:/opt/workspace/backtrader_web/workspace_units
+      - ${LOCAL_BACKEND_LOGS_DIR:-./runtime/local/backend/logs}:/opt/workspace/backtrader_web/src/backend/logs
+      - ${LOCAL_BACKEND_APP_DATA_DIR:-./runtime/local/backend/data}:/opt/workspace/backtrader_web/src/backend/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import os, urllib.request; urllib.request.urlopen('http://localhost:{}/health'.format(os.environ.get('PORT', '8000')))\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - backtrader_local
+
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: backtrader_frontend_local
+    restart: unless-stopped
+    ports:
+      - "${LOCAL_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./docker/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - backtrader_local
+
+networks:
+  backtrader_local:
+    driver: bridge

@@ -23,15 +23,16 @@ import json
 import logging
 from datetime import datetime, time, timedelta, timezone
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
+
+from app.utils.backend_data_paths import get_backend_data_path
 
 logger = logging.getLogger(__name__)
 
 _SHANGHAI_TZ = timezone(timedelta(hours=8))
 _TRIGGER_TOLERANCE_SECONDS = 60
 
-_DATA_DIR = Path(__file__).resolve().parents[4] / "data"
+_DATA_DIR = get_backend_data_path()
 _CONFIG_FILE = _DATA_DIR / "auto_trading_config.json"
 
 # Default Chinese futures market schedule (Beijing time)

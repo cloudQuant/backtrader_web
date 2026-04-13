@@ -167,6 +167,58 @@ class TestGetGatewayHealth:
         assert snap["asset_type"] == "SPOT"
         assert snap["account_id"] == "test-account"
 
+    def test_malformed_gateway_state_is_skipped(self):
+        health_mock = MagicMock()
+        health_mock.snapshot.return_value = _make_health_snap()
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+
+        results = get_gateway_health(
+            gateways={
+                "malformed": object(),
+                "manual:BINANCE:test-account": {
+                    "runtime": runtime_mock,
+                    "manual": True,
+                    "exchange_type": "BINANCE",
+                    "account_id": "test-account",
+                    "instances": set(),
+                    "ref_count": 0,
+                },
+            },
+            load_instances=lambda: {},
+            is_pid_alive=lambda pid: False,
+            resolve_strategy_dir=lambda s: f"/strategies/{s}",
+            load_strategy_config=lambda d: {},
+            load_strategy_env=lambda d: {},
+        )
+
+        assert len(results) == 1
+        assert results[0]["gateway_key"] == "manual:BINANCE:test-account"
+
+    def test_non_dict_instances_payload_is_ignored(self):
+        health_mock = MagicMock()
+        health_mock.snapshot.return_value = _make_health_snap()
+        runtime_mock = MagicMock()
+        runtime_mock.health = health_mock
+
+        results = get_gateway_health(
+            gateways={
+                "binance:spot:acc1": {
+                    "runtime": runtime_mock,
+                    "ref_count": 1,
+                    "instances": {"inst-1"},
+                }
+            },
+            load_instances=lambda: ["bad-payload"],
+            is_pid_alive=lambda pid: False,
+            resolve_strategy_dir=lambda s: f"/strategies/{s}",
+            load_strategy_config=lambda d: {},
+            load_strategy_env=lambda d: {},
+        )
+
+        assert len(results) == 1
+        assert results[0]["gateway_key"] == "binance:spot:acc1"
+
     def test_direct_process_instance(self):
         """Running instances not attached to a gateway get a 'direct:' entry."""
         instances = {

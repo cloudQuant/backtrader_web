@@ -77,15 +77,29 @@
     </teleport>
 
     <!-- Stat Time Dialog -->
-    <el-dialog v-model="showStatTimeDialog" title="统计时间" width="400px" destroy-on-close>
-      <el-form label-width="100px" size="small">
-        <el-form-item label="起始时间">
-          <el-date-picker v-model="reportStatRange[0]" type="date" placeholder="选择起始日期" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="结束时间">
-          <el-date-picker v-model="reportStatRange[1]" type="date" placeholder="选择结束日期" style="width: 100%" />
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="showStatTimeDialog" title="统计时间" width="560px" destroy-on-close>
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">起始时间</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ formatRangeValue(reportStatRange[0]) || '未设置' }}</div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">结束时间</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ formatRangeValue(reportStatRange[1]) || '未设置' }}</div>
+          </div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <el-form label-width="100px" size="small">
+            <el-form-item label="起始时间">
+              <el-date-picker v-model="reportStatRange[0]" type="date" placeholder="选择起始日期" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="结束时间">
+              <el-date-picker v-model="reportStatRange[1]" type="date" placeholder="选择结束日期" style="width: 100%" />
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="showStatTimeDialog = false">取消</el-button>
         <el-button type="primary" @click="showStatTimeDialog = false; recalculateReport()">确定</el-button>
@@ -93,12 +107,26 @@
     </el-dialog>
 
     <!-- Max Cash Dialog -->
-    <el-dialog v-model="showMaxCashDialog" title="组合最大投入资金" width="400px" destroy-on-close>
-      <el-form label-width="120px" size="small">
-        <el-form-item label="最大投入资金">
-          <el-input-number v-model="maxCash" :min="0" :step="100000" style="width: 200px" />
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="showMaxCashDialog" title="组合最大投入资金" width="560px" destroy-on-close>
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">当前最大投入</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ fmtMoney(maxCash) }}</div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">选中单元</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ selectedReportUnitIds.length || filteredSummary.total_units || 0 }}</div>
+          </div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <el-form label-width="120px" size="small">
+            <el-form-item label="最大投入资金">
+              <el-input-number v-model="maxCash" :min="0" :step="100000" style="width: 240px" />
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="showMaxCashDialog = false">取消</el-button>
         <el-button type="primary" @click="showMaxCashDialog = false; recalculateReport()">确定</el-button>
@@ -106,19 +134,33 @@
     </el-dialog>
 
     <!-- Calc Method Dialog -->
-    <el-dialog v-model="showCalcMethodDialog" title="计算方式" width="400px" destroy-on-close>
-      <el-form label-width="100px" size="small">
-        <el-form-item label="收益计算">
-          <el-radio-group v-model="reportCalcMethod">
-            <el-radio value="simple">简单收益</el-radio>
-            <el-radio value="compound">复合收益</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="年化基准">
-          <el-input-number v-model="reportAnnualDays" :min="200" :max="365" />
-          <span class="ml-2 text-xs text-gray-400">天</span>
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="showCalcMethodDialog" title="计算方式" width="620px" destroy-on-close>
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">收益计算</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ reportCalcMethod === 'compound' ? '复合收益' : '简单收益' }}</div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">年化基准</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ reportAnnualDays }} 天</div>
+          </div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <el-form label-width="100px" size="small">
+            <el-form-item label="收益计算">
+              <el-radio-group v-model="reportCalcMethod">
+                <el-radio value="simple">简单收益</el-radio>
+                <el-radio value="compound">复合收益</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item label="年化基准">
+              <el-input-number v-model="reportAnnualDays" :min="200" :max="365" />
+              <span class="ml-2 text-xs text-gray-400">天</span>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="showCalcMethodDialog = false">取消</el-button>
         <el-button type="primary" @click="showCalcMethodDialog = false; recalculateReport()">确定</el-button>
@@ -126,18 +168,32 @@
     </el-dialog>
 
     <!-- Weight Dialog -->
-    <el-dialog v-model="showWeightDialog" title="报告权重" width="400px" destroy-on-close>
-      <el-form label-width="100px" size="small">
-        <el-form-item label="权重模式">
-          <el-radio-group v-model="weightMode">
-            <el-radio value="equal">等权</el-radio>
-            <el-radio value="custom">自定义</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item v-if="weightMode === 'custom'" label="自定义权重">
-          <div class="text-xs text-gray-400">各单元权重由资金占比自动计算</div>
-        </el-form-item>
-      </el-form>
+    <el-dialog v-model="showWeightDialog" title="报告权重" width="620px" destroy-on-close>
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">权重模式</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ weightModeLabel }}</div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">作用单元</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ selectedReportUnitIds.length || filteredSummary.total_units || 0 }}</div>
+          </div>
+        </div>
+        <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <el-form label-width="100px" size="small">
+            <el-form-item label="权重模式">
+              <el-radio-group v-model="weightMode">
+                <el-radio value="equal">等权</el-radio>
+                <el-radio value="custom">自定义</el-radio>
+              </el-radio-group>
+            </el-form-item>
+            <el-form-item v-if="weightMode === 'custom'" label="自定义权重">
+              <div class="text-xs text-gray-400">各单元权重由资金占比自动计算</div>
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="showWeightDialog = false">取消</el-button>
         <el-button type="primary" @click="showWeightDialog = false; recalculateReport()">确定</el-button>
@@ -145,84 +201,124 @@
     </el-dialog>
 
     <!-- Custom Fields Dialog -->
-    <el-dialog v-model="showCustomFieldsDialog" title="自定义字段" width="500px" destroy-on-close>
-      <el-checkbox-group v-model="reportVisibleFields">
-        <div class="grid grid-cols-3 gap-2">
-          <el-checkbox v-for="f in reportAllFields" :key="f.key" :value="f.key">{{ f.label }}</el-checkbox>
+    <el-dialog v-model="showCustomFieldsDialog" title="自定义字段" width="720px" destroy-on-close>
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">字段总数</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ reportAllFields.length }}</div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+            <div class="text-xs text-slate-500">当前显示</div>
+            <div class="mt-1 text-sm font-semibold text-slate-700">{{ visibleFieldCount }}</div>
+          </div>
         </div>
-      </el-checkbox-group>
+        <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
+          <el-checkbox-group v-model="reportVisibleFields">
+            <div class="grid grid-cols-2 gap-2 md:grid-cols-3">
+              <el-checkbox v-for="f in reportAllFields" :key="f.key" :value="f.key">{{ f.label }}</el-checkbox>
+            </div>
+          </el-checkbox-group>
+        </div>
+      </div>
       <template #footer>
         <el-button @click="reportVisibleFields = reportAllFields.map(f => f.key)">全选</el-button>
+        <el-button @click="reportVisibleFields = []">清空</el-button>
         <el-button @click="showCustomFieldsDialog = false">关闭</el-button>
       </template>
     </el-dialog>
 
     <el-skeleton :rows="6" :loading="loading" animated>
       <template #default>
-        <!-- Summary cards -->
-        <div v-if="report" class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold">{{ filteredSummary.total_units ?? 0 }}</div>
-            <div class="text-xs text-gray-400 mt-1">总单元数</div>
-          </el-card>
-          <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold">{{ filteredSummary.completed_units ?? 0 }}</div>
-            <div class="text-xs text-gray-400 mt-1">已完成</div>
-          </el-card>
-          <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold" :class="returnColor(filteredSummary.avg_total_return)">
-              {{ fmtPct(filteredSummary.avg_total_return) }}
+        <div v-if="report" class="report-overview-panel">
+          <div class="report-overview-panel__main">
+            <div class="report-overview-panel__title">组合报告概览</div>
+            <div class="report-overview-panel__meta">
+              <span>统计范围 {{ statRangeLabel }}</span>
+              <span>选中单元 {{ selectedReportUnitIds.length || filteredSummary.total_units || 0 }}</span>
+              <span>计算方式 {{ reportCalcMethod === 'compound' ? '复合收益' : '简单收益' }}</span>
+              <span>年化基准 {{ reportAnnualDays }} 天</span>
+              <span>权重 {{ weightMode === 'custom' ? '自定义' : '等权' }}</span>
             </div>
-            <div class="text-xs text-gray-400 mt-1">平均收益率</div>
-          </el-card>
-          <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold" :class="returnColor(filteredSummary.avg_sharpe_ratio)">
-              {{ fmtNum(filteredSummary.avg_sharpe_ratio) }}
-            </div>
-            <div class="text-xs text-gray-400 mt-1">平均夏普比</div>
-          </el-card>
-          <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold text-red-500">
-              {{ fmtPct(filteredSummary.avg_max_drawdown) }}
-            </div>
-            <div class="text-xs text-gray-400 mt-1">平均最大回撤</div>
-          </el-card>
-          <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold">{{ fmtPct(filteredSummary.avg_win_rate) }}</div>
-            <div class="text-xs text-gray-400 mt-1">平均胜率</div>
-          </el-card>
-          <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold">{{ filteredSummary.total_trades ?? '-' }}</div>
-            <div class="text-xs text-gray-400 mt-1">总交易次数</div>
-          </el-card>
-          <el-card shadow="hover" class="text-center">
-            <div class="text-2xl font-bold" :class="returnColor(filteredSummary.avg_annual_return)">
-              {{ fmtPct(filteredSummary.avg_annual_return) }}
-            </div>
-            <div class="text-xs text-gray-400 mt-1">平均年化收益</div>
-          </el-card>
+          </div>
+          <div class="report-overview-panel__tags">
+            <el-tag size="small" effect="plain" type="info">最大投入 {{ fmtMoney(maxCash) }}</el-tag>
+            <el-tag size="small" effect="plain" type="success">数据 {{ filteredUnits.length }} 行</el-tag>
+          </div>
         </div>
 
-        <!-- Highlights -->
-        <div v-if="filteredSummary.best_return_unit || filteredSummary.worst_drawdown_unit" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <el-card v-if="filteredSummary.best_return_unit" shadow="hover">
-            <template #header><span class="text-sm font-medium">最佳收益单元</span></template>
-            <div class="flex justify-between items-center">
+        <div v-if="report && selectedUnitNames.length" class="report-unit-tags">
+          <el-tag
+            v-for="name in selectedUnitNames"
+            :key="name"
+            size="small"
+            effect="plain"
+          >
+            {{ name }}
+          </el-tag>
+        </div>
+
+        <div v-if="report" class="report-summary-grid mb-6">
+          <div class="summary-card">
+            <div class="summary-card__value">{{ filteredSummary.total_units ?? 0 }}</div>
+            <div class="summary-card__label">总单元数</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card__value">{{ filteredSummary.completed_units ?? 0 }}</div>
+            <div class="summary-card__label">已完成</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card__value" :class="returnColor(filteredSummary.avg_total_return)">
+              {{ fmtPct(filteredSummary.avg_total_return) }}
+            </div>
+            <div class="summary-card__label">平均收益率</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card__value" :class="returnColor(filteredSummary.avg_sharpe_ratio)">
+              {{ fmtNum(filteredSummary.avg_sharpe_ratio) }}
+            </div>
+            <div class="summary-card__label">平均夏普比</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card__value text-red-500">
+              {{ fmtPct(filteredSummary.avg_max_drawdown) }}
+            </div>
+            <div class="summary-card__label">平均最大回撤</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card__value">{{ fmtPct(filteredSummary.avg_win_rate) }}</div>
+            <div class="summary-card__label">平均胜率</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card__value">{{ filteredSummary.total_trades ?? '-' }}</div>
+            <div class="summary-card__label">总交易次数</div>
+          </div>
+          <div class="summary-card">
+            <div class="summary-card__value" :class="returnColor(filteredSummary.avg_annual_return)">
+              {{ fmtPct(filteredSummary.avg_annual_return) }}
+            </div>
+            <div class="summary-card__label">平均年化收益</div>
+          </div>
+        </div>
+
+        <div v-if="filteredSummary.best_return_unit || filteredSummary.worst_drawdown_unit" class="report-highlight-grid mb-6">
+          <div v-if="filteredSummary.best_return_unit" class="highlight-card is-success">
+            <div class="highlight-card__label">最佳收益单元</div>
+            <div class="highlight-card__main">
               <span>{{ filteredSummary.best_return_unit.strategy_name }} / {{ filteredSummary.best_return_unit.symbol }}</span>
               <span class="text-green-500 font-bold">{{ fmtPct(filteredSummary.best_return_unit.value) }}</span>
             </div>
-          </el-card>
-          <el-card v-if="filteredSummary.worst_drawdown_unit" shadow="hover">
-            <template #header><span class="text-sm font-medium">最大回撤单元</span></template>
-            <div class="flex justify-between items-center">
+          </div>
+          <div v-if="filteredSummary.worst_drawdown_unit" class="highlight-card is-danger">
+            <div class="highlight-card__label">最大回撤单元</div>
+            <div class="highlight-card__main">
               <span>{{ filteredSummary.worst_drawdown_unit.strategy_name }} / {{ filteredSummary.worst_drawdown_unit.symbol }}</span>
               <span class="text-red-500 font-bold">{{ fmtPct(filteredSummary.worst_drawdown_unit.value) }}</span>
             </div>
-          </el-card>
+          </div>
         </div>
 
-        <!-- Per-unit table with dynamic columns -->
-        <el-table v-if="filteredUnits.length" :data="filteredUnits" stripe border size="small" class="w-full" max-height="500">
+        <el-table v-if="filteredUnits.length" :data="filteredUnits" row-key="id" stripe border size="small" class="w-full report-table" max-height="500">
           <el-table-column label="#" width="50" align="center" fixed>
             <template #default="{ $index }">{{ $index + 1 }}</template>
           </el-table-column>
@@ -337,10 +433,36 @@ const reportColumnDefs: RptColDef[] = [
 ]
 const reportAllFields = reportColumnDefs.map(c => ({ key: c.key, label: c.label }))
 const reportVisibleFields = ref(reportAllFields.map(f => f.key))
+const visibleFieldCount = computed(() => reportVisibleFields.value.length)
+const weightModeLabel = computed(() => (weightMode.value === 'custom' ? '自定义' : '等权'))
 
 const reportActiveColumns = computed(() =>
   reportColumnDefs.filter(c => reportVisibleFields.value.includes(c.key))
 )
+const selectedUnitNames = computed(() => {
+  if (!selectedReportUnitIds.value.length) return []
+  const unitMap = new Map(store.units.map(unit => [unit.id, unit.strategy_name || unit.strategy_id || unit.id]))
+  return selectedReportUnitIds.value
+    .map(id => unitMap.get(id) || id)
+    .filter(Boolean)
+})
+function formatRangeValue(value: unknown) {
+  if (!value) return ''
+  if (value instanceof Date) {
+    return value.toLocaleDateString('zh-CN')
+  }
+  const text = String(value)
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    return text.slice(0, 10)
+  }
+  return text
+}
+const statRangeLabel = computed(() => {
+  if (reportStatRange.value[0] || reportStatRange.value[1]) {
+    return `${formatRangeValue(reportStatRange.value[0]) || '开始'} ~ ${formatRangeValue(reportStatRange.value[1]) || '结束'}`
+  }
+  return '全部区间'
+})
 
 const filteredUnits = computed(() => {
   const rows = Array.isArray(report.value?.units) ? report.value.units : []
@@ -556,3 +678,137 @@ function returnColor(v: number | null | undefined): string {
   return v >= 0 ? 'text-green-500' : 'text-red-500'
 }
 </script>
+
+<style scoped>
+.report-overview-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+}
+
+.report-overview-panel__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.report-overview-panel__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.report-overview-panel__tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-unit-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.report-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-card {
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  text-align: center;
+}
+
+.summary-card__value {
+  font-size: 24px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.summary-card__label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.report-highlight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.highlight-card {
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.highlight-card.is-success {
+  border-color: #bbf7d0;
+  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+}
+
+.highlight-card.is-danger {
+  border-color: #fecaca;
+  background: linear-gradient(135deg, #ffffff 0%, #fef2f2 100%);
+}
+
+.highlight-card__label {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.highlight-card__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 14px;
+  color: #334155;
+}
+
+.report-table :deep(.el-table__header th) {
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+}
+
+.report-table :deep(.el-table__row:hover > td) {
+  background: #f8fbff !important;
+}
+
+@media (max-width: 1200px) {
+  .report-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .report-highlight-grid,
+  .report-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

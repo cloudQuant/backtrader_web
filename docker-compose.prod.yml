@@ -5,25 +5,30 @@
 #   docker compose -f docker-compose.prod.yml up -d
 #
 # Prerequisites:
-#   - Create .env file at project root (see scripts/docker_deploy.sh)
+#   - Create src/backend/.env (see scripts/docker_deploy.sh)
 #   - Docker Engine 24+ and Docker Compose v2
 ###############################################################################
 
 services:
-  # ========================= PostgreSQL =========================
-  postgres:
-    image: postgres:16-alpine
-    container_name: backtrader_postgres
+  # ========================= MySQL =========================
+  mysql:
+    image: mysql:8.0
+    container_name: backtrader_mysql
     restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-backtrader}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: ${POSTGRES_DB:-backtrader_web}
+      MYSQL_DATABASE: ${DB_NAME:-backtrader_web}
+      MYSQL_USER: ${DB_USER:-backtrader}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
       TZ: Asia/Shanghai
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ${MYSQL_DATA_DIR:-./runtime/mysql}:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-backtrader}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -37,7 +42,7 @@ services:
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
-      - redis_data:/data
+      - ${REDIS_DATA_DIR:-./runtime/redis}:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -49,8 +54,8 @@ services:
   # ========================= Backend API =========================
   backend:
     build:
-      context: ./src/backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/backend/Dockerfile
     container_name: backtrader_backend
     restart: unless-stopped
     environment:
@@ -59,8 +64,8 @@ services:
       DEBUG: "false"
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       # Database
-      DATABASE_TYPE: postgresql
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-backtrader}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-backtrader_web}
+      DATABASE_TYPE: mysql
+      DATABASE_URL: mysql+aiomysql://${DB_USER:-backtrader}:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-backtrader_web}
       # Redis
       REDIS_URL: redis://redis:6379/0
       # JWT
@@ -76,8 +81,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       # DB init (first startup)
-      DB_AUTO_CREATE_SCHEMA: "true"
-      DB_AUTO_CREATE_DEFAULT_ADMIN: "true"
+      DB_AUTO_CREATE_SCHEMA: ${DB_AUTO_CREATE_SCHEMA:-true}
+      DB_AUTO_CREATE_DEFAULT_ADMIN: ${DB_AUTO_CREATE_DEFAULT_ADMIN:-true}
       # Backtest
       BACKTEST_TIMEOUT: "300"
       # Akshare
@@ -87,19 +92,25 @@ services:
       # Timezone
       TZ: Asia/Shanghai
     volumes:
-      - backend_logs:/app/logs
-      - backend_data:/app/data
+      - ./data:/opt/workspace/backtrader_web/data
+      - ./datas:/opt/workspace/backtrader_web/datas
+      - ./strategies:/opt/workspace/backtrader_web/strategies
+      - ./workspace_units:/opt/workspace/backtrader_web/workspace_units
+      - ${BACKEND_LOGS_DIR:-./runtime/backend/logs}:/opt/workspace/backtrader_web/src/backend/logs
+      - ${BACKEND_APP_DATA_DIR:-./runtime/backend/data}:/opt/workspace/backtrader_web/src/backend/data
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "python -c \"import os, urllib.request; urllib.request.urlopen('http://localhost:{}/health'.format(os.environ.get('PORT', '8000')))\""]
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 40s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - backtrader
 
@@ -119,12 +130,6 @@ services:
         condition: service_healthy
     networks:
       - backtrader
-
-volumes:
-  postgres_data:
-  redis_data:
-  backend_logs:
-  backend_data:
 
 networks:
   backtrader:

@@ -23,7 +23,7 @@
 #   6. 保存凭据并输出访问信息
 #
 # 部署的服务:
-#   - PostgreSQL 16 (数据库)
+#   - MySQL 8 (数据库)
 #   - Redis 7 (缓存)
 #   - FastAPI Backend (API 服务)
 #   - Nginx + Vue 3 Frontend (Web 界面)
@@ -31,9 +31,10 @@
 # 部署后管理:
 #   查看状态:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml ps
 #   查看日志:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml logs -f
-#   重启服务:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml restart
+#   重启应用:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml restart backend frontend
+#   停止应用:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml stop backend frontend
 #   停止服务:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml down
-#   更新部署:  cd /opt/backtrader_web && git pull && docker compose -f docker-compose.prod.yml up -d --build
+#   更新部署:  cd /opt/backtrader_web && git pull && docker compose -f docker-compose.prod.yml build backend frontend && docker compose -f docker-compose.prod.yml up -d backend frontend
 ###############################################################################
 set -euo pipefail
 
@@ -45,6 +46,7 @@ GIT_BRANCH="${GIT_BRANCH:-dev}"
 
 # 安装目录
 INSTALL_DIR="${INSTALL_DIR:-/opt/backtrader_web}"
+ENV_FILE_RELATIVE_PATH="${ENV_FILE_RELATIVE_PATH:-src/backend/.env}"
 
 # 对外 HTTP 端口 (80 = 标准 HTTP)
 HTTP_PORT="${HTTP_PORT:-80}"
@@ -55,9 +57,18 @@ ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"    # 留空则自动生成
 ADMIN_EMAIL="${ADMIN_EMAIL:-admin@localhost}"
 
 # 数据库配置
-POSTGRES_USER="${POSTGRES_USER:-backtrader}"
-POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"   # 留空则自动生成
-POSTGRES_DB="${POSTGRES_DB:-backtrader_web}"
+DB_HOST="${DB_HOST:-mysql}"
+DB_PORT="${DB_PORT:-3306}"
+DB_USER="${DB_USER:-backtrader}"
+DB_PASSWORD="${DB_PASSWORD:-}"
+DB_NAME="${DB_NAME:-backtrader_web}"
+MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"
+MYSQL_DATA_DIR="${MYSQL_DATA_DIR:-./runtime/mysql}"
+REDIS_DATA_DIR="${REDIS_DATA_DIR:-./runtime/redis}"
+BACKEND_LOGS_DIR="${BACKEND_LOGS_DIR:-./runtime/backend/logs}"
+BACKEND_APP_DATA_DIR="${BACKEND_APP_DATA_DIR:-./runtime/backend/data}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
+NO_CACHE_BUILD="${NO_CACHE_BUILD:-false}"
 
 # 域名 (用于 CORS, 默认自动检测服务器 IP)
 SERVER_DOMAIN="${SERVER_DOMAIN:-}"
@@ -87,6 +98,23 @@ gen_password() {
         || head -c 24 /dev/urandom | base64 | tr -d '/+=' | head -c 16
 }
 
+read_env_value() {
+    local file="$1"
+    local key="$2"
+    [[ -f "$file" ]] || return 0
+    awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$file"
+}
+
+is_default_secret() {
+    local value="$1"
+    [[ -z "$value" || "$value" == "your-secret-key-change-in-production" || "$value" == "your-jwt-secret-change-in-production" ]]
+}
+
+is_default_admin_password() {
+    local value="$1"
+    [[ -z "$value" || "$value" == "admin123" || "$value" == "password" || "$value" == "12345678" ]]
+}
+
 # 检查 root 权限
 if [[ $EUID -ne 0 ]]; then
     log_error "请使用 root 权限运行: sudo $0"
@@ -111,17 +139,47 @@ if [[ -z "$SERVER_DOMAIN" ]]; then
 fi
 
 # 自动生成缺失的密码
-if [[ -z "$POSTGRES_PASSWORD" ]]; then
-    POSTGRES_PASSWORD=$(gen_password)
-    log_warn "自动生成 PostgreSQL 密码"
+EXISTING_SECRET_KEY=$(read_env_value "${INSTALL_DIR}/${ENV_FILE_RELATIVE_PATH}" "SECRET_KEY")
+EXISTING_JWT_SECRET_KEY=$(read_env_value "${INSTALL_DIR}/${ENV_FILE_RELATIVE_PATH}" "JWT_SECRET_KEY")
+EXISTING_ADMIN_PASSWORD=$(read_env_value "${INSTALL_DIR}/${ENV_FILE_RELATIVE_PATH}" "ADMIN_PASSWORD")
+EXISTING_DB_PASSWORD=$(read_env_value "${INSTALL_DIR}/${ENV_FILE_RELATIVE_PATH}" "DB_PASSWORD")
+EXISTING_MYSQL_ROOT_PASSWORD=$(read_env_value "${INSTALL_DIR}/${ENV_FILE_RELATIVE_PATH}" "MYSQL_ROOT_PASSWORD")
+
+if [[ -z "${DB_PASSWORD}" ]]; then
+    DB_PASSWORD="${EXISTING_DB_PASSWORD}"
 fi
-if [[ -z "$ADMIN_PASSWORD" ]]; then
+if [[ -z "${MYSQL_ROOT_PASSWORD}" ]]; then
+    MYSQL_ROOT_PASSWORD="${EXISTING_MYSQL_ROOT_PASSWORD}"
+fi
+if [[ -z "${ADMIN_PASSWORD}" ]]; then
+    ADMIN_PASSWORD="${EXISTING_ADMIN_PASSWORD}"
+fi
+if is_default_secret "${SECRET_KEY:-}"; then
+    if ! is_default_secret "${EXISTING_SECRET_KEY}"; then
+        SECRET_KEY="${EXISTING_SECRET_KEY}"
+    else
+        SECRET_KEY=$(gen_secret)
+    fi
+fi
+if is_default_secret "${JWT_SECRET_KEY:-}"; then
+    if ! is_default_secret "${EXISTING_JWT_SECRET_KEY}"; then
+        JWT_SECRET_KEY="${EXISTING_JWT_SECRET_KEY}"
+    else
+        JWT_SECRET_KEY=$(gen_secret)
+    fi
+fi
+if [[ -z "${DB_PASSWORD}" ]]; then
+    DB_PASSWORD=$(gen_password)
+    log_warn "自动生成 MySQL 应用密码"
+fi
+if [[ -z "${MYSQL_ROOT_PASSWORD}" ]]; then
+    MYSQL_ROOT_PASSWORD=$(gen_password)
+    log_warn "自动生成 MySQL Root 密码"
+fi
+if is_default_admin_password "${ADMIN_PASSWORD}"; then
     ADMIN_PASSWORD=$(gen_password)
     log_warn "自动生成管理员密码"
 fi
-
-SECRET_KEY=$(gen_secret)
-JWT_SECRET_KEY=$(gen_secret)
 
 ###############################################################################
 # 1. 安装 Docker
@@ -201,22 +259,37 @@ fi
 cd "${INSTALL_DIR}"
 log_info "项目版本: $(git log --oneline -1)"
 
+mkdir -p \
+    "${INSTALL_DIR}/runtime/mysql" \
+    "${INSTALL_DIR}/runtime/redis" \
+    "${INSTALL_DIR}/runtime/backend/logs" \
+    "${INSTALL_DIR}/runtime/backend/data" \
+    "${INSTALL_DIR}/workspace_units"
+
 ###############################################################################
 # 3. 生成配置
 ###############################################################################
 log_step "3/5 生成配置文件"
 
-ENV_FILE="${INSTALL_DIR}/.env"
+ENV_FILE="${INSTALL_DIR}/${ENV_FILE_RELATIVE_PATH}"
+mkdir -p "$(dirname "${ENV_FILE}")"
 
 cat > "${ENV_FILE}" <<EOF
 # ===== Backtrader Web Docker 配置 =====
 # 自动生成于 $(date '+%Y-%m-%d %H:%M:%S')
-# 此文件由 docker-compose.prod.yml 读取
+# 此文件由 docker compose --env-file ${ENV_FILE_RELATIVE_PATH} 读取
 
-# PostgreSQL
-POSTGRES_USER=${POSTGRES_USER}
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-POSTGRES_DB=${POSTGRES_DB}
+# MySQL
+DB_HOST=${DB_HOST}
+DB_PORT=${DB_PORT}
+DB_USER=${DB_USER}
+DB_PASSWORD=${DB_PASSWORD}
+DB_NAME=${DB_NAME}
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+MYSQL_DATA_DIR=${MYSQL_DATA_DIR}
+REDIS_DATA_DIR=${REDIS_DATA_DIR}
+BACKEND_LOGS_DIR=${BACKEND_LOGS_DIR}
+BACKEND_APP_DATA_DIR=${BACKEND_APP_DATA_DIR}
 
 # 安全密钥
 SECRET_KEY=${SECRET_KEY}
@@ -232,6 +305,8 @@ CORS_ORIGINS=http://localhost,http://127.0.0.1,http://${SERVER_DOMAIN}
 
 # 对外端口
 HTTP_PORT=${HTTP_PORT}
+DB_AUTO_CREATE_SCHEMA=true
+DB_AUTO_CREATE_DEFAULT_ADMIN=true
 EOF
 
 chmod 600 "${ENV_FILE}"
@@ -244,15 +319,18 @@ log_step "4/5 构建并启动 Docker 服务"
 
 cd "${INSTALL_DIR}"
 
-# 构建镜像
-log_info "构建 Docker 镜像 (首次构建需要较长时间)..."
-docker compose -f docker-compose.prod.yml build --no-cache
+log_info "启动基础服务 (MySQL/Redis)..."
+docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" up -d mysql redis
 
-# 停止旧容器 (如果存在)
-docker compose -f docker-compose.prod.yml down 2>/dev/null || true
+log_info "构建应用镜像..."
+if [[ "${NO_CACHE_BUILD}" == "true" ]]; then
+    docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" build --no-cache backend frontend
+else
+    docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" build backend frontend
+fi
 
-# 启动所有服务
-docker compose -f docker-compose.prod.yml up -d
+log_info "启动应用服务..."
+docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" up -d --remove-orphans backend frontend
 
 log_info "服务已启动"
 
@@ -270,14 +348,14 @@ for i in $(seq 1 $MAX_WAIT); do
     fi
     if [[ $i -eq $MAX_WAIT ]]; then
         log_warn "等待超时, 服务可能仍在启动中"
-        log_warn "请手动检查: docker compose -f docker-compose.prod.yml logs -f"
+        log_warn "请手动检查: docker compose -f ${COMPOSE_FILE} logs -f"
     fi
     sleep 1
 done
 
 # 显示容器状态
 echo ""
-docker compose -f docker-compose.prod.yml ps
+docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" ps
 
 ###############################################################################
 # 保存凭据
@@ -287,19 +365,16 @@ cat > "${CREDENTIALS_FILE}" <<EOF
 # Backtrader Web Docker 部署凭据 - 请妥善保管!
 # 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
 
-PostgreSQL 用户:      ${POSTGRES_USER}
-PostgreSQL 密码:      ${POSTGRES_PASSWORD}
-PostgreSQL 数据库:    ${POSTGRES_DB}
+MySQL 主机:          ${DB_HOST}
+MySQL 端口:          ${DB_PORT}
+MySQL 用户:          ${DB_USER}
+MySQL 密码:          ${DB_PASSWORD}
+MySQL 数据库:        ${DB_NAME}
+MySQL Root 密码:     ${MYSQL_ROOT_PASSWORD}
 
 管理员用户名:        ${ADMIN_USERNAME}
 管理员密码:          ${ADMIN_PASSWORD}
 管理员邮箱:          ${ADMIN_EMAIL}
-
-SECRET_KEY:          ${SECRET_KEY}
-JWT_SECRET_KEY:      ${JWT_SECRET_KEY}
-
-安装目录:            ${INSTALL_DIR}
-HTTP 端口:           ${HTTP_PORT}
 EOF
 chmod 600 "${CREDENTIALS_FILE}"
 
@@ -321,14 +396,15 @@ echo -e "  ${YELLOW}所有凭据已保存到: ${CREDENTIALS_FILE}${NC}"
 echo ""
 echo -e "  常用命令:"
 echo -e "    cd ${INSTALL_DIR}"
-echo -e "    查看状态:      docker compose -f docker-compose.prod.yml ps"
-echo -e "    查看日志:      docker compose -f docker-compose.prod.yml logs -f"
-echo -e "    查看后端日志:  docker compose -f docker-compose.prod.yml logs -f backend"
-echo -e "    重启服务:      docker compose -f docker-compose.prod.yml restart"
-echo -e "    停止服务:      docker compose -f docker-compose.prod.yml down"
+echo -e "    查看状态:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} ps"
+echo -e "    查看日志:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} logs -f"
+echo -e "    查看后端日志:  docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} logs -f backend"
+echo -e "    重启服务:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} restart backend frontend"
+echo -e "    停止应用:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} stop backend frontend"
+echo -e "    停止全部:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} down"
 echo ""
 echo -e "  更新部署:"
 echo -e "    cd ${INSTALL_DIR}"
 echo -e "    git pull origin ${GIT_BRANCH}"
-echo -e "    docker compose -f docker-compose.prod.yml up -d --build"
+echo -e "    docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} build backend frontend && docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} up -d backend frontend"
 echo ""

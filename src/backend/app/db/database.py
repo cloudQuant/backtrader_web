@@ -4,6 +4,7 @@ Database connection management.
 
 import logging
 
+import sqlalchemy as sa
 from sqlalchemy import insert, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
@@ -88,12 +89,141 @@ class Base(DeclarativeBase):
     pass
 
 
+def _has_table(bind, table_name: str) -> bool:
+    return sa.inspect(bind).has_table(table_name)
+
+
+def _get_column_names(bind, table_name: str) -> set[str]:
+    return {column["name"] for column in sa.inspect(bind).get_columns(table_name)}
+
+
+def _get_index_names(bind, table_name: str) -> set[str]:
+    return {index["name"] for index in sa.inspect(bind).get_indexes(table_name)}
+
+
+def _add_column_if_missing(bind, table_name: str, column_name: str, ddl: str) -> bool:
+    if not _has_table(bind, table_name):
+        return False
+    if column_name in _get_column_names(bind, table_name):
+        return False
+
+    bind.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {ddl}"))
+    logger.warning("Added missing database column %s.%s during startup schema sync", table_name, column_name)
+    return True
+
+
+def _ensure_index_if_missing(bind, table_name: str, index_name: str, column_name: str) -> None:
+    if not _has_table(bind, table_name):
+        return
+    if index_name in _get_index_names(bind, table_name):
+        return
+
+    metadata = sa.MetaData()
+    table = sa.Table(table_name, metadata, autoload_with=bind)
+    sa.Index(index_name, table.c[column_name]).create(bind=bind)
+    logger.warning("Added missing database index %s on %s(%s)", index_name, table_name, column_name)
+
+
+def _ensure_workspace_schema_compatibility_sync(bind) -> None:
+    dialect_name = bind.dialect.name
+    false_literal = "FALSE" if dialect_name == "postgresql" else "0"
+
+    if _has_table(bind, "workspaces"):
+        _add_column_if_missing(
+            bind,
+            "workspaces",
+            "workspace_type",
+            "workspace_type VARCHAR(32) NOT NULL DEFAULT 'research'",
+        )
+        _add_column_if_missing(
+            bind,
+            "workspaces",
+            "trading_config",
+            "trading_config JSON",
+        )
+        if "workspace_type" in _get_column_names(bind, "workspaces"):
+            bind.execute(
+                text("UPDATE workspaces SET workspace_type = 'research' WHERE workspace_type IS NULL")
+            )
+            _ensure_index_if_missing(
+                bind,
+                "workspaces",
+                "ix_workspaces_workspace_type",
+                "workspace_type",
+            )
+
+    if _has_table(bind, "strategy_units"):
+        _add_column_if_missing(
+            bind,
+            "strategy_units",
+            "trading_mode",
+            "trading_mode VARCHAR(20) NOT NULL DEFAULT 'paper'",
+        )
+        _add_column_if_missing(
+            bind,
+            "strategy_units",
+            "gateway_config",
+            "gateway_config JSON",
+        )
+        _add_column_if_missing(
+            bind,
+            "strategy_units",
+            "lock_trading",
+            f"lock_trading BOOLEAN NOT NULL DEFAULT {false_literal}",
+        )
+        _add_column_if_missing(
+            bind,
+            "strategy_units",
+            "lock_running",
+            f"lock_running BOOLEAN NOT NULL DEFAULT {false_literal}",
+        )
+        _add_column_if_missing(
+            bind,
+            "strategy_units",
+            "trading_instance_id",
+            "trading_instance_id VARCHAR(36)",
+        )
+        _add_column_if_missing(
+            bind,
+            "strategy_units",
+            "trading_snapshot",
+            "trading_snapshot JSON",
+        )
+
+        unit_columns = _get_column_names(bind, "strategy_units")
+        if "trading_mode" in unit_columns:
+            bind.execute(
+                text("UPDATE strategy_units SET trading_mode = 'paper' WHERE trading_mode IS NULL")
+            )
+        if "lock_trading" in unit_columns:
+            bind.execute(
+                text(
+                    f"UPDATE strategy_units SET lock_trading = {false_literal} "
+                    "WHERE lock_trading IS NULL"
+                )
+            )
+        if "lock_running" in unit_columns:
+            bind.execute(
+                text(
+                    f"UPDATE strategy_units SET lock_running = {false_literal} "
+                    "WHERE lock_running IS NULL"
+                )
+            )
+
+
+async def ensure_schema_compatibility() -> None:
+    """Patch legacy databases with columns required by the current ORM schema."""
+    async with engine.begin() as conn:
+        await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
+
+
 async def create_tables() -> None:
     """Create all ORM tables."""
     import app.models  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
 
 
 async def init_db():
@@ -116,6 +246,7 @@ async def ensure_database_ready() -> None:
         await create_tables()
     else:
         await verify_database_connection()
+        await ensure_schema_compatibility()
     if settings.DB_AUTO_CREATE_DEFAULT_ADMIN:
         await create_default_admin()
 

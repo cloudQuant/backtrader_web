@@ -245,6 +245,13 @@ def get_gateway_health(
     gateway_instance_ids: set[str] = set()
 
     for key, state in gateways.items():
+        if not isinstance(state, dict):
+            logger.warning(
+                "Skipping malformed gateway state for %s: expected dict, got %s",
+                key,
+                type(state).__name__,
+            )
+            continue
         runtime = state.get("runtime")
         if runtime is None:
             if state.get("manual"):
@@ -275,8 +282,25 @@ def get_gateway_health(
         results.append(snap)
         gateway_instance_ids.update(_normalize_instances(snap.get("instances")))
 
-    instances = load_instances()
+    try:
+        instances = load_instances()
+    except Exception as exc:
+        logger.warning("Failed to load live trading instances for gateway health: %s", exc)
+        return results
+    if not isinstance(instances, dict):
+        logger.warning(
+            "Skipping direct gateway health reconciliation: expected dict instances payload, got %s",
+            type(instances).__name__,
+        )
+        return results
     for instance_id, inst in instances.items():
+        if not isinstance(inst, dict):
+            logger.warning(
+                "Skipping malformed live trading instance %s: expected dict, got %s",
+                instance_id,
+                type(inst).__name__,
+            )
+            continue
         if instance_id in gateway_instance_ids:
             continue
         if inst.get("status") != "running":

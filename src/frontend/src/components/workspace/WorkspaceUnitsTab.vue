@@ -245,6 +245,7 @@
       v-model="showDataSource"
       :workspace-id="props.workspaceId"
       :unit="selectedUnit"
+      workspace-type="research"
       @saved="onUnitUpdated"
     />
 
@@ -253,6 +254,7 @@
       v-model="showUnitSettings"
       :workspace-id="props.workspaceId"
       :unit="selectedUnit"
+      workspace-type="research"
       @saved="onUnitUpdated"
     />
 
@@ -261,6 +263,7 @@
       v-model="showStrategyParams"
       :workspace-id="props.workspaceId"
       :unit="selectedUnit"
+      workspace-type="research"
       @saved="onUnitUpdated"
     />
 

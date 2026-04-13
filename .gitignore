@@ -65,6 +65,7 @@ src/frontend/test-results/
 # =====================================================
 .pids/
 logs/
+runtime/
 *.log
 *.db
 *.db-journal

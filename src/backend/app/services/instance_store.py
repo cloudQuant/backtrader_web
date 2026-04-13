@@ -9,7 +9,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-_DATA_DIR = Path(__file__).resolve().parents[4] / "data"
+from app.utils.backend_data_paths import get_backend_data_path
+
+_DATA_DIR = get_backend_data_path()
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
 
 

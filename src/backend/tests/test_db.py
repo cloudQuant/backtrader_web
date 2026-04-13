@@ -15,6 +15,7 @@ from app.db.database import (
     create_tables,
     engine,
     ensure_database_ready,
+    ensure_schema_compatibility,
     get_db,
     init_db,
 )
@@ -195,6 +196,120 @@ class TestDatabaseInitialization:
         assert create_tables_mock.await_count == 1
         assert verify_connection_mock.await_count == 0
         assert create_default_admin_mock.await_count == 1
+
+    async def test_ensure_schema_compatibility_upgrades_legacy_workspace_tables(self):
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+            await conn.execute(text("CREATE TABLE users (id VARCHAR(36) NOT NULL PRIMARY KEY)"))
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE workspaces (
+                        id VARCHAR(36) NOT NULL PRIMARY KEY,
+                        user_id VARCHAR(36) NOT NULL,
+                        name VARCHAR(200) NOT NULL,
+                        description TEXT,
+                        settings JSON,
+                        created_at DATETIME,
+                        updated_at DATETIME,
+                        FOREIGN KEY(user_id) REFERENCES users (id)
+                    )
+                    """
+                )
+            )
+            await conn.execute(text("CREATE INDEX ix_workspaces_user_id ON workspaces (user_id)"))
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE strategy_units (
+                        id VARCHAR(36) NOT NULL PRIMARY KEY,
+                        workspace_id VARCHAR(36) NOT NULL,
+                        group_name VARCHAR(200),
+                        strategy_id VARCHAR(100),
+                        strategy_name VARCHAR(200),
+                        symbol VARCHAR(50),
+                        symbol_name VARCHAR(200),
+                        timeframe VARCHAR(10),
+                        timeframe_n INTEGER,
+                        category VARCHAR(100),
+                        sort_order INTEGER,
+                        data_config JSON,
+                        unit_settings JSON,
+                        params JSON,
+                        optimization_config JSON,
+                        run_status VARCHAR(20),
+                        run_count INTEGER,
+                        last_run_time FLOAT,
+                        last_task_id VARCHAR(36),
+                        last_optimization_task_id VARCHAR(36),
+                        bar_count INTEGER,
+                        metrics_snapshot JSON,
+                        created_at DATETIME,
+                        updated_at DATETIME,
+                        FOREIGN KEY(workspace_id) REFERENCES workspaces (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            await conn.execute(
+                text("CREATE INDEX ix_strategy_units_workspace_id ON strategy_units (workspace_id)")
+            )
+            await conn.execute(text("INSERT INTO users (id) VALUES ('user-1')"))
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO workspaces (id, user_id, name, description, settings)
+                    VALUES ('ws-1', 'user-1', 'legacy workspace', NULL, '{}')
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO strategy_units (
+                        id, workspace_id, strategy_name, timeframe, timeframe_n, sort_order, run_status
+                    )
+                    VALUES ('unit-1', 'ws-1', 'legacy unit', '1d', 1, 0, 'idle')
+                    """
+                )
+            )
+
+        await ensure_schema_compatibility()
+
+        async with engine.begin() as conn:
+            workspace_columns = await conn.execute(text("PRAGMA table_info(workspaces)"))
+            unit_columns = await conn.execute(text("PRAGMA table_info(strategy_units)"))
+            workspace_column_names = {row[1] for row in workspace_columns.fetchall()}
+            unit_column_names = {row[1] for row in unit_columns.fetchall()}
+
+            assert {"workspace_type", "trading_config"} <= workspace_column_names
+            assert {
+                "trading_mode",
+                "gateway_config",
+                "lock_trading",
+                "lock_running",
+                "trading_instance_id",
+                "trading_snapshot",
+            } <= unit_column_names
+
+            workspace_type = await conn.execute(
+                text("SELECT workspace_type FROM workspaces WHERE id = 'ws-1'")
+            )
+            unit_state = await conn.execute(
+                text(
+                    """
+                    SELECT trading_mode, lock_trading, lock_running
+                    FROM strategy_units
+                    WHERE id = 'unit-1'
+                    """
+                )
+            )
+
+            assert workspace_type.scalar_one() == "research"
+            trading_mode, lock_trading, lock_running = unit_state.one()
+            assert trading_mode == "paper"
+            assert lock_trading in (0, False)
+            assert lock_running in (0, False)
 
 
 @pytest.mark.asyncio

@@ -40,8 +40,8 @@ services:
   # Backend API
   backend:
     build:
-      context: ./src/backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: src/backend/Dockerfile
     container_name: backtrader_backend_ci
     environment:
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@postgres:5432/test_db

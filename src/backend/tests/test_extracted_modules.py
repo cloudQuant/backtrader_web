@@ -1084,6 +1084,49 @@ class TestManualGatewayService:
         assert "simnow当前三组前置均不可达" in result["message"].lower() or "SimNow当前三组前置均不可达" in result["message"]
         assert gateways == {}
 
+    def test_connect_gateway_keeps_requested_simnow_front_when_proxy_tunnel_available(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            startup_timeout_sec = 10.0
+
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return cls()
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        logger = Mock()
+
+        with patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", return_value=False), patch.object(
+            manual_gateway_service,
+            "_wait_for_runtime_ready",
+        ), patch("app.services.ctp_tunnel.is_proxy_tunnel_needed", return_value=True):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="CTP",
+                credentials={
+                    "account_id": "089763",
+                    "broker_id": "9999",
+                    "user_id": "089763",
+                    "password": "secret",
+                    "td_front": "tcp://182.254.243.31:30001",
+                    "md_front": "tcp://182.254.243.31:30011",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=logger,
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["td_address"] == "tcp://182.254.243.31:30001"
+        assert runtime_kwargs["md_address"] == "tcp://182.254.243.31:30011"
+        logger.warning.assert_called()
+
     def test_connect_gateway_starts_okx_runtime(self):
         gateways: dict[str, dict] = {}
 

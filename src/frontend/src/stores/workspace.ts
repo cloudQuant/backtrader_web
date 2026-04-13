@@ -4,6 +4,7 @@ import { workspaceApi } from '@/api/workspace'
 import type {
   Workspace,
   WorkspaceCreate,
+  WorkspaceType,
   WorkspaceUpdate,
   StrategyUnit,
   StrategyUnitCreate,
@@ -78,10 +79,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   // Workspace CRUD
   // ------------------------------------------------------------------
 
-  async function fetchWorkspaces(skip = 0, limit = 50) {
+  async function fetchWorkspaces(skip = 0, limit = 50, workspaceType?: WorkspaceType) {
     loading.value = true
     try {
-      const res = await workspaceApi.list(skip, limit)
+      const res = await workspaceApi.list(skip, limit, workspaceType)
       workspaces.value = res.items
       total.value = res.total
     } finally {
@@ -153,6 +154,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const idx = units.value.findIndex(u => u.id === unitId)
     if (idx >= 0) units.value[idx] = unit
     return unit
+  }
+
+  async function patchUnits(workspaceId: string, unitIds: string[], data: StrategyUnitUpdate) {
+    const results = await Promise.all(unitIds.map(unitId => workspaceApi.updateUnit(workspaceId, unitId, data)))
+    const resultMap = new Map(results.map(unit => [unit.id, unit]))
+    units.value = units.value.map(unit => resultMap.get(unit.id) ?? unit)
+    return results
   }
 
   async function deleteUnit(workspaceId: string, unitId: string) {
@@ -251,6 +259,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           unit.run_count = s.run_count
           unit.last_run_time = s.last_run_time
           unit.bar_count = s.bar_count
+          unit.trading_instance_id = s.trading_instance_id
+          unit.trading_snapshot = s.trading_snapshot
+          unit.trading_mode = s.trading_mode
+          unit.lock_trading = s.lock_trading
+          unit.lock_running = s.lock_running
 
           // Bug8 protection: if local has a recently-started active optimization
           // but backend returns stale/terminal/null (e.g. because the submission
@@ -358,6 +371,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     createUnit,
     batchCreateUnits,
     updateUnit,
+    patchUnits,
     deleteUnit,
     bulkDeleteUnits,
     reorderUnits,

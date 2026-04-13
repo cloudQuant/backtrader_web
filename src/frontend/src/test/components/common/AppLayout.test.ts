@@ -127,7 +127,7 @@ describe('AppLayout', () => {
         { path: '/backtest', component: { template: '<div>Backtest</div>' } },
         { path: '/strategy', component: { template: '<div>Strategy</div>' } },
         { path: '/data', component: { template: '<div>Data</div>' } },
-        { path: '/live-trading', component: { template: '<div>LiveTrading</div>' } },
+        { path: '/trading', component: { template: '<div>Trading</div>' } },
         { path: '/portfolio', component: { template: '<div>Portfolio</div>' } },
         { path: '/settings', component: { template: '<div>Settings</div>' } },
         { path: '/login', component: { template: '<div>Login</div>' } },

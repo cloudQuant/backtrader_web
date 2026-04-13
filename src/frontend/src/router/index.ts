@@ -29,11 +29,13 @@ const routes: RouteRecordRaw[] = [
         path: 'backtest',
         name: 'Backtest',
         component: () => import('@/views/workspace/WorkspaceListPage.vue'),
+        meta: { workspaceType: 'research' },
       },
       {
         path: 'backtest/workspace/:id',
         name: 'BacktestWorkspaceDetail',
         component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
+        meta: { workspaceType: 'research' },
       },
       {
         path: 'backtest/legacy',
@@ -109,23 +111,19 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'simulate',
-        name: 'Simulate',
-        component: () => import('@/views/SimulatePage.vue'),
+        redirect: { name: 'TradingWorkspaceList' },
       },
       {
         path: 'simulate/:id',
-        name: 'SimulateDetail',
-        component: () => import('@/views/SimulateDetailPage.vue'),
+        redirect: to => ({ name: 'TradingWorkspaceDetail', params: { id: String(to.params.id ?? '') } }),
       },
       {
         path: 'live-trading',
-        name: 'LiveTrading',
-        component: () => import('@/views/LiveTradingPage.vue'),
+        redirect: { name: 'TradingWorkspaceList' },
       },
       {
         path: 'live-trading/:id',
-        name: 'LiveTradingDetail',
-        component: () => import('@/views/LiveTradingDetailPage.vue'),
+        redirect: to => ({ name: 'TradingWorkspaceDetail', params: { id: String(to.params.id ?? '') } }),
       },
       {
         path: 'gateways',
@@ -141,11 +139,25 @@ const routes: RouteRecordRaw[] = [
         path: 'workspace',
         name: 'WorkspaceList',
         component: () => import('@/views/workspace/WorkspaceListPage.vue'),
+        meta: { workspaceType: 'research' },
       },
       {
         path: 'workspace/:id',
         name: 'WorkspaceDetail',
         component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
+        meta: { workspaceType: 'research' },
+      },
+      {
+        path: 'trading',
+        name: 'TradingWorkspaceList',
+        component: () => import('@/views/workspace/WorkspaceListPage.vue'),
+        meta: { workspaceType: 'trading' },
+      },
+      {
+        path: 'trading/:id',
+        name: 'TradingWorkspaceDetail',
+        component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
+        meta: { workspaceType: 'trading' },
       },
       {
         path: 'portfolio',

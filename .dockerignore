@@ -5,6 +5,7 @@
 # Documentation
 docs/
 *.md
+!src/backend/README.md
 
 # Data files (large)
 datas/
@@ -45,6 +46,8 @@ Thumbs.db
 # BMAD
 _bmad/
 _bmad-output/
+workspace_units/
+runtime/
 
 # Test artifacts
 test-results/

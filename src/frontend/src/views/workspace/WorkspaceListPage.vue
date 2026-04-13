@@ -24,18 +24,15 @@
       </el-radio-group>
     </teleport>
 
-    <!-- Loading -->
     <div v-if="store.loading" class="flex justify-center py-20">
       <el-icon class="is-loading text-3xl text-blue-500"><Loading /></el-icon>
     </div>
 
-    <!-- Empty state -->
     <el-empty
       v-else-if="store.workspaces.length === 0"
-      description="暂无工作区，点击「新建工作区」开始策略研究"
+      :description="emptyDescription"
     />
 
-    <!-- Card view -->
     <el-row v-else-if="viewMode === 'card'" :gutter="16">
       <el-col
         v-for="ws in store.workspaces"
@@ -56,14 +53,13 @@
       </el-col>
     </el-row>
 
-    <!-- Table view -->
     <el-table
       v-else
       :data="store.workspaces"
-      @selection-change="onTableSelectionChange"
-      @row-click="(row: Workspace) => goToDetail(row.id)"
       stripe
       class="cursor-pointer"
+      @selection-change="onTableSelectionChange"
+      @row-click="(row: Workspace) => goToDetail(row.id)"
     >
       <el-table-column type="selection" width="50" />
       <el-table-column prop="name" label="名称" min-width="180" />
@@ -93,26 +89,27 @@
       </el-table-column>
     </el-table>
 
-    <!-- Create / Edit Dialog -->
     <CreateWorkspaceDialog
       v-model="showCreateDialog"
       :workspace="editingWorkspace"
+      :workspace-type="workspaceType"
       @saved="onSaved"
     />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Grid, List, Loading } from '@element-plus/icons-vue'
-import { useWorkspaceStore } from '@/stores/workspace'
+import { Delete, Grid, List, Loading, Plus } from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/api/index'
-import type { Workspace, ViewMode } from '@/types/workspace'
-import WorkspaceCard from '@/components/workspace/WorkspaceCard.vue'
+import { useWorkspaceStore } from '@/stores/workspace'
+import type { ViewMode, Workspace, WorkspaceType } from '@/types/workspace'
 import CreateWorkspaceDialog from '@/components/workspace/CreateWorkspaceDialog.vue'
+import WorkspaceCard from '@/components/workspace/WorkspaceCard.vue'
 
+const route = useRoute()
 const router = useRouter()
 const store = useWorkspaceStore()
 
@@ -121,45 +118,64 @@ const selectedIds = ref<string[]>([])
 const showCreateDialog = ref(false)
 const editingWorkspace = ref<Workspace | null>(null)
 
-onMounted(() => {
-  store.fetchWorkspaces()
-})
+const workspaceType = computed<WorkspaceType>(() =>
+  route.meta.workspaceType === 'trading' ? 'trading' : 'research'
+)
+
+const emptyDescription = computed(() =>
+  workspaceType.value === 'trading'
+    ? '暂无交易工作区，点击「新建工作区」开始策略交易'
+    : '暂无工作区，点击「新建工作区」开始策略研究'
+)
+
+watch(workspaceType, async (value) => {
+  selectedIds.value = []
+  await store.fetchWorkspaces(0, 50, value)
+}, { immediate: true })
 
 function goToDetail(id: string) {
-  router.push(`/backtest/workspace/${id}`)
+  if (workspaceType.value === 'trading') {
+    router.push(`/trading/${id}`)
+    return
+  }
+  if (route.path.startsWith('/backtest')) {
+    router.push(`/backtest/workspace/${id}`)
+    return
+  }
+  router.push(`/workspace/${id}`)
 }
 
 function toggleSelect(id: string) {
-  const idx = selectedIds.value.indexOf(id)
-  if (idx >= 0) {
-    selectedIds.value.splice(idx, 1)
+  const index = selectedIds.value.indexOf(id)
+  if (index >= 0) {
+    selectedIds.value.splice(index, 1)
   } else {
     selectedIds.value.push(id)
   }
 }
 
 function onTableSelectionChange(rows: Workspace[]) {
-  selectedIds.value = rows.map(r => r.id)
+  selectedIds.value = rows.map(row => row.id)
 }
 
-function handleEdit(ws: Workspace) {
-  editingWorkspace.value = ws
+function handleEdit(workspace: Workspace) {
+  editingWorkspace.value = workspace
   showCreateDialog.value = true
 }
 
-async function handleDelete(ws: Workspace) {
+async function handleDelete(workspace: Workspace) {
   try {
-    await ElMessageBox.confirm(`确认删除工作区「${ws.name}」？此操作不可撤销。`, '删除确认', {
+    await ElMessageBox.confirm(`确认删除工作区「${workspace.name}」？此操作不可撤销。`, '删除确认', {
       type: 'warning',
       confirmButtonText: '删除',
       cancelButtonText: '取消',
     })
-    await store.deleteWorkspace(ws.id)
-    selectedIds.value = selectedIds.value.filter(id => id !== ws.id)
+    await store.deleteWorkspace(workspace.id)
+    selectedIds.value = selectedIds.value.filter(id => id !== workspace.id)
     ElMessage.success('工作区已删除')
-  } catch (e: unknown) {
-    if (e !== 'cancel' && (e as { message?: string })?.message !== 'cancel') {
-      ElMessage.error(getErrorMessage(e, '删除失败'))
+  } catch (error: unknown) {
+    if (error !== 'cancel' && (error as { message?: string })?.message !== 'cancel') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
     }
   }
 }
@@ -175,9 +191,9 @@ async function handleBatchDelete() {
     }
     selectedIds.value = []
     ElMessage.success('已删除')
-  } catch (e: unknown) {
-    if (e !== 'cancel' && (e as { message?: string })?.message !== 'cancel') {
-      ElMessage.error(getErrorMessage(e, '删除失败'))
+  } catch (error: unknown) {
+    if (error !== 'cancel' && (error as { message?: string })?.message !== 'cancel') {
+      ElMessage.error(getErrorMessage(error, '删除失败'))
     }
   }
 }
@@ -185,7 +201,7 @@ async function handleBatchDelete() {
 function onSaved() {
   showCreateDialog.value = false
   editingWorkspace.value = null
-  store.fetchWorkspaces()
+  store.fetchWorkspaces(0, 50, workspaceType.value)
 }
 
 function statusTagType(status: string) {
@@ -209,7 +225,6 @@ function statusLabel(status: string) {
 }
 
 function formatTime(iso: string) {
-  if (!iso) return ''
-  return new Date(iso).toLocaleString('zh-CN')
+  return iso ? new Date(iso).toLocaleString('zh-CN') : ''
 }
 </script>

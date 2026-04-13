@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
+from app.utils.backend_data_paths import get_backend_data_path
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 # Persistent storage for custom symbols
 # ---------------------------------------------------------------------------
 
-_DATA_DIR = Path(__file__).resolve().parents[4] / "data"
+_DATA_DIR = get_backend_data_path()
 _CUSTOM_SYMBOLS_FILE = _DATA_DIR / "quote_custom_symbols.json"
 
 

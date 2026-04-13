@@ -23,6 +23,11 @@ import type {
   ApplyBestParamsRequest,
   OptimizationSubmitResult,
   OptimizationArtifactResponse,
+  WorkspaceType,
+  TradingAutoConfig,
+  TradingAutoScheduleItem,
+  TradingPositionManagerResponse,
+  TradingDailySummaryResponse,
 } from '@/types/workspace'
 
 export const workspaceApi = {
@@ -31,8 +36,14 @@ export const workspaceApi = {
     return api.post('/workspace/', data)
   },
 
-  async list(skip = 0, limit = 50): Promise<WorkspaceListResponse> {
-    return api.get('/workspace/', { params: { skip, limit } })
+  async list(skip = 0, limit = 50, workspaceType?: WorkspaceType): Promise<WorkspaceListResponse> {
+    return api.get('/workspace/', {
+      params: {
+        skip,
+        limit,
+        workspace_type: workspaceType,
+      },
+    })
   },
 
   async get(id: string): Promise<Workspace> {
@@ -100,6 +111,41 @@ export const workspaceApi = {
 
   async getUnitsStatus(workspaceId: string): Promise<UnitStatusResponse[]> {
     return api.get(`/workspace/${workspaceId}/status`)
+  },
+
+  async getTradingAutoConfig(workspaceId: string): Promise<TradingAutoConfig> {
+    return api.get(`/workspace/${workspaceId}/trading/auto-config`)
+  },
+
+  async updateTradingAutoConfig(
+    workspaceId: string,
+    data: Partial<TradingAutoConfig>,
+  ): Promise<TradingAutoConfig> {
+    return api.put(`/workspace/${workspaceId}/trading/auto-config`, data)
+  },
+
+  async getTradingAutoSchedule(workspaceId: string): Promise<TradingAutoScheduleItem[]> {
+    return api.get(`/workspace/${workspaceId}/trading/auto-schedule`)
+  },
+
+  async getTradingPositions(
+    workspaceId: string,
+    unitIds?: string[],
+  ): Promise<TradingPositionManagerResponse> {
+    return api.get(`/workspace/${workspaceId}/trading/positions`, {
+      params: unitIds?.length ? { unit_ids: unitIds.join(',') } : {},
+    })
+  },
+
+  async getTradingDailySummary(
+    workspaceId: string,
+    params?: {
+      unit_id?: string
+      start_date?: string
+      end_date?: string
+    },
+  ): Promise<TradingDailySummaryResponse> {
+    return api.get(`/workspace/${workspaceId}/trading/daily-summary`, { params })
   },
 
   // Optimization

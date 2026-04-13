@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -45,7 +46,9 @@ class Workspace(Base):
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     name = Column(String(200), nullable=False)
     description = Column(Text, nullable=True)
+    workspace_type = Column(String(32), nullable=False, default="research", index=True)
     settings = Column(JSON, default=dict)
+    trading_config = Column(JSON, default=dict)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,
@@ -116,6 +119,12 @@ class StrategyUnit(Base):
     unit_settings = Column(JSON, default=dict)
     params = Column(JSON, default=dict)
     optimization_config = Column(JSON, default=dict)
+    trading_mode = Column(String(20), nullable=False, default="paper")
+    gateway_config = Column(JSON, default=dict)
+    lock_trading = Column(Boolean, nullable=False, default=False)
+    lock_running = Column(Boolean, nullable=False, default=False)
+    trading_instance_id = Column(String(36), nullable=True)
+    trading_snapshot = Column(JSON, default=dict)
 
     # Run state
     run_status = Column(String(20), default="idle")

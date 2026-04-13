@@ -28,6 +28,11 @@ from app.services.live_trading_manager import (
 )
 
 
+@pytest.fixture(autouse=True)
+def disable_restore_background_thread(monkeypatch):
+    monkeypatch.setattr(LiveTradingManager, "_start_restore_manual_gateways_background", lambda self: None)
+
+
 class TestUtilityFunctions:
     """Tests for utility functions."""
 
@@ -185,6 +190,15 @@ class TestLiveTradingManagerInitialization:
                     # Should have saved updated status
                     mock_save.assert_called_once()
 
+    def test_initialization_starts_restore_thread(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch.object(
+            LiveTradingManager,
+            "_start_restore_manual_gateways_background",
+        ) as mock_start_restore:
+            LiveTradingManager()
+
+        mock_start_restore.assert_called_once()
+
 
 class TestGatewayLifecycle:
     def test_connect_gateway_persists_manual_gateway(self):
@@ -231,7 +245,8 @@ class TestGatewayLifecycle:
                         "message": "ok",
                     },
                 ) as mock_connect:
-                    LiveTradingManager()
+                    manager = LiveTradingManager()
+                    manager._restore_manual_gateways()
 
         mock_connect.assert_called_once()
         assert mock_connect.call_args.kwargs["exchange_type"] == "IB_WEB"
@@ -299,6 +314,39 @@ class TestGatewayLifecycle:
 
         assert result["status"] == "connected"
         mock_quote_service.return_value.resume_auto_connect.assert_called_once_with("MT5")
+
+    def test_connect_gateway_returns_error_result_when_manual_service_raises(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
+            "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
+            side_effect=RuntimeError("boom"),
+        ), patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]):
+            manager = LiveTradingManager()
+            result = manager.connect_gateway("OKX", {"api_key": "k", "secret_key": "s"})
+
+        assert result["status"] == "error"
+        assert "OKX连接失败" in result["message"]
+        assert "RuntimeError: boom" in result["message"]
+
+    def test_connect_gateway_reports_persist_failure_without_raising(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
+            "app.services.live_trading_manager._load_manual_gateways",
+            return_value=[],
+        ), patch(
+            "app.services.live_trading_manager._save_manual_gateways",
+            side_effect=OSError("disk full"),
+        ), patch(
+            "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
+            return_value={
+                "gateway_key": "manual:MT5:123456",
+                "status": "connected",
+                "message": "ok",
+            },
+        ):
+            manager = LiveTradingManager()
+            result = manager.connect_gateway("MT5", {"login": 123456, "password": "secret"})
+
+        assert result["status"] == "connected"
+        assert "本地保存失败" in result["message"]
 
     def test_build_subprocess_env_with_gateway(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
@@ -728,6 +776,16 @@ class TestGatewayLifecycle:
                 "message": "Adapter failed to connect after 3 attempts for CTP",
             }
         ]
+
+    def test_get_gateway_health_returns_empty_list_when_health_service_raises(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
+            "app.services.live_trading_manager.gateway_health_service.get_gateway_health",
+            side_effect=RuntimeError("boom"),
+        ):
+            manager = LiveTradingManager()
+            result = manager.get_gateway_health()
+
+        assert result == []
 
 
 class TestListInstances:

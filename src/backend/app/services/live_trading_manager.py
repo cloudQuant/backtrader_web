@@ -11,6 +11,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +46,7 @@ from app.types.live_trading import (
     StartResult,
     StopResult,
 )
+from app.utils.backend_data_paths import get_backend_data_path
 
 try:
     from loguru import logger  # type: ignore[import-untyped]  # loguru lacks py.typed marker
@@ -54,7 +56,7 @@ except ImportError:
 _WORKSPACE_DIR = Path(__file__).resolve().parents[5]
 _BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
 _BT_API_PY_DIR = _WORKSPACE_DIR / "bt_api_py"
-_DATA_DIR = Path(__file__).resolve().parents[4] / "data"
+_DATA_DIR = get_backend_data_path()
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
 _MANUAL_GATEWAYS_FILE = _DATA_DIR / "manual_gateways.json"
 
@@ -124,6 +126,23 @@ def _save_manual_gateways(data: list[dict[str, Any]]) -> None:
     )
 
 
+def _build_gateway_connect_error_result(
+    exchange_type: str,
+    exc: Exception,
+) -> ConnectResult:
+    normalized = str(exchange_type or "gateway").strip().upper() or "GATEWAY"
+    message = str(exc).strip()
+    if message:
+        message = f"{normalized}连接失败: {type(exc).__name__}: {message}"
+    else:
+        message = f"{normalized}连接失败: {type(exc).__name__}"
+    return {
+        "gateway_key": "",
+        "status": "error",
+        "message": message,
+    }
+
+
 def _find_latest_log_dir(strategy_dir: Path) -> str | None:
     """Find the latest log directory for a strategy.
 
@@ -177,9 +196,11 @@ class LiveTradingManager:
         self._gateways: dict[str, GatewayData] = {}
         self._instance_gateways: dict[str, str] = {}
         self._stopping_instances: set[str] = set()
+        self._gateway_lock = threading.RLock()
+        self._restore_thread: threading.Thread | None = None
         # Sync process status on startup
         self._sync_status_on_boot()
-        self._restore_manual_gateways()
+        self._start_restore_manual_gateways_background()
 
     def _sync_status_on_boot(self) -> None:
         live_instance_service.sync_status_on_boot(
@@ -202,30 +223,41 @@ class LiveTradingManager:
         )
 
     def get_gateway_health(self) -> list[HealthStatus]:
-        return gateway_health_service.get_gateway_health(
-            gateways=self._gateways,
-            load_instances=_load_instances,
-            is_pid_alive=_is_pid_alive,
-            resolve_strategy_dir=self._resolve_strategy_dir,
-            load_strategy_config=self._load_strategy_config,
-            load_strategy_env=self._load_strategy_env,
-        )
+        with self._gateway_lock:
+            gateways = dict(self._gateways)
+        try:
+            return gateway_health_service.get_gateway_health(
+                gateways=gateways,
+                load_instances=_load_instances,
+                is_pid_alive=_is_pid_alive,
+                resolve_strategy_dir=self._resolve_strategy_dir,
+                load_strategy_config=self._load_strategy_config,
+                load_strategy_env=self._load_strategy_env,
+            )
+        except Exception:
+            logger.exception("Failed to collect gateway health snapshots")
+            return []
 
     def connect_gateway(
         self, exchange_type: str, credentials: GatewayCredentials
     ) -> ConnectResult:
         normalized_exchange_type = self._normalize_gateway_exchange_type(exchange_type)
-        result = manual_gateway_service.connect_gateway(
-            gateways=self._gateways,
-            exchange_type=exchange_type,
-            credentials=credentials,
-            normalize_exchange_type=self._normalize_gateway_exchange_type,
-            coerce_bool=self._coerce_bool,
-            coerce_float=self._coerce_float,
-            import_gateway_runtime_classes=self._import_gateway_runtime_classes,
-            default_transport=_DEFAULT_TRANSPORT,
-            logger=logger,
-        )
+        try:
+            with self._gateway_lock:
+                result = manual_gateway_service.connect_gateway(
+                    gateways=self._gateways,
+                    exchange_type=exchange_type,
+                    credentials=credentials,
+                    normalize_exchange_type=self._normalize_gateway_exchange_type,
+                    coerce_bool=self._coerce_bool,
+                    coerce_float=self._coerce_float,
+                    import_gateway_runtime_classes=self._import_gateway_runtime_classes,
+                    default_transport=_DEFAULT_TRANSPORT,
+                    logger=logger,
+                )
+        except Exception as exc:
+            logger.exception("Unhandled exception while connecting gateway %s", normalized_exchange_type)
+            return _build_gateway_connect_error_result(normalized_exchange_type, exc)
         if result.get("status") != "error":
             gateway_key = str(result.get("gateway_key") or "").strip()
             if normalized_exchange_type == "MT5":
@@ -235,7 +267,13 @@ class LiveTradingManager:
                     QuoteService().resume_auto_connect("MT5")
                 except Exception:
                     logger.debug("Failed to resume MT5 auto-connect after manual connect", exc_info=True)
-            self._persist_manual_gateway(gateway_key, normalized_exchange_type, credentials)
+            try:
+                self._persist_manual_gateway(gateway_key, normalized_exchange_type, credentials)
+            except Exception:
+                logger.exception("Failed to persist manual gateway %s", gateway_key)
+                message = str(result.get("message") or "").strip() or "网关已连接"
+                result = dict(result)
+                result["message"] = f"{message}；本地保存失败，重启后需要重新连接"
         return result
 
     def _connect_ctp_gateway(
@@ -276,16 +314,20 @@ class LiveTradingManager:
         )
 
     def query_gateway_account(self, gateway_key: str) -> dict[str, str | float] | None:
-        return manual_gateway_service.query_gateway_account(self._gateways, gateway_key)
+        with self._gateway_lock:
+            return manual_gateway_service.query_gateway_account(self._gateways, gateway_key)
 
     def query_gateway_positions(self, gateway_key: str) -> list[dict[str, str | float]]:
-        return manual_gateway_service.query_gateway_positions(self._gateways, gateway_key)
+        with self._gateway_lock:
+            return manual_gateway_service.query_gateway_positions(self._gateways, gateway_key)
 
     def list_connected_gateways(self) -> list[GatewayData]:
-        return manual_gateway_service.list_connected_gateways(self._gateways)
+        with self._gateway_lock:
+            return manual_gateway_service.list_connected_gateways(self._gateways)
 
     def disconnect_gateway(self, gateway_key: str) -> OperationResult:
-        result = manual_gateway_service.disconnect_gateway(self._gateways, gateway_key)
+        with self._gateway_lock:
+            result = manual_gateway_service.disconnect_gateway(self._gateways, gateway_key)
         if result.get("status") != "error":
             normalized_gateway_key = str(gateway_key or "").strip()
             if normalized_gateway_key.startswith("manual:MT5:"):
@@ -301,7 +343,12 @@ class LiveTradingManager:
                 logger.exception("Failed to remove persisted manual gateway %s", gateway_key)
         return result
 
+    def _start_restore_manual_gateways_background(self) -> None:
+        self._restore_thread = threading.Thread(target=self._restore_manual_gateways, daemon=True)
+        self._restore_thread.start()
+
     def _restore_manual_gateways(self) -> None:
+        restored_gateways: dict[str, GatewayData] = {}
         for entry in _load_manual_gateways():
             exchange_type = str(entry.get("exchange_type") or "").strip()
             credentials = entry.get("credentials")
@@ -309,7 +356,7 @@ class LiveTradingManager:
             if not exchange_type or not isinstance(credentials, dict):
                 continue
             result = manual_gateway_service.connect_gateway(
-                gateways=self._gateways,
+                gateways=restored_gateways,
                 exchange_type=exchange_type,
                 credentials=credentials,
                 normalize_exchange_type=self._normalize_gateway_exchange_type,
@@ -327,6 +374,10 @@ class LiveTradingManager:
                     target,
                     result.get("message", "unknown error"),
                 )
+        if restored_gateways:
+            with self._gateway_lock:
+                for key, state in restored_gateways.items():
+                    self._gateways.setdefault(key, state)
 
     def _persist_manual_gateway(
         self,

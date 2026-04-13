@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    :title="isEdit ? '编辑工作区' : '新建工作区'"
+    :title="dialogTitle"
     width="480px"
     @update:model-value="$emit('update:modelValue', $event)"
     @closed="resetForm"
@@ -31,16 +31,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import type { FormInstance, FormRules } from 'element-plus'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useWorkspaceStore } from '@/stores/workspace'
+import type { FormInstance, FormRules } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
-import type { Workspace } from '@/types/workspace'
+import { useWorkspaceStore } from '@/stores/workspace'
+import type { Workspace, WorkspaceType } from '@/types/workspace'
 
 const props = defineProps<{
   modelValue: boolean
   workspace?: Workspace | null
+  workspaceType?: WorkspaceType
 }>()
 
 const emit = defineEmits<{
@@ -58,6 +59,13 @@ const form = ref({
 })
 
 const isEdit = computed(() => !!props.workspace)
+const targetWorkspaceType = computed<WorkspaceType>(() =>
+  props.workspace?.workspace_type ?? props.workspaceType ?? 'research'
+)
+const dialogTitle = computed(() => {
+  const label = targetWorkspaceType.value === 'trading' ? '交易工作区' : '工作区'
+  return isEdit.value ? `编辑${label}` : `新建${label}`
+})
 
 const rules: FormRules = {
   name: [
@@ -66,10 +74,10 @@ const rules: FormRules = {
   ],
 }
 
-watch(() => props.workspace, (ws) => {
-  if (ws) {
-    form.value.name = ws.name
-    form.value.description = ws.description || ''
+watch(() => props.workspace, (workspace) => {
+  if (workspace) {
+    form.value.name = workspace.name
+    form.value.description = workspace.description || ''
   }
 }, { immediate: true })
 
@@ -94,12 +102,13 @@ async function handleSubmit() {
       await store.createWorkspace({
         name: form.value.name,
         description: form.value.description || undefined,
+        workspace_type: targetWorkspaceType.value,
       })
       ElMessage.success('工作区已创建')
     }
     emit('saved')
-  } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '操作失败'))
+  } catch (error: unknown) {
+    ElMessage.error(getErrorMessage(error, '操作失败'))
   } finally {
     submitting.value = false
   }

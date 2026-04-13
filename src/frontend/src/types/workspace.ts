@@ -7,6 +7,8 @@ export type UnitRunStatus = 'idle' | 'queued' | 'running' | 'completed' | 'faile
 export type WorkspaceStatus = 'idle' | 'running' | 'completed' | 'error'
 export type ViewMode = 'card' | 'table'
 export type WorkspaceDataSourceType = 'csv' | 'mysql' | 'postgresql' | 'mongodb'
+export type WorkspaceType = 'research' | 'trading'
+export type TradingMode = 'paper' | 'live'
 
 export interface WorkspaceDataSourceConfig {
   type: WorkspaceDataSourceType
@@ -47,6 +49,101 @@ export interface WorkspaceSettings extends Record<string, unknown> {
   data_source?: WorkspaceDataSourceConfig
 }
 
+export interface GatewayConfig {
+  preset_id?: string | null
+  name?: string | null
+  params?: Record<string, unknown>
+}
+
+export interface TradingPosition {
+  data_name: string
+  direction: string
+  size: number
+  price: number | null
+  current_price: number | null
+  market_value: number | null
+  pnl: number | null
+}
+
+export interface TradingSnapshot {
+  instance_id: string | null
+  instance_status: string
+  mode: TradingMode
+  error: string | null
+  started_at: string | null
+  stopped_at: string | null
+  gateway_summary: string | null
+  long_position: number
+  short_position: number
+  today_pnl: number | null
+  position_pnl: number | null
+  latest_price: number | null
+  change_pct: number | null
+  long_market_value: number | null
+  short_market_value: number | null
+  leverage: number | null
+  cumulative_pnl: number | null
+  max_drawdown_rate: number | null
+  trading_day: string | null
+  updated_at: string | null
+  detail_route: string | null
+  positions: TradingPosition[]
+}
+
+export interface TradingAutoSession {
+  name: string
+  open: string
+  close: string
+}
+
+export interface TradingAutoConfig {
+  enabled: boolean
+  buffer_minutes: number
+  sessions: TradingAutoSession[]
+  scope: string
+}
+
+export interface TradingAutoScheduleItem {
+  session: string
+  start: string
+  stop: string
+  market_open?: string | null
+  market_close?: string | null
+}
+
+export interface TradingPositionManagerItem {
+  unit_id: string
+  unit_name: string
+  symbol: string
+  symbol_name: string | null
+  trading_mode: TradingMode
+  long_position: number
+  short_position: number
+  avg_price: number | null
+  latest_price: number | null
+  position_pnl: number
+  market_value: number
+}
+
+export interface TradingPositionManagerResponse {
+  positions: TradingPositionManagerItem[]
+  total_long_value: number
+  total_short_value: number
+  total_pnl: number
+}
+
+export interface TradingDailySummaryItem {
+  trading_date: string
+  daily_pnl: number
+  trade_count: number
+  cumulative_pnl: number
+  max_drawdown: number
+}
+
+export interface TradingDailySummaryResponse {
+  summaries: TradingDailySummaryItem[]
+}
+
 // ---------------------------------------------------------------------------
 // Workspace
 // ---------------------------------------------------------------------------
@@ -56,7 +153,9 @@ export interface Workspace {
   user_id: string
   name: string
   description: string | null
+  workspace_type: WorkspaceType
   settings: WorkspaceSettings
+  trading_config: Record<string, unknown>
   unit_count: number
   completed_count: number
   status: WorkspaceStatus
@@ -67,13 +166,17 @@ export interface Workspace {
 export interface WorkspaceCreate {
   name: string
   description?: string
+  workspace_type?: WorkspaceType
   settings?: WorkspaceSettings
+  trading_config?: Record<string, unknown>
 }
 
 export interface WorkspaceUpdate {
   name?: string
   description?: string
+  workspace_type?: WorkspaceType
   settings?: WorkspaceSettings
+  trading_config?: Record<string, unknown>
 }
 
 export interface WorkspaceListResponse {
@@ -101,6 +204,12 @@ export interface StrategyUnit {
   unit_settings: Record<string, unknown>
   params: Record<string, unknown>
   optimization_config: Record<string, unknown>
+  trading_mode: TradingMode
+  gateway_config: GatewayConfig
+  lock_trading: boolean
+  lock_running: boolean
+  trading_instance_id: string | null
+  trading_snapshot: TradingSnapshot
   run_status: UnitRunStatus
   run_count: number
   last_run_time: number | null
@@ -134,6 +243,11 @@ export interface StrategyUnitCreate {
   unit_settings?: Record<string, unknown>
   params?: Record<string, unknown>
   optimization_config?: Record<string, unknown>
+  trading_mode?: TradingMode
+  gateway_config?: GatewayConfig
+  lock_trading?: boolean
+  lock_running?: boolean
+  trading_snapshot?: Partial<TradingSnapshot>
 }
 
 export interface StrategyUnitUpdate {
@@ -149,6 +263,12 @@ export interface StrategyUnitUpdate {
   unit_settings?: Record<string, unknown>
   params?: Record<string, unknown>
   optimization_config?: Record<string, unknown>
+  trading_mode?: TradingMode
+  gateway_config?: GatewayConfig
+  lock_trading?: boolean
+  lock_running?: boolean
+  trading_instance_id?: string | null
+  trading_snapshot?: Partial<TradingSnapshot>
 }
 
 export interface StrategyUnitListResponse {
@@ -205,6 +325,11 @@ export interface UnitStatusResponse {
   run_count: number
   last_run_time: number | null
   bar_count: number | null
+  trading_instance_id: string | null
+  trading_snapshot: TradingSnapshot
+  trading_mode: TradingMode
+  lock_trading: boolean
+  lock_running: boolean
   opt_status: string | null
   opt_total: number | null
   opt_completed: number | null

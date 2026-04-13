@@ -857,6 +857,16 @@ def _resolve_ctp_front_pair(td_front: str, md_front: str, logger) -> tuple[str, 
                 )
             return candidate["td_front"], candidate["md_front"]
 
+    from app.services.ctp_tunnel import is_proxy_tunnel_needed
+
+    if is_proxy_tunnel_needed():
+        logger.warning(
+            "All current CTP SimNow fronts failed raw TCP reachability checks; "
+            "continuing with requested front because proxy tunnel fallback is available: %s",
+            "; ".join(status_messages),
+        )
+        return requested["td_front"], requested["md_front"]
+
     raise ConnectionError("CTP SimNow当前三组前置均不可达: " + "; ".join(status_messages))
 
 

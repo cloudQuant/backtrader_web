@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.trading import TradingGatewayConfig, TradingSnapshot
+
 # ---------------------------------------------------------------------------
 # Workspace schemas
 # ---------------------------------------------------------------------------
@@ -17,7 +19,9 @@ class WorkspaceCreate(BaseModel):
 
     name: str = Field(..., max_length=200, description="Workspace name")
     description: str | None = Field(None, max_length=500, description="Description")
+    workspace_type: str = Field("research", description="Workspace type: research/trading")
     settings: dict[str, Any] = Field(default_factory=dict, description="Settings JSON")
+    trading_config: dict[str, Any] = Field(default_factory=dict, description="Trading settings JSON")
 
 
 class WorkspaceUpdate(BaseModel):
@@ -25,7 +29,9 @@ class WorkspaceUpdate(BaseModel):
 
     name: str | None = Field(None, max_length=200)
     description: str | None = Field(None, max_length=500)
+    workspace_type: str | None = None
     settings: dict[str, Any] | None = None
+    trading_config: dict[str, Any] | None = None
 
 
 class WorkspaceResponse(BaseModel):
@@ -35,7 +41,9 @@ class WorkspaceResponse(BaseModel):
     user_id: str
     name: str
     description: str | None = None
+    workspace_type: str = "research"
     settings: dict[str, Any] = Field(default_factory=dict)
+    trading_config: dict[str, Any] = Field(default_factory=dict)
     unit_count: int = 0
     completed_count: int = 0
     status: str = "idle"
@@ -72,6 +80,11 @@ class StrategyUnitCreate(BaseModel):
     unit_settings: dict[str, Any] = Field(default_factory=dict)
     params: dict[str, Any] = Field(default_factory=dict)
     optimization_config: dict[str, Any] = Field(default_factory=dict)
+    trading_mode: str = Field("paper", description="Trading mode: paper/live")
+    gateway_config: TradingGatewayConfig | dict[str, Any] = Field(default_factory=dict)
+    lock_trading: bool = False
+    lock_running: bool = False
+    trading_snapshot: TradingSnapshot | dict[str, Any] = Field(default_factory=dict)
 
 
 class StrategyUnitBatchCreate(BaseModel):
@@ -95,6 +108,12 @@ class StrategyUnitUpdate(BaseModel):
     unit_settings: dict[str, Any] | None = None
     params: dict[str, Any] | None = None
     optimization_config: dict[str, Any] | None = None
+    trading_mode: str | None = None
+    gateway_config: TradingGatewayConfig | dict[str, Any] | None = None
+    lock_trading: bool | None = None
+    lock_running: bool | None = None
+    trading_instance_id: str | None = None
+    trading_snapshot: TradingSnapshot | dict[str, Any] | None = None
 
 
 class StrategyUnitResponse(BaseModel):
@@ -115,6 +134,12 @@ class StrategyUnitResponse(BaseModel):
     unit_settings: dict[str, Any] = Field(default_factory=dict)
     params: dict[str, Any] = Field(default_factory=dict)
     optimization_config: dict[str, Any] = Field(default_factory=dict)
+    trading_mode: str = "paper"
+    gateway_config: dict[str, Any] = Field(default_factory=dict)
+    lock_trading: bool = False
+    lock_running: bool = False
+    trading_instance_id: str | None = None
+    trading_snapshot: dict[str, Any] = Field(default_factory=dict)
     run_status: str = "idle"
     run_count: int = 0
     last_run_time: float | None = None
@@ -209,6 +234,11 @@ class UnitStatusResponse(BaseModel):
     run_count: int = 0
     last_run_time: float | None = None
     bar_count: int | None = None
+    trading_instance_id: str | None = None
+    trading_snapshot: dict[str, Any] = Field(default_factory=dict)
+    trading_mode: str = "paper"
+    lock_trading: bool = False
+    lock_running: bool = False
     # Optimization progress (filled during polling)
     opt_status: str | None = None
     opt_total: int | None = None

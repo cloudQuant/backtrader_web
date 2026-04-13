@@ -87,4 +87,20 @@ describe('liveTradingApi', () => {
     await liveTradingApi.stopAll()
     expect(request.post).toHaveBeenCalledWith('/live-trading/stop-all')
   })
+
+  it('connectGateway uses extended timeout', async () => {
+    vi.mocked(request.post).mockResolvedValue({ gateway_key: 'manual:CTP:089763', status: 'connected', message: 'ok' })
+    await liveTradingApi.connectGateway({
+      exchange_type: 'CTP',
+      credentials: { user_id: '089763' },
+    })
+    expect(request.post).toHaveBeenCalledWith(
+      '/live-trading/gateways/connect',
+      {
+        exchange_type: 'CTP',
+        credentials: { user_id: '089763' },
+      },
+      { timeout: 120000 },
+    )
+  })
 })

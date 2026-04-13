@@ -40,13 +40,13 @@ from app.services.optimization_execution_manager import get_optimization_executi
 from app.services.optimization_task_state import (
     build_results_response,
     estimate_remaining_seconds,
-    get_runtime_task,
 )
 from app.services.param_optimization_service import (
     get_optimization_progress,
     get_optimization_results,
     submit_optimization,
 )
+from app.services.trading_workspace_service import TradingWorkspaceService
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,19 @@ def _default_workspace_settings() -> dict[str, Any]:
             },
         }
     }
+
+
+def _normalize_workspace_type(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return "trading" if text == "trading" else "research"
+
+
+def _is_trading_workspace(value: Any) -> bool:
+    return _normalize_workspace_type(value) == "trading"
+
+
+def _normalize_workspace_trading_config(config: dict[str, Any] | None) -> dict[str, Any]:
+    return dict(config) if isinstance(config, dict) else {}
 
 
 def _normalize_workspace_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
@@ -189,7 +202,9 @@ def _workspace_to_response(ws: Workspace) -> WorkspaceResponse:
         user_id=ws.user_id,
         name=ws.name,
         description=ws.description,
+        workspace_type=_normalize_workspace_type(getattr(ws, "workspace_type", None)),
         settings=_normalize_workspace_settings(ws.settings),
+        trading_config=_normalize_workspace_trading_config(getattr(ws, "trading_config", None)),
         unit_count=len(units),
         completed_count=completed_count,
         status=_aggregate_workspace_status(units),
@@ -200,6 +215,9 @@ def _workspace_to_response(ws: Workspace) -> WorkspaceResponse:
 
 class WorkspaceService:
     """Service for workspace and strategy unit management."""
+
+    def __init__(self) -> None:
+        self.trading_service = TradingWorkspaceService()
 
     @staticmethod
     def _requested_bar_count(unit: StrategyUnit) -> int | None:
@@ -758,7 +776,9 @@ class WorkspaceService:
                 user_id=user_id,
                 name=data.name,
                 description=data.description,
+                workspace_type=_normalize_workspace_type(data.workspace_type),
                 settings=_normalize_workspace_settings(data.settings),
+                trading_config=_normalize_workspace_trading_config(data.trading_config),
             )
             session.add(ws)
             await session.commit()
@@ -778,10 +798,16 @@ class WorkspaceService:
         user_id: str,
         skip: int = 0,
         limit: int = 50,
+        workspace_type: str | None = None,
     ) -> tuple[int, list[WorkspaceResponse]]:
         async with async_session_maker() as session:
+            normalized_workspace_type = (
+                _normalize_workspace_type(workspace_type) if workspace_type else None
+            )
             # Count
             count_q = select(func.count()).select_from(Workspace).where(Workspace.user_id == user_id)
+            if normalized_workspace_type:
+                count_q = count_q.where(Workspace.workspace_type == normalized_workspace_type)
             total = (await session.execute(count_q)).scalar() or 0
 
             # Fetch with units eagerly loaded
@@ -793,6 +819,8 @@ class WorkspaceService:
                 .offset(skip)
                 .limit(limit)
             )
+            if normalized_workspace_type:
+                q = q.where(Workspace.workspace_type == normalized_workspace_type)
             result = await session.execute(q)
             workspaces = list(result.scalars().unique().all())
             return total, [_workspace_to_response(ws) for ws in workspaces]
@@ -822,12 +850,19 @@ class WorkspaceService:
                                 merged_data_source[source_key] = source_value
                         existing["data_source"] = merged_data_source
                     ws.settings = existing
+                elif key == "workspace_type":
+                    ws.workspace_type = _normalize_workspace_type(value)
+                elif key == "trading_config" and isinstance(value, dict):
+                    existing = _normalize_workspace_trading_config(ws.trading_config)
+                    existing.update(value)
+                    ws.trading_config = existing
                 else:
                     setattr(ws, key, value)
             await session.commit()
             await session.refresh(ws, attribute_names=["strategy_units"])
-            for unit in ws.strategy_units or []:
-                workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
+            if not _is_trading_workspace(ws.workspace_type):
+                for unit in ws.strategy_units or []:
+                    workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
             return _workspace_to_response(ws)
 
     async def delete_workspace(self, workspace_id: str, user_id: str) -> bool:
@@ -874,11 +909,25 @@ class WorkspaceService:
                 unit_settings=data.unit_settings,
                 params=data.params,
                 optimization_config=data.optimization_config,
+                trading_mode=self.trading_service.normalize_trading_mode(data.trading_mode),
+                gateway_config=self.trading_service.normalize_gateway_config(
+                    data.gateway_config.model_dump()
+                    if hasattr(data.gateway_config, "model_dump")
+                    else cast(dict[str, Any], data.gateway_config)
+                ),
+                lock_trading=bool(data.lock_trading),
+                lock_running=bool(data.lock_running),
+                trading_snapshot=(
+                    data.trading_snapshot.model_dump()
+                    if hasattr(data.trading_snapshot, "model_dump")
+                    else cast(dict[str, Any], data.trading_snapshot)
+                ),
             )
             session.add(unit)
             await session.commit()
             await session.refresh(unit)
-            workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
+            if not _is_trading_workspace(ws.workspace_type):
+                workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
             return self._unit_to_dict(unit)
 
     async def batch_create_units(
@@ -912,6 +961,19 @@ class WorkspaceService:
                     unit_settings=data.unit_settings,
                     params=data.params,
                     optimization_config=data.optimization_config,
+                    trading_mode=self.trading_service.normalize_trading_mode(data.trading_mode),
+                    gateway_config=self.trading_service.normalize_gateway_config(
+                        data.gateway_config.model_dump()
+                        if hasattr(data.gateway_config, "model_dump")
+                        else cast(dict[str, Any], data.gateway_config)
+                    ),
+                    lock_trading=bool(data.lock_trading),
+                    lock_running=bool(data.lock_running),
+                    trading_snapshot=(
+                        data.trading_snapshot.model_dump()
+                        if hasattr(data.trading_snapshot, "model_dump")
+                        else cast(dict[str, Any], data.trading_snapshot)
+                    ),
                 )
                 session.add(unit)
                 created.append(unit)
@@ -919,7 +981,8 @@ class WorkspaceService:
             await session.commit()
             for u in created:
                 await session.refresh(u)
-                workspace_unit_runtime.sync_unit_runtime(u, ws.settings or {})
+                if not _is_trading_workspace(ws.workspace_type):
+                    workspace_unit_runtime.sync_unit_runtime(u, ws.settings or {})
             return [self._unit_to_dict(u) for u in created]
 
     async def list_units(
@@ -937,6 +1000,12 @@ class WorkspaceService:
             )
             result = await session.execute(q)
             units = list(result.scalars().all())
+
+            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                changed = await self.trading_service.hydrate_units(units, user_id)
+                if changed:
+                    await session.commit()
+                return [self._unit_to_dict(unit) for unit in units]
 
             task_ids = [str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id]
             task_by_id: dict[str, BacktestTask] = {}
@@ -1019,6 +1088,10 @@ class WorkspaceService:
             unit = await self._get_unit(session, workspace_id, unit_id)
             if unit is None:
                 return None
+            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                changed = await self.trading_service.hydrate_units([unit], user_id)
+                if changed:
+                    await session.commit()
             return self._unit_to_dict(unit)
 
     async def update_unit(
@@ -1035,10 +1108,21 @@ class WorkspaceService:
             for key, value in update_data.items():
                 if key == "data_config":
                     value = _normalize_unit_data_config(cast(dict[str, Any] | None, value))
+                elif key == "trading_mode":
+                    value = self.trading_service.normalize_trading_mode(value)
+                elif key == "gateway_config":
+                    value = self.trading_service.normalize_gateway_config(
+                        value.model_dump() if hasattr(value, "model_dump") else cast(dict[str, Any], value)
+                    )
+                elif key == "trading_snapshot":
+                    value = (
+                        value.model_dump() if hasattr(value, "model_dump") else cast(dict[str, Any], value)
+                    )
                 setattr(unit, key, value)
             await session.commit()
             await session.refresh(unit)
-            workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
+            if not _is_trading_workspace(ws.workspace_type):
+                workspace_unit_runtime.sync_unit_runtime(unit, ws.settings or {})
             return self._unit_to_dict(unit)
 
     async def delete_unit(
@@ -1152,9 +1236,6 @@ class WorkspaceService:
 
         Returns list of {unit_id, task_id, status} dicts.
         """
-        from app.services.backtest_service import BacktestService
-
-        backtest_service = BacktestService()
         results: list[dict[str, Any]] = []
 
         async with async_session_maker() as session:
@@ -1175,10 +1256,19 @@ class WorkspaceService:
             if not units:
                 return []
 
+            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                results = await self.trading_service.start_units(units, user_id)
+                await session.commit()
+                return results
+
             # Mark all as queued
             for unit in units:
                 unit.run_status = "queued"
             await session.commit()
+
+            from app.services.backtest_service import BacktestService
+
+            backtest_service = BacktestService()
 
             # Submit backtest for each unit, write back task_id immediately
             async def _submit_single(unit: StrategyUnit) -> dict[str, Any]:
@@ -1242,15 +1332,30 @@ class WorkspaceService:
         self, workspace_id: str, user_id: str, unit_ids: list[str]
     ) -> list[dict[str, Any]]:
         """Stop running units by cancelling their associated backtest tasks."""
-        from app.services.backtest_service import BacktestService
-
-        backtest_service = BacktestService()
         results: list[dict[str, Any]] = []
 
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
                 return []
+
+            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                q = (
+                    select(StrategyUnit)
+                    .where(
+                        StrategyUnit.workspace_id == workspace_id,
+                        StrategyUnit.id.in_(unit_ids),
+                    )
+                )
+                db_result = await session.execute(q)
+                units = list(db_result.scalars().all())
+                results = await self.trading_service.stop_units(units, user_id)
+                await session.commit()
+                return results
+
+            from app.services.backtest_service import BacktestService
+
+            backtest_service = BacktestService()
 
             q = (
                 select(StrategyUnit)
@@ -1278,10 +1383,6 @@ class WorkspaceService:
         self, workspace_id: str, user_id: str
     ) -> list[UnitStatusResponse] | None:
         """Get run status of all units (polling endpoint)."""
-        from app.services.backtest_service import BacktestService
-
-        backtest_service = BacktestService()
-
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -1294,6 +1395,16 @@ class WorkspaceService:
             )
             result = await session.execute(q)
             units = list(result.scalars().all())
+
+            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                changed = await self.trading_service.hydrate_units(units, user_id)
+                if changed:
+                    await session.commit()
+                return self.trading_service.build_status_responses(units)
+
+            from app.services.backtest_service import BacktestService
+
+            backtest_service = BacktestService()
 
             task_ids = [str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id]
             task_by_id: dict[str, BacktestTask] = {}
@@ -1420,6 +1531,17 @@ class WorkspaceService:
                             if u_obj.bar_count is not None
                             else None
                         ),
+                        trading_instance_id=(
+                            str(u_obj.trading_instance_id)
+                            if getattr(u_obj, "trading_instance_id", None)
+                            else None
+                        ),
+                        trading_snapshot=cast(dict[str, Any], getattr(u_obj, "trading_snapshot", {}) or {}),
+                        trading_mode=self.trading_service.normalize_trading_mode(
+                            getattr(u_obj, "trading_mode", "paper")
+                        ),
+                        lock_trading=bool(getattr(u_obj, "lock_trading", False)),
+                        lock_running=bool(getattr(u_obj, "lock_running", False)),
                         opt_status=opt_info.get("opt_status"),
                         opt_total=opt_info.get("opt_total"),
                         opt_completed=opt_info.get("opt_completed"),
@@ -1429,6 +1551,101 @@ class WorkspaceService:
                     )
                 )
             return responses
+
+    async def get_trading_auto_config(
+        self,
+        workspace_id: str,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None or not _is_trading_workspace(ws.workspace_type):
+                return None
+            return self.trading_service.get_auto_trading_config()
+
+    async def update_trading_auto_config(
+        self,
+        workspace_id: str,
+        user_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None or not _is_trading_workspace(ws.workspace_type):
+                return None
+            config = self.trading_service.update_auto_trading_config(payload)
+            trading_config = _normalize_workspace_trading_config(ws.trading_config)
+            trading_config["auto_trading"] = config
+            ws.trading_config = trading_config
+            await session.commit()
+            return config
+
+    async def get_trading_auto_schedule(
+        self,
+        workspace_id: str,
+        user_id: str,
+    ) -> list[dict[str, Any]] | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None or not _is_trading_workspace(ws.workspace_type):
+                return None
+            return self.trading_service.get_auto_trading_schedule()
+
+    async def get_trading_positions(
+        self,
+        workspace_id: str,
+        user_id: str,
+        unit_ids: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None or not _is_trading_workspace(ws.workspace_type):
+                return None
+
+            q = select(StrategyUnit).where(StrategyUnit.workspace_id == workspace_id)
+            if unit_ids:
+                q = q.where(StrategyUnit.id.in_(unit_ids))
+            q = q.order_by(StrategyUnit.sort_order)
+            result = await session.execute(q)
+            units = list(result.scalars().all())
+
+            changed = await self.trading_service.hydrate_units(units, user_id)
+            if changed:
+                await session.commit()
+            response = await self.trading_service.build_positions_response(units, user_id)
+            return response.model_dump()
+
+    async def get_trading_daily_summary(
+        self,
+        workspace_id: str,
+        user_id: str,
+        *,
+        unit_id: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict[str, Any] | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None or not _is_trading_workspace(ws.workspace_type):
+                return None
+
+            q = select(StrategyUnit).where(StrategyUnit.workspace_id == workspace_id)
+            if unit_id:
+                q = q.where(StrategyUnit.id == unit_id)
+            q = q.order_by(StrategyUnit.sort_order)
+            result = await session.execute(q)
+            units = list(result.scalars().all())
+
+            changed = await self.trading_service.hydrate_units(units, user_id)
+            if changed:
+                await session.commit()
+            response = await self.trading_service.build_daily_summary_response(
+                units,
+                user_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            return response.model_dump()
 
     # ------------------------------------------------------------------
     # Optimization orchestration (Phase 4)
@@ -2078,6 +2295,12 @@ class WorkspaceService:
             "unit_settings": unit.unit_settings or {},
             "params": unit.params or {},
             "optimization_config": unit.optimization_config or {},
+            "trading_mode": TradingWorkspaceService.normalize_trading_mode(unit.trading_mode),
+            "gateway_config": TradingWorkspaceService.normalize_gateway_config(unit.gateway_config or {}),
+            "lock_trading": bool(unit.lock_trading),
+            "lock_running": bool(unit.lock_running),
+            "trading_instance_id": unit.trading_instance_id,
+            "trading_snapshot": unit.trading_snapshot or {},
             "run_status": unit.run_status or "idle",
             "run_count": unit.run_count or 0,
             "last_run_time": unit.last_run_time,
