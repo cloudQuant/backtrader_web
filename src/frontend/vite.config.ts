@@ -5,6 +5,7 @@ import { resolve } from 'path'
 
 const FRONTEND_DEV_PORT = 3000
 const BACKEND_PROXY_TARGET = process.env.VITE_API_TARGET || 'http://127.0.0.1:8000'
+const ENABLE_BUILD_SOURCEMAP = process.env.VITE_BUILD_SOURCEMAP === 'true'
 
 export default defineConfig({
   plugins: [vue()],
@@ -65,7 +66,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: ENABLE_BUILD_SOURCEMAP,
     rollupOptions: {
       output: {
         manualChunks: {

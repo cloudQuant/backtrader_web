@@ -3,6 +3,8 @@ FROM node:20-alpine as builder
 
 WORKDIR /app
 
+ENV NODE_OPTIONS=--max-old-space-size=4096
+
 # 复制依赖文件
 COPY package*.json ./
 
