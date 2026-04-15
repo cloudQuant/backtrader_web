@@ -166,6 +166,24 @@ class StrategyUnitListResponse(BaseModel):
     items: list[StrategyUnitResponse]
 
 
+class UnitRuntimeFileResponse(BaseModel):
+    """Runtime file metadata exposed to the workspace UI."""
+
+    name: str
+    relative_path: str
+    size: int
+    kind: str
+
+
+class UnitRuntimeInfoResponse(BaseModel):
+    """Runtime directory metadata for a strategy unit."""
+
+    unit_id: str
+    runtime_dir: str
+    log_dir: str | None = None
+    files: list[UnitRuntimeFileResponse] = Field(default_factory=list)
+
+
 # ---------------------------------------------------------------------------
 # Bulk operation schemas
 # ---------------------------------------------------------------------------

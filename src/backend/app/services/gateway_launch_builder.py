@@ -33,6 +33,11 @@ def normalize_gateway_asset_type(exchange_type: str, value: Any) -> str:
     if exchange_type == "CTP":
         if text in {"", "FUT", "FUTURE"}:
             return "FUTURE"
+    if exchange_type in {"BINANCE", "OKX"}:
+        if text in {"", "SWAP", "PERP", "PERPETUAL", "FUT", "FUTURE"}:
+            return "SWAP"
+        if text in {"SPOT", "CASH"}:
+            return "SPOT"
     if exchange_type == "MT5":
         return text or "OTC"
     return text or "FUTURE"
@@ -82,6 +87,96 @@ def resolve_gateway_transport(
     return str(default_transport or "tcp").strip().lower() or "tcp"
 
 
+def _normalize_session_value(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _normalize_session_url(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlparse(raw)
+    scheme = (parsed.scheme or "https").lower()
+    host = (parsed.hostname or "").lower()
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    path = (parsed.path or "").rstrip("/")
+    return f"{scheme}://{host}{port}{path}"
+
+
+def build_gateway_session_key(
+    exchange_type: Any,
+    account_id: Any,
+    *,
+    asset_type: Any = "",
+    broker_id: Any = "",
+    td_address: Any = "",
+    md_address: Any = "",
+    base_url: Any = "",
+    login_mode: Any = "",
+    testnet: Any = None,
+    server: Any = "",
+    ws_uri: Any = "",
+) -> str:
+    normalized_exchange = normalize_gateway_exchange_type(exchange_type)
+    normalized_account_id = _normalize_session_value(account_id)
+    normalized_asset_type = normalize_gateway_asset_type(
+        normalized_exchange,
+        asset_type,
+    )
+    parts = [
+        f"exchange={normalized_exchange.lower()}",
+        f"asset={normalized_asset_type.lower()}",
+        f"account={normalized_account_id}",
+    ]
+    if normalized_exchange == "CTP":
+        parts.extend(
+            [
+                f"broker={_normalize_session_value(broker_id)}",
+                f"td={_normalize_session_url(td_address)}",
+                f"md={_normalize_session_url(md_address)}",
+            ]
+        )
+    elif normalized_exchange == "IB_WEB":
+        parts.extend(
+            [
+                f"mode={_normalize_session_value(login_mode or 'paper')}",
+                f"base={_normalize_session_url(base_url)}",
+            ]
+        )
+    elif normalized_exchange in {"BINANCE", "OKX"}:
+        parts.extend(
+            [
+                f"env={'testnet' if coerce_bool(testnet) else 'live'}",
+                f"base={_normalize_session_url(base_url)}",
+            ]
+        )
+    elif normalized_exchange == "MT5":
+        parts.extend(
+            [
+                f"server={_normalize_session_value(server)}",
+                f"ws={_normalize_session_url(ws_uri)}",
+            ]
+        )
+    return "|".join(parts)
+
+
+def build_gateway_session_key_from_runtime_kwargs(runtime_kwargs: dict[str, Any]) -> str:
+    exchange_type = runtime_kwargs.get("exchange_type", "")
+    return build_gateway_session_key(
+        exchange_type,
+        runtime_kwargs.get("account_id", ""),
+        asset_type=runtime_kwargs.get("asset_type", ""),
+        broker_id=runtime_kwargs.get("broker_id", ""),
+        td_address=runtime_kwargs.get("td_address", ""),
+        md_address=runtime_kwargs.get("md_address", ""),
+        base_url=runtime_kwargs.get("base_url", ""),
+        login_mode=runtime_kwargs.get("login_mode", ""),
+        testnet=runtime_kwargs.get("testnet"),
+        server=runtime_kwargs.get("server", ""),
+        ws_uri=runtime_kwargs.get("ws_uri", ""),
+    )
+
+
 def get_gateway_params(instance: dict[str, Any], default_transport: str) -> dict[str, Any]:
     params = instance.get("params") or {}
     if not isinstance(params, dict):
@@ -119,10 +214,35 @@ def get_gateway_params(instance: dict[str, Any], default_transport: str) -> dict
         "base_url": str(gateway.get("base_url") or ""),
         "access_token": str(gateway.get("access_token") or ""),
         "verify_ssl": gateway.get("verify_ssl"),
+        "broker_id": str(gateway.get("broker_id") or ""),
+        "investor_id": str(gateway.get("investor_id") or ""),
+        "user_id": str(gateway.get("user_id") or ""),
+        "password": str(gateway.get("password") or ""),
+        "app_id": str(gateway.get("app_id") or ""),
+        "auth_code": str(gateway.get("auth_code") or ""),
+        "td_front": str(gateway.get("td_front") or gateway.get("td_address") or ""),
+        "md_front": str(gateway.get("md_front") or gateway.get("md_address") or ""),
         "cookie_source": str(gateway.get("cookie_source") or ""),
         "cookie_browser": str(gateway.get("cookie_browser") or ""),
         "cookie_path": str(gateway.get("cookie_path") or ""),
+        "cookie_output": str(gateway.get("cookie_output") or ""),
         "cookies": gateway.get("cookies"),
+        "username": str(gateway.get("username") or ""),
+        "login_mode": str(gateway.get("login_mode") or ""),
+        "login_browser": str(gateway.get("login_browser") or ""),
+        "login_headless": gateway.get("login_headless"),
+        "login_timeout": gateway.get("login_timeout"),
+        "api_key": str(gateway.get("api_key") or ""),
+        "secret_key": str(gateway.get("secret_key") or ""),
+        "passphrase": str(gateway.get("passphrase") or ""),
+        "testnet": gateway.get("testnet"),
+        "startup_timeout_sec": gateway.get("startup_timeout_sec"),
+        "command_timeout_sec": gateway.get("command_timeout_sec"),
+        "login": gateway.get("login"),
+        "server": str(gateway.get("server") or ""),
+        "ws_uri": str(gateway.get("ws_uri") or ""),
+        "symbol_suffix": str(gateway.get("symbol_suffix") or ""),
+        "symbol_map": gateway.get("symbol_map"),
     }
 
 
@@ -140,17 +260,29 @@ def build_ctp_gateway_runtime_kwargs(
         fronts.get(network) or fronts.get("telecom") or fronts.get("simnow") or {}
     )
     investor_id = (
-        env_data.get("CTP_INVESTOR_ID")
+        gateway_params.get("investor_id")
+        or gateway_params.get("user_id")
+        or env_data.get("CTP_INVESTOR_ID")
         or env_data.get("CTP_USER_ID")
         or ctp.get("investor_id", "")
         or ctp.get("user_id", "")
     )
-    broker_id = env_data.get("CTP_BROKER_ID") or ctp.get("broker_id", "")
-    password = env_data.get("CTP_PASSWORD") or ctp.get("password", "")
-    app_id = env_data.get("CTP_APP_ID") or ctp.get("app_id", "simnow_client_test")
-    auth_code = env_data.get("CTP_AUTH_CODE") or ctp.get("auth_code", "0000000000000000")
-    td_address = front.get("td_address", "")
-    md_address = front.get("md_address", "")
+    broker_id = gateway_params.get("broker_id") or env_data.get("CTP_BROKER_ID") or ctp.get("broker_id", "")
+    password = gateway_params.get("password") or env_data.get("CTP_PASSWORD") or ctp.get("password", "")
+    app_id = gateway_params.get("app_id") or env_data.get("CTP_APP_ID") or ctp.get("app_id", "simnow_client_test")
+    auth_code = gateway_params.get("auth_code") or env_data.get("CTP_AUTH_CODE") or ctp.get("auth_code", "0000000000000000")
+    td_address = (
+        gateway_params.get("td_front")
+        or gateway_params.get("td_address")
+        or env_data.get("CTP_TD_ADDRESS")
+        or front.get("td_address", "")
+    )
+    md_address = (
+        gateway_params.get("md_front")
+        or gateway_params.get("md_address")
+        or env_data.get("CTP_MD_ADDRESS")
+        or front.get("md_address", "")
+    )
     account_id = gateway_params.get("account_id") or investor_id
     if not all([account_id, investor_id, broker_id, password, td_address, md_address]):
         raise ValueError("CTP gateway requires complete CTP credentials and front addresses")
@@ -172,6 +304,18 @@ def build_ctp_gateway_runtime_kwargs(
         "password": password,
         "app_id": app_id,
         "auth_code": auth_code,
+        "gateway_startup_timeout_sec": coerce_float(
+            gateway_params.get("startup_timeout_sec")
+            or env_data.get("CTP_STARTUP_TIMEOUT_SEC")
+            or ctp.get("startup_timeout_sec"),
+            default=60.0,
+        ),
+        "gateway_command_timeout_sec": coerce_float(
+            gateway_params.get("command_timeout_sec")
+            or env_data.get("CTP_COMMAND_TIMEOUT_SEC")
+            or ctp.get("command_timeout_sec"),
+            default=20.0,
+        ),
     }
 
 
@@ -284,6 +428,18 @@ def build_ib_web_gateway_runtime_kwargs(
         "verify_ssl": verify_ssl,
         "timeout": timeout,
         "cookie_base_dir": gateway_params.get("base_dir") or "",
+        "gateway_startup_timeout_sec": coerce_float(
+            gateway_params.get("startup_timeout_sec")
+            or env_data.get("IB_WEB_STARTUP_TIMEOUT_SEC")
+            or ib_web.get("startup_timeout_sec"),
+            default=30.0,
+        ),
+        "gateway_command_timeout_sec": coerce_float(
+            gateway_params.get("command_timeout_sec")
+            or env_data.get("IB_WEB_COMMAND_TIMEOUT_SEC")
+            or ib_web.get("command_timeout_sec"),
+            default=10.0,
+        ),
     }
     if access_token:
         runtime_kwargs["access_token"] = access_token
@@ -362,6 +518,128 @@ def build_mt5_gateway_runtime_kwargs(
     return runtime_kwargs
 
 
+def build_binance_gateway_runtime_kwargs(
+    config_data: dict[str, Any],
+    env_data: dict[str, str],
+    gateway_params: dict[str, Any],
+    default_transport: str,
+) -> dict[str, Any]:
+    binance = dict(config_data.get("binance", {}) or {})
+    api_key = (
+        gateway_params.get("api_key")
+        or env_data.get("BINANCE_API_KEY")
+        or binance.get("api_key", "")
+    )
+    secret_key = (
+        gateway_params.get("secret_key")
+        or env_data.get("BINANCE_SECRET_KEY")
+        or binance.get("secret_key", "")
+    )
+    if not api_key or not secret_key:
+        raise ValueError("BINANCE gateway requires api_key and secret_key")
+    account_id = (
+        gateway_params.get("account_id")
+        or env_data.get("BINANCE_ACCOUNT_ID")
+        or binance.get("account_id")
+        or f"binance-{str(api_key)[-6:]}"
+    )
+    runtime_kwargs: dict[str, Any] = {
+        "exchange_type": "BINANCE",
+        "asset_type": normalize_gateway_asset_type(
+            "BINANCE",
+            gateway_params.get("asset_type")
+            or env_data.get("BINANCE_ASSET_TYPE")
+            or binance.get("asset_type"),
+        ),
+        "account_id": account_id,
+        "transport": resolve_gateway_transport(
+            "BINANCE",
+            gateway_params.get("transport"),
+            default_transport,
+        ),
+        "api_key": api_key,
+        "secret_key": secret_key,
+        "testnet": coerce_bool(
+            gateway_params.get("testnet")
+            if gateway_params.get("testnet") is not None
+            else env_data.get("BINANCE_TESTNET", binance.get("testnet")),
+            default=False,
+        ),
+    }
+    base_url = (
+        gateway_params.get("base_url")
+        or env_data.get("BINANCE_BASE_URL")
+        or binance.get("base_url", "")
+    )
+    if base_url:
+        runtime_kwargs["base_url"] = str(base_url)
+    return runtime_kwargs
+
+
+def build_okx_gateway_runtime_kwargs(
+    config_data: dict[str, Any],
+    env_data: dict[str, str],
+    gateway_params: dict[str, Any],
+    default_transport: str,
+) -> dict[str, Any]:
+    okx = dict(config_data.get("okx", {}) or {})
+    api_key = (
+        gateway_params.get("api_key")
+        or env_data.get("OKX_API_KEY")
+        or okx.get("api_key", "")
+    )
+    secret_key = (
+        gateway_params.get("secret_key")
+        or env_data.get("OKX_SECRET_KEY")
+        or okx.get("secret_key", "")
+    )
+    passphrase = (
+        gateway_params.get("passphrase")
+        or env_data.get("OKX_PASSPHRASE")
+        or okx.get("passphrase", "")
+    )
+    if not api_key or not secret_key or not passphrase:
+        raise ValueError("OKX gateway requires api_key, secret_key and passphrase")
+    account_id = (
+        gateway_params.get("account_id")
+        or env_data.get("OKX_ACCOUNT_ID")
+        or okx.get("account_id")
+        or f"okx-{str(api_key)[-6:]}"
+    )
+    runtime_kwargs: dict[str, Any] = {
+        "exchange_type": "OKX",
+        "asset_type": normalize_gateway_asset_type(
+            "OKX",
+            gateway_params.get("asset_type")
+            or env_data.get("OKX_ASSET_TYPE")
+            or okx.get("asset_type"),
+        ),
+        "account_id": account_id,
+        "transport": resolve_gateway_transport(
+            "OKX",
+            gateway_params.get("transport"),
+            default_transport,
+        ),
+        "api_key": api_key,
+        "secret_key": secret_key,
+        "passphrase": passphrase,
+        "testnet": coerce_bool(
+            gateway_params.get("testnet")
+            if gateway_params.get("testnet") is not None
+            else env_data.get("OKX_TESTNET", okx.get("testnet")),
+            default=False,
+        ),
+    }
+    base_url = (
+        gateway_params.get("base_url")
+        or env_data.get("OKX_BASE_URL")
+        or okx.get("base_url", "")
+    )
+    if base_url:
+        runtime_kwargs["base_url"] = str(base_url)
+    return runtime_kwargs
+
+
 def build_gateway_launch(
     config_data: dict[str, Any],
     env_data: dict[str, str],
@@ -389,6 +667,20 @@ def build_gateway_launch(
             config_data=config_data,
             env_data=env_data,
             gateway_params=gateway_params,
+        )
+    elif exchange_type == "BINANCE":
+        runtime_kwargs = build_binance_gateway_runtime_kwargs(
+            config_data=config_data,
+            env_data=env_data,
+            gateway_params=gateway_params,
+            default_transport=default_transport,
+        )
+    elif exchange_type == "OKX":
+        runtime_kwargs = build_okx_gateway_runtime_kwargs(
+            config_data=config_data,
+            env_data=env_data,
+            gateway_params=gateway_params,
+            default_transport=default_transport,
         )
     else:
         runtime_kwargs = build_ctp_gateway_runtime_kwargs(

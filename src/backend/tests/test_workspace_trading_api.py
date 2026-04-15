@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 from httpx import AsyncClient
@@ -364,3 +365,63 @@ async def test_trading_workspace_positions_and_daily_summary_endpoints(
     daily_summary_payload = daily_summary_response.json()
     assert daily_summary_payload["summaries"][-1]["trading_date"] == "2026-04-13"
     assert daily_summary_payload["summaries"][-1]["trade_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_runtime_endpoints_expose_runtime_files(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+):
+    from app.services import workspace_unit_runtime
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "运行文件测试", "workspace_type": "trading"},
+    )
+    assert workspace_response.status_code == 201
+    workspace_id = workspace_response.json()["id"]
+
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "Runtime Unit",
+            "symbol": "XAUUSD",
+            "symbol_name": "黄金/美元",
+            "timeframe": "1m",
+            "category": "外汇",
+            "trading_mode": "paper",
+        },
+    )
+    assert unit_response.status_code == 201
+    unit_id = unit_response.json()["id"]
+
+    runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
+    assert runtime_dir.is_dir()
+    log_dir = runtime_dir / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "system.log").write_text("line-1\nline-2\n", encoding="utf-8")
+
+    info_response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime",
+        headers=auth_headers,
+    )
+    assert info_response.status_code == 200
+    payload = info_response.json()
+    assert Path(payload["runtime_dir"]) == runtime_dir
+    assert Path(payload["log_dir"]) == log_dir
+    relative_paths = {item["relative_path"] for item in payload["files"]}
+    assert "config.yaml" in relative_paths
+    assert "run.py" in relative_paths
+    assert "logs/system.log" in relative_paths
+
+    log_response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime/files/logs/system.log",
+        headers=auth_headers,
+        params={"tail": 1},
+    )
+    assert log_response.status_code == 200
+    assert log_response.text == "line-2"

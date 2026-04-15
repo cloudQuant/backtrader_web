@@ -517,6 +517,7 @@ export interface SyncConfig {
   local_mysql_port: number
   local_mysql_user: string
   local_mysql_password: string
+  sync_parallel_workers: number
   remote_host: string
   remote_user: string
   remote_ssh_key: string

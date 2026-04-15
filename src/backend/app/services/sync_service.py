@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shlex
 import shutil
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -37,7 +39,7 @@ class SyncService:
         self._lock = asyncio.Lock()
         self._timeout_seconds = max(int(os.environ.get("SYNC_TIMEOUT_SECONDS", "7200")), 60)
         self._incremental_key_batch_size = max(
-            int(os.environ.get("SYNC_INCREMENTAL_KEY_BATCH_SIZE", "500")),
+            int(os.environ.get("SYNC_INCREMENTAL_KEY_BATCH_SIZE", "10000")),
             1,
         )
         self._connect_timeout = min(
@@ -46,11 +48,12 @@ class SyncService:
         )
 
     def get_config(self) -> SyncConfig:
+        local_defaults = self._get_local_mysql_defaults()
         defaults = SyncConfig(
-            local_mysql_host=getattr(settings, "SYNC_LOCAL_MYSQL_HOST", "127.0.0.1"),
-            local_mysql_port=int(getattr(settings, "SYNC_LOCAL_MYSQL_PORT", 3306)),
-            local_mysql_user=getattr(settings, "SYNC_LOCAL_MYSQL_USER", "root"),
-            local_mysql_password=self._get_local_mysql_password(None),
+            local_mysql_host=str(local_defaults["host"]),
+            local_mysql_port=int(local_defaults["port"]),
+            local_mysql_user=str(local_defaults["user"]),
+            local_mysql_password=str(local_defaults["password"]),
         )
         if self._config_file.is_file():
             try:
@@ -246,7 +249,7 @@ class SyncService:
 
     async def _start_task(self, direction: str, request: SyncRequest) -> SyncTaskCreateResponse:
         if not request.confirm:
-            raise ValueError("同步会覆盖目标数据库，请先确认后再执行")
+            raise ValueError("同步会保留目标数据库中已存在的数据，请确认后再执行")
 
         config = self.get_config()
         config = self._normalize_config(config)
@@ -304,6 +307,10 @@ class SyncService:
                 raise RuntimeError("未配置本地 MySQL 密码")
             remote_password = await self._get_remote_mysql_password(config)
             total = max(len(request.databases), 1)
+            self._update_task(
+                task_id,
+                message=f"正在准备同步，共 {len(request.databases)} 个数据库，表级并发数 {config.sync_parallel_workers}",
+            )
             for index, database in enumerate(request.databases):
                 self._update_task(
                     task_id,
@@ -389,14 +396,15 @@ class SyncService:
                     task_id,
                     stage="dumping",
                     progress_pct=20,
-                    message=f"正在同步数据库结构 {database}",
+                    message=f"正在准备同步数据库结构 {database}",
                 )
                 await self._import_remote_database_direct(
-                    config,
-                    database,
-                    None,
-                    request,
-                    remote_password,
+                    task_id=task_id,
+                    config=config,
+                    database=database,
+                    input_path=None,
+                    request=request,
+                    remote_password=remote_password,
                     schema_only=True,
                     local_password=local_password,
                 )
@@ -445,14 +453,15 @@ class SyncService:
                     task_id,
                     stage="dumping",
                     progress_pct=20,
-                    message=f"正在同步数据库结构 {database}",
+                    message=f"正在准备同步数据库结构 {database}",
                 )
                 await self._import_local_database_direct_schema(
-                    config,
-                    database,
-                    request,
-                    local_password,
-                    remote_password,
+                    task_id=task_id,
+                    config=config,
+                    database=database,
+                    request=request,
+                    local_password=local_password,
+                    remote_password=remote_password,
                 )
             if request.sync_mode != "schema_only":
                 await self._sync_remote_tables_to_local_direct(
@@ -544,10 +553,10 @@ class SyncService:
         local_password: str,
     ) -> None:
         if request.sync_mode != "data_only":
-            sql = self._build_recreate_database_sql(database)
+            sql = self._build_ensure_database_sql(database)
             await self._run_exec(
                 self._build_local_mysql_query_args(config, sql, local_password),
-                timeout=self._connect_timeout,
+                timeout=self._timeout_seconds,
             )
         import_cmd = self._compose_import_command(
             input_path=str(input_path),
@@ -568,7 +577,7 @@ class SyncService:
     ) -> None:
         steps: list[str] = ["set -euo pipefail"]
         if request.sync_mode != "data_only":
-            recreate_sql = self._build_recreate_database_sql(database)
+            recreate_sql = self._build_ensure_database_sql(database)
             recreate_inner = self._join_command([
                 "sh",
                 "-lc",
@@ -589,6 +598,7 @@ class SyncService:
 
     async def _import_remote_database_direct(
         self,
+        task_id: str | None,
         config: SyncConfig,
         database: str,
         input_path: Path | None,
@@ -597,24 +607,144 @@ class SyncService:
         schema_only: bool = False,
         local_password: str | None = None,
     ) -> None:
+        source_summary: dict[str, Any] | None = None
+        target_summary: dict[str, Any] | None = None
         if request.sync_mode != "data_only":
-            sql = self._build_recreate_database_sql(database)
-            await self._run_exec(
-                self._build_remote_mysql_query_args(config, sql, remote_password),
-                timeout=self._connect_timeout,
-            )
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="dumping",
+                    progress_pct=22,
+                    message=f"正在查询远程数据库 {database} 是否已存在",
+                )
+            exists = await self._remote_database_exists(config, database, remote_password)
+            if exists:
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=24,
+                        message=f"远程数据库 {database} 已存在，跳过创建",
+                    )
+                if schema_only:
+                    if local_password is None:
+                        raise RuntimeError("缺少本地 MySQL 密码，无法比对数据库结构")
+                    if task_id is not None:
+                        self._update_task(
+                            task_id,
+                            stage="dumping",
+                            progress_pct=28,
+                            message=f"正在读取本地数据库结构摘要 {database}",
+                        )
+                    source_summary = self._parse_schema_summary(
+                        await self._export_local_schema_dump(config, database, local_password)
+                    )
+                    if task_id is not None:
+                        self._update_task(
+                            task_id,
+                            stage="dumping",
+                            progress_pct=29,
+                            message=f"正在读取远程数据库结构摘要 {database}",
+                        )
+                    target_summary = self._parse_schema_summary(
+                        await self._export_remote_schema_dump(config, database, remote_password)
+                    )
+                    if task_id is not None:
+                        self._update_task(
+                            task_id,
+                            stage="dumping",
+                            progress_pct=30,
+                            message=f"正在比较本地与远程数据库结构差异 {database}",
+                        )
+            else:
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=26,
+                        message=f"远程数据库 {database} 不存在，正在创建",
+                    )
+                sql = self._build_ensure_database_sql(database)
+                await self._run_exec(
+                    self._build_remote_mysql_query_args(config, sql, remote_password),
+                    timeout=self._timeout_seconds,
+                )
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=28,
+                        message=f"远程数据库 {database} 创建完成，准备导出本地结构",
+                    )
         if schema_only:
             if local_password is None:
                 raise RuntimeError("缺少本地 MySQL 密码，无法同步数据库结构")
+            if source_summary is not None and target_summary is not None:
+                delta = self._build_schema_delta(source_summary, target_summary)
+                if self._schema_delta_is_empty(delta):
+                    if task_id is not None:
+                        self._update_task(
+                            task_id,
+                            stage="importing",
+                            progress_pct=42,
+                            message=f"数据库结构 {database} 已一致，跳过远程导入，准备开始同步数据",
+                        )
+                    return
+                stats = await self._apply_schema_delta_local_to_remote(
+                    task_id=task_id,
+                    config=config,
+                    database=database,
+                    local_password=local_password,
+                    remote_password=remote_password,
+                    source_summary=source_summary,
+                    target_summary=target_summary,
+                )
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="importing",
+                        progress_pct=42,
+                        message=(
+                            f"数据库结构 {database} 已增量同步：新增表 {stats['tables']} 个，"
+                            f"字段变更 {stats['columns']} 项，索引变更 {stats['indexes']} 项，视图变更 {stats['views']} 项"
+                        ),
+                    )
+                return
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="dumping",
+                    progress_pct=30,
+                    message=f"正在导出本地数据库结构 {database}",
+                )
             stream_cmd = self._compose_stream_command(
                 self._join_command(
                     self._build_local_mysqldump_args(config, database, "schema_only", local_password)
                 ),
                 self._join_command(
-                    self._build_remote_mysql_import_args(config, database, remote_password)
+                    self._build_remote_mysql_import_args(
+                        config,
+                        database,
+                        remote_password,
+                        force=True,
+                    )
                 ),
             )
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=38,
+                    message=f"正在导入数据库结构到远程库 {database}",
+                )
             await self._run_bash(stream_cmd, timeout=self._timeout_seconds)
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=42,
+                    message=f"数据库结构 {database} 已同步到远程库，准备开始同步数据",
+                )
             return
         if input_path is None:
             raise RuntimeError("缺少导入文件，无法同步远程数据库")
@@ -629,27 +759,145 @@ class SyncService:
 
     async def _import_local_database_direct_schema(
         self,
+        task_id: str | None,
         config: SyncConfig,
         database: str,
         request: SyncRequest,
         local_password: str,
         remote_password: str,
     ) -> None:
+        source_summary: dict[str, Any] | None = None
+        target_summary: dict[str, Any] | None = None
         if request.sync_mode != "data_only":
-            sql = self._build_recreate_database_sql(database)
-            await self._run_exec(
-                self._build_local_mysql_query_args(config, sql, local_password),
-                timeout=self._connect_timeout,
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="dumping",
+                    progress_pct=22,
+                    message=f"正在查询本地数据库 {database} 是否已存在",
+                )
+            exists = await self._local_database_exists(config, database, local_password)
+            if exists:
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=24,
+                        message=f"本地数据库 {database} 已存在，跳过创建",
+                    )
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=28,
+                        message=f"正在读取远程数据库结构摘要 {database}",
+                    )
+                source_summary = self._parse_schema_summary(
+                    await self._export_remote_schema_dump(config, database, remote_password)
+                )
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=29,
+                        message=f"正在读取本地数据库结构摘要 {database}",
+                    )
+                target_summary = self._parse_schema_summary(
+                    await self._export_local_schema_dump(config, database, local_password)
+                )
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=30,
+                        message=f"正在比较远程与本地数据库结构差异 {database}",
+                    )
+            else:
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=26,
+                        message=f"本地数据库 {database} 不存在，正在创建",
+                    )
+                sql = self._build_ensure_database_sql(database)
+                await self._run_exec(
+                    self._build_local_mysql_query_args(config, sql, local_password),
+                    timeout=self._timeout_seconds,
+                )
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="dumping",
+                        progress_pct=28,
+                        message=f"本地数据库 {database} 创建完成，准备导出远程结构",
+                    )
+        if source_summary is not None and target_summary is not None:
+            delta = self._build_schema_delta(source_summary, target_summary)
+            if self._schema_delta_is_empty(delta):
+                if task_id is not None:
+                    self._update_task(
+                        task_id,
+                        stage="importing",
+                        progress_pct=42,
+                        message=f"数据库结构 {database} 已一致，跳过本地导入，准备开始同步数据",
+                    )
+                return
+            stats = await self._apply_schema_delta_remote_to_local(
+                task_id=task_id,
+                config=config,
+                database=database,
+                local_password=local_password,
+                remote_password=remote_password,
+                source_summary=source_summary,
+                target_summary=target_summary,
+            )
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=42,
+                    message=(
+                        f"数据库结构 {database} 已增量同步：新增表 {stats['tables']} 个，"
+                        f"字段变更 {stats['columns']} 项，索引变更 {stats['indexes']} 项，视图变更 {stats['views']} 项"
+                    ),
+                )
+            return
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="dumping",
+                progress_pct=30,
+                message=f"正在导出远程数据库结构 {database}",
             )
         stream_cmd = self._compose_stream_command(
             self._join_command(
                 self._build_remote_mysqldump_args(config, database, "schema_only", remote_password)
             ),
             self._join_command(
-                self._build_local_mysql_import_args(config, database, local_password)
+                self._build_local_mysql_import_args(
+                    config,
+                    database,
+                    local_password,
+                    force=True,
+                )
             ),
         )
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="importing",
+                progress_pct=38,
+                message=f"正在导入数据库结构到本地库 {database}",
+            )
         await self._run_bash(stream_cmd, timeout=self._timeout_seconds)
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="importing",
+                progress_pct=42,
+                message=f"数据库结构 {database} 已同步到本地库，准备开始同步数据",
+            )
 
     async def _sync_local_tables_to_remote_direct(
         self,
@@ -661,7 +909,6 @@ class SyncService:
         local_password: str,
         remote_password: str,
     ) -> None:
-        total = max(len(tables), 1)
         if not tables:
             self._update_task(
                 task_id,
@@ -670,45 +917,17 @@ class SyncService:
                 message=f"数据库 {database} 没有可同步的数据表",
             )
             return
-        for index, table in enumerate(tables):
-            progress = 45 + int(((index + 1) / total) * 45)
-            self._update_task(
-                task_id,
-                stage="importing",
-                progress_pct=min(progress, 90),
-                message=f"正在同步数据表 {database}.{table} ({index + 1}/{total})",
-            )
-            key_columns = await self._get_local_incremental_key_columns(
-                config,
-                database,
-                table,
-                local_password,
-            )
-            missing_keys = await self._collect_missing_keys_local_to_remote(
-                config,
-                database,
-                table,
-                key_columns,
-                local_password,
-                remote_password,
-            )
-            if not missing_keys:
-                self._update_task(
-                    task_id,
-                    stage="importing",
-                    progress_pct=min(progress, 90),
-                    message=f"数据表 {database}.{table} 无新增数据",
-                )
-                continue
-            await self._stream_local_missing_rows_to_remote(
-                config,
-                database,
-                table,
-                key_columns,
-                missing_keys,
-                local_password,
-                remote_password,
-            )
+        await self._run_parallel_table_sync(
+            task_id=task_id,
+            config=config,
+            database=database,
+            tables=tables,
+            worker_count=config.sync_parallel_workers,
+            sync_table=self._sync_single_local_table_to_remote,
+            direction_label="上传",
+            local_password=local_password,
+            remote_password=remote_password,
+        )
 
     async def _sync_remote_tables_to_local_direct(
         self,
@@ -720,7 +939,6 @@ class SyncService:
         local_password: str,
         remote_password: str,
     ) -> None:
-        total = max(len(tables), 1)
         if not tables:
             self._update_task(
                 task_id,
@@ -729,45 +947,367 @@ class SyncService:
                 message=f"数据库 {database} 没有可同步的数据表",
             )
             return
-        for index, table in enumerate(tables):
+        await self._run_parallel_table_sync(
+            task_id=task_id,
+            config=config,
+            database=database,
+            tables=tables,
+            worker_count=config.sync_parallel_workers,
+            sync_table=self._sync_single_remote_table_to_local,
+            direction_label="拉取",
+            local_password=local_password,
+            remote_password=remote_password,
+        )
+
+    async def _run_parallel_table_sync(
+        self,
+        *,
+        task_id: str,
+        config: SyncConfig,
+        database: str,
+        tables: list[str],
+        worker_count: int,
+        sync_table: Any,
+        direction_label: str,
+        local_password: str,
+        remote_password: str,
+    ) -> None:
+        total = max(len(tables), 1)
+        semaphore = asyncio.Semaphore(max(worker_count, 1))
+        completed = 0
+        progress_lock = asyncio.Lock()
+
+        async def run_single(index: int, table: str) -> None:
+            nonlocal completed
             progress = 45 + int(((index + 1) / total) * 45)
-            self._update_task(
-                task_id,
-                stage="importing",
-                progress_pct=min(progress, 90),
-                message=f"正在同步数据表 {database}.{table} ({index + 1}/{total})",
-            )
-            key_columns = await self._get_remote_incremental_key_columns(
-                config,
-                database,
-                table,
-                remote_password,
-            )
-            missing_keys = await self._collect_missing_keys_remote_to_local(
-                config,
-                database,
-                table,
-                key_columns,
-                local_password,
-                remote_password,
-            )
-            if not missing_keys:
+            async with semaphore:
                 self._update_task(
                     task_id,
                     stage="importing",
                     progress_pct=min(progress, 90),
-                    message=f"数据表 {database}.{table} 无新增数据",
+                    message=f"正在{direction_label}数据表 {database}.{table} ({index + 1}/{total})",
                 )
-                continue
-            await self._stream_remote_missing_rows_to_local(
-                config,
-                database,
-                table,
-                key_columns,
-                missing_keys,
-                local_password,
-                remote_password,
+                await sync_table(
+                    task_id=task_id,
+                    index=index,
+                    total=total,
+                    direction_label=direction_label,
+                    config=config,
+                    database=database,
+                    table=table,
+                    local_password=local_password,
+                    remote_password=remote_password,
+                )
+                async with progress_lock:
+                    completed += 1
+                    done_progress = 45 + int((completed / total) * 45)
+                    self._update_task(
+                        task_id,
+                        stage="importing",
+                        progress_pct=min(done_progress, 90),
+                        message=f"已完成 {completed}/{total} 张表同步，最近完成 {database}.{table}",
+                    )
+
+        await asyncio.gather(*(run_single(index, table) for index, table in enumerate(tables)))
+
+    def _build_table_step_progress(
+        self,
+        *,
+        index: int,
+        total: int,
+        step: int,
+        step_count: int,
+    ) -> int:
+        table_start = 45 + int((index / max(total, 1)) * 45)
+        table_end = 45 + int(((index + 1) / max(total, 1)) * 45)
+        span = max(table_end - table_start, 1)
+        normalized_step = min(max(step, 0), max(step_count, 1))
+        return min(table_start + int((normalized_step / max(step_count, 1)) * span), 90)
+
+    def _update_table_substep_task(
+        self,
+        *,
+        task_id: str,
+        direction_label: str,
+        database: str,
+        table: str,
+        index: int,
+        total: int,
+        step: int,
+        step_count: int,
+        detail: str,
+    ) -> None:
+        self._update_task(
+            task_id,
+            stage="importing",
+            progress_pct=self._build_table_step_progress(
+                index=index,
+                total=total,
+                step=step,
+                step_count=step_count,
+            ),
+            message=f"正在{direction_label}数据表 {database}.{table} ({index + 1}/{total})：{detail}",
+        )
+
+    async def _sync_single_local_table_to_remote(
+        self,
+        *,
+        task_id: str,
+        index: int,
+        total: int,
+        direction_label: str,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        local_password: str,
+        remote_password: str,
+    ) -> None:
+        step_count = 5
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=1,
+            step_count=step_count,
+            detail="正在识别增量比对键",
+        )
+        key_columns, use_row_hash = await self._get_local_incremental_key_columns(
+            config,
+            database,
+            table,
+            local_password,
+        )
+        if use_row_hash:
+            self._update_table_substep_task(
+                task_id=task_id,
+                direction_label=direction_label,
+                database=database,
+                table=table,
+                index=index,
+                total=total,
+                step=1,
+                step_count=step_count,
+                detail=f"未找到主键/唯一键，已切换为全行哈希比对（{len(key_columns)} 列）",
             )
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=2,
+            step_count=step_count,
+            detail=(
+                f"正在读取本地行签名集合（基于 {len(key_columns)} 列）"
+                if use_row_hash
+                else f"正在读取本地键集合（{len(key_columns)} 列）"
+            ),
+        )
+        source_keys = await self._fetch_local_key_rows(
+            config,
+            database,
+            table,
+            key_columns,
+            local_password,
+            use_row_hash=use_row_hash,
+        )
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=3,
+            step_count=step_count,
+            detail=(
+                f"正在读取远程行签名集合（基于 {len(key_columns)} 列）"
+                if use_row_hash
+                else f"正在读取远程键集合（{len(key_columns)} 列）"
+            ),
+        )
+        target_keys = await self._fetch_remote_key_rows(
+            config,
+            database,
+            table,
+            key_columns,
+            remote_password,
+            use_row_hash=use_row_hash,
+        )
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=4,
+            step_count=step_count,
+            detail="正在计算缺失数据",
+        )
+        missing_keys = self._build_missing_rows(source_keys, target_keys)
+        if not missing_keys:
+            return
+        batch_count = len(self._chunk_keys(missing_keys))
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=5,
+            step_count=step_count,
+            detail=(
+                f"正在写入缺失数据（{len(missing_keys)} 条行签名，{batch_count} 批）"
+                if use_row_hash
+                else f"正在写入缺失数据（{len(missing_keys)} 条键，{batch_count} 批）"
+            ),
+        )
+        await self._stream_local_missing_rows_to_remote(
+            config,
+            database,
+            table,
+            key_columns,
+            missing_keys,
+            local_password,
+            remote_password,
+            use_row_hash=use_row_hash,
+        )
+
+    async def _sync_single_remote_table_to_local(
+        self,
+        *,
+        task_id: str,
+        index: int,
+        total: int,
+        direction_label: str,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        local_password: str,
+        remote_password: str,
+    ) -> None:
+        step_count = 5
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=1,
+            step_count=step_count,
+            detail="正在识别增量比对键",
+        )
+        key_columns, use_row_hash = await self._get_remote_incremental_key_columns(
+            config,
+            database,
+            table,
+            remote_password,
+        )
+        if use_row_hash:
+            self._update_table_substep_task(
+                task_id=task_id,
+                direction_label=direction_label,
+                database=database,
+                table=table,
+                index=index,
+                total=total,
+                step=1,
+                step_count=step_count,
+                detail=f"未找到主键/唯一键，已切换为全行哈希比对（{len(key_columns)} 列）",
+            )
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=2,
+            step_count=step_count,
+            detail=(
+                f"正在读取远程行签名集合（基于 {len(key_columns)} 列）"
+                if use_row_hash
+                else f"正在读取远程键集合（{len(key_columns)} 列）"
+            ),
+        )
+        source_keys = await self._fetch_remote_key_rows(
+            config,
+            database,
+            table,
+            key_columns,
+            remote_password,
+            use_row_hash=use_row_hash,
+        )
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=3,
+            step_count=step_count,
+            detail=(
+                f"正在读取本地行签名集合（基于 {len(key_columns)} 列）"
+                if use_row_hash
+                else f"正在读取本地键集合（{len(key_columns)} 列）"
+            ),
+        )
+        target_keys = await self._fetch_local_key_rows(
+            config,
+            database,
+            table,
+            key_columns,
+            local_password,
+            use_row_hash=use_row_hash,
+        )
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=4,
+            step_count=step_count,
+            detail="正在计算缺失数据",
+        )
+        missing_keys = self._build_missing_rows(source_keys, target_keys)
+        if not missing_keys:
+            return
+        batch_count = len(self._chunk_keys(missing_keys))
+        self._update_table_substep_task(
+            task_id=task_id,
+            direction_label=direction_label,
+            database=database,
+            table=table,
+            index=index,
+            total=total,
+            step=5,
+            step_count=step_count,
+            detail=(
+                f"正在写入缺失数据（{len(missing_keys)} 条行签名，{batch_count} 批）"
+                if use_row_hash
+                else f"正在写入缺失数据（{len(missing_keys)} 条键，{batch_count} 批）"
+            ),
+        )
+        await self._stream_remote_missing_rows_to_local(
+            config,
+            database,
+            table,
+            key_columns,
+            missing_keys,
+            local_password,
+            remote_password,
+            use_row_hash=use_row_hash,
+        )
 
     async def _list_local_tables(
         self,
@@ -801,13 +1341,16 @@ class SyncService:
         database: str,
         table: str,
         password: str,
-    ) -> tuple[str, ...]:
+    ) -> tuple[tuple[str, ...], bool]:
         sql = self._build_index_metadata_sql(database, table)
         stdout = await self._run_exec(
             self._build_local_mysql_query_args(config, sql, password),
             timeout=self._connect_timeout,
         )
-        return self._select_incremental_key_columns(stdout, database, table)
+        columns = self._select_incremental_key_columns(stdout, database, table)
+        if columns:
+            return columns, False
+        return await self._get_local_table_columns(config, database, table, password), True
 
     async def _get_remote_incremental_key_columns(
         self,
@@ -815,13 +1358,44 @@ class SyncService:
         database: str,
         table: str,
         password: str,
-    ) -> tuple[str, ...]:
+    ) -> tuple[tuple[str, ...], bool]:
         sql = self._build_index_metadata_sql(database, table)
         stdout = await self._run_exec(
             self._build_remote_mysql_query_args(config, sql, password),
             timeout=self._connect_timeout,
         )
-        return self._select_incremental_key_columns(stdout, database, table)
+        columns = self._select_incremental_key_columns(stdout, database, table)
+        if columns:
+            return columns, False
+        return await self._get_remote_table_columns(config, database, table, password), True
+
+    async def _get_local_table_columns(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        password: str,
+    ) -> tuple[str, ...]:
+        sql = self._build_table_columns_sql(database, table)
+        stdout = await self._run_exec(
+            self._build_local_mysql_query_args(config, sql, password),
+            timeout=self._connect_timeout,
+        )
+        return self._parse_table_columns(stdout, database, table)
+
+    async def _get_remote_table_columns(
+        self,
+        config: SyncConfig,
+        database: str,
+        table: str,
+        password: str,
+    ) -> tuple[str, ...]:
+        sql = self._build_table_columns_sql(database, table)
+        stdout = await self._run_exec(
+            self._build_remote_mysql_query_args(config, sql, password),
+            timeout=self._connect_timeout,
+        )
+        return self._parse_table_columns(stdout, database, table)
 
     async def _collect_missing_keys_local_to_remote(
         self,
@@ -831,11 +1405,10 @@ class SyncService:
         key_columns: tuple[str, ...],
         local_password: str,
         remote_password: str,
-    ) -> list[tuple[str, ...]]:
+    ) -> list[tuple[str | None, ...]]:
         source_keys = await self._fetch_local_key_rows(config, database, table, key_columns, local_password)
         target_keys = await self._fetch_remote_key_rows(config, database, table, key_columns, remote_password)
-        target_set = set(target_keys)
-        return [key for key in source_keys if key not in target_set]
+        return self._build_missing_rows(source_keys, target_keys)
 
     async def _collect_missing_keys_remote_to_local(
         self,
@@ -845,11 +1418,10 @@ class SyncService:
         key_columns: tuple[str, ...],
         local_password: str,
         remote_password: str,
-    ) -> list[tuple[str, ...]]:
+    ) -> list[tuple[str | None, ...]]:
         source_keys = await self._fetch_remote_key_rows(config, database, table, key_columns, remote_password)
         target_keys = await self._fetch_local_key_rows(config, database, table, key_columns, local_password)
-        target_set = set(target_keys)
-        return [key for key in source_keys if key not in target_set]
+        return self._build_missing_rows(source_keys, target_keys)
 
     async def _fetch_local_key_rows(
         self,
@@ -858,13 +1430,18 @@ class SyncService:
         table: str,
         key_columns: tuple[str, ...],
         password: str,
-    ) -> list[tuple[str, ...]]:
-        sql = self._build_table_key_values_sql(database, table, key_columns)
+        use_row_hash: bool = False,
+    ) -> list[tuple[str | None, ...]]:
+        sql = (
+            self._build_table_row_hash_values_sql(database, table, key_columns)
+            if use_row_hash
+            else self._build_table_key_values_sql(database, table, key_columns)
+        )
         stdout = await self._run_exec(
             self._build_local_mysql_query_args(config, sql, password),
             timeout=self._timeout_seconds,
         )
-        return self._parse_key_rows(stdout, len(key_columns))
+        return self._parse_key_rows(stdout, 1 if use_row_hash else len(key_columns))
 
     async def _fetch_remote_key_rows(
         self,
@@ -873,13 +1450,18 @@ class SyncService:
         table: str,
         key_columns: tuple[str, ...],
         password: str,
-    ) -> list[tuple[str, ...]]:
-        sql = self._build_table_key_values_sql(database, table, key_columns)
+        use_row_hash: bool = False,
+    ) -> list[tuple[str | None, ...]]:
+        sql = (
+            self._build_table_row_hash_values_sql(database, table, key_columns)
+            if use_row_hash
+            else self._build_table_key_values_sql(database, table, key_columns)
+        )
         stdout = await self._run_exec(
             self._build_remote_mysql_query_args(config, sql, password),
             timeout=self._timeout_seconds,
         )
-        return self._parse_key_rows(stdout, len(key_columns))
+        return self._parse_key_rows(stdout, 1 if use_row_hash else len(key_columns))
 
     async def _stream_local_missing_rows_to_remote(
         self,
@@ -887,12 +1469,17 @@ class SyncService:
         database: str,
         table: str,
         key_columns: tuple[str, ...],
-        missing_keys: list[tuple[str, ...]],
+        missing_keys: list[tuple[str | None, ...]],
         local_password: str,
         remote_password: str,
+        use_row_hash: bool = False,
     ) -> None:
         for batch in self._chunk_keys(missing_keys):
-            where_sql = self._build_missing_keys_where_sql(key_columns, batch)
+            where_sql = (
+                self._build_missing_row_hashes_where_sql(key_columns, batch)
+                if use_row_hash
+                else self._build_missing_keys_where_sql(key_columns, batch)
+            )
             stream_cmd = self._compose_stream_command(
                 self._join_command(
                     self._build_local_incremental_table_dump_args(
@@ -915,12 +1502,17 @@ class SyncService:
         database: str,
         table: str,
         key_columns: tuple[str, ...],
-        missing_keys: list[tuple[str, ...]],
+        missing_keys: list[tuple[str | None, ...]],
         local_password: str,
         remote_password: str,
+        use_row_hash: bool = False,
     ) -> None:
         for batch in self._chunk_keys(missing_keys):
-            where_sql = self._build_missing_keys_where_sql(key_columns, batch)
+            where_sql = (
+                self._build_missing_row_hashes_where_sql(key_columns, batch)
+                if use_row_hash
+                else self._build_missing_keys_where_sql(key_columns, batch)
+            )
             stream_cmd = self._compose_stream_command(
                 self._join_command(
                     self._build_remote_incremental_table_dump_args(
@@ -1000,6 +1592,34 @@ class SyncService:
             raise RuntimeError("远程 .env 中未找到 MYSQL_ROOT_PASSWORD")
         return password
 
+    def _get_local_mysql_defaults(self) -> dict[str, str | int]:
+        fallback_host = str(getattr(settings, "SYNC_LOCAL_MYSQL_HOST", "127.0.0.1"))
+        fallback_port = int(getattr(settings, "SYNC_LOCAL_MYSQL_PORT", 3306))
+        fallback_user = str(getattr(settings, "SYNC_LOCAL_MYSQL_USER", "root"))
+        fallback_password = str(getattr(settings, "SYNC_LOCAL_MYSQL_PASSWORD", ""))
+
+        for candidate in (
+            os.environ.get("DATABASE_URL") or settings.DATABASE_URL,
+            os.environ.get("AKSHARE_DATA_DATABASE_URL") or settings.AKSHARE_DATA_DATABASE_URL,
+        ):
+            if not candidate:
+                continue
+            parsed = urlparse(candidate)
+            if parsed.scheme.startswith("mysql"):
+                return {
+                    "host": parsed.hostname or fallback_host,
+                    "port": parsed.port or fallback_port,
+                    "user": parsed.username or fallback_user,
+                    "password": parsed.password or fallback_password,
+                }
+
+        return {
+            "host": fallback_host,
+            "port": fallback_port,
+            "user": fallback_user,
+            "password": fallback_password,
+        }
+
     def _get_local_mysql_password(self, config: SyncConfig | None = None) -> str:
         value = (
             getattr(config, "local_mysql_password", "") if config is not None else ""
@@ -1007,16 +1627,19 @@ class SyncService:
             os.environ.get("SYNC_LOCAL_MYSQL_PASSWORD")
             or getattr(settings, "SYNC_LOCAL_MYSQL_PASSWORD", "")
             or os.environ.get("LOCAL_MYSQL_PASSWORD")
+            or str(self._get_local_mysql_defaults()["password"])
         )
         return str(value or "").strip()
 
     def _normalize_config(self, config: SyncConfig) -> SyncConfig:
         payload = config.model_copy(deep=True)
+        local_defaults = self._get_local_mysql_defaults()
         payload.connection_mode = payload.connection_mode or "direct_mysql"
-        payload.local_mysql_host = payload.local_mysql_host.strip() or "127.0.0.1"
-        payload.local_mysql_port = int(payload.local_mysql_port or 3306)
-        payload.local_mysql_user = payload.local_mysql_user.strip() or "root"
-        payload.local_mysql_password = str(payload.local_mysql_password or "").strip()
+        payload.local_mysql_host = payload.local_mysql_host.strip() or str(local_defaults["host"])
+        payload.local_mysql_port = int(payload.local_mysql_port or int(local_defaults["port"]))
+        payload.local_mysql_user = payload.local_mysql_user.strip() or str(local_defaults["user"])
+        payload.local_mysql_password = str(payload.local_mysql_password or local_defaults["password"]).strip()
+        payload.sync_parallel_workers = min(max(int(payload.sync_parallel_workers or 2), 1), 16)
         payload.remote_host = self._normalize_host(payload.remote_host)
         payload.remote_user = payload.remote_user.strip() or "root"
         payload.remote_ssh_key = payload.remote_ssh_key.strip() or "~/.ssh/id_rsa"
@@ -1079,6 +1702,15 @@ class SyncService:
             "ORDER BY TABLE_NAME"
         )
 
+    def _build_table_columns_sql(self, database: str, table: str) -> str:
+        return (
+            "SELECT COLUMN_NAME "
+            "FROM information_schema.COLUMNS "
+            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
+            f"AND TABLE_NAME = {self._quote_sql_string(table)} "
+            "ORDER BY ORDINAL_POSITION"
+        )
+
     def _build_index_metadata_sql(self, database: str, table: str) -> str:
         return (
             "SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME "
@@ -1096,12 +1728,20 @@ class SyncService:
         key_columns: tuple[str, ...],
     ) -> str:
         key_select = ", ".join(self._quote_identifier(column) for column in key_columns)
-        key_order = ", ".join(self._quote_identifier(column) for column in key_columns)
-        return (
-            f"SELECT {key_select} "
-            f"FROM {self._quote_identifier(database)}.{self._quote_identifier(table)} "
-            f"ORDER BY {key_order}"
-        )
+        return f"SELECT {key_select} FROM {self._quote_identifier(database)}.{self._quote_identifier(table)}"
+
+    def _build_row_hash_expression(self, key_columns: tuple[str, ...]) -> str:
+        json_items = ", ".join(self._quote_identifier(column) for column in key_columns)
+        return f"SHA2(CAST(JSON_ARRAY({json_items}) AS CHAR), 256)"
+
+    def _build_table_row_hash_values_sql(
+        self,
+        database: str,
+        table: str,
+        key_columns: tuple[str, ...],
+    ) -> str:
+        row_hash = self._build_row_hash_expression(key_columns)
+        return f"SELECT {row_hash} FROM {self._quote_identifier(database)}.{self._quote_identifier(table)}"
 
     def _select_incremental_key_columns(
         self,
@@ -1117,15 +1757,38 @@ class SyncService:
             index_name, _non_unique, seq_in_index, column_name = parts
             indexes.setdefault(index_name, []).append((int(seq_in_index), column_name))
         if not indexes:
-            raise RuntimeError(
-                f"数据表 {database}.{table} 没有主键或唯一索引，无法执行增量同步"
-            )
+            return ()
         if "PRIMARY" in indexes:
             selected = indexes["PRIMARY"]
         else:
             first_name = next(iter(indexes))
             selected = indexes[first_name]
         return tuple(column for _, column in sorted(selected, key=lambda item: item[0]))
+
+    def _parse_table_columns(
+        self,
+        stdout: str,
+        database: str,
+        table: str,
+    ) -> tuple[str, ...]:
+        columns = tuple(line.strip() for line in stdout.splitlines() if line.strip())
+        if not columns:
+            raise RuntimeError(f"数据表 {database}.{table} 未读取到可用列，无法执行增量同步")
+        return columns
+
+    def _build_missing_rows(
+        self,
+        source_rows: list[tuple[str | None, ...]],
+        target_rows: list[tuple[str | None, ...]],
+    ) -> list[tuple[str | None, ...]]:
+        remaining = Counter(source_rows)
+        remaining.subtract(target_rows)
+        missing_rows: list[tuple[str | None, ...]] = []
+        for row in source_rows:
+            if remaining[row] > 0:
+                missing_rows.append(row)
+                remaining[row] -= 1
+        return missing_rows
 
     def _parse_key_rows(
         self,
@@ -1168,11 +1831,80 @@ class SyncService:
             clauses.append("(" + " AND ".join(parts) + ")")
         return " OR ".join(clauses) if clauses else "1 = 0"
 
-    def _build_recreate_database_sql(self, database: str) -> str:
+    def _build_missing_row_hashes_where_sql(
+        self,
+        key_columns: tuple[str, ...],
+        key_rows: list[tuple[str | None, ...]],
+    ) -> str:
+        row_hash = self._build_row_hash_expression(key_columns)
+        values = [row[0] for row in key_rows if row and row[0] is not None]
+        if not values:
+            return "1 = 0"
+        in_clause = ", ".join(self._quote_sql_string(str(value)) for value in values)
+        return f"{row_hash} IN ({in_clause})"
+
+    def _build_ensure_database_sql(self, database: str) -> str:
         identifier = self._quote_identifier(database)
+        return f"CREATE DATABASE IF NOT EXISTS {identifier} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+
+    def _build_database_exists_sql(self, database: str) -> str:
         return (
-            f"DROP DATABASE IF EXISTS {identifier}; "
-            f"CREATE DATABASE {identifier} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+            "SELECT SCHEMA_NAME "
+            "FROM information_schema.SCHEMATA "
+            f"WHERE SCHEMA_NAME = {self._quote_sql_string(database)} "
+            "LIMIT 1"
+        )
+
+    def _build_schema_table_summary_sql(self, database: str) -> str:
+        return (
+            "SELECT JSON_ARRAY("
+            "'TABLE', TABLE_NAME, COALESCE(TABLE_TYPE, ''), COALESCE(ENGINE, ''), COALESCE(TABLE_COLLATION, '')"
+            ") "
+            "FROM information_schema.TABLES "
+            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
+            "ORDER BY TABLE_NAME"
+        )
+
+    def _build_schema_column_summary_sql(self, database: str) -> str:
+        return (
+            "SELECT JSON_ARRAY("
+            "'COLUMN', TABLE_NAME, ORDINAL_POSITION, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, "
+            "IF(COLUMN_DEFAULT IS NULL, '__SYNC_NULL__', COLUMN_DEFAULT), COALESCE(EXTRA, ''), "
+            "COALESCE(CHARACTER_SET_NAME, ''), COALESCE(COLLATION_NAME, '')"
+            ") "
+            "FROM information_schema.COLUMNS "
+            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
+            "ORDER BY TABLE_NAME, ORDINAL_POSITION"
+        )
+
+    def _build_schema_index_summary_sql(self, database: str) -> str:
+        return (
+            "SELECT JSON_ARRAY("
+            "'INDEX', TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME, "
+            "IF(SUB_PART IS NULL, -1, SUB_PART), COALESCE(COLLATION, ''), COALESCE(INDEX_TYPE, '')"
+            ") "
+            "FROM information_schema.STATISTICS "
+            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
+            "ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX"
+        )
+
+    def _build_schema_view_summary_sql(self, database: str) -> str:
+        return (
+            "SELECT JSON_ARRAY("
+            "'VIEW', TABLE_NAME, VIEW_DEFINITION, COALESCE(CHECK_OPTION, ''), "
+            "COALESCE(IS_UPDATABLE, ''), COALESCE(SECURITY_TYPE, '')"
+            ") "
+            "FROM information_schema.VIEWS "
+            f"WHERE TABLE_SCHEMA = {self._quote_sql_string(database)} "
+            "ORDER BY TABLE_NAME"
+        )
+
+    def _build_schema_summary_sql_list(self, database: str) -> tuple[str, ...]:
+        return (
+            self._build_schema_table_summary_sql(database),
+            self._build_schema_column_summary_sql(database),
+            self._build_schema_index_summary_sql(database),
+            self._build_schema_view_summary_sql(database),
         )
 
     def _build_local_mysqldump_args(
@@ -1188,9 +1920,6 @@ class SyncService:
             "--skip-lock-tables",
             "--set-gtid-purged=OFF",
             "--default-character-set=utf8mb4",
-            "--routines",
-            "--triggers",
-            "--events",
             "-h",
             config.local_mysql_host,
             "-P",
@@ -1200,9 +1929,18 @@ class SyncService:
             f"-p{password}",
         ]
         if sync_mode == "schema_only":
-            args.append("--no-data")
+            args.extend([
+                "--no-data",
+                "--skip-comments",
+                "--skip-dump-date",
+                "--skip-add-drop-table",
+                "--skip-add-drop-trigger",
+                "--skip-triggers",
+            ])
         elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace"])
+            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
+        else:
+            args.extend(["--routines", "--triggers", "--events"])
         args.append(database)
         return args
 
@@ -1266,13 +2004,79 @@ class SyncService:
             sql,
         ]
 
+    async def _local_database_exists(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> bool:
+        stdout = await self._run_exec(
+            self._build_local_mysql_query_args(
+                config,
+                self._build_database_exists_sql(database),
+                password,
+            ),
+            timeout=self._connect_timeout,
+        )
+        return bool(stdout.strip())
+
+    async def _export_local_schema_dump(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> str:
+        chunks: list[str] = []
+        for sql in self._build_schema_summary_sql_list(database):
+            stdout = await self._run_exec(
+                self._build_local_mysql_query_args(config, sql, password),
+                timeout=self._timeout_seconds,
+            )
+            if stdout.strip():
+                chunks.append(stdout.strip())
+        return "\n".join(chunks)
+
+    async def _schemas_match_remote_to_local(
+        self,
+        config: SyncConfig,
+        database: str,
+        local_password: str,
+        remote_password: str,
+        task_id: str | None = None,
+    ) -> bool:
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="dumping",
+                progress_pct=28,
+                message=f"正在读取远程数据库结构摘要 {database}",
+            )
+        remote_schema = await self._export_remote_schema_dump(config, database, remote_password)
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="dumping",
+                progress_pct=29,
+                message=f"正在读取本地数据库结构摘要 {database}",
+            )
+        local_schema = await self._export_local_schema_dump(config, database, local_password)
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="dumping",
+                progress_pct=30,
+                message=f"正在比较远程与本地数据库结构摘要 {database}",
+            )
+        return self._normalize_schema_dump(remote_schema) == self._normalize_schema_dump(local_schema)
+
     def _build_local_mysql_import_args(
         self,
         config: SyncConfig,
         database: str,
         password: str,
+        force: bool = False,
     ) -> list[str]:
-        return [
+        args = [
             "mysql",
             "-h",
             config.local_mysql_host,
@@ -1281,8 +2085,11 @@ class SyncService:
             "-u",
             config.local_mysql_user,
             f"-p{password}",
-            database,
         ]
+        if force:
+            args.append("--force")
+        args.append(database)
+        return args
 
     def _build_remote_mysqldump_command(
         self,
@@ -1297,9 +2104,6 @@ class SyncService:
             "--skip-lock-tables",
             "--set-gtid-purged=OFF",
             "--default-character-set=utf8mb4",
-            "--routines",
-            "--triggers",
-            "--events",
             "-h",
             config.remote_mysql_host,
             "-P",
@@ -1308,9 +2112,18 @@ class SyncService:
             config.remote_mysql_user,
         ]
         if sync_mode == "schema_only":
-            args.append("--no-data")
+            args.extend([
+                "--no-data",
+                "--skip-comments",
+                "--skip-dump-date",
+                "--skip-add-drop-table",
+                "--skip-add-drop-trigger",
+                "--skip-triggers",
+            ])
         elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace"])
+            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
+        else:
+            args.extend(["--routines", "--triggers", "--events"])
         args.append(database)
         return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
 
@@ -1327,9 +2140,6 @@ class SyncService:
             "--skip-lock-tables",
             "--set-gtid-purged=OFF",
             "--default-character-set=utf8mb4",
-            "--routines",
-            "--triggers",
-            "--events",
             "-h",
             config.remote_mysql_host,
             "-P",
@@ -1339,9 +2149,18 @@ class SyncService:
             f"-p{password}",
         ]
         if sync_mode == "schema_only":
-            args.append("--no-data")
+            args.extend([
+                "--no-data",
+                "--skip-comments",
+                "--skip-dump-date",
+                "--skip-add-drop-table",
+                "--skip-add-drop-trigger",
+                "--skip-triggers",
+            ])
         elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace"])
+            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
+        else:
+            args.extend(["--routines", "--triggers", "--events"])
         args.append(database)
         return args
 
@@ -1405,13 +2224,79 @@ class SyncService:
             sql,
         ]
 
+    async def _remote_database_exists(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> bool:
+        stdout = await self._run_exec(
+            self._build_remote_mysql_query_args(
+                config,
+                self._build_database_exists_sql(database),
+                password,
+            ),
+            timeout=self._connect_timeout,
+        )
+        return bool(stdout.strip())
+
+    async def _export_remote_schema_dump(
+        self,
+        config: SyncConfig,
+        database: str,
+        password: str,
+    ) -> str:
+        chunks: list[str] = []
+        for sql in self._build_schema_summary_sql_list(database):
+            stdout = await self._run_exec(
+                self._build_remote_mysql_query_args(config, sql, password),
+                timeout=self._timeout_seconds,
+            )
+            if stdout.strip():
+                chunks.append(stdout.strip())
+        return "\n".join(chunks)
+
+    async def _schemas_match_local_to_remote(
+        self,
+        config: SyncConfig,
+        database: str,
+        local_password: str,
+        remote_password: str,
+        task_id: str | None = None,
+    ) -> bool:
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="dumping",
+                progress_pct=28,
+                message=f"正在读取本地数据库结构摘要 {database}",
+            )
+        local_schema = await self._export_local_schema_dump(config, database, local_password)
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="dumping",
+                progress_pct=29,
+                message=f"正在读取远程数据库结构摘要 {database}",
+            )
+        remote_schema = await self._export_remote_schema_dump(config, database, remote_password)
+        if task_id is not None:
+            self._update_task(
+                task_id,
+                stage="dumping",
+                progress_pct=30,
+                message=f"正在比较本地与远程数据库结构摘要 {database}",
+            )
+        return self._normalize_schema_dump(local_schema) == self._normalize_schema_dump(remote_schema)
+
     def _build_remote_mysql_import_args(
         self,
         config: SyncConfig,
         database: str,
         password: str,
+        force: bool = False,
     ) -> list[str]:
-        return [
+        args = [
             "mysql",
             "-h",
             config.remote_mysql_host,
@@ -1420,8 +2305,11 @@ class SyncService:
             "-u",
             config.remote_mysql_user,
             f"-p{password}",
-            database,
         ]
+        if force:
+            args.append("--force")
+        args.append(database)
+        return args
 
     def _build_remote_mysql_query_command(
         self,
@@ -1577,6 +2465,496 @@ class SyncService:
 
     def _quote_identifier(self, value: str) -> str:
         return "`" + value.replace("`", "``") + "`"
+
+    def _normalize_schema_dump(self, payload: str) -> str:
+        normalized = payload.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = re.sub(r"AUTO_INCREMENT=\d+", "AUTO_INCREMENT=0", normalized)
+        normalized = re.sub(r"DEFINER=`[^`]+`@`[^`]+`", "DEFINER=CURRENT_USER", normalized)
+        lines = [line.strip() for line in normalized.split("\n") if line.strip()]
+        return "\n".join(lines)
+
+    def _parse_schema_summary(self, payload: str) -> dict[str, Any]:
+        summary: dict[str, Any] = {
+            "tables": {},
+            "columns": {},
+            "indexes": {},
+            "views": {},
+        }
+        for line in payload.splitlines():
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(row, list) or not row:
+                continue
+            kind = str(row[0])
+            if kind == "TABLE" and len(row) >= 5:
+                table_name = str(row[1])
+                summary["tables"][table_name] = {
+                    "table_type": str(row[2]),
+                    "engine": str(row[3]),
+                    "collation": str(row[4]),
+                }
+                continue
+            if kind == "COLUMN" and len(row) >= 10:
+                table_name = str(row[1])
+                ordinal = int(row[2])
+                column_name = str(row[3])
+                summary["columns"].setdefault(table_name, {})[column_name] = {
+                    "ordinal": ordinal,
+                    "signature": json.dumps(row[3:], ensure_ascii=False, separators=(",", ":")),
+                }
+                continue
+            if kind == "INDEX" and len(row) >= 9:
+                table_name = str(row[1])
+                index_name = str(row[2])
+                table_indexes = summary["indexes"].setdefault(table_name, {})
+                entry = table_indexes.setdefault(
+                    index_name,
+                    {
+                        "non_unique": int(row[3]),
+                        "index_type": str(row[8]),
+                        "parts": [],
+                    },
+                )
+                entry["parts"].append(
+                    (
+                        int(row[4]),
+                        str(row[5]),
+                        int(row[6]),
+                        str(row[7]),
+                    )
+                )
+                continue
+            if kind == "VIEW" and len(row) >= 6:
+                view_name = str(row[1])
+                summary["views"][view_name] = json.dumps(row[2:], ensure_ascii=False, separators=(",", ":"))
+        for table_indexes in summary["indexes"].values():
+            for index_meta in table_indexes.values():
+                index_meta["parts"].sort(key=lambda item: item[0])
+                index_meta["signature"] = json.dumps(
+                    [index_meta["non_unique"], index_meta["index_type"], index_meta["parts"]],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+        return summary
+
+    def _build_schema_delta(
+        self,
+        source_summary: dict[str, Any],
+        target_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        source_tables = {
+            name: meta
+            for name, meta in source_summary.get("tables", {}).items()
+            if str(meta.get("table_type", "")).upper() == "BASE TABLE"
+        }
+        target_tables = {
+            name: meta
+            for name, meta in target_summary.get("tables", {}).items()
+            if str(meta.get("table_type", "")).upper() == "BASE TABLE"
+        }
+        missing_tables = sorted(set(source_tables) - set(target_tables))
+        common_tables = sorted(set(source_tables) & set(target_tables))
+        table_changes: dict[str, dict[str, list[str]]] = {}
+        for table in common_tables:
+            source_columns = source_summary.get("columns", {}).get(table, {})
+            target_columns = target_summary.get("columns", {}).get(table, {})
+            source_order = [
+                name for name, _meta in sorted(source_columns.items(), key=lambda item: item[1]["ordinal"])
+            ]
+            add_columns = [name for name in source_order if name not in target_columns]
+            modify_columns = [
+                name
+                for name in source_order
+                if name in target_columns
+                and source_columns[name]["signature"] != target_columns[name]["signature"]
+            ]
+            source_indexes = source_summary.get("indexes", {}).get(table, {})
+            target_indexes = target_summary.get("indexes", {}).get(table, {})
+            add_indexes = sorted(name for name in source_indexes if name not in target_indexes)
+            rebuild_indexes = sorted(
+                name
+                for name in source_indexes
+                if name in target_indexes
+                and source_indexes[name]["signature"] != target_indexes[name]["signature"]
+            )
+            if add_columns or modify_columns or add_indexes or rebuild_indexes:
+                table_changes[table] = {
+                    "add_columns": add_columns,
+                    "modify_columns": modify_columns,
+                    "add_indexes": add_indexes,
+                    "rebuild_indexes": rebuild_indexes,
+                }
+        source_views = source_summary.get("views", {})
+        target_views = target_summary.get("views", {})
+        views_to_upsert = sorted(
+            name for name, signature in source_views.items() if target_views.get(name) != signature
+        )
+        return {
+            "missing_tables": missing_tables,
+            "table_changes": table_changes,
+            "views_to_upsert": views_to_upsert,
+        }
+
+    def _schema_delta_is_empty(self, delta: dict[str, Any]) -> bool:
+        return not delta["missing_tables"] and not delta["table_changes"] and not delta["views_to_upsert"]
+
+    def _build_local_object_schema_dump_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        object_name: str,
+        password: str,
+    ) -> list[str]:
+        args = self._build_local_mysqldump_args(config, database, "schema_only", password)
+        args.append(object_name)
+        return args
+
+    def _build_remote_object_schema_dump_args(
+        self,
+        config: SyncConfig,
+        database: str,
+        object_name: str,
+        password: str,
+    ) -> list[str]:
+        args = self._build_remote_mysqldump_args(config, database, "schema_only", password)
+        args.append(object_name)
+        return args
+
+    async def _export_local_object_schema_sql(
+        self,
+        config: SyncConfig,
+        database: str,
+        object_name: str,
+        password: str,
+    ) -> str:
+        return await self._run_exec(
+            self._build_local_object_schema_dump_args(config, database, object_name, password),
+            timeout=self._timeout_seconds,
+        )
+
+    async def _export_remote_object_schema_sql(
+        self,
+        config: SyncConfig,
+        database: str,
+        object_name: str,
+        password: str,
+    ) -> str:
+        return await self._run_exec(
+            self._build_remote_object_schema_dump_args(config, database, object_name, password),
+            timeout=self._timeout_seconds,
+        )
+
+    def _extract_create_table_statement(self, payload: str, table: str) -> str:
+        quoted_table = re.escape(self._quote_identifier(table))
+        match = re.search(rf"CREATE TABLE {quoted_table} \(.*?\)[^;]*;", payload, re.S)
+        if match is None:
+            raise RuntimeError(f"未找到数据表 {table} 的 CREATE TABLE 语句")
+        return match.group(0).strip()
+
+    def _extract_create_table_definitions(self, payload: str, table: str) -> dict[str, dict[str, str]]:
+        quoted_table = re.escape(self._quote_identifier(table))
+        match = re.search(
+            rf"CREATE TABLE {quoted_table} \((?P<body>.*?)\)[^;]*;",
+            payload,
+            re.S,
+        )
+        if match is None:
+            raise RuntimeError(f"未找到数据表 {table} 的字段定义")
+        body = match.group("body")
+        column_defs: dict[str, str] = {}
+        index_defs: dict[str, str] = {}
+        for raw_line in body.splitlines():
+            line = raw_line.strip().rstrip(",")
+            if not line:
+                continue
+            if line.startswith("`"):
+                column_name = line.split("`", 2)[1]
+                column_defs[column_name] = line
+                continue
+            if line.startswith("PRIMARY KEY"):
+                index_defs["PRIMARY"] = line
+                continue
+            index_match = re.match(r"(?:UNIQUE KEY|FULLTEXT KEY|SPATIAL KEY|KEY) `([^`]+)`", line)
+            if index_match is not None:
+                index_defs[index_match.group(1)] = line
+        return {
+            "columns": column_defs,
+            "indexes": index_defs,
+        }
+
+    def _build_column_position_clause(
+        self,
+        source_order: list[str],
+        current_columns: set[str],
+        column_name: str,
+    ) -> str:
+        column_index = source_order.index(column_name)
+        for previous_name in reversed(source_order[:column_index]):
+            if previous_name in current_columns:
+                return f" AFTER {self._quote_identifier(previous_name)}"
+        return " FIRST"
+
+    def _build_incremental_table_alter_sql(
+        self,
+        database: str,
+        table: str,
+        table_delta: dict[str, list[str]],
+        source_summary: dict[str, Any],
+        target_summary: dict[str, Any],
+        source_schema_sql: str,
+    ) -> str | None:
+        parsed = self._extract_create_table_definitions(source_schema_sql, table)
+        source_columns = source_summary.get("columns", {}).get(table, {})
+        target_columns = target_summary.get("columns", {}).get(table, {})
+        source_order = [
+            name for name, _meta in sorted(source_columns.items(), key=lambda item: item[1]["ordinal"])
+        ]
+        current_columns = set(target_columns)
+        clauses: list[str] = []
+        for column_name in source_order:
+            if column_name in table_delta["add_columns"]:
+                column_definition = parsed["columns"].get(column_name)
+                if column_definition is None:
+                    raise RuntimeError(f"未找到数据表 {table}.{column_name} 的字段定义")
+                position_clause = self._build_column_position_clause(source_order, current_columns, column_name)
+                clauses.append(f"ADD COLUMN {column_definition}{position_clause}")
+                current_columns.add(column_name)
+            elif column_name in table_delta["modify_columns"]:
+                column_definition = parsed["columns"].get(column_name)
+                if column_definition is None:
+                    raise RuntimeError(f"未找到数据表 {table}.{column_name} 的字段定义")
+                clauses.append(f"MODIFY COLUMN {column_definition}")
+        for index_name in table_delta["rebuild_indexes"]:
+            index_definition = parsed["indexes"].get(index_name)
+            if index_definition is None:
+                raise RuntimeError(f"未找到数据表 {table} 索引 {index_name} 的定义")
+            if index_name == "PRIMARY":
+                clauses.append("DROP PRIMARY KEY")
+                clauses.append(f"ADD {index_definition}")
+            else:
+                clauses.append(f"DROP INDEX {self._quote_identifier(index_name)}")
+                clauses.append(f"ADD {index_definition}")
+        for index_name in table_delta["add_indexes"]:
+            index_definition = parsed["indexes"].get(index_name)
+            if index_definition is None:
+                raise RuntimeError(f"未找到数据表 {table} 索引 {index_name} 的定义")
+            clauses.append(f"ADD {index_definition}")
+        if not clauses:
+            return None
+        return (
+            f"ALTER TABLE {self._quote_identifier(database)}.{self._quote_identifier(table)} "
+            + ", ".join(clauses)
+        )
+
+    def _build_show_create_view_sql(self, database: str, view_name: str) -> str:
+        return f"SHOW CREATE VIEW {self._quote_identifier(database)}.{self._quote_identifier(view_name)}"
+
+    def _normalize_create_view_sql(self, payload: str, view_name: str) -> str:
+        parts = payload.split("\t", 3)
+        if len(parts) < 2:
+            raise RuntimeError(f"未找到视图 {view_name} 的 CREATE VIEW 语句")
+        create_sql = parts[1].replace("\\n", "\n").replace("\\t", "\t")
+        create_sql = re.sub(r"\sDEFINER=`[^`]+`@`[^`]+`", "", create_sql, count=1)
+        if create_sql.startswith("CREATE "):
+            create_sql = create_sql.replace("CREATE ", "CREATE OR REPLACE ", 1)
+        return create_sql.strip()
+
+    async def _fetch_local_view_create_sql(
+        self,
+        config: SyncConfig,
+        database: str,
+        view_name: str,
+        password: str,
+    ) -> str:
+        stdout = await self._run_exec(
+            self._build_local_mysql_query_args(
+                config,
+                self._build_show_create_view_sql(database, view_name),
+                password,
+            ),
+            timeout=self._timeout_seconds,
+        )
+        return self._normalize_create_view_sql(stdout, view_name)
+
+    async def _fetch_remote_view_create_sql(
+        self,
+        config: SyncConfig,
+        database: str,
+        view_name: str,
+        password: str,
+    ) -> str:
+        stdout = await self._run_exec(
+            self._build_remote_mysql_query_args(
+                config,
+                self._build_show_create_view_sql(database, view_name),
+                password,
+            ),
+            timeout=self._timeout_seconds,
+        )
+        return self._normalize_create_view_sql(stdout, view_name)
+
+    def _build_database_scoped_sql(self, database: str, sql: str) -> str:
+        statement = sql.strip()
+        if statement.endswith(";"):
+            statement = statement[:-1]
+        return f"USE {self._quote_identifier(database)}; {statement};"
+
+    async def _execute_remote_database_sql(
+        self,
+        config: SyncConfig,
+        database: str,
+        sql: str,
+        password: str,
+    ) -> None:
+        await self._run_exec(
+            self._build_remote_mysql_query_args(
+                config,
+                self._build_database_scoped_sql(database, sql),
+                password,
+            ),
+            timeout=self._timeout_seconds,
+        )
+
+    async def _execute_local_database_sql(
+        self,
+        config: SyncConfig,
+        database: str,
+        sql: str,
+        password: str,
+    ) -> None:
+        await self._run_exec(
+            self._build_local_mysql_query_args(
+                config,
+                self._build_database_scoped_sql(database, sql),
+                password,
+            ),
+            timeout=self._timeout_seconds,
+        )
+
+    async def _apply_schema_delta_local_to_remote(
+        self,
+        *,
+        task_id: str | None,
+        config: SyncConfig,
+        database: str,
+        local_password: str,
+        remote_password: str,
+        source_summary: dict[str, Any],
+        target_summary: dict[str, Any],
+    ) -> dict[str, int]:
+        delta = self._build_schema_delta(source_summary, target_summary)
+        stats = {"tables": 0, "columns": 0, "indexes": 0, "views": 0}
+        for table in delta["missing_tables"]:
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=34,
+                    message=f"正在创建远程缺失数据表 {database}.{table}",
+                )
+            source_schema_sql = await self._export_local_object_schema_sql(config, database, table, local_password)
+            create_sql = self._extract_create_table_statement(source_schema_sql, table)
+            await self._execute_remote_database_sql(config, database, create_sql, remote_password)
+            stats["tables"] += 1
+        for table, table_delta in delta["table_changes"].items():
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=36,
+                    message=f"正在增量更新远程表结构 {database}.{table}",
+                )
+            source_schema_sql = await self._export_local_object_schema_sql(config, database, table, local_password)
+            alter_sql = self._build_incremental_table_alter_sql(
+                database,
+                table,
+                table_delta,
+                source_summary,
+                target_summary,
+                source_schema_sql,
+            )
+            if alter_sql is None:
+                continue
+            await self._execute_remote_database_sql(config, database, alter_sql, remote_password)
+            stats["columns"] += len(table_delta["add_columns"]) + len(table_delta["modify_columns"])
+            stats["indexes"] += len(table_delta["add_indexes"]) + len(table_delta["rebuild_indexes"])
+        for view_name in delta["views_to_upsert"]:
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=38,
+                    message=f"正在增量更新远程视图 {database}.{view_name}",
+                )
+            view_sql = await self._fetch_local_view_create_sql(config, database, view_name, local_password)
+            await self._execute_remote_database_sql(config, database, view_sql, remote_password)
+            stats["views"] += 1
+        return stats
+
+    async def _apply_schema_delta_remote_to_local(
+        self,
+        *,
+        task_id: str | None,
+        config: SyncConfig,
+        database: str,
+        local_password: str,
+        remote_password: str,
+        source_summary: dict[str, Any],
+        target_summary: dict[str, Any],
+    ) -> dict[str, int]:
+        delta = self._build_schema_delta(source_summary, target_summary)
+        stats = {"tables": 0, "columns": 0, "indexes": 0, "views": 0}
+        for table in delta["missing_tables"]:
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=34,
+                    message=f"正在创建本地缺失数据表 {database}.{table}",
+                )
+            source_schema_sql = await self._export_remote_object_schema_sql(config, database, table, remote_password)
+            create_sql = self._extract_create_table_statement(source_schema_sql, table)
+            await self._execute_local_database_sql(config, database, create_sql, local_password)
+            stats["tables"] += 1
+        for table, table_delta in delta["table_changes"].items():
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=36,
+                    message=f"正在增量更新本地表结构 {database}.{table}",
+                )
+            source_schema_sql = await self._export_remote_object_schema_sql(config, database, table, remote_password)
+            alter_sql = self._build_incremental_table_alter_sql(
+                database,
+                table,
+                table_delta,
+                source_summary,
+                target_summary,
+                source_schema_sql,
+            )
+            if alter_sql is None:
+                continue
+            await self._execute_local_database_sql(config, database, alter_sql, local_password)
+            stats["columns"] += len(table_delta["add_columns"]) + len(table_delta["modify_columns"])
+            stats["indexes"] += len(table_delta["add_indexes"]) + len(table_delta["rebuild_indexes"])
+        for view_name in delta["views_to_upsert"]:
+            if task_id is not None:
+                self._update_task(
+                    task_id,
+                    stage="importing",
+                    progress_pct=38,
+                    message=f"正在增量更新本地视图 {database}.{view_name}",
+                )
+            view_sql = await self._fetch_remote_view_create_sql(config, database, view_name, remote_password)
+            await self._execute_local_database_sql(config, database, view_sql, local_password)
+            stats["views"] += 1
+        return stats
 
     def _normalize_host(self, value: str) -> str:
         host = str(value or "").strip()

@@ -242,12 +242,13 @@
               v-if="col.prop === 'symbol'"
               prop="symbol"
               :label="col.label"
-              width="110"
+              width="160"
               fixed="left"
               sortable="custom"
+              show-overflow-tooltip
             >
               <template #default="{ row }">
-                <span class="font-mono font-medium">{{ row.symbol }}</span>
+                <span class="font-mono font-medium whitespace-nowrap">{{ row.symbol }}</span>
               </template>
             </el-table-column>
             <el-table-column

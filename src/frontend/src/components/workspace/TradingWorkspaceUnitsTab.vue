@@ -429,6 +429,15 @@
       width="980px"
     >
       <div v-if="detailUnit" class="space-y-4 text-sm">
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <el-button size="small" @click="handleOpenRuntimeDialog(detailUnit)">
+            查看运行文件
+          </el-button>
+          <el-button type="primary" size="small" @click="handleOpenRuntimeDirectory(detailUnit)">
+            打开策略单元
+          </el-button>
+        </div>
+
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">单元</div>
@@ -526,6 +535,11 @@
         </div>
       </div>
     </el-dialog>
+    <UnitRuntimeDialog
+      v-model="showRuntimeDialog"
+      :workspace-id="workspaceId"
+      :unit="runtimeUnit"
+    />
   </div>
 </template>
 
@@ -577,6 +591,7 @@ import PositionManagerDialog from './PositionManagerDialog.vue'
 import ScheduledOptimizationDialog from './ScheduledOptimizationDialog.vue'
 import StrategyParamsDialog from './StrategyParamsDialog.vue'
 import TradingDayStatsDialog from './TradingDayStatsDialog.vue'
+import UnitRuntimeDialog from './UnitRuntimeDialog.vue'
 import UnitSettingsDialog from './UnitSettingsDialog.vue'
 
 const props = defineProps<{
@@ -609,7 +624,9 @@ const showGroupLink = ref(false)
 const showImportDialog = ref(false)
 const showExportDialog = ref(false)
 const showDetailDialog = ref(false)
+const showRuntimeDialog = ref(false)
 const detailUnit = ref<StrategyUnit | null>(null)
+const runtimeUnit = ref<StrategyUnit | null>(null)
 const autoTradingEnabled = ref(false)
 const autoTradingLoading = ref(false)
 const autoTradingSchedule = ref<TradingAutoScheduleItem[]>([])
@@ -864,6 +881,20 @@ function handleOpenKline() {
 function openDetail(unit: StrategyUnit) {
   detailUnit.value = unit
   showDetailDialog.value = true
+}
+
+async function handleOpenRuntimeDirectory(unit: StrategyUnit) {
+  try {
+    const result = await workspaceApi.openUnitRuntimeDir(props.workspaceId, unit.id)
+    ElMessage.success(result.message || '策略单元目录已打开')
+  } catch (error: unknown) {
+    ElMessage.error(getErrorMessage(error, '打开策略单元失败'))
+  }
+}
+
+function handleOpenRuntimeDialog(unit: StrategyUnit) {
+  runtimeUnit.value = unit
+  showRuntimeDialog.value = true
 }
 
 function statusDotClass(row: StrategyUnit) {

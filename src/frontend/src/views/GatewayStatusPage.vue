@@ -3,7 +3,7 @@
     <teleport v-if="headerActionsTargetReady" to="#page-header-actions">
       <div class="flex items-center gap-2 flex-wrap">
         <el-tag :type="healthyCount > 0 ? 'success' : 'info'" size="small">
-          {{ healthyCount }} 健康 / {{ gateways.length }} 总计
+          {{ healthyCount }} 健康 / {{ visibleGateways.length }} 总计
         </el-tag>
         <el-radio-group v-model="viewMode" size="small">
           <el-radio-button value="card">
@@ -31,18 +31,18 @@
     />
 
     <!-- Loading -->
-    <div v-if="loading && gateways.length === 0" class="flex justify-center py-12">
+    <div v-if="loading && visibleGateways.length === 0" class="flex justify-center py-12">
       <el-icon class="is-loading text-4xl text-blue-500"><Loading /></el-icon>
     </div>
 
     <!-- Empty -->
-    <div v-else-if="gateways.length === 0" class="text-center py-12">
+    <div v-else-if="visibleGateways.length === 0" class="text-center py-12">
       <el-empty description="暂无 Gateway。你可以在本页手动连接，或在实盘交易页面启动带 Gateway 的策略。" />
     </div>
 
     <!-- Gateway Cards -->
     <div v-else-if="viewMode === 'card'" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <el-card v-for="gw in gateways" :key="gw.gateway_key" shadow="hover">
+      <el-card v-for="gw in visibleGateways" :key="gw.gateway_key" shadow="hover">
         <!-- Card Header -->
         <template #header>
           <div class="flex justify-between items-center">
@@ -176,7 +176,7 @@
     </div>
 
     <el-card v-else shadow="never">
-      <el-table :data="gateways" stripe border>
+      <el-table :data="visibleGateways" stripe border>
         <el-table-column label="Gateway" min-width="240" show-overflow-tooltip>
           <template #default="{ row }">
             <div class="flex items-center gap-2">
@@ -588,7 +588,8 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 let headerTargetTimer: ReturnType<typeof setInterval> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
-const healthyCount = computed(() => gateways.value.filter((g) => g.is_healthy).length)
+const visibleGateways = computed(() => gateways.value.filter((g) => !g.gateway_key.startsWith('direct:')))
+const healthyCount = computed(() => visibleGateways.value.filter((g) => g.is_healthy).length)
 
 // ---- Connect Dialog ----
 const showConnectDialog = ref(false)
@@ -767,8 +768,13 @@ async function handleDisconnect(gatewayKey: string) {
   disconnecting.value = gatewayKey
   try {
     const res = await liveTradingApi.disconnectGateway(gatewayKey)
+    gateways.value = gateways.value.filter((gw) => gw.gateway_key !== gatewayKey)
     ElMessage.success(res.message || '已断开')
-    await fetchHealth()
+    try {
+      await fetchHealth()
+    } catch {
+      // fetchHealth already handles UI state; keep optimistic removal result
+    }
   } catch {
     // Error already shown by Axios interceptor
   } finally {

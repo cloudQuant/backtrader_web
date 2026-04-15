@@ -47,6 +47,12 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _safe_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
 class TradingWorkspaceService:
     """Trading orchestration for workspace strategy units."""
 
@@ -500,7 +506,7 @@ class TradingWorkspaceService:
         total_pnl = 0.0
 
         for unit in units:
-            snapshot = dict(unit.trading_snapshot or {})
+            snapshot = _safe_dict(unit.trading_snapshot)
             position_rows = list(snapshot.get("positions") or [])
             long_market_value = _safe_float(snapshot.get("long_market_value"))
             short_market_value = _safe_float(snapshot.get("short_market_value"))
@@ -617,12 +623,12 @@ class TradingWorkspaceService:
                     id=str(unit.id),
                     run_status=str(unit.run_status or "idle"),
                     last_task_id=str(unit.last_task_id) if unit.last_task_id else None,
-                    metrics_snapshot=dict(unit.metrics_snapshot or {}),
+                    metrics_snapshot=_safe_dict(unit.metrics_snapshot),
                     run_count=int(unit.run_count or 0),
                     last_run_time=float(unit.last_run_time) if unit.last_run_time is not None else None,
                     bar_count=int(unit.bar_count) if unit.bar_count is not None else None,
                     trading_instance_id=str(unit.trading_instance_id) if unit.trading_instance_id else None,
-                    trading_snapshot=dict(unit.trading_snapshot or {}),
+                    trading_snapshot=_safe_dict(unit.trading_snapshot),
                     trading_mode=self.normalize_trading_mode(unit.trading_mode),
                     lock_trading=bool(unit.lock_trading),
                     lock_running=bool(unit.lock_running),

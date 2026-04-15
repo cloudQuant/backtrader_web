@@ -8,6 +8,8 @@ and workspace-level run orchestration (Phase 3).
 import asyncio
 import json
 import logging
+import platform
+import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,6 +31,7 @@ from app.schemas.workspace import (
     StrategyUnitUpdate,
     UnitOptimizationRequest,
     UnitRenameRequest,
+    UnitRuntimeInfoResponse,
     UnitStatusResponse,
     WorkspaceCreate,
     WorkspaceResponse,
@@ -57,6 +60,9 @@ _TERMINAL_OPTIMIZATION_STATUSES = {
     TaskStatus.FAILED.value,
     TaskStatus.CANCELLED.value,
 }
+_ALLOWED_RUNTIME_FILE_EXTENSIONS = frozenset(
+    {".log", ".yaml", ".yml", ".json", ".txt", ".py", ".md", ".csv"}
+)
 
 
 def _default_workspace_settings() -> dict[str, Any]:
@@ -1102,6 +1108,87 @@ class WorkspaceService:
                 if changed:
                     await session.commit()
             return self._unit_to_dict(unit)
+
+    async def get_unit_runtime_info(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None:
+                return None
+            unit = await self._get_unit(session, workspace_id, unit_id)
+            if unit is None:
+                return None
+            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
+                changed = await self.trading_service.hydrate_units([unit], user_id)
+                if changed:
+                    await session.commit()
+
+            runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
+            if not runtime_dir.is_dir():
+                return None
+
+            log_dir = runtime_dir / "logs"
+            files: list[dict[str, Any]] = []
+            for relative_path in self._collect_runtime_files(runtime_dir):
+                file_path = runtime_dir / relative_path
+                if not file_path.is_file():
+                    continue
+                files.append(
+                    {
+                        "name": file_path.name,
+                        "relative_path": relative_path.as_posix(),
+                        "size": file_path.stat().st_size,
+                        "kind": self._runtime_file_kind(relative_path),
+                    }
+                )
+
+            return UnitRuntimeInfoResponse(
+                unit_id=unit_id,
+                runtime_dir=str(runtime_dir),
+                log_dir=str(log_dir) if log_dir.is_dir() else None,
+                files=files,
+            ).model_dump()
+
+    async def read_unit_runtime_file(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        user_id: str,
+        relative_path: str,
+        tail: int | None = None,
+    ) -> str | None:
+        runtime_dir = await self._get_unit_runtime_dir(workspace_id, unit_id, user_id)
+        if runtime_dir is None:
+            return None
+        file_path = self._resolve_runtime_file(runtime_dir, relative_path)
+        if file_path is None or not file_path.is_file():
+            return None
+
+        content = file_path.read_text(encoding="utf-8", errors="replace")
+        if tail is not None and tail > 0:
+            lines = content.splitlines()
+            content = "\n".join(lines[-tail:])
+        return content
+
+    async def open_unit_runtime_dir(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        runtime_dir = await self._get_unit_runtime_dir(workspace_id, unit_id, user_id)
+        if runtime_dir is None:
+            return None
+        self._open_path_in_file_manager(runtime_dir)
+        return {
+            "unit_id": unit_id,
+            "runtime_dir": str(runtime_dir),
+            "message": "策略单元目录已打开",
+        }
 
     async def update_unit(
         self, workspace_id: str, unit_id: str, user_id: str, data: StrategyUnitUpdate
@@ -2159,6 +2246,76 @@ class WorkspaceService:
             bar_count=WorkspaceService._requested_bar_count(unit),
             params=params,
         )
+
+    async def _get_unit_runtime_dir(
+        self,
+        workspace_id: str,
+        unit_id: str,
+        user_id: str,
+    ) -> Path | None:
+        async with async_session_maker() as session:
+            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
+            if ws is None:
+                return None
+            unit = await self._get_unit(session, workspace_id, unit_id)
+            if unit is None:
+                return None
+            runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
+            return runtime_dir if runtime_dir.is_dir() else None
+
+    @staticmethod
+    def _collect_runtime_files(runtime_dir: Path) -> list[Path]:
+        files: list[Path] = []
+        preferred_top_level = ["config.yaml", "run.py"]
+        for name in preferred_top_level:
+            path = runtime_dir / name
+            if path.is_file():
+                files.append(Path(name))
+
+        for candidate in sorted(runtime_dir.glob("strategy_*.py")):
+            if candidate.is_file():
+                files.append(candidate.relative_to(runtime_dir))
+
+        log_dir = runtime_dir / "logs"
+        if log_dir.is_dir():
+            for candidate in sorted(log_dir.iterdir()):
+                if candidate.is_file():
+                    files.append(candidate.relative_to(runtime_dir))
+
+        return files
+
+    @staticmethod
+    def _runtime_file_kind(relative_path: Path) -> str:
+        if relative_path.parts and relative_path.parts[0] == "logs":
+            return "log"
+        if relative_path.name == "config.yaml":
+            return "config"
+        if relative_path.name == "run.py":
+            return "runner"
+        if relative_path.name.startswith("strategy_") and relative_path.suffix == ".py":
+            return "strategy"
+        return "file"
+
+    @staticmethod
+    def _resolve_runtime_file(runtime_dir: Path, relative_path: str) -> Path | None:
+        candidate = (runtime_dir / str(relative_path or "")).resolve()
+        runtime_root = runtime_dir.resolve()
+        if not candidate.is_relative_to(runtime_root):
+            return None
+        if candidate.suffix.lower() not in _ALLOWED_RUNTIME_FILE_EXTENSIONS:
+            return None
+        return candidate
+
+    @staticmethod
+    def _open_path_in_file_manager(path: Path) -> None:
+        system = platform.system().lower()
+        if system == "darwin":
+            command = ["open", str(path)]
+        elif system == "windows":
+            command = ["explorer", str(path)]
+        else:
+            command = ["xdg-open", str(path)]
+        subprocess.Popen(command)
 
     async def _background_poll_units(
         self,

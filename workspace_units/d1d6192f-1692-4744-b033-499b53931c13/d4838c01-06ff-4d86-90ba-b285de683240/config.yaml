@@ -15,8 +15,8 @@ params:
 data:
   symbol: IF2609
   symbol_name: 沪深300主力
-  data_type: stock
-  exchange: IB_WEB
+  data_type: futures
+  exchange: CTP
   asset_type: future
   timeframe: 1m
   timeframe_n: 1

@@ -16,6 +16,7 @@ async def start_instance(
     release_gateway_for_instance,
     wait_process_callback,
     processes: dict[str, Any],
+    stopping_instances: set[str],
 ) -> dict[str, Any]:
     instances = load_instances()
     if instance_id not in instances:
@@ -55,6 +56,7 @@ async def start_instance(
     except (OSError, subprocess.SubprocessError):
         release_gateway_for_instance(instance_id)
         raise
+    stopping_instances.discard(instance_id)
     processes[instance_id] = proc
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -184,50 +186,59 @@ async def wait_process(
         import logging
         logging.getLogger(__name__).debug("proc.wait() raised (ignored): %s", e)
     finally:
-        was_stopping = instance_id in stopping_instances
         instances = load_instances()
+        stale_callback = False
+        current_proc = processes.get(instance_id)
+        if current_proc is not None and current_proc is not proc:
+            stale_callback = True
         if instance_id in instances:
             inst = instances[instance_id]
-            if was_stopping:
-                inst["status"] = "stopped"
-                inst["error"] = None
-            elif proc.returncode != 0:
-                stderr = ""
-                if proc.stderr:
-                    try:
-                        stderr_bytes = await proc.stderr.read()
-                        for encoding in ("utf-8", "gbk", "cp936"):
-                            try:
-                                stderr = stderr_bytes.decode(encoding)
-                                break
-                            except (UnicodeDecodeError, LookupError):
-                                continue
-                        else:
-                            stderr = stderr_bytes.decode("utf-8", errors="replace")
-                        stderr = stderr[-500:]
-                    except Exception as e:
-                        # stderr read failed; use empty string
-                        import logging
-                        logging.getLogger(__name__).warning("Failed to read stderr: %s", e)
-                inst["status"] = "error"
-                inst["error"] = stderr or f"Process exit code: {proc.returncode}"
-            else:
-                inst["status"] = "stopped"
-                inst["error"] = None
-            inst["pid"] = None
-            inst["stopped_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            try:
-                runtime_dir = str(inst.get("runtime_dir") or "").strip()
-                strategy_dir = (
-                    Path(runtime_dir).expanduser()
-                    if runtime_dir
-                    else resolve_strategy_dir(inst["strategy_id"])
-                )
-                inst["log_dir"] = find_latest_log_dir(strategy_dir)
-            except ValueError:
-                inst["log_dir"] = None
-            instances[instance_id] = inst
-            save_instances(instances)
-        processes.pop(instance_id, None)
-        stopping_instances.discard(instance_id)
-        release_gateway_for_instance(instance_id)
+            current_pid = inst.get("pid")
+            if current_pid not in (None, proc.pid):
+                stale_callback = True
+            if not stale_callback:
+                was_stopping = instance_id in stopping_instances
+                if was_stopping:
+                    inst["status"] = "stopped"
+                    inst["error"] = None
+                elif proc.returncode != 0:
+                    stderr = ""
+                    if proc.stderr:
+                        try:
+                            stderr_bytes = await proc.stderr.read()
+                            for encoding in ("utf-8", "gbk", "cp936"):
+                                try:
+                                    stderr = stderr_bytes.decode(encoding)
+                                    break
+                                except (UnicodeDecodeError, LookupError):
+                                    continue
+                            else:
+                                stderr = stderr_bytes.decode("utf-8", errors="replace")
+                            stderr = stderr[-500:]
+                        except Exception as e:
+                            # stderr read failed; use empty string
+                            import logging
+                            logging.getLogger(__name__).warning("Failed to read stderr: %s", e)
+                    inst["status"] = "error"
+                    inst["error"] = stderr or f"Process exit code: {proc.returncode}"
+                else:
+                    inst["status"] = "stopped"
+                    inst["error"] = None
+                inst["pid"] = None
+                inst["stopped_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                try:
+                    runtime_dir = str(inst.get("runtime_dir") or "").strip()
+                    strategy_dir = (
+                        Path(runtime_dir).expanduser()
+                        if runtime_dir
+                        else resolve_strategy_dir(inst["strategy_id"])
+                    )
+                    inst["log_dir"] = find_latest_log_dir(strategy_dir)
+                except ValueError:
+                    inst["log_dir"] = None
+                instances[instance_id] = inst
+                save_instances(instances)
+        if not stale_callback:
+            processes.pop(instance_id, None)
+            stopping_instances.discard(instance_id)
+            release_gateway_for_instance(instance_id)

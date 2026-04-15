@@ -1,0 +1,21 @@
+{
+  "connection_mode": "direct_mysql",
+  "local_mysql_host": "127.0.0.1",
+  "local_mysql_port": 3306,
+  "local_mysql_user": "root",
+  "local_mysql_password": "19900507",
+  "sync_parallel_workers": 8,
+  "remote_host": "",
+  "remote_user": "root",
+  "remote_ssh_key": "~/.ssh/id_rsa",
+  "remote_container": "backtrader_mysql",
+  "remote_install_dir": "/opt/backtrader_web",
+  "remote_mysql_host": "43.167.221.188",
+  "remote_mysql_port": 3306,
+  "remote_mysql_user": "root",
+  "remote_mysql_password": "adqvvuk6U4E2rzvh",
+  "sync_databases": [
+    "backtrader_web",
+    "akshare_data"
+  ]
+}

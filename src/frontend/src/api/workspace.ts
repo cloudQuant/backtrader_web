@@ -28,6 +28,7 @@ import type {
   TradingAutoScheduleItem,
   TradingPositionManagerResponse,
   TradingDailySummaryResponse,
+  StrategyUnitRuntimeInfo,
 } from '@/types/workspace'
 
 export const workspaceApi = {
@@ -73,6 +74,34 @@ export const workspaceApi = {
 
   async getUnit(workspaceId: string, unitId: string): Promise<StrategyUnit> {
     return api.get(`/workspace/${workspaceId}/units/${unitId}`)
+  },
+
+  async getUnitRuntimeInfo(workspaceId: string, unitId: string): Promise<StrategyUnitRuntimeInfo> {
+    return api.get(`/workspace/${workspaceId}/units/${unitId}/runtime`)
+  },
+
+  async getUnitRuntimeFile(
+    workspaceId: string,
+    unitId: string,
+    relativePath: string,
+    tail?: number | null,
+  ): Promise<string> {
+    const params = tail != null ? { tail } : {}
+    const encodedPath = relativePath
+      .split('/')
+      .map(segment => encodeURIComponent(segment))
+      .join('/')
+    return api.get(
+      `/workspace/${workspaceId}/units/${unitId}/runtime/files/${encodedPath}`,
+      { params, responseType: 'text' },
+    )
+  },
+
+  async openUnitRuntimeDir(
+    workspaceId: string,
+    unitId: string,
+  ): Promise<{ unit_id: string; runtime_dir: string; message: string }> {
+    return api.post(`/workspace/${workspaceId}/units/${unitId}/runtime/open`)
   },
 
   async updateUnit(workspaceId: string, unitId: string, data: StrategyUnitUpdate): Promise<StrategyUnit> {

@@ -15,8 +15,8 @@ params:
 data:
   symbol: cu2606
   symbol_name: 铜主力
-  data_type: stock
-  exchange: IB_WEB
+  data_type: futures
+  exchange: CTP
   asset_type: future
   timeframe: 1m
   timeframe_n: 1
@@ -86,31 +86,31 @@ workspace_unit:
   runtime_mode: trading
   workspace_settings:
     data_source:
-      csv:
-        encoding: utf-8
-        delimiter: ','
-        has_header: true
-        directory_path: ''
       type: csv
+      csv:
+        directory_path: ''
+        delimiter: ','
+        encoding: utf-8
+        has_header: true
       mysql:
         host: 127.0.0.1
         port: 3306
+        database: ''
+        username: ''
+        password: ''
         table: ''
-        database: ''
-        password: ''
-        username: ''
-      mongodb:
-        uri: mongodb://127.0.0.1:27017
-        database: ''
-        password: ''
-        username: ''
-        collection: ''
-        auth_source: admin
       postgresql:
         host: 127.0.0.1
         port: 5432
-        table: ''
-        schema: public
         database: ''
-        password: ''
+        schema: public
         username: ''
+        password: ''
+        table: ''
+      mongodb:
+        uri: mongodb://127.0.0.1:27017
+        database: ''
+        collection: ''
+        username: ''
+        password: ''
+        auth_source: admin

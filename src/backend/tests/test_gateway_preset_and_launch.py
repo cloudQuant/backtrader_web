@@ -5,10 +5,14 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.services.gateway_launch_builder import (
+    build_binance_gateway_runtime_kwargs,
     build_ctp_gateway_runtime_kwargs,
     build_gateway_launch,
+    build_gateway_session_key,
+    build_gateway_session_key_from_runtime_kwargs,
     build_ib_web_gateway_runtime_kwargs,
     build_mt5_gateway_runtime_kwargs,
+    build_okx_gateway_runtime_kwargs,
     coerce_bool,
     coerce_float,
     get_gateway_params,
@@ -17,7 +21,6 @@ from app.services.gateway_launch_builder import (
     parse_json_dict,
 )
 from app.services.gateway_preset_service import get_gateway_presets
-
 
 # ---- gateway_preset_service tests ----
 
@@ -239,6 +242,30 @@ class TestBuildCtpGatewayRuntimeKwargs:
         assert result["password"] == "env_pwd"
         assert result["transport"] == "tcp"
 
+    def test_default_timeouts_are_extended_for_ctp(self):
+        config = {
+            "ctp": {
+                "investor_id": "inv001",
+                "broker_id": "9999",
+                "password": "secret",
+                "fronts": {
+                    "simnow": {
+                        "td_address": "tcp://td",
+                        "md_address": "tcp://md",
+                    }
+                },
+            },
+            "live": {"network": "simnow"},
+        }
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data=config,
+            env_data={},
+            gateway_params={"account_id": "acc1"},
+            default_transport="tcp",
+        )
+        assert result["gateway_startup_timeout_sec"] == 60.0
+        assert result["gateway_command_timeout_sec"] == 20.0
+
 
 # ---- IB Web builder tests ----
 
@@ -294,6 +321,16 @@ class TestBuildIbWebGatewayRuntimeKwargs:
         assert result["async_proxy"] == ""
         assert result["transport"] == "tcp"
 
+    def test_defaults_include_timeout_controls(self):
+        result = build_ib_web_gateway_runtime_kwargs(
+            config_data={},
+            env_data={},
+            gateway_params={"account_id": "DU123"},
+            default_transport="tcp",
+        )
+        assert result["gateway_startup_timeout_sec"] == 30.0
+        assert result["gateway_command_timeout_sec"] == 10.0
+
 
 # ---- MT5 builder tests ----
 
@@ -324,6 +361,67 @@ class TestBuildMt5GatewayRuntimeKwargs:
             gateway_params={"login": "111", "password": "p"},
         )
         assert result["symbol_map"] == {"EURUSD": "EURUSDm"}
+
+
+class TestBuildCryptoGatewayRuntimeKwargs:
+    def test_build_binance_runtime_kwargs(self):
+        result = build_binance_gateway_runtime_kwargs(
+            config_data={},
+            env_data={"BINANCE_API_KEY": "api", "BINANCE_SECRET_KEY": "secret"},
+            gateway_params={"asset_type": "swap", "account_id": "acct-1"},
+            default_transport="ipc",
+        )
+        assert result["exchange_type"] == "BINANCE"
+        assert result["asset_type"] == "SWAP"
+        assert result["account_id"] == "acct-1"
+        assert result["transport"] == "ipc"
+
+    def test_build_okx_runtime_kwargs(self):
+        result = build_okx_gateway_runtime_kwargs(
+            config_data={},
+            env_data={
+                "OKX_API_KEY": "api",
+                "OKX_SECRET_KEY": "secret",
+                "OKX_PASSPHRASE": "pass",
+            },
+            gateway_params={"asset_type": "spot", "account_id": "acct-2", "testnet": True},
+            default_transport="ipc",
+        )
+        assert result["exchange_type"] == "OKX"
+        assert result["asset_type"] == "SPOT"
+        assert result["account_id"] == "acct-2"
+        assert result["testnet"] is True
+
+
+class TestGatewaySessionKey:
+    def test_ctp_session_key_includes_front_and_broker(self):
+        key = build_gateway_session_key(
+            "CTP",
+            "089763",
+            asset_type="future",
+            broker_id="9999",
+            td_address="tcp://182.254.243.31:30001",
+            md_address="tcp://182.254.243.31:30011",
+        )
+        assert "exchange=ctp" in key
+        assert "asset=future" in key
+        assert "account=089763" in key
+        assert "broker=9999" in key
+
+    def test_runtime_kwargs_session_key_normalizes_ib_web(self):
+        key = build_gateway_session_key_from_runtime_kwargs(
+            {
+                "exchange_type": "IB_WEB",
+                "asset_type": "stk",
+                "account_id": "DU123456",
+                "base_url": "https://localhost:5000/v1/api",
+                "login_mode": "paper",
+            }
+        )
+        assert "exchange=ib_web" in key
+        assert "asset=stk" in key
+        assert "account=du123456" in key
+        assert "mode=paper" in key
 
 
 # ---- build_gateway_launch integration test ----
@@ -376,3 +474,33 @@ class TestBuildGatewayLaunch:
             default_transport="tcp",
         )
         assert result["runtime_kwargs"]["exchange_type"] == "MT5"
+
+    def test_dispatches_to_binance(self):
+        mock_config_cls = MagicMock()
+        result = build_gateway_launch(
+            config_data={},
+            env_data={"BINANCE_API_KEY": "api", "BINANCE_SECRET_KEY": "secret"},
+            gateway_params={"exchange_type": "BINANCE", "asset_type": "SWAP"},
+            gateway_config_cls=mock_config_cls,
+            gateway_runtime_cls=MagicMock(),
+            default_transport="ipc",
+        )
+        assert result["runtime_kwargs"]["exchange_type"] == "BINANCE"
+        assert result["runtime_kwargs"]["asset_type"] == "SWAP"
+
+    def test_dispatches_to_okx(self):
+        mock_config_cls = MagicMock()
+        result = build_gateway_launch(
+            config_data={},
+            env_data={
+                "OKX_API_KEY": "api",
+                "OKX_SECRET_KEY": "secret",
+                "OKX_PASSPHRASE": "pass",
+            },
+            gateway_params={"exchange_type": "OKX", "asset_type": "SPOT"},
+            gateway_config_cls=mock_config_cls,
+            gateway_runtime_cls=MagicMock(),
+            default_transport="ipc",
+        )
+        assert result["runtime_kwargs"]["exchange_type"] == "OKX"
+        assert result["runtime_kwargs"]["asset_type"] == "SPOT"

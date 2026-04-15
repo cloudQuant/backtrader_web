@@ -86,6 +86,93 @@ class AkshareDataService:
                 return parsed.min().to_pydatetime(), parsed.max().to_pydatetime()
         return None, None
 
+    async def _upsert_table_metadata(
+        self,
+        script: DataScript,
+        table_name: str,
+        row_count: int,
+        parameters: dict[str, Any],
+        status: str,
+        columns: list[str],
+        data_start: datetime | None = None,
+        data_end: datetime | None = None,
+    ) -> DataTable:
+        metadata_result = await self.db.execute(
+            text("SELECT id FROM ak_data_tables WHERE table_name = :table_name"),
+            {"table_name": table_name},
+        )
+        existing_id = metadata_result.scalar_one_or_none()
+        if existing_id is None:
+            record = DataTable(
+                table_name=table_name,
+                table_comment=script.script_name,
+                category=script.category,
+                script_id=script.script_id,
+                row_count=row_count,
+                last_update_time=datetime.utcnow(),
+                last_update_status=status,
+                data_start_date=data_start.date() if data_start else None,
+                data_end_date=data_end.date() if data_end else None,
+                symbol_raw=str(parameters.get("symbol")) if parameters.get("symbol") else None,
+                symbol_normalized=self._normalize_identifier(str(parameters.get("symbol")))
+                if parameters.get("symbol")
+                else None,
+                market=str(parameters.get("market")) if parameters.get("market") else None,
+                asset_type=str(parameters.get("asset_type")) if parameters.get("asset_type") else None,
+                metadata_json={"columns": columns},
+            )
+            self.db.add(record)
+            await self.db.commit()
+            await self.db.refresh(record)
+            return record
+
+        table = await self.db.get(DataTable, existing_id)
+        table.table_comment = script.script_name
+        table.category = script.category
+        table.script_id = script.script_id
+        table.row_count = row_count
+        table.last_update_time = datetime.utcnow()
+        table.last_update_status = status
+        table.data_start_date = data_start.date() if data_start else None
+        table.data_end_date = data_end.date() if data_end else None
+        table.symbol_raw = str(parameters.get("symbol")) if parameters.get("symbol") else None
+        table.symbol_normalized = (
+            self._normalize_identifier(str(parameters.get("symbol")))
+            if parameters.get("symbol")
+            else None
+        )
+        table.market = str(parameters.get("market")) if parameters.get("market") else None
+        table.asset_type = str(parameters.get("asset_type")) if parameters.get("asset_type") else None
+        table.metadata_json = {"columns": columns}
+        await self.db.commit()
+        await self.db.refresh(table)
+        return table
+
+    async def sync_existing_table_metadata(
+        self,
+        script: DataScript,
+        table_name: str,
+        parameters: dict[str, Any],
+        status: str = "success",
+    ) -> DataTable:
+        normalized_table_name = self._validate_table_name(self._normalize_identifier(table_name))
+        row_count = await self.get_row_count(normalized_table_name)
+        try:
+            schema = await self.get_table_schema(normalized_table_name)
+            columns = [column["name"] for column in schema]
+        except Exception:
+            columns = []
+        return await self._upsert_table_metadata(
+            script=script,
+            table_name=normalized_table_name,
+            row_count=row_count,
+            parameters=parameters,
+            status=status,
+            columns=columns,
+            data_start=None,
+            data_end=None,
+        )
+
     async def persist_dataframe(
         self,
         script: DataScript,
@@ -112,56 +199,16 @@ class AkshareDataService:
                 )
             )
 
-        metadata_result = await self.db.execute(
-            text("SELECT id FROM ak_data_tables WHERE table_name = :table_name"),
-            {"table_name": table_name},
+        return await self._upsert_table_metadata(
+            script=script,
+            table_name=table_name,
+            row_count=row_count,
+            parameters=parameters,
+            status=status,
+            columns=list(normalized_df.columns),
+            data_start=data_start,
+            data_end=data_end,
         )
-        existing_id = metadata_result.scalar_one_or_none()
-        if existing_id is None:
-            record = DataTable(
-                table_name=table_name,
-                table_comment=script.script_name,
-                category=script.category,
-                script_id=script.script_id,
-                row_count=row_count,
-                last_update_time=datetime.utcnow(),
-                last_update_status=status,
-                data_start_date=data_start.date() if data_start else None,
-                data_end_date=data_end.date() if data_end else None,
-                symbol_raw=str(parameters.get("symbol")) if parameters.get("symbol") else None,
-                symbol_normalized=self._normalize_identifier(str(parameters.get("symbol")))
-                if parameters.get("symbol")
-                else None,
-                market=str(parameters.get("market")) if parameters.get("market") else None,
-                asset_type=str(parameters.get("asset_type")) if parameters.get("asset_type") else None,
-                metadata_json={"columns": list(normalized_df.columns)},
-            )
-            self.db.add(record)
-            await self.db.commit()
-            await self.db.refresh(record)
-            return record
-
-        table = await self.db.get(DataTable, existing_id)
-        table.table_comment = script.script_name
-        table.category = script.category
-        table.script_id = script.script_id
-        table.row_count = row_count
-        table.last_update_time = datetime.utcnow()
-        table.last_update_status = status
-        table.data_start_date = data_start.date() if data_start else None
-        table.data_end_date = data_end.date() if data_end else None
-        table.symbol_raw = str(parameters.get("symbol")) if parameters.get("symbol") else None
-        table.symbol_normalized = (
-            self._normalize_identifier(str(parameters.get("symbol")))
-            if parameters.get("symbol")
-            else None
-        )
-        table.market = str(parameters.get("market")) if parameters.get("market") else None
-        table.asset_type = str(parameters.get("asset_type")) if parameters.get("asset_type") else None
-        table.metadata_json = {"columns": list(normalized_df.columns)}
-        await self.db.commit()
-        await self.db.refresh(table)
-        return table
 
     async def list_tables(
         self,

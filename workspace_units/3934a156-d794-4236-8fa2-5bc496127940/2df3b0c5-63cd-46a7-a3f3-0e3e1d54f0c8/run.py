@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 
 _BT_WEB = Path(__file__).resolve().parents[3]
@@ -29,6 +30,14 @@ from backtrader.stores.btapistore import BtApiStore  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
+
+
+def _safe_bool(value, default=False):
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
 
 
 def _load_dotenv() -> None:
@@ -70,6 +79,91 @@ def _safe_float(value, default=0.0):
         return float(value) if value not in (None, "") else default
     except (TypeError, ValueError):
         return default
+
+
+def _gateway_timeout_defaults(exchange_type: str) -> tuple[float, float]:
+    if exchange_type == "CTP":
+        return 60.0, 20.0
+    if exchange_type == "IB_WEB":
+        return 30.0, 10.0
+    return 60.0, 30.0
+
+
+def _patch_gateway_client_compat() -> None:
+    try:
+        from bt_api_py.gateway.client import GatewayClient
+    except ImportError:
+        return
+
+    if getattr(GatewayClient, "_backtrader_web_compat_patched", False):
+        return
+
+    def _compat_subscribe(self, symbols):
+        values = [symbols] if isinstance(symbols, str) else list(symbols or [])
+        result = self._command("subscribe", {"symbols": values})
+        subscribed: list[str] = []
+        if isinstance(result, dict):
+            candidate = (
+                result.get("subscribed")
+                or result.get("symbols")
+                or result.get("accepted")
+                or result.get("newly_subscribed")
+                or []
+            )
+            subscribed = [str(symbol) for symbol in candidate if str(symbol)]
+            normalized = dict(result)
+            if subscribed and not normalized.get("subscribed"):
+                normalized["subscribed"] = list(subscribed)
+            if subscribed and not normalized.get("accepted"):
+                normalized["accepted"] = list(subscribed)
+            result = normalized
+        elif isinstance(result, (list, tuple, set)):
+            subscribed = [str(symbol) for symbol in result if str(symbol)]
+            result = {
+                "subscribed": list(subscribed),
+                "accepted": list(subscribed),
+                "skipped": [],
+            }
+        elif result is None:
+            result = {"subscribed": [], "accepted": [], "skipped": []}
+        self.subscribed.update(subscribed)
+        return result
+
+    def _compat_wait_for_adapter_ready(self) -> None:
+        base_timeout = _safe_float(getattr(self.config, "startup_timeout_sec", None), 30.0)
+        exchange_type = str(getattr(self.config, "exchange_type", "") or "").strip().upper()
+        timeout = base_timeout
+        if exchange_type == "CTP":
+            timeout = max(base_timeout * 3.0 + 4.0, base_timeout + 30.0)
+        logger = logging.getLogger("bt_api_py.gateway.client")
+        deadline = time.monotonic() + timeout
+        interval = 0.5
+        last_error: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                result = self._command("ping")
+                if isinstance(result, dict) and result.get("ready"):
+                    logger.info("Gateway adapter ready")
+                    return
+            except Exception as exc:
+                last_error = exc
+            time.sleep(interval)
+        if last_error is None:
+            logger.warning(
+                "Gateway adapter not ready after %.1fs — commands may fail until connected",
+                timeout,
+            )
+        else:
+            logger.warning(
+                "Gateway adapter not ready after %.1fs — last error: %s: %s",
+                timeout,
+                type(last_error).__name__,
+                last_error,
+            )
+
+    GatewayClient.subscribe = _compat_subscribe
+    GatewayClient._wait_for_adapter_ready = _compat_wait_for_adapter_ready
+    GatewayClient._backtrader_web_compat_patched = True
 
 
 def _resolve_provider(config: dict) -> str:
@@ -117,25 +211,35 @@ def _merge_gateway_env_config(config: dict, provider: str, exchange_type: str, a
         or gateway.get("account_id")
         or ""
     ).strip()
+    default_startup_timeout, default_command_timeout = _gateway_timeout_defaults(exchange_type)
     return {
         "provider": provider,
         "config": {
-            "gateway_start_local_runtime": str(
-                os.environ.get("BT_GATEWAY_START_LOCAL_RUNTIME", "0")
-            ).strip().lower()
-            not in {"0", "false", "no", "off", ""},
+            "gateway_start_local_runtime": _safe_bool(
+                os.environ.get("BT_GATEWAY_START_LOCAL_RUNTIME", "0"),
+                default=False,
+            ),
             "gateway_command_endpoint": str(os.environ.get("BT_GATEWAY_COMMAND_ENDPOINT") or "").strip(),
             "gateway_event_endpoint": str(os.environ.get("BT_GATEWAY_EVENT_ENDPOINT") or "").strip(),
             "gateway_market_endpoint": str(os.environ.get("BT_GATEWAY_MARKET_ENDPOINT") or "").strip(),
             "account_id": account_id,
             "exchange_type": exchange_type,
             "asset_type": asset_type,
+            "gateway_startup_timeout_sec": _safe_float(
+                os.environ.get("BT_GATEWAY_STARTUP_TIMEOUT_SEC"),
+                default_startup_timeout,
+            ),
+            "gateway_command_timeout_sec": _safe_float(
+                os.environ.get("BT_GATEWAY_COMMAND_TIMEOUT_SEC"),
+                default_command_timeout,
+            ),
         },
     }
 
 
 def _build_ctp_store_config(config: dict, provider: str, asset_type: str) -> dict:
     ctp = dict(config.get("ctp") or {})
+    gateway = dict(config.get("gateway") or {})
     live = dict(config.get("live") or {})
     fronts = dict(ctp.get("fronts") or {})
     network = str(live.get("network") or "telecom")
@@ -168,6 +272,18 @@ def _build_ctp_store_config(config: dict, provider: str, asset_type: str) -> dic
             "app_id": str(os.environ.get("CTP_APP_ID") or ctp.get("app_id") or "simnow_client_test").strip(),
             "auth_code": str(os.environ.get("CTP_AUTH_CODE") or ctp.get("auth_code") or "0000000000000000").strip(),
             "gateway_start_local_runtime": True,
+            "gateway_startup_timeout_sec": _safe_float(
+                gateway.get("startup_timeout_sec")
+                or ctp.get("startup_timeout_sec")
+                or os.environ.get("CTP_STARTUP_TIMEOUT_SEC"),
+                60.0,
+            ),
+            "gateway_command_timeout_sec": _safe_float(
+                gateway.get("command_timeout_sec")
+                or ctp.get("command_timeout_sec")
+                or os.environ.get("CTP_COMMAND_TIMEOUT_SEC"),
+                20.0,
+            ),
         },
     }
 
@@ -228,6 +344,18 @@ def _build_ib_store_config(config: dict, provider: str, asset_type: str) -> dict
                 or "/sso"
             ).strip(),
             "gateway_start_local_runtime": True,
+            "gateway_startup_timeout_sec": _safe_float(
+                gateway.get("startup_timeout_sec")
+                or ib_web.get("startup_timeout_sec")
+                or os.environ.get("IB_WEB_STARTUP_TIMEOUT_SEC"),
+                30.0,
+            ),
+            "gateway_command_timeout_sec": _safe_float(
+                gateway.get("command_timeout_sec")
+                or ib_web.get("command_timeout_sec")
+                or os.environ.get("IB_WEB_COMMAND_TIMEOUT_SEC"),
+                10.0,
+            ),
         },
     }
 
@@ -330,6 +458,7 @@ def _import_strategy_class():
 
 def run():
     _load_dotenv()
+    _patch_gateway_client_compat()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",

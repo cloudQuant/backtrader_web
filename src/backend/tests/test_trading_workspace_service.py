@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import yaml
+
 from app.services import workspace_unit_runtime
 from app.services.trading_workspace_service import TradingWorkspaceService
 
@@ -86,3 +88,71 @@ def test_sync_trading_unit_runtime_copies_template_and_merges_unit_config(tmp_pa
     assert "Boll AAPL" in config_text
     assert "DU123456" in config_text
     assert "boll_period: 16" in config_text
+
+
+def test_sync_trading_unit_runtime_normalizes_futures_data_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
+    unit = SimpleNamespace(
+        workspace_id="ws-ctp",
+        id="unit-ctp",
+        group_name="均线金叉",
+        strategy_id="simulate/gateway_dual_ma",
+        strategy_name="IF Future",
+        symbol="IF2609",
+        symbol_name="沪深300主力",
+        timeframe="1m",
+        timeframe_n=1,
+        category="future",
+        data_config={"range_type": "sample", "sample_count": 300},
+        unit_settings={},
+        params={"fast_period": 3, "slow_period": 8},
+        optimization_config={},
+        gateway_config={
+            "params": {
+                "gateway": {
+                    "enabled": True,
+                    "provider": "ctp_gateway",
+                    "exchange_type": "CTP",
+                    "asset_type": "FUTURE",
+                    "account_id": "089763",
+                },
+                "ctp": {
+                    "broker_id": "9999",
+                    "investor_id": "089763",
+                    "user_id": "089763",
+                    "password": "secret",
+                },
+            }
+        },
+    )
+
+    runtime_dir = workspace_unit_runtime.sync_trading_unit_runtime(unit, {})
+    config = yaml.safe_load((runtime_dir / "config.yaml").read_text("utf-8"))
+
+    assert config["data"]["asset_type"] == "future"
+    assert config["data"]["data_type"] == "futures"
+    assert config["data"]["exchange"] == "CTP"
+
+
+def test_build_status_responses_tolerates_malformed_snapshot_values():
+    unit = SimpleNamespace(
+        id="unit-1",
+        run_status="running",
+        last_task_id=None,
+        metrics_snapshot=["unexpected"],
+        run_count=2,
+        last_run_time=12.5,
+        bar_count=30,
+        trading_instance_id="inst-1",
+        trading_snapshot="unexpected",
+        trading_mode="paper",
+        lock_trading=False,
+        lock_running=False,
+    )
+
+    responses = TradingWorkspaceService().build_status_responses([unit])
+
+    assert len(responses) == 1
+    assert responses[0].id == "unit-1"
+    assert responses[0].metrics_snapshot == {}
+    assert responses[0].trading_snapshot == {}

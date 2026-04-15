@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from app.api.deps import get_current_user
 from app.schemas.analytics import (
@@ -41,6 +41,7 @@ from app.schemas.workspace import (
     StrategyUnitUpdate,
     UnitOptimizationRequest,
     UnitRenameRequest,
+    UnitRuntimeInfoResponse,
     UnitStatusResponse,
     WorkspaceCreate,
     WorkspaceListResponse,
@@ -198,6 +199,64 @@ async def get_unit(
     result = await service.get_unit(workspace_id, unit_id, current_user.sub)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unit not found")
+    return result
+
+
+@router.get(
+    "/{workspace_id}/units/{unit_id}/runtime",
+    response_model=UnitRuntimeInfoResponse,
+    summary="Get unit runtime metadata",
+)
+async def get_unit_runtime_info(
+    workspace_id: str,
+    unit_id: str,
+    current_user=Depends(get_current_user),
+    service: WorkspaceService = Depends(get_workspace_service),
+):
+    result = await service.get_unit_runtime_info(workspace_id, unit_id, current_user.sub)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unit runtime not found")
+    return result
+
+
+@router.get(
+    "/{workspace_id}/units/{unit_id}/runtime/files/{relative_path:path}",
+    response_class=PlainTextResponse,
+    summary="Read unit runtime file",
+)
+async def get_unit_runtime_file(
+    workspace_id: str,
+    unit_id: str,
+    relative_path: str,
+    tail: int | None = Query(None, ge=1, le=20000),
+    current_user=Depends(get_current_user),
+    service: WorkspaceService = Depends(get_workspace_service),
+):
+    content = await service.read_unit_runtime_file(
+        workspace_id,
+        unit_id,
+        current_user.sub,
+        relative_path,
+        tail=tail,
+    )
+    if content is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Runtime file not found")
+    return content
+
+
+@router.post(
+    "/{workspace_id}/units/{unit_id}/runtime/open",
+    summary="Open unit runtime directory",
+)
+async def open_unit_runtime_dir(
+    workspace_id: str,
+    unit_id: str,
+    current_user=Depends(get_current_user),
+    service: WorkspaceService = Depends(get_workspace_service),
+):
+    result = await service.open_unit_runtime_dir(workspace_id, unit_id, current_user.sub)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unit runtime not found")
     return result
 
 

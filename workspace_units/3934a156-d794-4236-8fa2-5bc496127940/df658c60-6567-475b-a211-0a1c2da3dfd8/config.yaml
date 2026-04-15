@@ -15,8 +15,8 @@ params:
 data:
   symbol: XAUUSD
   symbol_name: 黄金/美元
-  data_type: stock
-  exchange: IB_WEB
+  data_type: forex
+  exchange: MT5
   asset_type: forex
   timeframe: 1m
   timeframe_n: 1

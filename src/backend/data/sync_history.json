@@ -1,0 +1,94 @@
+[
+  {
+    "task_id": "c0acbac64e1f4cdbb2893783c0a47ba0",
+    "status": "failed",
+    "direction": "upload",
+    "databases": [
+      "akshare_data"
+    ],
+    "current_database": "akshare_data",
+    "completed_databases": [],
+    "stage": "failed",
+    "progress_pct": 58,
+    "message": "同步失败: mysql: [Warning] Using a password on the command line interface can be insecure.\nmysqldump: [Warning] Using a password on the command line interface can be insecure.\nERROR 2013 (HY000) at line 7: Lost connection to MySQL server during query\nmysqldump: Got errno 32 on write",
+    "started_at": "2026-04-14T10:06:32.795352+00:00",
+    "finished_at": "2026-04-14T10:17:44.332321+00:00",
+    "duration_seconds": 671.55,
+    "error": "mysql: [Warning] Using a password on the command line interface can be insecure.\nmysqldump: [Warning] Using a password on the command line interface can be insecure.\nERROR 2013 (HY000) at line 7: Lost connection to MySQL server during query\nmysqldump: Got errno 32 on write",
+    "sync_mode": "full"
+  },
+  {
+    "task_id": "9c3ef25813d94433a60d5c5e052ac757",
+    "status": "failed",
+    "direction": "upload",
+    "databases": [
+      "akshare_data"
+    ],
+    "current_database": "akshare_data",
+    "completed_databases": [],
+    "stage": "failed",
+    "progress_pct": 50,
+    "message": "同步失败: mysql: [Warning] Using a password on the command line interface can be insecure.\nmysqldump: [Warning] Using a password on the command line interface can be insecure.\nERROR 2013 (HY000) at line 24: Lost connection to MySQL server during query",
+    "started_at": "2026-04-13T23:50:35.427079+00:00",
+    "finished_at": "2026-04-14T01:14:41.934054+00:00",
+    "duration_seconds": 5046.69,
+    "error": "mysql: [Warning] Using a password on the command line interface can be insecure.\nmysqldump: [Warning] Using a password on the command line interface can be insecure.\nERROR 2013 (HY000) at line 24: Lost connection to MySQL server during query",
+    "sync_mode": "full"
+  },
+  {
+    "task_id": "a8c87ef8acd54aba8b2cfa9347093820",
+    "status": "failed",
+    "direction": "upload",
+    "databases": [
+      "akshare_data"
+    ],
+    "current_database": "akshare_data",
+    "completed_databases": [],
+    "stage": "failed",
+    "progress_pct": 20,
+    "message": "同步失败: 命令执行超时（>10s）: mysql -h 43.167.221.188 -P 3306 -u root -padqvvuk6U4E2rzvh -N -B -e 'DROP DATABASE IF EXISTS `akshare_data`; CREATE DATABASE `akshare_data` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'",
+    "started_at": "2026-04-13T23:37:19.186965+00:00",
+    "finished_at": "2026-04-13T23:37:29.282578+00:00",
+    "duration_seconds": 10.09,
+    "error": "命令执行超时（>10s）: mysql -h 43.167.221.188 -P 3306 -u root -padqvvuk6U4E2rzvh -N -B -e 'DROP DATABASE IF EXISTS `akshare_data`; CREATE DATABASE `akshare_data` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'",
+    "sync_mode": "full"
+  },
+  {
+    "task_id": "6237ca6993674a918daac77422ae0c8c",
+    "status": "failed",
+    "direction": "upload",
+    "databases": [
+      "akshare_data"
+    ],
+    "current_database": "akshare_data",
+    "completed_databases": [],
+    "stage": "failed",
+    "progress_pct": 45,
+    "message": "同步失败: 数据表 akshare_data.AIR_CITY_TABLE 没有主键或唯一索引，无法执行增量同步",
+    "started_at": "2026-04-13T16:41:59.827594+00:00",
+    "finished_at": "2026-04-13T16:50:04.654145+00:00",
+    "duration_seconds": 484.76,
+    "error": "数据表 akshare_data.AIR_CITY_TABLE 没有主键或唯一索引，无法执行增量同步",
+    "sync_mode": "full"
+  },
+  {
+    "task_id": "97c59100f2b94c108a605895dd32ac1e",
+    "status": "completed",
+    "direction": "upload",
+    "databases": [
+      "backtrader_web"
+    ],
+    "current_database": "backtrader_web",
+    "completed_databases": [
+      "backtrader_web"
+    ],
+    "stage": "done",
+    "progress_pct": 100,
+    "message": "同步完成",
+    "started_at": "2026-04-13T16:32:25.336594+00:00",
+    "finished_at": "2026-04-13T16:34:57.294107+00:00",
+    "duration_seconds": 151.94,
+    "error": null,
+    "sync_mode": "full"
+  }
+]

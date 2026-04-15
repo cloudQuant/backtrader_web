@@ -1,64 +1,75 @@
 """
-Minimal akshare stock history script for data management migration.
+Stock Zh A Hist
+
+数据源: AkShare
+函数: stock_zh_a_hist
+频率: daily
 """
 
-from __future__ import annotations
-
-from datetime import datetime, timedelta
-
-import akshare as ak
 import pandas as pd
 
-SCRIPT_NAME = "A股日线行情"
-DESCRIPTION = "获取 A 股复权日线行情并返回标准化 DataFrame"
-TARGET_TABLE = "stock_daily"
-ENTRYPOINT = "main"
+from app.data_fetch.configs.db_config import DB_CONFIG
+from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
 
 
-def _default_dates() -> tuple[str, str]:
-    end_date = datetime.utcnow().date()
-    start_date = end_date - timedelta(days=180)
-    return start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")
+class StockZhAHist(AkshareToMySql):
+    """Stock Zh A Hist"""
+
+    def __init__(self, db_config=DB_CONFIG, logger=None):
+        super().__init__(db_config, logger)
+        self.table_name = "STOCK_ZH_A_HIST"
+        self.create_table_sql = """
+    CREATE TABLE IF NOT EXISTS `STOCK_ZH_A_HIST` (
+        `R_ID` INT AUTO_INCREMENT PRIMARY KEY,
+            `symbol` VARCHAR(50) COMMENT '品种代码',
+            `name` VARCHAR(100) COMMENT '品种名称',
+            `data_date` DATE COMMENT '数据日期',
+            `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+            `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        INDEX idx_data_date (`data_date`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stock Zh A Hist'
+    """
+
+    def fetch_data(self, **kwargs):
+        """Fetch data from AkShare and save to database.
+
+        Args:
+            **kwargs: Parameters to pass to ak.stock_zh_a_hist
+
+        Returns:
+            pd.DataFrame: Fetched data
+        """
+        try:
+            # Fetch data from AkShare
+            df = self.fetch_ak_data("stock_zh_a_hist", **kwargs)
+
+            if df is None or df.empty:
+                self.logger.warning("No data found")
+                return pd.DataFrame()
+
+            # Process data if needed
+            # Add data_date if not exists
+            if "data_date" not in df.columns:
+                df["data_date"] = pd.Timestamp.now().date()
+
+            # Save to database
+            self.create_table_if_not_exists(self.table_name, self.create_table_sql)
+            self.save_data(df, self.table_name, ignore_duplicates=True)
+
+            return df
+
+        except Exception as e:
+            self.logger.error(f"Error fetching data: {e}")
+            return pd.DataFrame()
 
 
-def fetch_data(
-    symbol: str = "000001",
-    period: str = "daily",
-    start_date: str | None = None,
-    end_date: str | None = None,
-    adjust: str = "qfq",
-) -> pd.DataFrame:
-    """Fetch A-share history and normalize columns."""
-    normalized_start, normalized_end = _default_dates()
-    dataframe = ak.stock_zh_a_hist(
-        symbol=symbol,
-        period=period,
-        start_date=(start_date or normalized_start).replace("-", ""),
-        end_date=(end_date or normalized_end).replace("-", ""),
-        adjust=adjust,
-        timeout=10,
-    )
-    if dataframe.empty:
-        return dataframe
-    dataframe = dataframe.rename(
-        columns={
-            "日期": "date",
-            "开盘": "open",
-            "收盘": "close",
-            "最高": "high",
-            "最低": "low",
-            "成交量": "volume",
-            "成交额": "turnover",
-            "涨跌幅": "change_pct",
-            "涨跌额": "change_amount",
-            "换手率": "turnover_rate",
-        }
-    )
-    dataframe["symbol"] = symbol
-    dataframe["period"] = period
-    return dataframe
+def main():
+    """Main function to run the data fetch"""
+
+    script = StockZhAHist()
+    script.run()
 
 
-def main(**kwargs) -> pd.DataFrame:
-    """Default script entrypoint."""
-    return fetch_data(**kwargs)
+if __name__ == "__main__":
+    main()

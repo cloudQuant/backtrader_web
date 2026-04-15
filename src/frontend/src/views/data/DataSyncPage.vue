@@ -41,6 +41,9 @@
               <el-option label="仅数据" value="data_only" />
             </el-select>
           </el-form-item>
+          <el-form-item label="并发同步数">
+            <el-input-number v-model="configForm.sync_parallel_workers" class="full-width" :min="1" :max="16" />
+          </el-form-item>
         </div>
 
         <div class="config-section-title">本地 MySQL</div>
@@ -92,19 +95,19 @@
           <div class="tip-card">
             <div class="tip-title">填写提示</div>
             <div class="tip-text">
-              当前页面只保留 MySQL 直连同步。只要远程 MySQL 主机、端口、用户名、密码可访问即可，不需要 SSH。
+              当前页面只保留 MySQL 直连同步。只要远程 MySQL 主机、端口、用户名、密码可访问即可，不需要 SSH；数据库不存在时会自动创建，已存在时不会删除。你还可以配置并发同步数，控制同时处理的数据表数量。
             </div>
           </div>
           <div class="tip-card">
             <div class="tip-title">增量同步规则</div>
             <div class="tip-text">
-              数据同步会优先使用数据表的主键，其次使用唯一索引，先对比两端索引值，只传输目标库缺失的数据行。
+              数据同步会优先使用数据表的主键，其次使用唯一索引；如果没有可用索引，会退化为按整行字段内容比对，只传输目标库缺失的数据行。
             </div>
           </div>
           <div class="tip-card">
             <div class="tip-title">使用限制</div>
             <div class="tip-text">
-              如果某张表没有主键或唯一索引，就无法安全判断哪些记录已存在，这类表暂时不支持“只同步缺失数据”。
+              没有主键或唯一索引的数据表也可以同步，但只能按整行内容做缺失判断；如果表里存在完全相同的重复行，增量判断的精度会受限。
             </div>
           </div>
         </div>
@@ -160,7 +163,7 @@
           <div class="section-header">
             <div>
               <div class="page-title small">上传到服务器</div>
-              <div class="page-subtitle">把本地数据库覆盖同步到远程环境。</div>
+              <div class="page-subtitle">把本地数据库中的缺失结构与缺失数据增量同步到远程环境。</div>
             </div>
             <el-button type="primary" :loading="submittingBulkUpload" @click="startSync('upload', databaseNames)">
               全部上传
@@ -193,7 +196,7 @@
           <div class="section-header">
             <div>
               <div class="page-title small">从服务器拉取</div>
-              <div class="page-subtitle">把远程数据库覆盖同步到本地环境。</div>
+              <div class="page-subtitle">把远程数据库中的缺失结构与缺失数据增量同步到本地环境。</div>
             </div>
             <el-button :loading="submittingBulkDownload" @click="startSync('download', databaseNames)">
               全部拉取
@@ -291,6 +294,7 @@ const configForm = reactive<SyncConfig>({
   local_mysql_port: 3306,
   local_mysql_user: 'root',
   local_mysql_password: '',
+  sync_parallel_workers: 2,
   remote_host: '',
   remote_user: 'root',
   remote_ssh_key: '~/.ssh/id_rsa',
@@ -458,7 +462,7 @@ async function startSync(direction: SyncDirection, databases: string[]) {
 
   try {
     await ElMessageBox.confirm(
-      `${actionLabel}会覆盖目标数据库，是否继续？\n\n数据库：${databases.join(', ')}`,
+      `${actionLabel}会保留目标数据库中已存在的数据，仅补齐缺失结构和缺失数据，是否继续？\n\n数据库：${databases.join(', ')}`,
       '同步确认',
       { type: 'warning' }
     )

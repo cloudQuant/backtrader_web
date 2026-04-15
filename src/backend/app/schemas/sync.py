@@ -27,6 +27,7 @@ class SyncConfig(BaseModel):
     local_mysql_port: int = 3306
     local_mysql_user: str = "root"
     local_mysql_password: str = ""
+    sync_parallel_workers: int = Field(default=2, ge=1, le=16)
     remote_host: str = ""
     remote_user: str = "root"
     remote_ssh_key: str = "~/.ssh/id_rsa"

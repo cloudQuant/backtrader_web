@@ -1,0 +1,111 @@
+strategy:
+  name: Demo Strategy
+  description: 适用于 CTP / IB / MT5 的统一双均线金叉策略模板，默认用于 1 分钟纸面模拟。
+  author: backtrader_web
+  category: simulate
+symbol:
+  code: au000
+  name: 黄金
+params:
+  fast_period: 5
+  slow_period: 20
+  position_size: 1
+  allow_short: true
+data:
+  symbol: au000
+  symbol_name: 黄金
+  data_type: stock
+  exchange: IB_WEB
+  asset_type: stock
+  timeframe: 1d
+  timeframe_n: 1
+  warmup_bars: 200
+  range_type: date
+  start_date: '2020-01-01T00:00:00+00:00'
+  use_end_date: true
+  end_date: '2026-04-14T08:10:40+00:00'
+simulate:
+  initial_cash: 100000
+  commission: 0.0005
+  slippage: 0.0001
+  position_size: 1
+  duration_seconds: 7200
+  session_timeout: 7260
+gateway:
+  enabled: true
+  provider: gateway
+  exchange_type: IB_WEB
+  asset_type: STK
+  account_id: ''
+ctp:
+  broker_id: ''
+  investor_id: ''
+  user_id: ''
+  password: ''
+  app_id: simnow_client_test
+  auth_code: '0000000000000000'
+  fronts:
+    telecom:
+      td_address: ''
+      md_address: ''
+ib_web:
+  account_id: ''
+  base_url: https://localhost:5000
+  verify_ssl: false
+  timeout: 10
+  access_token: ''
+  cookie_source: ''
+  cookie_browser: chrome
+  cookie_path: /sso
+mt5:
+  login: ''
+  password: ''
+  ws_uri: wss://web.metatrader.app/terminal
+  symbol_suffix: ''
+live:
+  symbol: au000
+  bar_seconds: 86400
+  duration_seconds: 7200
+  session_timeout: 7260
+unit_settings: {}
+optimization_config: {}
+workspace_unit:
+  workspace_id: 332466ba-453e-41ca-be01-c4c69a778c13
+  unit_id: bd3e112f-7623-498c-8485-c8d4faa27d1d
+  group_name: 交易组
+  strategy_id: simulate/gateway_dual_ma
+  strategy_name: Demo Strategy
+  template_dir: /Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/gateway_dual_ma
+  strategy_module: strategy_gateway_dual_ma.py
+  asset_type: stock
+  runtime_mode: trading
+  workspace_settings:
+    data_source:
+      type: csv
+      csv:
+        directory_path: ''
+        delimiter: ','
+        encoding: utf-8
+        has_header: true
+      mysql:
+        host: 127.0.0.1
+        port: 3306
+        database: ''
+        username: ''
+        password: ''
+        table: ''
+      postgresql:
+        host: 127.0.0.1
+        port: 5432
+        database: ''
+        schema: public
+        username: ''
+        password: ''
+        table: ''
+      mongodb:
+        uri: mongodb://127.0.0.1:27017
+        database: ''
+        collection: ''
+        username: ''
+        password: ''
+        auth_source: admin

@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from app.services.gateway_launch_builder import resolve_gateway_transport
+from app.services.gateway_launch_builder import (
+    build_gateway_session_key,
+    build_gateway_session_key_from_runtime_kwargs,
+    normalize_gateway_asset_type,
+    resolve_gateway_transport,
+)
 
 _logger = logging.getLogger(__name__)
 _ib_clientportal_lock = threading.Lock()
@@ -26,7 +31,8 @@ def _kill_process_on_port(port: int) -> None:
     try:
         import psutil
         for conn in psutil.net_connections(kind="tcp"):
-            if conn.laddr.port == port and conn.pid:
+            status = str(getattr(conn, "status", "") or "").upper()
+            if conn.laddr.port == port and conn.pid and status == "LISTEN":
                 try:
                     proc = psutil.Process(conn.pid)
                     if proc.pid != os.getpid():
@@ -42,7 +48,7 @@ def _kill_process_on_port(port: int) -> None:
     # Fallback: lsof (macOS / Linux)
     try:
         result = subprocess.run(
-            ["lsof", "-ti", f"TCP:{port}"],
+            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
             capture_output=True, text=True, timeout=5,
         )
         for pid_str in result.stdout.splitlines():
@@ -970,6 +976,103 @@ def _resolve_manual_account_id(exchange_type: str, credentials: dict[str, Any]) 
     return ""
 
 
+def _gateway_state_value(state: dict[str, Any], key: str, default: Any = "") -> Any:
+    if key in state:
+        value = state.get(key)
+        if value is not None and value != "":
+            return value
+    config = state.get("config")
+    if isinstance(config, dict):
+        return config.get(key, default)
+    return getattr(config, key, default)
+
+
+def _resolve_gateway_state_session_key(state: dict[str, Any]) -> str:
+    session_key = str(state.get("session_key") or "").strip()
+    if session_key:
+        return session_key
+    runtime_kwargs = {
+        "exchange_type": _gateway_state_value(state, "exchange_type", ""),
+        "asset_type": _gateway_state_value(state, "asset_type", ""),
+        "account_id": _gateway_state_value(state, "account_id", ""),
+        "broker_id": _gateway_state_value(state, "broker_id", ""),
+        "td_address": _gateway_state_value(state, "td_address", ""),
+        "md_address": _gateway_state_value(state, "md_address", ""),
+        "base_url": _gateway_state_value(state, "base_url", ""),
+        "login_mode": _gateway_state_value(state, "login_mode", ""),
+        "testnet": _gateway_state_value(state, "testnet", None),
+        "server": _gateway_state_value(state, "server", ""),
+        "ws_uri": _gateway_state_value(state, "ws_uri", ""),
+    }
+    resolved = build_gateway_session_key_from_runtime_kwargs(runtime_kwargs)
+    if resolved:
+        state["session_key"] = resolved
+    return resolved
+
+
+def _build_manual_gateway_session_key(exchange_type: str, credentials: dict[str, Any]) -> str:
+    normalized_exchange_type = str(exchange_type or "").strip().upper()
+    account_id = _resolve_manual_account_id(normalized_exchange_type, credentials)
+    asset_type = normalize_gateway_asset_type(
+        normalized_exchange_type,
+        credentials.get("asset_type"),
+    )
+    broker_id = credentials.get("broker_id") or credentials.get("brokerid") or ""
+    td_address = credentials.get("td_front") or credentials.get("td_address") or ""
+    md_address = credentials.get("md_front") or credentials.get("md_address") or ""
+    base_url = credentials.get("base_url") or ""
+    login_mode = credentials.get("login_mode") or ""
+    testnet = credentials.get("testnet")
+    server = credentials.get("server") or ""
+    ws_uri = credentials.get("ws_uri") or ""
+    return build_gateway_session_key(
+        normalized_exchange_type,
+        account_id,
+        asset_type=asset_type,
+        broker_id=broker_id,
+        td_address=td_address,
+        md_address=md_address,
+        base_url=base_url,
+        login_mode=login_mode,
+        testnet=testnet,
+        server=server,
+        ws_uri=ws_uri,
+    )
+
+
+def _find_gateway_key_by_session_key(
+    gateways: dict[str, dict[str, Any]],
+    session_key: str,
+) -> str | None:
+    if not session_key:
+        return None
+    for gateway_key, state in gateways.items():
+        if not isinstance(state, dict):
+            continue
+        if _resolve_gateway_state_session_key(state) != session_key:
+            continue
+        if state.get("runtime") is None:
+            continue
+        return gateway_key
+    return None
+
+
+def _promote_gateway_state_to_manual(
+    state: dict[str, Any],
+    exchange_type: str,
+    account_id: str,
+    asset_type: str,
+    session_key: str,
+) -> None:
+    state["manual"] = True
+    state["exchange_type"] = exchange_type
+    state["account_id"] = account_id
+    if asset_type:
+        state["asset_type"] = asset_type
+    if session_key:
+        state["session_key"] = session_key
+
+
 def _extract_runtime_connect_error(snapshot: dict[str, Any] | None) -> str:
     if not isinstance(snapshot, dict):
         return ""
@@ -1482,8 +1585,21 @@ def connect_gateway(
 
     exchange_type = normalize_exchange_type(exchange_type)
     account_id = _resolve_manual_account_id(exchange_type, credentials)
+    asset_type = normalize_gateway_asset_type(exchange_type, credentials.get("asset_type"))
+    session_key = _build_manual_gateway_session_key(exchange_type, credentials)
+    existing_key = _find_gateway_key_by_session_key(gateways, session_key)
+    if existing_key:
+        state = gateways.get(existing_key)
+        if state is None:
+            state = {}
+        _promote_gateway_state_to_manual(state, exchange_type, account_id, asset_type, session_key)
+        return {"gateway_key": existing_key, "status": "connected", "message": "Gateway already active"}
     key = f"manual:{exchange_type}:{account_id}"
     if key in gateways:
+        state = gateways.get(key)
+        if state is None:
+            state = {}
+        _promote_gateway_state_to_manual(state, exchange_type, account_id, asset_type, session_key)
         return {"gateway_key": key, "status": "connected", "message": "Gateway already active"}
     if exchange_type == "CTP":
         return connect_ctp_gateway(
@@ -1540,8 +1656,9 @@ def connect_gateway(
         "lock": threading.Lock(),
         "manual": True,
         "exchange_type": exchange_type,
-        "asset_type": credentials.get("asset_type") or "",
+        "asset_type": asset_type,
         "account_id": account_id,
+        "session_key": session_key,
     }
     return {
         "gateway_key": key,
@@ -1636,7 +1753,9 @@ def connect_ctp_gateway(
             "lock": threading.Lock(),
             "manual": True,
             "exchange_type": "CTP",
+            "asset_type": kwargs["asset_type"],
             "account_id": kwargs["account_id"],
+            "session_key": build_gateway_session_key_from_runtime_kwargs(kwargs),
         }
         return {
             "gateway_key": key,
@@ -1772,7 +1891,9 @@ def connect_ib_web_gateway(
             "lock": threading.Lock(),
             "manual": True,
             "exchange_type": "IB_WEB",
+            "asset_type": kwargs["asset_type"],
             "account_id": resolved_account_id,
+            "session_key": build_gateway_session_key_from_runtime_kwargs(kwargs),
         }
         _persist_ib_web_env_updates(
             _build_ib_web_env_updates(
@@ -1849,6 +1970,7 @@ def connect_binance_gateway(
             "exchange_type": "BINANCE",
             "asset_type": kwargs["asset_type"],
             "account_id": account_id,
+            "session_key": build_gateway_session_key_from_runtime_kwargs(kwargs),
         }
         return {
             "gateway_key": key,
@@ -1912,6 +2034,7 @@ def connect_okx_gateway(
             "exchange_type": "OKX",
             "asset_type": kwargs["asset_type"],
             "account_id": account_id,
+            "session_key": build_gateway_session_key_from_runtime_kwargs(kwargs),
         }
         return {
             "gateway_key": key,
@@ -1969,7 +2092,9 @@ def connect_mt5_gateway(
             "lock": threading.Lock(),
             "manual": True,
             "exchange_type": "MT5",
+            "asset_type": kwargs["asset_type"],
             "account_id": account_id,
+            "session_key": build_gateway_session_key_from_runtime_kwargs(kwargs),
         }
         return {
             "gateway_key": key,
@@ -2064,6 +2189,14 @@ def disconnect_gateway(
             "status": "error",
             "message": "Cannot disconnect a strategy-owned gateway",
         }
+    active_instances = state.get("instances", set()) or set()
+    ref_count = max(int(state.get("ref_count", 0) or 0), len(active_instances))
+    if ref_count > 0:
+        return {
+            "gateway_key": gateway_key,
+            "status": "error",
+            "message": "Gateway is currently in use by strategy instances",
+        }
     runtime = state.get("runtime")
     if runtime is not None:
         try:
@@ -2071,11 +2204,17 @@ def disconnect_gateway(
         except Exception as e:
             _logger.warning(f"Error stopping gateway {gateway_key}: {e}")
         # Wait for the runtime thread to fully exit so ZMQ ports are released
-        thread = getattr(runtime, "thread", None)
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=5.0)
+        try:
+            thread = getattr(runtime, "thread", None)
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=5.0)
+        except Exception as e:
+            _logger.warning(f"Error joining gateway thread {gateway_key}: {e}")
         # Clear bt_api_py port caches so reconnect can reuse the ports
-        _release_gateway_zmq_ports(runtime)
+        try:
+            _release_gateway_zmq_ports(runtime)
+        except Exception as e:
+            _logger.warning(f"Error releasing gateway ports {gateway_key}: {e}")
     gateways.pop(gateway_key, None)
     return {
         "gateway_key": gateway_key,

@@ -144,6 +144,20 @@ export interface TradingDailySummaryResponse {
   summaries: TradingDailySummaryItem[]
 }
 
+export interface StrategyUnitRuntimeFile {
+  name: string
+  relative_path: string
+  size: number
+  kind: string
+}
+
+export interface StrategyUnitRuntimeInfo {
+  unit_id: string
+  runtime_dir: string
+  log_dir: string | null
+  files: StrategyUnitRuntimeFile[]
+}
+
 // ---------------------------------------------------------------------------
 // Workspace
 // ---------------------------------------------------------------------------

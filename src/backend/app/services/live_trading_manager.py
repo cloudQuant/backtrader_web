@@ -539,6 +539,7 @@ class LiveTradingManager:
             release_gateway_for_instance=self._release_gateway_for_instance,
             wait_process_callback=self._wait_process,
             processes=self._processes,
+            stopping_instances=self._stopping_instances,
         )
 
     async def stop_instance(self, instance_id: str) -> StopResult:

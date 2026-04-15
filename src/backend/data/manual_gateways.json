@@ -15,8 +15,8 @@
     "exchange_type": "CTP",
     "credentials": {
       "broker_id": "9999",
-      "td_front": "tcp://182.254.243.31:40001",
-      "md_front": "tcp://182.254.243.31:40011",
+      "td_front": "tcp://182.254.243.31:30001",
+      "md_front": "tcp://182.254.243.31:30011",
       "app_id": "simnow_client_test",
       "auth_code": "0000000000000000",
       "user_id": "089763",
@@ -25,31 +25,17 @@
     "gateway_key": "manual:CTP:089763"
   },
   {
-    "exchange_type": "BINANCE",
+    "exchange_type": "MT5",
     "credentials": {
-      "account_id": "",
-      "asset_type": "SWAP",
-      "api_key": "U7thNsgVBaEjtLvsAH79ibMYvsM25uAch6BgzQvAm204Jl41jLobDPNxkEtKflsB",
-      "secret_key": "a2yKtgO66dj0EOvMO71rInHzruz7ZwRp9TErwwvhiASrvKe6PKX2h7gr8HT1dppg",
-      "base_url": "",
-      "testnet": false
+      "login": "5047785364",
+      "password": "NyCh-i4r",
+      "ws_uri": "wss://web.metatrader.app/terminal",
+      "symbol_suffix": ""
     },
-    "gateway_key": "manual:BINANCE:binance-tKflsB"
+    "gateway_key": "manual:MT5:5047785364"
   },
   {
-    "exchange_type": "OKX",
-    "credentials": {
-      "account_id": "",
-      "asset_type": "SWAP",
-      "api_key": "8cc6a569-3cd6-4f17-888a-461c5fbeebd0",
-      "secret_key": "192D778284B4E342B05523EEBDCD4FC2",
-      "passphrase": "Test_backtrader_2026",
-      "base_url": "",
-      "testnet": false
-    },
-    "gateway_key": "manual:OKX:okx-beebd0"
-  },
-  {
+    "gateway_key": "manual:IB_WEB:DUP447807",
     "exchange_type": "IB_WEB",
     "credentials": {
       "account_id": "DUP447807",
@@ -58,7 +44,7 @@
       "access_token": "",
       "verify_ssl": false,
       "timeout": 10,
-      "cookie_source": "file:configs/ibkr_cookies.json",
+      "cookie_source": "file:../bt_api_py/configs/ibkr_cookies.json",
       "cookie_browser": "chrome",
       "cookie_path": "/sso",
       "username": "quantyunjinqi999999",
@@ -68,17 +54,6 @@
       "login_headless": false,
       "login_timeout": 180,
       "cookie_output": "configs/ibkr_cookies.json"
-    },
-    "gateway_key": "manual:IB_WEB:DUP447807"
-  },
-  {
-    "gateway_key": "manual:MT5:5047785364",
-    "exchange_type": "MT5",
-    "credentials": {
-      "login": "5047785364",
-      "password": "NyCh-i4r",
-      "ws_uri": "wss://web.metatrader.app/terminal",
-      "symbol_suffix": ""
     }
   }
 ]

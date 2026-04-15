@@ -1696,6 +1696,34 @@ class TestWaitProcess:
                         assert "inst1" in saved_data
                         assert saved_data["inst1"]["status"] == "error"
 
+    @pytest.mark.asyncio
+    async def test_wait_process_ignores_stale_callback_for_restarted_instance(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+
+        old_proc = AsyncMock()
+        old_proc.pid = 111
+        old_proc.returncode = 0
+        old_proc.stderr = None
+        new_proc = Mock(pid=222)
+        manager._processes["inst1"] = new_proc
+        saved_data = {}
+        released = []
+
+        def mock_save(data):
+            saved_data.update(data)
+
+        with patch("app.services.live_trading_manager._load_instances") as mock_load:
+            mock_load.return_value = {"inst1": {"strategy_id": "s1", "status": "running", "pid": 222}}
+            with patch("app.services.live_trading_manager._save_instances", side_effect=mock_save):
+                with patch("app.services.live_trading_manager._find_latest_log_dir", return_value=None):
+                    with patch.object(manager, "_release_gateway_for_instance", side_effect=released.append):
+                        await manager._wait_process("inst1", old_proc)
+
+        assert saved_data == {}
+        assert released == []
+        assert manager._processes["inst1"] is new_proc
+
 
 class TestKillPid:
     """Tests for process termination."""

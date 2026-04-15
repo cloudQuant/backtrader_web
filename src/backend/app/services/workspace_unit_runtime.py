@@ -17,6 +17,7 @@ _ASSET_TYPE_ALIASES = {
     "外汇": "forex",
     "forex": "forex",
     "fx": "forex",
+    "otc": "otc",
     "股票": "stock",
     "stock": "stock",
     "equity": "stock",
@@ -311,6 +312,35 @@ def _asset_type_for_unit(category: str) -> str:
     return _ASSET_TYPE_ALIASES.get(text, _ASSET_TYPE_ALIASES.get(lowered, lowered or "future"))
 
 
+def _trading_data_type_for_asset(asset_type: str) -> str:
+    mapping = {
+        "future": "futures",
+        "stock": "stock",
+        "forex": "forex",
+        "option": "options",
+        "otc": "otc",
+    }
+    normalized = _asset_type_for_unit(asset_type)
+    return mapping.get(normalized, normalized or "futures")
+
+
+def _trading_exchange_for_unit(unit: StrategyUnit, asset_type: str, data_section: dict[str, Any]) -> str:
+    gateway_config = unit.gateway_config if isinstance(unit.gateway_config, dict) else {}
+    params = dict(gateway_config.get("params") or {})
+    gateway = dict(params.get("gateway") or {})
+    exchange = str(gateway.get("exchange_type") or data_section.get("exchange") or "").strip().upper()
+    if exchange:
+        return exchange
+    defaults = {
+        "future": "CTP",
+        "stock": "IB_WEB",
+        "forex": "MT5",
+        "otc": "MT5",
+        "option": "CTP",
+    }
+    return defaults.get(_asset_type_for_unit(asset_type), "CTP")
+
+
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
@@ -463,7 +493,7 @@ def _apply_gateway_runtime_config(
         merged_gateway = dict(template_config.get("gateway") or {})
         merged_gateway.update(gateway)
         template_config["gateway"] = merged_gateway
-    for key in ("ctp", "ib_web", "mt5"):
+    for key in ("ctp", "ib_web", "mt5", "binance", "okx"):
         value = params.get(key)
         if isinstance(value, dict) and value:
             _merge_dict_section(template_config, key, value)
@@ -510,7 +540,10 @@ def _build_trading_unit_config(unit: StrategyUnit, workspace_settings: dict[str,
     asset_type = _asset_type_for_unit(
         unit.category or str(data_section.get("data_type") or data_section.get("asset_type") or "")
     )
+    exchange_type = _trading_exchange_for_unit(unit, asset_type, data_section)
     data_section["asset_type"] = asset_type
+    data_section["data_type"] = _trading_data_type_for_asset(asset_type)
+    data_section["exchange"] = exchange_type
     template_config["data"] = data_section
 
     simulate_section = dict(template_config.get("simulate") or {})

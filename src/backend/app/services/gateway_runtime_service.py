@@ -3,6 +3,51 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from app.services.gateway_launch_builder import build_gateway_session_key_from_runtime_kwargs
+
+
+def _resolve_gateway_state_session_key(state: dict[str, Any]) -> str:
+    session_key = str(state.get("session_key") or "").strip()
+    if session_key:
+        return session_key
+    config = state.get("config")
+    if config is None:
+        return ""
+    runtime_kwargs = {
+        "exchange_type": getattr(config, "exchange_type", "") if not isinstance(config, dict) else config.get("exchange_type", ""),
+        "asset_type": getattr(config, "asset_type", "") if not isinstance(config, dict) else config.get("asset_type", ""),
+        "account_id": getattr(config, "account_id", "") if not isinstance(config, dict) else config.get("account_id", ""),
+        "broker_id": getattr(config, "broker_id", "") if not isinstance(config, dict) else config.get("broker_id", ""),
+        "td_address": getattr(config, "td_address", "") if not isinstance(config, dict) else config.get("td_address", ""),
+        "md_address": getattr(config, "md_address", "") if not isinstance(config, dict) else config.get("md_address", ""),
+        "base_url": getattr(config, "base_url", "") if not isinstance(config, dict) else config.get("base_url", ""),
+        "login_mode": getattr(config, "login_mode", "") if not isinstance(config, dict) else config.get("login_mode", ""),
+        "testnet": getattr(config, "testnet", None) if not isinstance(config, dict) else config.get("testnet"),
+        "server": getattr(config, "server", "") if not isinstance(config, dict) else config.get("server", ""),
+        "ws_uri": getattr(config, "ws_uri", "") if not isinstance(config, dict) else config.get("ws_uri", ""),
+    }
+    resolved = build_gateway_session_key_from_runtime_kwargs(runtime_kwargs)
+    if resolved:
+        state["session_key"] = resolved
+    return resolved
+
+
+def _find_gateway_key_by_session_key(
+    gateways: dict[str, dict[str, Any]],
+    session_key: str,
+) -> str | None:
+    if not session_key:
+        return None
+    for key, state in gateways.items():
+        if not isinstance(state, dict):
+            continue
+        if _resolve_gateway_state_session_key(state) != session_key:
+            continue
+        if state.get("runtime") is None:
+            continue
+        return key
+    return None
+
 
 def build_subprocess_env(
     instance_id: str,
@@ -57,7 +102,13 @@ def acquire_gateway_for_instance(
         )
         return None
     key = launch["config"].runtime_name
+    session_key = build_gateway_session_key_from_runtime_kwargs(launch["runtime_kwargs"])
     state = gateways.get(key)
+    if state is None:
+        matched_key = _find_gateway_key_by_session_key(gateways, session_key)
+        if matched_key:
+            key = matched_key
+            state = gateways.get(matched_key)
     logger.info(
         "Gateway acquire for {}: key={}, existing={}, endpoints={}/{}/{}",
         instance_id,
@@ -84,8 +135,15 @@ def acquire_gateway_for_instance(
             "instances": set(),
             "ref_count": 0,
             "lock": threading.Lock(),
+            "manual": False,
+            "exchange_type": launch["runtime_kwargs"].get("exchange_type", ""),
+            "asset_type": launch["runtime_kwargs"].get("asset_type", ""),
+            "account_id": launch["runtime_kwargs"].get("account_id", ""),
+            "session_key": session_key,
         }
         gateways[key] = state
+    elif session_key and not state.get("session_key"):
+        state["session_key"] = session_key
     state["instances"].add(instance_id)
     state["ref_count"] += 1
     instance_gateways[instance_id] = key
@@ -107,6 +165,8 @@ def release_gateway_for_instance(
     state["instances"].discard(instance_id)
     state["ref_count"] = max(int(state.get("ref_count", 0)) - 1, 0)
     if state["ref_count"] > 0:
+        return
+    if state.get("manual"):
         return
     runtime = state.get("runtime")
     if runtime is not None:

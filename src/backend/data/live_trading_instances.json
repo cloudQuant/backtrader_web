@@ -4,8 +4,8 @@
     "strategy_id": "simulate/CF_donchian_channel",
     "strategy_name": "棉花唐奇安通道策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40555,
     "error": null,
     "params": {
       "gateway": {
@@ -16,7 +16,7 @@
       }
     },
     "created_at": "2026-03-09 18:51:36",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/CF_donchian_channel/logs"
   },
@@ -25,8 +25,8 @@
     "strategy_id": "simulate/MA_trix",
     "strategy_name": "甲醇TRIX指标策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40556,
     "error": null,
     "params": {
       "gateway": {
@@ -37,7 +37,7 @@
       }
     },
     "created_at": "2026-03-09 18:51:42",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/MA_trix/logs"
   },
@@ -46,8 +46,8 @@
     "strategy_id": "simulate/OI_rsi_dip_buy",
     "strategy_name": "菜籽油RSI抄底策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40557,
     "error": null,
     "params": {
       "gateway": {
@@ -58,7 +58,7 @@
       }
     },
     "created_at": "2026-03-09 18:51:50",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/OI_rsi_dip_buy/logs"
   },
@@ -67,8 +67,8 @@
     "strategy_id": "simulate/SR_keltner_channel",
     "strategy_name": "白糖肯特纳通道策略2",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40558,
     "error": null,
     "params": {
       "gateway": {
@@ -79,7 +79,7 @@
       }
     },
     "created_at": "2026-03-09 18:51:55",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/SR_keltner_channel/logs"
   },
@@ -100,8 +100,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:01",
-    "started_at": "2026-03-13 13:54:00",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-04-14 20:44:27",
+    "stopped_at": "2026-04-14 21:00:12",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/TA_cci/logs"
   },
   "dda7a9e0": {
@@ -109,8 +109,8 @@
     "strategy_id": "simulate/a_td_sequential",
     "strategy_name": "豆一TD序列策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40560,
     "error": null,
     "params": {
       "gateway": {
@@ -121,7 +121,7 @@
       }
     },
     "created_at": "2026-03-09 18:52:07",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/a_td_sequential/logs"
   },
@@ -130,8 +130,8 @@
     "strategy_id": "simulate/al_turtle",
     "strategy_name": "铝海龟交易策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40561,
     "error": null,
     "params": {
       "gateway": {
@@ -142,7 +142,7 @@
       }
     },
     "created_at": "2026-03-09 18:52:14",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/al_turtle/logs"
   },
@@ -151,8 +151,8 @@
     "strategy_id": "simulate/au_boll_reverser",
     "strategy_name": "黄金布林带反转策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40562,
     "error": null,
     "params": {
       "period": 20,
@@ -165,7 +165,7 @@
       }
     },
     "created_at": "2026-03-09 18:52:23",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/au_boll_reverser/logs"
   },
@@ -174,8 +174,8 @@
     "strategy_id": "simulate/c_chandelier_exit",
     "strategy_name": "玉米吊灯止损策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40563,
     "error": null,
     "params": {
       "gateway": {
@@ -186,7 +186,7 @@
       }
     },
     "created_at": "2026-03-09 18:52:30",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/c_chandelier_exit/logs"
   },
@@ -195,8 +195,8 @@
     "strategy_id": "simulate/cu_macd_atr",
     "strategy_name": "铜MACD+ATR策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40564,
     "error": null,
     "params": {
       "gateway": {
@@ -207,7 +207,7 @@
       }
     },
     "created_at": "2026-03-09 18:52:37",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/cu_macd_atr/logs"
   },
@@ -216,8 +216,8 @@
     "strategy_id": "simulate/hc_supertrend",
     "strategy_name": "热轧卷板SuperTrend策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40565,
     "error": null,
     "params": {
       "stake": 1,
@@ -231,7 +231,7 @@
       }
     },
     "created_at": "2026-03-09 18:52:44",
-    "started_at": "2026-03-13 13:54:00",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/hc_supertrend/logs"
   },
@@ -240,8 +240,8 @@
     "strategy_id": "simulate/i_r_breaker",
     "strategy_name": "铁矿石R-Breaker策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40566,
     "error": null,
     "params": {
       "gateway": {
@@ -252,7 +252,7 @@
       }
     },
     "created_at": "2026-03-09 18:52:49",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:27",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/i_r_breaker/logs"
   },
@@ -261,8 +261,8 @@
     "strategy_id": "simulate/j_dual_thrust",
     "strategy_name": "焦炭Dual Thrust策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40567,
     "error": null,
     "params": {
       "gateway": {
@@ -273,7 +273,7 @@
       }
     },
     "created_at": "2026-03-09 18:52:58",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/j_dual_thrust/logs"
   },
@@ -282,8 +282,8 @@
     "strategy_id": "simulate/jm_stochastic",
     "strategy_name": "焦煤随机指标策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40568,
     "error": null,
     "params": {
       "gateway": {
@@ -294,7 +294,7 @@
       }
     },
     "created_at": "2026-03-09 18:53:04",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/jm_stochastic/logs"
   },
@@ -303,8 +303,8 @@
     "strategy_id": "simulate/m_ichimoku_cloud",
     "strategy_name": "豆粕一目均衡表策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40569,
     "error": null,
     "params": {
       "gateway": {
@@ -315,7 +315,7 @@
       }
     },
     "created_at": "2026-03-09 18:53:09",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/m_ichimoku_cloud/logs"
   },
@@ -324,8 +324,8 @@
     "strategy_id": "simulate/p_bb_rsi",
     "strategy_name": "棕榈油布林带+RSI策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40570,
     "error": null,
     "params": {
       "gateway": {
@@ -336,7 +336,7 @@
       }
     },
     "created_at": "2026-03-09 18:53:16",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/p_bb_rsi/logs"
   },
@@ -345,8 +345,8 @@
     "strategy_id": "simulate/rb_dual_ma",
     "strategy_name": "螺纹钢双均线策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40571,
     "error": null,
     "params": {
       "short_period": 5,
@@ -359,7 +359,7 @@
       }
     },
     "created_at": "2026-03-09 18:53:21",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/rb_dual_ma/logs"
   },
@@ -368,8 +368,8 @@
     "strategy_id": "simulate/y_alligator",
     "strategy_name": "豆油鳄鱼线策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40572,
     "error": null,
     "params": {
       "gateway": {
@@ -380,7 +380,7 @@
       }
     },
     "created_at": "2026-03-09 18:53:27",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/y_alligator/logs"
   },
@@ -389,8 +389,8 @@
     "strategy_id": "simulate/zn_kelter",
     "strategy_name": "锌肯特纳通道策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40574,
     "error": null,
     "params": {
       "gateway": {
@@ -401,7 +401,7 @@
       }
     },
     "created_at": "2026-03-09 18:53:33",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/zn_kelter/logs"
   },
@@ -410,8 +410,8 @@
     "strategy_id": "simulate/cs_hma_multitrend",
     "strategy_name": "玉米淀粉HMA多趋势策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40575,
     "error": null,
     "params": {
       "gateway": {
@@ -422,7 +422,7 @@
       }
     },
     "created_at": "2026-03-13 11:04:25",
-    "started_at": "2026-03-13 11:17:16",
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": "2026-03-13 11:17:22",
     "log_dir": null
   },
@@ -431,8 +431,8 @@
     "strategy_id": "simulate/mt5_audusd_rsi_pullback",
     "strategy_name": "MT5 澳美RSI回调入场策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40576,
     "error": null,
     "params": {
       "gateway": {
@@ -443,7 +443,7 @@
       }
     },
     "created_at": "2026-03-13 11:04:26",
-    "started_at": null,
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": null,
     "log_dir": null
   },
@@ -452,8 +452,8 @@
     "strategy_id": "simulate/mt5_eurusd_ma_cross",
     "strategy_name": "MT5 欧美双均线交叉策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40577,
     "error": null,
     "params": {
       "gateway": {
@@ -464,7 +464,7 @@
       }
     },
     "created_at": "2026-03-13 11:04:26",
-    "started_at": null,
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": null,
     "log_dir": null
   },
@@ -473,8 +473,8 @@
     "strategy_id": "simulate/mt5_gbpusd_bb_revert",
     "strategy_name": "MT5 英镑布林带回归策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40578,
     "error": null,
     "params": {
       "gateway": {
@@ -485,7 +485,7 @@
       }
     },
     "created_at": "2026-03-13 11:04:26",
-    "started_at": null,
+    "started_at": "2026-04-14 20:44:28",
     "stopped_at": null,
     "log_dir": null
   },
@@ -494,8 +494,8 @@
     "strategy_id": "simulate/mt5_usdjpy_trend_follow",
     "strategy_name": "MT5 美日ADX趋势跟踪策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40579,
     "error": null,
     "params": {
       "gateway": {
@@ -506,7 +506,7 @@
       }
     },
     "created_at": "2026-03-13 11:04:26",
-    "started_at": null,
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": null,
     "log_dir": null
   },
@@ -515,8 +515,8 @@
     "strategy_id": "simulate/mt5_xauusd_breakout",
     "strategy_name": "MT5 黄金区间突破策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40580,
     "error": null,
     "params": {
       "gateway": {
@@ -527,7 +527,7 @@
       }
     },
     "created_at": "2026-03-13 11:04:26",
-    "started_at": null,
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": null,
     "log_dir": null
   },
@@ -536,8 +536,8 @@
     "strategy_id": "simulate/al_turtle",
     "strategy_name": "铝海龟交易策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40581,
     "error": null,
     "params": {
       "gateway": {
@@ -548,7 +548,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:16",
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": "2026-03-13 11:17:22",
     "log_dir": null
   },
@@ -557,8 +557,8 @@
     "strategy_id": "simulate/au_boll_reverser",
     "strategy_name": "黄金布林带反转策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40582,
     "error": null,
     "params": {
       "gateway": {
@@ -569,7 +569,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": "2026-03-13 11:17:22",
     "log_dir": null
   },
@@ -578,8 +578,8 @@
     "strategy_id": "simulate/c_chandelier_exit",
     "strategy_name": "玉米吊灯止损策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40584,
     "error": null,
     "params": {
       "gateway": {
@@ -590,7 +590,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": "2026-03-13 11:17:23",
     "log_dir": null
   },
@@ -599,9 +599,9 @@
     "strategy_id": "simulate/CF_donchian_channel",
     "strategy_name": "棉花唐奇安通道策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
-    "error": "Process exit code: 3221225477",
+    "status": "running",
+    "pid": 40585,
+    "error": null,
     "params": {
       "gateway": {
         "enabled": true,
@@ -611,7 +611,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -620,8 +620,8 @@
     "strategy_id": "simulate/cu_macd_atr",
     "strategy_name": "铜MACD+ATR策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40586,
     "error": null,
     "params": {
       "gateway": {
@@ -632,7 +632,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -641,8 +641,8 @@
     "strategy_id": "simulate/hc_supertrend",
     "strategy_name": "热轧卷板SuperTrend策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40587,
     "error": null,
     "params": {
       "gateway": {
@@ -653,7 +653,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -662,8 +662,8 @@
     "strategy_id": "simulate/i_r_breaker",
     "strategy_name": "铁矿石R-Breaker策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40588,
     "error": null,
     "params": {
       "gateway": {
@@ -674,7 +674,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -683,8 +683,8 @@
     "strategy_id": "simulate/j_dual_thrust",
     "strategy_name": "焦炭Dual Thrust策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40589,
     "error": null,
     "params": {
       "gateway": {
@@ -695,7 +695,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:29",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -704,8 +704,8 @@
     "strategy_id": "simulate/jm_stochastic",
     "strategy_name": "焦煤随机指标策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40590,
     "error": null,
     "params": {
       "gateway": {
@@ -716,7 +716,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:30",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -725,8 +725,8 @@
     "strategy_id": "simulate/m_ichimoku_cloud",
     "strategy_name": "豆粕一目均衡表策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40592,
     "error": null,
     "params": {
       "gateway": {
@@ -737,7 +737,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:30",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -746,9 +746,9 @@
     "strategy_id": "simulate/MA_trix",
     "strategy_name": "甲醇TRIX指标策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
-    "error": "Process exit code: 3221225477",
+    "status": "running",
+    "pid": 40593,
+    "error": null,
     "params": {
       "gateway": {
         "enabled": true,
@@ -758,7 +758,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:30",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -767,9 +767,9 @@
     "strategy_id": "simulate/OI_rsi_dip_buy",
     "strategy_name": "菜籽油RSI抄底策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
-    "error": "Process exit code: 3221225477",
+    "status": "running",
+    "pid": 40594,
+    "error": null,
     "params": {
       "gateway": {
         "enabled": true,
@@ -779,7 +779,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:30",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -788,8 +788,8 @@
     "strategy_id": "simulate/p_bb_rsi",
     "strategy_name": "棕榈油布林带+RSI策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40595,
     "error": null,
     "params": {
       "gateway": {
@@ -800,7 +800,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:30",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -809,8 +809,8 @@
     "strategy_id": "simulate/rb_dual_ma",
     "strategy_name": "螺纹钢双均线策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40596,
     "error": null,
     "params": {
       "gateway": {
@@ -821,7 +821,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:30",
     "stopped_at": "2026-03-13 11:17:18",
     "log_dir": null
   },
@@ -830,9 +830,9 @@
     "strategy_id": "simulate/SR_keltner_channel",
     "strategy_name": "白糖肯特纳通道策略2",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
-    "error": "Process exit code: 3221225477",
+    "status": "running",
+    "pid": 40597,
+    "error": null,
     "params": {
       "gateway": {
         "enabled": true,
@@ -842,7 +842,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:30",
     "stopped_at": "2026-03-13 11:17:19",
     "log_dir": null
   },
@@ -853,27 +853,6 @@
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
     "status": "stopped",
     "pid": null,
-    "error": "Process exit code: 3221225477",
-    "params": {
-      "gateway": {
-        "enabled": true,
-        "provider": "ctp_gateway",
-        "exchange_type": "CTP",
-        "asset_type": "FUTURE"
-      }
-    },
-    "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
-    "stopped_at": "2026-03-13 11:17:19",
-    "log_dir": null
-  },
-  "e5e8fecd": {
-    "id": "e5e8fecd",
-    "strategy_id": "simulate/y_alligator",
-    "strategy_name": "豆油鳄鱼线策略",
-    "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -884,7 +863,28 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:30",
+    "stopped_at": "2026-04-14 21:00:10",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/TA_cci/logs"
+  },
+  "e5e8fecd": {
+    "id": "e5e8fecd",
+    "strategy_id": "simulate/y_alligator",
+    "strategy_name": "豆油鳄鱼线策略",
+    "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
+    "status": "running",
+    "pid": 40599,
+    "error": null,
+    "params": {
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "exchange_type": "CTP",
+        "asset_type": "FUTURE"
+      }
+    },
+    "created_at": "2026-03-13 11:08:12",
+    "started_at": "2026-04-14 20:44:30",
     "stopped_at": "2026-03-13 11:17:19",
     "log_dir": null
   },
@@ -893,8 +893,8 @@
     "strategy_id": "simulate/zn_kelter",
     "strategy_name": "锌肯特纳通道策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40600,
     "error": null,
     "params": {
       "gateway": {
@@ -905,7 +905,7 @@
       }
     },
     "created_at": "2026-03-13 11:08:12",
-    "started_at": "2026-03-13 11:17:17",
+    "started_at": "2026-04-14 20:44:31",
     "stopped_at": "2026-03-13 11:17:19",
     "log_dir": null
   },
@@ -914,8 +914,8 @@
     "strategy_id": "simulate/cs_hma_multitrend",
     "strategy_name": "玉米淀粉HMA多趋势策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40601,
     "error": null,
     "params": {
       "gateway": {
@@ -926,7 +926,7 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:31",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/cs_hma_multitrend/logs"
   },
@@ -935,8 +935,8 @@
     "strategy_id": "simulate/mt5_audusd_rsi_pullback",
     "strategy_name": "MT5 澳美RSI回调入场策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40603,
     "error": null,
     "params": {
       "gateway": {
@@ -947,7 +947,7 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:31",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": null
   },
@@ -956,8 +956,8 @@
     "strategy_id": "simulate/mt5_eurusd_ma_cross",
     "strategy_name": "MT5 欧美双均线交叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40604,
     "error": null,
     "params": {
       "gateway": {
@@ -968,7 +968,7 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:31",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": null
   },
@@ -977,8 +977,8 @@
     "strategy_id": "simulate/mt5_gbpusd_bb_revert",
     "strategy_name": "MT5 英镑布林带回归策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40615,
     "error": null,
     "params": {
       "gateway": {
@@ -989,7 +989,7 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:31",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": null
   },
@@ -998,8 +998,8 @@
     "strategy_id": "simulate/mt5_usdjpy_trend_follow",
     "strategy_name": "MT5 美日ADX趋势跟踪策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40621,
     "error": null,
     "params": {
       "gateway": {
@@ -1010,7 +1010,7 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:31",
     "stopped_at": "2026-03-13 13:54:53",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/mt5_usdjpy_trend_follow/logs"
   },
@@ -1019,8 +1019,8 @@
     "strategy_id": "simulate/mt5_xauusd_breakout",
     "strategy_name": "MT5 黄金区间突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40627,
     "error": null,
     "params": {
       "gateway": {
@@ -1031,7 +1031,7 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-03-13 13:54:01",
+    "started_at": "2026-04-14 20:44:31",
     "stopped_at": "2026-03-13 13:53:56",
     "log_dir": null
   },
@@ -1040,8 +1040,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 22414,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1090,9 +1090,9 @@
       "trading_mode": "paper"
     },
     "created_at": "2026-04-13 21:27:12",
-    "started_at": "2026-04-13 23:24:47",
-    "stopped_at": "2026-04-13 23:24:54",
-    "log_dir": null,
+    "started_at": "2026-04-14 20:12:15",
+    "stopped_at": "2026-04-14 16:07:13",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/df658c60-6567-475b-a211-0a1c2da3dfd8/logs",
     "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/df658c60-6567-475b-a211-0a1c2da3dfd8"
   },
   "06f7ab57": {
@@ -1100,8 +1100,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 40631,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1157,7 +1157,7 @@
       "trading_mode": "paper"
     },
     "created_at": "2026-04-13 21:27:17",
-    "started_at": "2026-04-13 23:24:42",
+    "started_at": "2026-04-14 20:44:32",
     "stopped_at": "2026-04-13 23:24:47",
     "log_dir": null,
     "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/650267ef-3aa9-41b2-bd86-83f031364655/d78d2494-b7b3-4d62-8f19-dfdfd2fae9e6"
@@ -1167,8 +1167,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "stopped",
-    "pid": null,
+    "status": "running",
+    "pid": 35503,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1221,9 +1221,1125 @@
       "trading_mode": "paper"
     },
     "created_at": "2026-04-13 21:27:21",
-    "started_at": "2026-04-13 23:24:37",
-    "stopped_at": "2026-04-13 23:24:42",
+    "started_at": "2026-04-14 20:35:20",
+    "stopped_at": "2026-04-14 15:20:59",
     "log_dir": null,
     "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/d4838c01-06ff-4d86-90ba-b285de683240"
+  },
+  "0c74f4da": {
+    "id": "0c74f4da",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35491,
+    "error": null,
+    "params": {
+      "boll_dev": 2.2,
+      "allow_short": true,
+      "boll_period": 24,
+      "position_size": 1,
+      "symbol": "i2609",
+      "symbol_name": "铁矿石主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "0e4293b2-b7b2-4674-8d0e-96224a9d5161",
+        "group_name": "布林突破",
+        "strategy_name": "期货布林突破04-i2609-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:19",
+    "stopped_at": "2026-04-14 14:39:58",
+    "log_dir": null,
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/0e4293b2-b7b2-4674-8d0e-96224a9d5161"
+  },
+  "6260a68f": {
+    "id": "6260a68f",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35492,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 8,
+      "slow_period": 21,
+      "position_size": 1,
+      "symbol": "IM2609",
+      "symbol_name": "中证1000主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "25e92d0b-a6d4-4842-afd4-fe8731957fec",
+        "group_name": "均线金叉",
+        "strategy_name": "期货均线金叉04-IM2609-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:19",
+    "stopped_at": "2026-04-14 14:39:59",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/25e92d0b-a6d4-4842-afd4-fe8731957fec/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/25e92d0b-a6d4-4842-afd4-fe8731957fec"
+  },
+  "12675c36": {
+    "id": "12675c36",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35493,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 6,
+      "slow_period": 15,
+      "position_size": 1,
+      "symbol": "IH2609",
+      "symbol_name": "上证50主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "49ec9655-9195-4c17-95c3-269e73eca15d",
+        "group_name": "均线金叉",
+        "strategy_name": "期货均线金叉03-IH2609-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:19",
+    "stopped_at": "2026-04-14 14:39:59",
+    "log_dir": null,
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/49ec9655-9195-4c17-95c3-269e73eca15d"
+  },
+  "560f32f0": {
+    "id": "560f32f0",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35494,
+    "error": null,
+    "params": {
+      "boll_dev": 2.4,
+      "allow_short": true,
+      "boll_period": 30,
+      "position_size": 1,
+      "symbol": "m2609",
+      "symbol_name": "豆粕主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "4cc058a7-f6c1-4351-9f2c-b324167ac1a4",
+        "group_name": "布林突破",
+        "strategy_name": "期货布林突破05-m2609-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:19",
+    "stopped_at": "2026-04-14 14:39:59",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/4cc058a7-f6c1-4351-9f2c-b324167ac1a4/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/4cc058a7-f6c1-4351-9f2c-b324167ac1a4"
+  },
+  "9b5b7cd1": {
+    "id": "9b5b7cd1",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35495,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 10,
+      "slow_period": 30,
+      "position_size": 1,
+      "symbol": "au2606",
+      "symbol_name": "黄金主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "72f8ad6b-e785-44bc-b365-cef84fd8285f",
+        "group_name": "均线金叉",
+        "strategy_name": "期货均线金叉05-au2606-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:19",
+    "stopped_at": "2026-04-14 14:39:59",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/72f8ad6b-e785-44bc-b365-cef84fd8285f/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/72f8ad6b-e785-44bc-b365-cef84fd8285f"
+  },
+  "cb0dc915": {
+    "id": "cb0dc915",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35496,
+    "error": null,
+    "params": {
+      "boll_dev": 2.0,
+      "allow_short": true,
+      "boll_period": 16,
+      "position_size": 1,
+      "symbol": "cu2606",
+      "symbol_name": "铜主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "80c3e3dc-d532-4853-b3dd-9509110ce478",
+        "group_name": "布林突破",
+        "strategy_name": "期货布林突破02-cu2606-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:19",
+    "stopped_at": "2026-04-14 14:39:59",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/80c3e3dc-d532-4853-b3dd-9509110ce478/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/80c3e3dc-d532-4853-b3dd-9509110ce478"
+  },
+  "56161c65": {
+    "id": "56161c65",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35497,
+    "error": null,
+    "params": {
+      "boll_dev": 1.8,
+      "allow_short": true,
+      "boll_period": 12,
+      "position_size": 1,
+      "symbol": "ag2606",
+      "symbol_name": "白银主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "840483e6-2222-4388-a7a5-5ba83547044c",
+        "group_name": "布林突破",
+        "strategy_name": "期货布林突破01-ag2606-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:20",
+    "stopped_at": "2026-04-14 14:39:59",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/840483e6-2222-4388-a7a5-5ba83547044c/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/840483e6-2222-4388-a7a5-5ba83547044c"
+  },
+  "d6ff05e5": {
+    "id": "d6ff05e5",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35498,
+    "error": null,
+    "params": {
+      "boll_dev": 2.1,
+      "allow_short": true,
+      "boll_period": 20,
+      "position_size": 1,
+      "symbol": "rb2610",
+      "symbol_name": "螺纹钢主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "8c0f6fea-83a8-4904-bfd8-f7a568549d1a",
+        "group_name": "布林突破",
+        "strategy_name": "期货布林突破03-rb2610-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:20",
+    "stopped_at": "2026-04-14 14:39:59",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/8c0f6fea-83a8-4904-bfd8-f7a568549d1a/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/8c0f6fea-83a8-4904-bfd8-f7a568549d1a"
+  },
+  "897cbb21": {
+    "id": "897cbb21",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 35499,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 5,
+      "slow_period": 13,
+      "position_size": 1,
+      "symbol": "IC2609",
+      "symbol_name": "中证500主力",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "future",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 5e-05,
+        "commission": 0.0001,
+        "initial_cash": 1000000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "d1d6192f-1692-4744-b033-499b53931c13",
+        "unit_id": "b4b464cc-604b-4038-9cc7-02afcbe79781",
+        "group_name": "均线金叉",
+        "strategy_name": "期货均线金叉02-IC2609-1m"
+      },
+      "ctp": {
+        "app_id": "simnow_client_test",
+        "fronts": {
+          "telecom": {
+            "md_address": "tcp://182.254.243.31:40011",
+            "td_address": "tcp://182.254.243.31:40001"
+          }
+        },
+        "user_id": "089763",
+        "password": "yunjinqi2015!",
+        "auth_code": "0000000000000000",
+        "broker_id": "9999",
+        "investor_id": "089763"
+      },
+      "gateway": {
+        "enabled": true,
+        "provider": "ctp_gateway",
+        "account_id": "089763",
+        "asset_type": "FUTURE",
+        "exchange_type": "CTP"
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 14:39:48",
+    "started_at": "2026-04-14 20:35:20",
+    "stopped_at": "2026-04-14 14:39:58",
+    "log_dir": null,
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/d1d6192f-1692-4744-b033-499b53931c13/b4b464cc-604b-4038-9cc7-02afcbe79781"
+  },
+  "6ab1e01b": {
+    "id": "6ab1e01b",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22363,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 8,
+      "slow_period": 21,
+      "position_size": 0.01,
+      "symbol": "USDJPY",
+      "symbol_name": "美元/日元",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "02434ea8-4fa4-491f-83d8-7650f74ae968",
+        "group_name": "均线金叉",
+        "strategy_name": "MT5均线金叉04-USDJPY-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:14",
+    "stopped_at": "2026-04-14 15:31:56",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/02434ea8-4fa4-491f-83d8-7650f74ae968/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/02434ea8-4fa4-491f-83d8-7650f74ae968"
+  },
+  "e40d0f51": {
+    "id": "e40d0f51",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22365,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 10,
+      "slow_period": 30,
+      "position_size": 0.01,
+      "symbol": "AUDUSD",
+      "symbol_name": "澳元/美元",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "2df3b0c5-63cd-46a7-a3f3-0e3e1d54f0c8",
+        "group_name": "均线金叉",
+        "strategy_name": "MT5均线金叉05-AUDUSD-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:14",
+    "stopped_at": "2026-04-14 15:31:59",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/2df3b0c5-63cd-46a7-a3f3-0e3e1d54f0c8/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/2df3b0c5-63cd-46a7-a3f3-0e3e1d54f0c8"
+  },
+  "052f7468": {
+    "id": "052f7468",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22366,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 6,
+      "slow_period": 15,
+      "position_size": 0.01,
+      "symbol": "GBPUSD",
+      "symbol_name": "英镑/美元",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "38f978a4-d86b-4ceb-b734-667a598e93d6",
+        "group_name": "均线金叉",
+        "strategy_name": "MT5均线金叉03-GBPUSD-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:14",
+    "stopped_at": "2026-04-14 15:31:57",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/38f978a4-d86b-4ceb-b734-667a598e93d6/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/38f978a4-d86b-4ceb-b734-667a598e93d6"
+  },
+  "18ac6db6": {
+    "id": "18ac6db6",
+    "strategy_id": "simulate/gateway_dual_ma",
+    "strategy_name": "通用网关双均线金叉策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22388,
+    "error": null,
+    "params": {
+      "allow_short": true,
+      "fast_period": 5,
+      "slow_period": 13,
+      "position_size": 0.01,
+      "symbol": "EURUSD",
+      "symbol_name": "欧元/美元",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "563ce7ca-ce6f-4b4e-b7de-e516f70a0507",
+        "group_name": "均线金叉",
+        "strategy_name": "MT5均线金叉02-EURUSD-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:14",
+    "stopped_at": "2026-04-14 15:31:57",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/563ce7ca-ce6f-4b4e-b7de-e516f70a0507/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/563ce7ca-ce6f-4b4e-b7de-e516f70a0507"
+  },
+  "72474c55": {
+    "id": "72474c55",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22396,
+    "error": null,
+    "params": {
+      "boll_dev": 1.8,
+      "allow_short": true,
+      "boll_period": 12,
+      "position_size": 0.01,
+      "symbol": "USDCAD",
+      "symbol_name": "美元/加元",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "6820bb7c-7ddb-448c-8b7a-d4b5e4aab58b",
+        "group_name": "布林突破",
+        "strategy_name": "MT5布林突破01-USDCAD-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:14",
+    "stopped_at": "2026-04-14 15:31:58",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/6820bb7c-7ddb-448c-8b7a-d4b5e4aab58b/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/6820bb7c-7ddb-448c-8b7a-d4b5e4aab58b"
+  },
+  "b75f770a": {
+    "id": "b75f770a",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22402,
+    "error": null,
+    "params": {
+      "boll_dev": 2.4,
+      "allow_short": true,
+      "boll_period": 30,
+      "position_size": 0.01,
+      "symbol": "EURGBP",
+      "symbol_name": "欧元/英镑",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "932b7727-1382-4813-8960-bbf524351459",
+        "group_name": "布林突破",
+        "strategy_name": "MT5布林突破05-EURGBP-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:14",
+    "stopped_at": "2026-04-14 15:31:58",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/932b7727-1382-4813-8960-bbf524351459/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/932b7727-1382-4813-8960-bbf524351459"
+  },
+  "ce6c192c": {
+    "id": "ce6c192c",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22406,
+    "error": null,
+    "params": {
+      "boll_dev": 2.1,
+      "allow_short": true,
+      "boll_period": 20,
+      "position_size": 0.01,
+      "symbol": "NZDUSD",
+      "symbol_name": "纽元/美元",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "994fc819-5225-4461-968d-ccf9f911ac0a",
+        "group_name": "布林突破",
+        "strategy_name": "MT5布林突破03-NZDUSD-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:15",
+    "stopped_at": "2026-04-14 15:31:58",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/994fc819-5225-4461-968d-ccf9f911ac0a/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/994fc819-5225-4461-968d-ccf9f911ac0a"
+  },
+  "51706f3e": {
+    "id": "51706f3e",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22411,
+    "error": null,
+    "params": {
+      "boll_dev": 2.0,
+      "allow_short": true,
+      "boll_period": 16,
+      "position_size": 0.01,
+      "symbol": "USDCHF",
+      "symbol_name": "美元/瑞郎",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "a5bf37da-2b9b-4158-8002-189b2cd3d701",
+        "group_name": "布林突破",
+        "strategy_name": "MT5布林突破02-USDCHF-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:15",
+    "stopped_at": "2026-04-14 15:31:59",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/a5bf37da-2b9b-4158-8002-189b2cd3d701/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/a5bf37da-2b9b-4158-8002-189b2cd3d701"
+  },
+  "44a30ef7": {
+    "id": "44a30ef7",
+    "strategy_id": "simulate/gateway_boll_breakout",
+    "strategy_name": "通用网关布林突破策略",
+    "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
+    "status": "running",
+    "pid": 22428,
+    "error": null,
+    "params": {
+      "boll_dev": 2.2,
+      "allow_short": true,
+      "boll_period": 24,
+      "position_size": 0.01,
+      "symbol": "EURJPY",
+      "symbol_name": "欧元/日元",
+      "timeframe": "1m",
+      "timeframe_n": 1,
+      "category": "forex",
+      "data_config": {
+        "range_type": "sample",
+        "sample_count": 300
+      },
+      "unit_settings": {
+        "slippage": 2e-05,
+        "commission": 7e-05,
+        "initial_cash": 10000,
+        "session_timeout": 7260,
+        "duration_seconds": 7200
+      },
+      "workspace_unit": {
+        "workspace_id": "3934a156-d794-4236-8fa2-5bc496127940",
+        "unit_id": "f4f0bbe4-670e-43e1-b499-2fb2eacf96cd",
+        "group_name": "布林突破",
+        "strategy_name": "MT5布林突破04-EURJPY-1m"
+      },
+      "mt5": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "password": "NyCh-i4r",
+        "symbol_suffix": ""
+      },
+      "gateway": {
+        "login": "5047785364",
+        "ws_uri": "wss://web.metatrader.app/terminal",
+        "enabled": true,
+        "password": "NyCh-i4r",
+        "provider": "mt5_gateway",
+        "account_id": "5047785364",
+        "asset_type": "OTC",
+        "exchange_type": "MT5",
+        "symbol_suffix": ""
+      },
+      "trading_mode": "paper"
+    },
+    "created_at": "2026-04-14 15:31:44",
+    "started_at": "2026-04-14 20:12:15",
+    "stopped_at": "2026-04-14 15:31:56",
+    "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/f4f0bbe4-670e-43e1-b499-2fb2eacf96cd/logs",
+    "runtime_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/workspace_units/3934a156-d794-4236-8fa2-5bc496127940/f4f0bbe4-670e-43e1-b499-2fb2eacf96cd"
   }
 }

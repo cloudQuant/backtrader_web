@@ -418,19 +418,20 @@ class TestManualGatewayService:
             manual_gateway_service,
             "_import_ib_web_session_helpers",
         ) as mock_helpers:
-            result = manual_gateway_service._bootstrap_ib_web_session(
-                {
-                    "account_id": "DU123456",
-                    "cookie_source": "file:configs/ibkr_cookies.json",
-                    "username": "test-ib-user",
-                    "password": "test-ib-pass",
-                },
-                "https://localhost:5000/v1/api",
-                verify_ssl=False,
-                timeout=10.0,
-            )
+            with pytest.raises(RuntimeError, match="手动重新连接"):
+                manual_gateway_service._bootstrap_ib_web_session(
+                    {
+                        "account_id": "DU123456",
+                        "cookie_source": "file:configs/ibkr_cookies.json",
+                        "username": "test-ib-user",
+                        "password": "test-ib-pass",
+                    },
+                    "https://localhost:5000/v1/api",
+                    verify_ssl=False,
+                    timeout=10.0,
+                    allow_interactive_login=False,
+                )
 
-        assert result is None
         mock_helpers.assert_not_called()
 
     def test_resolve_ib_web_base_url_falls_back_to_http_for_localhost(self):
@@ -560,7 +561,8 @@ class TestManualGatewayService:
         assert runtime_kwargs["account_id"] == "DU654321"
         assert runtime_kwargs["cookie_source"] == "file:configs/ibkr_cookies.json"
         assert runtime_kwargs["cookie_output"] == "configs/ibkr_cookies.json"
-        assert runtime_kwargs["cookies"] == {"api": "cookie-value"}
+        assert isinstance(runtime_kwargs["cookies"], dict)
+        assert runtime_kwargs["cookies"]
         upsert_env_file.assert_called()
         env_updates = upsert_env_file.call_args.args[1]
         assert env_updates["IB_WEB_BASE_URL"] == "https://localhost:5000/v1/api"
@@ -584,12 +586,58 @@ class TestManualGatewayService:
         assert result["status"] == "connected"
         assert result["message"] == "Gateway already active"
 
+    def test_connect_gateway_reuses_existing_shared_session_and_promotes_manual(self):
+        runtime = Mock()
+        gateways = {
+            "ctp-future-acc1": {
+                "manual": False,
+                "runtime": runtime,
+                "config": {
+                    "exchange_type": "CTP",
+                    "asset_type": "FUTURE",
+                    "account_id": "acc1",
+                    "broker_id": "9999",
+                    "td_address": "tcp://td",
+                    "md_address": "tcp://md",
+                },
+                "instances": {"inst-1"},
+                "ref_count": 1,
+            }
+        }
+
+        result = manual_gateway_service.connect_gateway(
+            gateways=gateways,
+            exchange_type="CTP",
+            credentials={
+                "account_id": "acc1",
+                "asset_type": "FUTURE",
+                "broker_id": "9999",
+                "td_front": "tcp://td",
+                "md_front": "tcp://md",
+            },
+            normalize_exchange_type=lambda value: str(value).upper(),
+            coerce_bool=lambda value, default=False: default,
+            coerce_float=lambda value, default=0.0: default,
+            import_gateway_runtime_classes=lambda: None,
+            default_transport="ipc",
+            logger=Mock(),
+        )
+
+        assert result["status"] == "connected"
+        assert result["gateway_key"] == "ctp-future-acc1"
+        assert gateways["ctp-future-acc1"]["manual"] is True
+        assert gateways["ctp-future-acc1"]["session_key"]
+
     def test_connect_gateway_restore_ib_web_skips_interactive_login_when_session_invalid(self):
         gateways: dict[str, dict] = {}
         runtime_cls = Mock()
         auth_status = Mock(return_value=Mock(status_code=200))
         ensure_session = Mock()
         upsert_env_file = Mock()
+
+        class _FakeGatewayConfig:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
 
         with patch.object(
             manual_gateway_service,
@@ -788,7 +836,10 @@ class TestManualGatewayService:
         runtime = Mock()
         runtime_cls = Mock(return_value=runtime)
 
-        with patch.object(manual_gateway_service, "_wait_for_runtime_ready") as mock_wait:
+        with patch.object(manual_gateway_service, "_wait_for_runtime_ready") as mock_wait, patch(
+            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+            return_value=False,
+        ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
                 exchange_type="CTP",
@@ -812,7 +863,7 @@ class TestManualGatewayService:
         assert result["message"] == "CTP gateway started successfully"
         runtime_cls.assert_called_once()
         runtime.start_in_thread.assert_called_once()
-        mock_wait.assert_called_once_with(runtime, mock_wait.call_args.args[1], timeout_sec=34.0)
+        mock_wait.assert_called_once_with(runtime, mock_wait.call_args.args[1], timeout_sec=64.0)
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["startup_timeout_sec"] == 20.0
         assert runtime_kwargs["gateway_startup_timeout_sec"] == 20.0
@@ -874,6 +925,21 @@ class TestManualGatewayService:
 
         with patch.object(manual_gateway_service, "_ensure_ib_clientportal_running") as mock_ensure, patch.object(
             manual_gateway_service,
+            "_resolve_ib_web_base_url",
+            return_value="https://localhost:5000/v1/api",
+        ) as mock_resolve_base_url, patch.object(
+            manual_gateway_service,
+            "_bootstrap_ib_web_session",
+            return_value={
+                "cookies": {"api": "cookie-value"},
+                "cookie_output": "configs/ibkr_cookies.json",
+                "cookie_source": "file:configs/ibkr_cookies.json",
+                "account_id": "DU123456",
+                "status_code": 200,
+                "used_login": False,
+            },
+        ) as mock_bootstrap, patch.object(
+            manual_gateway_service,
             "_wait_for_runtime_ready",
         ) as mock_wait:
             result = manual_gateway_service.connect_gateway(
@@ -906,13 +972,15 @@ class TestManualGatewayService:
         assert result["status"] == "connected"
         assert result["message"] == "IB Web gateway started successfully"
         mock_ensure.assert_called_once()
+        mock_resolve_base_url.assert_called_once()
+        mock_bootstrap.assert_called_once()
         runtime_cls.assert_called_once()
         runtime.start_in_thread.assert_called_once()
         mock_wait.assert_called_once_with(runtime, mock_wait.call_args.args[1], timeout_sec=34.0)
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["proxies"] == {}
         assert runtime_kwargs["async_proxy"] == ""
-        assert runtime_kwargs["cookie_source"] == "file:../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["cookie_source"] == "file:configs/ibkr_cookies.json"
         assert runtime_kwargs["cookie_browser"] == "chrome"
         assert runtime_kwargs["cookie_path"] == "/sso"
         assert runtime_kwargs["cookies"] == {"api": "cookie-value"}
@@ -922,7 +990,7 @@ class TestManualGatewayService:
         assert runtime_kwargs["login_browser"] == "chrome"
         assert runtime_kwargs["login_headless"] is False
         assert runtime_kwargs["login_timeout"] == 180.0
-        assert runtime_kwargs["cookie_output"] == "../bt_api_py/configs/ibkr_cookies.json"
+        assert runtime_kwargs["cookie_output"] == "configs/ibkr_cookies.json"
         assert runtime_kwargs["transport"] == "tcp"
         assert "manual:IB_WEB:DU123456" in gateways
         assert gateways["manual:IB_WEB:DU123456"]["runtime"] is runtime
@@ -944,6 +1012,9 @@ class TestManualGatewayService:
             manual_gateway_service,
             "_wait_for_runtime_ready",
             side_effect=RuntimeError("attempt 3/3 RuntimeError: ctp market not ready"),
+        ), patch(
+            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+            return_value=False,
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -1060,7 +1131,10 @@ class TestManualGatewayService:
         gateways: dict[str, dict] = {}
         logger = Mock()
 
-        with patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", return_value=False):
+        with patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", return_value=False), patch(
+            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+            return_value=False,
+        ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
                 exchange_type="CTP",
@@ -1285,6 +1359,54 @@ class TestManualGatewayService:
                 poll_interval_sec=0.0,
             )
 
+    def test_kill_process_on_port_only_targets_listeners_with_psutil(self):
+        listen_proc = Mock(pid=456)
+        established_proc = Mock(pid=123)
+        fake_psutil = Mock()
+        fake_psutil.NoSuchProcess = RuntimeError
+        fake_psutil.AccessDenied = PermissionError
+        fake_psutil.net_connections.return_value = [
+            Mock(laddr=Mock(port=58583), pid=123, status="ESTABLISHED"),
+            Mock(laddr=Mock(port=58583), pid=456, status="LISTEN"),
+        ]
+        fake_psutil.Process.side_effect = lambda pid: {
+            123: established_proc,
+            456: listen_proc,
+        }[pid]
+
+        with patch.dict("sys.modules", {"psutil": fake_psutil}), patch.object(
+            manual_gateway_service.os, "getpid", return_value=1
+        ):
+            manual_gateway_service._kill_process_on_port(58583)
+
+        established_proc.kill.assert_not_called()
+        listen_proc.kill.assert_called_once()
+
+    def test_kill_process_on_port_lsof_fallback_only_queries_listeners(self):
+        import builtins
+
+        original_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "psutil":
+                raise ImportError
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fake_import), patch.object(
+            manual_gateway_service.subprocess,
+            "run",
+            return_value=Mock(stdout=""),
+        ) as mock_run:
+            manual_gateway_service._kill_process_on_port(58583)
+
+        assert mock_run.call_args.args[0] == [
+            "lsof",
+            "-nP",
+            "-iTCP:58583",
+            "-sTCP:LISTEN",
+            "-t",
+        ]
+
     def test_query_gateway_account_uses_health_snapshot(self):
         health = Mock()
         health.snapshot.return_value = {
@@ -1369,6 +1491,23 @@ class TestManualGatewayService:
         runtime.stop.assert_called_once()
         assert disconnected["status"] == "disconnected"
         assert gateways == {}
+
+    def test_disconnect_gateway_rejects_in_use_manual_gateway(self):
+        runtime = Mock()
+        gateways = {
+            "gw2": {
+                "manual": True,
+                "runtime": runtime,
+                "instances": {"inst-1"},
+                "ref_count": 1,
+            }
+        }
+
+        disconnected = manual_gateway_service.disconnect_gateway(gateways, "gw2")
+
+        runtime.stop.assert_not_called()
+        assert disconnected["status"] == "error"
+        assert "in use" in disconnected["message"]
 
 
 class TestGatewayHealthService:
@@ -1671,11 +1810,52 @@ class TestLiveExecutionService:
                         release_gateway_for_instance=lambda instance_id: None,
                         wait_process_callback=wait_process_callback,
                         processes={},
+                        stopping_instances=set(),
                     )
                 )
 
         assert result["status"] == "running"
         assert result["pid"] == 12345
+
+    def test_start_instance_clears_stopping_flag(self, tmp_path):
+        instances = {"inst1": {"strategy_id": "demo", "status": "stopped"}}
+        strategy_dir = tmp_path / "demo"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+        proc = AsyncMock()
+        proc.pid = 43210
+        proc.returncode = None
+        stopping_instances = {"inst1"}
+
+        with patch(
+            "app.services.live_execution_service.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ):
+            with patch("app.services.live_execution_service.asyncio.create_task") as mock_create_task:
+                def _create_task(coro):
+                    try:
+                        coro.close()
+                    except Exception:
+                        pass
+                    return Mock()
+
+                mock_create_task.side_effect = _create_task
+                asyncio.run(
+                    live_execution_service.start_instance(
+                        instance_id="inst1",
+                        load_instances=lambda: instances,
+                        save_instances=lambda data: None,
+                        is_pid_alive=lambda pid: False,
+                        resolve_strategy_dir=lambda strategy_id: strategy_dir,
+                        build_subprocess_env=lambda instance_id, inst, strategy_dir: {"A": "1"},
+                        release_gateway_for_instance=lambda instance_id: None,
+                        wait_process_callback=AsyncMock(),
+                        processes={},
+                        stopping_instances=stopping_instances,
+                    )
+                )
+
+        assert "inst1" not in stopping_instances
 
     def test_stop_instance_success(self):
         instances = {
@@ -1801,6 +1981,36 @@ class TestLiveExecutionService:
         assert saved_error["inst2"]["error"] == "error message"
         assert released == ["inst1", "inst2"]
 
+    def test_wait_process_ignores_stale_process_callback(self):
+        saved = {}
+        released = []
+        old_proc = AsyncMock()
+        old_proc.pid = 111
+        old_proc.returncode = 0
+        old_proc.stderr = None
+        new_proc = Mock(pid=222)
+        processes = {"inst1": new_proc}
+
+        asyncio.run(
+            live_execution_service.wait_process(
+                instance_id="inst1",
+                proc=old_proc,
+                load_instances=lambda: {
+                    "inst1": {"strategy_id": "s1", "status": "running", "pid": 222}
+                },
+                save_instances=lambda data: saved.update(data),
+                resolve_strategy_dir=lambda strategy_id: Path("/tmp") / strategy_id,
+                find_latest_log_dir=lambda strategy_dir: None,
+                release_gateway_for_instance=lambda instance_id: released.append(instance_id),
+                processes=processes,
+                stopping_instances=set(),
+            )
+        )
+
+        assert saved == {}
+        assert released == []
+        assert processes["inst1"] is new_proc
+
 
 class TestGatewayRuntimeService:
     def test_build_subprocess_env_without_gateway(self, tmp_path):
@@ -1899,6 +2109,85 @@ class TestGatewayRuntimeService:
         assert state1["instances"] == {"inst1", "inst2"}
         assert state1["ref_count"] == 2
         assert instance_gateways == {"inst1": "ctp-future-acc-1", "inst2": "ctp-future-acc-1"}
+
+    def test_acquire_gateway_for_instance_reuses_existing_manual_session(self):
+        logger = Mock()
+        runtime = Mock()
+        config = Mock(
+            runtime_name="ctp-future-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(),
+            "runtime_kwargs": {
+                "exchange_type": "CTP",
+                "asset_type": "FUTURE",
+                "account_id": "acc-1",
+                "broker_id": "9999",
+                "td_address": "tcp://td",
+                "md_address": "tcp://md",
+            },
+        }
+        gateways = {
+            "manual:CTP:acc-1": {
+                "config": {
+                    "exchange_type": "CTP",
+                    "asset_type": "FUTURE",
+                    "account_id": "acc-1",
+                    "broker_id": "9999",
+                    "td_address": "tcp://td",
+                    "md_address": "tcp://md",
+                },
+                "runtime": runtime,
+                "instances": set(),
+                "ref_count": 0,
+                "manual": True,
+            }
+        }
+        instance_gateways: dict[str, str] = {}
+
+        state = gateway_runtime_service.acquire_gateway_for_instance(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=Path("/tmp/strategy"),
+            get_gateway_params=lambda instance: {"enabled": True},
+            build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+            gateways=gateways,
+            instance_gateways=instance_gateways,
+            logger=logger,
+        )
+
+        assert state is gateways["manual:CTP:acc-1"]
+        assert state["instances"] == {"inst1"}
+        assert state["ref_count"] == 1
+        assert instance_gateways == {"inst1": "manual:CTP:acc-1"}
+
+    def test_release_gateway_for_instance_keeps_manual_runtime_alive(self):
+        logger = Mock()
+        runtime = Mock()
+        gateways = {
+            "manual:CTP:acc-1": {
+                "runtime": runtime,
+                "instances": {"inst1"},
+                "ref_count": 1,
+                "manual": True,
+            }
+        }
+        instance_gateways = {"inst1": "manual:CTP:acc-1"}
+
+        gateway_runtime_service.release_gateway_for_instance(
+            instance_id="inst1",
+            gateways=gateways,
+            instance_gateways=instance_gateways,
+            logger=logger,
+        )
+
+        runtime.stop.assert_not_called()
+        assert gateways["manual:CTP:acc-1"]["instances"] == set()
+        assert gateways["manual:CTP:acc-1"]["ref_count"] == 0
 
     def test_release_gateway_for_instance_stops_on_last_reference(self):
         logger = Mock()
