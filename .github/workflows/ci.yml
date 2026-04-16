@@ -309,7 +309,7 @@ jobs:
           POSTGRES_PASSWORD: test_password
           POSTGRES_DB: test_db
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U test_user -d test_db"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -318,8 +318,8 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_db
-      SECRET_KEY: test-secret-key-for-ci
-      JWT_SECRET_KEY: test-jwt-secret-key-for-ci
+      SECRET_KEY: test-secret-key-for-ci-32-characters-minimum
+      JWT_SECRET_KEY: test-jwt-secret-key-for-ci-32-characters-minimum
 
     defaults:
       run:
