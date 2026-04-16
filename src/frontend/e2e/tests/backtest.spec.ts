@@ -26,10 +26,17 @@ test.describe('回测功能', () => {
   test('研究工作区空状态或列表存在', async ({ page }) => {
     await page.goto('/backtest');
 
-    const hasEmpty = await page.getByText('暂无工作区').count() > 0;
-    const hasTable = await page.locator('.el-table').count() > 0;
-    const hasCards = await page.locator('.workspace-list-page .el-card').count() > 0;
-    expect(hasEmpty || hasTable || hasCards).toBeTruthy();
+    await expect
+      .poll(async () => {
+        const hasEmpty = (await page.locator('.workspace-list-page .el-empty').count()) > 0;
+        const hasTable = (await page.locator('.workspace-list-page .el-table').count()) > 0;
+        const hasCards = (await page.locator('.workspace-list-page .workspace-card').count()) > 0;
+        return hasEmpty || hasTable || hasCards;
+      }, {
+        timeout: 10000,
+        message: 'workspace list should eventually render empty state, table, or cards',
+      })
+      .toBe(true);
   });
 
   test('新建工作区按钮存在', async ({ page }) => {
