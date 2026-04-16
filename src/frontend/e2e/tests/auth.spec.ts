@@ -105,11 +105,10 @@ test.describe('认证功能', () => {
     // 触发验证 - 点击其他地方
     await page.click('body');
 
-    // 检查是否有验证错误（Element Plus 使用 el-form-item__error）
-    const error = page.locator('.el-form-item__error');
-    if (await error.count() > 0) {
-      await expect(error.first()).toContainText('密码');
-    }
+    // Element Plus 在不同浏览器/语言环境下会返回本地化文案，这里只校验密码字段确实报错。
+    const error = page.locator('.el-form-item__error').first();
+    await expect(error).toBeVisible();
+    await expect(error).toContainText(/密码|Password/i);
   });
 
   /**
