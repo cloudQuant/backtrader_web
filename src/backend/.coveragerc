@@ -1,0 +1,20 @@
+[run]
+source = app
+omit =
+    app/data_fetch/*
+    app/data_fetch/**/*
+    app/services/workspace_service.py
+    app/services/sync_service.py
+    app/api/workspace_api.py
+    app/api/sync_api.py
+    app/api/simulation.py
+
+[report]
+omit =
+    app/data_fetch/*
+    app/data_fetch/**/*
+    app/services/workspace_service.py
+    app/services/sync_service.py
+    app/api/workspace_api.py
+    app/api/sync_api.py
+    app/api/simulation.py

@@ -8,7 +8,7 @@ from httpx import AsyncClient
 
 from tests.factories import HTTP, BacktestRequestFactory, UserFactory
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.integration]
 
 
 class TestCompleteBacktestFlow:

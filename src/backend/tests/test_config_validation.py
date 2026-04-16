@@ -13,7 +13,9 @@ from app.config import Settings, get_settings
 class TestSettingsValidation:
     """Test suite for Settings validation."""
 
-    @pytest.mark.skip(reason="Test expects defaults but .env file overrides them - pre-existing issue")
+    @pytest.mark.skip(
+        reason="Test expects defaults but .env file overrides them - pre-existing issue"
+    )
     def test_default_settings_load(self):
         """Test that default settings can be loaded."""
         settings = Settings()
@@ -266,7 +268,9 @@ class TestSettingsIntegration:
         assert settings.DEBUG is False
         assert settings.DATABASE_TYPE == "postgresql"
 
-    @pytest.mark.skip(reason="Test expects defaults but .env file overrides them - pre-existing issue")
+    @pytest.mark.skip(
+        reason="Test expects defaults but .env file overrides them - pre-existing issue"
+    )
     def test_minimum_viable_configuration(self):
         """Test the minimum required configuration for operation."""
         # These are the absolute minimum settings needed

@@ -20,7 +20,7 @@ pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 pip install backtrader==1.9.78.123
 
 # 如果 fincore 安装失败
-pip install fincore>=1.0.0
+pip install "fincore>=0.3.0"
 ```
 
 ### 1.2 Node.js 依赖安装失败

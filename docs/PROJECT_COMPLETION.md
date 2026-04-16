@@ -18,7 +18,7 @@ The Backtrader Web quantitative trading platform has been successfully enhanced 
 **Stories Completed**:
 
 1. **Story 1.1**: 安装和配置 fincore 库
-   - Added fincore>=1.0.0 to dependencies
+   - Added fincore>=0.3.0 to dependencies
    - Created import validation tests
 
 2. **Story 1.2**: 实现适配器模式基础架构

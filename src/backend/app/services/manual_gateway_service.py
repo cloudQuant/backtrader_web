@@ -801,24 +801,36 @@ def _bootstrap_ib_web_session(
         credentials.get("username"),
     )
     if has_cookie_config:
-        settings, cookies, authenticated, _, account_id = _load_ib_web_session_state(
-            credentials,
-            base_url,
-            verify_ssl,
-            timeout,
-        )
-        if authenticated:
-            return {
-                "cookies": cookies,
-                "cookie_output": str(settings.get("cookie_output") or ""),
-                "cookie_source": str(settings.get("cookie_source") or ""),
-                "account_id": account_id or str(settings.get("account_id") or ""),
-                "status_code": 200,
-                "used_login": False,
-            }
-        if not allow_interactive_login:
-            raise RuntimeError("IB Web恢复失败: 本地会话已失效，请在页面中手动重新连接")
-        _logger.info("IB_WEB bootstrap: cookies expired/invalid, will try login")
+        try:
+            settings, cookies, authenticated, _, account_id = _load_ib_web_session_state(
+                credentials,
+                base_url,
+                verify_ssl,
+                timeout,
+            )
+        except Exception as exc:
+            if not allow_interactive_login:
+                raise RuntimeError(
+                    "IB Web恢复失败: 本地会话已失效，请在页面中手动重新连接"
+                ) from exc
+            _logger.warning(
+                "IB_WEB bootstrap: failed to load existing session, falling back to login: %s: %s",
+                type(exc).__name__,
+                exc,
+            )
+        else:
+            if authenticated:
+                return {
+                    "cookies": cookies,
+                    "cookie_output": str(settings.get("cookie_output") or ""),
+                    "cookie_source": str(settings.get("cookie_source") or ""),
+                    "account_id": account_id or str(settings.get("account_id") or ""),
+                    "status_code": 200,
+                    "used_login": False,
+                }
+            if not allow_interactive_login:
+                raise RuntimeError("IB Web恢复失败: 本地会话已失效，请在页面中手动重新连接")
+            _logger.info("IB_WEB bootstrap: cookies expired/invalid, will try login")
         # Fall through to ensure_authenticated_session for browser login
     if not allow_interactive_login:
         if credentials.get("access_token"):

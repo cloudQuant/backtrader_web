@@ -9,6 +9,7 @@ import time
 import uuid
 
 from starlette.datastructures import MutableHeaders
+from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.utils.logger import audit_logger, bind_request_context, get_logger
@@ -69,6 +70,72 @@ class LoggingMiddleware:
 
     def __init__(self, app: ASGIApp, **kwargs):
         self.app = app
+        self.log_body = bool(kwargs.get("log_body", False))
+        self.log_headers = bool(kwargs.get("log_headers", False))
+        custom_skip_paths = kwargs.get("skip_paths")
+        self.skip_paths = frozenset(custom_skip_paths or _SKIP_PATHS)
+
+    async def dispatch(self, request: Request, call_next):
+        """Compatibility shim for legacy middleware-style tests."""
+        path = request.url.path
+        request_id = str(uuid.uuid4())[:8]
+
+        if path in self.skip_paths:
+            response = await call_next(request)
+            response.headers.setdefault("X-Request-ID", request_id)
+            return response
+
+        start_time = time.time()
+        method = request.method
+        client_ip = _get_client_ip(request.scope)
+        query_string = request.url.query
+
+        request_logger = bind_request_context(
+            request_id=request_id,
+            user_id=None,
+            path=path,
+            method=method,
+            client_ip=client_ip,
+        )
+
+        request_logger.info(
+            f"Request started: {method} {path}",
+            request_id=request_id,
+            method=method,
+            path=path,
+            query_params=_sanitize_query_params(query_string),
+            client_ip=client_ip,
+        )
+
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            duration = time.time() - start_time
+            request_logger.error(
+                f"Request failed: {method} {path}",
+                request_id=request_id,
+                method=method,
+                path=path,
+                duration_ms=round(duration * 1000, 2),
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+                exc_info=True,
+            )
+            raise
+
+        response.headers.setdefault("X-Request-ID", request_id)
+        duration = time.time() - start_time
+        user_id = getattr(request.state, "user_id", None)
+        request_logger.info(
+            f"Request completed: {method} {path} -> {response.status_code}",
+            request_id=request_id,
+            user_id=user_id,
+            method=method,
+            path=path,
+            status_code=response.status_code,
+            duration_ms=round(duration * 1000, 2),
+        )
+        return response
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -76,7 +143,7 @@ class LoggingMiddleware:
             return
 
         path = scope.get("path", "")
-        if path in _SKIP_PATHS:
+        if path in self.skip_paths:
             await self.app(scope, receive, send)
             return
 
@@ -130,9 +197,12 @@ class LoggingMiddleware:
             raise
         else:
             duration = time.time() - start_time
+            scope_state = scope.get("state")
+            user_id = scope_state.get("user_id") if isinstance(scope_state, dict) else None
             request_logger.info(
                 f"Request completed: {method} {path} -> {status_code}",
                 request_id=request_id,
+                user_id=user_id,
                 method=method,
                 path=path,
                 status_code=status_code,
@@ -145,7 +215,8 @@ class AuditLoggingMiddleware:
 
     def __init__(self, app: ASGIApp, **kwargs):
         self.app = app
-        self._audit_logger = audit_logger
+        self.audit_logger = audit_logger
+        self._audit_logger = self.audit_logger
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":

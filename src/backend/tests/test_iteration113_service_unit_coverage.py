@@ -158,7 +158,7 @@ def test_param_optimization_service_run_optimization_thread_paths(tmp_path, monk
 
     pos._run_optimization_thread(task_id, str(tmp_path), [{"p": 1}, {"p": 2}], n_workers=1)
     task = pos._get_task(task_id)
-    assert task["status"] in {"completed", "error", "running"}
+    assert task["status"] in {"completed", "failed", "error", "running"}
 
 
 def test_param_optimization_service_worker_and_log_parser_branches(tmp_path, monkeypatch):

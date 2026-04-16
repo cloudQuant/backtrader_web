@@ -68,7 +68,10 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
                 mock_ws.send_to_task = AsyncMock()
                 # observe internal calls: tmp_logs cleanup, config overwrite, persist copytree
                 with patch("shutil.rmtree") as mock_rmtree:
-                    with patch("shutil.copytree") as mock_copytree:
+                    with (
+                        patch("os.symlink", side_effect=OSError("symlink unavailable")),
+                        patch("shutil.copytree") as mock_copytree,
+                    ):
 
                         def _copytree_side_effect(src, dst, *args, **kwargs):
                             if Path(dst).name == "s1":
@@ -285,6 +288,7 @@ async def test_live_trading_manager_missing_branches(tmp_path: Path, monkeypatch
             raise RuntimeError("read fail")
 
     class _BadProc:
+        pid = 123
         returncode = 1
         stderr = _BadStderr()
 

@@ -1612,11 +1612,26 @@ class TestGatewayHealthService:
         )
         assert result == [
             {
+                "gateway_key": "gw1",
                 "state": "running",
                 "is_healthy": True,
-                "gateway_key": "gw1",
+                "exchange": "",
+                "asset_type": "",
+                "account_id": "",
+                "market_connection": "unknown",
+                "trade_connection": "unknown",
+                "uptime_sec": 0,
+                "last_heartbeat": None,
+                "heartbeat_age_sec": None,
+                "last_tick_time": None,
+                "last_order_time": None,
+                "strategy_count": 0,
+                "symbol_count": 0,
+                "tick_count": 0,
+                "order_count": 0,
                 "ref_count": 2,
                 "instances": ["inst1", "inst2"],
+                "recent_errors": [],
             }
         ]
 
