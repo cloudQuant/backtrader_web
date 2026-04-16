@@ -1,7 +1,7 @@
 import { mkdir } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { chromium, FullConfig } from '@playwright/test';
+import { chromium, firefox, webkit, FullConfig } from '@playwright/test';
 
 /**
  * 全局测试设置
@@ -11,13 +11,20 @@ import { chromium, FullConfig } from '@playwright/test';
 async function globalSetup(config: FullConfig) {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const baseURL = String(config.projects[0]?.use?.baseURL ?? 'http://127.0.0.1:3000');
+  const browserName = String(config.projects[0]?.use?.browserName ?? 'chromium');
   const username = process.env.E2E_ADMIN_USERNAME ?? 'admin';
   const password = process.env.E2E_ADMIN_PASSWORD ?? 'Admin12345678';
   const storageStatePath = path.resolve(currentDir, 'fixtures/storage-state.json');
+  const browserType =
+    browserName === 'firefox'
+      ? firefox
+      : browserName === 'webkit'
+        ? webkit
+        : chromium;
 
   await mkdir(path.dirname(storageStatePath), { recursive: true });
 
-  const browser = await chromium.launch();
+  const browser = await browserType.launch();
   const page = await browser.newPage({ baseURL });
 
   try {
