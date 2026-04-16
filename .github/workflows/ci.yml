@@ -82,7 +82,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip --break-system-packages
           pip install --no-cache-dir --break-system-packages ruff pytest pytest-asyncio httpx
-          pip install --no-cache-dir --break-system-packages -e .
+          pip install --no-cache-dir --break-system-packages -e ".[backtrader]"
 
       - name: Run Ruff linter
         run: |
