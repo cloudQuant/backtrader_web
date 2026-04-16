@@ -128,19 +128,25 @@ jobs:
       - name: Start frontend dev server
         working-directory: src/frontend
         run: |
-          npm run dev &
+          npm run dev -- --host 127.0.0.1 &
           sleep 10
 
       - name: Wait for frontend
         run: |
+          frontend_ready=0
           for i in {1..30}; do
-            if curl -s http://127.0.0.1:3000 > /dev/null; then
+            if curl -sf http://127.0.0.1:3000 > /dev/null; then
               echo "Frontend is ready"
+              frontend_ready=1
               break
             fi
             echo "Waiting for frontend... ($i/30)"
             sleep 2
           done
+          if [ "$frontend_ready" -ne 1 ]; then
+            echo "Frontend failed to become ready on http://127.0.0.1:3000"
+            exit 1
+          fi
 
       - name: Run Playwright tests (Chromium)
         working-directory: src/frontend
@@ -231,18 +237,24 @@ jobs:
       - name: Start frontend server
         working-directory: src/frontend
         run: |
-          npm run dev &
+          npm run dev -- --host 127.0.0.1 &
           sleep 10
 
       - name: Wait for frontend
         run: |
+          frontend_ready=0
           for i in {1..30}; do
-            if curl -s http://127.0.0.1:3000 > /dev/null; then
+            if curl -sf http://127.0.0.1:3000 > /dev/null; then
               echo "Frontend is ready"
+              frontend_ready=1
               break
             fi
             sleep 2
           done
+          if [ "$frontend_ready" -ne 1 ]; then
+            echo "Frontend failed to become ready on http://127.0.0.1:3000"
+            exit 1
+          fi
 
       - name: Run Playwright tests (Firefox)
         working-directory: src/frontend
@@ -316,8 +328,25 @@ jobs:
       - name: Start frontend server
         working-directory: src/frontend
         run: |
-          npm run dev &
+          npm run dev -- --host 127.0.0.1 &
           sleep 10
+
+      - name: Wait for frontend
+        run: |
+          frontend_ready=0
+          for i in {1..30}; do
+            if curl -sf http://127.0.0.1:3000 > /dev/null; then
+              echo "Frontend is ready"
+              frontend_ready=1
+              break
+            fi
+            echo "Waiting for frontend... ($i/30)"
+            sleep 2
+          done
+          if [ "$frontend_ready" -ne 1 ]; then
+            echo "Frontend failed to become ready on http://127.0.0.1:3000"
+            exit 1
+          fi
 
       - name: Run Playwright tests (WebKit)
         working-directory: src/frontend
@@ -391,8 +420,25 @@ jobs:
       - name: Start frontend server
         working-directory: src/frontend
         run: |
-          npm run dev &
+          npm run dev -- --host 127.0.0.1 &
           sleep 10
+
+      - name: Wait for frontend
+        run: |
+          frontend_ready=0
+          for i in {1..30}; do
+            if curl -sf http://127.0.0.1:3000 > /dev/null; then
+              echo "Frontend is ready"
+              frontend_ready=1
+              break
+            fi
+            echo "Waiting for frontend... ($i/30)"
+            sleep 2
+          done
+          if [ "$frontend_ready" -ne 1 ]; then
+            echo "Frontend failed to become ready on http://127.0.0.1:3000"
+            exit 1
+          fi
 
       - name: Run Mobile Playwright tests
         working-directory: src/frontend
