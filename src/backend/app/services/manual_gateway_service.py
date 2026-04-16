@@ -609,6 +609,14 @@ def _to_backend_env_relative_path(path_value: str) -> str:
     resolved = Path(candidate)
     if not resolved.is_absolute():
         resolved = (_ib_web_cookie_base_dir() / resolved).resolve()
+    bt_api_parts = resolved.parts
+    if "bt_api_py" in bt_api_parts:
+        bt_api_index = max(
+            index for index, part in enumerate(bt_api_parts) if part == "bt_api_py"
+        )
+        relative_parts = bt_api_parts[bt_api_index + 1 :]
+        if relative_parts:
+            return "/".join(relative_parts)
     base_dir = _ib_web_cookie_base_dir().resolve()
     try:
         return str(resolved.relative_to(base_dir)).replace("\\", "/")
@@ -955,7 +963,13 @@ def _persist_ib_web_env_updates(updates: dict[str, str]) -> None:
     filtered = {key: value for key, value in updates.items() if value not in {None, ""}}
     if not filtered:
         return
-    _, _, upsert_env_file = _import_ib_web_session_helpers()
+    try:
+        _, _, upsert_env_file = _import_ib_web_session_helpers()
+    except ModuleNotFoundError:
+        _logger.warning(
+            "IB_WEB env persistence skipped because bt_api_py session helpers are unavailable"
+        )
+        return
     env_file = _backend_env_file()
     upsert_env_file(env_file, filtered)
     from app import config as app_config
