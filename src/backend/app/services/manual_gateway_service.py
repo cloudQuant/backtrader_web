@@ -611,9 +611,7 @@ def _to_backend_env_relative_path(path_value: str) -> str:
         resolved = (_ib_web_cookie_base_dir() / resolved).resolve()
     bt_api_parts = resolved.parts
     if "bt_api_py" in bt_api_parts:
-        bt_api_index = max(
-            index for index, part in enumerate(bt_api_parts) if part == "bt_api_py"
-        )
+        bt_api_index = max(index for index, part in enumerate(bt_api_parts) if part == "bt_api_py")
         relative_parts = bt_api_parts[bt_api_index + 1 :]
         if relative_parts:
             return "/".join(relative_parts)
