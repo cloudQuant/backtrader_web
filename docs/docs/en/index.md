@@ -14,8 +14,8 @@ description: Modern Quantitative Trading Platform based on Backtrader
 
 **Modern Quantitative Trading Full-Stack Management Platform based on Backtrader**
 
-[Chinese](./zh/){ .md-button }
-[English](./en/){ .md-button }
+[Chinese](../zh/){ .md-button }
+[English](../en/){ .md-button }
 
 </div>
 

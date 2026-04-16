@@ -116,7 +116,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 ### Backtrader 导入问题
 
-如果遇到 backtrader 导入错误，请查看 [Backtrader 导入问题排查](../../BACKTRADER_IMPORT_TROUBLESHOOTING.md)。
+如果遇到 backtrader 导入错误，请查看 [Backtrader 导入问题排查](../../../BACKTRADER_IMPORT_TROUBLESHOOTING.md)。
 
 ### 数据库连接问题
 

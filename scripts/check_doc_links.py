@@ -49,6 +49,8 @@ def main() -> int:
 
     errors = []
     for md_file in DOCS_DIR.rglob("*.md"):
+        if "archived" in md_file.parts:
+            continue
         content = md_file.read_text(encoding="utf-8")
         links = extract_links(content, md_file)
         for line_no, text, path in links:

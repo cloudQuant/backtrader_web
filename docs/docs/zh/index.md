@@ -14,8 +14,8 @@ description: 基于 Backtrader 的现代化量化交易全栈管理平台
 
 **基于 Backtrader 的现代化量化交易全栈管理平台**
 
-[English](./en/){ .md-button }
-[中文](./zh/){ .md-button }
+[English](../en/){ .md-button }
+[中文](../zh/){ .md-button }
 
 </div>
 
