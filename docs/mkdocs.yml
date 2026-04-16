@@ -1,0 +1,153 @@
+# MkDocs Configuration for Backtrader Web
+# https://www.mkdocs.org
+
+site_name: Backtrader Web
+site_url: https://backtrader-web.github.io/backtrader_web/
+site_description: 基于 Backtrader 的现代化量化交易全栈管理平台 | Modern Quantitative Trading Platform based on Backtrader
+site_author: Backtrader Web Team
+
+repo_name: cloudQuant/backtrader_web
+repo_url: https://github.com/cloudQuant/backtrader_web
+
+theme:
+  name: material
+  language: zh
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: Roboto Mono
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - navigation.top
+    - navigation.indexes
+
+plugins:
+  - search:
+      lang:
+        - en
+        - zh
+      prebuild_index: true
+  - i18n:
+      docs_structure: folder
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: true
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: datetime
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+      htmlmin_opts:
+        remove_comments: true
+      cache_safe: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+  - admonition
+  - pymdownx.details
+  - pymdownx.mark
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/cloudQuant/backtrader_web
+  generator: false
+  alternate:
+    - name: English
+      link: /en/
+      lang: en
+    - name: 中文
+      link: /zh/
+      lang: zh
+
+nav:
+  - en:
+      - Home: en/index.md
+      - Getting Started:
+          - en/getting-started/index.md
+          - en/getting-started/installation.md
+          - en/getting-started/quickstart.md
+      - Features:
+          - en/features/index.md
+          - en/features/backtesting.md
+          - en/features/strategy-management.md
+          - en/features/paper-trading.md
+          - en/features/live-trading.md
+          - en/features/optimization.md
+      - Development:
+          - en/development/index.md
+          - en/development/architecture.md
+          - en/development/api.md
+          - en/development/database.md
+      - Deployment:
+          - en/deployment/index.md
+          - en/deployment/docker.md
+          - en/deployment/production.md
+      - Reference:
+          - en/reference/index.md
+          - en/reference/configuration.md
+          - en/reference/cli.md
+  - zh:
+      - 首页: zh/index.md
+      - 快速开始:
+          - zh/getting-started/index.md
+          - zh/getting-started/installation.md
+          - zh/getting-started/quickstart.md
+      - 功能介绍:
+          - zh/features/index.md
+          - zh/features/backtesting.md
+          - zh/features/strategy-management.md
+          - zh/features/paper-trading.md
+          - zh/features/live-trading.md
+          - zh/features/optimization.md
+      - 开发指南:
+          - zh/development/index.md
+          - zh/development/architecture.md
+          - zh/development/api.md
+          - zh/development/database.md
+      - 部署运维:
+          - zh/deployment/index.md
+          - zh/deployment/docker.md
+          - zh/deployment/production.md
+      - 参考资料:
+          - zh/reference/index.md
+          - zh/reference/configuration.md
+          - zh/reference/cli.md

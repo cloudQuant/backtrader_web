@@ -7,6 +7,10 @@
 # Prerequisites:
 #   - Create src/backend/.env (see scripts/docker_deploy.sh)
 #   - Docker Engine 24+ and Docker Compose v2
+#
+# SSL Certificate:
+#   - First run will auto-obtain Let's Encrypt certificate
+#   - Auto-renewal runs every 2 months via certbot-renew container
 ###############################################################################
 
 services:
@@ -77,7 +81,7 @@ services:
       # Server
       HOST: "0.0.0.0"
       PORT: "8000"
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://aifortrader.cn,http://localhost,http://aifortrader.cn}
       # Admin
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
@@ -124,14 +128,31 @@ services:
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
     volumes:
       - ./docker/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./runtime/certbot/conf:/etc/letsencrypt:ro
+      - ./runtime/certbot/www:/var/www/certbot:ro
     depends_on:
       backend:
         condition: service_healthy
     networks:
       - backtrader
 
-networks:
+  # ========================= Certbot (SSL Certificate) =========================
+  certbot:
+    image: certbot/certbot:latest
+    container_name: backtrader_certbot
+    restart: "false"
+    volumes:
+      - ./runtime/certbot/conf:/etc/letsencrypt
+      - ./runtime/certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 60 days & wait $$; done'"
+
+  networks:
   backtrader:
     driver: bridge
+
+volumes:
+  certbot-conf:
+  certbot-www:
