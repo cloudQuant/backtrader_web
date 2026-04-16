@@ -121,7 +121,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip --break-system-packages
-          pip install --no-cache-dir --break-system-packages -e ".[dev,backtrader]"
+          pip install --no-cache-dir --break-system-packages -e ".[dev,backtrader,data,redis]"
 
       - name: Run tests with coverage
         run: |
@@ -334,7 +334,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip --break-system-packages
-          pip install --no-cache-dir --break-system-packages -e ".[dev,postgres,backtrader]"
+          pip install --no-cache-dir --break-system-packages -e ".[dev,postgres,backtrader,data,redis]"
 
       - name: Run integration tests
         run: |
