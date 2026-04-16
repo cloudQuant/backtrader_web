@@ -193,7 +193,7 @@ describe('BacktestPage', () => {
   it('viewResult navigates to result page', () => {
     const vm = getVm()
     vm.viewResult({ task_id: 't1' })
-    expect(mocks.routerPush).toHaveBeenCalledWith('/backtest/t1')
+    expect(mocks.routerPush).toHaveBeenCalledWith('/backtest/result/t1')
   })
 
   it('cancelBacktest does nothing without taskId', async () => {

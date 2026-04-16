@@ -13,12 +13,14 @@ export default defineConfig({
     globals: true,
     environment: 'happy-dom',
     setupFiles: [],
+    include: ['src/test/**/*.test.{ts,js}'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/',
         'src/test/',
+        'e2e/**',
         '**/*.d.ts',
         '**/*.config.*',
         '**/main.ts',
