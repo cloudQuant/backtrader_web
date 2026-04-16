@@ -11,7 +11,8 @@ import { chromium, firefox, webkit, FullConfig } from '@playwright/test';
 async function globalSetup(config: FullConfig) {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const baseURL = String(config.projects[0]?.use?.baseURL ?? 'http://127.0.0.1:3000');
-  const browserName = String(config.projects[0]?.use?.browserName ?? 'chromium');
+  const browserName = process.env.E2E_SETUP_BROWSER
+    ?? String(config.projects[0]?.use?.browserName ?? 'chromium');
   const username = process.env.E2E_ADMIN_USERNAME ?? 'admin';
   const password = process.env.E2E_ADMIN_PASSWORD ?? 'Admin12345678';
   const storageStatePath = path.resolve(currentDir, 'fixtures/storage-state.json');

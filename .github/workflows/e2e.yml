@@ -164,6 +164,7 @@ jobs:
           CI: true
           E2E_ADMIN_USERNAME: admin
           E2E_ADMIN_PASSWORD: Admin12345678
+          E2E_SETUP_BROWSER: chromium
         run: npx playwright test --project=chromium
 
       - name: Upload Playwright report
@@ -283,6 +284,7 @@ jobs:
           CI: true
           E2E_ADMIN_USERNAME: admin
           E2E_ADMIN_PASSWORD: Admin12345678
+          E2E_SETUP_BROWSER: firefox
         run: npx playwright test --project=firefox
 
       - name: Upload Playwright report
@@ -386,6 +388,7 @@ jobs:
           CI: true
           E2E_ADMIN_USERNAME: admin
           E2E_ADMIN_PASSWORD: Admin12345678
+          E2E_SETUP_BROWSER: webkit
         run: npx playwright test --project=webkit
 
       - name: Upload Playwright report
@@ -489,6 +492,7 @@ jobs:
           CI: true
           E2E_ADMIN_USERNAME: admin
           E2E_ADMIN_PASSWORD: Admin12345678
+          E2E_SETUP_BROWSER: chromium
         run: npx playwright test --project="Mobile Chrome" --project="Mobile Safari"
 
       - name: Upload Playwright report
