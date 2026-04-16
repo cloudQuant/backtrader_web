@@ -15,6 +15,8 @@ export default defineConfig({
   // 测试文件位置
   testDir: './e2e/tests',
 
+  globalSetup: './e2e/global.setup.ts',
+
   // 每个测试的超时时间
   timeout: 30 * 1000,
 

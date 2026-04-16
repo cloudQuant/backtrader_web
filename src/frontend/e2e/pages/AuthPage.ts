@@ -9,11 +9,11 @@ import { UserCredentials } from '../fixtures/test-data.fixture';
  */
 export class AuthPage extends BasePage {
   // 登录页面选择器
-  readonly usernameInput = '[data-testid="username-input"], input[name="username"], input[placeholder*="用户名"]';
-  readonly passwordInput = '[data-testid="password-input"], input[name="password"], input[placeholder*="密码"], input[type="password"]';
-  readonly emailInput = '[data-testid="email-input"], input[name="email"], input[placeholder*="邮箱"]';
-  readonly loginButton = '[data-testid="login-button"], button:has-text("登录")';
-  readonly registerButton = '[data-testid="register-button"], button:has-text("注册")';
+  readonly usernameInput = '[data-testid="login-username"], [data-testid="register-username"], input[name="username"], input[placeholder*="用户名"]';
+  readonly passwordInput = '[data-testid="login-password"], [data-testid="register-password"], input[name="password"], input[placeholder*="密码"]';
+  readonly emailInput = '[data-testid="register-email"], input[name="email"], input[placeholder*="邮箱"]';
+  readonly loginButton = '[data-testid="login-submit"], [data-testid="login-button"], button:has-text("登录")';
+  readonly registerButton = '[data-testid="register-submit"], [data-testid="register-button"], button:has-text("注册")';
   readonly errorMessage = '.el-message--error, [role="alert"]';
 
   constructor(page: Page) {

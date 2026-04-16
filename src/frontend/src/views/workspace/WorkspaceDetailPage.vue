@@ -1,6 +1,9 @@
 <template>
   <div class="workspace-detail-page">
-    <teleport to="#page-header-title-extra">
+    <teleport
+      v-if="headerTitleTargetReady"
+      to="#page-header-title-extra"
+    >
       <span class="text-gray-400">/</span>
       <el-tag
         v-if="workspaceType === 'trading'"
@@ -15,7 +18,10 @@
       </span>
     </teleport>
 
-    <teleport to="#page-header-actions">
+    <teleport
+      v-if="headerActionsTargetReady"
+      to="#page-header-actions"
+    >
       <el-button
         v-if="store.currentWorkspace && workspaceType !== 'trading'"
         size="small"
@@ -108,7 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { DataLine, Loading } from '@element-plus/icons-vue'
 import TradingWorkspaceUnitsTab from '@/components/workspace/TradingWorkspaceUnitsTab.vue'
@@ -127,6 +133,9 @@ const activeTab = ref('units')
 const showDataSourceDialog = ref(false)
 const showOptTab = ref(false)
 const showReportTab = ref(false)
+const headerTitleTargetReady = ref(false)
+const headerActionsTargetReady = ref(false)
+let headerTargetTimer: ReturnType<typeof setInterval> | null = null
 
 const initialOptUnitId = ref('')
 const initialReportUnitId = ref('')
@@ -176,4 +185,34 @@ watch(workspaceId, async (id) => {
   await store.fetchWorkspace(id)
   await store.fetchUnits(id)
 }, { immediate: true })
+
+function updateHeaderTargetsReady() {
+  if (typeof document === 'undefined') {
+    headerTitleTargetReady.value = false
+    headerActionsTargetReady.value = false
+    return false
+  }
+  headerTitleTargetReady.value = document.getElementById('page-header-title-extra') !== null
+  headerActionsTargetReady.value = document.getElementById('page-header-actions') !== null
+  return headerTitleTargetReady.value && headerActionsTargetReady.value
+}
+
+onMounted(async () => {
+  await nextTick()
+  if (!updateHeaderTargetsReady()) {
+    headerTargetTimer = setInterval(() => {
+      if (updateHeaderTargetsReady() && headerTargetTimer) {
+        clearInterval(headerTargetTimer)
+        headerTargetTimer = null
+      }
+    }, 100)
+  }
+})
+
+onUnmounted(() => {
+  if (headerTargetTimer) {
+    clearInterval(headerTargetTimer)
+    headerTargetTimer = null
+  }
+})
 </script>

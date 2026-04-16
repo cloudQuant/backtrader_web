@@ -22,6 +22,7 @@
           <el-input
             ref="usernameInputRef"
             v-model="form.username"
+            data-testid="login-username"
             :placeholder="t('auth.username')"
             prefix-icon="User"
             size="large"
@@ -31,6 +32,7 @@
         <el-form-item prop="password">
           <el-input
             v-model="form.password"
+            data-testid="login-password"
             type="password"
             :placeholder="t('auth.password')"
             prefix-icon="Lock"
@@ -41,6 +43,7 @@
         
         <el-form-item>
           <el-button
+            data-testid="login-submit"
             type="primary"
             size="large"
             class="w-full"

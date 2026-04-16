@@ -21,6 +21,7 @@
         <el-form-item prop="username">
           <el-input
             v-model="form.username"
+            data-testid="register-username"
             :placeholder="t('auth.username')"
             prefix-icon="User"
             size="large"
@@ -30,6 +31,7 @@
         <el-form-item prop="email">
           <el-input
             v-model="form.email"
+            data-testid="register-email"
             :placeholder="t('auth.email')"
             prefix-icon="Message"
             size="large"
@@ -39,6 +41,7 @@
         <el-form-item prop="password">
           <el-input
             v-model="form.password"
+            data-testid="register-password"
             type="password"
             :placeholder="t('auth.password')"
             prefix-icon="Lock"
@@ -50,6 +53,7 @@
         <el-form-item prop="confirmPassword">
           <el-input
             v-model="form.confirmPassword"
+            data-testid="register-confirm-password"
             type="password"
             :placeholder="t('auth.confirmPassword')"
             prefix-icon="Lock"
@@ -60,6 +64,7 @@
         
         <el-form-item>
           <el-button
+            data-testid="register-submit"
             type="primary"
             size="large"
             class="w-full"

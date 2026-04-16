@@ -1,6 +1,9 @@
 <template>
   <div class="workspace-list-page">
-    <teleport to="#page-header-actions">
+    <teleport
+      v-if="headerActionsTargetReady"
+      to="#page-header-actions"
+    >
       <el-button
         type="primary"
         @click="showCreateDialog = true"
@@ -177,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Delete, Grid, List, Loading, Plus } from '@element-plus/icons-vue'
@@ -195,6 +198,8 @@ const viewMode = ref<ViewMode>('card')
 const selectedIds = ref<string[]>([])
 const showCreateDialog = ref(false)
 const editingWorkspace = ref<Workspace | null>(null)
+const headerActionsTargetReady = ref(false)
+let headerTargetTimer: ReturnType<typeof setInterval> | null = null
 
 const workspaceType = computed<WorkspaceType>(() =>
   route.meta.workspaceType === 'trading' ? 'trading' : 'research'
@@ -305,4 +310,32 @@ function statusLabel(status: string) {
 function formatTime(iso: string) {
   return iso ? new Date(iso).toLocaleString('zh-CN') : ''
 }
+
+function updateHeaderActionsTargetReady() {
+  if (typeof document === 'undefined') {
+    headerActionsTargetReady.value = false
+    return false
+  }
+  headerActionsTargetReady.value = document.getElementById('page-header-actions') !== null
+  return headerActionsTargetReady.value
+}
+
+onMounted(async () => {
+  await nextTick()
+  if (!updateHeaderActionsTargetReady()) {
+    headerTargetTimer = setInterval(() => {
+      if (updateHeaderActionsTargetReady() && headerTargetTimer) {
+        clearInterval(headerTargetTimer)
+        headerTargetTimer = null
+      }
+    }, 100)
+  }
+})
+
+onUnmounted(() => {
+  if (headerTargetTimer) {
+    clearInterval(headerTargetTimer)
+    headerTargetTimer = null
+  }
+})
 </script>
