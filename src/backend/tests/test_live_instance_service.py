@@ -89,9 +89,7 @@ class TestListInstances:
         deps = _make_deps(
             load_instances=MagicMock(return_value=instances),
             resolve_strategy_dir=MagicMock(return_value=strategy_dir),
-            scan_running_strategy_pids=MagicMock(
-                return_value={str(strategy_dir / "run.py"): 9999}
-            ),
+            scan_running_strategy_pids=MagicMock(return_value={str(strategy_dir / "run.py"): 9999}),
         )
         result = list_instances(user_id=None, **deps)
         assert result[0]["status"] == "running"

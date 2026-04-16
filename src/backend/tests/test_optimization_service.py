@@ -323,7 +323,10 @@ class TestSubmitOptimization:
                     assert task_id is not None
                     assert len(task_id) == 8  # uuid hex[:8]
                     mock_thread.assert_called_once()
-                    assert mock_thread.call_args.kwargs["target"].__name__ == "_run_optimization_thread"
+                    assert (
+                        mock_thread.call_args.kwargs["target"].__name__
+                        == "_run_optimization_thread"
+                    )
                     assert mock_thread.call_args.kwargs["args"][0] == task_id
                     assert mock_thread.call_args.kwargs["args"][1].endswith("test_strategy")
                     assert mock_thread.call_args.kwargs["args"][3] == 2
@@ -447,9 +450,7 @@ class TestGetOptimizationProgress:
             mock_mgr = Mock()
             mock_mgr.get_task = Mock(return_value=Mock())
             mock_get_mgr.return_value = mock_mgr
-            with patch(
-                "app.services.param_optimization_service._run_async", return_value=db_task
-            ):
+            with patch("app.services.param_optimization_service._run_async", return_value=db_task):
                 progress = get_optimization_progress(task_id)
 
         assert progress is not None
@@ -482,9 +483,7 @@ class TestGetOptimizationProgress:
             mock_mgr = Mock()
             mock_mgr.get_task = Mock(return_value=Mock())
             mock_get_mgr.return_value = mock_mgr
-            with patch(
-                "app.services.param_optimization_service._run_async", return_value=None
-            ):
+            with patch("app.services.param_optimization_service._run_async", return_value=None):
                 progress = get_optimization_progress(task_id, user_id="user-1")
 
         assert progress is None
@@ -685,9 +684,7 @@ class TestGetOptimizationResults:
             mock_mgr = Mock()
             mock_mgr.get_task = Mock(return_value=Mock())
             mock_get_mgr.return_value = mock_mgr
-            with patch(
-                "app.services.param_optimization_service._run_async", return_value=db_task
-            ):
+            with patch("app.services.param_optimization_service._run_async", return_value=db_task):
                 results = get_optimization_results(task_id)
 
         assert results is not None
@@ -724,9 +721,7 @@ class TestGetOptimizationResults:
             mock_mgr = Mock()
             mock_mgr.get_task = Mock(return_value=Mock())
             mock_get_mgr.return_value = mock_mgr
-            with patch(
-                "app.services.param_optimization_service._run_async", return_value=None
-            ):
+            with patch("app.services.param_optimization_service._run_async", return_value=None):
                 results = get_optimization_results(task_id, user_id="user-1")
 
         assert results is None

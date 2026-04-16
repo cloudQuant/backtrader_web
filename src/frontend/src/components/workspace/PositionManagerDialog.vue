@@ -7,26 +7,51 @@
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">展示头寸</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ positions.length }}</div>
-          <div class="text-xs text-slate-400">按策略单元聚合</div>
+          <div class="text-xs text-slate-500">
+            展示头寸
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ positions.length }}
+          </div>
+          <div class="text-xs text-slate-400">
+            按策略单元聚合
+          </div>
         </div>
         <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
-          <div class="text-xs text-red-500">多头市值</div>
-          <div class="mt-1 text-lg font-semibold text-red-600">{{ formatAmountCompact(summary.total_long_value) }}</div>
-          <div class="text-xs text-red-300">Long Exposure</div>
+          <div class="text-xs text-red-500">
+            多头市值
+          </div>
+          <div class="mt-1 text-lg font-semibold text-red-600">
+            {{ formatAmountCompact(summary.total_long_value) }}
+          </div>
+          <div class="text-xs text-red-300">
+            Long Exposure
+          </div>
         </div>
         <div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
-          <div class="text-xs text-green-500">空头市值</div>
-          <div class="mt-1 text-lg font-semibold text-green-600">{{ formatAmountCompact(summary.total_short_value) }}</div>
-          <div class="text-xs text-green-300">Short Exposure</div>
+          <div class="text-xs text-green-500">
+            空头市值
+          </div>
+          <div class="mt-1 text-lg font-semibold text-green-600">
+            {{ formatAmountCompact(summary.total_short_value) }}
+          </div>
+          <div class="text-xs text-green-300">
+            Short Exposure
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <div class="text-xs text-slate-500">总盈亏</div>
-          <div class="mt-1 text-lg font-semibold" :class="numberClass(summary.total_pnl)">
+          <div class="text-xs text-slate-500">
+            总盈亏
+          </div>
+          <div
+            class="mt-1 text-lg font-semibold"
+            :class="numberClass(summary.total_pnl)"
+          >
             {{ formatSigned(summary.total_pnl, 2) }}
           </div>
-          <div class="text-xs text-slate-400">Unrealized PnL</div>
+          <div class="text-xs text-slate-400">
+            Unrealized PnL
+          </div>
         </div>
       </div>
 
@@ -51,37 +76,96 @@
         class="position-table"
         empty-text="暂无可展示的头寸数据"
       >
-        <el-table-column prop="unit_name" label="策略单元" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="symbol" label="品种" width="110" />
-        <el-table-column prop="symbol_name" label="简称" width="120" show-overflow-tooltip />
-        <el-table-column label="模式" width="90" align="center">
+        <el-table-column
+          prop="unit_name"
+          label="策略单元"
+          min-width="160"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          prop="symbol"
+          label="品种"
+          width="110"
+        />
+        <el-table-column
+          prop="symbol_name"
+          label="简称"
+          width="120"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          label="模式"
+          width="90"
+          align="center"
+        >
           <template #default="{ row }">
-            <el-tag :type="row.trading_mode === 'live' ? 'danger' : 'info'" size="small">
+            <el-tag
+              :type="row.trading_mode === 'live' ? 'danger' : 'info'"
+              size="small"
+            >
               {{ row.trading_mode === 'live' ? '实盘' : '模拟' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="long_position" label="多仓" width="90" align="right">
-          <template #default="{ row }">{{ formatNumber(row.long_position, 2) }}</template>
+        <el-table-column
+          prop="long_position"
+          label="多仓"
+          width="90"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatNumber(row.long_position, 2) }}
+          </template>
         </el-table-column>
-        <el-table-column prop="short_position" label="空仓" width="90" align="right">
-          <template #default="{ row }">{{ formatNumber(row.short_position, 2) }}</template>
+        <el-table-column
+          prop="short_position"
+          label="空仓"
+          width="90"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatNumber(row.short_position, 2) }}
+          </template>
         </el-table-column>
-        <el-table-column prop="avg_price" label="均价" width="100" align="right">
-          <template #default="{ row }">{{ formatNumber(row.avg_price, 4) }}</template>
+        <el-table-column
+          prop="avg_price"
+          label="均价"
+          width="100"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatNumber(row.avg_price, 4) }}
+          </template>
         </el-table-column>
-        <el-table-column prop="latest_price" label="最新价" width="100" align="right">
-          <template #default="{ row }">{{ formatNumber(row.latest_price, 4) }}</template>
+        <el-table-column
+          prop="latest_price"
+          label="最新价"
+          width="100"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatNumber(row.latest_price, 4) }}
+          </template>
         </el-table-column>
-        <el-table-column label="持仓盈亏" width="110" align="right">
+        <el-table-column
+          label="持仓盈亏"
+          width="110"
+          align="right"
+        >
           <template #default="{ row }">
             <span :class="numberClass(row.position_pnl)">
               {{ formatSigned(row.position_pnl, 2) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="市值" width="120" align="right">
-          <template #default="{ row }">{{ formatAmountCompact(row.market_value) }}</template>
+        <el-table-column
+          label="市值"
+          width="120"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatAmountCompact(row.market_value) }}
+          </template>
         </el-table-column>
       </el-table>
     </div>

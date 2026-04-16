@@ -70,12 +70,12 @@
             <div
               id="page-header-title-extra"
               class="flex items-center gap-2 min-w-0 flex-wrap"
-            ></div>
+            />
           </div>
           <div
             id="page-header-actions"
             class="flex items-center gap-3 flex-wrap"
-          ></div>
+          />
           <div v-if="route.path === '/portfolio'">
             <el-radio-group
               v-model="portfolioUiStore.tradingType"

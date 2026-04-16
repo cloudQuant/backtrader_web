@@ -21,21 +21,38 @@
         size="small"
         @click="showDataSourceDialog = true"
       >
-        <el-icon class="mr-1"><DataLine /></el-icon>
+        <el-icon class="mr-1">
+          <DataLine />
+        </el-icon>
         数据源
         <span class="ml-1 text-xs text-gray-500">{{ dataSourceTypeLabel }}</span>
       </el-button>
     </teleport>
 
-    <div v-if="store.loading && !store.currentWorkspace" class="flex justify-center py-20">
-      <el-icon class="is-loading text-3xl text-blue-500"><Loading /></el-icon>
+    <div
+      v-if="store.loading && !store.currentWorkspace"
+      class="flex justify-center py-20"
+    >
+      <el-icon class="is-loading text-3xl text-blue-500">
+        <Loading />
+      </el-icon>
     </div>
 
-    <el-empty v-else-if="!store.currentWorkspace" description="工作区不存在或无权访问" />
+    <el-empty
+      v-else-if="!store.currentWorkspace"
+      description="工作区不存在或无权访问"
+    />
 
     <template v-else>
-      <el-tabs v-model="activeTab" type="border-card" @tab-remove="handleTabRemove">
-        <el-tab-pane label="策略单元" name="units">
+      <el-tabs
+        v-model="activeTab"
+        type="border-card"
+        @tab-remove="handleTabRemove"
+      >
+        <el-tab-pane
+          label="策略单元"
+          name="units"
+        >
           <TradingWorkspaceUnitsTab
             v-if="workspaceType === 'trading'"
             :workspace-id="workspaceId"
@@ -64,7 +81,12 @@
             :initial-unit-id="initialOptUnitId"
           />
         </el-tab-pane>
-        <el-tab-pane v-if="showReportTab" label="组合报告" name="report" closable>
+        <el-tab-pane
+          v-if="showReportTab"
+          label="组合报告"
+          name="report"
+          closable
+        >
           <WorkspaceReportTab
             :workspace-id="workspaceId"
             :active="activeTab === 'report'"

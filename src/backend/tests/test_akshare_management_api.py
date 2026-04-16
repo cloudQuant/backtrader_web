@@ -40,8 +40,22 @@ def dummy_akshare_module() -> ModuleType:
     def stock_zh_a_hist(**_: object) -> pd.DataFrame:
         return pd.DataFrame(
             [
-                {"日期": "2024-01-02", "开盘": 10.0, "收盘": 10.5, "最高": 10.8, "最低": 9.9, "成交量": 1000},
-                {"日期": "2024-01-03", "开盘": 10.5, "收盘": 10.2, "最高": 10.7, "最低": 10.1, "成交量": 900},
+                {
+                    "日期": "2024-01-02",
+                    "开盘": 10.0,
+                    "收盘": 10.5,
+                    "最高": 10.8,
+                    "最低": 9.9,
+                    "成交量": 1000,
+                },
+                {
+                    "日期": "2024-01-03",
+                    "开盘": 10.5,
+                    "收盘": 10.2,
+                    "最高": 10.7,
+                    "最低": 10.1,
+                    "成交量": 900,
+                },
             ]
         )
 
@@ -141,7 +155,9 @@ class TestAkshareManagementApi:
         bootstrap_data = bootstrap_resp.json()
         assert bootstrap_data["created"] + bootstrap_data["updated"] >= 1
 
-        categories_resp = await client.get("/api/v1/data/interfaces/categories", headers=admin_headers)
+        categories_resp = await client.get(
+            "/api/v1/data/interfaces/categories", headers=admin_headers
+        )
         assert categories_resp.status_code == 200
         assert len(categories_resp.json()) >= 1
 
@@ -157,7 +173,9 @@ class TestAkshareManagementApi:
         client: AsyncClient,
         auth_headers: dict[str, str],
     ):
-        categories_resp = await client.get("/api/v1/data/interfaces/categories", headers=auth_headers)
+        categories_resp = await client.get(
+            "/api/v1/data/interfaces/categories", headers=auth_headers
+        )
         assert categories_resp.status_code == 403
 
         interfaces_resp = await client.get("/api/v1/data/interfaces", headers=auth_headers)

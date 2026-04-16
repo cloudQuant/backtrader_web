@@ -88,7 +88,9 @@ class TradingWorkspaceService:
             "error": error,
             "started_at": None,
             "stopped_at": None,
-            "gateway_summary": cls.gateway_summary(unit.gateway_config if isinstance(unit.gateway_config, dict) else {}),
+            "gateway_summary": cls.gateway_summary(
+                unit.gateway_config if isinstance(unit.gateway_config, dict) else {}
+            ),
             "long_position": 0.0,
             "short_position": 0.0,
             "today_pnl": None,
@@ -259,7 +261,9 @@ class TradingWorkspaceService:
                     if len(ohlc) >= 2:
                         prev_close = _safe_float((ohlc[-2] or [None, None])[1], default=0.0)
                         if prev_close > 0 and last_close > 0:
-                            snapshot["change_pct"] = round((last_close - prev_close) / prev_close * 100, 2)
+                            snapshot["change_pct"] = round(
+                                (last_close - prev_close) / prev_close * 100, 2
+                            )
 
                 equity_curve = list(log_result.get("equity_curve") or [])
                 initial_cash = _safe_float(log_result.get("initial_cash"), 0.0)
@@ -267,7 +271,9 @@ class TradingWorkspaceService:
                 if len(equity_curve) >= 2:
                     snapshot["today_pnl"] = round(equity_curve[-1] - equity_curve[-2], 2)
                 snapshot["cumulative_pnl"] = round(final_value - initial_cash, 2)
-                snapshot["max_drawdown_rate"] = round(_safe_float(log_result.get("max_drawdown")), 2)
+                snapshot["max_drawdown_rate"] = round(
+                    _safe_float(log_result.get("max_drawdown")), 2
+                )
                 total_market_value = long_market_value + short_market_value
                 if final_value > 0 and total_market_value > 0:
                     snapshot["leverage"] = round(total_market_value / final_value, 4)
@@ -314,8 +320,12 @@ class TradingWorkspaceService:
             if unit.trading_instance_id:
                 instance = manager.get_instance(unit.trading_instance_id, user_id=user_id)
 
-            snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(unit, instance)
-            next_run_status = self._map_run_status(snapshot.get("instance_status", "idle"), snapshot.get("error"))
+            snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
+                unit, instance
+            )
+            next_run_status = self._map_run_status(
+                snapshot.get("instance_status", "idle"), snapshot.get("error")
+            )
 
             if unit.run_status != next_run_status:
                 unit.run_status = next_run_status
@@ -379,7 +389,9 @@ class TradingWorkspaceService:
                 started = await manager.start_instance(str(unit.trading_instance_id))
                 unit.run_status = "running"
                 unit.run_count = int(unit.run_count or 0) + 1
-                snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(unit, started)
+                snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
+                    unit, started
+                )
                 unit.trading_snapshot = snapshot
                 if metrics_snapshot:
                     unit.metrics_snapshot = metrics_snapshot
@@ -625,9 +637,13 @@ class TradingWorkspaceService:
                     last_task_id=str(unit.last_task_id) if unit.last_task_id else None,
                     metrics_snapshot=_safe_dict(unit.metrics_snapshot),
                     run_count=int(unit.run_count or 0),
-                    last_run_time=float(unit.last_run_time) if unit.last_run_time is not None else None,
+                    last_run_time=float(unit.last_run_time)
+                    if unit.last_run_time is not None
+                    else None,
                     bar_count=int(unit.bar_count) if unit.bar_count is not None else None,
-                    trading_instance_id=str(unit.trading_instance_id) if unit.trading_instance_id else None,
+                    trading_instance_id=str(unit.trading_instance_id)
+                    if unit.trading_instance_id
+                    else None,
                     trading_snapshot=_safe_dict(unit.trading_snapshot),
                     trading_mode=self.normalize_trading_mode(unit.trading_mode),
                     lock_trading=bool(unit.lock_trading),

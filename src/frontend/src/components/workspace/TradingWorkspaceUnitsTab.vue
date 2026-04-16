@@ -1,18 +1,30 @@
 <template>
   <div class="workspace-units-tab trading-workspace-tab">
-    <teleport to="#page-header-actions" :disabled="!props.toolbarInHeader || !props.active">
+    <teleport
+      to="#page-header-actions"
+      :disabled="!props.toolbarInHeader || !props.active"
+    >
       <div
         class="trading-toolbar"
         :class="props.toolbarInHeader && props.active ? 'mb-0' : 'mb-4'"
       >
         <div class="trading-toolbar__groups">
           <el-button-group class="toolbar-group">
-            <el-tooltip content="全选 / 取消全选" placement="top">
-              <el-button size="small" @click="handleSelectAll">
+            <el-tooltip
+              content="全选 / 取消全选"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="handleSelectAll"
+              >
                 <el-icon><Select /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="启动自动交易" placement="top">
+            <el-tooltip
+              content="启动自动交易"
+              placement="top"
+            >
               <el-button
                 size="small"
                 type="success"
@@ -24,7 +36,10 @@
                 <el-icon><Timer /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="关闭自动交易" placement="top">
+            <el-tooltip
+              content="关闭自动交易"
+              placement="top"
+            >
               <el-button
                 size="small"
                 type="warning"
@@ -39,89 +54,192 @@
           </el-button-group>
 
           <el-button-group class="toolbar-group">
-            <el-tooltip content="锁定交易" placement="top">
-              <el-button size="small" :disabled="!hasSelection" @click="handleLockTrading">
+            <el-tooltip
+              content="锁定交易"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSelection"
+                @click="handleLockTrading"
+              >
                 <el-icon><Lock /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="锁定运行" placement="top">
-              <el-button size="small" :disabled="!hasSelection" @click="handleLockRunning">
+            <el-tooltip
+              content="锁定运行"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSelection"
+                @click="handleLockRunning"
+              >
                 <el-icon><Files /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="解锁" placement="top">
-              <el-button size="small" :disabled="!hasSelection" @click="handleUnlock">
+            <el-tooltip
+              content="解锁"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSelection"
+                @click="handleUnlock"
+              >
                 <el-icon><Unlock /></el-icon>
               </el-button>
             </el-tooltip>
           </el-button-group>
 
           <el-button-group class="toolbar-group">
-            <el-tooltip content="启动策略单元" placement="top">
-              <el-button size="small" type="success" :disabled="!hasSelection || store.running" @click="handleStartSelected">
+            <el-tooltip
+              content="启动策略单元"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                type="success"
+                :disabled="!hasSelection || store.running"
+                @click="handleStartSelected"
+              >
                 <el-icon><VideoPlay /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="停止策略单元" placement="top">
-              <el-button size="small" type="danger" plain :disabled="!hasSelection" @click="handleStopSelected">
+            <el-tooltip
+              content="停止策略单元"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :disabled="!hasSelection"
+                @click="handleStopSelected"
+              >
                 <el-icon><CircleCloseFilled /></el-icon>
               </el-button>
             </el-tooltip>
           </el-button-group>
 
           <el-button-group class="toolbar-group">
-            <el-tooltip content="新建策略单元" placement="top">
-              <el-button size="small" type="primary" @click="showCreateUnit = true">
+            <el-tooltip
+              content="新建策略单元"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                type="primary"
+                @click="showCreateUnit = true"
+              >
                 <el-icon><Plus /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="删除策略单元" placement="top">
-              <el-button size="small" :disabled="!hasSelection" @click="handleBulkDelete">
+            <el-tooltip
+              content="删除策略单元"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSelection"
+                @click="handleBulkDelete"
+              >
                 <el-icon><Delete /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="导入策略单元" placement="top">
-              <el-button size="small" @click="handleImportUnits">
+            <el-tooltip
+              content="导入策略单元"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="handleImportUnits"
+              >
                 <el-icon><FolderOpened /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="导出策略单元" placement="top">
-              <el-button size="small" :disabled="!hasSelection" @click="handleExportUnits">
+            <el-tooltip
+              content="导出策略单元"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSelection"
+                @click="handleExportUnits"
+              >
                 <el-icon><Download /></el-icon>
               </el-button>
             </el-tooltip>
           </el-button-group>
 
           <el-button-group class="toolbar-group">
-            <el-tooltip content="数据源设置" placement="top">
-              <el-button size="small" :disabled="!hasSingleSelection" @click="showDataSource = true">
+            <el-tooltip
+              content="数据源设置"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSingleSelection"
+                @click="showDataSource = true"
+              >
                 <el-icon><DataLine /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="策略单元设置" placement="top">
-              <el-button size="small" :disabled="!hasSingleSelection" @click="showUnitSettings = true">
+            <el-tooltip
+              content="策略单元设置"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSingleSelection"
+                @click="showUnitSettings = true"
+              >
                 <el-icon><Setting /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="公式应用设置" placement="top">
-              <el-button size="small" :disabled="!hasSingleSelection" @click="showStrategyParams = true">
+            <el-tooltip
+              content="公式应用设置"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSingleSelection"
+                @click="showStrategyParams = true"
+              >
                 <el-icon><Document /></el-icon>
               </el-button>
             </el-tooltip>
           </el-button-group>
 
           <el-button-group class="toolbar-group">
-            <el-tooltip content="头寸管理器" placement="top">
-              <el-button size="small" :disabled="store.units.length === 0" @click="showPositionManager = true">
+            <el-tooltip
+              content="头寸管理器"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="store.units.length === 0"
+                @click="showPositionManager = true"
+              >
                 <el-icon><Wallet /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="打开K线" placement="top">
-              <el-button size="small" :disabled="!hasSingleSelection" @click="handleOpenKline">
+            <el-tooltip
+              content="打开K线"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSingleSelection"
+                @click="handleOpenKline"
+              >
                 <el-icon><TrendCharts /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="打开组合报告" placement="top">
+            <el-tooltip
+              content="打开组合报告"
+              placement="top"
+            >
               <el-button
                 size="small"
                 :disabled="!hasSelection"
@@ -133,33 +251,73 @@
           </el-button-group>
 
           <el-button-group class="toolbar-group">
-            <el-tooltip content="自动交易配置" placement="top">
-              <el-button size="small" @click="showAutoTradingConfig = true">
+            <el-tooltip
+              content="自动交易配置"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="showAutoTradingConfig = true"
+              >
                 <el-icon><Tools /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="新建优化任务" placement="top">
-              <el-button size="small" :disabled="!hasSelection" @click="handleCreateOptimizationTask">
+            <el-tooltip
+              content="新建优化任务"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSelection"
+                @click="handleCreateOptimizationTask"
+              >
                 <el-icon><Promotion /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="打开优化结果" placement="top">
-              <el-button size="small" :disabled="!hasSingleSelection" @click="emit('switch-tab', 'optimization', store.selectedUnitIds[0])">
+            <el-tooltip
+              content="打开优化结果"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSingleSelection"
+                @click="emit('switch-tab', 'optimization', store.selectedUnitIds[0])"
+              >
                 <el-icon><DataAnalysis /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="定时优化设置" placement="top">
-              <el-button size="small" @click="showScheduledOptimization = true">
+            <el-tooltip
+              content="定时优化设置"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="showScheduledOptimization = true"
+              >
                 <el-icon><Calendar /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="交易日统计选项" placement="top">
-              <el-button size="small" :disabled="store.units.length === 0" @click="showTradingDayStats = true">
+            <el-tooltip
+              content="交易日统计选项"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="store.units.length === 0"
+                @click="showTradingDayStats = true"
+              >
                 <el-icon><Histogram /></el-icon>
               </el-button>
             </el-tooltip>
-            <el-tooltip content="联动分组" placement="top">
-              <el-button size="small" :disabled="!hasSelection" @click="showGroupLink = true">
+            <el-tooltip
+              content="联动分组"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :disabled="!hasSelection"
+                @click="showGroupLink = true"
+              >
                 <el-icon><Share /></el-icon>
               </el-button>
             </el-tooltip>
@@ -167,10 +325,17 @@
         </div>
 
         <div class="trading-toolbar__meta">
-          <el-tag size="small" effect="dark" :type="autoTradingEnabled ? 'success' : 'info'">
+          <el-tag
+            size="small"
+            effect="dark"
+            :type="autoTradingEnabled ? 'success' : 'info'"
+          >
             自动交易{{ autoTradingEnabled ? '已启用' : '已关闭' }}
           </el-tag>
-          <span v-if="autoTradingScheduleSummary" class="text-slate-500">
+          <span
+            v-if="autoTradingScheduleSummary"
+            class="text-slate-500"
+          >
             {{ autoTradingScheduleSummary }}
           </span>
           <span class="text-slate-500">已选 {{ store.selectedUnitIds.length }} / {{ store.units.length }}</span>
@@ -228,112 +393,265 @@
       @selection-change="onSelectionChange"
       @row-dblclick="openDetail"
     >
-      <el-table-column type="selection" width="42" />
-      <el-table-column label="序号" width="60" align="center">
-        <template #default="{ row }">{{ row.sort_order + 1 }}</template>
+      <el-table-column
+        type="selection"
+        width="42"
+      />
+      <el-table-column
+        label="序号"
+        width="60"
+        align="center"
+      >
+        <template #default="{ row }">
+          {{ row.sort_order + 1 }}
+        </template>
       </el-table-column>
-      <el-table-column label="状态" width="156" fixed="left">
+      <el-table-column
+        label="状态"
+        width="156"
+        fixed="left"
+      >
         <template #default="{ row }">
           <div class="status-cell">
             <div class="status-cell__main">
-              <span class="status-dot" :class="statusDotClass(row)" />
+              <span
+                class="status-dot"
+                :class="statusDotClass(row)"
+              />
               <span class="status-text">{{ statusLabel(row) }}</span>
             </div>
             <div class="status-cell__meta">
-              <el-tag size="small" effect="plain" :type="row.trading_mode === 'live' ? 'danger' : 'info'">
+              <el-tag
+                size="small"
+                effect="plain"
+                :type="row.trading_mode === 'live' ? 'danger' : 'info'"
+              >
                 {{ row.trading_mode === 'live' ? '实盘' : '模拟' }}
               </el-tag>
-              <span v-if="row.lock_trading" class="status-flag">锁交</span>
-              <span v-if="row.lock_running" class="status-flag">锁运</span>
+              <span
+                v-if="row.lock_trading"
+                class="status-flag"
+              >锁交</span>
+              <span
+                v-if="row.lock_running"
+                class="status-flag"
+              >锁运</span>
             </div>
           </div>
         </template>
       </el-table-column>
-      <el-table-column prop="group_name" label="组名" min-width="120" show-overflow-tooltip />
-      <el-table-column prop="strategy_name" label="单元名" min-width="150" show-overflow-tooltip>
+      <el-table-column
+        prop="group_name"
+        label="组名"
+        min-width="120"
+        show-overflow-tooltip
+      />
+      <el-table-column
+        prop="strategy_name"
+        label="单元名"
+        min-width="150"
+        show-overflow-tooltip
+      >
         <template #default="{ row }">
           <span class="font-medium text-slate-700">{{ row.strategy_name || row.strategy_id }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="strategy_id" label="公式" min-width="160" show-overflow-tooltip>
+      <el-table-column
+        prop="strategy_id"
+        label="公式"
+        min-width="160"
+        show-overflow-tooltip
+      >
         <template #default="{ row }">
           <span class="font-mono text-xs text-slate-600">{{ row.strategy_id || '-' }}</span>
         </template>
       </el-table-column>
-      <el-table-column prop="symbol" label="商品代码" width="110" />
-      <el-table-column prop="symbol_name" label="商品简称" width="120" show-overflow-tooltip />
-      <el-table-column prop="timeframe" label="周期" width="90" align="center" />
-      <el-table-column prop="category" label="分类" width="90" />
-      <el-table-column label="起始日期" width="120">
-        <template #default="{ row }">{{ formatDate(row.data_config?.start_date) }}</template>
+      <el-table-column
+        prop="symbol"
+        label="商品代码"
+        width="110"
+      />
+      <el-table-column
+        prop="symbol_name"
+        label="商品简称"
+        width="120"
+        show-overflow-tooltip
+      />
+      <el-table-column
+        prop="timeframe"
+        label="周期"
+        width="90"
+        align="center"
+      />
+      <el-table-column
+        prop="category"
+        label="分类"
+        width="90"
+      />
+      <el-table-column
+        label="起始日期"
+        width="120"
+      >
+        <template #default="{ row }">
+          {{ formatDate(row.data_config?.start_date) }}
+        </template>
       </el-table-column>
-      <el-table-column label="结束日期" width="120">
-        <template #default="{ row }">{{ row.data_config?.use_end_date ? formatDate(row.data_config?.end_date) : '-' }}</template>
+      <el-table-column
+        label="结束日期"
+        width="120"
+      >
+        <template #default="{ row }">
+          {{ row.data_config?.use_end_date ? formatDate(row.data_config?.end_date) : '-' }}
+        </template>
       </el-table-column>
-      <el-table-column label="更新时间" width="160">
-        <template #default="{ row }">{{ row.trading_snapshot?.updated_at || formatTime(row.updated_at) }}</template>
+      <el-table-column
+        label="更新时间"
+        width="160"
+      >
+        <template #default="{ row }">
+          {{ row.trading_snapshot?.updated_at || formatTime(row.updated_at) }}
+        </template>
       </el-table-column>
-      <el-table-column label="bar数" width="80" align="right">
-        <template #default="{ row }">{{ formatNumber(row.bar_count, 0, false) }}</template>
+      <el-table-column
+        label="bar数"
+        width="80"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatNumber(row.bar_count, 0, false) }}
+        </template>
       </el-table-column>
-      <el-table-column label="多仓" width="90" align="right">
-        <template #default="{ row }">{{ formatNumber(row.trading_snapshot?.long_position, 0, false) }}</template>
+      <el-table-column
+        label="多仓"
+        width="90"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatNumber(row.trading_snapshot?.long_position, 0, false) }}
+        </template>
       </el-table-column>
-      <el-table-column label="空仓" width="90" align="right">
-        <template #default="{ row }">{{ formatNumber(row.trading_snapshot?.short_position, 0, false) }}</template>
+      <el-table-column
+        label="空仓"
+        width="90"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatNumber(row.trading_snapshot?.short_position, 0, false) }}
+        </template>
       </el-table-column>
-      <el-table-column label="当日盈亏" width="110" align="right">
+      <el-table-column
+        label="当日盈亏"
+        width="110"
+        align="right"
+      >
         <template #default="{ row }">
           <span :class="numberClass(row.trading_snapshot?.today_pnl)">
             {{ formatSignedNumber(row.trading_snapshot?.today_pnl, 2, false) }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="持仓盈亏" width="110" align="right">
+      <el-table-column
+        label="持仓盈亏"
+        width="110"
+        align="right"
+      >
         <template #default="{ row }">
           <span :class="numberClass(row.trading_snapshot?.position_pnl)">
             {{ formatSignedNumber(row.trading_snapshot?.position_pnl, 2, false) }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="最新价" width="100" align="right">
-        <template #default="{ row }">{{ formatPrice(row.trading_snapshot?.latest_price) }}</template>
+      <el-table-column
+        label="最新价"
+        width="100"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatPrice(row.trading_snapshot?.latest_price) }}
+        </template>
       </el-table-column>
-      <el-table-column label="涨幅(%)" width="100" align="right">
+      <el-table-column
+        label="涨幅(%)"
+        width="100"
+        align="right"
+      >
         <template #default="{ row }">
           <span :class="numberClass(row.trading_snapshot?.change_pct)">
             {{ formatSignedNumber(row.trading_snapshot?.change_pct, 2, false, '%') }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="多头市值" width="110" align="right">
-        <template #default="{ row }">{{ formatAmountCompact(row.trading_snapshot?.long_market_value) }}</template>
+      <el-table-column
+        label="多头市值"
+        width="110"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatAmountCompact(row.trading_snapshot?.long_market_value) }}
+        </template>
       </el-table-column>
-      <el-table-column label="空头市值" width="110" align="right">
-        <template #default="{ row }">{{ formatAmountCompact(row.trading_snapshot?.short_market_value) }}</template>
+      <el-table-column
+        label="空头市值"
+        width="110"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatAmountCompact(row.trading_snapshot?.short_market_value) }}
+        </template>
       </el-table-column>
-      <el-table-column label="杠杆" width="90" align="right">
-        <template #default="{ row }">{{ formatNumber(row.trading_snapshot?.leverage, 2, false) }}</template>
+      <el-table-column
+        label="杠杆"
+        width="90"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatNumber(row.trading_snapshot?.leverage, 2, false) }}
+        </template>
       </el-table-column>
-      <el-table-column label="累计盈亏" width="110" align="right">
+      <el-table-column
+        label="累计盈亏"
+        width="110"
+        align="right"
+      >
         <template #default="{ row }">
           <span :class="numberClass(row.trading_snapshot?.cumulative_pnl)">
             {{ formatSignedNumber(row.trading_snapshot?.cumulative_pnl, 2, false) }}
           </span>
         </template>
       </el-table-column>
-      <el-table-column label="最大回撤率" width="110" align="right">
-        <template #default="{ row }">{{ formatSignedNumber(row.trading_snapshot?.max_drawdown_rate, 2, false, '%') }}</template>
-      </el-table-column>
-      <el-table-column label="详情" width="90" fixed="right">
+      <el-table-column
+        label="最大回撤率"
+        width="110"
+        align="right"
+      >
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click="openDetail(row)">
+          {{ formatSignedNumber(row.trading_snapshot?.max_drawdown_rate, 2, false, '%') }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="详情"
+        width="90"
+        fixed="right"
+      >
+        <template #default="{ row }">
+          <el-button
+            link
+            type="primary"
+            size="small"
+            @click="openDetail(row)"
+          >
             详情
           </el-button>
         </template>
       </el-table-column>
-      <el-table-column label="交易日" width="110" fixed="right">
-        <template #default="{ row }">{{ row.trading_snapshot?.trading_day || '-' }}</template>
+      <el-table-column
+        label="交易日"
+        width="110"
+        fixed="right"
+      >
+        <template #default="{ row }">
+          {{ row.trading_snapshot?.trading_day || '-' }}
+        </template>
       </el-table-column>
     </el-table>
 
@@ -428,42 +746,78 @@
       title="策略单元详情"
       width="980px"
     >
-      <div v-if="detailUnit" class="space-y-4 text-sm">
+      <div
+        v-if="detailUnit"
+        class="space-y-4 text-sm"
+      >
         <div class="flex flex-wrap items-center justify-end gap-2">
-          <el-button size="small" @click="handleOpenRuntimeDialog(detailUnit)">
+          <el-button
+            size="small"
+            @click="handleOpenRuntimeDialog(detailUnit)"
+          >
             查看运行文件
           </el-button>
-          <el-button type="primary" size="small" @click="handleOpenRuntimeDirectory(detailUnit)">
+          <el-button
+            type="primary"
+            size="small"
+            @click="handleOpenRuntimeDirectory(detailUnit)"
+          >
             打开策略单元
           </el-button>
         </div>
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs text-slate-500">单元</div>
-            <div class="mt-1 font-semibold text-slate-700">{{ detailUnit.strategy_name || detailUnit.strategy_id }}</div>
-            <div class="text-xs text-slate-400">{{ detailUnit.symbol }} / {{ detailUnit.timeframe }}</div>
+            <div class="text-xs text-slate-500">
+              单元
+            </div>
+            <div class="mt-1 font-semibold text-slate-700">
+              {{ detailUnit.strategy_name || detailUnit.strategy_id }}
+            </div>
+            <div class="text-xs text-slate-400">
+              {{ detailUnit.symbol }} / {{ detailUnit.timeframe }}
+            </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs text-slate-500">交易模式</div>
-            <div class="mt-1 font-semibold text-slate-700">{{ detailUnit.trading_mode === 'live' ? '实盘交易' : '模拟交易' }}</div>
-            <div class="text-xs text-slate-400">{{ statusLabel(detailUnit) }}</div>
+            <div class="text-xs text-slate-500">
+              交易模式
+            </div>
+            <div class="mt-1 font-semibold text-slate-700">
+              {{ detailUnit.trading_mode === 'live' ? '实盘交易' : '模拟交易' }}
+            </div>
+            <div class="text-xs text-slate-400">
+              {{ statusLabel(detailUnit) }}
+            </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs text-slate-500">网关</div>
-            <div class="mt-1 font-semibold text-slate-700">{{ detailUnit.trading_snapshot?.gateway_summary || '-' }}</div>
-            <div class="text-xs text-slate-400">实例 {{ detailUnit.trading_instance_id || '-' }}</div>
+            <div class="text-xs text-slate-500">
+              网关
+            </div>
+            <div class="mt-1 font-semibold text-slate-700">
+              {{ detailUnit.trading_snapshot?.gateway_summary || '-' }}
+            </div>
+            <div class="text-xs text-slate-400">
+              实例 {{ detailUnit.trading_instance_id || '-' }}
+            </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs text-slate-500">最近更新</div>
-            <div class="mt-1 font-semibold text-slate-700">{{ detailUnit.trading_snapshot?.updated_at || formatTime(detailUnit.updated_at) }}</div>
-            <div class="text-xs text-slate-400">交易日 {{ detailUnit.trading_snapshot?.trading_day || '-' }}</div>
+            <div class="text-xs text-slate-500">
+              最近更新
+            </div>
+            <div class="mt-1 font-semibold text-slate-700">
+              {{ detailUnit.trading_snapshot?.updated_at || formatTime(detailUnit.updated_at) }}
+            </div>
+            <div class="text-xs text-slate-400">
+              交易日 {{ detailUnit.trading_snapshot?.trading_day || '-' }}
+            </div>
           </div>
         </div>
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div class="text-xs text-slate-500">多仓 / 空仓</div>
+            <div class="text-xs text-slate-500">
+              多仓 / 空仓
+            </div>
             <div class="mt-1 text-lg font-semibold text-slate-700">
               {{ formatNumber(detailUnit.trading_snapshot?.long_position, 0, false) }}
               /
@@ -471,19 +825,31 @@
             </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div class="text-xs text-slate-500">当日盈亏</div>
-            <div class="mt-1 text-lg font-semibold" :class="numberClass(detailUnit.trading_snapshot?.today_pnl)">
+            <div class="text-xs text-slate-500">
+              当日盈亏
+            </div>
+            <div
+              class="mt-1 text-lg font-semibold"
+              :class="numberClass(detailUnit.trading_snapshot?.today_pnl)"
+            >
               {{ formatSignedNumber(detailUnit.trading_snapshot?.today_pnl, 2, false) }}
             </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div class="text-xs text-slate-500">累计盈亏</div>
-            <div class="mt-1 text-lg font-semibold" :class="numberClass(detailUnit.trading_snapshot?.cumulative_pnl)">
+            <div class="text-xs text-slate-500">
+              累计盈亏
+            </div>
+            <div
+              class="mt-1 text-lg font-semibold"
+              :class="numberClass(detailUnit.trading_snapshot?.cumulative_pnl)"
+            >
               {{ formatSignedNumber(detailUnit.trading_snapshot?.cumulative_pnl, 2, false) }}
             </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div class="text-xs text-slate-500">杠杆 / 最新价</div>
+            <div class="text-xs text-slate-500">
+              杠杆 / 最新价
+            </div>
             <div class="mt-1 text-lg font-semibold text-slate-700">
               {{ formatNumber(detailUnit.trading_snapshot?.leverage, 2, false) }}
               /
@@ -493,16 +859,22 @@
         </div>
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <div class="mb-3 text-sm font-medium text-slate-700">运行信息</div>
+          <div class="mb-3 text-sm font-medium text-slate-700">
+            运行信息
+          </div>
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div><span class="text-gray-500">启动时间：</span>{{ detailUnit.trading_snapshot?.started_at || '-' }}</div>
             <div><span class="text-gray-500">停止时间：</span>{{ detailUnit.trading_snapshot?.stopped_at || '-' }}</div>
-            <div class="md:col-span-2"><span class="text-gray-500">错误信息：</span>{{ detailUnit.trading_snapshot?.error || '-' }}</div>
+            <div class="md:col-span-2">
+              <span class="text-gray-500">错误信息：</span>{{ detailUnit.trading_snapshot?.error || '-' }}
+            </div>
           </div>
         </div>
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <div class="mb-3 text-sm font-medium text-slate-700">头寸明细</div>
+          <div class="mb-3 text-sm font-medium text-slate-700">
+            头寸明细
+          </div>
           <el-table
             :data="detailUnit.trading_snapshot?.positions || []"
             size="small"
@@ -510,21 +882,59 @@
             class="detail-positions-table"
             empty-text="暂无持仓明细"
           >
-            <el-table-column prop="data_name" label="合约" min-width="150" show-overflow-tooltip />
-            <el-table-column label="方向" width="90" align="center">
-              <template #default="{ row }">{{ directionLabel(row.direction) }}</template>
+            <el-table-column
+              prop="data_name"
+              label="合约"
+              min-width="150"
+              show-overflow-tooltip
+            />
+            <el-table-column
+              label="方向"
+              width="90"
+              align="center"
+            >
+              <template #default="{ row }">
+                {{ directionLabel(row.direction) }}
+              </template>
             </el-table-column>
-            <el-table-column prop="size" label="数量" width="90" align="right" />
-            <el-table-column label="开仓价" width="110" align="right">
-              <template #default="{ row }">{{ formatPrice(row.price) }}</template>
+            <el-table-column
+              prop="size"
+              label="数量"
+              width="90"
+              align="right"
+            />
+            <el-table-column
+              label="开仓价"
+              width="110"
+              align="right"
+            >
+              <template #default="{ row }">
+                {{ formatPrice(row.price) }}
+              </template>
             </el-table-column>
-            <el-table-column label="现价" width="110" align="right">
-              <template #default="{ row }">{{ formatPrice(row.current_price) }}</template>
+            <el-table-column
+              label="现价"
+              width="110"
+              align="right"
+            >
+              <template #default="{ row }">
+                {{ formatPrice(row.current_price) }}
+              </template>
             </el-table-column>
-            <el-table-column label="市值" width="120" align="right">
-              <template #default="{ row }">{{ formatAmountCompact(row.market_value) }}</template>
+            <el-table-column
+              label="市值"
+              width="120"
+              align="right"
+            >
+              <template #default="{ row }">
+                {{ formatAmountCompact(row.market_value) }}
+              </template>
             </el-table-column>
-            <el-table-column label="盈亏" width="110" align="right">
+            <el-table-column
+              label="盈亏"
+              width="110"
+              align="right"
+            >
               <template #default="{ row }">
                 <span :class="numberClass(row.pnl)">
                   {{ formatSignedNumber(row.pnl, 2, false) }}

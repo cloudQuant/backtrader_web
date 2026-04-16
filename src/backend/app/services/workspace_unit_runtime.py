@@ -324,11 +324,15 @@ def _trading_data_type_for_asset(asset_type: str) -> str:
     return mapping.get(normalized, normalized or "futures")
 
 
-def _trading_exchange_for_unit(unit: StrategyUnit, asset_type: str, data_section: dict[str, Any]) -> str:
+def _trading_exchange_for_unit(
+    unit: StrategyUnit, asset_type: str, data_section: dict[str, Any]
+) -> str:
     gateway_config = unit.gateway_config if isinstance(unit.gateway_config, dict) else {}
     params = dict(gateway_config.get("params") or {})
     gateway = dict(params.get("gateway") or {})
-    exchange = str(gateway.get("exchange_type") or data_section.get("exchange") or "").strip().upper()
+    exchange = (
+        str(gateway.get("exchange_type") or data_section.get("exchange") or "").strip().upper()
+    )
     if exchange:
         return exchange
     defaults = {
@@ -482,9 +486,7 @@ def _apply_gateway_runtime_config(
     gateway_config: dict[str, Any] | None,
 ) -> None:
     params = (
-        dict((gateway_config or {}).get("params") or {})
-        if isinstance(gateway_config, dict)
-        else {}
+        dict((gateway_config or {}).get("params") or {}) if isinstance(gateway_config, dict) else {}
     )
     if not params:
         return
@@ -499,7 +501,9 @@ def _apply_gateway_runtime_config(
             _merge_dict_section(template_config, key, value)
 
 
-def _build_trading_unit_config(unit: StrategyUnit, workspace_settings: dict[str, Any]) -> dict[str, Any]:
+def _build_trading_unit_config(
+    unit: StrategyUnit, workspace_settings: dict[str, Any]
+) -> dict[str, Any]:
     strategy_id = str(unit.strategy_id or "").strip()
     if not strategy_id:
         raise ValueError("Strategy unit is missing strategy_id")

@@ -228,7 +228,11 @@ class LiveTradingManager:
         if not path.is_file():
             return []
         try:
-            lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            lines = [
+                line.strip()
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
         except OSError:
             return []
         if not lines:
@@ -314,9 +318,7 @@ class LiveTradingManager:
                 merged.append(item)
         return merged
 
-    def connect_gateway(
-        self, exchange_type: str, credentials: GatewayCredentials
-    ) -> ConnectResult:
+    def connect_gateway(self, exchange_type: str, credentials: GatewayCredentials) -> ConnectResult:
         normalized_exchange_type = self._normalize_gateway_exchange_type(exchange_type)
         try:
             with self._gateway_lock:
@@ -332,7 +334,9 @@ class LiveTradingManager:
                     logger=logger,
                 )
         except Exception as exc:
-            logger.exception("Unhandled exception while connecting gateway %s", normalized_exchange_type)
+            logger.exception(
+                "Unhandled exception while connecting gateway %s", normalized_exchange_type
+            )
             return _build_gateway_connect_error_result(normalized_exchange_type, exc)
         if result.get("status") != "error":
             gateway_key = str(result.get("gateway_key") or "").strip()
@@ -342,7 +346,9 @@ class LiveTradingManager:
 
                     QuoteService().resume_auto_connect("MT5")
                 except Exception:
-                    logger.debug("Failed to resume MT5 auto-connect after manual connect", exc_info=True)
+                    logger.debug(
+                        "Failed to resume MT5 auto-connect after manual connect", exc_info=True
+                    )
             try:
                 self._persist_manual_gateway(gateway_key, normalized_exchange_type, credentials)
             except Exception:
@@ -352,9 +358,7 @@ class LiveTradingManager:
                 result["message"] = f"{message}；本地保存失败，重启后需要重新连接"
         return result
 
-    def _connect_ctp_gateway(
-        self, key: str, credentials: GatewayCredentials
-    ) -> ConnectResult:
+    def _connect_ctp_gateway(self, key: str, credentials: GatewayCredentials) -> ConnectResult:
         return manual_gateway_service.connect_ctp_gateway(
             gateways=self._gateways,
             key=key,
@@ -364,9 +368,7 @@ class LiveTradingManager:
             logger=logger,
         )
 
-    def _connect_ib_web_gateway(
-        self, key: str, credentials: GatewayCredentials
-    ) -> ConnectResult:
+    def _connect_ib_web_gateway(self, key: str, credentials: GatewayCredentials) -> ConnectResult:
         return manual_gateway_service.connect_ib_web_gateway(
             gateways=self._gateways,
             key=key,
@@ -378,9 +380,7 @@ class LiveTradingManager:
             logger=logger,
         )
 
-    def _connect_mt5_gateway(
-        self, key: str, credentials: GatewayCredentials
-    ) -> ConnectResult:
+    def _connect_mt5_gateway(self, key: str, credentials: GatewayCredentials) -> ConnectResult:
         return manual_gateway_service.connect_mt5_gateway(
             gateways=self._gateways,
             key=key,
@@ -412,7 +412,9 @@ class LiveTradingManager:
 
                     QuoteService().suppress_auto_connect("MT5")
                 except Exception:
-                    logger.debug("Failed to suppress MT5 auto-connect after manual disconnect", exc_info=True)
+                    logger.debug(
+                        "Failed to suppress MT5 auto-connect after manual disconnect", exc_info=True
+                    )
             try:
                 self._remove_persisted_manual_gateway(gateway_key)
             except Exception:
@@ -724,7 +726,8 @@ class LiveTradingManager:
             try:
                 result = subprocess.run(
                     [
-                        sys.executable, "-c",
+                        sys.executable,
+                        "-c",
                         "import sys, types; "
                         "sys.modules.setdefault('spdlog', types.ModuleType('spdlog')); "
                         "from bt_api_py.gateway.config import GatewayConfig; "
@@ -746,15 +749,12 @@ class LiveTradingManager:
                     )
             except subprocess.TimeoutExpired:
                 LiveTradingManager._gateway_import_ok = False
-                raise ImportError(
-                    "bt_api_py 网关模块导入超时，原生扩展可能已损坏"
-                )
+                raise ImportError("bt_api_py 网关模块导入超时，原生扩展可能已损坏")
             LiveTradingManager._gateway_import_ok = True
 
         if LiveTradingManager._gateway_import_ok is False:
             raise ImportError(
-                "bt_api_py 网关模块不可用 (之前的检测已失败)。"
-                "请修复 bt_api_py 原生扩展后重启后端。"
+                "bt_api_py 网关模块不可用 (之前的检测已失败)。请修复 bt_api_py 原生扩展后重启后端。"
             )
 
         # Guard: the spdlog C extension causes a native segfault on this
@@ -762,6 +762,7 @@ class LiveTradingManager:
         # used for logging inside bt_api_py and is not essential.
         if "spdlog" not in sys.modules:
             import types
+
             sys.modules["spdlog"] = types.ModuleType("spdlog")
         from bt_api_py.gateway.config import GatewayConfig
         from bt_api_py.gateway.runtime import GatewayRuntime

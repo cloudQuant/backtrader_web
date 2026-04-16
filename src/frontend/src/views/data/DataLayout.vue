@@ -10,7 +10,9 @@
           <el-tag :type="isAdmin ? 'danger' : 'info'">
             {{ isAdmin ? '管理员模式' : '只读模式' }}
           </el-tag>
-          <el-tag type="success">市场数据已并入</el-tag>
+          <el-tag type="success">
+            市场数据已并入
+          </el-tag>
         </div>
       </div>
 

@@ -293,15 +293,17 @@ class TestGetHistoricalData:
         service = RealTimeDataService()
 
         # Mock akshare response
-        mock_df = pd.DataFrame({
-            "日期": ["2024-01-01", "2024-01-02"],
-            "开盘": [10.0, 11.0],
-            "最高": [12.0, 13.0],
-            "最低": [9.0, 10.0],
-            "收盘": [11.0, 12.0],
-            "成交量": [1000, 2000],
-            "涨跌幅": [1.0, 2.0],
-        })
+        mock_df = pd.DataFrame(
+            {
+                "日期": ["2024-01-01", "2024-01-02"],
+                "开盘": [10.0, 11.0],
+                "最高": [12.0, 13.0],
+                "最低": [9.0, 10.0],
+                "收盘": [11.0, 12.0],
+                "成交量": [1000, 2000],
+                "涨跌幅": [1.0, 2.0],
+            }
+        )
 
         class MockAk:
             @staticmethod
@@ -353,15 +355,17 @@ class TestGetHistoricalData:
 
         service = RealTimeDataService()
 
-        mock_df = pd.DataFrame({
-            "日期": ["2024-01-01"],
-            "开盘": [10.0],
-            "最高": [12.0],
-            "最低": [9.0],
-            "收盘": [11.0],
-            "成交量": [1000],
-            "涨跌幅": [1.0],
-        })
+        mock_df = pd.DataFrame(
+            {
+                "日期": ["2024-01-01"],
+                "开盘": [10.0],
+                "最高": [12.0],
+                "最低": [9.0],
+                "收盘": [11.0],
+                "成交量": [1000],
+                "涨跌幅": [1.0],
+            }
+        )
 
         class MockAk:
             @staticmethod
@@ -397,11 +401,13 @@ class TestGetHistoricalData:
 
         # Remove akshare from modules if present
         import sys
+
         if "akshare" in sys.modules:
             del sys.modules["akshare"]
 
         # Mock import to raise ImportError
         import builtins
+
         original_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
@@ -415,9 +421,7 @@ class TestGetHistoricalData:
         end = datetime(2024, 1, 31)
 
         with pytest.raises(ValueError, match="akshare library is required"):
-            await service.get_historical_data(
-                "user_123", "broker_1", "000001.SZ", start, end, "1d"
-            )
+            await service.get_historical_data("user_123", "broker_1", "000001.SZ", start, end, "1d")
 
 
 class TestUpdateTick:

@@ -1,7 +1,10 @@
 <template>
   <div class="quote-page space-y-4">
     <!-- Data Source Tabs -->
-    <el-card class="!p-0" body-class="!p-3">
+    <el-card
+      class="!p-0"
+      body-class="!p-3"
+    >
       <div class="flex items-center justify-between flex-wrap gap-2">
         <div class="flex items-center gap-1 flex-wrap">
           <div
@@ -22,16 +25,30 @@
         </div>
         <!-- Refresh status -->
         <div class="flex items-center gap-2 text-xs text-gray-500">
-          <el-tag size="small" :type="refreshModeTag" effect="plain">
+          <el-tag
+            size="small"
+            :type="refreshModeTag"
+            effect="plain"
+          >
             {{ refreshModeText }}
           </el-tag>
-          <span v-if="store.updateTime" :class="{ 'text-orange-500': isDataStale }">
+          <span
+            v-if="store.updateTime"
+            :class="{ 'text-orange-500': isDataStale }"
+          >
             {{ formatTime(store.updateTime) }}
-            <el-tooltip v-if="isDataStale" content="数据可能已过期，建议刷新" placement="top">
+            <el-tooltip
+              v-if="isDataStale"
+              content="数据可能已过期，建议刷新"
+              placement="top"
+            >
               <el-icon class="ml-1 text-orange-500"><WarningFilled /></el-icon>
             </el-tooltip>
           </span>
-          <span v-if="store.quotesLoading" class="text-blue-500 flex items-center gap-1">
+          <span
+            v-if="store.quotesLoading"
+            class="text-blue-500 flex items-center gap-1"
+          >
             <el-icon class="is-loading"><Loading /></el-icon> 刷新中
           </span>
         </div>
@@ -56,7 +73,10 @@
     <!-- Main content (only when source is available) -->
     <template v-else>
       <!-- Toolbar -->
-      <el-card class="!p-0" body-class="!py-2 !px-3">
+      <el-card
+        class="!p-0"
+        body-class="!py-2 !px-3"
+      >
         <div class="flex items-center justify-between flex-wrap gap-2">
           <div class="flex items-center gap-2 flex-wrap">
             <!-- Search -->
@@ -91,18 +111,41 @@
               size="default"
               style="width: 120px"
             >
-              <el-option label="上涨" value="up" />
-              <el-option label="下跌" value="down" />
-              <el-option label="平盘" value="flat" />
+              <el-option
+                label="上涨"
+                value="up"
+              />
+              <el-option
+                label="下跌"
+                value="down"
+              />
+              <el-option
+                label="平盘"
+                value="flat"
+              />
             </el-select>
             <!-- Custom only -->
-            <el-checkbox v-model="store.filterCustomOnly" label="仅自选" />
+            <el-checkbox
+              v-model="store.filterCustomOnly"
+              label="仅自选"
+            />
             <!-- Advanced filter (P1) -->
-            <el-popover placement="bottom" :width="320" trigger="click">
+            <el-popover
+              placement="bottom"
+              :width="320"
+              trigger="click"
+            >
               <template #reference>
-                <el-button size="default" :type="store.hasAdvancedFilters ? 'primary' : ''">
+                <el-button
+                  size="default"
+                  :type="store.hasAdvancedFilters ? 'primary' : ''"
+                >
                   <el-icon><Filter /></el-icon> 高级筛选
-                  <el-badge v-if="store.hasAdvancedFilters" is-dot class="ml-1" />
+                  <el-badge
+                    v-if="store.hasAdvancedFilters"
+                    is-dot
+                    class="ml-1"
+                  />
                 </el-button>
               </template>
               <div class="space-y-3 text-sm">
@@ -147,10 +190,18 @@
                   </div>
                 </div>
                 <div>
-                  <el-checkbox v-model="store.filterHasOpenInterest" label="仅有持仓量" />
+                  <el-checkbox
+                    v-model="store.filterHasOpenInterest"
+                    label="仅有持仓量"
+                  />
                 </div>
                 <div class="flex justify-end">
-                  <el-button size="small" @click="store.clearAdvancedFilters()">重置</el-button>
+                  <el-button
+                    size="small"
+                    @click="store.clearAdvancedFilters()"
+                  >
+                    重置
+                  </el-button>
                 </div>
               </div>
             </el-popover>
@@ -174,24 +225,50 @@
               style="width: 80px"
               @change="(v: number) => store.setRefreshInterval(v)"
             >
-              <el-option :label="'1s'" :value="1" />
-              <el-option :label="'3s'" :value="3" />
-              <el-option :label="'5s'" :value="5" />
-              <el-option :label="'10s'" :value="10" />
-              <el-option :label="'30s'" :value="30" />
+              <el-option
+                :label="'1s'"
+                :value="1"
+              />
+              <el-option
+                :label="'3s'"
+                :value="3"
+              />
+              <el-option
+                :label="'5s'"
+                :value="5"
+              />
+              <el-option
+                :label="'10s'"
+                :value="10"
+              />
+              <el-option
+                :label="'30s'"
+                :value="30"
+              />
             </el-select>
             <!-- Manual refresh -->
-            <el-button :loading="store.quotesLoading" size="default" @click="store.fetchQuotes()">
+            <el-button
+              :loading="store.quotesLoading"
+              size="default"
+              @click="store.fetchQuotes()"
+            >
               <el-icon><Refresh /></el-icon>
             </el-button>
             <!-- Column config (P1) -->
             <el-tooltip content="列设置">
-              <el-button size="default" @click="showColumnDialog = true">
+              <el-button
+                size="default"
+                @click="showColumnDialog = true"
+              >
                 <el-icon><Setting /></el-icon>
               </el-button>
             </el-tooltip>
             <!-- Add symbol -->
-            <el-button type="primary" size="default" @click="showAddDialog = true">
+            <el-button
+              type="primary"
+              size="default"
+              @click="showAddDialog = true"
+            >
               <el-icon><Plus /></el-icon> 添加品种
             </el-button>
           </div>
@@ -199,29 +276,50 @@
       </el-card>
 
       <!-- Loading -->
-      <div v-if="store.quotesLoading && store.ticks.length === 0" class="flex justify-center py-12">
-        <el-icon class="is-loading text-4xl text-blue-500"><Loading /></el-icon>
+      <div
+        v-if="store.quotesLoading && store.ticks.length === 0"
+        class="flex justify-center py-12"
+      >
+        <el-icon class="is-loading text-4xl text-blue-500">
+          <Loading />
+        </el-icon>
       </div>
 
       <!-- Error state -->
       <el-card v-else-if="store.quotesError">
         <el-empty description="行情数据加载失败">
           <template #description>
-            <p class="text-red-500">{{ store.quotesError }}</p>
+            <p class="text-red-500">
+              {{ store.quotesError }}
+            </p>
           </template>
-          <el-button type="primary" @click="store.fetchQuotes()">重试</el-button>
+          <el-button
+            type="primary"
+            @click="store.fetchQuotes()"
+          >
+            重试
+          </el-button>
         </el-empty>
       </el-card>
 
       <!-- Empty state -->
       <el-card v-else-if="store.filteredTicks.length === 0 && store.ticks.length === 0">
         <el-empty description="暂无行情数据">
-          <el-button type="primary" @click="showAddDialog = true">添加品种</el-button>
+          <el-button
+            type="primary"
+            @click="showAddDialog = true"
+          >
+            添加品种
+          </el-button>
         </el-empty>
       </el-card>
 
       <!-- Quote Table -->
-      <el-card v-else class="!p-0" body-class="!p-0">
+      <el-card
+        v-else
+        class="!p-0"
+        body-class="!p-0"
+      >
         <el-table
           :data="store.filteredTicks"
           stripe
@@ -235,9 +333,17 @@
           @sort-change="handleSortChange"
           @row-click="handleRowClick"
         >
-          <el-table-column type="index" label="#" width="50" fixed="left" />
+          <el-table-column
+            type="index"
+            label="#"
+            width="50"
+            fixed="left"
+          />
           <!-- Dynamic columns based on columnConfig -->
-          <template v-for="col in visibleColumns" :key="col.prop">
+          <template
+            v-for="col in visibleColumns"
+            :key="col.prop"
+          >
             <el-table-column
               v-if="col.prop === 'symbol'"
               prop="symbol"
@@ -322,7 +428,9 @@
               sortable="custom"
               align="right"
             >
-              <template #default="{ row }">{{ fmtVol(row[col.prop]) }}</template>
+              <template #default="{ row }">
+                {{ fmtVol(row[col.prop]) }}
+              </template>
             </el-table-column>
             <el-table-column
               v-else
@@ -332,13 +440,25 @@
               sortable="custom"
               align="right"
             >
-              <template #default="{ row }">{{ fmtPrice(row[col.prop], row) }}</template>
+              <template #default="{ row }">
+                {{ fmtPrice(row[col.prop], row) }}
+              </template>
             </el-table-column>
           </template>
           <!-- Actions column -->
-          <el-table-column label="操作" width="100" fixed="right" align="center">
+          <el-table-column
+            label="操作"
+            width="100"
+            fixed="right"
+            align="center"
+          >
             <template #default="{ row }">
-              <el-button type="primary" size="small" link @click.stop="store.openChart(row.symbol)">
+              <el-button
+                type="primary"
+                size="small"
+                link
+                @click.stop="store.openChart(row.symbol)"
+              >
                 <el-icon><DataLine /></el-icon>
               </el-button>
               <el-popconfirm
@@ -347,7 +467,12 @@
                 @confirm="store.removeSymbol(row.symbol)"
               >
                 <template #reference>
-                  <el-button type="danger" size="small" link @click.stop>
+                  <el-button
+                    type="danger"
+                    size="small"
+                    link
+                    @click.stop
+                  >
                     <el-icon><Delete /></el-icon>
                   </el-button>
                 </template>
@@ -360,26 +485,47 @@
           <span>
             共 {{ store.filteredTicks.length }} / {{ store.ticks.length }} 条
             <template v-if="store.hasAdvancedFilters">
-              <el-tag size="small" type="warning" effect="plain" class="ml-2">高级筛选已启用</el-tag>
+              <el-tag
+                size="small"
+                type="warning"
+                effect="plain"
+                class="ml-2"
+              >高级筛选已启用</el-tag>
             </template>
           </span>
-          <span v-if="store.quotesLoading" class="text-blue-500">刷新中...</span>
+          <span
+            v-if="store.quotesLoading"
+            class="text-blue-500"
+          >刷新中...</span>
         </div>
       </el-card>
     </template>
 
     <!-- Add Symbol Dialog -->
-    <el-dialog v-model="showAddDialog" title="添加品种" width="480px" destroy-on-close>
+    <el-dialog
+      v-model="showAddDialog"
+      title="添加品种"
+      width="480px"
+      destroy-on-close
+    >
       <el-input
         v-model="addKeyword"
         placeholder="输入品种代码或名称搜索"
         clearable
         @input="handleAddSearch"
       />
-      <div v-if="store.symbolSearchLoading" class="py-4 text-center">
-        <el-icon class="is-loading"><Loading /></el-icon> 搜索中...
+      <div
+        v-if="store.symbolSearchLoading"
+        class="py-4 text-center"
+      >
+        <el-icon class="is-loading">
+          <Loading />
+        </el-icon> 搜索中...
       </div>
-      <div v-else-if="store.symbolSearchResults.length > 0" class="mt-3 max-h-64 overflow-auto">
+      <div
+        v-else-if="store.symbolSearchResults.length > 0"
+        class="mt-3 max-h-64 overflow-auto"
+      >
         <div
           v-for="item in store.symbolSearchResults"
           :key="item.symbol"
@@ -390,22 +536,48 @@
             <span class="font-mono font-medium">{{ item.symbol }}</span>
             <span class="ml-2 text-sm text-gray-500">{{ item.name }}</span>
           </div>
-          <el-tag size="small" type="info" effect="plain">{{ item.exchange }}</el-tag>
+          <el-tag
+            size="small"
+            type="info"
+            effect="plain"
+          >
+            {{ item.exchange }}
+          </el-tag>
         </div>
       </div>
-      <div v-else-if="addKeyword && !store.symbolSearchLoading" class="py-4 text-center text-gray-400">
+      <div
+        v-else-if="addKeyword && !store.symbolSearchLoading"
+        class="py-4 text-center text-gray-400"
+      >
         未找到匹配品种
       </div>
       <el-divider />
       <div class="flex items-center gap-2">
-        <el-input v-model="addSymbolDirect" placeholder="精确输入品种代码" @keyup.enter="handleDirectAdd" />
-        <el-button type="primary" :disabled="!addSymbolDirect" @click="handleDirectAdd">添加</el-button>
+        <el-input
+          v-model="addSymbolDirect"
+          placeholder="精确输入品种代码"
+          @keyup.enter="handleDirectAdd"
+        />
+        <el-button
+          type="primary"
+          :disabled="!addSymbolDirect"
+          @click="handleDirectAdd"
+        >
+          添加
+        </el-button>
       </div>
     </el-dialog>
 
     <!-- Column Config Dialog (P1) -->
-    <el-dialog v-model="showColumnDialog" title="列设置" width="420px" destroy-on-close>
-      <div class="text-xs text-gray-400 mb-3">勾选要显示的列，拖拽调整顺序</div>
+    <el-dialog
+      v-model="showColumnDialog"
+      title="列设置"
+      width="420px"
+      destroy-on-close
+    >
+      <div class="text-xs text-gray-400 mb-3">
+        勾选要显示的列，拖拽调整顺序
+      </div>
       <div class="space-y-1 max-h-80 overflow-auto">
         <div
           v-for="(col, idx) in columnConfigLocal"
@@ -416,13 +588,25 @@
           @dragover.prevent
           @drop="onColDrop(idx)"
         >
-          <el-icon class="cursor-move text-gray-400"><Rank /></el-icon>
-          <el-checkbox v-model="col.visible" :label="col.label" />
+          <el-icon class="cursor-move text-gray-400">
+            <Rank />
+          </el-icon>
+          <el-checkbox
+            v-model="col.visible"
+            :label="col.label"
+          />
         </div>
       </div>
       <template #footer>
-        <el-button @click="handleResetColumns">恢复默认</el-button>
-        <el-button type="primary" @click="handleSaveColumns">保存</el-button>
+        <el-button @click="handleResetColumns">
+          恢复默认
+        </el-button>
+        <el-button
+          type="primary"
+          @click="handleSaveColumns"
+        >
+          保存
+        </el-button>
       </template>
     </el-dialog>
 
@@ -443,30 +627,72 @@
           size="small"
           @change="(v: string) => store.setChartTimeframe(v)"
         >
-          <el-radio-button label="M1">1分</el-radio-button>
-          <el-radio-button label="M5">5分</el-radio-button>
-          <el-radio-button label="M15">15分</el-radio-button>
-          <el-radio-button label="M30">30分</el-radio-button>
-          <el-radio-button label="H1">1时</el-radio-button>
-          <el-radio-button label="H4">4时</el-radio-button>
-          <el-radio-button label="D1">日线</el-radio-button>
+          <el-radio-button label="M1">
+            1分
+          </el-radio-button>
+          <el-radio-button label="M5">
+            5分
+          </el-radio-button>
+          <el-radio-button label="M15">
+            15分
+          </el-radio-button>
+          <el-radio-button label="M30">
+            30分
+          </el-radio-button>
+          <el-radio-button label="H1">
+            1时
+          </el-radio-button>
+          <el-radio-button label="H4">
+            4时
+          </el-radio-button>
+          <el-radio-button label="D1">
+            日线
+          </el-radio-button>
         </el-radio-group>
-        <el-button size="small" :loading="store.chartLoading" @click="store.fetchChartData()">
+        <el-button
+          size="small"
+          :loading="store.chartLoading"
+          @click="store.fetchChartData()"
+        >
           <el-icon><Refresh /></el-icon>
         </el-button>
       </div>
       <!-- Chart content -->
-      <div v-if="store.chartLoading" class="flex items-center justify-center h-64">
-        <el-icon class="is-loading text-3xl text-blue-500"><Loading /></el-icon>
+      <div
+        v-if="store.chartLoading"
+        class="flex items-center justify-center h-64"
+      >
+        <el-icon class="is-loading text-3xl text-blue-500">
+          <Loading />
+        </el-icon>
       </div>
-      <div v-else-if="store.chartError" class="flex flex-col items-center justify-center h-64 gap-3">
-        <p class="text-red-500">{{ store.chartError }}</p>
-        <el-button type="primary" size="small" @click="store.fetchChartData()">重试</el-button>
+      <div
+        v-else-if="store.chartError"
+        class="flex flex-col items-center justify-center h-64 gap-3"
+      >
+        <p class="text-red-500">
+          {{ store.chartError }}
+        </p>
+        <el-button
+          type="primary"
+          size="small"
+          @click="store.fetchChartData()"
+        >
+          重试
+        </el-button>
       </div>
-      <div v-else-if="store.chartBars.length === 0" class="flex items-center justify-center h-64">
+      <div
+        v-else-if="store.chartBars.length === 0"
+        class="flex items-center justify-center h-64"
+      >
         <el-empty description="暂无图表数据" />
       </div>
-      <div v-else ref="chartContainerRef" class="w-full" style="height: calc(100% - 50px)" />
+      <div
+        v-else
+        ref="chartContainerRef"
+        class="w-full"
+        style="height: calc(100% - 50px)"
+      />
     </el-drawer>
   </div>
 </template>
@@ -607,7 +833,7 @@ function handleRowClick(row: QuoteTick) {
 
 // ---- tick flash animation (P1) ----
 const flashSymbols = ref<Set<string>>(new Set())
-let prevTickMap: Map<string, number> = new Map()
+const prevTickMap: Map<string, number> = new Map()
 let sourceRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 watch(

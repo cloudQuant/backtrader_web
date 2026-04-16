@@ -9,9 +9,16 @@
         <div class="text-sm font-medium text-slate-700">
           导入来源
         </div>
-        <el-radio-group v-model="sourceType" class="mt-3">
-          <el-radio value="research">策略研究工作区</el-radio>
-          <el-radio value="file">JSON 文件</el-radio>
+        <el-radio-group
+          v-model="sourceType"
+          class="mt-3"
+        >
+          <el-radio value="research">
+            策略研究工作区
+          </el-radio>
+          <el-radio value="file">
+            JSON 文件
+          </el-radio>
         </el-radio-group>
       </div>
 
@@ -47,13 +54,45 @@
           empty-text="请选择一个策略研究工作区"
           @selection-change="onResearchSelectionChange"
         >
-          <el-table-column type="selection" width="44" />
-          <el-table-column prop="group_name" label="组名" min-width="120" show-overflow-tooltip />
-          <el-table-column prop="strategy_name" label="单元名" min-width="140" show-overflow-tooltip />
-          <el-table-column prop="strategy_id" label="公式" min-width="160" show-overflow-tooltip />
-          <el-table-column prop="symbol" label="商品代码" width="120" />
-          <el-table-column prop="timeframe" label="周期" width="90" align="center" />
-          <el-table-column prop="category" label="分类" width="110" show-overflow-tooltip />
+          <el-table-column
+            type="selection"
+            width="44"
+          />
+          <el-table-column
+            prop="group_name"
+            label="组名"
+            min-width="120"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="strategy_name"
+            label="单元名"
+            min-width="140"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="strategy_id"
+            label="公式"
+            min-width="160"
+            show-overflow-tooltip
+          />
+          <el-table-column
+            prop="symbol"
+            label="商品代码"
+            width="120"
+          />
+          <el-table-column
+            prop="timeframe"
+            label="周期"
+            width="90"
+            align="center"
+          />
+          <el-table-column
+            prop="category"
+            label="分类"
+            width="110"
+            show-overflow-tooltip
+          />
         </el-table>
       </template>
 
@@ -65,7 +104,11 @@
           title="支持导入策略研究或策略交易导出的 JSON 文件。"
         />
         <div class="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-6 py-8 text-center">
-          <el-button type="primary" plain @click="fileInput?.click()">
+          <el-button
+            type="primary"
+            plain
+            @click="fileInput?.click()"
+          >
             选择导入文件
           </el-button>
           <div class="mt-3 text-sm text-slate-600">

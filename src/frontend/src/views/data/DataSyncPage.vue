@@ -4,8 +4,12 @@
       <template #header>
         <div class="header-row">
           <div>
-            <div class="page-title">数据同步</div>
-            <div class="page-subtitle">在本地 MySQL 与远程 MySQL 之间按表直连同步数据库。</div>
+            <div class="page-title">
+              数据同步
+            </div>
+            <div class="page-subtitle">
+              在本地 MySQL 与远程 MySQL 之间按表直连同步数据库。
+            </div>
           </div>
           <div class="toolbar-actions">
             <el-button
@@ -29,56 +33,114 @@
         :model="configForm"
         label-width="120px"
       >
-        <div class="config-section-title">同步模式</div>
+        <div class="config-section-title">
+          同步模式
+        </div>
         <div class="form-grid">
           <el-form-item label="同步方式">
-            <el-input value="直连 MySQL（按表同步）" disabled />
+            <el-input
+              value="直连 MySQL（按表同步）"
+              disabled
+            />
           </el-form-item>
           <el-form-item label="同步模式">
-            <el-select v-model="syncMode" class="full-width">
-              <el-option label="完整同步" value="full" />
-              <el-option label="仅结构" value="schema_only" />
-              <el-option label="仅数据" value="data_only" />
+            <el-select
+              v-model="syncMode"
+              class="full-width"
+            >
+              <el-option
+                label="完整同步"
+                value="full"
+              />
+              <el-option
+                label="仅结构"
+                value="schema_only"
+              />
+              <el-option
+                label="仅数据"
+                value="data_only"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="并发同步数">
-            <el-input-number v-model="configForm.sync_parallel_workers" class="full-width" :min="1" :max="16" />
+            <el-input-number
+              v-model="configForm.sync_parallel_workers"
+              class="full-width"
+              :min="1"
+              :max="16"
+            />
           </el-form-item>
         </div>
 
-        <div class="config-section-title">本地 MySQL</div>
+        <div class="config-section-title">
+          本地 MySQL
+        </div>
         <div class="form-grid">
           <el-form-item label="本地主机">
-            <el-input v-model="configForm.local_mysql_host" placeholder="127.0.0.1" />
+            <el-input
+              v-model="configForm.local_mysql_host"
+              placeholder="127.0.0.1"
+            />
           </el-form-item>
           <el-form-item label="本地端口">
-            <el-input-number v-model="configForm.local_mysql_port" class="full-width" :min="1" :max="65535" />
+            <el-input-number
+              v-model="configForm.local_mysql_port"
+              class="full-width"
+              :min="1"
+              :max="65535"
+            />
           </el-form-item>
           <el-form-item label="本地用户">
-            <el-input v-model="configForm.local_mysql_user" placeholder="root" />
+            <el-input
+              v-model="configForm.local_mysql_user"
+              placeholder="root"
+            />
           </el-form-item>
           <el-form-item label="本地密码">
-            <el-input v-model="configForm.local_mysql_password" show-password placeholder="输入本地 MySQL 密码" />
+            <el-input
+              v-model="configForm.local_mysql_password"
+              show-password
+              placeholder="输入本地 MySQL 密码"
+            />
           </el-form-item>
         </div>
 
-        <div class="config-section-title">远程 MySQL</div>
+        <div class="config-section-title">
+          远程 MySQL
+        </div>
         <div class="form-grid">
           <el-form-item label="远程 MySQL 主机">
-            <el-input v-model="configForm.remote_mysql_host" placeholder="43.167.221.188" />
+            <el-input
+              v-model="configForm.remote_mysql_host"
+              placeholder="43.167.221.188"
+            />
           </el-form-item>
           <el-form-item label="远程 MySQL 端口">
-            <el-input-number v-model="configForm.remote_mysql_port" class="full-width" :min="1" :max="65535" />
+            <el-input-number
+              v-model="configForm.remote_mysql_port"
+              class="full-width"
+              :min="1"
+              :max="65535"
+            />
           </el-form-item>
           <el-form-item label="远程 MySQL 用户">
-            <el-input v-model="configForm.remote_mysql_user" placeholder="root" />
+            <el-input
+              v-model="configForm.remote_mysql_user"
+              placeholder="root"
+            />
           </el-form-item>
           <el-form-item label="远程 MySQL 密码">
-            <el-input v-model="configForm.remote_mysql_password" show-password placeholder="直连模式必须填写远程 MySQL 密码" />
+            <el-input
+              v-model="configForm.remote_mysql_password"
+              show-password
+              placeholder="直连模式必须填写远程 MySQL 密码"
+            />
           </el-form-item>
         </div>
 
-        <div class="config-section-title">同步范围</div>
+        <div class="config-section-title">
+          同步范围
+        </div>
         <div class="form-grid single-column">
           <el-form-item label="同步数据库">
             <el-input
@@ -91,28 +153,37 @@
         </div>
       </el-form>
 
-        <div class="tips-grid">
-          <div class="tip-card">
-            <div class="tip-title">填写提示</div>
-            <div class="tip-text">
-              当前页面只保留 MySQL 直连同步。只要远程 MySQL 主机、端口、用户名、密码可访问即可，不需要 SSH；数据库不存在时会自动创建，已存在时不会删除。你还可以配置并发同步数，控制同时处理的数据表数量。
-            </div>
+      <div class="tips-grid">
+        <div class="tip-card">
+          <div class="tip-title">
+            填写提示
           </div>
-          <div class="tip-card">
-            <div class="tip-title">增量同步规则</div>
-            <div class="tip-text">
-              数据同步会优先使用数据表的主键，其次使用唯一索引；如果没有可用索引，会退化为按整行字段内容比对，只传输目标库缺失的数据行。
-            </div>
-          </div>
-          <div class="tip-card">
-            <div class="tip-title">使用限制</div>
-            <div class="tip-text">
-              没有主键或唯一索引的数据表也可以同步，但只能按整行内容做缺失判断；如果表里存在完全相同的重复行，增量判断的精度会受限。
-            </div>
+          <div class="tip-text">
+            当前页面只保留 MySQL 直连同步。只要远程 MySQL 主机、端口、用户名、密码可访问即可，不需要 SSH；数据库不存在时会自动创建，已存在时不会删除。你还可以配置并发同步数，控制同时处理的数据表数量。
           </div>
         </div>
+        <div class="tip-card">
+          <div class="tip-title">
+            增量同步规则
+          </div>
+          <div class="tip-text">
+            数据同步会优先使用数据表的主键，其次使用唯一索引；如果没有可用索引，会退化为按整行字段内容比对，只传输目标库缺失的数据行。
+          </div>
+        </div>
+        <div class="tip-card">
+          <div class="tip-title">
+            使用限制
+          </div>
+          <div class="tip-text">
+            没有主键或唯一索引的数据表也可以同步，但只能按整行内容做缺失判断；如果表里存在完全相同的重复行，增量判断的精度会受限。
+          </div>
+        </div>
+      </div>
 
-      <div v-if="connectionStatus" class="connection-grid">
+      <div
+        v-if="connectionStatus"
+        class="connection-grid"
+      >
         <div
           v-for="(passed, key) in connectionStatus.checks"
           :key="key"
@@ -122,8 +193,12 @@
             {{ passed ? '通过' : '失败' }}
           </el-tag>
           <div class="connection-content">
-            <div class="connection-title">{{ labelForCheck(key) }}</div>
-            <div class="connection-detail">{{ connectionStatus.details[key] || '-' }}</div>
+            <div class="connection-title">
+              {{ labelForCheck(key) }}
+            </div>
+            <div class="connection-detail">
+              {{ connectionStatus.details[key] || '-' }}
+            </div>
           </div>
         </div>
       </div>
@@ -131,7 +206,9 @@
 
     <el-card v-if="activeTasks.length > 0">
       <template #header>
-        <div class="page-title small">同步进度</div>
+        <div class="page-title small">
+          同步进度
+        </div>
       </template>
 
       <div class="task-list">
@@ -146,13 +223,18 @@
                 {{ task.direction === 'upload' ? '上传到服务器' : '从服务器拉取' }}
                 <span class="task-db">{{ task.current_database || task.databases.join(', ') }}</span>
               </div>
-              <div class="task-subtitle">{{ task.message }}</div>
+              <div class="task-subtitle">
+                {{ task.message }}
+              </div>
             </div>
             <el-tag :type="task.status === 'failed' ? 'danger' : task.status === 'completed' ? 'success' : 'warning'">
               {{ statusLabel(task.status) }}
             </el-tag>
           </div>
-          <el-progress :percentage="task.progress_pct" :status="task.status === 'failed' ? 'exception' : undefined" />
+          <el-progress
+            :percentage="task.progress_pct"
+            :status="task.status === 'failed' ? 'exception' : undefined"
+          />
         </div>
       </div>
     </el-card>
@@ -162,30 +244,61 @@
         <template #header>
           <div class="section-header">
             <div>
-              <div class="page-title small">上传到服务器</div>
-              <div class="page-subtitle">把本地数据库中的缺失结构与缺失数据增量同步到远程环境。</div>
+              <div class="page-title small">
+                上传到服务器
+              </div>
+              <div class="page-subtitle">
+                把本地数据库中的缺失结构与缺失数据增量同步到远程环境。
+              </div>
             </div>
-            <el-button type="primary" :loading="submittingBulkUpload" @click="startSync('upload', databaseNames)">
+            <el-button
+              type="primary"
+              :loading="submittingBulkUpload"
+              @click="startSync('upload', databaseNames)"
+            >
               全部上传
             </el-button>
           </div>
         </template>
 
-        <el-table :data="databaseRows" v-loading="loadingDatabases" stripe>
-          <el-table-column prop="name" label="数据库" min-width="160" />
-          <el-table-column label="本地大小" width="120">
+        <el-table
+          v-loading="loadingDatabases"
+          :data="databaseRows"
+          stripe
+        >
+          <el-table-column
+            prop="name"
+            label="数据库"
+            min-width="160"
+          />
+          <el-table-column
+            label="本地大小"
+            width="120"
+          >
             <template #default="{ row }">
               {{ row.local.exists ? row.local.size_display : '不存在' }}
             </template>
           </el-table-column>
-          <el-table-column label="远程状态" min-width="160">
+          <el-table-column
+            label="远程状态"
+            min-width="160"
+          >
             <template #default="{ row }">
               {{ formatRemoteState(row) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120">
+          <el-table-column
+            label="操作"
+            width="120"
+          >
             <template #default="{ row }">
-              <el-button link type="primary" @click="startSync('upload', [row.name])">上传</el-button>
+              <el-button
+                link
+                type="primary"
+                @click="startSync('upload', [row.name])"
+              >
+                上传
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -195,30 +308,60 @@
         <template #header>
           <div class="section-header">
             <div>
-              <div class="page-title small">从服务器拉取</div>
-              <div class="page-subtitle">把远程数据库中的缺失结构与缺失数据增量同步到本地环境。</div>
+              <div class="page-title small">
+                从服务器拉取
+              </div>
+              <div class="page-subtitle">
+                把远程数据库中的缺失结构与缺失数据增量同步到本地环境。
+              </div>
             </div>
-            <el-button :loading="submittingBulkDownload" @click="startSync('download', databaseNames)">
+            <el-button
+              :loading="submittingBulkDownload"
+              @click="startSync('download', databaseNames)"
+            >
               全部拉取
             </el-button>
           </div>
         </template>
 
-        <el-table :data="databaseRows" v-loading="loadingDatabases" stripe>
-          <el-table-column prop="name" label="数据库" min-width="160" />
-          <el-table-column label="远程大小" width="120">
+        <el-table
+          v-loading="loadingDatabases"
+          :data="databaseRows"
+          stripe
+        >
+          <el-table-column
+            prop="name"
+            label="数据库"
+            min-width="160"
+          />
+          <el-table-column
+            label="远程大小"
+            width="120"
+          >
             <template #default="{ row }">
               {{ row.remote.exists ? row.remote.size_display : '不存在' }}
             </template>
           </el-table-column>
-          <el-table-column label="本地状态" min-width="160">
+          <el-table-column
+            label="本地状态"
+            min-width="160"
+          >
             <template #default="{ row }">
               {{ formatLocalState(row) }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="120">
+          <el-table-column
+            label="操作"
+            width="120"
+          >
             <template #default="{ row }">
-              <el-button link type="primary" @click="startSync('download', [row.name])">拉取</el-button>
+              <el-button
+                link
+                type="primary"
+                @click="startSync('download', [row.name])"
+              >
+                拉取
+              </el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -229,42 +372,70 @@
       <template #header>
         <div class="section-header">
           <div>
-            <div class="page-title small">同步历史</div>
-            <div class="page-subtitle">展示最近一次同步结果与耗时。</div>
+            <div class="page-title small">
+              同步历史
+            </div>
+            <div class="page-subtitle">
+              展示最近一次同步结果与耗时。
+            </div>
           </div>
-          <el-button @click="loadHistory">刷新历史</el-button>
+          <el-button @click="loadHistory">
+            刷新历史
+          </el-button>
         </div>
       </template>
 
-      <el-table :data="history" v-loading="loadingHistory" stripe>
-        <el-table-column label="时间" width="220">
+      <el-table
+        v-loading="loadingHistory"
+        :data="history"
+        stripe
+      >
+        <el-table-column
+          label="时间"
+          width="220"
+        >
           <template #default="{ row }">
             {{ formatDateTime(row.started_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="方向" width="120">
+        <el-table-column
+          label="方向"
+          width="120"
+        >
           <template #default="{ row }">
             {{ row.direction === 'upload' ? '上传' : '拉取' }}
           </template>
         </el-table-column>
-        <el-table-column label="数据库" min-width="180">
+        <el-table-column
+          label="数据库"
+          min-width="180"
+        >
           <template #default="{ row }">
             {{ row.databases.join(', ') }}
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="120">
+        <el-table-column
+          label="状态"
+          width="120"
+        >
           <template #default="{ row }">
             <el-tag :type="row.status === 'completed' ? 'success' : 'danger'">
               {{ statusLabel(row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="耗时" width="120">
+        <el-table-column
+          label="耗时"
+          width="120"
+        >
           <template #default="{ row }">
             {{ formatDuration(row.duration_seconds) }}
           </template>
         </el-table-column>
-        <el-table-column label="消息" min-width="260">
+        <el-table-column
+          label="消息"
+          min-width="260"
+        >
           <template #default="{ row }">
             {{ row.error || row.message }}
           </template>

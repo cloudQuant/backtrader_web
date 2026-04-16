@@ -356,7 +356,9 @@ class TestBuildMt5GatewayRuntimeKwargs:
 
     def test_symbol_map_from_config(self):
         result = build_mt5_gateway_runtime_kwargs(
-            config_data={"mt5": {"login": "111", "password": "p", "symbol_map": {"EURUSD": "EURUSDm"}}},
+            config_data={
+                "mt5": {"login": "111", "password": "p", "symbol_map": {"EURUSD": "EURUSDm"}}
+            },
             env_data={},
             gateway_params={"login": "111", "password": "p"},
         )

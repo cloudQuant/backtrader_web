@@ -256,9 +256,7 @@ def build_ctp_gateway_runtime_kwargs(
     live = dict(config_data.get("live", {}) or {})
     fronts = dict(ctp.get("fronts", {}) or {})
     network = str(live.get("network") or "simnow")
-    front = dict(
-        fronts.get(network) or fronts.get("telecom") or fronts.get("simnow") or {}
-    )
+    front = dict(fronts.get(network) or fronts.get("telecom") or fronts.get("simnow") or {})
     investor_id = (
         gateway_params.get("investor_id")
         or gateway_params.get("user_id")
@@ -267,10 +265,22 @@ def build_ctp_gateway_runtime_kwargs(
         or ctp.get("investor_id", "")
         or ctp.get("user_id", "")
     )
-    broker_id = gateway_params.get("broker_id") or env_data.get("CTP_BROKER_ID") or ctp.get("broker_id", "")
-    password = gateway_params.get("password") or env_data.get("CTP_PASSWORD") or ctp.get("password", "")
-    app_id = gateway_params.get("app_id") or env_data.get("CTP_APP_ID") or ctp.get("app_id", "simnow_client_test")
-    auth_code = gateway_params.get("auth_code") or env_data.get("CTP_AUTH_CODE") or ctp.get("auth_code", "0000000000000000")
+    broker_id = (
+        gateway_params.get("broker_id") or env_data.get("CTP_BROKER_ID") or ctp.get("broker_id", "")
+    )
+    password = (
+        gateway_params.get("password") or env_data.get("CTP_PASSWORD") or ctp.get("password", "")
+    )
+    app_id = (
+        gateway_params.get("app_id")
+        or env_data.get("CTP_APP_ID")
+        or ctp.get("app_id", "simnow_client_test")
+    )
+    auth_code = (
+        gateway_params.get("auth_code")
+        or env_data.get("CTP_AUTH_CODE")
+        or ctp.get("auth_code", "0000000000000000")
+    )
     td_address = (
         gateway_params.get("td_front")
         or gateway_params.get("td_address")
@@ -407,9 +417,7 @@ def build_ib_web_gateway_runtime_kwargs(
         or ib_web.get("login_timeout"),
         default=180.0,
     )
-    cookies = gateway_params.get("cookies") or parse_json_dict(
-        env_data.get("IB_WEB_COOKIES_JSON")
-    )
+    cookies = gateway_params.get("cookies") or parse_json_dict(env_data.get("IB_WEB_COOKIES_JSON"))
     if cookies is None and isinstance(ib_web.get("cookies"), dict):
         cookies = ib_web.get("cookies")
     runtime_kwargs = {
@@ -487,9 +495,7 @@ def build_mt5_gateway_runtime_kwargs(
         or mt5.get("account_id")
         or str(login)
     )
-    ws_uri = (
-        gateway_params.get("ws_uri") or env_data.get("MT5_WS_URI") or mt5.get("ws_uri", "")
-    )
+    ws_uri = gateway_params.get("ws_uri") or env_data.get("MT5_WS_URI") or mt5.get("ws_uri", "")
     symbol_suffix = (
         gateway_params.get("symbol_suffix")
         or env_data.get("MT5_SYMBOL_SUFFIX")
@@ -583,11 +589,7 @@ def build_okx_gateway_runtime_kwargs(
     default_transport: str,
 ) -> dict[str, Any]:
     okx = dict(config_data.get("okx", {}) or {})
-    api_key = (
-        gateway_params.get("api_key")
-        or env_data.get("OKX_API_KEY")
-        or okx.get("api_key", "")
-    )
+    api_key = gateway_params.get("api_key") or env_data.get("OKX_API_KEY") or okx.get("api_key", "")
     secret_key = (
         gateway_params.get("secret_key")
         or env_data.get("OKX_SECRET_KEY")
@@ -631,9 +633,7 @@ def build_okx_gateway_runtime_kwargs(
         ),
     }
     base_url = (
-        gateway_params.get("base_url")
-        or env_data.get("OKX_BASE_URL")
-        or okx.get("base_url", "")
+        gateway_params.get("base_url") or env_data.get("OKX_BASE_URL") or okx.get("base_url", "")
     )
     if base_url:
         runtime_kwargs["base_url"] = str(base_url)

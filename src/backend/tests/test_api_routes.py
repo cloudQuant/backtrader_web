@@ -39,6 +39,7 @@ class TestDataAPI:
 
     async def test_query_kline(self, client: AsyncClient, auth_headers: dict, monkeypatch):
         """Test K-line query with authentication."""
+
         class _DummyAk:
             @staticmethod
             def stock_zh_a_hist(**_kwargs):

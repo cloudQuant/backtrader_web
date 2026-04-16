@@ -7,35 +7,69 @@
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">交易日数量</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ summaries.length }}</div>
-          <div class="text-xs text-slate-400">当前筛选范围</div>
+          <div class="text-xs text-slate-500">
+            交易日数量
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ summaries.length }}
+          </div>
+          <div class="text-xs text-slate-400">
+            当前筛选范围
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">累计盈亏</div>
-          <div class="mt-1 text-lg font-semibold" :class="numberClass(totalCumulativePnl)">
+          <div class="text-xs text-slate-500">
+            累计盈亏
+          </div>
+          <div
+            class="mt-1 text-lg font-semibold"
+            :class="numberClass(totalCumulativePnl)"
+          >
             {{ formatSigned(totalCumulativePnl, 2) }}
           </div>
-          <div class="text-xs text-slate-400">最后一个交易日口径</div>
+          <div class="text-xs text-slate-400">
+            最后一个交易日口径
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">总成交笔数</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ totalTradeCount }}</div>
-          <div class="text-xs text-slate-400">统计期间合计</div>
+          <div class="text-xs text-slate-500">
+            总成交笔数
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ totalTradeCount }}
+          </div>
+          <div class="text-xs text-slate-400">
+            统计期间合计
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">最佳单日盈亏</div>
-          <div class="mt-1 text-lg font-semibold" :class="numberClass(bestDailyPnl)">
+          <div class="text-xs text-slate-500">
+            最佳单日盈亏
+          </div>
+          <div
+            class="mt-1 text-lg font-semibold"
+            :class="numberClass(bestDailyPnl)"
+          >
             {{ formatSigned(bestDailyPnl, 2) }}
           </div>
-          <div class="text-xs text-slate-400">基于当日盈亏</div>
+          <div class="text-xs text-slate-400">
+            基于当日盈亏
+          </div>
         </div>
       </div>
 
       <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <el-select v-model="selectedUnitId" clearable placeholder="全部单元" size="small">
-            <el-option label="全部单元" value="" />
+          <el-select
+            v-model="selectedUnitId"
+            clearable
+            placeholder="全部单元"
+            size="small"
+          >
+            <el-option
+              label="全部单元"
+              value=""
+            />
             <el-option
               v-for="unit in store.units"
               :key="unit.id"
@@ -58,10 +92,18 @@
             size="small"
           />
           <div class="flex gap-2">
-            <el-button size="small" :loading="loading" type="primary" @click="loadSummary">
+            <el-button
+              size="small"
+              :loading="loading"
+              type="primary"
+              @click="loadSummary"
+            >
               查询
             </el-button>
-            <el-button size="small" @click="resetFilters">
+            <el-button
+              size="small"
+              @click="resetFilters"
+            >
               重置
             </el-button>
           </div>
@@ -76,24 +118,47 @@
         class="dialog-table"
         empty-text="暂无交易日统计数据"
       >
-        <el-table-column prop="trading_date" label="交易日" width="120" />
-        <el-table-column label="当日盈亏" width="120" align="right">
+        <el-table-column
+          prop="trading_date"
+          label="交易日"
+          width="120"
+        />
+        <el-table-column
+          label="当日盈亏"
+          width="120"
+          align="right"
+        >
           <template #default="{ row }">
             <span :class="numberClass(row.daily_pnl)">
               {{ formatSigned(row.daily_pnl, 2) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="trade_count" label="成交笔数" width="100" align="right" />
-        <el-table-column label="累计盈亏" width="120" align="right">
+        <el-table-column
+          prop="trade_count"
+          label="成交笔数"
+          width="100"
+          align="right"
+        />
+        <el-table-column
+          label="累计盈亏"
+          width="120"
+          align="right"
+        >
           <template #default="{ row }">
             <span :class="numberClass(row.cumulative_pnl)">
               {{ formatSigned(row.cumulative_pnl, 2) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column label="最大回撤" width="110" align="right">
-          <template #default="{ row }">{{ formatSigned(row.max_drawdown, 2, '%') }}</template>
+        <el-table-column
+          label="最大回撤"
+          width="110"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatSigned(row.max_drawdown, 2, '%') }}
+          </template>
         </el-table-column>
       </el-table>
     </div>

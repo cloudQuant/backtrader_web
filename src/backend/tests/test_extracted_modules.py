@@ -103,6 +103,7 @@ class TestProcessSupervisor:
 
     def test_is_pid_alive_current_process(self):
         import os
+
         assert is_pid_alive(os.getpid()) is True
 
     def test_is_pid_alive_dead_pid(self):
@@ -410,14 +411,17 @@ class TestManualGatewayService:
         assert result == "configs/ibkr_cookies.json"
 
     def test_bootstrap_ib_web_session_does_not_browser_login_when_cookie_config_exists(self):
-        with patch.object(
-            manual_gateway_service,
-            "_load_ib_web_session_state",
-            return_value=({}, {}, False, [], ""),
-        ), patch.object(
-            manual_gateway_service,
-            "_import_ib_web_session_helpers",
-        ) as mock_helpers:
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_load_ib_web_session_state",
+                return_value=({}, {}, False, [], ""),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_import_ib_web_session_helpers",
+            ) as mock_helpers,
+        ):
             with pytest.raises(RuntimeError, match="手动重新连接"):
                 manual_gateway_service._bootstrap_ib_web_session(
                     {
@@ -464,18 +468,22 @@ class TestManualGatewayService:
         )
         logger = Mock()
 
-        with patch.object(
-            manual_gateway_service,
-            "_import_ib_web_session_helpers",
-            return_value=(auth_status, Mock(), Mock()),
-        ), patch.object(
-            manual_gateway_service.time,
-            "monotonic",
-            side_effect=[0.0, 0.0, 0.2, 1.2],
-        ), patch.object(
-            manual_gateway_service.time,
-            "sleep",
-        ) as mock_sleep:
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_import_ib_web_session_helpers",
+                return_value=(auth_status, Mock(), Mock()),
+            ),
+            patch.object(
+                manual_gateway_service.time,
+                "monotonic",
+                side_effect=[0.0, 0.0, 0.2, 1.2],
+            ),
+            patch.object(
+                manual_gateway_service.time,
+                "sleep",
+            ) as mock_sleep,
+        ):
             resolved = manual_gateway_service._resolve_ib_web_base_url(
                 "https://localhost:5000/v1/api",
                 verify_ssl=False,
@@ -510,16 +518,20 @@ class TestManualGatewayService:
         )
         upsert_env_file = Mock()
 
-        with patch.object(
-            manual_gateway_service,
-            "_ensure_ib_clientportal_running",
-        ) as mock_ensure, patch.object(
-            manual_gateway_service,
-            "_wait_for_runtime_ready",
-        ) as mock_wait, patch.object(
-            manual_gateway_service,
-            "_import_ib_web_session_helpers",
-            return_value=(auth_status, ensure_session, upsert_env_file),
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_ensure_ib_clientportal_running",
+            ) as mock_ensure,
+            patch.object(
+                manual_gateway_service,
+                "_wait_for_runtime_ready",
+            ) as mock_wait,
+            patch.object(
+                manual_gateway_service,
+                "_import_ib_web_session_helpers",
+                return_value=(auth_status, ensure_session, upsert_env_file),
+            ),
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -639,17 +651,30 @@ class TestManualGatewayService:
             def __init__(self, **kwargs):
                 self.kwargs = kwargs
 
-        with patch.object(
-            manual_gateway_service,
-            "_ensure_ib_clientportal_running",
-        ), patch.object(
-            manual_gateway_service,
-            "_load_ib_web_session_state",
-            return_value=({"cookie_output": "configs/ibkr_cookies.json", "cookie_source": "file:configs/ibkr_cookies.json"}, {}, False, None, "DU123456"),
-        ), patch.object(
-            manual_gateway_service,
-            "_import_ib_web_session_helpers",
-            return_value=(auth_status, ensure_session, upsert_env_file),
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_ensure_ib_clientportal_running",
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_load_ib_web_session_state",
+                return_value=(
+                    {
+                        "cookie_output": "configs/ibkr_cookies.json",
+                        "cookie_source": "file:configs/ibkr_cookies.json",
+                    },
+                    {},
+                    False,
+                    None,
+                    "DU123456",
+                ),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_import_ib_web_session_helpers",
+                return_value=(auth_status, ensure_session, upsert_env_file),
+            ),
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -742,14 +767,21 @@ class TestManualGatewayService:
         runtime = Mock()
         runtime_cls = Mock(return_value=runtime)
 
-        with patch.object(
-            manual_gateway_service,
-            "_get_gateway_proxies_kwarg",
-            return_value={"https": "http://127.0.0.1:7890", "http": "http://127.0.0.1:7890"},
-        ), patch.object(
-            manual_gateway_service,
-            "_get_gateway_ws_proxy_kwargs",
-            return_value={"http_proxy_host": "127.0.0.1", "http_proxy_port": 7890, "async_proxy": "http://127.0.0.1:7890"},
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_get_gateway_proxies_kwarg",
+                return_value={"https": "http://127.0.0.1:7890", "http": "http://127.0.0.1:7890"},
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_get_gateway_ws_proxy_kwargs",
+                return_value={
+                    "http_proxy_host": "127.0.0.1",
+                    "http_proxy_port": 7890,
+                    "async_proxy": "http://127.0.0.1:7890",
+                },
+            ),
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -779,18 +811,20 @@ class TestManualGatewayService:
         assert runtime_kwargs["async_proxy"] == "http://127.0.0.1:7890"
 
     def test_detect_working_proxy_uses_system_proxy_when_env_missing(self):
-        with patch.dict(manual_gateway_service.os.environ, {}, clear=True), patch.object(
-            manual_gateway_service, "_proxy_checked", False
-        ), patch.object(
-            manual_gateway_service, "_detected_proxy_url", ""
-        ), patch.object(
-            manual_gateway_service.urllib.request,
-            "getproxies",
-            return_value={"https": "http://127.0.0.1:7890"},
-        ), patch.object(
-            manual_gateway_service.socket,
-            "create_connection",
-        ) as mock_create_connection:
+        with (
+            patch.dict(manual_gateway_service.os.environ, {}, clear=True),
+            patch.object(manual_gateway_service, "_proxy_checked", False),
+            patch.object(manual_gateway_service, "_detected_proxy_url", ""),
+            patch.object(
+                manual_gateway_service.urllib.request,
+                "getproxies",
+                return_value={"https": "http://127.0.0.1:7890"},
+            ),
+            patch.object(
+                manual_gateway_service.socket,
+                "create_connection",
+            ) as mock_create_connection,
+        ):
             mock_socket = Mock()
             mock_create_connection.return_value = mock_socket
 
@@ -801,18 +835,20 @@ class TestManualGatewayService:
         mock_socket.close.assert_called_once()
 
     def test_detect_working_proxy_reuses_cached_system_proxy(self):
-        with patch.dict(manual_gateway_service.os.environ, {}, clear=True), patch.object(
-            manual_gateway_service, "_proxy_checked", False
-        ), patch.object(
-            manual_gateway_service, "_detected_proxy_url", ""
-        ), patch.object(
-            manual_gateway_service.urllib.request,
-            "getproxies",
-            return_value={"https": "http://127.0.0.1:7890"},
-        ), patch.object(
-            manual_gateway_service.socket,
-            "create_connection",
-        ) as mock_create_connection:
+        with (
+            patch.dict(manual_gateway_service.os.environ, {}, clear=True),
+            patch.object(manual_gateway_service, "_proxy_checked", False),
+            patch.object(manual_gateway_service, "_detected_proxy_url", ""),
+            patch.object(
+                manual_gateway_service.urllib.request,
+                "getproxies",
+                return_value={"https": "http://127.0.0.1:7890"},
+            ),
+            patch.object(
+                manual_gateway_service.socket,
+                "create_connection",
+            ) as mock_create_connection,
+        ):
             mock_socket = Mock()
             mock_create_connection.return_value = mock_socket
 
@@ -836,9 +872,12 @@ class TestManualGatewayService:
         runtime = Mock()
         runtime_cls = Mock(return_value=runtime)
 
-        with patch.object(manual_gateway_service, "_wait_for_runtime_ready") as mock_wait, patch(
-            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
-            return_value=False,
+        with (
+            patch.object(manual_gateway_service, "_wait_for_runtime_ready") as mock_wait,
+            patch(
+                "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+                return_value=False,
+            ),
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -923,25 +962,30 @@ class TestManualGatewayService:
         runtime = Mock()
         runtime_cls = Mock(return_value=runtime)
 
-        with patch.object(manual_gateway_service, "_ensure_ib_clientportal_running") as mock_ensure, patch.object(
-            manual_gateway_service,
-            "_resolve_ib_web_base_url",
-            return_value="https://localhost:5000/v1/api",
-        ) as mock_resolve_base_url, patch.object(
-            manual_gateway_service,
-            "_bootstrap_ib_web_session",
-            return_value={
-                "cookies": {"api": "cookie-value"},
-                "cookie_output": "configs/ibkr_cookies.json",
-                "cookie_source": "file:configs/ibkr_cookies.json",
-                "account_id": "DU123456",
-                "status_code": 200,
-                "used_login": False,
-            },
-        ) as mock_bootstrap, patch.object(
-            manual_gateway_service,
-            "_wait_for_runtime_ready",
-        ) as mock_wait:
+        with (
+            patch.object(manual_gateway_service, "_ensure_ib_clientportal_running") as mock_ensure,
+            patch.object(
+                manual_gateway_service,
+                "_resolve_ib_web_base_url",
+                return_value="https://localhost:5000/v1/api",
+            ) as mock_resolve_base_url,
+            patch.object(
+                manual_gateway_service,
+                "_bootstrap_ib_web_session",
+                return_value={
+                    "cookies": {"api": "cookie-value"},
+                    "cookie_output": "configs/ibkr_cookies.json",
+                    "cookie_source": "file:configs/ibkr_cookies.json",
+                    "account_id": "DU123456",
+                    "status_code": 200,
+                    "used_login": False,
+                },
+            ) as mock_bootstrap,
+            patch.object(
+                manual_gateway_service,
+                "_wait_for_runtime_ready",
+            ) as mock_wait,
+        ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
                 exchange_type="IB_WEB",
@@ -1008,13 +1052,16 @@ class TestManualGatewayService:
         runtime = Mock()
         runtime_cls = Mock(return_value=runtime)
 
-        with patch.object(
-            manual_gateway_service,
-            "_wait_for_runtime_ready",
-            side_effect=RuntimeError("attempt 3/3 RuntimeError: ctp market not ready"),
-        ), patch(
-            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
-            return_value=False,
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_wait_for_runtime_ready",
+                side_effect=RuntimeError("attempt 3/3 RuntimeError: ctp market not ready"),
+            ),
+            patch(
+                "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+                return_value=False,
+            ),
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -1098,9 +1145,14 @@ class TestManualGatewayService:
         def _reachable(host, port, timeout=1.0):
             return reachable_map.get((host, port), False)
 
-        with patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", side_effect=_reachable), patch.object(
-            manual_gateway_service,
-            "_wait_for_runtime_ready",
+        with (
+            patch.object(
+                manual_gateway_service, "_is_tcp_endpoint_reachable", side_effect=_reachable
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_wait_for_runtime_ready",
+            ),
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -1131,9 +1183,12 @@ class TestManualGatewayService:
         gateways: dict[str, dict] = {}
         logger = Mock()
 
-        with patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", return_value=False), patch(
-            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
-            return_value=False,
+        with (
+            patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", return_value=False),
+            patch(
+                "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+                return_value=False,
+            ),
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -1155,7 +1210,10 @@ class TestManualGatewayService:
             )
 
         assert result["status"] == "error"
-        assert "simnow当前三组前置均不可达" in result["message"].lower() or "SimNow当前三组前置均不可达" in result["message"]
+        assert (
+            "simnow当前三组前置均不可达" in result["message"].lower()
+            or "SimNow当前三组前置均不可达" in result["message"]
+        )
         assert gateways == {}
 
     def test_connect_gateway_keeps_requested_simnow_front_when_proxy_tunnel_available(self):
@@ -1172,10 +1230,14 @@ class TestManualGatewayService:
         runtime_cls = Mock(return_value=runtime)
         logger = Mock()
 
-        with patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", return_value=False), patch.object(
-            manual_gateway_service,
-            "_wait_for_runtime_ready",
-        ), patch("app.services.ctp_tunnel.is_proxy_tunnel_needed", return_value=True):
+        with (
+            patch.object(manual_gateway_service, "_is_tcp_endpoint_reachable", return_value=False),
+            patch.object(
+                manual_gateway_service,
+                "_wait_for_runtime_ready",
+            ),
+            patch("app.services.ctp_tunnel.is_proxy_tunnel_needed", return_value=True),
+        ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
                 exchange_type="CTP",
@@ -1249,14 +1311,21 @@ class TestManualGatewayService:
         runtime = Mock()
         runtime_cls = Mock(return_value=runtime)
 
-        with patch.object(
-            manual_gateway_service,
-            "_get_gateway_proxies_kwarg",
-            return_value={"https": "http://127.0.0.1:7890", "http": "http://127.0.0.1:7890"},
-        ), patch.object(
-            manual_gateway_service,
-            "_get_gateway_ws_proxy_kwargs",
-            return_value={"http_proxy_host": "127.0.0.1", "http_proxy_port": 7890, "async_proxy": "http://127.0.0.1:7890"},
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_get_gateway_proxies_kwarg",
+                return_value={"https": "http://127.0.0.1:7890", "http": "http://127.0.0.1:7890"},
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_get_gateway_ws_proxy_kwargs",
+                return_value={
+                    "http_proxy_host": "127.0.0.1",
+                    "http_proxy_port": 7890,
+                    "async_proxy": "http://127.0.0.1:7890",
+                },
+            ),
         ):
             result = manual_gateway_service.connect_gateway(
                 gateways=gateways,
@@ -1291,31 +1360,38 @@ class TestManualGatewayService:
         process = Mock()
         process.poll.return_value = None
 
-        with patch.object(
-            manual_gateway_service,
-            "_should_manage_ib_clientportal",
-            return_value=True,
-        ), patch.object(
-            manual_gateway_service,
-            "_parse_base_url_endpoint",
-            return_value=("localhost", 5000),
-        ), patch.object(
-            manual_gateway_service,
-            "_is_tcp_endpoint_reachable",
-            side_effect=[False, False],
-        ), patch.object(
-            manual_gateway_service,
-            "_find_ib_clientportal_dir",
-            return_value=Path("/tmp/clientportal.gw"),
-        ), patch.object(
-            manual_gateway_service,
-            "_start_ib_clientportal_background",
-            return_value=process,
-        ) as mock_start, patch.object(
-            manual_gateway_service,
-            "_wait_for_tcp_endpoint",
-            return_value=True,
-        ) as mock_wait:
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_should_manage_ib_clientportal",
+                return_value=True,
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_parse_base_url_endpoint",
+                return_value=("localhost", 5000),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_is_tcp_endpoint_reachable",
+                side_effect=[False, False],
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_find_ib_clientportal_dir",
+                return_value=Path("/tmp/clientportal.gw"),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_start_ib_clientportal_background",
+                return_value=process,
+            ) as mock_start,
+            patch.object(
+                manual_gateway_service,
+                "_wait_for_tcp_endpoint",
+                return_value=True,
+            ) as mock_wait,
+        ):
             manual_gateway_service._ib_clientportal_process = None
             manual_gateway_service._ensure_ib_clientportal_running(
                 "https://localhost:5000",
@@ -1374,8 +1450,9 @@ class TestManualGatewayService:
             456: listen_proc,
         }[pid]
 
-        with patch.dict("sys.modules", {"psutil": fake_psutil}), patch.object(
-            manual_gateway_service.os, "getpid", return_value=1
+        with (
+            patch.dict("sys.modules", {"psutil": fake_psutil}),
+            patch.object(manual_gateway_service.os, "getpid", return_value=1),
         ):
             manual_gateway_service._kill_process_on_port(58583)
 
@@ -1392,11 +1469,14 @@ class TestManualGatewayService:
                 raise ImportError
             return original_import(name, *args, **kwargs)
 
-        with patch("builtins.__import__", side_effect=fake_import), patch.object(
-            manual_gateway_service.subprocess,
-            "run",
-            return_value=Mock(stdout=""),
-        ) as mock_run:
+        with (
+            patch("builtins.__import__", side_effect=fake_import),
+            patch.object(
+                manual_gateway_service.subprocess,
+                "run",
+                return_value=Mock(stdout=""),
+            ) as mock_run,
+        ):
             manual_gateway_service._kill_process_on_port(58583)
 
         assert mock_run.call_args.args[0] == [
@@ -1705,9 +1785,7 @@ class TestLiveInstanceService:
         assert result["params"]["gateway"]["exchange_type"] == "CTP"
 
     def test_remove_instance_handles_permission_and_process_cleanup(self):
-        instances = {
-            "inst1": {"user_id": "u1", "status": "running", "pid": 123}
-        }
+        instances = {"inst1": {"user_id": "u1", "status": "running", "pid": 123}}
         processes = {"inst1": Mock()}
         killed = []
         released = []
@@ -1789,6 +1867,7 @@ class TestLiveExecutionService:
             with patch(
                 "app.services.live_execution_service.asyncio.create_task"
             ) as mock_create_task:
+
                 def _create_task(coro):
                     try:
                         coro.close()
@@ -1804,9 +1883,7 @@ class TestLiveExecutionService:
                         save_instances=lambda data: None,
                         is_pid_alive=lambda pid: False,
                         resolve_strategy_dir=lambda strategy_id: strategy_dir,
-                        build_subprocess_env=lambda instance_id, inst, strategy_dir: {
-                            "A": "1"
-                        },
+                        build_subprocess_env=lambda instance_id, inst, strategy_dir: {"A": "1"},
                         release_gateway_for_instance=lambda instance_id: None,
                         wait_process_callback=wait_process_callback,
                         processes={},
@@ -1831,7 +1908,10 @@ class TestLiveExecutionService:
             "app.services.live_execution_service.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=proc),
         ):
-            with patch("app.services.live_execution_service.asyncio.create_task") as mock_create_task:
+            with patch(
+                "app.services.live_execution_service.asyncio.create_task"
+            ) as mock_create_task:
+
                 def _create_task(coro):
                     try:
                         coro.close()
@@ -1858,9 +1938,7 @@ class TestLiveExecutionService:
         assert "inst1" not in stopping_instances
 
     def test_stop_instance_success(self):
-        instances = {
-            "inst1": {"strategy_id": "demo", "status": "running", "pid": 12345}
-        }
+        instances = {"inst1": {"strategy_id": "demo", "status": "running", "pid": 12345}}
         proc = Mock()
         proc.returncode = None
         proc.wait = AsyncMock()
@@ -1902,9 +1980,7 @@ class TestLiveExecutionService:
                     "inst3": {"strategy_id": "s3", "status": "stopped"},
                 },
                 is_pid_alive=lambda pid: pid == 1,
-                start_instance_callback=AsyncMock(
-                    side_effect=lambda iid: start_calls.append(iid)
-                ),
+                start_instance_callback=AsyncMock(side_effect=lambda iid: start_calls.append(iid)),
             )
         )
         assert start_result["success"] == 2
@@ -1919,9 +1995,7 @@ class TestLiveExecutionService:
                     "inst2": {"strategy_id": "s2", "status": "stopped"},
                     "inst3": {"strategy_id": "s3", "status": "running"},
                 },
-                stop_instance_callback=AsyncMock(
-                    side_effect=lambda iid: stop_calls.append(iid)
-                ),
+                stop_instance_callback=AsyncMock(side_effect=lambda iid: stop_calls.append(iid)),
             )
         )
         assert stop_result["success"] == 2

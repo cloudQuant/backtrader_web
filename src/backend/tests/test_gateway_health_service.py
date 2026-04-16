@@ -259,9 +259,7 @@ class TestGetGatewayHealth:
         assert results == []
 
     def test_direct_instance_skipped_if_pid_dead(self):
-        instances = {
-            "inst-1": {"status": "running", "pid": 99999, "strategy_id": "test"}
-        }
+        instances = {"inst-1": {"status": "running", "pid": 99999, "strategy_id": "test"}}
         results = get_gateway_health(
             gateways={},
             load_instances=lambda: instances,
@@ -286,9 +284,7 @@ class TestGetGatewayHealth:
                 "instances": {"inst-1"},
             }
         }
-        instances = {
-            "inst-1": {"status": "running", "pid": 12345, "strategy_id": "test"}
-        }
+        instances = {"inst-1": {"status": "running", "pid": 12345, "strategy_id": "test"}}
 
         results = get_gateway_health(
             gateways=gateways,
@@ -302,9 +298,7 @@ class TestGetGatewayHealth:
 
     def test_env_account_id_precedence(self):
         """Environment CTP_INVESTOR_ID takes priority over config."""
-        instances = {
-            "inst-1": {"status": "running", "pid": 1, "strategy_id": "test"}
-        }
+        instances = {"inst-1": {"status": "running", "pid": 1, "strategy_id": "test"}}
         results = get_gateway_health(
             gateways={},
             load_instances=lambda: instances,
@@ -317,9 +311,7 @@ class TestGetGatewayHealth:
 
     def test_strategy_config_load_failure(self):
         """Config load failure should not crash; account_id defaults to empty."""
-        instances = {
-            "inst-1": {"status": "running", "pid": 1, "strategy_id": "test"}
-        }
+        instances = {"inst-1": {"status": "running", "pid": 1, "strategy_id": "test"}}
         results = get_gateway_health(
             gateways={},
             load_instances=lambda: instances,

@@ -163,7 +163,9 @@ class AnalyticsService:
                     symbol=t.get("symbol", "unknown"),
                     direction=t.get("direction", "unknown"),
                     price=round(t.get("price", 0), 4),
-                    close_price=round(t["close_price"], 4) if t.get("close_price") is not None else None,
+                    close_price=round(t["close_price"], 4)
+                    if t.get("close_price") is not None
+                    else None,
                     size=abs(t.get("size", 0)),
                     value=round(abs(value), 2),
                     commission=round(t.get("commission", 0), 4),

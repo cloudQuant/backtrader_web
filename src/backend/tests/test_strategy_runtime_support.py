@@ -135,7 +135,7 @@ class TestLoadStrategyEnv:
     def test_strips_quotes_from_values(self, tmp_path: Path):
         """Test strips quotes from values."""
         env_path = tmp_path / ".env"
-        env_path.write_text('KEY1="value1"\nKEY2=\'value2\'\n')
+        env_path.write_text("KEY1=\"value1\"\nKEY2='value2'\n")
 
         result = load_strategy_env(tmp_path)
         assert result == {"KEY1": "value1", "KEY2": "value2"}
@@ -225,14 +225,18 @@ class TestInferGatewayParams:
     def test_infer_from_enabled_gateway(self, tmp_path: Path):
         """Test infers params from enabled gateway config."""
         config_path = tmp_path / "config.yaml"
-        config_path.write_text(yaml.dump({
-            "gateway": {
-                "enabled": True,
-                "provider": "ctp_gateway",
-                "exchange_type": "CTP",
-                "asset_type": "FUTURE",
-            }
-        }))
+        config_path.write_text(
+            yaml.dump(
+                {
+                    "gateway": {
+                        "enabled": True,
+                        "provider": "ctp_gateway",
+                        "exchange_type": "CTP",
+                        "asset_type": "FUTURE",
+                    }
+                }
+            )
+        )
 
         result = infer_gateway_params(tmp_path)
         assert result == {
@@ -301,8 +305,12 @@ class TestFlatLogFilenames:
 
 
 class TestWorkspaceUnitRuntime:
-    def test_sync_unit_runtime_writes_config_and_run_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "workspace_units")
+    def test_sync_unit_runtime_writes_config_and_run_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setattr(
+            workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path / "workspace_units"
+        )
 
         template_dir = tmp_path / "strategies" / "backtest" / "011_abberation"
         template_dir.mkdir(parents=True)
@@ -319,9 +327,13 @@ class TestWorkspaceUnitRuntime:
             ),
             encoding="utf-8",
         )
-        (template_dir / "strategy_abberation.py").write_text("class Dummy: pass\n", encoding="utf-8")
+        (template_dir / "strategy_abberation.py").write_text(
+            "class Dummy: pass\n", encoding="utf-8"
+        )
 
-        monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda strategy_id: template_dir)
+        monkeypatch.setattr(
+            workspace_unit_runtime, "get_strategy_dir", lambda strategy_id: template_dir
+        )
 
         unit = SimpleNamespace(
             id="unit-1",

@@ -43,7 +43,7 @@ class TestRunAsync:
 
         try:
             _run_async(fail())
-            assert False, "Should have raised"
+            raise AssertionError("Should have raised")
         except ValueError as e:
             assert "boom" in str(e)
 

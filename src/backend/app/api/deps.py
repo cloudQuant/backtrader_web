@@ -26,8 +26,7 @@ def mark_deprecated(response: Response, successor: str, endpoint_name: str) -> N
     response.headers["Deprecation"] = "true"
     response.headers["Link"] = f'<{successor}>; rel="successor-version"'
     logger.warning(
-        "Deprecated %s endpoint called. Successor: %s. "
-        "This endpoint will be removed in v2.0.0.",
+        "Deprecated %s endpoint called. Successor: %s. This endpoint will be removed in v2.0.0.",
         endpoint_name,
         successor,
     )

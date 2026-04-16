@@ -13,11 +13,17 @@
       <template #header>
         <div class="detail-header">
           <div>
-            <div class="detail-title">{{ script?.script_name || '加载中' }}</div>
-            <div class="detail-subtitle">{{ script?.script_id }}</div>
+            <div class="detail-title">
+              {{ script?.script_name || '加载中' }}
+            </div>
+            <div class="detail-subtitle">
+              {{ script?.script_id }}
+            </div>
           </div>
           <div class="detail-tags">
-            <el-tag v-if="script">{{ script.category }}</el-tag>
+            <el-tag v-if="script">
+              {{ script.category }}
+            </el-tag>
             <el-tag
               v-if="script"
               :type="script.is_active ? 'success' : 'warning'"
@@ -54,7 +60,9 @@
       </el-descriptions>
 
       <div class="run-panel">
-        <div class="section-title">手动执行</div>
+        <div class="section-title">
+          手动执行
+        </div>
         <el-alert
           type="info"
           :closable="false"
@@ -91,7 +99,9 @@
         v-if="script"
         class="json-panel"
       >
-        <div class="section-title">依赖参数定义</div>
+        <div class="section-title">
+          依赖参数定义
+        </div>
         <pre>{{ toJsonText(script.dependencies || {}) }}</pre>
       </div>
     </el-card>

@@ -17,16 +17,25 @@
       />
     </el-select>
 
-    <div v-if="selectedPreset" class="rounded border border-gray-200 bg-gray-50 p-3">
+    <div
+      v-if="selectedPreset"
+      class="rounded border border-gray-200 bg-gray-50 p-3"
+    >
       <div class="text-sm font-medium text-gray-700">
         {{ selectedPreset.name }}
       </div>
-      <div v-if="selectedPreset.description" class="mt-1 text-xs text-gray-500">
+      <div
+        v-if="selectedPreset.description"
+        class="mt-1 text-xs text-gray-500"
+      >
         {{ selectedPreset.description }}
       </div>
     </div>
 
-    <div v-if="editableFields.length" class="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div
+      v-if="editableFields.length"
+      class="grid grid-cols-1 gap-3 md:grid-cols-2"
+    >
       <el-form-item
         v-for="field in editableFields"
         :key="field.key"

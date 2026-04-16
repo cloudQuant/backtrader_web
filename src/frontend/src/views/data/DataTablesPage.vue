@@ -3,10 +3,16 @@
     <template #header>
       <div class="header-row">
         <div>
-          <div class="page-title">数据表</div>
-          <div class="page-subtitle">查看已落盘数据表、更新状态和表详情预览。</div>
+          <div class="page-title">
+            数据表
+          </div>
+          <div class="page-subtitle">
+            查看已落盘数据表、更新状态和表详情预览。
+          </div>
         </div>
-        <el-tag type="info">共 {{ total }} 张</el-tag>
+        <el-tag type="info">
+          共 {{ total }} 张
+        </el-tag>
       </div>
     </template>
 

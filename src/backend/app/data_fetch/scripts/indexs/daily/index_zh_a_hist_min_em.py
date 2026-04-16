@@ -189,7 +189,7 @@ class IndexZhAHistMinEm(AkshareToMySql):
                 start = batch_idx * batch_size
                 symbol_list = symbol_list[start : start + batch_size]
                 self.logger.info(
-                    f"Processing batch {batch_idx+1}/{batches}: {len(symbol_list)} indices"
+                    f"Processing batch {batch_idx + 1}/{batches}: {len(symbol_list)} indices"
                 )
             else:
                 symbol_list = [symbol]

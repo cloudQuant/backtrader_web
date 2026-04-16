@@ -9,7 +9,6 @@ import time
 import uuid
 
 from starlette.datastructures import MutableHeaders
-from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.utils.logger import audit_logger, bind_request_context, get_logger
@@ -17,12 +16,21 @@ from app.utils.logger import audit_logger, bind_request_context, get_logger
 logger = get_logger(__name__)
 
 # Query parameter names that must be redacted from logs
-_SENSITIVE_PARAMS = frozenset({
-    "token", "access_token", "refresh_token",
-    "password", "passwd", "secret",
-    "key", "api_key", "apikey",
-    "authorization", "auth",
-})
+_SENSITIVE_PARAMS = frozenset(
+    {
+        "token",
+        "access_token",
+        "refresh_token",
+        "password",
+        "passwd",
+        "secret",
+        "key",
+        "api_key",
+        "apikey",
+        "authorization",
+        "auth",
+    }
+)
 
 _SKIP_PATHS = frozenset(["/health", "/metrics", "/docs", "/redoc", "/openapi.json"])
 
@@ -32,6 +40,7 @@ def _sanitize_query_params(query_string: str) -> str | None:
     if not query_string:
         return None
     from urllib.parse import parse_qs
+
     params = parse_qs(query_string, keep_blank_values=True)
     sanitized = {}
     for key, vals in params.items():

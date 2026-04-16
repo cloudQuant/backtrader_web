@@ -25,7 +25,9 @@ def is_pid_alive(pid: int) -> bool:
         _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
         kernel32 = ctypes.windll.kernel32
         handle = kernel32.OpenProcess(
-            _PROCESS_QUERY_LIMITED_INFORMATION, False, pid,
+            _PROCESS_QUERY_LIMITED_INFORMATION,
+            False,
+            pid,
         )
         if handle:
             kernel32.CloseHandle(handle)
@@ -45,6 +47,7 @@ def kill_pid(pid: int) -> None:
         pid: The process ID to kill.
     """
     import logging
+
     logger = logging.getLogger(__name__)
 
     if sys.platform == "win32":
@@ -80,10 +83,18 @@ def scan_running_strategy_pids() -> dict[str, int]:
     try:
         if sys.platform == "win32":
             out = _sp.check_output(
-                ["wmic", "process", "where",
-                 "CommandLine like '%run.py%'",
-                 "get", "ProcessId,CommandLine", "/FORMAT:CSV"],
-                text=True, timeout=10, stderr=_sp.DEVNULL,
+                [
+                    "wmic",
+                    "process",
+                    "where",
+                    "CommandLine like '%run.py%'",
+                    "get",
+                    "ProcessId,CommandLine",
+                    "/FORMAT:CSV",
+                ],
+                text=True,
+                timeout=10,
+                stderr=_sp.DEVNULL,
                 creationflags=_sp.CREATE_NO_WINDOW,
             )
             for line in out.splitlines():
@@ -127,5 +138,6 @@ def scan_running_strategy_pids() -> dict[str, int]:
     except Exception as e:
         # Process scan is best-effort; log and return empty result
         import logging
+
         logging.getLogger(__name__).debug("Process scan failed: %s", e)
     return result

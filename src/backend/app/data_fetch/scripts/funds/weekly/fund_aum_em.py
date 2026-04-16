@@ -63,7 +63,7 @@ class FundAumEm(AkshareToMySql):
 
             # 如果解析出的日期在将来，则使用去年
             if update_date and update_date > datetime.now().date():
-                full_date_str = f"{current_year-1}-{date_str}"
+                full_date_str = f"{current_year - 1}-{date_str}"
                 update_date = self.parse_date(full_date_str, "%Y-%m-%d")
 
             return date_str, update_date

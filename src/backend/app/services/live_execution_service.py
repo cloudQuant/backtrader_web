@@ -28,7 +28,11 @@ async def start_instance(
 
     try:
         runtime_dir = str(inst.get("runtime_dir") or "").strip()
-        strategy_dir = Path(runtime_dir).expanduser() if runtime_dir else resolve_strategy_dir(inst["strategy_id"])
+        strategy_dir = (
+            Path(runtime_dir).expanduser()
+            if runtime_dir
+            else resolve_strategy_dir(inst["strategy_id"])
+        )
     except ValueError as exc:
         raise ValueError(f"Invalid strategy_id: {inst['strategy_id']}") from exc
     run_py = strategy_dir / "run.py"
@@ -40,9 +44,7 @@ async def start_instance(
     if sys.platform == "win32":
         import subprocess as _sp
 
-        sub_kwargs["creationflags"] = (
-            _sp.CREATE_NEW_PROCESS_GROUP | _sp.CREATE_NO_WINDOW
-        )
+        sub_kwargs["creationflags"] = _sp.CREATE_NEW_PROCESS_GROUP | _sp.CREATE_NO_WINDOW
     try:
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
@@ -184,6 +186,7 @@ async def wait_process(
         # wait() may raise if process already terminated; safe to ignore
         # but log for debugging visibility
         import logging
+
         logging.getLogger(__name__).debug("proc.wait() raised (ignored): %s", e)
     finally:
         instances = load_instances()
@@ -218,6 +221,7 @@ async def wait_process(
                         except Exception as e:
                             # stderr read failed; use empty string
                             import logging
+
                             logging.getLogger(__name__).warning("Failed to read stderr: %s", e)
                     inst["status"] = "error"
                     inst["error"] = stderr or f"Process exit code: {proc.returncode}"

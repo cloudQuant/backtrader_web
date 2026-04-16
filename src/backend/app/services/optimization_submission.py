@@ -36,13 +36,17 @@ def submit_optimization(
     artifact_root: str | None = None,
     *,
     get_strategy_dir: Callable[[str], Path],
-    generate_param_grid_fn: Callable[[dict[str, dict[str, float]]], list[dict[str, Any]]] = generate_param_grid,
+    generate_param_grid_fn: Callable[
+        [dict[str, dict[str, float]]], list[dict[str, Any]]
+    ] = generate_param_grid,
     set_task_fn: Callable[[str, dict[str, Any]], Any],
     build_initial_runtime_task_fn: Callable[..., dict[str, Any]],
     created_at_fn: Callable[[], str],
     running_status: str,
     thread_cls: Callable[..., Any],
-    run_optimization_thread_fn: Callable[[str, str, list[dict[str, Any]], int, bool, str | None], Any],
+    run_optimization_thread_fn: Callable[
+        [str, str, list[dict[str, Any]], int, bool, str | None], Any
+    ],
     task_id_factory: Callable[[], str],
     strategy_dir_override: str | Path | None = None,
 ) -> str:

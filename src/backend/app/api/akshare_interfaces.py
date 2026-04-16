@@ -57,7 +57,12 @@ async def list_interfaces(
     total = int((await db.execute(count_stmt)).scalar() or 0)
     stmt = stmt.order_by(DataInterface.id).offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(stmt)
-    return {"items": list(result.scalars().all()), "total": total, "page": page, "page_size": page_size}
+    return {
+        "items": list(result.scalars().all()),
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
 @router.get("/interfaces/{interface_id}")

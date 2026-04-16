@@ -1,6 +1,18 @@
 <template>
-  <el-dialog :model-value="modelValue" title="策略研究--优化参数设置" width="750px" @update:model-value="$emit('update:modelValue', $event)" @open="initForm">
-    <el-form v-if="unit" ref="formRef" :model="form" label-width="120px" size="default">
+  <el-dialog
+    :model-value="modelValue"
+    title="策略研究--优化参数设置"
+    width="750px"
+    @update:model-value="$emit('update:modelValue', $event)"
+    @open="initForm"
+  >
+    <el-form
+      v-if="unit"
+      ref="formRef"
+      :model="form"
+      label-width="120px"
+      size="default"
+    >
       <el-form-item label="源策略单元">
         <span class="font-medium">{{ unit.strategy_name || unit.strategy_id }} @ {{ unit.symbol }}_{{ unit.timeframe }}</span>
       </el-form-item>
@@ -8,16 +20,34 @@
       <el-row :gutter="20">
         <el-col :span="12">
           <el-form-item label="优化目标">
-            <el-select v-model="form.objective" style="width: 100%">
-              <el-option label="夏普比率最大" value="sharpe_max" />
-              <el-option label="最大收益" value="max_return" />
-              <el-option label="最小回撤" value="min_drawdown" />
+            <el-select
+              v-model="form.objective"
+              style="width: 100%"
+            >
+              <el-option
+                label="夏普比率最大"
+                value="sharpe_max"
+              />
+              <el-option
+                label="最大收益"
+                value="max_return"
+              />
+              <el-option
+                label="最小回撤"
+                value="min_drawdown"
+              />
             </el-select>
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="最优显示">
-            <el-input-number v-model="form.max_display" :min="100" :max="50000" :step="100" style="width: 140px" />
+            <el-input-number
+              v-model="form.max_display"
+              :min="100"
+              :max="50000"
+              :step="100"
+              style="width: 140px"
+            />
             <span class="ml-1 text-gray-400">条</span>
           </el-form-item>
         </el-col>
@@ -26,68 +56,163 @@
       <el-row :gutter="20">
         <el-col :span="12">
           <el-form-item label="初始资金(万)">
-            <el-input-number v-model="form.initial_cash_wan" :min="1" :precision="2" style="width: 160px" />
+            <el-input-number
+              v-model="form.initial_cash_wan"
+              :min="1"
+              :precision="2"
+              style="width: 160px"
+            />
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="计算方式">
             <el-radio-group v-model="form.calculation_method">
-              <el-radio value="geometric">几何</el-radio>
-              <el-radio value="arithmetic">算术</el-radio>
+              <el-radio value="geometric">
+                几何
+              </el-radio>
+              <el-radio value="arithmetic">
+                算术
+              </el-radio>
             </el-radio-group>
           </el-form-item>
         </el-col>
       </el-row>
 
-      <el-divider content-position="left">参数列表</el-divider>
+      <el-divider content-position="left">
+        参数列表
+      </el-divider>
 
-      <el-table :data="form.param_layers" border size="small" class="mb-4">
-        <el-table-column label="参数名" width="120">
+      <el-table
+        :data="form.param_layers"
+        border
+        size="small"
+        class="mb-4"
+      >
+        <el-table-column
+          label="参数名"
+          width="120"
+        >
           <template #default="{ row }">
-            <el-input v-model="row.param_name" size="small" />
+            <el-input
+              v-model="row.param_name"
+              size="small"
+            />
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="80" align="center">
-          <template #default>数值型</template>
-        </el-table-column>
-        <el-table-column label="当前值" width="100">
-          <template #default="{ row }">
-            <el-input-number v-model="row.current_value" :controls="false" size="small" style="width: 100%" />
+        <el-table-column
+          label="类型"
+          width="80"
+          align="center"
+        >
+          <template #default>
+            数值型
           </template>
         </el-table-column>
-        <el-table-column label="优化设置" min-width="240">
+        <el-table-column
+          label="当前值"
+          width="100"
+        >
+          <template #default="{ row }">
+            <el-input-number
+              v-model="row.current_value"
+              :controls="false"
+              size="small"
+              style="width: 100%"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="优化设置"
+          min-width="240"
+        >
           <template #default="{ row }">
             <div class="flex items-center gap-1">
-              <el-select v-model="row.opt_type" size="small" style="width: 80px">
-                <el-option label="等差" value="equal_diff" />
-                <el-option label="固定" value="fixed" />
+              <el-select
+                v-model="row.opt_type"
+                size="small"
+                style="width: 80px"
+              >
+                <el-option
+                  label="等差"
+                  value="equal_diff"
+                />
+                <el-option
+                  label="固定"
+                  value="fixed"
+                />
               </el-select>
               <template v-if="row.opt_type === 'equal_diff'">
-                <el-input-number v-model="row.start" :controls="false" size="small" style="width: 70px" placeholder="起始" />
+                <el-input-number
+                  v-model="row.start"
+                  :controls="false"
+                  size="small"
+                  style="width: 70px"
+                  placeholder="起始"
+                />
                 <span>~</span>
-                <el-input-number v-model="row.end" :controls="false" size="small" style="width: 70px" placeholder="结束" />
+                <el-input-number
+                  v-model="row.end"
+                  :controls="false"
+                  size="small"
+                  style="width: 70px"
+                  placeholder="结束"
+                />
                 <span>,</span>
-                <el-input-number v-model="row.step" :controls="false" size="small" style="width: 60px" placeholder="步长" />
+                <el-input-number
+                  v-model="row.step"
+                  :controls="false"
+                  size="small"
+                  style="width: 60px"
+                  placeholder="步长"
+                />
               </template>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="" width="50" align="center">
+        <el-table-column
+          label=""
+          width="50"
+          align="center"
+        >
           <template #default="{ $index }">
-            <el-button link type="danger" size="small" @click="form.param_layers.splice($index, 1)">
+            <el-button
+              link
+              type="danger"
+              size="small"
+              @click="form.param_layers.splice($index, 1)"
+            >
               <el-icon><Delete /></el-icon>
             </el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-button size="small" @click="addParamLayer">添加参数</el-button>
+      <el-button
+        size="small"
+        @click="addParamLayer"
+      >
+        添加参数
+      </el-button>
     </el-form>
 
     <template #footer>
-      <el-button @click="$emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="handleSave">保存配置</el-button>
-      <el-button type="success" :loading="submitting" @click="handleSubmitOptimization">保存并提交优化</el-button>
+      <el-button @click="$emit('update:modelValue', false)">
+        取消
+      </el-button>
+      <el-button
+        type="primary"
+        :loading="saving"
+        @click="handleSave"
+      >
+        保存配置
+      </el-button>
+      <el-button
+        type="success"
+        :loading="submitting"
+        @click="handleSubmitOptimization"
+      >
+        保存并提交优化
+      </el-button>
     </template>
   </el-dialog>
 </template>

@@ -17,7 +17,10 @@ async def test_lifespan_runs_startup_and_shutdown(monkeypatch):
         main_module.settings, "SECRET_KEY", "your-secret-key-change-in-production", raising=False
     )
     monkeypatch.setattr(
-        main_module.settings, "JWT_SECRET_KEY", "your-jwt-secret-change-in-production", raising=False
+        main_module.settings,
+        "JWT_SECRET_KEY",
+        "your-jwt-secret-change-in-production",
+        raising=False,
     )
     monkeypatch.setattr(main_module.settings, "ADMIN_PASSWORD", "admin123", raising=False)
 

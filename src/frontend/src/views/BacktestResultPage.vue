@@ -43,13 +43,22 @@
           </p>
         </div>
         <div class="flex gap-2">
-          <el-button v-if="isOptimizationArtifactMode" @click="handleOpenArtifactDir">
+          <el-button
+            v-if="isOptimizationArtifactMode"
+            @click="handleOpenArtifactDir"
+          >
             <el-icon><FolderOpened /></el-icon>打开 artifact 目录
           </el-button>
-          <el-button v-if="isOptimizationArtifactMode" @click="handleDownloadArtifact">
+          <el-button
+            v-if="isOptimizationArtifactMode"
+            @click="handleDownloadArtifact"
+          >
             <el-icon><Download /></el-icon>下载结果
           </el-button>
-          <el-button v-if="!isOptimizationArtifactMode" @click="handleExport('csv')">
+          <el-button
+            v-if="!isOptimizationArtifactMode"
+            @click="handleExport('csv')"
+          >
             <el-icon><Download /></el-icon>导出CSV
           </el-button>
           <el-button
@@ -267,6 +276,7 @@ async function handleOpenArtifactDir() {
       await navigator.clipboard.writeText(artifactPath)
     }
   } catch {
+    // Silently ignore clipboard errors
   }
   window.open(`file://${encodeURI(artifactPath.replace(/\\/g, '/'))}`, '_blank', 'noopener')
   ElMessage.success('已尝试打开 artifact 目录，并复制路径到剪贴板')

@@ -9,10 +9,12 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-_DEFAULT_SECRETS = frozenset({
-    "your-secret-key-change-in-production",
-    "your-jwt-secret-change-in-production",
-})
+_DEFAULT_SECRETS = frozenset(
+    {
+        "your-secret-key-change-in-production",
+        "your-jwt-secret-change-in-production",
+    }
+)
 
 _DEFAULT_PASSWORDS = frozenset({"admin123", "password", "12345678"})
 
@@ -114,7 +116,9 @@ class Settings(BaseSettings):
     # Service settings
     # NOTE: HOST="0.0.0.0" binds to all interfaces for development convenience.
     # In production, set HOST to specific IP or use firewall rules to restrict access.
-    HOST: str = Field(default="0.0.0.0", description="Server host address (use specific IP in production)")
+    HOST: str = Field(
+        default="0.0.0.0", description="Server host address (use specific IP in production)"
+    )
     PORT: int = Field(default=8000, description="Server port")
 
     # Backtest subprocess timeout (seconds)
@@ -149,10 +153,14 @@ class Settings(BaseSettings):
     )
     ADMIN_EMAIL: str = Field(default="admin@example.com", description="Default admin email")
 
-    SYNC_LOCAL_MYSQL_HOST: str = Field(default="127.0.0.1", description="Local MySQL host for data sync")
+    SYNC_LOCAL_MYSQL_HOST: str = Field(
+        default="127.0.0.1", description="Local MySQL host for data sync"
+    )
     SYNC_LOCAL_MYSQL_PORT: int = Field(default=3306, description="Local MySQL port for data sync")
     SYNC_LOCAL_MYSQL_USER: str = Field(default="root", description="Local MySQL user for data sync")
-    SYNC_LOCAL_MYSQL_PASSWORD: str = Field(default="", description="Local MySQL password for data sync")
+    SYNC_LOCAL_MYSQL_PASSWORD: str = Field(
+        default="", description="Local MySQL password for data sync"
+    )
 
     # CTP credentials (read from .env for form pre-fill)
     CTP_BROKER_ID: str = Field(default="", description="CTP broker ID")

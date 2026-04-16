@@ -49,6 +49,7 @@ class InterceptHandler(logging.Handler):
 
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
 
+
 # Sensitive data patterns to filter from logs
 SENSITIVE_PATTERNS = [
     "password",
@@ -209,12 +210,18 @@ def _add_console_handler(level: str, debug: bool) -> None:
         )
     else:
         fmt = _PLAIN_FORMAT
-    logger.add(sys.stdout, format=fmt, level=level, colorize=debug, catch=True, filter=_patch_record)
+    logger.add(
+        sys.stdout, format=fmt, level=level, colorize=debug, catch=True, filter=_patch_record
+    )
 
 
 def _add_file_handler(
-    logs_path: Path, filename: str, use_json: bool, *,
-    level: str = "INFO", retention: str = "30 days",
+    logs_path: Path,
+    filename: str,
+    use_json: bool,
+    *,
+    level: str = "INFO",
+    retention: str = "30 days",
     fmt_override: str | None = None,
     tag_filter: str | None = None,
     backtrace: bool = False,
@@ -276,14 +283,19 @@ def setup_logger(
     _add_file_handler(logs_path, "app_{time:YYYY-MM-DD}.log", use_json, retention="30 days")
 
     _add_file_handler(
-        logs_path, "errors_{time:YYYY-MM-DD}.log", use_json,
-        level="ERROR", retention="90 days",
+        logs_path,
+        "errors_{time:YYYY-MM-DD}.log",
+        use_json,
+        level="ERROR",
+        retention="90 days",
         fmt_override=_PLAIN_FORMAT + "\n{exception}",
         backtrace=True,
     )
 
     _add_file_handler(
-        logs_path, "audit_{time:YYYY-MM-DD}.log", use_json,
+        logs_path,
+        "audit_{time:YYYY-MM-DD}.log",
+        use_json,
         retention="365 days",
         fmt_override=(
             "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
@@ -293,7 +305,9 @@ def setup_logger(
     )
 
     _add_file_handler(
-        logs_path, "backtest_{time:YYYY-MM-DD}.log", use_json,
+        logs_path,
+        "backtest_{time:YYYY-MM-DD}.log",
+        use_json,
         retention="60 days",
         fmt_override=(
             "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "

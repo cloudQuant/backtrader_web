@@ -1,6 +1,6 @@
+import json
 import logging
 import math
-import json
 import os
 import shutil
 import subprocess
@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
 from app.services.log_parser_service import parse_log_dir
 from app.services.strategy_runtime_support import has_log_artifacts, latest_meaningful_log_subdir
 
@@ -26,9 +27,7 @@ def safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
-def _aggregate_period_returns(
-    daily_returns: list[float], period_size: int
-) -> list[float]:
+def _aggregate_period_returns(daily_returns: list[float], period_size: int) -> list[float]:
     """Group daily returns into period returns (weekly=5, monthly=21)."""
     result = []
     for i in range(0, len(daily_returns), period_size):
@@ -102,7 +101,9 @@ def _persist_trial_artifacts(
     _write_json(trial_artifact_dir / "params.json", params)
     if metrics:
         _write_json(trial_artifact_dir / "metrics.json", metrics)
-    _write_json(trial_artifact_dir / "result.json", {**result, "artifact_path": str(trial_artifact_dir)})
+    _write_json(
+        trial_artifact_dir / "result.json", {**result, "artifact_path": str(trial_artifact_dir)}
+    )
     _write_json(trial_artifact_dir / "summary.json", trial_summary)
     if stdout_text:
         _write_text(trial_artifact_dir / "stdout.txt", stdout_text)
@@ -196,9 +197,7 @@ def parse_trial_logs(
     monthly_avg, monthly_min, monthly_max = _period_stats(monthly_pct)
 
     # Return-risk ratio (annual_return / max_drawdown)
-    adjusted_return_risk = (
-        annual_return / max_dd if max_dd > 0 else 0.0
-    )
+    adjusted_return_risk = annual_return / max_dd if max_dd > 0 else 0.0
 
     # ---- Parse trade log ----
     total_trades = len(trades)
@@ -218,9 +217,7 @@ def parse_trial_logs(
     profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0
     profit_factor = total_win_amount / total_loss_amount if total_loss_amount > 0 else 0
     profit_rate_factor = (
-        (avg_win / avg_loss) * (win_trades / loss_trades)
-        if avg_loss > 0 and loss_trades > 0
-        else 0
+        (avg_win / avg_loss) * (win_trades / loss_trades) if avg_loss > 0 and loss_trades > 0 else 0
     )
     profit_loss_rate_ratio = profit_loss_ratio
     odds = (win_rate / 100 * profit_loss_ratio) if profit_loss_ratio > 0 else 0

@@ -1,11 +1,13 @@
 """Tests for optimization task state management."""
 
-from datetime import datetime, timedelta, timezone
 import threading
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from app.services.optimization_task_state import (
     METRIC_NAMES,
+    _runtime_tasks,
+    _runtime_tasks_lock,
     build_initial_runtime_task,
     build_progress_response,
     build_results_response,
@@ -15,8 +17,6 @@ from app.services.optimization_task_state import (
     get_runtime_task,
     set_runtime_task,
     update_runtime_task,
-    _runtime_tasks,
-    _runtime_tasks_lock,
 )
 
 
@@ -190,20 +190,39 @@ class TestBuildFromDBTask:
 
 class TestBuildProgressResponse:
     def test_calculates_progress_percentage(self):
-        task = {"status": "running", "strategy_id": "test", "total": 100,
-                "completed": 40, "failed": 10, "n_workers": 4, "created_at": ""}
+        task = {
+            "status": "running",
+            "strategy_id": "test",
+            "total": 100,
+            "completed": 40,
+            "failed": 10,
+            "n_workers": 4,
+            "created_at": "",
+        }
         resp = build_progress_response("t1", task)
         assert resp["progress"] == 50.0  # (40+10)/100 * 100
 
     def test_zero_total(self):
-        task = {"status": "pending", "total": 0, "completed": 0, "failed": 0,
-                "n_workers": 4, "created_at": ""}
+        task = {
+            "status": "pending",
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "n_workers": 4,
+            "created_at": "",
+        }
         resp = build_progress_response("t1", task)
         assert resp["progress"] == 0
 
     def test_handles_none_values(self):
-        task = {"status": "pending", "total": None, "completed": None,
-                "failed": None, "n_workers": None, "created_at": None}
+        task = {
+            "status": "pending",
+            "total": None,
+            "completed": None,
+            "failed": None,
+            "n_workers": None,
+            "created_at": None,
+        }
         resp = build_progress_response("t1", task)
         assert resp["total"] == 0
         assert resp["n_workers"] == 4
@@ -277,10 +296,18 @@ class TestBuildProgressResponse:
                 status="running",
             ),
         )
-        update_runtime_task("t-eta", completed=1, updated_at=(created + timedelta(seconds=30)).isoformat())
-        update_runtime_task("t-eta", completed=2, updated_at=(created + timedelta(seconds=35)).isoformat())
-        update_runtime_task("t-eta", completed=3, updated_at=(created + timedelta(seconds=40)).isoformat())
-        update_runtime_task("t-eta", completed=4, updated_at=(created + timedelta(seconds=45)).isoformat())
+        update_runtime_task(
+            "t-eta", completed=1, updated_at=(created + timedelta(seconds=30)).isoformat()
+        )
+        update_runtime_task(
+            "t-eta", completed=2, updated_at=(created + timedelta(seconds=35)).isoformat()
+        )
+        update_runtime_task(
+            "t-eta", completed=3, updated_at=(created + timedelta(seconds=40)).isoformat()
+        )
+        update_runtime_task(
+            "t-eta", completed=4, updated_at=(created + timedelta(seconds=45)).isoformat()
+        )
         task = get_runtime_task("t-eta")
 
         with patch("app.services.optimization_task_state.datetime") as mock_datetime:
@@ -467,9 +494,15 @@ class TestBuildResultsResponse:
         assert resp["rows"][1]["result_index"] == 0
 
     def test_empty_results(self):
-        task = {"status": "completed", "strategy_id": "test",
-                "param_names": [], "total": 0, "completed": 0, "failed": 0,
-                "results": []}
+        task = {
+            "status": "completed",
+            "strategy_id": "test",
+            "param_names": [],
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "results": [],
+        }
         resp = build_results_response("t1", task)
         assert resp["rows"] == []
         assert resp["best"] is None

@@ -142,9 +142,7 @@ def _build_error_snapshot(key: str, state: dict[str, Any], exc: Exception) -> di
     snap["recent_errors"] = [
         {
             "source": "health_snapshot",
-            "message": (
-                f"{type(exc).__name__}: {message}" if message else type(exc).__name__
-            ),
+            "message": (f"{type(exc).__name__}: {message}" if message else type(exc).__name__),
         }
     ]
     return snap
@@ -182,7 +180,9 @@ def _normalize_runtime_snapshot(
     snap["tick_count"] = _coerce_int(snapshot.get("tick_count"), 0)
     snap["order_count"] = _coerce_int(snapshot.get("order_count"), 0)
     snap["ref_count"] = max(_resolve_ref_count(state), _coerce_int(snapshot.get("ref_count"), 0))
-    snap["instances"] = _normalize_instances(snapshot.get("instances", state.get("instances", set())))
+    snap["instances"] = _normalize_instances(
+        snapshot.get("instances", state.get("instances", set()))
+    )
     snap["recent_errors"] = _normalize_recent_errors(snapshot.get("recent_errors"))
     if snapshot.get("strategy_name") not in (None, ""):
         snap["strategy_name"] = _coerce_string(snapshot.get("strategy_name"))
@@ -325,6 +325,7 @@ def get_gateway_health(
         except Exception as e:
             # Strategy config load failed; use empty account_id
             import logging
+
             logging.getLogger(__name__).debug(
                 "Failed to load strategy config for %s: %s", strategy_id, e
             )

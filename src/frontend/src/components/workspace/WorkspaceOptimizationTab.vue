@@ -1,248 +1,536 @@
 <template>
   <div class="workspace-optimization-tab">
-    <teleport to="#page-header-actions" :disabled="!props.toolbarInHeader || !props.active">
+    <teleport
+      to="#page-header-actions"
+      :disabled="!props.toolbarInHeader || !props.active"
+    >
       <div
         class="flex items-center justify-between flex-wrap gap-2"
         :class="props.toolbarInHeader && props.active ? 'mb-0' : 'mb-4'"
       >
         <div class="flex items-center gap-2 flex-wrap">
-        <el-select v-model="selectedUnitId" placeholder="选择单元查看优化结果" style="width: 300px" size="small" @change="loadResults">
-          <el-option
-            v-for="u in units"
-            :key="u.id"
-            :label="`${u.strategy_name || u.strategy_id} @ ${u.symbol}_${u.timeframe}`"
-            :value="u.id"
-          />
-        </el-select>
+          <el-select
+            v-model="selectedUnitId"
+            placeholder="选择单元查看优化结果"
+            style="width: 300px"
+            size="small"
+            @change="loadResults"
+          >
+            <el-option
+              v-for="u in units"
+              :key="u.id"
+              :label="`${u.strategy_name || u.strategy_id} @ ${u.symbol}_${u.timeframe}`"
+              :value="u.id"
+            />
+          </el-select>
 
-        <!-- Group 1: Open / Save -->
-        <el-button-group>
-          <el-tooltip content="打开" placement="top">
-            <el-button size="small" @click="handleOpenFile">
-              <el-icon><FolderOpened /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="保存" placement="top">
-            <el-button :disabled="!hasResults" size="small" @click="handleSaveResults">
-              <el-icon><Download /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-button-group>
+          <!-- Group 1: Open / Save -->
+          <el-button-group>
+            <el-tooltip
+              content="打开"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="handleOpenFile"
+              >
+                <el-icon><FolderOpened /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="保存"
+              placement="top"
+            >
+              <el-button
+                :disabled="!hasResults"
+                size="small"
+                @click="handleSaveResults"
+              >
+                <el-icon><Download /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </el-button-group>
 
-        <!-- Group 2: Apply best params -->
-        <el-button-group>
-          <el-tooltip content="应用最佳参数" placement="top">
-            <el-button :disabled="!hasResults" size="small" type="primary" @click="handleApplyBest">
-              <el-icon><Check /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="应用最佳参数到图表和策略单元" placement="top">
-            <el-button :disabled="!hasResults" size="small" type="success" @click="handleApplyBestAndOpen">
-              <el-icon><Position /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="参数优化测试报告" placement="top">
-            <el-button :disabled="!hasResults" size="small" @click="handleTestReport">
-              <el-icon><Document /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-button-group>
+          <!-- Group 2: Apply best params -->
+          <el-button-group>
+            <el-tooltip
+              content="应用最佳参数"
+              placement="top"
+            >
+              <el-button
+                :disabled="!hasResults"
+                size="small"
+                type="primary"
+                @click="handleApplyBest"
+              >
+                <el-icon><Check /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="应用最佳参数到图表和策略单元"
+              placement="top"
+            >
+              <el-button
+                :disabled="!hasResults"
+                size="small"
+                type="success"
+                @click="handleApplyBestAndOpen"
+              >
+                <el-icon><Position /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="参数优化测试报告"
+              placement="top"
+            >
+              <el-button
+                :disabled="!hasResults"
+                size="small"
+                @click="handleTestReport"
+              >
+                <el-icon><Document /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </el-button-group>
 
-        <!-- Group 3: View mode -->
-        <el-button-group>
-          <el-tooltip content="表格" placement="top">
-            <el-button size="small" :type="viewMode === 'table' ? 'primary' : ''" @click="viewMode = 'table'">
-              <el-icon><Grid /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="参数分析" placement="top">
-            <el-button size="small" :type="viewMode === 'analysis' ? 'primary' : ''" @click="viewMode = 'analysis'">
-              <el-icon><Operation /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-button-group>
+          <!-- Group 3: View mode -->
+          <el-button-group>
+            <el-tooltip
+              content="表格"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :type="viewMode === 'table' ? 'primary' : ''"
+                @click="viewMode = 'table'"
+              >
+                <el-icon><Grid /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="参数分析"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                :type="viewMode === 'analysis' ? 'primary' : ''"
+                @click="viewMode = 'analysis'"
+              >
+                <el-icon><Operation /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </el-button-group>
 
-        <!-- Group 4: Filter / Sort / Reset -->
-        <el-button-group>
-          <el-tooltip content="显示筛选" placement="top">
-            <el-button size="small" @click="showFilter = !showFilter">
-              <el-icon><Filter /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="还原" placement="top">
-            <el-button size="small" @click="handleReset">
-              <el-icon><RefreshLeft /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-button-group>
+          <!-- Group 4: Filter / Sort / Reset -->
+          <el-button-group>
+            <el-tooltip
+              content="显示筛选"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="showFilter = !showFilter"
+              >
+                <el-icon><Filter /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="还原"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="handleReset"
+              >
+                <el-icon><RefreshLeft /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </el-button-group>
 
-        <!-- Group 5: Config -->
-        <el-button-group>
-          <el-tooltip content="统计时间" placement="top">
-            <el-button size="small" @click="showStatTimeDialog = true">
-              <el-icon><Timer /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="计算方式" placement="top">
-            <el-button size="small" @click="showCalcMethodDialog = true">
-              <el-icon><Operation /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="自定义字段" placement="top">
-            <el-button size="small" @click="showCustomFieldsDialog = true">
-              <el-icon><SetUp /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-button-group>
+          <!-- Group 5: Config -->
+          <el-button-group>
+            <el-tooltip
+              content="统计时间"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="showStatTimeDialog = true"
+              >
+                <el-icon><Timer /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="计算方式"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="showCalcMethodDialog = true"
+              >
+                <el-icon><Operation /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="自定义字段"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="showCustomFieldsDialog = true"
+              >
+                <el-icon><SetUp /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </el-button-group>
 
-        <!-- Group 6: Actions -->
-        <el-button-group>
-          <el-tooltip content="重新计算" placement="top">
-            <el-button size="small" @click="loadResults">
-              <el-icon><Refresh /></el-icon>
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="设为默认" placement="top">
-            <el-button size="small" @click="handleSetDefault">
-              <el-icon><Star /></el-icon>
-            </el-button>
-          </el-tooltip>
-        </el-button-group>
+          <!-- Group 6: Actions -->
+          <el-button-group>
+            <el-tooltip
+              content="重新计算"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="loadResults"
+              >
+                <el-icon><Refresh /></el-icon>
+              </el-button>
+            </el-tooltip>
+            <el-tooltip
+              content="设为默认"
+              placement="top"
+            >
+              <el-button
+                size="small"
+                @click="handleSetDefault"
+              >
+                <el-icon><Star /></el-icon>
+              </el-button>
+            </el-tooltip>
+          </el-button-group>
 
-        <el-button v-if="selectedUnitId && optimizationStatus === 'running'" type="danger" size="small" @click="handleCancel">
-          取消优化
-        </el-button>
+          <el-button
+            v-if="selectedUnitId && optimizationStatus === 'running'"
+            type="danger"
+            size="small"
+            @click="handleCancel"
+          >
+            取消优化
+          </el-button>
         </div>
       </div>
     </teleport>
 
     <!-- Stat Time Dialog -->
-    <el-dialog v-model="showStatTimeDialog" title="统计时间" width="400px" destroy-on-close>
-      <el-form label-width="100px" size="small">
+    <el-dialog
+      v-model="showStatTimeDialog"
+      title="统计时间"
+      width="400px"
+      destroy-on-close
+    >
+      <el-form
+        label-width="100px"
+        size="small"
+      >
         <el-form-item label="起始时间">
-          <el-date-picker v-model="statTimeRange[0]" type="date" placeholder="选择起始日期" style="width: 100%" />
+          <el-date-picker
+            v-model="statTimeRange[0]"
+            type="date"
+            placeholder="选择起始日期"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="结束时间">
-          <el-date-picker v-model="statTimeRange[1]" type="date" placeholder="选择结束日期" style="width: 100%" />
+          <el-date-picker
+            v-model="statTimeRange[1]"
+            type="date"
+            placeholder="选择结束日期"
+            style="width: 100%"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showStatTimeDialog = false">取消</el-button>
-        <el-button type="primary" @click="showStatTimeDialog = false; loadResults()">确定</el-button>
+        <el-button @click="showStatTimeDialog = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          @click="showStatTimeDialog = false; loadResults()"
+        >
+          确定
+        </el-button>
       </template>
     </el-dialog>
 
     <!-- Calc Method Dialog -->
-    <el-dialog v-model="showCalcMethodDialog" title="计算方式" width="400px" destroy-on-close>
-      <el-form label-width="100px" size="small">
+    <el-dialog
+      v-model="showCalcMethodDialog"
+      title="计算方式"
+      width="400px"
+      destroy-on-close
+    >
+      <el-form
+        label-width="100px"
+        size="small"
+      >
         <el-form-item label="收益计算">
           <el-radio-group v-model="calcMethod">
-            <el-radio value="simple">简单收益</el-radio>
-            <el-radio value="compound">复合收益</el-radio>
+            <el-radio value="simple">
+              简单收益
+            </el-radio>
+            <el-radio value="compound">
+              复合收益
+            </el-radio>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="年化基准">
-          <el-input-number v-model="annualDays" :min="200" :max="365" />
+          <el-input-number
+            v-model="annualDays"
+            :min="200"
+            :max="365"
+          />
           <span class="ml-2 text-xs text-gray-400">天</span>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCalcMethodDialog = false">取消</el-button>
-        <el-button type="primary" @click="showCalcMethodDialog = false; ElMessage.success('计算方式已更新')">确定</el-button>
+        <el-button @click="showCalcMethodDialog = false">
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          @click="showCalcMethodDialog = false; ElMessage.success('计算方式已更新')"
+        >
+          确定
+        </el-button>
       </template>
     </el-dialog>
 
     <!-- Custom Fields Dialog -->
-    <el-dialog v-model="showCustomFieldsDialog" title="自定义字段" width="500px" destroy-on-close>
+    <el-dialog
+      v-model="showCustomFieldsDialog"
+      title="自定义字段"
+      width="500px"
+      destroy-on-close
+    >
       <el-checkbox-group v-model="visibleFields">
         <div class="grid grid-cols-3 gap-2">
-          <el-checkbox v-for="f in allFields" :key="f.key" :value="f.key">{{ f.label }}</el-checkbox>
+          <el-checkbox
+            v-for="f in allFields"
+            :key="f.key"
+            :value="f.key"
+          >
+            {{ f.label }}
+          </el-checkbox>
         </div>
       </el-checkbox-group>
       <template #footer>
-        <el-button @click="visibleFields = allFields.map(f => f.key)">全选</el-button>
-        <el-button @click="showCustomFieldsDialog = false">关闭</el-button>
+        <el-button @click="visibleFields = allFields.map(f => f.key)">
+          全选
+        </el-button>
+        <el-button @click="showCustomFieldsDialog = false">
+          关闭
+        </el-button>
       </template>
     </el-dialog>
 
     <!-- Filter row -->
-    <div v-if="showFilter" class="mb-3 flex gap-3 items-center">
+    <div
+      v-if="showFilter"
+      class="mb-3 flex gap-3 items-center"
+    >
       <span class="text-xs text-gray-400">排序:</span>
-      <el-select v-model="sortKey" size="small" style="width: 140px" @change="applySort">
-        <el-option label="夏普比率" value="sharpe_ratio" />
-        <el-option label="年化收益" value="annual_return" />
-        <el-option label="总收益率" value="total_return" />
-        <el-option label="最大回撤" value="max_drawdown" />
-        <el-option label="胜率" value="win_rate" />
-        <el-option label="盈利因子" value="profit_factor" />
+      <el-select
+        v-model="sortKey"
+        size="small"
+        style="width: 140px"
+        @change="applySort"
+      >
+        <el-option
+          label="夏普比率"
+          value="sharpe_ratio"
+        />
+        <el-option
+          label="年化收益"
+          value="annual_return"
+        />
+        <el-option
+          label="总收益率"
+          value="total_return"
+        />
+        <el-option
+          label="最大回撤"
+          value="max_drawdown"
+        />
+        <el-option
+          label="胜率"
+          value="win_rate"
+        />
+        <el-option
+          label="盈利因子"
+          value="profit_factor"
+        />
       </el-select>
-      <el-radio-group v-model="sortDir" size="small" @change="applySort">
-        <el-radio-button value="desc">降序</el-radio-button>
-        <el-radio-button value="asc">升序</el-radio-button>
+      <el-radio-group
+        v-model="sortDir"
+        size="small"
+        @change="applySort"
+      >
+        <el-radio-button value="desc">
+          降序
+        </el-radio-button>
+        <el-radio-button value="asc">
+          升序
+        </el-radio-button>
       </el-radio-group>
     </div>
 
     <!-- No unit selected -->
-    <el-empty v-if="!selectedUnitId" description="请选择一个策略单元查看其优化结果" />
+    <el-empty
+      v-if="!selectedUnitId"
+      description="请选择一个策略单元查看其优化结果"
+    />
 
     <!-- Loading -->
-    <div v-else-if="loading" class="flex justify-center py-10">
-      <el-icon class="is-loading text-2xl text-blue-500"><Loading /></el-icon>
+    <div
+      v-else-if="loading"
+      class="flex justify-center py-10"
+    >
+      <el-icon class="is-loading text-2xl text-blue-500">
+        <Loading />
+      </el-icon>
     </div>
 
     <!-- No results -->
-    <el-empty v-else-if="!hasResults" :description="emptyStateDescription" />
+    <el-empty
+      v-else-if="!hasResults"
+      :description="emptyStateDescription"
+    />
 
     <!-- Results -->
     <template v-else>
       <!-- Progress bar if running -->
-      <div v-if="optimizationStatus === 'running'" class="mb-4">
-        <el-progress :percentage="progressPct" :format="() => `${completed}/${total}`" />
+      <div
+        v-if="optimizationStatus === 'running'"
+        class="mb-4"
+      >
+        <el-progress
+          :percentage="progressPct"
+          :format="() => `${completed}/${total}`"
+        />
       </div>
 
       <!-- Summary cards -->
       <div class="grid grid-cols-4 gap-4 mb-4">
-        <el-card shadow="never" class="text-center">
-          <div class="text-sm text-gray-400">总组合数</div>
-          <div class="text-xl font-bold">{{ total }}</div>
+        <el-card
+          shadow="never"
+          class="text-center"
+        >
+          <div class="text-sm text-gray-400">
+            总组合数
+          </div>
+          <div class="text-xl font-bold">
+            {{ total }}
+          </div>
         </el-card>
-        <el-card shadow="never" class="text-center">
-          <div class="text-sm text-gray-400">已完成</div>
-          <div class="text-xl font-bold text-green-600">{{ completed }}</div>
+        <el-card
+          shadow="never"
+          class="text-center"
+        >
+          <div class="text-sm text-gray-400">
+            已完成
+          </div>
+          <div class="text-xl font-bold text-green-600">
+            {{ completed }}
+          </div>
         </el-card>
-        <el-card shadow="never" class="text-center">
-          <div class="text-sm text-gray-400">最佳参数</div>
-          <div class="text-lg font-medium">{{ bestParamsStr }}</div>
+        <el-card
+          shadow="never"
+          class="text-center"
+        >
+          <div class="text-sm text-gray-400">
+            最佳参数
+          </div>
+          <div class="text-lg font-medium">
+            {{ bestParamsStr }}
+          </div>
         </el-card>
-        <el-card shadow="never" class="text-center">
-          <div class="text-sm text-gray-400">最佳夏普</div>
-          <div class="text-xl font-bold text-blue-600">{{ bestSharpe }}</div>
+        <el-card
+          shadow="never"
+          class="text-center"
+        >
+          <div class="text-sm text-gray-400">
+            最佳夏普
+          </div>
+          <div class="text-xl font-bold text-blue-600">
+            {{ bestSharpe }}
+          </div>
         </el-card>
       </div>
 
       <!-- Table view -->
-      <el-table v-if="viewMode === 'table'" :data="displayRows" border stripe size="small" max-height="500" style="width: 100%">
-        <el-table-column label="#" width="55" align="center" fixed>
-          <template #default="{ $index }">{{ $index + 1 }}</template>
+      <el-table
+        v-if="viewMode === 'table'"
+        :data="displayRows"
+        border
+        stripe
+        size="small"
+        max-height="500"
+        style="width: 100%"
+      >
+        <el-table-column
+          label="#"
+          width="55"
+          align="center"
+          fixed
+        >
+          <template #default="{ $index }">
+            {{ $index + 1 }}
+          </template>
         </el-table-column>
-        <template v-for="paramName in paramNames" :key="`param-${paramName}`">
-          <el-table-column :label="paramName" min-width="110" align="center">
-            <template #default="{ row }">{{ row[paramName] ?? '-' }}</template>
+        <template
+          v-for="paramName in paramNames"
+          :key="`param-${paramName}`"
+        >
+          <el-table-column
+            :label="paramName"
+            min-width="110"
+            align="center"
+          >
+            <template #default="{ row }">
+              {{ row[paramName] ?? '-' }}
+            </template>
           </el-table-column>
         </template>
-        <template v-for="col in activeColumns" :key="col.key">
+        <template
+          v-for="col in activeColumns"
+          :key="col.key"
+        >
           <el-table-column
             :label="col.label"
             :width="col.width"
             :align="col.align || 'right'"
             :sortable="col.sortable"
           >
-            <template #default="{ row }">{{ col.money ? fmtMoney(row[col.key]) : col.int ? (row[col.key] ?? '-') : fmtVal(row[col.key]) }}</template>
+            <template #default="{ row }">
+              {{ col.money ? fmtMoney(row[col.key]) : col.int ? (row[col.key] ?? '-') : fmtVal(row[col.key]) }}
+            </template>
           </el-table-column>
         </template>
-        <el-table-column label="操作" width="120" align="center" fixed="right">
+        <el-table-column
+          label="操作"
+          width="120"
+          align="center"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button link type="primary" size="small" :loading="runningRow === row" @click="handleRunWithParams(row)">
+            <el-button
+              link
+              type="primary"
+              size="small"
+              :loading="runningRow === row"
+              @click="handleRunWithParams(row)"
+            >
               回测详情
             </el-button>
           </template>
@@ -251,7 +539,10 @@
 
       <!-- Analysis view -->
       <div v-else-if="viewMode === 'analysis'">
-        <el-card shadow="never" class="mb-4">
+        <el-card
+          shadow="never"
+          class="mb-4"
+        >
           <div class="flex flex-wrap items-center gap-3 mb-4">
             <span class="text-sm text-gray-500">参数</span>
             <el-select
@@ -272,7 +563,12 @@
               />
             </el-select>
             <span class="text-sm text-gray-500">目标值</span>
-            <el-select v-model="analysisMetric" placeholder="选择目标值" size="small" style="width: 220px">
+            <el-select
+              v-model="analysisMetric"
+              placeholder="选择目标值"
+              size="small"
+              style="width: 220px"
+            >
               <el-option
                 v-for="option in metricOptions"
                 :key="`analysis-metric-${option.value}`"
@@ -281,13 +577,20 @@
               />
             </el-select>
           </div>
-          <div class="text-sm text-gray-500 mb-3">{{ analysisDescription }}</div>
+          <div class="text-sm text-gray-500 mb-3">
+            {{ analysisDescription }}
+          </div>
           <div
             v-if="selectedAnalysisMode"
             ref="analysisChartRef"
             :style="{ height: selectedAnalysisMode === 'scatter3d' ? '520px' : '420px', width: '100%' }"
           />
-          <div v-else class="text-center text-gray-400 py-12">请选择 1-3 个参数进行分析</div>
+          <div
+            v-else
+            class="text-center text-gray-400 py-12"
+          >
+            请选择 1-3 个参数进行分析
+          </div>
         </el-card>
       </div>
     </template>

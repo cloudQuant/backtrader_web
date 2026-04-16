@@ -30,6 +30,7 @@ def _kill_process_on_port(port: int) -> None:
     """
     try:
         import psutil
+
         for conn in psutil.net_connections(kind="tcp"):
             status = str(getattr(conn, "status", "") or "").upper()
             if conn.laddr.port == port and conn.pid and status == "LISTEN":
@@ -49,7 +50,9 @@ def _kill_process_on_port(port: int) -> None:
     try:
         result = subprocess.run(
             ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         for pid_str in result.stdout.splitlines():
             pid_str = pid_str.strip()
@@ -58,7 +61,9 @@ def _kill_process_on_port(port: int) -> None:
                 if pid != os.getpid():
                     try:
                         os.kill(pid, 9)
-                        _logger.warning("Killed process PID=%d holding port %d (via lsof)", pid, port)
+                        _logger.warning(
+                            "Killed process PID=%d holding port %d (via lsof)", pid, port
+                        )
                     except (OSError, ProcessLookupError):
                         pass
     except Exception:
@@ -150,17 +155,23 @@ def _start_runtime_with_retry(
                 errors = snap.get("recent_errors", [])
                 raw_entry = errors[-1] if errors else None
                 err_msg = bind_err_msg or (
-                    _extract_err_msg_from_error_entry(raw_entry) if raw_entry is not None else "unknown"
+                    _extract_err_msg_from_error_entry(raw_entry)
+                    if raw_entry is not None
+                    else "unknown"
                 )
                 if _is_address_in_use_error(err_msg) and attempt < max_attempts - 1:
                     _logger.warning(
                         "ZMQ bind failed (attempt %d/%d): %s — freeing port and retrying",
-                        attempt + 1, max_attempts, err_msg,
+                        attempt + 1,
+                        max_attempts,
+                        err_msg,
                     )
                     port = _extract_port_from_zmq_error(err_msg)
                     if port:
                         _kill_process_on_port(port)
-                    runtime_name = str(getattr(config, "runtime_name", "") or "gateway-runtime").strip()
+                    runtime_name = str(
+                        getattr(config, "runtime_name", "") or "gateway-runtime"
+                    ).strip()
                     kwargs["gateway_runtime_name"] = (
                         f"{runtime_name}-retry-{attempt + 2}-{int(time.time() * 1000)}"
                     )
@@ -193,10 +204,14 @@ def _start_runtime_with_retry(
 # ---------------------------------------------------------------------------
 
 _PROXY_ENV_KEYS = (
-    "HTTPS_PROXY", "https_proxy",
-    "HTTP_PROXY", "http_proxy",
-    "ALL_PROXY", "all_proxy",
-    "SOCKS_PROXY", "socks_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "SOCKS_PROXY",
+    "socks_proxy",
 )
 
 _proxy_checked = False
@@ -394,15 +409,19 @@ def _merge_ib_web_default_credentials(credentials: dict[str, Any]) -> dict[str, 
 
     settings = get_settings()
     resolved = dict(credentials)
-    login_mode = str(
-        _pick_explicit_or_setting(
-            resolved.get("login_mode"),
-            settings,
-            "IB_WEB_LOGIN_MODE",
-            default="paper",
+    login_mode = (
+        str(
+            _pick_explicit_or_setting(
+                resolved.get("login_mode"),
+                settings,
+                "IB_WEB_LOGIN_MODE",
+                default="paper",
+            )
+            or "paper"
         )
-        or "paper"
-    ).strip().lower()
+        .strip()
+        .lower()
+    )
     if login_mode not in {"paper", "live"}:
         login_mode = "paper"
     mode_prefix = "LIVE" if login_mode == "live" else "PAPER"
@@ -419,17 +438,20 @@ def _merge_ib_web_default_credentials(credentials: dict[str, Any]) -> dict[str, 
         )
         or ""
     ).strip()
-    resolved["asset_type"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("asset_type"),
-            settings,
-            "IB_WEB_ASSET_TYPE",
-            f"IB_{mode_prefix}_ASSET_TYPE",
-            "IB_ASSET_TYPE",
-            default="STK",
-        )
+    resolved["asset_type"] = (
+        str(
+            _pick_explicit_or_setting(
+                resolved.get("asset_type"),
+                settings,
+                "IB_WEB_ASSET_TYPE",
+                f"IB_{mode_prefix}_ASSET_TYPE",
+                "IB_ASSET_TYPE",
+                default="STK",
+            )
+            or "STK"
+        ).strip()
         or "STK"
-    ).strip() or "STK"
+    )
     resolved["base_url"] = str(
         _pick_explicit_or_setting(
             resolved.get("base_url"),
@@ -468,28 +490,34 @@ def _merge_ib_web_default_credentials(credentials: dict[str, Any]) -> dict[str, 
         "IB_TIMEOUT",
         default=10.0,
     )
-    resolved["cookie_browser"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("cookie_browser"),
-            settings,
-            "IB_WEB_COOKIE_BROWSER",
-            f"IB_{mode_prefix}_COOKIE_BROWSER",
-            "IB_COOKIE_BROWSER",
-            default="chrome",
-        )
+    resolved["cookie_browser"] = (
+        str(
+            _pick_explicit_or_setting(
+                resolved.get("cookie_browser"),
+                settings,
+                "IB_WEB_COOKIE_BROWSER",
+                f"IB_{mode_prefix}_COOKIE_BROWSER",
+                "IB_COOKIE_BROWSER",
+                default="chrome",
+            )
+            or "chrome"
+        ).strip()
         or "chrome"
-    ).strip() or "chrome"
-    resolved["cookie_path"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("cookie_path"),
-            settings,
-            "IB_WEB_COOKIE_PATH",
-            f"IB_{mode_prefix}_COOKIE_PATH",
-            "IB_COOKIE_PATH",
-            default="/sso",
-        )
+    )
+    resolved["cookie_path"] = (
+        str(
+            _pick_explicit_or_setting(
+                resolved.get("cookie_path"),
+                settings,
+                "IB_WEB_COOKIE_PATH",
+                f"IB_{mode_prefix}_COOKIE_PATH",
+                "IB_COOKIE_PATH",
+                default="/sso",
+            )
+            or "/sso"
+        ).strip()
         or "/sso"
-    ).strip() or "/sso"
+    )
     resolved["cookie_output"] = str(
         _pick_explicit_or_setting(
             resolved.get("cookie_output"),
@@ -533,16 +561,19 @@ def _merge_ib_web_default_credentials(credentials: dict[str, Any]) -> dict[str, 
         )
         or ""
     ).strip()
-    resolved["login_browser"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("login_browser"),
-            settings,
-            "IB_WEB_LOGIN_BROWSER",
-            "IB_LOGIN_BROWSER",
-            default=resolved["cookie_browser"],
-        )
+    resolved["login_browser"] = (
+        str(
+            _pick_explicit_or_setting(
+                resolved.get("login_browser"),
+                settings,
+                "IB_WEB_LOGIN_BROWSER",
+                "IB_LOGIN_BROWSER",
+                default=resolved["cookie_browser"],
+            )
+            or resolved["cookie_browser"]
+        ).strip()
         or resolved["cookie_browser"]
-    ).strip() or resolved["cookie_browser"]
+    )
     resolved["login_headless"] = _pick_explicit_or_setting(
         resolved.get("login_headless"),
         settings,
@@ -660,7 +691,9 @@ def _load_ib_web_session_state(
         if authenticated
         else []
     )
-    account_id = pick_account_id(accounts, str(settings.get("login_mode") or "paper")) if accounts else ""
+    account_id = (
+        pick_account_id(accounts, str(settings.get("login_mode") or "paper")) if accounts else ""
+    )
     return settings, cookies, authenticated, accounts, account_id
 
 
@@ -827,7 +860,8 @@ def _bootstrap_ib_web_session(
         except Exception as exc:
             _logger.warning(
                 "IB_WEB auto-session bootstrap failed: %s: %s",
-                type(exc).__name__, exc,
+                type(exc).__name__,
+                exc,
             )
             return None
     return ensure_authenticated_session(
@@ -1127,13 +1161,19 @@ def _resolve_ctp_front_pair(td_front: str, md_front: str, logger) -> tuple[str, 
     if requested is None:
         return td_front, md_front
 
-    candidates = [requested] + [item for item in _CURRENT_CTP_SIMNOW_FRONTS if item is not requested]
+    candidates = [requested] + [
+        item for item in _CURRENT_CTP_SIMNOW_FRONTS if item is not requested
+    ]
     status_messages: list[str] = []
     for candidate in candidates:
         td_host, td_port = _parse_tcp_front_endpoint(candidate["td_front"])
         md_host, md_port = _parse_tcp_front_endpoint(candidate["md_front"])
-        td_reachable = bool(td_host and td_port and _is_tcp_endpoint_reachable(td_host, td_port, timeout=1.0))
-        md_reachable = bool(md_host and md_port and _is_tcp_endpoint_reachable(md_host, md_port, timeout=1.0))
+        td_reachable = bool(
+            td_host and td_port and _is_tcp_endpoint_reachable(td_host, td_port, timeout=1.0)
+        )
+        md_reachable = bool(
+            md_host and md_port and _is_tcp_endpoint_reachable(md_host, md_port, timeout=1.0)
+        )
         status_messages.append(
             f"{candidate['name']}(td={'ok' if td_reachable else 'down'}, md={'ok' if md_reachable else 'down'})"
         )
@@ -1165,13 +1205,19 @@ def _is_macos_tun_proxy_active() -> bool:
         return False
     try:
         ifconfig = subprocess.run(
-            ["ifconfig"], capture_output=True, text=True, timeout=5,
+            ["ifconfig"],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         utun_count = ifconfig.stdout.count("utun")
         if utun_count < 5:
             return False
         scutil = subprocess.run(
-            ["scutil", "--proxy"], capture_output=True, text=True, timeout=5,
+            ["scutil", "--proxy"],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         return "HTTPEnable : 1" in scutil.stdout or "SOCKSEnable : 1" in scutil.stdout
     except Exception:
@@ -1183,7 +1229,9 @@ def _get_macos_default_gateway() -> tuple[str, str] | tuple[None, None]:
     try:
         result = subprocess.run(
             ["route", "-n", "get", "default"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         gateway = interface = None
         for line in result.stdout.splitlines():
@@ -1202,7 +1250,9 @@ def _check_route_goes_through_tun(ip: str) -> bool:
     try:
         result = subprocess.run(
             ["route", "-n", "get", ip],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         for line in result.stdout.splitlines():
             stripped = line.strip()
@@ -1219,7 +1269,9 @@ def _has_host_route(ip: str, expected_iface: str) -> bool:
     try:
         r = subprocess.run(
             ["route", "-n", "get", ip],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         iface = None
         is_host = False
@@ -1252,7 +1304,8 @@ def _add_direct_route_for_ip(ip: str, gateway: str, interface: str, logger) -> b
     strategies = [
         ["sudo", "-n", "route", "-n", "add", "-host", ip, gateway],
         [
-            "osascript", "-e",
+            "osascript",
+            "-e",
             f'do shell script "route -n add -host {ip} {gateway}" with administrator privileges',
         ],
         ["route", "-n", "add", "-host", ip, gateway],
@@ -1366,6 +1419,7 @@ def _find_clash_external_controller() -> tuple[str, str] | tuple[None, None]:
     for port in (9090, 9097, 19090):
         try:
             import urllib.request
+
             req = urllib.request.Request(
                 f"http://127.0.0.1:{port}/version",
                 headers={"User-Agent": "backtrader-web"},
@@ -1396,7 +1450,9 @@ def _clash_api_add_direct_rules(ips: list[str], logger) -> bool:
         try:
             req = urllib.request.Request(
                 f"{base_url}/rules/prepend",
-                data=payload, headers=headers, method="POST",
+                data=payload,
+                headers=headers,
+                method="POST",
             )
             urllib.request.urlopen(req, timeout=3)
             logger.info("Clash API: added DIRECT rule for %s", ip)
@@ -1404,10 +1460,13 @@ def _clash_api_add_direct_rules(ips: list[str], logger) -> bool:
             try:
                 req = urllib.request.Request(
                     f"{base_url}/rules",
-                    data=_json.dumps({
-                        "prepend": [f"IP-CIDR,{ip}/32,DIRECT,no-resolve"],
-                    }).encode(),
-                    headers=headers, method="PATCH",
+                    data=_json.dumps(
+                        {
+                            "prepend": [f"IP-CIDR,{ip}/32,DIRECT,no-resolve"],
+                        }
+                    ).encode(),
+                    headers=headers,
+                    method="PATCH",
                 )
                 urllib.request.urlopen(req, timeout=3)
                 logger.info("Clash API (PATCH): added DIRECT rule for %s", ip)
@@ -1448,8 +1507,7 @@ def _ensure_ctp_direct_routes(td_front: str, md_front: str, logger) -> None:
     gateway, interface = _get_macos_default_gateway()
     if not gateway:
         logger.warning(
-            "检测到TUN代理拦截CTP流量，但无法获取默认网关。"
-            "请手动运行: %s",
+            "检测到TUN代理拦截CTP流量，但无法获取默认网关。请手动运行: %s",
             " && ".join(f"sudo route add -host {ip} <网关IP>" for ip in ips),
         )
         return
@@ -1463,13 +1521,12 @@ def _ensure_ctp_direct_routes(td_front: str, md_front: str, logger) -> None:
     if failed_ips:
         cmds = " && ".join(f"sudo route add -host {ip} {gateway}" for ip in failed_ips)
         logger.warning(
-            "无法自动添加CTP直连路由(需要sudo权限)。请手动执行: %s", cmds,
+            "无法自动添加CTP直连路由(需要sudo权限)。请手动执行: %s",
+            cmds,
         )
 
 
-def _maybe_tunnel_ctp_fronts(
-    td_front: str, md_front: str, logger
-) -> tuple[str, str]:
+def _maybe_tunnel_ctp_fronts(td_front: str, md_front: str, logger) -> tuple[str, str]:
     """If a system HTTP proxy is active, create HTTP CONNECT tunnels for CTP fronts.
 
     CTP uses native C++ TCP sockets that get intercepted by transparent proxies
@@ -1494,7 +1551,10 @@ def _maybe_tunnel_ctp_fronts(
             rewritten = f"tcp://127.0.0.1:{local_port}"
             logger.info(
                 "CTP隧道: %s -> CONNECT %s:%d via proxy -> %s",
-                rewritten, host, port, front,
+                rewritten,
+                host,
+                port,
+                front,
             )
             return rewritten
         except Exception as exc:
@@ -1524,13 +1584,15 @@ def _format_ctp_connect_error(exc: Exception) -> str:
     if "simnow当前三组前置均不可达" in message.lower() or "simnow当前三组前置均不可达" in message:
         return f"CTP连接失败: {message}"
     proxy_hint = ""
-    if "market not ready" in lowered or "trade not ready" in lowered or "not ready" in lowered or "timeout" in lowered:
+    if (
+        "market not ready" in lowered
+        or "trade not ready" in lowered
+        or "not ready" in lowered
+        or "timeout" in lowered
+    ):
         hint = _detect_system_tun_proxy()
         if hint:
-            proxy_hint = (
-                f" 提示: {hint}"
-                " 可运行: sudo bash scripts/setup_ctp_proxy_bypass.sh"
-            )
+            proxy_hint = f" 提示: {hint} 可运行: sudo bash scripts/setup_ctp_proxy_bypass.sh"
     return f"CTP连接失败: {type(exc).__name__}: {message}{proxy_hint}"
 
 
@@ -1557,7 +1619,10 @@ def _wait_for_runtime_ready(
                 if snapshot.get("market_connection") == "connected":
                     return
                 if snapshot.get("state") == "error" or snapshot.get("market_connection") == "error":
-                    message = _extract_runtime_connect_error(snapshot) or "gateway adapter failed to connect"
+                    message = (
+                        _extract_runtime_connect_error(snapshot)
+                        or "gateway adapter failed to connect"
+                    )
                     raise RuntimeError(message)
         time.sleep(poll_interval_sec)
     message = _extract_runtime_connect_error(last_snapshot)
@@ -1593,7 +1658,11 @@ def connect_gateway(
         if state is None:
             state = {}
         _promote_gateway_state_to_manual(state, exchange_type, account_id, asset_type, session_key)
-        return {"gateway_key": existing_key, "status": "connected", "message": "Gateway already active"}
+        return {
+            "gateway_key": existing_key,
+            "status": "connected",
+            "message": "Gateway already active",
+        }
     key = f"manual:{exchange_type}:{account_id}"
     if key in gateways:
         state = gateways.get(key)
@@ -1696,7 +1765,9 @@ def connect_ctp_gateway(
             "exchange_type": "CTP",
             "asset_type": "FUTURE",
             "account_id": credentials.get("account_id") or credentials["user_id"],
-            "transport": resolve_gateway_transport("CTP", credentials.get("transport"), default_transport),
+            "transport": resolve_gateway_transport(
+                "CTP", credentials.get("transport"), default_transport
+            ),
             "broker_id": credentials["broker_id"],
             "investor_id": credentials["user_id"],
             "user_id": credentials["user_id"],
@@ -1715,7 +1786,9 @@ def connect_ctp_gateway(
             attempt_kwargs["td_address"] = td_front
             attempt_kwargs["md_address"] = md_front
             config, runtime = _start_runtime_with_retry(
-                gateway_config_cls, gateway_runtime_cls, attempt_kwargs,
+                gateway_config_cls,
+                gateway_runtime_cls,
+                attempt_kwargs,
             )
             _wait_for_runtime_ready(runtime, logger, timeout_sec=ready_timeout)
             return config, runtime, attempt_kwargs
@@ -1727,7 +1800,9 @@ def connect_ctp_gateway(
                 try:
                     runtime.stop()
                 except Exception:
-                    logger.debug("Failed to stop direct CTP runtime after connect error", exc_info=True)
+                    logger.debug(
+                        "Failed to stop direct CTP runtime after connect error", exc_info=True
+                    )
                 _release_gateway_zmq_ports(runtime)
                 runtime = None
             from app.services.ctp_tunnel import is_proxy_tunnel_needed
@@ -1735,7 +1810,9 @@ def connect_ctp_gateway(
             if not is_proxy_tunnel_needed():
                 raise
             tunneled_td, tunneled_md = _maybe_tunnel_ctp_fronts(
-                resolved_td_front, resolved_md_front, logger,
+                resolved_td_front,
+                resolved_md_front,
+                logger,
             )
             if tunneled_td == resolved_td_front and tunneled_md == resolved_md_front:
                 raise
@@ -1801,9 +1878,7 @@ def connect_ib_web_gateway(
         source_credentials = credentials
         verify_ssl = coerce_bool(credentials.get("verify_ssl"), default=False)
         timeout = coerce_float(credentials.get("timeout"), default=10.0)
-        base_url = _normalize_ib_web_base_url(
-            credentials.get("base_url", "https://localhost:5000")
-        )
+        base_url = _normalize_ib_web_base_url(credentials.get("base_url", "https://localhost:5000"))
         _ensure_ib_clientportal_running(base_url, logger)
         base_url = _resolve_ib_web_base_url(base_url, verify_ssl, timeout, logger)
         session = _bootstrap_ib_web_session(
@@ -1839,7 +1914,9 @@ def connect_ib_web_gateway(
             "exchange_type": "IB_WEB",
             "asset_type": credentials.get("asset_type", "STK"),
             "account_id": resolved_account_id,
-            "transport": resolve_gateway_transport("IB_WEB", credentials.get("transport"), default_transport),
+            "transport": resolve_gateway_transport(
+                "IB_WEB", credentials.get("transport"), default_transport
+            ),
             "base_url": base_url,
             "verify_ssl": verify_ssl,
             "timeout": timeout,
@@ -1881,7 +1958,9 @@ def connect_ib_web_gateway(
         config = gateway_config_cls.from_kwargs(**kwargs)
         runtime = gateway_runtime_cls(config, **kwargs)
         runtime.start_in_thread()
-        ready_timeout = max(float(getattr(config, "startup_timeout_sec", 10.0) or 10.0) * 3.0 + 4.0, 8.0)
+        ready_timeout = max(
+            float(getattr(config, "startup_timeout_sec", 10.0) or 10.0) * 3.0 + 4.0, 8.0
+        )
         _wait_for_runtime_ready(runtime, logger, timeout_sec=ready_timeout)
         gateways[key] = {
             "config": config,
@@ -1958,7 +2037,9 @@ def connect_binance_gateway(
         if credentials.get("base_url"):
             kwargs["base_url"] = credentials["base_url"]
         config, runtime = _start_runtime_with_retry(
-            gateway_config_cls, gateway_runtime_cls, kwargs,
+            gateway_config_cls,
+            gateway_runtime_cls,
+            kwargs,
         )
         gateways[key] = {
             "config": config,
@@ -2022,7 +2103,9 @@ def connect_okx_gateway(
         if credentials.get("base_url"):
             kwargs["base_url"] = credentials["base_url"]
         config, runtime = _start_runtime_with_retry(
-            gateway_config_cls, gateway_runtime_cls, kwargs,
+            gateway_config_cls,
+            gateway_runtime_cls,
+            kwargs,
         )
         gateways[key] = {
             "config": config,
@@ -2082,7 +2165,9 @@ def connect_mt5_gateway(
         if credentials.get("symbol_map"):
             kwargs["symbol_map"] = credentials["symbol_map"]
         config, runtime = _start_runtime_with_retry(
-            gateway_config_cls, gateway_runtime_cls, kwargs,
+            gateway_config_cls,
+            gateway_runtime_cls,
+            kwargs,
         )
         gateways[key] = {
             "config": config,
@@ -2173,9 +2258,7 @@ def list_connected_gateways(gateways: dict[str, dict[str, Any]]) -> list[dict[st
     return results
 
 
-def disconnect_gateway(
-    gateways: dict[str, dict[str, Any]], gateway_key: str
-) -> dict[str, Any]:
+def disconnect_gateway(gateways: dict[str, dict[str, Any]], gateway_key: str) -> dict[str, Any]:
     state = gateways.get(gateway_key)
     if state is None:
         return {

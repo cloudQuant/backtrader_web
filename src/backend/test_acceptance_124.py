@@ -1,5 +1,7 @@
 """Iteration 124 acceptance test - workspace APIs."""
+
 import sys
+
 import requests
 
 BASE = "http://localhost:8000/api/v1"
@@ -67,13 +69,16 @@ check("update workspace", r)
 # 6. Create units
 print("\n=== Strategy Unit CRUD ===")
 for i in range(3):
-    r = S.post(f"{BASE}/workspace/{WS_ID}/units", json={
-        "strategy_name": f"SMA_{i}",
-        "symbol": f"00000{i}",
-        "symbol_name": f"Test_{i}",
-        "timeframe": "D1",
-        "group_name": "group_A",
-    })
+    r = S.post(
+        f"{BASE}/workspace/{WS_ID}/units",
+        json={
+            "strategy_name": f"SMA_{i}",
+            "symbol": f"00000{i}",
+            "symbol_name": f"Test_{i}",
+            "timeframe": "D1",
+            "group_name": "group_A",
+        },
+    )
     d = check(f"create unit {i}", r, 201)
     if d:
         UNIT_IDS.append(d["id"])
@@ -83,12 +88,25 @@ r = S.get(f"{BASE}/workspace/{WS_ID}/units")
 d = check("list units", r)
 
 # 8. Batch create
-r = S.post(f"{BASE}/workspace/{WS_ID}/units/batch", json={
-    "units": [
-        {"strategy_name": "Batch_0", "symbol": "600000", "timeframe": "H1", "group_name": "group_B"},
-        {"strategy_name": "Batch_1", "symbol": "600001", "timeframe": "H1", "group_name": "group_B"},
-    ]
-})
+r = S.post(
+    f"{BASE}/workspace/{WS_ID}/units/batch",
+    json={
+        "units": [
+            {
+                "strategy_name": "Batch_0",
+                "symbol": "600000",
+                "timeframe": "H1",
+                "group_name": "group_B",
+            },
+            {
+                "strategy_name": "Batch_1",
+                "symbol": "600001",
+                "timeframe": "H1",
+                "group_name": "group_B",
+            },
+        ]
+    },
+)
 d = check("batch create units", r, 201)
 if d and isinstance(d, list):
     UNIT_IDS.extend([u["id"] for u in d])
@@ -100,21 +118,25 @@ if UNIT_IDS:
 
 # 10. Reorder
 if UNIT_IDS:
-    r = S.post(f"{BASE}/workspace/{WS_ID}/units/reorder", json={"unit_ids": list(reversed(UNIT_IDS))})
+    r = S.post(
+        f"{BASE}/workspace/{WS_ID}/units/reorder", json={"unit_ids": list(reversed(UNIT_IDS))}
+    )
     check("reorder units", r)
 
 # 11. Rename group
 if len(UNIT_IDS) >= 2:
-    r = S.post(f"{BASE}/workspace/{WS_ID}/units/rename-group", json={
-        "unit_ids": UNIT_IDS[:2], "mode": "custom", "value": "renamed_group"
-    })
+    r = S.post(
+        f"{BASE}/workspace/{WS_ID}/units/rename-group",
+        json={"unit_ids": UNIT_IDS[:2], "mode": "custom", "value": "renamed_group"},
+    )
     check("rename group", r)
 
 # 12. Rename unit
 if UNIT_IDS:
-    r = S.post(f"{BASE}/workspace/{WS_ID}/units/rename-unit", json={
-        "unit_id": UNIT_IDS[0], "mode": "custom", "value": "renamed_unit"
-    })
+    r = S.post(
+        f"{BASE}/workspace/{WS_ID}/units/rename-unit",
+        json={"unit_id": UNIT_IDS[0], "mode": "custom", "value": "renamed_unit"},
+    )
     check("rename unit", r)
 
 # 13. Get units status
@@ -139,13 +161,13 @@ if UNIT_IDS:
     if r.status_code in (200, 404, 422):
         ok(f"opt progress (status={r.status_code})")
     else:
-        fail(f"opt progress", f"status={r.status_code}")
+        fail("opt progress", f"status={r.status_code}")
 
     r = S.get(f"{BASE}/workspace/{WS_ID}/optimize/{UNIT_IDS[0]}/results")
     if r.status_code in (200, 404, 422):
         ok(f"opt results (status={r.status_code})")
     else:
-        fail(f"opt results", f"status={r.status_code}")
+        fail("opt results", f"status={r.status_code}")
 
 # 16. Bulk delete
 print("\n=== Cleanup ===")
@@ -160,8 +182,8 @@ else:
     fail("delete workspace", f"status={r.status_code}")
 
 # Summary
-print(f"\n{'='*50}")
-print(f"PASS: {PASS}  FAIL: {FAIL}  TOTAL: {PASS+FAIL}")
+print(f"\n{'=' * 50}")
+print(f"PASS: {PASS}  FAIL: {FAIL}  TOTAL: {PASS + FAIL}")
 if FAIL:
     sys.exit(1)
 print("ALL TESTS PASSED")

@@ -21,7 +21,9 @@ class WorkspaceCreate(BaseModel):
     description: str | None = Field(None, max_length=500, description="Description")
     workspace_type: str = Field("research", description="Workspace type: research/trading")
     settings: dict[str, Any] = Field(default_factory=dict, description="Settings JSON")
-    trading_config: dict[str, Any] = Field(default_factory=dict, description="Trading settings JSON")
+    trading_config: dict[str, Any] = Field(
+        default_factory=dict, description="Trading settings JSON"
+    )
 
 
 class WorkspaceUpdate(BaseModel):
@@ -325,7 +327,9 @@ class ReportCreateRequest(BaseModel):
     calc_method: str = Field("simple", description="Calculation method: simple/compound")
     annual_days: int = Field(252, ge=1, description="Trading days per year")
     weight_mode: str = Field("equal", description="Weight mode: equal/custom")
-    weights: dict[str, float] = Field(default_factory=dict, description="Unit ID -> weight (custom mode)")
+    weights: dict[str, float] = Field(
+        default_factory=dict, description="Unit ID -> weight (custom mode)"
+    )
 
 
 class ReportDeleteRequest(BaseModel):

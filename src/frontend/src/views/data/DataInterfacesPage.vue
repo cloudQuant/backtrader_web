@@ -4,8 +4,12 @@
       <template #header>
         <div class="header-row">
           <div>
-            <div class="page-title">接口管理</div>
-            <div class="page-subtitle">管理 akshare 接口元数据和参数定义。</div>
+            <div class="page-title">
+              接口管理
+            </div>
+            <div class="page-subtitle">
+              管理 akshare 接口元数据和参数定义。
+            </div>
           </div>
           <div class="actions">
             <el-button
@@ -46,9 +50,18 @@
           class="toolbar-item"
           @change="reloadFirstPage"
         >
-          <el-option label="全部状态" value="all" />
-          <el-option label="启用" value="active" />
-          <el-option label="停用" value="inactive" />
+          <el-option
+            label="全部状态"
+            value="all"
+          />
+          <el-option
+            label="启用"
+            value="active"
+          />
+          <el-option
+            label="停用"
+            value="inactive"
+          />
         </el-select>
         <el-input
           v-model="search"
@@ -231,7 +244,9 @@
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="dialogVisible = false">
+          取消
+        </el-button>
         <el-button
           type="primary"
           :loading="saving"
@@ -273,7 +288,9 @@
         </el-descriptions>
 
         <div class="drawer-section">
-          <div class="section-title">参数列表</div>
+          <div class="section-title">
+            参数列表
+          </div>
           <el-table
             :data="currentInterface.params"
             stripe
@@ -307,7 +324,9 @@
         </div>
 
         <div class="drawer-section">
-          <div class="section-title">原始参数定义</div>
+          <div class="section-title">
+            原始参数定义
+          </div>
           <pre>{{ toJsonText(currentInterface.parameters || {}) }}</pre>
         </div>
       </div>

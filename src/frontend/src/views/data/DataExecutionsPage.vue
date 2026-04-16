@@ -2,20 +2,36 @@
   <div class="space-y-6">
     <section class="stats-grid">
       <el-card>
-        <div class="stat-title">总执行</div>
-        <div class="stat-value">{{ stats.total_count }}</div>
+        <div class="stat-title">
+          总执行
+        </div>
+        <div class="stat-value">
+          {{ stats.total_count }}
+        </div>
       </el-card>
       <el-card>
-        <div class="stat-title">成功</div>
-        <div class="stat-value success">{{ stats.success_count }}</div>
+        <div class="stat-title">
+          成功
+        </div>
+        <div class="stat-value success">
+          {{ stats.success_count }}
+        </div>
       </el-card>
       <el-card>
-        <div class="stat-title">失败</div>
-        <div class="stat-value danger">{{ stats.failed_count }}</div>
+        <div class="stat-title">
+          失败
+        </div>
+        <div class="stat-value danger">
+          {{ stats.failed_count }}
+        </div>
       </el-card>
       <el-card>
-        <div class="stat-title">运行中</div>
-        <div class="stat-value primary">{{ stats.running_count }}</div>
+        <div class="stat-title">
+          运行中
+        </div>
+        <div class="stat-value primary">
+          {{ stats.running_count }}
+        </div>
       </el-card>
     </section>
 
@@ -23,10 +39,16 @@
       <template #header>
         <div class="header-row">
           <div>
-            <div class="page-title">执行记录</div>
-            <div class="page-subtitle">按任务、脚本和状态排查 akshare 采集执行情况。</div>
+            <div class="page-title">
+              执行记录
+            </div>
+            <div class="page-subtitle">
+              按任务、脚本和状态排查 akshare 采集执行情况。
+            </div>
           </div>
-          <el-button @click="loadExecutions">刷新</el-button>
+          <el-button @click="loadExecutions">
+            刷新
+          </el-button>
         </div>
       </template>
 
@@ -201,17 +223,23 @@
         </el-descriptions>
 
         <div class="drawer-section">
-          <div class="section-title">执行参数</div>
+          <div class="section-title">
+            执行参数
+          </div>
           <pre>{{ toJsonText(currentExecution.params || {}) }}</pre>
         </div>
 
         <div class="drawer-section">
-          <div class="section-title">执行结果</div>
+          <div class="section-title">
+            执行结果
+          </div>
           <pre>{{ toJsonText(currentExecution.result || {}) }}</pre>
         </div>
 
         <div class="drawer-section">
-          <div class="section-title">错误堆栈</div>
+          <div class="section-title">
+            错误堆栈
+          </div>
           <pre>{{ currentExecution.error_trace || currentExecution.error_message || '无' }}</pre>
         </div>
       </div>

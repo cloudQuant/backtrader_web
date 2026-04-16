@@ -2,7 +2,9 @@ from app.utils import backend_data_paths
 
 
 class TestBackendDataPaths:
-    def test_ensure_backend_data_dir_moves_legacy_files_and_directories(self, tmp_path, monkeypatch):
+    def test_ensure_backend_data_dir_moves_legacy_files_and_directories(
+        self, tmp_path, monkeypatch
+    ):
         backend_dir = tmp_path / "src" / "backend" / "data"
         legacy_dir = tmp_path / "data"
         legacy_dir.mkdir(parents=True)
@@ -36,8 +38,12 @@ class TestBackendDataPaths:
 
         backend_data_paths.ensure_backend_data_dir()
 
-        assert (backend_dir / "manual_gateways.json").read_text(encoding="utf-8") == '[{"from":"backend"}]'
-        assert (legacy_dir / "manual_gateways.json").read_text(encoding="utf-8") == '[{"from":"legacy"}]'
+        assert (backend_dir / "manual_gateways.json").read_text(
+            encoding="utf-8"
+        ) == '[{"from":"backend"}]'
+        assert (legacy_dir / "manual_gateways.json").read_text(
+            encoding="utf-8"
+        ) == '[{"from":"legacy"}]'
 
     def test_get_backend_data_path_returns_nested_path(self, tmp_path, monkeypatch):
         backend_dir = tmp_path / "src" / "backend" / "data"

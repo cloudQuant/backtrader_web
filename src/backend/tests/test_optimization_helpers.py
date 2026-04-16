@@ -11,8 +11,7 @@ from app.services.optimization_task_gateway import (
     persist_optimization_task,
 )
 from app.services.optimization_thread_runner import run_optimization_thread
-from app.services.optimization_trial_runner import parse_trial_logs
-from app.services.optimization_trial_runner import run_single_trial
+from app.services.optimization_trial_runner import parse_trial_logs, run_single_trial
 
 
 class DummyThread:
@@ -165,7 +164,9 @@ def test_trial_runner_uses_injected_subprocess_module(tmp_path: Path):
     (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
     (strategy_dir / "config.yaml").write_text("params: {}\n", encoding="utf-8")
 
-    subprocess_module = SimpleNamespace(run=Mock(return_value=SimpleNamespace(returncode=0, stderr="")))
+    subprocess_module = SimpleNamespace(
+        run=Mock(return_value=SimpleNamespace(returncode=0, stderr=""))
+    )
 
     result = run_single_trial(
         str(strategy_dir),
@@ -286,7 +287,9 @@ def test_trial_runner_persists_failed_artifacts_when_root_provided(tmp_path: Pat
     assert (artifact_root / "trial_0002" / "result.json").is_file()
     assert (artifact_root / "trial_0002" / "summary.json").is_file()
     assert (artifact_root / "trial_0002" / "stdout.txt").read_text(encoding="utf-8") == "hello"
-    assert "ValueError: bad" in (artifact_root / "trial_0002" / "stderr.txt").read_text(encoding="utf-8")
+    assert "ValueError: bad" in (artifact_root / "trial_0002" / "stderr.txt").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_parse_trial_logs_supports_flat_logs_layout(tmp_path: Path):

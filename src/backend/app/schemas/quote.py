@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Data-source metadata
 # ---------------------------------------------------------------------------
+
 
 class DataSourceInfo(BaseModel):
     """Metadata for a single data source (CTP / IB / MT5 / …)."""
@@ -20,9 +20,7 @@ class DataSourceInfo(BaseModel):
     source_label: str = Field(..., description="Display label, e.g. IB")
     status: str = Field(
         ...,
-        description=(
-            "One of: available, not_configured, not_connected, unavailable"
-        ),
+        description=("One of: available, not_configured, not_connected, unavailable"),
     )
     status_message: str | None = Field(None, description="Human-readable status hint")
     capabilities: list[str] = Field(
@@ -40,6 +38,7 @@ class DataSourceListResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Quote tick row
 # ---------------------------------------------------------------------------
+
 
 class QuoteTick(BaseModel):
     """A single instrument quote row for the table."""
@@ -93,6 +92,7 @@ class QuoteListResponse(BaseModel):
 # Symbol management
 # ---------------------------------------------------------------------------
 
+
 class SymbolItem(BaseModel):
     """A symbol entry (for search results or default list)."""
 
@@ -142,6 +142,7 @@ class DefaultSymbolsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Chart data (P1)
 # ---------------------------------------------------------------------------
+
 
 class KlineBar(BaseModel):
     """A single OHLCV bar for chart rendering."""

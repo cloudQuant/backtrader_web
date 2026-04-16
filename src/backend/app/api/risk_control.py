@@ -4,7 +4,6 @@ Risk Control API - 风控API端点
 提供风控配置管理和告警查询接口。
 """
 
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -21,8 +20,10 @@ router = APIRouter(prefix="/risk-control", tags=["Risk Control"])
 
 # ============== Schemas ==============
 
+
 class RiskControlConfigRequest(BaseModel):
     """风控配置请求"""
+
     max_position_pct: float = Field(30.0, ge=1, le=100, description="单品种最大仓位比例(%)")
     max_total_position_pct: float = Field(80.0, ge=1, le=100, description="总仓位上限(%)")
     max_daily_loss_pct: float = Field(5.0, ge=0.1, le=50, description="日亏损上限(%)")
@@ -38,6 +39,7 @@ class RiskControlConfigRequest(BaseModel):
 
 class RiskControlConfigResponse(BaseModel):
     """风控配置响应"""
+
     max_position_pct: float
     max_total_position_pct: float
     max_daily_loss_pct: float
@@ -53,6 +55,7 @@ class RiskControlConfigResponse(BaseModel):
 
 class RiskAlertResponse(BaseModel):
     """风控告警响应"""
+
     alert_type: str
     level: str
     message: str
@@ -63,11 +66,13 @@ class RiskAlertResponse(BaseModel):
 
 class AlertListResponse(BaseModel):
     """告警列表响应"""
+
     total: int
     alerts: list[RiskAlertResponse]
 
 
 # ============== Dependencies ==============
+
 
 def get_risk_service() -> RiskControlService:
     """获取风控服务"""
@@ -75,6 +80,7 @@ def get_risk_service() -> RiskControlService:
 
 
 # ============== Endpoints ==============
+
 
 @router.get("/config", summary="Get risk control config")
 async def get_config(

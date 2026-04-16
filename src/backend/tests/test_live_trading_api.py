@@ -92,7 +92,9 @@ class TestLiveTradingList:
 
         futures_preset = ib_presets["ib_web_futures_gateway"]
         futures_gateway = futures_preset["params"]["gateway"]
-        assert futures_preset["description"] == "IB Web preset for futures trading via gateway mode."
+        assert (
+            futures_preset["description"] == "IB Web preset for futures trading via gateway mode."
+        )
         assert len(futures_preset["editable_fields"]) == 3
         assert futures_gateway["provider"] == "gateway"
         assert futures_gateway["exchange_type"] == "IB_WEB"
@@ -124,9 +126,7 @@ class TestLiveTradingList:
         assert bn["params"]["gateway"]["exchange_type"] == "BINANCE"
         assert bn["params"]["gateway"]["asset_type"] == "SWAP"
 
-    async def test_list_gateway_presets_okx_has_metadata(
-        self, client: AsyncClient, auth_headers
-    ):
+    async def test_list_gateway_presets_okx_has_metadata(self, client: AsyncClient, auth_headers):
         response = await client.get("/api/v1/live-trading/presets", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
@@ -156,14 +156,15 @@ class TestLiveTradingList:
             "mt5_forex_gateway",
         }.issubset(ids)
 
-    async def test_list_gateway_presets_mt5_has_metadata(
-        self, client: AsyncClient, auth_headers
-    ):
+    async def test_list_gateway_presets_mt5_has_metadata(self, client: AsyncClient, auth_headers):
         response = await client.get("/api/v1/live-trading/presets", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         mt5 = next(p for p in data["presets"] if p["id"] == "mt5_forex_gateway")
-        assert mt5["description"] == "MT5 Forex gateway preset for MetaTrader 5 trading via pymt5 WebSocket."
+        assert (
+            mt5["description"]
+            == "MT5 Forex gateway preset for MetaTrader 5 trading via pymt5 WebSocket."
+        )
         assert len(mt5["editable_fields"]) == 4
         field_keys = [f["key"] for f in mt5["editable_fields"]]
         assert field_keys == ["account_id", "login", "password", "ws_uri"]
@@ -208,7 +209,9 @@ class TestLiveTradingList:
             ]
             mock_get_mgr.return_value = mock_mgr
 
-            response = await client.get("/api/v1/live-trading/gateways/health", headers=auth_headers)
+            response = await client.get(
+                "/api/v1/live-trading/gateways/health", headers=auth_headers
+            )
 
         assert response.status_code == 200
         data = response.json()
@@ -216,7 +219,9 @@ class TestLiveTradingList:
         assert data["gateways"][0]["gateway_key"] == "manual:CTP:089763"
         assert data["gateways"][0]["market_connection"] == "connected"
 
-    async def test_connect_gateway_error_returns_400_not_500(self, client: AsyncClient, auth_headers):
+    async def test_connect_gateway_error_returns_400_not_500(
+        self, client: AsyncClient, auth_headers
+    ):
         with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
             mock_mgr = MagicMock()
             mock_mgr.connect_gateway.return_value = {
@@ -245,7 +250,9 @@ class TestLiveTradingList:
         payload = response.json()
         assert "CTP连接失败" in str(payload)
 
-    async def test_gateway_credentials_prefers_ib_web_env_values(self, client: AsyncClient, auth_headers):
+    async def test_gateway_credentials_prefers_ib_web_env_values(
+        self, client: AsyncClient, auth_headers
+    ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
             CTP_USER_ID="",
@@ -331,7 +338,9 @@ class TestLiveTradingList:
             OKX_BASE_URL="",
         )
         with patch("app.config.get_settings", return_value=fake_settings):
-            response = await client.get("/api/v1/live-trading/gateways/credentials", headers=auth_headers)
+            response = await client.get(
+                "/api/v1/live-trading/gateways/credentials", headers=auth_headers
+            )
 
         assert response.status_code == 200
         data = response.json()["IB_WEB"]

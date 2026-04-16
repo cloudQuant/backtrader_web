@@ -9,36 +9,74 @@
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">工作区类型</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ isTradingWorkspace ? '策略交易' : '策略研究' }}</div>
-          <div class="text-xs text-slate-400">当前创建上下文</div>
+          <div class="text-xs text-slate-500">
+            工作区类型
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ isTradingWorkspace ? '策略交易' : '策略研究' }}
+          </div>
+          <div class="text-xs text-slate-400">
+            当前创建上下文
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">新建方式</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ form.create_mode === 'batch' ? '批量' : '叠加' }}</div>
-          <div class="text-xs text-slate-400">支持多品种展开</div>
+          <div class="text-xs text-slate-500">
+            新建方式
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ form.create_mode === 'batch' ? '批量' : '叠加' }}
+          </div>
+          <div class="text-xs text-slate-400">
+            支持多品种展开
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">品种数量</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ validSymbolCount }}</div>
-          <div class="text-xs text-slate-400">有效代码行数</div>
+          <div class="text-xs text-slate-500">
+            品种数量
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ validSymbolCount }}
+          </div>
+          <div class="text-xs text-slate-400">
+            有效代码行数
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">交易模式</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ isTradingWorkspace ? tradingModeLabel : '研究模式' }}</div>
-          <div class="text-xs text-slate-400">{{ selectedStrategyName || '未选择策略' }}</div>
+          <div class="text-xs text-slate-500">
+            交易模式
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ isTradingWorkspace ? tradingModeLabel : '研究模式' }}
+          </div>
+          <div class="text-xs text-slate-400">
+            {{ selectedStrategyName || '未选择策略' }}
+          </div>
         </div>
       </div>
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-width="100px"
+      >
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <div class="mb-4 text-sm font-medium text-slate-700">基本信息</div>
+          <div class="mb-4 text-sm font-medium text-slate-700">
+            基本信息
+          </div>
           <el-row :gutter="20">
             <el-col :span="24">
               <el-form-item label="新建方式">
                 <el-radio-group v-model="form.create_mode">
-                  <el-radio value="batch">批量</el-radio>
-                  <el-radio value="overlay" disabled>叠加</el-radio>
+                  <el-radio value="batch">
+                    批量
+                  </el-radio>
+                  <el-radio
+                    value="overlay"
+                    disabled
+                  >
+                    叠加
+                  </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
@@ -46,13 +84,23 @@
 
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="单元组名" prop="group_name">
-                <el-input v-model="form.group_name" placeholder="例如: 黄金策略组" />
+              <el-form-item
+                label="单元组名"
+                prop="group_name"
+              >
+                <el-input
+                  v-model="form.group_name"
+                  placeholder="例如: 黄金策略组"
+                />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="分类">
-                <el-select v-model="form.category" placeholder="选择分类" style="width: 100%">
+                <el-select
+                  v-model="form.category"
+                  placeholder="选择分类"
+                  style="width: 100%"
+                >
                   <el-option
                     v-for="category in UNIT_CATEGORY_OPTIONS"
                     :key="category"
@@ -64,7 +112,10 @@
             </el-col>
           </el-row>
 
-          <el-form-item label="选择策略" prop="strategy_id">
+          <el-form-item
+            label="选择策略"
+            prop="strategy_id"
+          >
             <el-select
               v-model="form.strategy_id"
               filterable
@@ -82,34 +133,59 @@
           </el-form-item>
         </div>
 
-        <div v-if="isTradingWorkspace" class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <div class="mb-4 text-sm font-medium text-slate-700">交易设置</div>
+        <div
+          v-if="isTradingWorkspace"
+          class="rounded-xl border border-slate-200 bg-white px-4 py-4"
+        >
+          <div class="mb-4 text-sm font-medium text-slate-700">
+            交易设置
+          </div>
           <el-row :gutter="20">
             <el-col :span="12">
               <el-form-item label="交易模式">
                 <el-radio-group v-model="form.trading_mode">
-                  <el-radio value="paper">模拟交易</el-radio>
-                  <el-radio value="live">实盘交易</el-radio>
+                  <el-radio value="paper">
+                    模拟交易
+                  </el-radio>
+                  <el-radio value="live">
+                    实盘交易
+                  </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
           </el-row>
-          <el-form-item v-if="form.trading_mode === 'live'" label="网关配置">
+          <el-form-item
+            v-if="form.trading_mode === 'live'"
+            label="网关配置"
+          >
             <TradingGatewaySelect v-model="form.gateway_config" />
           </el-form-item>
         </div>
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <div class="mb-4 text-sm font-medium text-slate-700">商品列表</div>
-          <el-form-item label="品种代码" prop="symbols">
+          <div class="mb-4 text-sm font-medium text-slate-700">
+            商品列表
+          </div>
+          <el-form-item
+            label="品种代码"
+            prop="symbols"
+          >
             <div class="w-full">
               <div
                 v-for="(symbol, index) in form.symbols"
                 :key="index"
                 class="mb-2 flex items-center gap-2"
               >
-                <el-input v-model="symbol.code" placeholder="代码 (如 au000)" style="width: 180px" />
-                <el-input v-model="symbol.name" placeholder="名称 (如 黄金加权0)" style="width: 220px" />
+                <el-input
+                  v-model="symbol.code"
+                  placeholder="代码 (如 au000)"
+                  style="width: 180px"
+                />
+                <el-input
+                  v-model="symbol.name"
+                  placeholder="名称 (如 黄金加权0)"
+                  style="width: 220px"
+                />
                 <el-button
                   link
                   type="danger"
@@ -119,32 +195,68 @@
                   <el-icon><Delete /></el-icon>
                 </el-button>
               </div>
-              <el-button size="small" @click="form.symbols.push({ code: '', name: '' })">
-                <el-icon class="mr-1"><Plus /></el-icon>添加品种
+              <el-button
+                size="small"
+                @click="form.symbols.push({ code: '', name: '' })"
+              >
+                <el-icon class="mr-1">
+                  <Plus />
+                </el-icon>添加品种
               </el-button>
             </div>
           </el-form-item>
         </div>
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <div class="mb-4 text-sm font-medium text-slate-700">周期与范围</div>
+          <div class="mb-4 text-sm font-medium text-slate-700">
+            周期与范围
+          </div>
           <el-row :gutter="20">
             <el-col :span="8">
               <el-form-item label="周期">
-                <el-select v-model="form.timeframe" style="width: 100%">
-                  <el-option label="1分钟" value="1m" />
-                  <el-option label="5分钟" value="5m" />
-                  <el-option label="15分钟" value="15m" />
-                  <el-option label="30分钟" value="30m" />
-                  <el-option label="1小时" value="1h" />
-                  <el-option label="4小时" value="4h" />
-                  <el-option label="日线" value="1d" />
+                <el-select
+                  v-model="form.timeframe"
+                  style="width: 100%"
+                >
+                  <el-option
+                    label="1分钟"
+                    value="1m"
+                  />
+                  <el-option
+                    label="5分钟"
+                    value="5m"
+                  />
+                  <el-option
+                    label="15分钟"
+                    value="15m"
+                  />
+                  <el-option
+                    label="30分钟"
+                    value="30m"
+                  />
+                  <el-option
+                    label="1小时"
+                    value="1h"
+                  />
+                  <el-option
+                    label="4小时"
+                    value="4h"
+                  />
+                  <el-option
+                    label="日线"
+                    value="1d"
+                  />
                 </el-select>
               </el-form-item>
             </el-col>
             <el-col :span="8">
               <el-form-item label="N值">
-                <el-input-number v-model="form.timeframe_n" :min="1" :max="100" style="width: 100%" />
+                <el-input-number
+                  v-model="form.timeframe_n"
+                  :min="1"
+                  :max="100"
+                  style="width: 100%"
+                />
               </el-form-item>
             </el-col>
           </el-row>
@@ -153,22 +265,42 @@
             <el-col :span="8">
               <el-form-item label="范围类型">
                 <el-radio-group v-model="form.range_type">
-                  <el-radio value="date">日期</el-radio>
-                  <el-radio value="sample">样本数</el-radio>
+                  <el-radio value="date">
+                    日期
+                  </el-radio>
+                  <el-radio value="sample">
+                    样本数
+                  </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
-            <el-col v-if="form.range_type === 'sample'" :span="8">
+            <el-col
+              v-if="form.range_type === 'sample'"
+              :span="8"
+            >
               <el-form-item label="样本数">
-                <el-input-number v-model="form.sample_count" :min="100" :max="100000" style="width: 100%" />
+                <el-input-number
+                  v-model="form.sample_count"
+                  :min="100"
+                  :max="100000"
+                  style="width: 100%"
+                />
               </el-form-item>
             </el-col>
           </el-row>
 
-          <el-row v-if="form.range_type === 'date'" :gutter="20">
+          <el-row
+            v-if="form.range_type === 'date'"
+            :gutter="20"
+          >
             <el-col :span="12">
               <el-form-item label="起始日期">
-                <el-date-picker v-model="form.start_date" type="datetime" placeholder="选择起始日期" style="width: 100%" />
+                <el-date-picker
+                  v-model="form.start_date"
+                  type="datetime"
+                  placeholder="选择起始日期"
+                  style="width: 100%"
+                />
               </el-form-item>
             </el-col>
             <el-col :span="12">
@@ -191,25 +323,45 @@
             <el-col :span="8">
               <el-form-item label="复权方式">
                 <el-radio-group v-model="form.adjust_type">
-                  <el-radio value="none">不复权</el-radio>
-                  <el-radio value="forward">后复权</el-radio>
+                  <el-radio value="none">
+                    不复权
+                  </el-radio>
+                  <el-radio value="forward">
+                    后复权
+                  </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
             <el-col :span="8">
               <el-form-item label="分割方式">
                 <el-radio-group v-model="form.split_type">
-                  <el-radio value="natural">自然时间</el-radio>
-                  <el-radio value="trading">交易时间</el-radio>
+                  <el-radio value="natural">
+                    自然时间
+                  </el-radio>
+                  <el-radio value="trading">
+                    交易时间
+                  </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
             <el-col :span="8">
               <el-form-item label="数据范围">
-                <el-select v-model="form.data_range" style="width: 100%">
-                  <el-option label="全部" value="all" />
-                  <el-option label="主力" value="main" />
-                  <el-option label="夜盘" value="night" />
+                <el-select
+                  v-model="form.data_range"
+                  style="width: 100%"
+                >
+                  <el-option
+                    label="全部"
+                    value="all"
+                  />
+                  <el-option
+                    label="主力"
+                    value="main"
+                  />
+                  <el-option
+                    label="夜盘"
+                    value="night"
+                  />
                 </el-select>
               </el-form-item>
             </el-col>
@@ -219,8 +371,14 @@
     </div>
 
     <template #footer>
-      <el-button @click="$emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="handleSubmit">
+      <el-button @click="$emit('update:modelValue', false)">
+        取消
+      </el-button>
+      <el-button
+        type="primary"
+        :loading="submitting"
+        @click="handleSubmit"
+      >
         创建
       </el-button>
     </template>

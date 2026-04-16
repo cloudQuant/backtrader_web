@@ -56,7 +56,9 @@ class AkshareDataService:
     def normalize_dataframe(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """Normalize column names and cell values before persistence."""
         normalized = dataframe.copy()
-        normalized.columns = [self._normalize_identifier(str(column)) for column in normalized.columns]
+        normalized.columns = [
+            self._normalize_identifier(str(column)) for column in normalized.columns
+        ]
         normalized = normalized.where(pd.notnull(normalized), None)
         return normalized
 
@@ -118,7 +120,9 @@ class AkshareDataService:
                 if parameters.get("symbol")
                 else None,
                 market=str(parameters.get("market")) if parameters.get("market") else None,
-                asset_type=str(parameters.get("asset_type")) if parameters.get("asset_type") else None,
+                asset_type=str(parameters.get("asset_type"))
+                if parameters.get("asset_type")
+                else None,
                 metadata_json={"columns": columns},
             )
             self.db.add(record)
@@ -142,7 +146,9 @@ class AkshareDataService:
             else None
         )
         table.market = str(parameters.get("market")) if parameters.get("market") else None
-        table.asset_type = str(parameters.get("asset_type")) if parameters.get("asset_type") else None
+        table.asset_type = (
+            str(parameters.get("asset_type")) if parameters.get("asset_type") else None
+        )
         table.metadata_json = {"columns": columns}
         await self.db.commit()
         await self.db.refresh(table)
@@ -229,8 +235,10 @@ class AkshareDataService:
             count_stmt = count_stmt.where(filters)
 
         total = int((await self.db.execute(count_stmt)).scalar() or 0)
-        stmt = stmt.order_by(DataTable.updated_at.desc()).offset((page - 1) * page_size).limit(
-            page_size
+        stmt = (
+            stmt.order_by(DataTable.updated_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all()), total

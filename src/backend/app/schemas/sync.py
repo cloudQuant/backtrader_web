@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 SyncDirection = Literal["upload", "download"]
 SyncMode = Literal["full", "schema_only", "data_only"]
 SyncConnectionMode = Literal["direct_mysql", "ssh_docker"]
@@ -37,9 +36,7 @@ class SyncConfig(BaseModel):
     remote_mysql_port: int = 3306
     remote_mysql_user: str = "root"
     remote_mysql_password: str = ""
-    sync_databases: list[str] = Field(
-        default_factory=lambda: ["backtrader_web", "akshare_data"]
-    )
+    sync_databases: list[str] = Field(default_factory=lambda: ["backtrader_web", "akshare_data"])
 
 
 class SyncRequest(BaseModel):

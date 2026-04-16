@@ -216,9 +216,7 @@ class StrategySandbox:
         return strategy_class
 
     @classmethod
-    def _exec_with_timeout(
-        cls, compiled_code: Any, safe_globals: dict, timeout: int
-    ) -> None:
+    def _exec_with_timeout(cls, compiled_code: Any, safe_globals: dict, timeout: int) -> None:
         """Execute compiled code with a timeout.
 
         Uses signal.alarm on Unix and threading.Timer as fallback.
@@ -285,26 +283,67 @@ class StrategySandbox:
         return None
 
     # Dangerous modules that must never be imported
-    _DANGEROUS_MODULES = frozenset({
-        "os", "sys", "subprocess", "shutil", "pickle", "socket",
-        "urllib", "requests", "http", "ctypes", "multiprocessing",
-        "signal", "importlib", "pathlib", "io", "builtins",
-        "code", "codeop", "compileall", "py_compile",
-    })
+    _DANGEROUS_MODULES = frozenset(
+        {
+            "os",
+            "sys",
+            "subprocess",
+            "shutil",
+            "pickle",
+            "socket",
+            "urllib",
+            "requests",
+            "http",
+            "ctypes",
+            "multiprocessing",
+            "signal",
+            "importlib",
+            "pathlib",
+            "io",
+            "builtins",
+            "code",
+            "codeop",
+            "compileall",
+            "py_compile",
+        }
+    )
 
     # Dangerous function names that must never be called
-    _DANGEROUS_CALLS = frozenset({
-        "eval", "exec", "compile", "open", "input", "raw_input",
-        "__import__", "breakpoint", "exit", "quit",
-    })
+    _DANGEROUS_CALLS = frozenset(
+        {
+            "eval",
+            "exec",
+            "compile",
+            "open",
+            "input",
+            "raw_input",
+            "__import__",
+            "breakpoint",
+            "exit",
+            "quit",
+        }
+    )
 
     # Dangerous dunder attributes (legitimate ones like __init__ are allowed)
-    _DANGEROUS_ATTRS = frozenset({
-        "__builtins__", "__subclasses__", "__bases__", "__mro__",
-        "__globals__", "__code__", "__closure__", "__func__",
-        "__self__", "__module__", "__dict__", "__class__",
-        "__import__", "__loader__", "__spec__",
-    })
+    _DANGEROUS_ATTRS = frozenset(
+        {
+            "__builtins__",
+            "__subclasses__",
+            "__bases__",
+            "__mro__",
+            "__globals__",
+            "__code__",
+            "__closure__",
+            "__func__",
+            "__self__",
+            "__module__",
+            "__dict__",
+            "__class__",
+            "__import__",
+            "__loader__",
+            "__spec__",
+        }
+    )
 
     # Default execution timeout in seconds
     _EXECUTION_TIMEOUT = 30
@@ -350,42 +389,30 @@ class StrategySandbox:
             for alias in node.names:
                 base = alias.name.split(".")[0]
                 if base in cls._DANGEROUS_MODULES:
-                    raise ValueError(
-                        f"Importing module '{alias.name}' is not allowed"
-                    )
+                    raise ValueError(f"Importing module '{alias.name}' is not allowed")
 
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 base = node.module.split(".")[0]
                 if base in cls._DANGEROUS_MODULES:
-                    raise ValueError(
-                        f"Importing from module '{node.module}' is not allowed"
-                    )
+                    raise ValueError(f"Importing from module '{node.module}' is not allowed")
 
         # Check Name nodes for dangerous dunder names (e.g., bare __builtins__)
         elif isinstance(node, ast.Name):
             if node.id in cls._DANGEROUS_ATTRS:
-                raise ValueError(
-                    f"Accessing attribute '{node.id}' is not allowed"
-                )
+                raise ValueError(f"Accessing attribute '{node.id}' is not allowed")
 
         # Check function calls
         elif isinstance(node, ast.Call):
             func_name = cls._get_call_name(node)
             if func_name in cls._DANGEROUS_CALLS:
-                raise ValueError(
-                    f"Calling function '{func_name}' is not allowed"
-                )
+                raise ValueError(f"Calling function '{func_name}' is not allowed")
             # Block globals(), locals(), vars() calls
             if func_name in ("globals", "locals", "vars", "dir"):
-                raise ValueError(
-                    f"Calling '{func_name}()' is not allowed"
-                )
+                raise ValueError(f"Calling '{func_name}()' is not allowed")
             # Block getattr/setattr/delattr with dangerous attr names
             if func_name in ("getattr", "setattr", "delattr") and len(node.args) >= 2:
-                if isinstance(node.args[1], ast.Constant) and isinstance(
-                    node.args[1].value, str
-                ):
+                if isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str):
                     attr = node.args[1].value
                     if attr in cls._DANGEROUS_ATTRS:
                         raise ValueError(
@@ -395,18 +422,14 @@ class StrategySandbox:
         # Check attribute access for dangerous dunder names
         elif isinstance(node, ast.Attribute):
             if node.attr in cls._DANGEROUS_ATTRS:
-                raise ValueError(
-                    f"Accessing attribute '{node.attr}' is not allowed"
-                )
+                raise ValueError(f"Accessing attribute '{node.attr}' is not allowed")
 
         # Check subscript access on globals()/locals()
         elif isinstance(node, ast.Subscript):
             if isinstance(node.value, ast.Call):
                 name = cls._get_call_name(node.value)
                 if name in ("globals", "locals", "vars"):
-                    raise ValueError(
-                        f"Subscript access on '{name}()' is not allowed"
-                    )
+                    raise ValueError(f"Subscript access on '{name}()' is not allowed")
 
     @staticmethod
     def _get_call_name(node: ast.Call) -> str:

@@ -307,7 +307,9 @@ async def get_backtest_data(
 
         for date, value in zip(equity_dates, equity_values, strict=False):
             try:
-                normalized_date = _normalize_chart_date(date if isinstance(date, str) else str(date))
+                normalized_date = _normalize_chart_date(
+                    date if isinstance(date, str) else str(date)
+                )
                 dt = datetime.strptime(normalized_date, "%Y-%m-%d")
                 month_key = (dt.year, dt.month)
 

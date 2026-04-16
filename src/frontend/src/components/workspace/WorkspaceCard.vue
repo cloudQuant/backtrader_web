@@ -6,21 +6,36 @@
   >
     <template #header>
       <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2 min-w-0" @click.stop="$emit('click')">
+        <div
+          class="flex items-center gap-2 min-w-0"
+          @click.stop="$emit('click')"
+        >
           <el-checkbox
             :model-value="selected"
             @change="$emit('toggle-select')"
             @click.stop
           />
-          <el-icon class="text-blue-500 flex-shrink-0"><FolderOpened /></el-icon>
+          <el-icon class="text-blue-500 flex-shrink-0">
+            <FolderOpened />
+          </el-icon>
           <span class="font-medium truncate">{{ workspace.name }}</span>
         </div>
-        <el-tag :type="statusTagType" size="small">{{ statusLabel }}</el-tag>
+        <el-tag
+          :type="statusTagType"
+          size="small"
+        >
+          {{ statusLabel }}
+        </el-tag>
       </div>
     </template>
 
-    <div @click.stop="$emit('click')" class="space-y-2 text-sm text-gray-600">
-      <p class="line-clamp-2 min-h-[2.5em]">{{ workspace.description || '暂无描述' }}</p>
+    <div
+      class="space-y-2 text-sm text-gray-600"
+      @click.stop="$emit('click')"
+    >
+      <p class="line-clamp-2 min-h-[2.5em]">
+        {{ workspace.description || '暂无描述' }}
+      </p>
       <div class="flex items-center justify-between">
         <span>策略单元: {{ workspace.unit_count }}</span>
         <span>已完成: {{ workspace.completed_count }}</span>
@@ -32,8 +47,20 @@
     </div>
 
     <div class="flex justify-end gap-2 mt-3 pt-3 border-t border-gray-100">
-      <el-button size="small" @click.stop="$emit('edit')">编辑</el-button>
-      <el-button size="small" type="danger" plain @click.stop="$emit('delete')">删除</el-button>
+      <el-button
+        size="small"
+        @click.stop="$emit('edit')"
+      >
+        编辑
+      </el-button>
+      <el-button
+        size="small"
+        type="danger"
+        plain
+        @click.stop="$emit('delete')"
+      >
+        删除
+      </el-button>
     </div>
   </el-card>
 </template>

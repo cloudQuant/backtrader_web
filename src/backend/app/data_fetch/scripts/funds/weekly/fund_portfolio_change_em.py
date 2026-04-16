@@ -139,7 +139,9 @@ class FundPortfolioChangeEm(AkshareToMySql):
 
             # 生成主键ID
             df["r_id"] = df.apply(
-                lambda x: f"FPC_{x['fund_code']}_{x['stock_code']}_{x['transaction_type']}_{x['year']}_{x['quarter']}",
+                lambda x: (
+                    f"FPC_{x['fund_code']}_{x['stock_code']}_{x['transaction_type']}_{x['year']}_{x['quarter']}"
+                ),
                 axis=1,
             )
 

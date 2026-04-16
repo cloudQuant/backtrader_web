@@ -69,6 +69,7 @@ async def test_backtest_service_execute_backtest_missing_branches(tmp_path: Path
                 # observe internal calls: tmp_logs cleanup, config overwrite, persist copytree
                 with patch("shutil.rmtree") as mock_rmtree:
                     with patch("shutil.copytree") as mock_copytree:
+
                         def _copytree_side_effect(src, dst, *args, **kwargs):
                             if Path(dst).name == "s1":
                                 (Path(dst) / "logs").mkdir(parents=True, exist_ok=True)

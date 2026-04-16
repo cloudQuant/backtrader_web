@@ -235,7 +235,9 @@ class TestGetStrategyVersion:
                 "Authorization": f"Bearer {create_access_token({'sub': 'owner-id', 'username': 'owner'})}"
             }
 
-            resp = await client.get("/api/v1/strategy-versions/versions/ver123", headers=owner_headers)
+            resp = await client.get(
+                "/api/v1/strategy-versions/versions/ver123", headers=owner_headers
+            )
             assert resp.status_code == 200
 
 

@@ -7,19 +7,37 @@
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">选中单元</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ props.unitIds.length }}</div>
-          <div class="text-xs text-slate-400">待配置联动范围</div>
+          <div class="text-xs text-slate-500">
+            选中单元
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ props.unitIds.length }}
+          </div>
+          <div class="text-xs text-slate-400">
+            待配置联动范围
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">当前联动组</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ groupName.trim() || '未设置' }}</div>
-          <div class="text-xs text-slate-400">组名可跨单元复用</div>
+          <div class="text-xs text-slate-500">
+            当前联动组
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ groupName.trim() || '未设置' }}
+          </div>
+          <div class="text-xs text-slate-400">
+            组名可跨单元复用
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">已存在联动组</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ existingGroupCount }}</div>
-          <div class="text-xs text-slate-400">工作区级配置</div>
+          <div class="text-xs text-slate-500">
+            已存在联动组
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ existingGroupCount }}
+          </div>
+          <div class="text-xs text-slate-400">
+            工作区级配置
+          </div>
         </div>
       </div>
 
@@ -42,7 +60,9 @@
       </div>
 
       <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-        <div class="mb-2 text-sm font-medium text-gray-700">包含单元</div>
+        <div class="mb-2 text-sm font-medium text-gray-700">
+          包含单元
+        </div>
         <div class="flex flex-wrap gap-2">
           <el-tag
             v-for="unit in selectedUnits"
@@ -63,7 +83,11 @@
       <el-button @click="handleClear">
         清除联动
       </el-button>
-      <el-button type="primary" :loading="loading" @click="handleSave">
+      <el-button
+        type="primary"
+        :loading="loading"
+        @click="handleSave"
+      >
         保存
       </el-button>
     </template>

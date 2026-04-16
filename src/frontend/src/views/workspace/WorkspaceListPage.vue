@@ -1,8 +1,13 @@
 <template>
   <div class="workspace-list-page">
     <teleport to="#page-header-actions">
-      <el-button type="primary" @click="showCreateDialog = true">
-        <el-icon class="mr-1"><Plus /></el-icon>
+      <el-button
+        type="primary"
+        @click="showCreateDialog = true"
+      >
+        <el-icon class="mr-1">
+          <Plus />
+        </el-icon>
         新建工作区
       </el-button>
       <el-button
@@ -11,10 +16,15 @@
         plain
         @click="handleBatchDelete"
       >
-        <el-icon class="mr-1"><Delete /></el-icon>
+        <el-icon class="mr-1">
+          <Delete />
+        </el-icon>
         删除工作区
       </el-button>
-      <el-radio-group v-model="viewMode" size="default">
+      <el-radio-group
+        v-model="viewMode"
+        size="default"
+      >
         <el-radio-button value="card">
           <el-icon><Grid /></el-icon>
         </el-radio-button>
@@ -24,8 +34,13 @@
       </el-radio-group>
     </teleport>
 
-    <div v-if="store.loading" class="flex justify-center py-20">
-      <el-icon class="is-loading text-3xl text-blue-500"><Loading /></el-icon>
+    <div
+      v-if="store.loading"
+      class="flex justify-center py-20"
+    >
+      <el-icon class="is-loading text-3xl text-blue-500">
+        <Loading />
+      </el-icon>
     </div>
 
     <el-empty
@@ -33,7 +48,10 @@
       :description="emptyDescription"
     />
 
-    <el-row v-else-if="viewMode === 'card'" :gutter="16">
+    <el-row
+      v-else-if="viewMode === 'card'"
+      :gutter="16"
+    >
       <el-col
         v-for="ws in store.workspaces"
         :key="ws.id"
@@ -61,30 +79,90 @@
       @selection-change="onTableSelectionChange"
       @row-click="(row: Workspace) => goToDetail(row.id)"
     >
-      <el-table-column type="selection" width="50" />
-      <el-table-column prop="name" label="名称" min-width="180" />
-      <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-      <el-table-column label="状态" width="100">
+      <el-table-column
+        type="selection"
+        width="50"
+      />
+      <el-table-column
+        prop="name"
+        label="名称"
+        min-width="180"
+      />
+      <el-table-column
+        prop="description"
+        label="描述"
+        min-width="200"
+        show-overflow-tooltip
+      />
+      <el-table-column
+        label="状态"
+        width="100"
+      >
         <template #default="{ row }">
-          <el-tag :type="statusTagType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          <el-tag
+            :type="statusTagType(row.status)"
+            size="small"
+          >
+            {{ statusLabel(row.status) }}
+          </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="策略单元" width="100" align="center">
-        <template #default="{ row }">{{ row.unit_count }}</template>
-      </el-table-column>
-      <el-table-column label="已完成" width="80" align="center">
-        <template #default="{ row }">{{ row.completed_count }}</template>
-      </el-table-column>
-      <el-table-column label="创建时间" width="170">
-        <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
-      </el-table-column>
-      <el-table-column label="更新时间" width="170">
-        <template #default="{ row }">{{ formatTime(row.updated_at) }}</template>
-      </el-table-column>
-      <el-table-column label="操作" width="120" fixed="right">
+      <el-table-column
+        label="策略单元"
+        width="100"
+        align="center"
+      >
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click.stop="handleEdit(row)">编辑</el-button>
-          <el-button link type="danger" size="small" @click.stop="handleDelete(row)">删除</el-button>
+          {{ row.unit_count }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="已完成"
+        width="80"
+        align="center"
+      >
+        <template #default="{ row }">
+          {{ row.completed_count }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="创建时间"
+        width="170"
+      >
+        <template #default="{ row }">
+          {{ formatTime(row.created_at) }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="更新时间"
+        width="170"
+      >
+        <template #default="{ row }">
+          {{ formatTime(row.updated_at) }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        label="操作"
+        width="120"
+        fixed="right"
+      >
+        <template #default="{ row }">
+          <el-button
+            link
+            type="primary"
+            size="small"
+            @click.stop="handleEdit(row)"
+          >
+            编辑
+          </el-button>
+          <el-button
+            link
+            type="danger"
+            size="small"
+            @click.stop="handleDelete(row)"
+          >
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>

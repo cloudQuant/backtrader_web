@@ -361,9 +361,7 @@ async def download_simulation_log(
 # ==================== Config Management Endpoints ====================
 
 
-def _get_strategy_config_path(
-    mgr: LiveTradingManager, instance_id: str, user_id: str
-) -> Path:
+def _get_strategy_config_path(mgr: LiveTradingManager, instance_id: str, user_id: str) -> Path:
     """Resolve the config.yaml path for a simulation instance.
 
     Args:

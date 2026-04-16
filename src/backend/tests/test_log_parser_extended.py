@@ -343,9 +343,11 @@ class TestParseAllLogs:
         strategy_dir = tmp_path / "strategy"
         logs_dir = strategy_dir / "logs"
         logs_dir.mkdir(parents=True)
-        (strategy_dir / "config.yaml").write_text("simulate:\n  initial_cash: 100000\n", encoding="utf-8")
+        (strategy_dir / "config.yaml").write_text(
+            "simulate:\n  initial_cash: 100000\n", encoding="utf-8"
+        )
         (logs_dir / "bar.log").write_text(
-            '\n'.join(
+            "\n".join(
                 [
                     '{"datetime":"2026-03-13 09:00:00","open":100,"high":101,"low":99,"close":100.5,"volume":10}',
                     '{"datetime":"2026-03-13 09:15:00","open":100.5,"high":102,"low":100,"close":101.5,"volume":12}',
@@ -355,7 +357,7 @@ class TestParseAllLogs:
             encoding="utf-8",
         )
         (logs_dir / "position.log").write_text(
-            '\n'.join(
+            "\n".join(
                 [
                     '{"datetime":"2026-03-13 09:00:00","data_name":"CF609","size":0,"price":0,"value":0}',
                     '{"datetime":"2026-03-13 09:15:00","data_name":"CF609","size":1,"price":100.5,"value":101.5}',
@@ -365,7 +367,7 @@ class TestParseAllLogs:
             encoding="utf-8",
         )
         (logs_dir / "trade.log").write_text(
-            '\n'.join(
+            "\n".join(
                 [
                     '{"datetime":"2026-03-13 09:00:00","ref":1,"data_name":"CF609","size":1,"price":100.5,"value":100.5,"commission":0.1,"pnl":0.0,"pnlcomm":-0.1,"isopen":true,"isclosed":false,"barlen":0}',
                     '{"datetime":"2026-03-13 09:15:00","ref":1,"data_name":"CF609","size":0,"price":101.5,"value":0.0,"commission":0.1,"pnl":1.0,"pnlcomm":0.8,"isopen":false,"isclosed":true,"barlen":1}',
@@ -385,7 +387,9 @@ class TestParseAllLogs:
         strategy_dir = tmp_path / "strategy"
         logs_dir = strategy_dir / "logs" / "task_1"
         logs_dir.mkdir(parents=True)
-        (strategy_dir / "config.yaml").write_text("backtest:\n  initial_cash: 100000\n", encoding="utf-8")
+        (strategy_dir / "config.yaml").write_text(
+            "backtest:\n  initial_cash: 100000\n", encoding="utf-8"
+        )
         (logs_dir / "trade.log").write_text(
             "2026-04-08T15:42:14.393+08:00 | OPEN | ref=1 | data=EURUSD | size=-952244.9173927535 | pnl=0.00 | pnlcomm=-99.99\n"
             "2026-04-08T15:42:14.398+08:00 | CLOSED | ref=1 | data=EURUSD | size=0.0 | pnl=-35947.25 | pnlcomm=-36150.83\n",

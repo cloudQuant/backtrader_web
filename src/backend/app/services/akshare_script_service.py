@@ -68,9 +68,11 @@ class AkshareScriptService:
                 stmt = stmt.where(item)
                 count_stmt = count_stmt.where(item)
         total = int((await self.db.execute(count_stmt)).scalar() or 0)
-        stmt = stmt.order_by(DataScript.category, DataScript.script_id).offset(
-            (page - 1) * page_size
-        ).limit(page_size)
+        stmt = (
+            stmt.order_by(DataScript.category, DataScript.script_id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
         result = await self.db.execute(stmt)
         return list(result.scalars().all()), total
 
@@ -79,7 +81,9 @@ class AkshareScriptService:
         return result.scalar_one_or_none()
 
     async def get_categories(self) -> list[str]:
-        result = await self.db.execute(select(DataScript.category).distinct().order_by(DataScript.category))
+        result = await self.db.execute(
+            select(DataScript.category).distinct().order_by(DataScript.category)
+        )
         return [row[0] for row in result.all()]
 
     async def get_stats(self) -> dict[str, Any]:
@@ -107,8 +111,12 @@ class AkshareScriptService:
             "categories": await self.get_categories(),
         }
 
-    async def create_script(self, payload: dict[str, Any], operator_id: str | None = None) -> DataScript:
-        script = DataScript(**payload, is_custom=True, created_by=operator_id, updated_by=operator_id)
+    async def create_script(
+        self, payload: dict[str, Any], operator_id: str | None = None
+    ) -> DataScript:
+        script = DataScript(
+            **payload, is_custom=True, created_by=operator_id, updated_by=operator_id
+        )
         self.db.add(script)
         await self.db.commit()
         await self.db.refresh(script)
@@ -202,7 +210,9 @@ class AkshareScriptService:
             elif hasattr(legacy_instance, "run"):
                 extracted["function_name"] = "run"
 
-        extracted["description"] = extracted.get("description") or inspect.getdoc(legacy_instance.__class__)
+        extracted["description"] = extracted.get("description") or inspect.getdoc(
+            legacy_instance.__class__
+        )
         return extracted
 
     def _derive_interface_script_metadata(self, interface: DataInterface) -> dict[str, Any]:
@@ -405,9 +415,9 @@ class AkshareScriptService:
         try:
             callable_obj = await self._resolve_callable(script)
             dataframe_table_name = self.data_service.build_table_name(script, params)
-            legacy_table_name = self._legacy_callable_table_name(callable_obj) or self._legacy_table_name(
-                script
-            )
+            legacy_table_name = self._legacy_callable_table_name(
+                callable_obj
+            ) or self._legacy_table_name(script)
             dataframe_rows_before = await self.data_service.get_row_count(dataframe_table_name)
             legacy_rows_before = (
                 await self.data_service.get_row_count(legacy_table_name)

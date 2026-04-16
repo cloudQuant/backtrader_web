@@ -156,9 +156,7 @@ class FundValueEstimationEm(AkshareToMySql):
             # 处理估算偏差
             if "ESTIMATION_DEVIATION_STR" in df.columns:
                 df["ESTIMATION_DEVIATION"] = df["ESTIMATION_DEVIATION_STR"].apply(
-                    lambda x: (
-                        None if pd.isna(x) or x in ("---", "--", "-", "") else str(x).strip()
-                    )
+                    lambda x: None if pd.isna(x) or x in ("---", "--", "-", "") else str(x).strip()
                 )
 
             # 生成主键

@@ -132,7 +132,11 @@ def _normalize_workspace_settings(settings: dict[str, Any] | None) -> dict[str, 
         for key, value in data_source.items():
             if key in {"csv", "mysql", "postgresql", "mongodb"} and isinstance(value, dict):
                 section = dict(merged_data_source[key])
-                if key == "csv" and "directory_path" not in value and isinstance(value.get("file_path"), str):
+                if (
+                    key == "csv"
+                    and "directory_path" not in value
+                    and isinstance(value.get("file_path"), str)
+                ):
                     section["directory_path"] = value["file_path"]
                 for section_key, section_value in value.items():
                     if key == "csv" and section_key == "file_path":
@@ -293,7 +297,9 @@ class WorkspaceService:
         if not status or status in _ACTIVE_OPTIMIZATION_STATUSES:
             end_time = datetime.now(timezone.utc)
         else:
-            end_time = WorkspaceService._parse_runtime_datetime(task.get("updated_at")) or created_at
+            end_time = (
+                WorkspaceService._parse_runtime_datetime(task.get("updated_at")) or created_at
+            )
         elapsed = (end_time - created_at).total_seconds()
         if elapsed < 0:
             return None
@@ -450,8 +456,12 @@ class WorkspaceService:
         is_success = bool(result_entry.get("success")) or bool(result_entry.get("metrics"))
         return {
             "artifact_path": artifact_path or None,
-            "artifact_manifest_path": str(manifest_path) if manifest_path and manifest_path.is_file() else None,
-            "artifact_summary_path": str(summary_path) if summary_path and summary_path.is_file() else None,
+            "artifact_manifest_path": str(manifest_path)
+            if manifest_path and manifest_path.is_file()
+            else None,
+            "artifact_summary_path": str(summary_path)
+            if summary_path and summary_path.is_file()
+            else None,
             "artifact_status": "success" if is_success else "failed",
             "artifact_error": result_entry.get("error"),
             "optimization_task_id": task_id,
@@ -603,8 +613,12 @@ class WorkspaceService:
                 )
 
         data_config = _normalize_unit_data_config(unit.data_config)
-        start_date = str(data_config.get("start_date") or (equity_dates[0] if equity_dates else ""))[:10]
-        end_date = str(data_config.get("end_date") or (equity_dates[-1] if equity_dates else ""))[:10]
+        start_date = str(
+            data_config.get("start_date") or (equity_dates[0] if equity_dates else "")
+        )[:10]
+        end_date = str(data_config.get("end_date") or (equity_dates[-1] if equity_dates else ""))[
+            :10
+        ]
         strategy_name = str(unit.strategy_name or unit.strategy_id or "Unknown")
         artifact_metadata = WorkspaceService._build_optimization_artifact_metadata(
             task_id,
@@ -647,7 +661,12 @@ class WorkspaceService:
             task_id = unit.last_optimization_task_id
             mgr = get_optimization_execution_manager()
             db_task = await mgr.get_task(task_id, user_id=user_id)
-            if not db_task or not db_task.results or result_index < 0 or result_index >= len(db_task.results):
+            if (
+                not db_task
+                or not db_task.results
+                or result_index < 0
+                or result_index >= len(db_task.results)
+            ):
                 return None
 
             result_entry = cast(dict[str, Any], db_task.results[result_index] or {})
@@ -671,7 +690,12 @@ class WorkspaceService:
             task_id = unit.last_optimization_task_id
             mgr = get_optimization_execution_manager()
             db_task = await mgr.get_task(task_id, user_id=user_id)
-            if not db_task or not db_task.results or result_index < 0 or result_index >= len(db_task.results):
+            if (
+                not db_task
+                or not db_task.results
+                or result_index < 0
+                or result_index >= len(db_task.results)
+            ):
                 return None
 
             result_entry = cast(dict[str, Any], db_task.results[result_index] or {})
@@ -811,7 +835,9 @@ class WorkspaceService:
                 _normalize_workspace_type(workspace_type) if workspace_type else None
             )
             # Count
-            count_q = select(func.count()).select_from(Workspace).where(Workspace.user_id == user_id)
+            count_q = (
+                select(func.count()).select_from(Workspace).where(Workspace.user_id == user_id)
+            )
             if normalized_workspace_type:
                 count_q = count_q.where(Workspace.workspace_type == normalized_workspace_type)
             total = (await session.execute(count_q)).scalar() or 0
@@ -848,7 +874,12 @@ class WorkspaceService:
                     if isinstance(value.get("data_source"), dict):
                         merged_data_source = dict(existing.get("data_source") or {})
                         for source_key, source_value in value["data_source"].items():
-                            if source_key in {"csv", "mysql", "postgresql", "mongodb"} and isinstance(source_value, dict):
+                            if source_key in {
+                                "csv",
+                                "mysql",
+                                "postgresql",
+                                "mongodb",
+                            } and isinstance(source_value, dict):
                                 current_section = dict(merged_data_source.get(source_key) or {})
                                 current_section.update(source_value)
                                 merged_data_source[source_key] = current_section
@@ -897,9 +928,8 @@ class WorkspaceService:
                 return None
 
             # Determine next sort_order
-            max_order_q = (
-                select(func.coalesce(func.max(StrategyUnit.sort_order), -1))
-                .where(StrategyUnit.workspace_id == workspace_id)
+            max_order_q = select(func.coalesce(func.max(StrategyUnit.sort_order), -1)).where(
+                StrategyUnit.workspace_id == workspace_id
             )
             max_order = (await session.execute(max_order_q)).scalar() or 0
 
@@ -950,9 +980,8 @@ class WorkspaceService:
             if ws is None:
                 return None
 
-            max_order_q = (
-                select(func.coalesce(func.max(StrategyUnit.sort_order), -1))
-                .where(StrategyUnit.workspace_id == workspace_id)
+            max_order_q = select(func.coalesce(func.max(StrategyUnit.sort_order), -1)).where(
+                StrategyUnit.workspace_id == workspace_id
             )
             max_order = (await session.execute(max_order_q)).scalar() or 0
 
@@ -1000,9 +1029,7 @@ class WorkspaceService:
                 )
             return [self._unit_to_dict(u) for u in created]
 
-    async def list_units(
-        self, workspace_id: str, user_id: str
-    ) -> list[dict[str, Any]] | None:
+    async def list_units(self, workspace_id: str, user_id: str) -> list[dict[str, Any]] | None:
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -1022,7 +1049,9 @@ class WorkspaceService:
                     await session.commit()
                 return [self._unit_to_dict(unit) for unit in units]
 
-            task_ids = [str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id]
+            task_ids = [
+                str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id
+            ]
             task_by_id: dict[str, BacktestTask] = {}
             if task_ids:
                 task_result = await session.execute(
@@ -1208,11 +1237,15 @@ class WorkspaceService:
                     value = self.trading_service.normalize_trading_mode(value)
                 elif key == "gateway_config":
                     value = self.trading_service.normalize_gateway_config(
-                        value.model_dump() if hasattr(value, "model_dump") else cast(dict[str, Any], value)
+                        value.model_dump()
+                        if hasattr(value, "model_dump")
+                        else cast(dict[str, Any], value)
                     )
                 elif key == "trading_snapshot":
                     value = (
-                        value.model_dump() if hasattr(value, "model_dump") else cast(dict[str, Any], value)
+                        value.model_dump()
+                        if hasattr(value, "model_dump")
+                        else cast(dict[str, Any], value)
                     )
                 setattr(unit, key, value)
             await session.commit()
@@ -1224,9 +1257,7 @@ class WorkspaceService:
             )
             return self._unit_to_dict(unit)
 
-    async def delete_unit(
-        self, workspace_id: str, unit_id: str, user_id: str
-    ) -> bool:
+    async def delete_unit(self, workspace_id: str, unit_id: str, user_id: str) -> bool:
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -1239,9 +1270,7 @@ class WorkspaceService:
             workspace_unit_runtime.remove_unit_dir(workspace_id, unit_id)
             return True
 
-    async def bulk_delete_units(
-        self, workspace_id: str, user_id: str, unit_ids: list[str]
-    ) -> int:
+    async def bulk_delete_units(self, workspace_id: str, user_id: str, unit_ids: list[str]) -> int:
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -1263,9 +1292,7 @@ class WorkspaceService:
     # Reorder
     # ------------------------------------------------------------------
 
-    async def reorder_units(
-        self, workspace_id: str, user_id: str, unit_ids: list[str]
-    ) -> bool:
+    async def reorder_units(self, workspace_id: str, user_id: str, unit_ids: list[str]) -> bool:
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -1281,33 +1308,28 @@ class WorkspaceService:
     # Group rename / Unit rename
     # ------------------------------------------------------------------
 
-    async def rename_group(
-        self, workspace_id: str, user_id: str, req: GroupRenameRequest
-    ) -> bool:
+    async def rename_group(self, workspace_id: str, user_id: str, req: GroupRenameRequest) -> bool:
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
                 return False
 
-            q = (
-                select(StrategyUnit)
-                .where(
-                    StrategyUnit.workspace_id == workspace_id,
-                    StrategyUnit.id.in_(req.unit_ids),
-                )
+            q = select(StrategyUnit).where(
+                StrategyUnit.workspace_id == workspace_id,
+                StrategyUnit.id.in_(req.unit_ids),
             )
             result = await session.execute(q)
             units = list(result.scalars().all())
 
             for unit in units:
-                unit.group_name = self._compute_rename(unit, req.mode, req.value, req.search, req.replace)
+                unit.group_name = self._compute_rename(
+                    unit, req.mode, req.value, req.search, req.replace
+                )
 
             await session.commit()
             return True
 
-    async def rename_unit(
-        self, workspace_id: str, user_id: str, req: UnitRenameRequest
-    ) -> bool:
+    async def rename_unit(self, workspace_id: str, user_id: str, req: UnitRenameRequest) -> bool:
         async with async_session_maker() as session:
             ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
             if ws is None:
@@ -1342,12 +1364,9 @@ class WorkspaceService:
             if ws is None:
                 return []
 
-            q = (
-                select(StrategyUnit)
-                .where(
-                    StrategyUnit.workspace_id == workspace_id,
-                    StrategyUnit.id.in_(unit_ids),
-                )
+            q = select(StrategyUnit).where(
+                StrategyUnit.workspace_id == workspace_id,
+                StrategyUnit.id.in_(unit_ids),
             )
             db_result = await session.execute(q)
             units = list(db_result.scalars().all())
@@ -1412,7 +1431,12 @@ class WorkspaceService:
                             u_err.run_status = "failed"
                             u_err.run_count = (u_err.run_count or 0) + 1
                             await s_err.commit()
-                    return {"unit_id": unit.id, "task_id": None, "status": "failed", "error": str(e)}
+                    return {
+                        "unit_id": unit.id,
+                        "task_id": None,
+                        "status": "failed",
+                        "error": str(e),
+                    }
 
             if parallel:
                 results = list(await asyncio.gather(*[_submit_single(u) for u in units]))
@@ -1424,9 +1448,7 @@ class WorkspaceService:
         submitted = [(r["unit_id"], r["task_id"]) for r in results if r.get("task_id")]
         if submitted:
             asyncio.create_task(
-                self._background_poll_units(
-                    workspace_id, user_id, submitted, backtest_service
-                )
+                self._background_poll_units(workspace_id, user_id, submitted, backtest_service)
             )
 
         return results
@@ -1443,12 +1465,9 @@ class WorkspaceService:
                 return []
 
             if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
-                q = (
-                    select(StrategyUnit)
-                    .where(
-                        StrategyUnit.workspace_id == workspace_id,
-                        StrategyUnit.id.in_(unit_ids),
-                    )
+                q = select(StrategyUnit).where(
+                    StrategyUnit.workspace_id == workspace_id,
+                    StrategyUnit.id.in_(unit_ids),
                 )
                 db_result = await session.execute(q)
                 units = list(db_result.scalars().all())
@@ -1460,13 +1479,10 @@ class WorkspaceService:
 
             backtest_service = BacktestService()
 
-            q = (
-                select(StrategyUnit)
-                .where(
-                    StrategyUnit.workspace_id == workspace_id,
-                    StrategyUnit.id.in_(unit_ids),
-                    StrategyUnit.run_status.in_(["running", "queued"]),
-                )
+            q = select(StrategyUnit).where(
+                StrategyUnit.workspace_id == workspace_id,
+                StrategyUnit.id.in_(unit_ids),
+                StrategyUnit.run_status.in_(["running", "queued"]),
             )
             db_result = await session.execute(q)
             units = list(db_result.scalars().all())
@@ -1509,7 +1525,9 @@ class WorkspaceService:
 
             backtest_service = BacktestService()
 
-            task_ids = [str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id]
+            task_ids = [
+                str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id
+            ]
             task_by_id: dict[str, BacktestTask] = {}
             if task_ids:
                 task_result = await session.execute(
@@ -1551,10 +1569,7 @@ class WorkspaceService:
                 if (
                     run_status == "completed"
                     and last_task_id
-                    and (
-                        bar_count == 0
-                        or not metrics_snapshot.get("total_trades")
-                    )
+                    and (bar_count == 0 or not metrics_snapshot.get("total_trades"))
                 ):
                     bt_result = await backtest_service.get_result(last_task_id, user_id)
                     if bt_result and (bt_result.equity_curve or bt_result.trades):
@@ -1615,7 +1630,11 @@ class WorkspaceService:
             responses: list[UnitStatusResponse] = []
             for u in units:
                 u_obj = cast(Any, u)
-                opt_tid = str(u_obj.last_optimization_task_id) if u_obj.last_optimization_task_id else None
+                opt_tid = (
+                    str(u_obj.last_optimization_task_id)
+                    if u_obj.last_optimization_task_id
+                    else None
+                )
                 opt_info = opt_progress_map.get(opt_tid, {}) if opt_tid else {}
                 responses.append(
                     UnitStatusResponse(
@@ -1625,21 +1644,17 @@ class WorkspaceService:
                         metrics_snapshot=cast(dict[str, Any], u_obj.metrics_snapshot or {}),
                         run_count=int(u_obj.run_count or 0),
                         last_run_time=(
-                            float(u_obj.last_run_time)
-                            if u_obj.last_run_time is not None
-                            else None
+                            float(u_obj.last_run_time) if u_obj.last_run_time is not None else None
                         ),
-                        bar_count=(
-                            int(u_obj.bar_count)
-                            if u_obj.bar_count is not None
-                            else None
-                        ),
+                        bar_count=(int(u_obj.bar_count) if u_obj.bar_count is not None else None),
                         trading_instance_id=(
                             str(u_obj.trading_instance_id)
                             if getattr(u_obj, "trading_instance_id", None)
                             else None
                         ),
-                        trading_snapshot=cast(dict[str, Any], getattr(u_obj, "trading_snapshot", {}) or {}),
+                        trading_snapshot=cast(
+                            dict[str, Any], getattr(u_obj, "trading_snapshot", {}) or {}
+                        ),
                         trading_mode=self.trading_service.normalize_trading_mode(
                             getattr(u_obj, "trading_mode", "paper")
                         ),
@@ -1786,9 +1801,7 @@ class WorkspaceService:
 
             # Sync unit runtime dir so optimization uses unit's symbol/data config
             workspace_settings = cast(dict[str, Any], _workspace_settings_dict(ws))
-            unit_runtime_dir = workspace_unit_runtime.sync_unit_runtime(
-                unit, workspace_settings
-            )
+            unit_runtime_dir = workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
 
             # Create persisted task in DB
             mgr = get_optimization_execution_manager()
@@ -1829,12 +1842,14 @@ class WorkspaceService:
             # Update unit with optimization task id — merge into existing config
             unit.last_optimization_task_id = task_id
             existing_oc = dict(unit.optimization_config or {})
-            existing_oc.update({
-                "param_ranges": param_ranges,
-                "n_workers": req.n_workers,
-                "artifact_root": str(artifact_root),
-                "submitted_at": datetime.now(timezone.utc).isoformat(),
-            })
+            existing_oc.update(
+                {
+                    "param_ranges": param_ranges,
+                    "n_workers": req.n_workers,
+                    "artifact_root": str(artifact_root),
+                    "submitted_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
             unit.optimization_config = existing_oc
             await session.commit()
 
@@ -2030,17 +2045,42 @@ class WorkspaceService:
 
             # Extended metric keys for Iteration 124 report columns
             _ext_keys = [
-                "total_return", "annual_return", "sharpe_ratio", "max_drawdown",
-                "win_rate", "total_trades", "profitable_trades", "losing_trades",
-                "initial_cash", "final_value", "net_value", "net_profit",
-                "max_leverage", "max_market_value", "max_drawdown_value",
-                "adjusted_return_risk", "avg_profit", "avg_profit_rate",
-                "total_win_amount", "total_loss_amount", "profit_loss_ratio",
-                "profit_factor", "profit_rate_factor", "profit_loss_rate_ratio",
-                "odds", "daily_avg_return", "daily_max_loss", "daily_max_profit",
-                "weekly_avg_return", "weekly_max_loss", "weekly_max_profit",
-                "monthly_avg_return", "monthly_max_loss", "monthly_max_profit",
-                "trading_cost", "trading_days",
+                "total_return",
+                "annual_return",
+                "sharpe_ratio",
+                "max_drawdown",
+                "win_rate",
+                "total_trades",
+                "profitable_trades",
+                "losing_trades",
+                "initial_cash",
+                "final_value",
+                "net_value",
+                "net_profit",
+                "max_leverage",
+                "max_market_value",
+                "max_drawdown_value",
+                "adjusted_return_risk",
+                "avg_profit",
+                "avg_profit_rate",
+                "total_win_amount",
+                "total_loss_amount",
+                "profit_loss_ratio",
+                "profit_factor",
+                "profit_rate_factor",
+                "profit_loss_rate_ratio",
+                "odds",
+                "daily_avg_return",
+                "daily_max_loss",
+                "daily_max_profit",
+                "weekly_avg_return",
+                "weekly_max_loss",
+                "weekly_max_profit",
+                "monthly_avg_return",
+                "monthly_max_loss",
+                "monthly_max_profit",
+                "trading_cost",
+                "trading_days",
             ]
 
             # --- Build weight map (Bug-8 fix) ---
@@ -2049,8 +2089,7 @@ class WorkspaceService:
             _weights = weights or {}
             if weight_mode == "custom" and not _weights and completed_units:
                 total_cash = sum(
-                    (u.metrics_snapshot or {}).get("initial_cash", 0)
-                    for u in completed_units
+                    (u.metrics_snapshot or {}).get("initial_cash", 0) for u in completed_units
                 )
                 if total_cash > 0:
                     _weights = {
@@ -2135,7 +2174,11 @@ class WorkspaceService:
                 return round(sum(v * w for v, w in vals) / total_w, 4)
 
             def _safe_sum(key: str) -> int | None:
-                vals = [m.get(key) for u in completed_units if (m := u.metrics_snapshot) and m.get(key) is not None]
+                vals = [
+                    m.get(key)
+                    for u in completed_units
+                    if (m := u.metrics_snapshot) and m.get(key) is not None
+                ]
                 return sum(vals) if vals else None
 
             summary = {
@@ -2344,9 +2387,7 @@ class WorkspaceService:
         """Poll a single unit's backtest task until completion, then update metrics."""
         start_ts = time.monotonic()
         try:
-            final_status = await self._poll_task_completion(
-                backtest_service, task_id, user_id
-            )
+            final_status = await self._poll_task_completion(backtest_service, task_id, user_id)
             task = await backtest_service.task_manager.get_task(task_id, user_id=user_id)
             elapsed = self._task_elapsed_seconds(task)
             if elapsed is None:
@@ -2374,7 +2415,9 @@ class WorkspaceService:
                                 metrics = calculate_extended_metrics(log_data)
                                 unit_obj.metrics_snapshot = metrics
                             except Exception as me:
-                                logger.warning("Extended metrics failed for unit %s: %s", unit_id, me)
+                                logger.warning(
+                                    "Extended metrics failed for unit %s: %s", unit_id, me
+                                )
                                 unit_obj.metrics_snapshot = {
                                     "total_return": bt_result.total_return,
                                     "annual_return": bt_result.annual_return,
@@ -2469,7 +2512,9 @@ class WorkspaceService:
             "params": unit.params or {},
             "optimization_config": unit.optimization_config or {},
             "trading_mode": TradingWorkspaceService.normalize_trading_mode(unit.trading_mode),
-            "gateway_config": TradingWorkspaceService.normalize_gateway_config(unit.gateway_config or {}),
+            "gateway_config": TradingWorkspaceService.normalize_gateway_config(
+                unit.gateway_config or {}
+            ),
             "lock_trading": bool(unit.lock_trading),
             "lock_running": bool(unit.lock_running),
             "trading_instance_id": unit.trading_instance_id,

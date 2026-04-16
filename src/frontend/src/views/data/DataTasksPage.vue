@@ -4,8 +4,12 @@
       <template #header>
         <div class="header-row">
           <div>
-            <div class="page-title">定时任务</div>
-            <div class="page-subtitle">把脚本绑定成可重复执行的调度任务。</div>
+            <div class="page-title">
+              定时任务
+            </div>
+            <div class="page-subtitle">
+              把脚本绑定成可重复执行的调度任务。
+            </div>
           </div>
           <el-button
             v-if="isAdmin"
@@ -23,9 +27,18 @@
           class="toolbar-item"
           @change="reloadFirstPage"
         >
-          <el-option label="全部状态" value="all" />
-          <el-option label="仅启用" value="active" />
-          <el-option label="仅停用" value="inactive" />
+          <el-option
+            label="全部状态"
+            value="all"
+          />
+          <el-option
+            label="仅启用"
+            value="active"
+          />
+          <el-option
+            label="仅停用"
+            value="inactive"
+          />
         </el-select>
       </div>
 
@@ -45,7 +58,9 @@
         >
           <template #default="{ row }">
             <div>{{ scriptNameMap[row.script_id] || row.script_id }}</div>
-            <div class="table-subtext">{{ row.script_id }}</div>
+            <div class="table-subtext">
+              {{ row.script_id }}
+            </div>
           </template>
         </el-table-column>
         <el-table-column
@@ -244,7 +259,9 @@
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="dialogVisible = false">
+          取消
+        </el-button>
         <el-button
           type="primary"
           :loading="saving"

@@ -30,7 +30,9 @@ from app.services.live_trading_manager import (
 
 @pytest.fixture(autouse=True)
 def disable_restore_background_thread(monkeypatch):
-    monkeypatch.setattr(LiveTradingManager, "_start_restore_manual_gateways_background", lambda self: None)
+    monkeypatch.setattr(
+        LiveTradingManager, "_start_restore_manual_gateways_background", lambda self: None
+    )
 
 
 class TestUtilityFunctions:
@@ -191,10 +193,13 @@ class TestLiveTradingManagerInitialization:
                     mock_save.assert_called_once()
 
     def test_initialization_starts_restore_thread(self):
-        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch.object(
-            LiveTradingManager,
-            "_start_restore_manual_gateways_background",
-        ) as mock_start_restore:
+        with (
+            patch("app.services.live_trading_manager._load_instances", return_value={}),
+            patch.object(
+                LiveTradingManager,
+                "_start_restore_manual_gateways_background",
+            ) as mock_start_restore,
+        ):
             LiveTradingManager()
 
         mock_start_restore.assert_called_once()
@@ -214,7 +219,9 @@ class TestGatewayLifecycle:
                         },
                     ):
                         manager = LiveTradingManager()
-                        result = manager.connect_gateway("MT5", {"login": 123456, "password": "secret"})
+                        result = manager.connect_gateway(
+                            "MT5", {"login": 123456, "password": "secret"}
+                        )
 
         assert result["status"] == "connected"
         mock_save.assert_called_once_with(
@@ -236,7 +243,9 @@ class TestGatewayLifecycle:
             }
         ]
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
-            with patch("app.services.live_trading_manager._load_manual_gateways", return_value=persisted):
+            with patch(
+                "app.services.live_trading_manager._load_manual_gateways", return_value=persisted
+            ):
                 with patch(
                     "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
                     return_value={
@@ -265,7 +274,9 @@ class TestGatewayLifecycle:
             }
         ]
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
-            with patch("app.services.live_trading_manager._load_manual_gateways", return_value=persisted):
+            with patch(
+                "app.services.live_trading_manager._load_manual_gateways", return_value=persisted
+            ):
                 with patch("app.services.live_trading_manager._save_manual_gateways") as mock_save:
                     with patch(
                         "app.services.live_trading_manager.manual_gateway_service.disconnect_gateway",
@@ -282,16 +293,20 @@ class TestGatewayLifecycle:
         mock_save.assert_called_once_with([])
 
     def test_disconnect_gateway_suppresses_mt5_auto_connect(self):
-        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
-            "app.services.live_trading_manager.manual_gateway_service.disconnect_gateway",
-            return_value={
-                "gateway_key": "manual:MT5:123456",
-                "status": "disconnected",
-                "message": "ok",
-            },
-        ), patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]), patch(
-            "app.services.live_trading_manager._save_manual_gateways"
-        ), patch("app.services.quote_service.QuoteService") as mock_quote_service:
+        with (
+            patch("app.services.live_trading_manager._load_instances", return_value={}),
+            patch(
+                "app.services.live_trading_manager.manual_gateway_service.disconnect_gateway",
+                return_value={
+                    "gateway_key": "manual:MT5:123456",
+                    "status": "disconnected",
+                    "message": "ok",
+                },
+            ),
+            patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]),
+            patch("app.services.live_trading_manager._save_manual_gateways"),
+            patch("app.services.quote_service.QuoteService") as mock_quote_service,
+        ):
             manager = LiveTradingManager()
             result = manager.disconnect_gateway("manual:MT5:123456")
 
@@ -299,16 +314,20 @@ class TestGatewayLifecycle:
         mock_quote_service.return_value.suppress_auto_connect.assert_called_once_with("MT5")
 
     def test_connect_gateway_resumes_mt5_auto_connect(self):
-        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
-            "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
-            return_value={
-                "gateway_key": "manual:MT5:123456",
-                "status": "connected",
-                "message": "ok",
-            },
-        ), patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]), patch(
-            "app.services.live_trading_manager._save_manual_gateways"
-        ), patch("app.services.quote_service.QuoteService") as mock_quote_service:
+        with (
+            patch("app.services.live_trading_manager._load_instances", return_value={}),
+            patch(
+                "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
+                return_value={
+                    "gateway_key": "manual:MT5:123456",
+                    "status": "connected",
+                    "message": "ok",
+                },
+            ),
+            patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]),
+            patch("app.services.live_trading_manager._save_manual_gateways"),
+            patch("app.services.quote_service.QuoteService") as mock_quote_service,
+        ):
             manager = LiveTradingManager()
             result = manager.connect_gateway("MT5", {"login": 123456, "password": "secret"})
 
@@ -316,10 +335,14 @@ class TestGatewayLifecycle:
         mock_quote_service.return_value.resume_auto_connect.assert_called_once_with("MT5")
 
     def test_connect_gateway_returns_error_result_when_manual_service_raises(self):
-        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
-            "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
-            side_effect=RuntimeError("boom"),
-        ), patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]):
+        with (
+            patch("app.services.live_trading_manager._load_instances", return_value={}),
+            patch(
+                "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
+                side_effect=RuntimeError("boom"),
+            ),
+            patch("app.services.live_trading_manager._load_manual_gateways", return_value=[]),
+        ):
             manager = LiveTradingManager()
             result = manager.connect_gateway("OKX", {"api_key": "k", "secret_key": "s"})
 
@@ -328,19 +351,24 @@ class TestGatewayLifecycle:
         assert "RuntimeError: boom" in result["message"]
 
     def test_connect_gateway_reports_persist_failure_without_raising(self):
-        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
-            "app.services.live_trading_manager._load_manual_gateways",
-            return_value=[],
-        ), patch(
-            "app.services.live_trading_manager._save_manual_gateways",
-            side_effect=OSError("disk full"),
-        ), patch(
-            "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
-            return_value={
-                "gateway_key": "manual:MT5:123456",
-                "status": "connected",
-                "message": "ok",
-            },
+        with (
+            patch("app.services.live_trading_manager._load_instances", return_value={}),
+            patch(
+                "app.services.live_trading_manager._load_manual_gateways",
+                return_value=[],
+            ),
+            patch(
+                "app.services.live_trading_manager._save_manual_gateways",
+                side_effect=OSError("disk full"),
+            ),
+            patch(
+                "app.services.live_trading_manager.manual_gateway_service.connect_gateway",
+                return_value={
+                    "gateway_key": "manual:MT5:123456",
+                    "status": "connected",
+                    "message": "ok",
+                },
+            ),
         ):
             manager = LiveTradingManager()
             result = manager.connect_gateway("MT5", {"login": 123456, "password": "secret"})
@@ -878,9 +906,12 @@ class TestGatewayLifecycle:
         ]
 
     def test_get_gateway_health_returns_empty_list_when_health_service_raises(self):
-        with patch("app.services.live_trading_manager._load_instances", return_value={}), patch(
-            "app.services.live_trading_manager.gateway_health_service.get_gateway_health",
-            side_effect=RuntimeError("boom"),
+        with (
+            patch("app.services.live_trading_manager._load_instances", return_value={}),
+            patch(
+                "app.services.live_trading_manager.gateway_health_service.get_gateway_health",
+                side_effect=RuntimeError("boom"),
+            ),
         ):
             manager = LiveTradingManager()
             result = manager.get_gateway_health()
@@ -1119,7 +1150,9 @@ class TestRemoveInstance:
             with patch("app.services.live_trading_manager._save_instances"):
                 # Patch os.kill directly to verify the kill attempt
                 with patch.object(os, "kill") as mock_kill:
-                    with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                    with patch(
+                        "app.services.live_trading_manager._is_pid_alive", return_value=True
+                    ):
                         manager = LiveTradingManager()
                     manager.remove_instance("inst1")
 
@@ -1506,7 +1539,9 @@ class TestStopInstance:
 
             with patch("app.services.live_trading_manager._save_instances"):
                 with patch.object(os, "kill") as mock_kill:
-                    with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                    with patch(
+                        "app.services.live_trading_manager._is_pid_alive", return_value=True
+                    ):
                         manager = LiveTradingManager()
 
                     with patch(
@@ -1714,10 +1749,16 @@ class TestWaitProcess:
             saved_data.update(data)
 
         with patch("app.services.live_trading_manager._load_instances") as mock_load:
-            mock_load.return_value = {"inst1": {"strategy_id": "s1", "status": "running", "pid": 222}}
+            mock_load.return_value = {
+                "inst1": {"strategy_id": "s1", "status": "running", "pid": 222}
+            }
             with patch("app.services.live_trading_manager._save_instances", side_effect=mock_save):
-                with patch("app.services.live_trading_manager._find_latest_log_dir", return_value=None):
-                    with patch.object(manager, "_release_gateway_for_instance", side_effect=released.append):
+                with patch(
+                    "app.services.live_trading_manager._find_latest_log_dir", return_value=None
+                ):
+                    with patch.object(
+                        manager, "_release_gateway_for_instance", side_effect=released.append
+                    ):
                         await manager._wait_process("inst1", old_proc)
 
         assert saved_data == {}

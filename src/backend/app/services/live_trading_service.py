@@ -271,7 +271,6 @@ class LiveTradingService:
 
         # Get real-time status if Cerebro instance exists
         if has_cerebro and cerebro is not None:
-
             # Get account information
             cash = cerebro.broker.getcash()
             value = cerebro.broker.getvalue()

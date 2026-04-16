@@ -580,9 +580,7 @@ class TestOptimizationRouter:
         routes = [
             route for route in router.routes if hasattr(route, "path") and hasattr(route, "methods")
         ]
-        submit_routes = [
-            r for r in routes if "/submit/backtest" in r.path and "POST" in r.methods
-        ]
+        submit_routes = [r for r in routes if "/submit/backtest" in r.path and "POST" in r.methods]
         assert len(submit_routes) > 0
 
     async def test_router_has_progress_endpoint(self):
@@ -693,9 +691,7 @@ class TestGenerateBacktestParamCombinations:
     def test_three_params(self):
         from app.services.param_optimization_service import _generate_backtest_param_combinations
 
-        combos = _generate_backtest_param_combinations(
-            {"a": [1, 2], "b": [3, 4], "c": [5]}
-        )
+        combos = _generate_backtest_param_combinations({"a": [1, 2], "b": [3, 4], "c": [5]})
         assert len(combos) == 4
 
 

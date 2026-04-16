@@ -421,9 +421,7 @@ class TestValidateUserInput:
             "username": lambda x: validate_username(x) or "Invalid username",
             "email": lambda x: validate_email(x) or "Invalid email",
         }
-        result = validate_user_input(
-            {"username": "validuser", "email": "user@example.com"}, rules
-        )
+        result = validate_user_input({"username": "validuser", "email": "user@example.com"}, rules)
         assert result.is_valid
         assert result.errors == []
 
@@ -461,8 +459,6 @@ class TestValidateUserInput:
         rules = {
             "username": lambda x: validate_username(x) or "Invalid username",
         }
-        result = validate_user_input(
-            {"username": "validuser", "extra": "field"}, rules
-        )
+        result = validate_user_input({"username": "validuser", "extra": "field"}, rules)
         assert result.is_valid
         assert result.warnings == []

@@ -15,12 +15,42 @@ from app.services.akshare_execution_service import AkshareExecutionService
 from app.services.akshare_scheduler import AkshareScheduler
 
 SCHEDULE_TEMPLATES = [
-    {"value": "every_hour", "label": "每小时", "description": "每小时执行一次", "cron_expression": "0 * * * *"},
-    {"value": "every_day_at_8", "label": "每天8点", "description": "每天早上8点执行", "cron_expression": "0 8 * * *"},
-    {"value": "every_day_at_18", "label": "每天18点", "description": "每天下午18点执行", "cron_expression": "0 18 * * *"},
-    {"value": "workdays_at_8", "label": "工作日8点", "description": "工作日早上8点执行", "cron_expression": "0 8 * * 1-5"},
-    {"value": "workdays_at_18", "label": "工作日18点", "description": "工作日下午18点执行", "cron_expression": "0 18 * * 1-5"},
-    {"value": "every_10_minutes", "label": "每10分钟", "description": "每10分钟执行一次", "cron_expression": "*/10 * * * *"},
+    {
+        "value": "every_hour",
+        "label": "每小时",
+        "description": "每小时执行一次",
+        "cron_expression": "0 * * * *",
+    },
+    {
+        "value": "every_day_at_8",
+        "label": "每天8点",
+        "description": "每天早上8点执行",
+        "cron_expression": "0 8 * * *",
+    },
+    {
+        "value": "every_day_at_18",
+        "label": "每天18点",
+        "description": "每天下午18点执行",
+        "cron_expression": "0 18 * * *",
+    },
+    {
+        "value": "workdays_at_8",
+        "label": "工作日8点",
+        "description": "工作日早上8点执行",
+        "cron_expression": "0 8 * * 1-5",
+    },
+    {
+        "value": "workdays_at_18",
+        "label": "工作日18点",
+        "description": "工作日下午18点执行",
+        "cron_expression": "0 18 * * 1-5",
+    },
+    {
+        "value": "every_10_minutes",
+        "label": "每10分钟",
+        "description": "每10分钟执行一次",
+        "cron_expression": "*/10 * * * *",
+    },
 ]
 
 
@@ -54,8 +84,10 @@ class AkshareSchedulerService:
             stmt = stmt.where(ScheduledTask.is_active == is_active)
             count_stmt = count_stmt.where(ScheduledTask.is_active == is_active)
         total = int((await db.execute(count_stmt)).scalar() or 0)
-        stmt = stmt.order_by(ScheduledTask.created_at.desc()).offset((page - 1) * page_size).limit(
-            page_size
+        stmt = (
+            stmt.order_by(ScheduledTask.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
         result = await db.execute(stmt)
         return list(result.scalars().all()), total
@@ -63,8 +95,12 @@ class AkshareSchedulerService:
     async def get_task(self, db: AsyncSession, task_id: int) -> ScheduledTask | None:
         return await db.get(ScheduledTask, task_id)
 
-    async def create_task(self, db: AsyncSession, payload: dict[str, Any], user_id: str) -> ScheduledTask:
-        script = await db.scalar(select(DataScript).where(DataScript.script_id == payload["script_id"]))
+    async def create_task(
+        self, db: AsyncSession, payload: dict[str, Any], user_id: str
+    ) -> ScheduledTask:
+        script = await db.scalar(
+            select(DataScript).where(DataScript.script_id == payload["script_id"])
+        )
         if script is None:
             raise ValueError("Script not found")
         if not script.is_active:

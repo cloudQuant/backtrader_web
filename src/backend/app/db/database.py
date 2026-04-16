@@ -108,7 +108,9 @@ def _add_column_if_missing(bind, table_name: str, column_name: str, ddl: str) ->
         return False
 
     bind.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {ddl}"))
-    logger.warning("Added missing database column %s.%s during startup schema sync", table_name, column_name)
+    logger.warning(
+        "Added missing database column %s.%s during startup schema sync", table_name, column_name
+    )
     return True
 
 
@@ -143,7 +145,9 @@ def _ensure_workspace_schema_compatibility_sync(bind) -> None:
         )
         if "workspace_type" in _get_column_names(bind, "workspaces"):
             bind.execute(
-                text("UPDATE workspaces SET workspace_type = 'research' WHERE workspace_type IS NULL")
+                text(
+                    "UPDATE workspaces SET workspace_type = 'research' WHERE workspace_type IS NULL"
+                )
             )
             _ensure_index_if_missing(
                 bind,

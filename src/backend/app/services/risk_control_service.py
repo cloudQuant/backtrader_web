@@ -16,16 +16,18 @@ logger = get_logger(__name__)
 
 class RiskAlertType(str, Enum):
     """风控告警类型"""
-    POSITION_LIMIT = "position_limit"           # 仓位超限
-    DAILY_LOSS = "daily_loss"                   # 日亏损超限
-    MAX_DRAWDOWN = "max_drawdown"               # 最大回撤
-    STOP_LOSS = "stop_loss"                     # 止损触发
-    TAKE_PROFIT = "take_profit"                 # 止盈触发
-    ABNORMAL_TRADING = "abnormal_trading"       # 异常交易
+
+    POSITION_LIMIT = "position_limit"  # 仓位超限
+    DAILY_LOSS = "daily_loss"  # 日亏损超限
+    MAX_DRAWDOWN = "max_drawdown"  # 最大回撤
+    STOP_LOSS = "stop_loss"  # 止损触发
+    TAKE_PROFIT = "take_profit"  # 止盈触发
+    ABNORMAL_TRADING = "abnormal_trading"  # 异常交易
 
 
 class RiskAlertLevel(str, Enum):
     """风控告警级别"""
+
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -34,31 +36,33 @@ class RiskAlertLevel(str, Enum):
 @dataclass
 class RiskControlConfig:
     """风控配置"""
+
     # 仓位限制
-    max_position_pct: float = 30.0          # 单品种最大仓位比例(%)
-    max_total_position_pct: float = 80.0    # 总仓位上限(%)
+    max_position_pct: float = 30.0  # 单品种最大仓位比例(%)
+    max_total_position_pct: float = 80.0  # 总仓位上限(%)
 
     # 亏损限制
-    max_daily_loss_pct: float = 5.0         # 日亏损上限(%)
-    max_drawdown_pct: float = 20.0          # 最大回撤限制(%)
+    max_daily_loss_pct: float = 5.0  # 日亏损上限(%)
+    max_drawdown_pct: float = 20.0  # 最大回撤限制(%)
 
     # 止损止盈
-    stop_loss_pct: float = 5.0              # 止损比例(%)
-    take_profit_pct: float = 20.0           # 止盈比例(%)
+    stop_loss_pct: float = 5.0  # 止损比例(%)
+    take_profit_pct: float = 20.0  # 止盈比例(%)
 
     # 交易限制
-    max_daily_trades: int = 50              # 每日最大交易次数
-    max_order_size: float = 100000.0        # 单笔最大金额
+    max_daily_trades: int = 50  # 每日最大交易次数
+    max_order_size: float = 100000.0  # 单笔最大金额
 
     # 开关
-    enable_stop_loss: bool = True           # 启用止损
-    enable_take_profit: bool = True          # 启用止盈
-    enable_position_limit: bool = True       # 启用仓位限制
+    enable_stop_loss: bool = True  # 启用止损
+    enable_take_profit: bool = True  # 启用止盈
+    enable_position_limit: bool = True  # 启用仓位限制
 
 
 @dataclass
 class RiskAlert:
     """风控告警"""
+
     alert_type: RiskAlertType
     level: RiskAlertLevel
     message: str
@@ -74,7 +78,7 @@ class RiskControlService:
         self.config = config or RiskControlConfig()
         self._alerts: list[RiskAlert] = []
         self._daily_trades: dict[str, int] = {}  # instance_id -> count
-        self._daily_pnl: dict[str, float] = {}   # instance_id -> pnl
+        self._daily_pnl: dict[str, float] = {}  # instance_id -> pnl
 
     def update_config(self, config: RiskControlConfig) -> None:
         """更新风控配置"""

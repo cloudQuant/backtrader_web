@@ -61,9 +61,13 @@ def _update_artifact_manifest(
     existing_manifest = _read_json(manifest_path)
     completed_count = len(successful_results)
     failed_count = sum(
-        1 for item in all_trial_results if not (bool(item.get("success")) or bool(item.get("metrics")))
+        1
+        for item in all_trial_results
+        if not (bool(item.get("success")) or bool(item.get("metrics")))
     )
-    status = final_status or str((runtime_task or {}).get("status") or existing_manifest.get("status") or "running")
+    status = final_status or str(
+        (runtime_task or {}).get("status") or existing_manifest.get("status") or "running"
+    )
     updated_at = datetime.now(timezone.utc).isoformat()
     trial_entries = sorted(
         (_trial_summary_entry(item) for item in all_trial_results),
@@ -152,7 +156,9 @@ def run_optimization_thread(
                     trial_result = {"success": False, "error": "worker exception"}
 
                 all_trial_results.append(trial_result)
-                trial_succeeded = bool(trial_result.get("success")) or bool(trial_result.get("metrics"))
+                trial_succeeded = bool(trial_result.get("success")) or bool(
+                    trial_result.get("metrics")
+                )
 
                 if trial_succeeded:
                     successful_results.append(trial_result)

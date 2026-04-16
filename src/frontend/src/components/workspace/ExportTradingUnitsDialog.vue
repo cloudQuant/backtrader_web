@@ -16,8 +16,12 @@
             </div>
           </div>
           <el-radio-group v-model="targetType">
-            <el-radio value="research">策略研究工作区</el-radio>
-            <el-radio value="file">JSON 文件</el-radio>
+            <el-radio value="research">
+              策略研究工作区
+            </el-radio>
+            <el-radio value="file">
+              JSON 文件
+            </el-radio>
           </el-radio-group>
         </div>
       </div>

@@ -314,9 +314,7 @@ class TestEnhancedBacktestDelete:
             resp = await client.delete("/api/v1/backtest/nonexistent", headers=auth_headers)
             assert resp.status_code == 404
 
-    async def test_delete_success(
-        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
-    ):
+    async def test_delete_success(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
         """Test deletion."""
         mock_service = AsyncMock()
         mock_service.delete_result = AsyncMock(return_value=True)
@@ -335,9 +333,7 @@ class TestEnhancedBacktestCancel:
         resp = await client.post("/api/v1/backtests/task123/cancel")
         assert resp.status_code == 401  # Unauthorized for unauthenticated requests
 
-    async def test_cancel_not_found(
-        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
-    ):
+    async def test_cancel_not_found(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
         """Test cancel failure on enhanced route."""
         mock_service = AsyncMock()
         mock_service.cancel_task = AsyncMock(return_value=False)
@@ -346,9 +342,7 @@ class TestEnhancedBacktestCancel:
             resp = await client.post("/api/v1/backtests/nonexistent/cancel", headers=auth_headers)
             assert resp.status_code == 400
 
-    async def test_cancel_success(
-        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
-    ):
+    async def test_cancel_success(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
         """Test cancel success on enhanced route."""
         mock_service = AsyncMock()
         mock_service.cancel_task = AsyncMock(return_value=True)
@@ -397,7 +391,9 @@ class TestGridSearchOptimization:
         with patch(
             "app.api.optimization_api.submit_backtest_optimization_task_internal",
             new=AsyncMock(
-                return_value=MagicMock(task_id="opt-task-1", total_combinations=3, message="submitted")
+                return_value=MagicMock(
+                    task_id="opt-task-1", total_combinations=3, message="submitted"
+                )
             ),
         ):
             with patch(
@@ -460,14 +456,14 @@ class TestBayesianOptimization:
         # Schema validation returns 422, not 400
         assert resp.status_code == 422
 
-    async def test_bayesian_success(
-        self, client: AsyncClient, auth_headers: dict, clear_lru_cache
-    ):
+    async def test_bayesian_success(self, client: AsyncClient, auth_headers: dict, clear_lru_cache):
         """Test Bayesian optimization."""
         with patch(
             "app.api.optimization_api.submit_backtest_optimization_task_internal",
             new=AsyncMock(
-                return_value=MagicMock(task_id="opt-task-2", total_combinations=5, message="submitted")
+                return_value=MagicMock(
+                    task_id="opt-task-2", total_combinations=5, message="submitted"
+                )
             ),
         ):
             with patch(
@@ -528,7 +524,9 @@ class TestReportExportHTML:
 
         with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_backtest_service):
             with patch("app.api.backtest_enhanced.ReportService", return_value=mock_report_service):
-                resp = await client.get("/api/v1/backtests/task123/report/html", headers=auth_headers)
+                resp = await client.get(
+                    "/api/v1/backtests/task123/report/html", headers=auth_headers
+                )
         assert resp.status_code == 200
 
 
@@ -564,7 +562,9 @@ class TestReportExportPDF:
 
         with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_backtest_service):
             with patch("app.api.backtest_enhanced.ReportService", return_value=mock_report_service):
-                resp = await client.get("/api/v1/backtests/task123/report/pdf", headers=auth_headers)
+                resp = await client.get(
+                    "/api/v1/backtests/task123/report/pdf", headers=auth_headers
+                )
         assert resp.status_code == 500
 
     async def test_pdf_report_success(
@@ -583,7 +583,9 @@ class TestReportExportPDF:
 
         with patch("app.api.backtest_enhanced.BacktestService", return_value=mock_backtest_service):
             with patch("app.api.backtest_enhanced.ReportService", return_value=mock_report_service):
-                resp = await client.get("/api/v1/backtests/task123/report/pdf", headers=auth_headers)
+                resp = await client.get(
+                    "/api/v1/backtests/task123/report/pdf", headers=auth_headers
+                )
         assert resp.status_code == 200
 
 

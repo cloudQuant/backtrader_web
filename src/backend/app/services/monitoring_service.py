@@ -406,14 +406,19 @@ class MonitoringService:
 
     async def _check_threshold_trigger(self, rule, config):
         from app.services.alert_evaluation import _check_threshold_trigger
+
         return await _check_threshold_trigger(rule, config, self._get_current_metric_value)
 
     async def _check_rate_trigger(self, rule, config):
         from app.services.alert_evaluation import _check_rate_trigger
-        return await _check_rate_trigger(rule, config, self._trigger_state, self._get_current_metric_value)
+
+        return await _check_rate_trigger(
+            rule, config, self._trigger_state, self._get_current_metric_value
+        )
 
     async def _check_cross_trigger(self, rule, config):
         from app.services.alert_evaluation import _check_cross_trigger
+
         return await _check_cross_trigger(rule, config, self._trigger_state)
 
     async def _trigger_alert(self, rule: AlertRule):
@@ -765,7 +770,8 @@ class MonitoringService:
     ) -> float | None:
         """Resolves the current numeric metric value for a rule."""
         return await get_current_metric_value(
-            rule, config,
+            rule,
+            config,
             getattr(self, "paper_trading_service", None),
             getattr(self, "live_trading_service", None),
             getattr(self, "backtest_service", None),

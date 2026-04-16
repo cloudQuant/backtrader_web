@@ -19,11 +19,10 @@ import selectors
 import socket
 import subprocess
 import threading
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-_tunnels: dict[str, "_CTPTunnel"] = {}
+_tunnels: dict[str, _CTPTunnel] = {}
 _lock = threading.Lock()
 
 BUFFER_SIZE = 65536
@@ -34,7 +33,9 @@ def _get_http_proxy() -> tuple[str, int] | tuple[None, None]:
     try:
         result = subprocess.run(
             ["scutil", "--proxy"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         host = port = enabled = None
         for line in result.stdout.splitlines():
@@ -67,9 +68,9 @@ class _CTPTunnel:
         self.remote_port = remote_port
         self.proxy_host = proxy_host
         self.proxy_port = proxy_port
-        self._server_sock: Optional[socket.socket] = None
+        self._server_sock: socket.socket | None = None
         self._local_port = local_port
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
     @property
@@ -94,8 +95,11 @@ class _CTPTunnel:
         self._thread.start()
         logger.info(
             "CTP tunnel started: 127.0.0.1:%d -> CONNECT %s:%d via proxy %s:%d",
-            self._local_port, self.remote_host, self.remote_port,
-            self.proxy_host, self.proxy_port,
+            self._local_port,
+            self.remote_host,
+            self.remote_port,
+            self.proxy_host,
+            self.proxy_port,
         )
         return self._local_port
 
@@ -123,11 +127,7 @@ class _CTPTunnel:
         sock.connect((self.proxy_host, self.proxy_port))
 
         target = f"{self.remote_host}:{self.remote_port}"
-        connect_req = (
-            f"CONNECT {target} HTTP/1.1\r\n"
-            f"Host: {target}\r\n"
-            f"\r\n"
-        ).encode()
+        connect_req = (f"CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n\r\n").encode()
         sock.sendall(connect_req)
 
         response = b""
@@ -147,7 +147,9 @@ class _CTPTunnel:
 
         logger.debug(
             "HTTP CONNECT tunnel established: %s -> %s (leftover=%d bytes)",
-            self.proxy_host, target, len(leftover),
+            self.proxy_host,
+            target,
+            len(leftover),
         )
         sock.settimeout(None)
         return sock, leftover
@@ -157,7 +159,7 @@ class _CTPTunnel:
         while not self._stop_event.is_set():
             try:
                 client_sock, addr = self._server_sock.accept()
-            except socket.timeout:
+            except TimeoutError:
                 continue
             except OSError:
                 break
@@ -187,7 +189,7 @@ class _CTPTunnel:
 
             while not self._stop_event.is_set():
                 events = sel.select(timeout=5.0)
-                for key, mask in events:
+                for key, _mask in events:
                     if key.data == "client":
                         data = client_sock.recv(BUFFER_SIZE)
                         if not data:

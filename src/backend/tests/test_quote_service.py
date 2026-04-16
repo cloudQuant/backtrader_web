@@ -90,7 +90,9 @@ def test_get_quotes_uses_ib_web_snapshot_fallback_when_stream_cache_is_empty(mon
     monkeypatch.setattr(
         service,
         "_get_default_symbols_for_source",
-        lambda source: [{"symbol": "AAPL", "name": "Apple", "exchange": "NASDAQ", "category": "科技"}],
+        lambda source: [
+            {"symbol": "AAPL", "name": "Apple", "exchange": "NASDAQ", "category": "科技"}
+        ],
     )
     monkeypatch.setattr(service, "_find_gateway_state", lambda mgr, source: {"runtime": runtime})
 
@@ -151,7 +153,9 @@ def test_get_quotes_uses_binance_snapshot_fallback_when_stream_cache_is_empty(mo
     monkeypatch.setattr(
         service,
         "_get_default_symbols_for_source",
-        lambda source: [{"symbol": "BTCUSDT", "name": "BTC 永续", "exchange": "BINANCE", "category": "加密货币"}],
+        lambda source: [
+            {"symbol": "BTCUSDT", "name": "BTC 永续", "exchange": "BINANCE", "category": "加密货币"}
+        ],
     )
     monkeypatch.setattr(service, "_find_gateway_state", lambda mgr, source: {"runtime": runtime})
 
@@ -176,7 +180,11 @@ def test_ensure_mt5_gateway_connected_skips_when_auto_connect_is_suppressed(monk
     QuoteService._instance = None
     service = QuoteService()
     service.suppress_auto_connect("MT5")
-    manager = SimpleNamespace(connect_gateway=lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not connect")))
+    manager = SimpleNamespace(
+        connect_gateway=lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("should not connect")
+        )
+    )
 
     monkeypatch.setattr(service, "_find_gateway_state", lambda mgr, source: None)
 

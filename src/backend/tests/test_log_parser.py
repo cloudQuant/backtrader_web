@@ -193,7 +193,7 @@ class TestParseJsonSimulateLogs:
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
         (log_dir / "trade.log").write_text(
-            '\n'.join(
+            "\n".join(
                 [
                     '{"datetime":"2026-03-13 09:00:00","ref":1,"data_name":"EURUSD","size":0.01,"price":1.1,"value":0.011,"commission":0.001,"pnl":0.0,"pnlcomm":-0.001,"isopen":true,"isclosed":false,"barlen":0}',
                     '{"datetime":"2026-03-13 10:00:00","ref":1,"data_name":"EURUSD","size":0.0,"price":1.11,"value":0.0,"commission":0.001,"pnl":10.0,"pnlcomm":9.998,"isopen":false,"isclosed":true,"barlen":4}',
@@ -212,7 +212,7 @@ class TestParseJsonSimulateLogs:
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
         (log_dir / "bar.log").write_text(
-            '\n'.join(
+            "\n".join(
                 [
                     '{"datetime":"2026-03-13 09:00:00","open":1.1,"high":1.2,"low":1.0,"close":1.15,"volume":10}',
                     '{"datetime":"2026-03-13 09:15:00","open":1.15,"high":1.25,"low":1.1,"close":1.2,"volume":12}',
@@ -222,7 +222,7 @@ class TestParseJsonSimulateLogs:
             encoding="utf-8",
         )
         (log_dir / "indicator.log").write_text(
-            '\n'.join(
+            "\n".join(
                 [
                     '{"datetime":"2026-03-13 09:00:00","fast_ma":1.11}',
                     '{"datetime":"2026-03-13 09:15:00","fast_ma":1.16}',

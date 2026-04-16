@@ -176,18 +176,21 @@ class TestHistoricalTicks:
         """Test successful historical data retrieval."""
         # This test requires network access, skip if mocking fails
         import pytest
+
         pytest.skip("Test requires network access and external API mocking")
 
     async def test_historical_with_frequency(self, client: AsyncClient, auth_headers: dict):
         """Test with frequency parameter."""
         # This test requires network access, skip if mocking fails
         import pytest
+
         pytest.skip("Test requires network access and external API mocking")
 
     async def test_historical_not_implemented(self, client: AsyncClient, auth_headers: dict):
         """Test explicit not-implemented response for unsupported historical data."""
         # This test requires network access, skip if mocking fails
         import pytest
+
         pytest.skip("Test requires network access and external API mocking")
 
 

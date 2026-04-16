@@ -1,6 +1,5 @@
 """Tests for optimization_submission module."""
 
-import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -15,9 +14,7 @@ class TestGenerateParamGrid:
         assert grid == [{"fast": 5.0}, {"fast": 10.0}, {"fast": 15.0}]
 
     def test_int_type(self):
-        grid = generate_param_grid(
-            {"period": {"start": 10, "end": 30, "step": 10, "type": "int"}}
-        )
+        grid = generate_param_grid({"period": {"start": 10, "end": 30, "step": 10, "type": "int"}})
         assert grid == [{"period": 10}, {"period": 20}, {"period": 30}]
 
     def test_two_params_cartesian_product(self):
@@ -53,9 +50,7 @@ class TestSubmitOptimization:
 
         deps = {
             "get_strategy_dir": MagicMock(return_value=strategy_dir),
-            "generate_param_grid_fn": MagicMock(
-                return_value=[{"fast": 5}, {"fast": 10}]
-            ),
+            "generate_param_grid_fn": MagicMock(return_value=[{"fast": 5}, {"fast": 10}]),
             "set_task_fn": MagicMock(),
             "build_initial_runtime_task_fn": MagicMock(return_value={"status": "running"}),
             "created_at_fn": MagicMock(return_value="2024-01-01T00:00:00"),

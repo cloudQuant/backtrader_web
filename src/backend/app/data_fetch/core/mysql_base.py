@@ -194,13 +194,9 @@ class MysqlBase(Database):
         if ignore_duplicates:
             insert_sql = f"INSERT IGNORE INTO `{safe_table}` ({cols_str}) VALUES ({placeholders})"  # nosec B608
         elif on_duplicate_update and unique_keys:
-            insert_sql = (
-                f"INSERT INTO `{safe_table}` ({cols_str}) VALUES ({placeholders})"  # nosec B608
-            )
+            insert_sql = f"INSERT INTO `{safe_table}` ({cols_str}) VALUES ({placeholders})"  # nosec B608
         else:
-            insert_sql = (
-                f"INSERT INTO `{safe_table}` ({cols_str}) VALUES ({placeholders})"  # nosec B608
-            )
+            insert_sql = f"INSERT INTO `{safe_table}` ({cols_str}) VALUES ({placeholders})"  # nosec B608
 
         if on_duplicate_update and unique_keys and not ignore_duplicates:
             update_clauses = []
@@ -231,7 +227,7 @@ class MysqlBase(Database):
                 ) >= total_rows:
                     elapsed = (datetime.now() - start_time).total_seconds()
                     self.logger.info(
-                        f"已处理 {processed}/{total_rows} 行 ({processed/total_rows*100:.1f}%)，"
+                        f"已处理 {processed}/{total_rows} 行 ({processed / total_rows * 100:.1f}%)，"
                         f"耗时 {elapsed:.2f}s"
                     )
 
@@ -239,7 +235,7 @@ class MysqlBase(Database):
             elapsed_seconds = (end_time - start_time).total_seconds()
 
             self.logger.info(
-                f"成功保存 {total_rows} 行数据到 {table_name}，" f"耗时 {elapsed_seconds:.2f}s"
+                f"成功保存 {total_rows} 行数据到 {table_name}，耗时 {elapsed_seconds:.2f}s"
             )
 
             return total_rows
@@ -422,18 +418,18 @@ class MysqlBase(Database):
 
         cols_sql: list[str] = []
         pk = str(primary_key)
-        cols_sql.append(f"`{pk.replace('`','``')}` VARCHAR(64) NOT NULL")
+        cols_sql.append(f"`{pk.replace('`', '``')}` VARCHAR(64) NOT NULL")
         if add_fetched_at:
             cols_sql.append("`FETCHED_AT` DATETIME NULL")
         for col in list(df.columns):
             series = df[col]
             sql_type = _sql_type_for_series(series)
-            cols_sql.append(f"`{str(col).replace('`','``')}` {sql_type} NULL")
+            cols_sql.append(f"`{str(col).replace('`', '``')}` {sql_type} NULL")
 
         ddl = (
-            f"CREATE TABLE IF NOT EXISTS `{str(table_name).replace('`','``')}` ("
+            f"CREATE TABLE IF NOT EXISTS `{str(table_name).replace('`', '``')}` ("
             + ", ".join(cols_sql)
-            + f", PRIMARY KEY (`{pk.replace('`','``')}`)"
+            + f", PRIMARY KEY (`{pk.replace('`', '``')}`)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
         )
 
@@ -548,9 +544,7 @@ class MysqlBase(Database):
             # Build INSERT statement
             cols_str = ", ".join(columns)
             placeholders = ", ".join(["%s"] * len(columns))
-            insert_sql = (
-                f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"  # nosec B608
-            )
+            insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"  # nosec B608
 
             # Prepare data
             data = df[columns].values.tolist()

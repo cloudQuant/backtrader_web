@@ -38,16 +38,12 @@ INSTANCE_ID = "test-instance-001"
 
 class TestPositionLimit:
     async def test_passes_within_limit(self, svc: RiskControlService):
-        ok, alert = await svc.check_position_limit(
-            INSTANCE_ID, "BTCUSDT", 20000, 100000, {}
-        )
+        ok, alert = await svc.check_position_limit(INSTANCE_ID, "BTCUSDT", 20000, 100000, {})
         assert ok is True
         assert alert is None
 
     async def test_rejects_single_position_over_limit(self, strict_svc: RiskControlService):
-        ok, alert = await strict_svc.check_position_limit(
-            INSTANCE_ID, "BTCUSDT", 15000, 100000, {}
-        )
+        ok, alert = await strict_svc.check_position_limit(INSTANCE_ID, "BTCUSDT", 15000, 100000, {})
         assert ok is False
         assert alert is not None
         assert alert.alert_type == RiskAlertType.POSITION_LIMIT
@@ -64,9 +60,7 @@ class TestPositionLimit:
 
     async def test_skipped_when_disabled(self, svc: RiskControlService):
         svc.config.enable_position_limit = False
-        ok, alert = await svc.check_position_limit(
-            INSTANCE_ID, "BTCUSDT", 999999, 100000, {}
-        )
+        ok, alert = await svc.check_position_limit(INSTANCE_ID, "BTCUSDT", 999999, 100000, {})
         assert ok is True
         assert alert is None
 

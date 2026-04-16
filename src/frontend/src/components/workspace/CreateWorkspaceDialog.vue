@@ -6,11 +6,27 @@
     @update:model-value="$emit('update:modelValue', $event)"
     @closed="resetForm"
   >
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
-      <el-form-item label="名称" prop="name">
-        <el-input v-model="form.name" placeholder="请输入工作区名称" maxlength="200" show-word-limit />
+    <el-form
+      ref="formRef"
+      :model="form"
+      :rules="rules"
+      label-width="80px"
+    >
+      <el-form-item
+        label="名称"
+        prop="name"
+      >
+        <el-input
+          v-model="form.name"
+          placeholder="请输入工作区名称"
+          maxlength="200"
+          show-word-limit
+        />
       </el-form-item>
-      <el-form-item label="描述" prop="description">
+      <el-form-item
+        label="描述"
+        prop="description"
+      >
         <el-input
           v-model="form.description"
           type="textarea"
@@ -22,8 +38,14 @@
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="$emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="submitting" @click="handleSubmit">
+      <el-button @click="$emit('update:modelValue', false)">
+        取消
+      </el-button>
+      <el-button
+        type="primary"
+        :loading="submitting"
+        @click="handleSubmit"
+      >
         {{ isEdit ? '保存' : '创建' }}
       </el-button>
     </template>

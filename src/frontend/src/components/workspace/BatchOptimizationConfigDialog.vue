@@ -1,60 +1,137 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    @update:model-value="$emit('update:modelValue', $event)"
     title="批量优化参数设置"
     width="800px"
     destroy-on-close
+    @update:model-value="$emit('update:modelValue', $event)"
     @open="initForm"
   >
-    <el-alert type="info" :closable="false" class="mb-4">
+    <el-alert
+      type="info"
+      :closable="false"
+      class="mb-4"
+    >
       将以下优化参数统一应用到选中的 <strong>{{ unitIds.length }}</strong> 个策略单元。
     </el-alert>
 
-    <el-form ref="formRef" :model="form" label-width="120px" size="default">
+    <el-form
+      ref="formRef"
+      :model="form"
+      label-width="120px"
+      size="default"
+    >
       <el-row :gutter="20">
         <el-col :span="8">
           <el-form-item label="优化目标">
-            <el-select v-model="form.objective" style="width: 100%">
-              <el-option label="夏普比率最大" value="sharpe_max" />
-              <el-option label="最大收益" value="max_return" />
-              <el-option label="最小回撤" value="min_drawdown" />
+            <el-select
+              v-model="form.objective"
+              style="width: 100%"
+            >
+              <el-option
+                label="夏普比率最大"
+                value="sharpe_max"
+              />
+              <el-option
+                label="最大收益"
+                value="max_return"
+              />
+              <el-option
+                label="最小回撤"
+                value="min_drawdown"
+              />
             </el-select>
           </el-form-item>
         </el-col>
         <el-col :span="8">
           <el-form-item label="并行线程数">
-            <el-input-number v-model="form.n_workers" :min="1" :max="32" style="width: 100%" />
+            <el-input-number
+              v-model="form.n_workers"
+              :min="1"
+              :max="32"
+              style="width: 100%"
+            />
           </el-form-item>
         </el-col>
         <el-col :span="8">
           <el-form-item label="最优显示">
-            <el-input-number v-model="form.max_display" :min="100" :max="50000" :step="100" style="width: 100%" />
+            <el-input-number
+              v-model="form.max_display"
+              :min="100"
+              :max="50000"
+              :step="100"
+              style="width: 100%"
+            />
           </el-form-item>
         </el-col>
       </el-row>
 
-      <el-divider content-position="left">参数列表</el-divider>
+      <el-divider content-position="left">
+        参数列表
+      </el-divider>
 
-      <el-table :data="form.param_layers" border size="small" class="mb-4">
-        <el-table-column label="参数名" width="140">
+      <el-table
+        :data="form.param_layers"
+        border
+        size="small"
+        class="mb-4"
+      >
+        <el-table-column
+          label="参数名"
+          width="140"
+        >
           <template #default="{ row }">
-            <el-input v-model="row.param_name" size="small" placeholder="参数名称" />
+            <el-input
+              v-model="row.param_name"
+              size="small"
+              placeholder="参数名称"
+            />
           </template>
         </el-table-column>
-        <el-table-column label="优化设置" min-width="300">
+        <el-table-column
+          label="优化设置"
+          min-width="300"
+        >
           <template #default="{ row }">
             <div class="flex items-center gap-1">
-              <el-select v-model="row.opt_type" size="small" style="width: 80px">
-                <el-option label="等差" value="equal_diff" />
-                <el-option label="固定" value="fixed" />
+              <el-select
+                v-model="row.opt_type"
+                size="small"
+                style="width: 80px"
+              >
+                <el-option
+                  label="等差"
+                  value="equal_diff"
+                />
+                <el-option
+                  label="固定"
+                  value="fixed"
+                />
               </el-select>
               <template v-if="row.opt_type === 'equal_diff'">
-                <el-input-number v-model="row.start" :controls="false" size="small" style="width: 80px" placeholder="起始" />
+                <el-input-number
+                  v-model="row.start"
+                  :controls="false"
+                  size="small"
+                  style="width: 80px"
+                  placeholder="起始"
+                />
                 <span>~</span>
-                <el-input-number v-model="row.end" :controls="false" size="small" style="width: 80px" placeholder="结束" />
+                <el-input-number
+                  v-model="row.end"
+                  :controls="false"
+                  size="small"
+                  style="width: 80px"
+                  placeholder="结束"
+                />
                 <span>, 步长</span>
-                <el-input-number v-model="row.step" :controls="false" size="small" style="width: 70px" placeholder="步长" />
+                <el-input-number
+                  v-model="row.step"
+                  :controls="false"
+                  size="small"
+                  style="width: 70px"
+                  placeholder="步长"
+                />
                 <span class="text-xs text-gray-400 ml-1">
                   ({{ calcCount(row) }}种)
                 </span>
@@ -62,9 +139,18 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="" width="50" align="center">
+        <el-table-column
+          label=""
+          width="50"
+          align="center"
+        >
           <template #default="{ $index }">
-            <el-button link type="danger" size="small" @click="form.param_layers.splice($index, 1)">
+            <el-button
+              link
+              type="danger"
+              size="small"
+              @click="form.param_layers.splice($index, 1)"
+            >
               <el-icon><Delete /></el-icon>
             </el-button>
           </template>
@@ -72,14 +158,25 @@
       </el-table>
 
       <div class="flex items-center gap-3">
-        <el-button size="small" @click="addParamLayer">添加参数</el-button>
+        <el-button
+          size="small"
+          @click="addParamLayer"
+        >
+          添加参数
+        </el-button>
         <span class="text-sm text-gray-400">总组合数: <strong>{{ totalCombinations }}</strong></span>
       </div>
     </el-form>
 
     <template #footer>
-      <el-button @click="$emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="handleSave">
+      <el-button @click="$emit('update:modelValue', false)">
+        取消
+      </el-button>
+      <el-button
+        type="primary"
+        :loading="saving"
+        @click="handleSave"
+      >
         保存到 {{ unitIds.length }} 个单元
       </el-button>
     </template>

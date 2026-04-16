@@ -453,7 +453,10 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
                 item["direction"] = "buy" if size_for_direction >= 0 else "sell"
 
         trades: list[dict[str, Any]] = []
-        for item in sorted(grouped.values(), key=lambda payload: payload.get("dtclose") or payload.get("dtopen") or ""):
+        for item in sorted(
+            grouped.values(),
+            key=lambda payload: payload.get("dtclose") or payload.get("dtopen") or "",
+        ):
             if not item.get("dtclose"):
                 continue
             open_size = abs(_safe_float(item.get("open_size", 0.0), 0.0))

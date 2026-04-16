@@ -3,7 +3,7 @@
 import os
 import signal
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -77,10 +77,7 @@ class TestScanRunningStrategyPids:
     @pytest.mark.skipif(sys.platform == "win32", reason="Unix ps command")
     @patch("subprocess.check_output")
     def test_ignores_non_strategy_run_py(self, mock_output):
-        mock_output.return_value = (
-            "  PID ARGS\n"
-            " 1234 python /home/user/other_project/run.py\n"
-        )
+        mock_output.return_value = "  PID ARGS\n 1234 python /home/user/other_project/run.py\n"
         result = scan_running_strategy_pids()
         assert result == {}
 
@@ -88,10 +85,7 @@ class TestScanRunningStrategyPids:
     @patch("subprocess.check_output")
     def test_handles_malformed_lines(self, mock_output):
         mock_output.return_value = (
-            "  PID ARGS\n"
-            " bad_pid python /home/user/strategies/test/run.py\n"
-            "\n"
-            " 1234\n"
+            "  PID ARGS\n bad_pid python /home/user/strategies/test/run.py\n\n 1234\n"
         )
         result = scan_running_strategy_pids()
         assert result == {}

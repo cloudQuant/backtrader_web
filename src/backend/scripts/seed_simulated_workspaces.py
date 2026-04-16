@@ -151,13 +151,17 @@ def build_mt5_gateway_config(credentials: dict[str, Any]) -> dict[str, Any]:
                 "account_id": login,
                 "login": login,
                 "password": str(credentials.get("password") or "").strip(),
-                "ws_uri": str(credentials.get("ws_uri") or "wss://web.metatrader.app/terminal").strip(),
+                "ws_uri": str(
+                    credentials.get("ws_uri") or "wss://web.metatrader.app/terminal"
+                ).strip(),
                 "symbol_suffix": str(credentials.get("symbol_suffix") or "").strip(),
             },
             "mt5": {
                 "login": login,
                 "password": str(credentials.get("password") or "").strip(),
-                "ws_uri": str(credentials.get("ws_uri") or "wss://web.metatrader.app/terminal").strip(),
+                "ws_uri": str(
+                    credentials.get("ws_uri") or "wss://web.metatrader.app/terminal"
+                ).strip(),
                 "symbol_suffix": str(credentials.get("symbol_suffix") or "").strip(),
             },
         },

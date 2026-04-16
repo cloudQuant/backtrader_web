@@ -6,13 +6,24 @@
     @update:model-value="$emit('update:modelValue', $event)"
     @open="initForm"
   >
-    <el-form :model="form" label-width="110px">
+    <el-form
+      :model="form"
+      label-width="110px"
+    >
       <el-form-item label="数据源类型">
         <el-radio-group v-model="form.type">
-          <el-radio value="csv">本地 CSV</el-radio>
-          <el-radio value="mysql">MySQL</el-radio>
-          <el-radio value="postgresql">PostgreSQL</el-radio>
-          <el-radio value="mongodb">MongoDB</el-radio>
+          <el-radio value="csv">
+            本地 CSV
+          </el-radio>
+          <el-radio value="mysql">
+            MySQL
+          </el-radio>
+          <el-radio value="postgresql">
+            PostgreSQL
+          </el-radio>
+          <el-radio value="mongodb">
+            MongoDB
+          </el-radio>
         </el-radio-group>
       </el-form-item>
 
@@ -26,7 +37,10 @@
         <el-row :gutter="16">
           <el-col :span="8">
             <el-form-item label="分隔符">
-              <el-input v-model="form.csv.delimiter" maxlength="3" />
+              <el-input
+                v-model="form.csv.delimiter"
+                maxlength="3"
+              />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -51,7 +65,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="端口">
-              <el-input-number v-model="form.mysql.port" :min="1" :max="65535" style="width: 100%" />
+              <el-input-number
+                v-model="form.mysql.port"
+                :min="1"
+                :max="65535"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -75,7 +94,11 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="密码">
-              <el-input v-model="form.mysql.password" type="password" show-password />
+              <el-input
+                v-model="form.mysql.password"
+                type="password"
+                show-password
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -90,7 +113,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="端口">
-              <el-input-number v-model="form.postgresql.port" :min="1" :max="65535" style="width: 100%" />
+              <el-input-number
+                v-model="form.postgresql.port"
+                :min="1"
+                :max="65535"
+                style="width: 100%"
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -119,7 +147,11 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="密码">
-              <el-input v-model="form.postgresql.password" type="password" show-password />
+              <el-input
+                v-model="form.postgresql.password"
+                type="password"
+                show-password
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -149,7 +181,11 @@
           </el-col>
           <el-col :span="8">
             <el-form-item label="密码">
-              <el-input v-model="form.mongodb.password" type="password" show-password />
+              <el-input
+                v-model="form.mongodb.password"
+                type="password"
+                show-password
+              />
             </el-form-item>
           </el-col>
           <el-col :span="8">
@@ -162,8 +198,16 @@
     </el-form>
 
     <template #footer>
-      <el-button @click="$emit('update:modelValue', false)">取消</el-button>
-      <el-button type="primary" :loading="saving" @click="handleSave">保存</el-button>
+      <el-button @click="$emit('update:modelValue', false)">
+        取消
+      </el-button>
+      <el-button
+        type="primary"
+        :loading="saving"
+        @click="handleSave"
+      >
+        保存
+      </el-button>
     </template>
   </el-dialog>
 </template>

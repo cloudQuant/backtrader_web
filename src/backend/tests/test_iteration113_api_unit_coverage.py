@@ -441,6 +441,7 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
     opt_req = SimpleNamespace(method="bayesian")
 
     from fastapi import Response
+
     mock_response = Response()
 
     with pytest.raises(HTTPException) as e:

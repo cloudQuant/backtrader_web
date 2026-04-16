@@ -39,7 +39,9 @@ class AkshareInterfaceLoader:
         categories: dict[str, InterfaceCategory] = {}
         sort_order = 1
         for key, label in self.CATEGORY_MAPPING.items():
-            result = await self.db.execute(select(InterfaceCategory).where(InterfaceCategory.name == key))
+            result = await self.db.execute(
+                select(InterfaceCategory).where(InterfaceCategory.name == key)
+            )
             category = result.scalar_one_or_none()
             if category is None:
                 category = InterfaceCategory(
@@ -87,13 +89,17 @@ class AkshareInterfaceLoader:
         functions = self._discover_akshare_functions()
         for func_name, func in functions:
             category = categories[self._resolve_category(func_name)]
-            result = await self.db.execute(select(DataInterface).where(DataInterface.name == func_name))
+            result = await self.db.execute(
+                select(DataInterface).where(DataInterface.name == func_name)
+            )
             interface = result.scalar_one_or_none()
             if interface is None:
                 interface = DataInterface(
                     name=func_name,
                     display_name=func_name.replace("_", " ").title(),
-                    description=(inspect.getdoc(func) or "").splitlines()[0] if inspect.getdoc(func) else None,
+                    description=(inspect.getdoc(func) or "").splitlines()[0]
+                    if inspect.getdoc(func)
+                    else None,
                     category_id=category.id,
                     module_path="akshare",
                     function_name=func_name,
@@ -113,7 +119,9 @@ class AkshareInterfaceLoader:
                 updated += 1
                 if refresh:
                     await self.db.execute(
-                        delete(InterfaceParameter).where(InterfaceParameter.interface_id == interface.id)
+                        delete(InterfaceParameter).where(
+                            InterfaceParameter.interface_id == interface.id
+                        )
                     )
 
             sig = inspect.signature(func)
@@ -123,7 +131,9 @@ class AkshareInterfaceLoader:
                     continue
                 parameters[param_name] = {
                     "required": param.default == inspect.Parameter.empty,
-                    "default": None if param.default == inspect.Parameter.empty else str(param.default),
+                    "default": None
+                    if param.default == inspect.Parameter.empty
+                    else str(param.default),
                 }
                 if interface.id:
                     param_model = InterfaceParameter(

@@ -14,17 +14,39 @@ def _resolve_gateway_state_session_key(state: dict[str, Any]) -> str:
     if config is None:
         return ""
     runtime_kwargs = {
-        "exchange_type": getattr(config, "exchange_type", "") if not isinstance(config, dict) else config.get("exchange_type", ""),
-        "asset_type": getattr(config, "asset_type", "") if not isinstance(config, dict) else config.get("asset_type", ""),
-        "account_id": getattr(config, "account_id", "") if not isinstance(config, dict) else config.get("account_id", ""),
-        "broker_id": getattr(config, "broker_id", "") if not isinstance(config, dict) else config.get("broker_id", ""),
-        "td_address": getattr(config, "td_address", "") if not isinstance(config, dict) else config.get("td_address", ""),
-        "md_address": getattr(config, "md_address", "") if not isinstance(config, dict) else config.get("md_address", ""),
-        "base_url": getattr(config, "base_url", "") if not isinstance(config, dict) else config.get("base_url", ""),
-        "login_mode": getattr(config, "login_mode", "") if not isinstance(config, dict) else config.get("login_mode", ""),
-        "testnet": getattr(config, "testnet", None) if not isinstance(config, dict) else config.get("testnet"),
-        "server": getattr(config, "server", "") if not isinstance(config, dict) else config.get("server", ""),
-        "ws_uri": getattr(config, "ws_uri", "") if not isinstance(config, dict) else config.get("ws_uri", ""),
+        "exchange_type": getattr(config, "exchange_type", "")
+        if not isinstance(config, dict)
+        else config.get("exchange_type", ""),
+        "asset_type": getattr(config, "asset_type", "")
+        if not isinstance(config, dict)
+        else config.get("asset_type", ""),
+        "account_id": getattr(config, "account_id", "")
+        if not isinstance(config, dict)
+        else config.get("account_id", ""),
+        "broker_id": getattr(config, "broker_id", "")
+        if not isinstance(config, dict)
+        else config.get("broker_id", ""),
+        "td_address": getattr(config, "td_address", "")
+        if not isinstance(config, dict)
+        else config.get("td_address", ""),
+        "md_address": getattr(config, "md_address", "")
+        if not isinstance(config, dict)
+        else config.get("md_address", ""),
+        "base_url": getattr(config, "base_url", "")
+        if not isinstance(config, dict)
+        else config.get("base_url", ""),
+        "login_mode": getattr(config, "login_mode", "")
+        if not isinstance(config, dict)
+        else config.get("login_mode", ""),
+        "testnet": getattr(config, "testnet", None)
+        if not isinstance(config, dict)
+        else config.get("testnet"),
+        "server": getattr(config, "server", "")
+        if not isinstance(config, dict)
+        else config.get("server", ""),
+        "ws_uri": getattr(config, "ws_uri", "")
+        if not isinstance(config, dict)
+        else config.get("ws_uri", ""),
     }
     resolved = build_gateway_session_key_from_runtime_kwargs(runtime_kwargs)
     if resolved:

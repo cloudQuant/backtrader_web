@@ -132,7 +132,7 @@ class AkshareProvider:
             self.connection.close()
             self.connection = None
 
-    def __enter__(self) -> "AkshareProvider":
+    def __enter__(self) -> AkshareProvider:
         self.connect_db()
         return self
 
@@ -230,7 +230,9 @@ class AkshareProvider:
             raise ValueError(f"Invalid SQL identifier: {cleaned!r}")
         return cleaned
 
-    def _normalize_dataframe_columns(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame | None:
+    def _normalize_dataframe_columns(
+        self, df: pd.DataFrame, table_name: str
+    ) -> pd.DataFrame | None:
         raw_cols = list(df.columns)
         valid_idx = []
         normalized_cols = []
@@ -257,7 +259,9 @@ class AkshareProvider:
         out.columns = normalized_cols
         return out
 
-    def _align_df_to_table(self, df: pd.DataFrame, safe_table: str, table_name: str) -> pd.DataFrame | None:
+    def _align_df_to_table(
+        self, df: pd.DataFrame, safe_table: str, table_name: str
+    ) -> pd.DataFrame | None:
         try:
             self.cursor.execute(f"SHOW COLUMNS FROM `{safe_table}`")
             table_rows = self.cursor.fetchall() or []
@@ -406,7 +410,9 @@ class AkshareProvider:
         finally:
             self.disconnect_db()
 
-    def create_table_if_not_exists(self, table_name: str = None, create_table_sql: str = None) -> bool:
+    def create_table_if_not_exists(
+        self, table_name: str = None, create_table_sql: str = None
+    ) -> bool:
         if not self.table_exists(table_name):
             try:
                 self.connect_db()
@@ -421,7 +427,9 @@ class AkshareProvider:
                 self.disconnect_db()
         return False
 
-    async def get_table_row_count_async(self, table_name: str, db_session: AsyncSession) -> int | None:
+    async def get_table_row_count_async(
+        self, table_name: str, db_session: AsyncSession
+    ) -> int | None:
         if not table_name:
             return None
 

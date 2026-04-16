@@ -23,7 +23,11 @@ router = APIRouter()
     responses={
         200: {
             "description": "Prometheus metrics in text format",
-            "content": {"text/plain": {"example": "# HELP backtest_total Total number of backtest tasks\n# TYPE backtest_total counter\nbacktest_total{status=\"completed\"} 42\n"}},
+            "content": {
+                "text/plain": {
+                    "example": '# HELP backtest_total Total number of backtest tasks\n# TYPE backtest_total counter\nbacktest_total{status="completed"} 42\n'
+                }
+            },
         },
         503: {
             "description": "Metrics unavailable (prometheus_client not installed)",
@@ -42,7 +46,7 @@ async def metrics_endpoint() -> Response:
     if not is_metrics_available():
         return Response(
             content="# Metrics unavailable: prometheus_client not installed\n"
-                    "# Install with: pip install prometheus_client\n",
+            "# Install with: pip install prometheus_client\n",
             status_code=503,
             media_type="text/plain",
         )
@@ -86,5 +90,7 @@ async def metrics_status() -> dict:
             "db_query_duration_seconds",
             "db_query_total",
             "error_total",
-        ] if is_metrics_available() else [],
+        ]
+        if is_metrics_available()
+        else [],
     }

@@ -55,7 +55,9 @@ class AkshareScheduler:
         from apscheduler.triggers.interval import IntervalTrigger
 
         if task.schedule_type == ScheduleType.CRON:
-            return CronTrigger.from_crontab(task.schedule_expression, timezone=settings.AKSHARE_SCHEDULER_TIMEZONE)
+            return CronTrigger.from_crontab(
+                task.schedule_expression, timezone=settings.AKSHARE_SCHEDULER_TIMEZONE
+            )
         if task.schedule_type == ScheduleType.DAILY and ":" in task.schedule_expression:
             hour, minute = task.schedule_expression.split(":")
             return CronTrigger(
@@ -64,7 +66,9 @@ class AkshareScheduler:
                 timezone=settings.AKSHARE_SCHEDULER_TIMEZONE,
             )
         if task.schedule_type in {ScheduleType.DAILY, ScheduleType.WEEKLY, ScheduleType.MONTHLY}:
-            return CronTrigger.from_crontab(task.schedule_expression, timezone=settings.AKSHARE_SCHEDULER_TIMEZONE)
+            return CronTrigger.from_crontab(
+                task.schedule_expression, timezone=settings.AKSHARE_SCHEDULER_TIMEZONE
+            )
         if task.schedule_type == ScheduleType.INTERVAL:
             expression = task.schedule_expression.strip().lower()
             if expression.endswith("m"):

@@ -1,6 +1,5 @@
 """Tests for custom exception classes."""
 
-
 from app.utils.exceptions import (
     AuthenticationError,
     BacktestError,
@@ -62,7 +61,11 @@ class TestBaseAppError:
         """Test to_dict with details."""
         exc = BaseAppError("Test error", details={"key": "value"})
         result = exc.to_dict()
-        assert result == {"error": "BaseAppError", "message": "Test error", "details": {"key": "value"}}
+        assert result == {
+            "error": "BaseAppError",
+            "message": "Test error",
+            "details": {"key": "value"},
+        }
 
 
 class TestAuthenticationErrors:
@@ -232,13 +235,23 @@ class TestDataErrors:
         """Test DataNotFoundError."""
         exc = DataNotFoundError(symbol="AAPL", start_date="2024-01-01", end_date="2024-12-31")
         assert exc.message == "Market data not available for symbol: AAPL"
-        assert exc.details == {"symbol": "AAPL", "start_date": "2024-01-01", "end_date": "2024-12-31"}
+        assert exc.details == {
+            "symbol": "AAPL",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+        }
 
     def test_invalid_date_range_error(self):
         """Test InvalidDateRangeError."""
-        exc = InvalidDateRangeError("Start after end", start_date="2024-12-01", end_date="2024-01-01")
+        exc = InvalidDateRangeError(
+            "Start after end", start_date="2024-12-01", end_date="2024-01-01"
+        )
         assert exc.message == "Invalid date range"
-        assert exc.details == {"reason": "Start after end", "start_date": "2024-12-01", "end_date": "2024-01-01"}
+        assert exc.details == {
+            "reason": "Start after end",
+            "start_date": "2024-12-01",
+            "end_date": "2024-01-01",
+        }
 
 
 class TestConfigurationErrors:
@@ -299,7 +312,11 @@ class TestFormatExceptionForResponse:
         """Test formatting BaseAppError."""
         exc = UserNotFoundError(user_id="123")
         result = format_exception_for_response(exc)
-        assert result == {"error": "UserNotFoundError", "message": "User not found (ID: 123)", "details": {"user_id": "123"}}
+        assert result == {
+            "error": "UserNotFoundError",
+            "message": "User not found (ID: 123)",
+            "details": {"user_id": "123"},
+        }
 
     def test_format_standard_exception(self):
         """Test formatting standard Python exception."""

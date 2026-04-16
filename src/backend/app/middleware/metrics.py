@@ -19,20 +19,26 @@ from loguru import logger
 # Type aliases for Prometheus metrics
 class CounterProtocol(Protocol):
     """Protocol for Prometheus Counter metric."""
+
     def labels(self, **kwargs: str) -> "CounterProtocol": ...
     def inc(self, amount: float = 1.0) -> None: ...
 
+
 class GaugeProtocol(Protocol):
     """Protocol for Prometheus Gauge metric."""
+
     def labels(self, **kwargs: str) -> "GaugeProtocol": ...
     def set(self, value: float) -> None: ...
     def inc(self, amount: float = 1.0) -> None: ...
     def dec(self, amount: float = 1.0) -> None: ...
 
+
 class HistogramProtocol(Protocol):
     """Protocol for Prometheus Histogram metric."""
+
     def labels(self, **kwargs: str) -> "HistogramProtocol": ...
     def observe(self, amount: float) -> None: ...
+
 
 # Type aliases for metrics
 MetricCounter = CounterProtocol | None
@@ -102,91 +108,91 @@ def _init_metrics() -> None:
 
     # Backtest metrics
     BACKTEST_TOTAL = Counter(
-        'backtest_total',
-        'Total number of backtest tasks',
-        ['status'],  # pending, running, completed, failed, cancelled
+        "backtest_total",
+        "Total number of backtest tasks",
+        ["status"],  # pending, running, completed, failed, cancelled
         registry=_registry,
     )
 
     BACKTEST_DURATION = Histogram(
-        'backtest_duration_seconds',
-        'Duration of backtest execution in seconds',
-        ['strategy_id'],
+        "backtest_duration_seconds",
+        "Duration of backtest execution in seconds",
+        ["strategy_id"],
         buckets=[1, 5, 10, 30, 60, 120, 300, 600, 1200, 3600],
         registry=_registry,
     )
 
     BACKTEST_SUCCESS = Counter(
-        'backtest_success_total',
-        'Number of successful backtests',
+        "backtest_success_total",
+        "Number of successful backtests",
         registry=_registry,
     )
 
     BACKTEST_FAILURE = Counter(
-        'backtest_failure_total',
-        'Number of failed backtests',
+        "backtest_failure_total",
+        "Number of failed backtests",
         registry=_registry,
     )
 
     # Live trading metrics
     LIVE_TRADING_ACTIVE_INSTANCES = Gauge(
-        'live_trading_active_instances',
-        'Number of active live trading instances',
-        ['broker'],
+        "live_trading_active_instances",
+        "Number of active live trading instances",
+        ["broker"],
         registry=_registry,
     )
 
     LIVE_TRADING_TOTAL_TRADES = Counter(
-        'live_trading_total_trades',
-        'Total number of live trading trades executed',
-        ['broker', 'symbol'],
+        "live_trading_total_trades",
+        "Total number of live trading trades executed",
+        ["broker", "symbol"],
         registry=_registry,
     )
 
     # API metrics
     API_REQUEST_TOTAL = Counter(
-        'api_request_total',
-        'Total number of API requests',
-        ['method', 'endpoint', 'status_code'],
+        "api_request_total",
+        "Total number of API requests",
+        ["method", "endpoint", "status_code"],
         registry=_registry,
     )
 
     API_REQUEST_DURATION = Histogram(
-        'api_request_duration_seconds',
-        'Duration of API request processing in seconds',
-        ['method', 'endpoint'],
+        "api_request_duration_seconds",
+        "Duration of API request processing in seconds",
+        ["method", "endpoint"],
         buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
         registry=_registry,
     )
 
     API_REQUEST_ERRORS = Counter(
-        'api_request_errors_total',
-        'Total number of API request errors',
-        ['method', 'endpoint', 'error_type'],
+        "api_request_errors_total",
+        "Total number of API request errors",
+        ["method", "endpoint", "error_type"],
         registry=_registry,
     )
 
     # Database metrics
     DB_QUERY_DURATION = Histogram(
-        'db_query_duration_seconds',
-        'Duration of database queries in seconds',
-        ['operation'],  # select, insert, update, delete
+        "db_query_duration_seconds",
+        "Duration of database queries in seconds",
+        ["operation"],  # select, insert, update, delete
         buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
         registry=_registry,
     )
 
     DB_QUERY_TOTAL = Counter(
-        'db_query_total',
-        'Total number of database queries',
-        ['operation', 'table'],
+        "db_query_total",
+        "Total number of database queries",
+        ["operation", "table"],
         registry=_registry,
     )
 
     # Error metrics
     ERROR_TOTAL = Counter(
-        'error_total',
-        'Total number of errors',
-        ['type', 'module'],
+        "error_total",
+        "Total number of errors",
+        ["type", "module"],
         registry=_registry,
     )
 
@@ -207,15 +213,14 @@ def get_metrics_output() -> str:
     """
     if not PROMETHEUS_AVAILABLE or _registry is None:
         raise RuntimeError(
-            "prometheus_client is not installed. "
-            "Install it with: pip install prometheus_client"
+            "prometheus_client is not installed. Install it with: pip install prometheus_client"
         )
 
     # Initialize metrics if not done
     if BACKTEST_TOTAL is None:
         _init_metrics()
 
-    return generate_latest(_registry).decode('utf-8')
+    return generate_latest(_registry).decode("utf-8")
 
 
 # ==================== Helper Functions ====================
@@ -234,7 +239,7 @@ def record_backtest_start(strategy_id: str) -> None:
         _init_metrics()
 
     if BACKTEST_TOTAL is not None:
-        BACKTEST_TOTAL.labels(status='running').inc()
+        BACKTEST_TOTAL.labels(status="running").inc()
 
 
 def record_backtest_complete(strategy_id: str, duration_seconds: float, success: bool) -> None:
@@ -258,15 +263,17 @@ def record_backtest_complete(strategy_id: str, duration_seconds: float, success:
         if BACKTEST_SUCCESS is not None:
             BACKTEST_SUCCESS.inc()
         if BACKTEST_TOTAL is not None:
-            BACKTEST_TOTAL.labels(status='completed').inc()
+            BACKTEST_TOTAL.labels(status="completed").inc()
     else:
         if BACKTEST_FAILURE is not None:
             BACKTEST_FAILURE.inc()
         if BACKTEST_TOTAL is not None:
-            BACKTEST_TOTAL.labels(status='failed').inc()
+            BACKTEST_TOTAL.labels(status="failed").inc()
 
 
-def record_api_request(method: str, endpoint: str, status_code: int, duration_seconds: float) -> None:
+def record_api_request(
+    method: str, endpoint: str, status_code: int, duration_seconds: float
+) -> None:
     """Record an API request.
 
     Args:
@@ -282,7 +289,9 @@ def record_api_request(method: str, endpoint: str, status_code: int, duration_se
         _init_metrics()
 
     if API_REQUEST_TOTAL is not None:
-        API_REQUEST_TOTAL.labels(method=method, endpoint=endpoint, status_code=str(status_code)).inc()
+        API_REQUEST_TOTAL.labels(
+            method=method, endpoint=endpoint, status_code=str(status_code)
+        ).inc()
 
     if API_REQUEST_DURATION is not None:
         API_REQUEST_DURATION.labels(method=method, endpoint=endpoint).observe(duration_seconds)
@@ -426,16 +435,16 @@ def track_api_request(method: str, endpoint: str) -> Generator[None, None, None]
 
 
 __all__ = [
-    'is_metrics_available',
-    'get_metrics_output',
-    'record_backtest_start',
-    'record_backtest_complete',
-    'record_api_request',
-    'record_api_error',
-    'set_live_trading_instances',
-    'record_live_trade',
-    'record_db_query',
-    'record_error',
-    'track_db_query',
-    'track_api_request',
+    "is_metrics_available",
+    "get_metrics_output",
+    "record_backtest_start",
+    "record_backtest_complete",
+    "record_api_request",
+    "record_api_error",
+    "set_live_trading_instances",
+    "record_live_trade",
+    "record_db_query",
+    "record_error",
+    "track_db_query",
+    "track_api_request",
 ]

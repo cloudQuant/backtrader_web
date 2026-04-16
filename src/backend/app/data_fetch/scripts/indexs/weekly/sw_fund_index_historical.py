@@ -142,9 +142,11 @@ def main():
     parser = argparse.ArgumentParser(
         description="Update Shenwan Hongyuan Fund Index Historical Data"
     )
-    parser.add_argument(
-        "--symbol", type=str, required=False, help="Symbol to fetch historical data for"
-    ),
+    (
+        parser.add_argument(
+            "--symbol", type=str, required=False, help="Symbol to fetch historical data for"
+        ),
+    )
     parser.add_argument(
         "--period",
         type=str,

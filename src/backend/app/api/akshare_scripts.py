@@ -103,7 +103,9 @@ async def create_script(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_data_admin_user),
 ):
-    return await AkshareScriptService(db).create_script(payload.model_dump(), operator_id=current_user.id)
+    return await AkshareScriptService(db).create_script(
+        payload.model_dump(), operator_id=current_user.id
+    )
 
 
 @router.put("/scripts/admin/scripts/{script_id}")

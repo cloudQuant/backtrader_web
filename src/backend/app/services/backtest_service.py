@@ -12,7 +12,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import textwrap
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -133,7 +132,10 @@ class BacktestService:
             if not isinstance(trade, dict):
                 continue
             date_value = cls._normalize_trade_date(
-                trade.get("date") or trade.get("datetime") or trade.get("dtopen") or trade.get("dtclose")
+                trade.get("date")
+                or trade.get("datetime")
+                or trade.get("dtopen")
+                or trade.get("dtclose")
             )
             trade_type = cls._normalize_trade_type(trade.get("type") or trade.get("direction"))
             if not date_value or not trade_type:
@@ -156,7 +158,9 @@ class BacktestService:
             if size <= 0:
                 continue
             try:
-                value = float(trade.get("value")) if trade.get("value") is not None else price * size
+                value = (
+                    float(trade.get("value")) if trade.get("value") is not None else price * size
+                )
             except (TypeError, ValueError):
                 value = price * size
             if value <= 0:
@@ -332,12 +336,16 @@ class BacktestService:
                 if not (strategy_dir / "run.py").is_file():
                     raise ValueError(f"Strategy {request.strategy_id} run.py not found")
 
-                tmp_base, task_work_dir = self._setup_workspace(task_id, request.strategy_id, strategy_dir)
+                tmp_base, task_work_dir = self._setup_workspace(
+                    task_id, request.strategy_id, strategy_dir
+                )
                 await self._notify_progress(task_id, 20, "Writing configuration parameters...")
 
                 config_path = task_work_dir / "config.yaml"
                 if self._has_custom_params(request):
-                    original_text = config_path.read_text(encoding="utf-8") if config_path.is_file() else None
+                    original_text = (
+                        config_path.read_text(encoding="utf-8") if config_path.is_file() else None
+                    )
                     self._write_temp_config(config_path, request, original_text)
 
             await self._notify_progress(task_id, 30, "Running backtest...")
@@ -355,19 +363,26 @@ class BacktestService:
         except asyncio.CancelledError:
             logger.info(f"Backtest cancelled: {task_id}")
             await self.task_manager.update_task_status(
-                task_id, TaskStatus.CANCELLED, error_message="User cancelled task",
+                task_id,
+                TaskStatus.CANCELLED,
+                error_message="User cancelled task",
             )
             await ws_manager.send_to_task(
-                task_id, BacktestCancelledEvent(task_id=task_id).model_dump(mode="python"),
+                task_id,
+                BacktestCancelledEvent(task_id=task_id).model_dump(mode="python"),
             )
         except Exception as e:
             logger.error(f"Backtest failed: {task_id}, {e}")
             await self.task_manager.update_task_status(
-                task_id, TaskStatus.FAILED, error_message=str(e),
+                task_id,
+                TaskStatus.FAILED,
+                error_message=str(e),
             )
             await ws_manager.send_to_task(
                 task_id,
-                BacktestFailedEvent(task_id=task_id, message=str(e), error=str(e)).model_dump(mode="python"),
+                BacktestFailedEvent(task_id=task_id, message=str(e), error=str(e)).model_dump(
+                    mode="python"
+                ),
             )
         finally:
             if tmp_base and tmp_base.is_dir():
@@ -381,7 +396,10 @@ class BacktestService:
     # ------------------------------------------------------------------
 
     def _setup_workspace(
-        self, task_id: str, strategy_id: str, strategy_dir: Path,
+        self,
+        task_id: str,
+        strategy_id: str,
+        strategy_dir: Path,
     ) -> tuple[Path, Path]:
         """Create an isolated temp workspace for a backtest run.
 
@@ -469,7 +487,9 @@ class BacktestService:
             metrics_source=metrics.get("metrics_source", "manual"),
         )
         await self.task_manager.update_task_status(
-            task_id, TaskStatus.COMPLETED, log_dir=str(persist_log_dir),
+            task_id,
+            TaskStatus.COMPLETED,
+            log_dir=str(persist_log_dir),
         )
 
         completed_result = await self.get_result(task_id, user_id=user_id)
@@ -487,7 +507,9 @@ class BacktestService:
         """Send a backtest progress event via WebSocket."""
         await ws_manager.send_to_task(
             task_id,
-            BacktestProgressEvent(task_id=task_id, progress=progress, message=message).model_dump(mode="python"),
+            BacktestProgressEvent(task_id=task_id, progress=progress, message=message).model_dump(
+                mode="python"
+            ),
         )
 
     def _has_custom_params(self, request: BacktestRequest) -> bool:
@@ -691,10 +713,7 @@ class BacktestService:
                 task.status == TaskStatus.COMPLETED
                 and task.log_dir
                 and (
-                    (
-                        not cached_payload.get("equity_curve")
-                        and not cached_payload.get("trades")
-                    )
+                    (not cached_payload.get("equity_curve") and not cached_payload.get("trades"))
                     or str(cached_payload.get("metrics_source") or "") != "fincore"
                 )
             ):
@@ -731,10 +750,18 @@ class BacktestService:
                         start_date=BacktestService._get_request_date(task, "start_date"),
                         end_date=BacktestService._get_request_date(task, "end_date"),
                         status=TaskStatus(task.status),
-                        total_return=BacktestService._coerce_float(metrics.get("total_return"), 0.0),
-                        annual_return=BacktestService._coerce_float(metrics.get("annual_return"), 0.0),
-                        sharpe_ratio=BacktestService._coerce_float(metrics.get("sharpe_ratio"), 0.0),
-                        max_drawdown=BacktestService._coerce_float(metrics.get("max_drawdown"), 0.0),
+                        total_return=BacktestService._coerce_float(
+                            metrics.get("total_return"), 0.0
+                        ),
+                        annual_return=BacktestService._coerce_float(
+                            metrics.get("annual_return"), 0.0
+                        ),
+                        sharpe_ratio=BacktestService._coerce_float(
+                            metrics.get("sharpe_ratio"), 0.0
+                        ),
+                        max_drawdown=BacktestService._coerce_float(
+                            metrics.get("max_drawdown"), 0.0
+                        ),
                         win_rate=BacktestService._coerce_float(metrics.get("win_rate"), 0.0),
                         metrics_source=str(metrics.get("metrics_source") or "manual"),
                         total_trades=BacktestService._coerce_int(metrics.get("total_trades"), 0),

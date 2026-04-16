@@ -65,12 +65,36 @@ class TestAnalyticsDetailEndpoint:
                 "symbol": "000001.SZ",
                 "start_date": "2024-01-01",
                 "end_date": "2024-12-31",
-                "equity_curve": [{"date": "2024-01-01", "total_assets": 100000.0, "cash": 30000.0, "position_value": 70000.0}],
-                "drawdown_curve": [{"date": "2024-01-01", "drawdown": 0.0, "peak": 100000.0, "trough": 100000.0}],
-                "trades": [{"id": 1, "datetime": "2024-01-01 10:00:00", "symbol": "000001.SZ", "direction": "buy", "price": 10.0, "size": 100, "value": 1000.0, "commission": 1.0, "pnl": 10.0, "cumulative_pnl": 10.0}],
+                "equity_curve": [
+                    {
+                        "date": "2024-01-01",
+                        "total_assets": 100000.0,
+                        "cash": 30000.0,
+                        "position_value": 70000.0,
+                    }
+                ],
+                "drawdown_curve": [
+                    {"date": "2024-01-01", "drawdown": 0.0, "peak": 100000.0, "trough": 100000.0}
+                ],
+                "trades": [
+                    {
+                        "id": 1,
+                        "datetime": "2024-01-01 10:00:00",
+                        "symbol": "000001.SZ",
+                        "direction": "buy",
+                        "price": 10.0,
+                        "size": 100,
+                        "value": 1000.0,
+                        "commission": 1.0,
+                        "pnl": 10.0,
+                        "cumulative_pnl": 10.0,
+                    }
+                ],
                 "created_at": "2024-01-01",
             }
-            with patch("app.services.analytics_service.AnalyticsService.calculate_metrics") as mock_metrics:
+            with patch(
+                "app.services.analytics_service.AnalyticsService.calculate_metrics"
+            ) as mock_metrics:
                 mock_metrics.return_value = {
                     "initial_capital": 100000.0,
                     "final_assets": 101000.0,
@@ -91,12 +115,45 @@ class TestAnalyticsDetailEndpoint:
                     "max_consecutive_wins": 1,
                     "max_consecutive_losses": 0,
                 }
-                with patch("app.services.analytics_service.AnalyticsService.process_equity_curve") as mock_equity:
-                    mock_equity.return_value = [{"date": "2024-01-01", "total_assets": 100000.0, "cash": 30000.0, "position_value": 70000.0}]
-                    with patch("app.services.analytics_service.AnalyticsService.process_drawdown_curve") as mock_drawdown:
-                        mock_drawdown.return_value = [{"date": "2024-01-01", "drawdown": 0.0, "peak": 100000.0, "trough": 100000.0}]
-                        with patch("app.services.analytics_service.AnalyticsService.process_trades") as mock_trades:
-                            mock_trades.return_value = [{"id": 1, "datetime": "2024-01-01 10:00:00", "symbol": "000001.SZ", "direction": "buy", "price": 10.0, "size": 100, "value": 1000.0, "commission": 1.0, "pnl": 10.0, "cumulative_pnl": 10.0}]
+                with patch(
+                    "app.services.analytics_service.AnalyticsService.process_equity_curve"
+                ) as mock_equity:
+                    mock_equity.return_value = [
+                        {
+                            "date": "2024-01-01",
+                            "total_assets": 100000.0,
+                            "cash": 30000.0,
+                            "position_value": 70000.0,
+                        }
+                    ]
+                    with patch(
+                        "app.services.analytics_service.AnalyticsService.process_drawdown_curve"
+                    ) as mock_drawdown:
+                        mock_drawdown.return_value = [
+                            {
+                                "date": "2024-01-01",
+                                "drawdown": 0.0,
+                                "peak": 100000.0,
+                                "trough": 100000.0,
+                            }
+                        ]
+                        with patch(
+                            "app.services.analytics_service.AnalyticsService.process_trades"
+                        ) as mock_trades:
+                            mock_trades.return_value = [
+                                {
+                                    "id": 1,
+                                    "datetime": "2024-01-01 10:00:00",
+                                    "symbol": "000001.SZ",
+                                    "direction": "buy",
+                                    "price": 10.0,
+                                    "size": 100,
+                                    "value": 1000.0,
+                                    "commission": 1.0,
+                                    "pnl": 10.0,
+                                    "cumulative_pnl": 10.0,
+                                }
+                            ]
                             resp = await client.get(
                                 "/api/v1/analytics/task-123/detail", headers=auth_headers
                             )
@@ -132,12 +189,25 @@ class TestAnalyticsKlineEndpoint:
         with patch("app.api.analytics.get_backtest_data", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = {
                 "symbol": "000001.SZ",
-                "klines": [{"date": "2024-01-01", "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.3, "volume": 1000000}],
+                "klines": [
+                    {
+                        "date": "2024-01-01",
+                        "open": 10.0,
+                        "high": 10.5,
+                        "low": 9.8,
+                        "close": 10.3,
+                        "volume": 1000000,
+                    }
+                ],
                 "signals": [{"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}],
                 "log_indicators": {"ma5": [10.3]},
             }
-            with patch("app.services.analytics_service.AnalyticsService.process_signals") as mock_signals:
-                mock_signals.return_value = [{"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}]
+            with patch(
+                "app.services.analytics_service.AnalyticsService.process_signals"
+            ) as mock_signals:
+                mock_signals.return_value = [
+                    {"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}
+                ]
                 resp = await client.get(
                     "/api/v1/analytics/task-123/kline",
                     headers=auth_headers,
@@ -158,12 +228,25 @@ class TestAnalyticsKlineEndpoint:
         with patch("app.api.analytics.get_backtest_data", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = {
                 "symbol": "000001.SZ",
-                "klines": [{"date": "2024-01-02", "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.3, "volume": 1000000}],
+                "klines": [
+                    {
+                        "date": "2024-01-02",
+                        "open": 10.0,
+                        "high": 10.5,
+                        "low": 9.8,
+                        "close": 10.3,
+                        "volume": 1000000,
+                    }
+                ],
                 "signals": [{"date": "2024-01-02", "type": "buy", "price": 10.3, "size": 100}],
                 "log_indicators": {"ma5": [10.3]},
             }
-            with patch("app.services.analytics_service.AnalyticsService.process_signals") as mock_signals:
-                mock_signals.return_value = [{"date": "2024-01-02", "type": "buy", "price": 10.3, "size": 100}]
+            with patch(
+                "app.services.analytics_service.AnalyticsService.process_signals"
+            ) as mock_signals:
+                mock_signals.return_value = [
+                    {"date": "2024-01-02", "type": "buy", "price": 10.3, "size": 100}
+                ]
                 resp = await client.get(
                     "/api/v1/analytics/task-123/kline",
                     headers=auth_headers,
@@ -184,12 +267,25 @@ class TestAnalyticsKlineEndpoint:
         with patch("app.api.analytics.get_backtest_data", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = {
                 "symbol": "000001.SZ",
-                "klines": [{"date": "2024-01-02", "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.3, "volume": 1000000}],
+                "klines": [
+                    {
+                        "date": "2024-01-02",
+                        "open": 10.0,
+                        "high": 10.5,
+                        "low": 9.8,
+                        "close": 10.3,
+                        "volume": 1000000,
+                    }
+                ],
                 "signals": [{"date": "2024-01-02", "type": "buy", "price": 10.3, "size": 100}],
                 "log_indicators": {"ma5": [10.3]},
             }
-            with patch("app.services.analytics_service.AnalyticsService.process_signals") as mock_signals:
-                mock_signals.return_value = [{"date": "2024-01-02", "type": "buy", "price": 10.3, "size": 100}]
+            with patch(
+                "app.services.analytics_service.AnalyticsService.process_signals"
+            ) as mock_signals:
+                mock_signals.return_value = [
+                    {"date": "2024-01-02", "type": "buy", "price": 10.3, "size": 100}
+                ]
                 resp = await client.get(
                     "/api/v1/analytics/task-123/kline",
                     headers=auth_headers,
@@ -743,27 +839,38 @@ class TestGetBacktestDataExtended:
         with patch("app.api.analytics._resolve_log_dir", new_callable=AsyncMock) as mock_resolve:
             mock_resolve.return_value = Path("/tmp/logs")
 
-            with patch("app.api.analytics.parse_value_log", return_value={
-                "dates": ["2004-03-10", "2004-03-11"],
-                "cash_curve": [50000, 49000],
-            }):
-                with patch("app.api.analytics.parse_data_log", return_value={
-                    "dates": ["2004-03-10 00:00:00", "2004-03-11 00:00:00"],
-                    "ohlc": [[10.0, 10.3, 9.8, 10.5], [10.3, 10.4, 10.1, 10.6]],
-                    "volumes": [1000, 1200],
-                    "indicators": {"ma5": [10.1, 10.2]},
-                }):
-                    with patch("app.services.log_parser_service.parse_trade_log", return_value=[{
-                        "direction": "buy",
-                        "price": 10.0,
-                        "size": 100,
-                        "value": 1000,
-                        "commission": 1.0,
-                        "pnl": 100.0,
-                        "dtopen": "2004-03-10 00:00:00",
-                        "dtclose": "2004-03-11 00:00:00",
-                        "datetime": "2004-03-11 00:00:00",
-                    }]):
+            with patch(
+                "app.api.analytics.parse_value_log",
+                return_value={
+                    "dates": ["2004-03-10", "2004-03-11"],
+                    "cash_curve": [50000, 49000],
+                },
+            ):
+                with patch(
+                    "app.api.analytics.parse_data_log",
+                    return_value={
+                        "dates": ["2004-03-10 00:00:00", "2004-03-11 00:00:00"],
+                        "ohlc": [[10.0, 10.3, 9.8, 10.5], [10.3, 10.4, 10.1, 10.6]],
+                        "volumes": [1000, 1200],
+                        "indicators": {"ma5": [10.1, 10.2]},
+                    },
+                ):
+                    with patch(
+                        "app.services.log_parser_service.parse_trade_log",
+                        return_value=[
+                            {
+                                "direction": "buy",
+                                "price": 10.0,
+                                "size": 100,
+                                "value": 1000,
+                                "commission": 1.0,
+                                "pnl": 100.0,
+                                "dtopen": "2004-03-10 00:00:00",
+                                "dtclose": "2004-03-11 00:00:00",
+                                "datetime": "2004-03-11 00:00:00",
+                            }
+                        ],
+                    ):
                         result = await get_backtest_data("task-123", mock_service)
 
         assert result is not None
@@ -833,12 +940,25 @@ class TestAnalyticsKlineWithFilters:
         with patch("app.api.analytics.get_backtest_data", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = {
                 "symbol": "000001.SZ",
-                "klines": [{"date": "2024-01-01", "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.3, "volume": 1000000}],
+                "klines": [
+                    {
+                        "date": "2024-01-01",
+                        "open": 10.0,
+                        "high": 10.5,
+                        "low": 9.8,
+                        "close": 10.3,
+                        "volume": 1000000,
+                    }
+                ],
                 "signals": [{"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}],
                 "log_indicators": {"ma5": [10.3]},
             }
-            with patch("app.services.analytics_service.AnalyticsService.process_signals") as mock_signals:
-                mock_signals.return_value = [{"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}]
+            with patch(
+                "app.services.analytics_service.AnalyticsService.process_signals"
+            ) as mock_signals:
+                mock_signals.return_value = [
+                    {"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}
+                ]
                 resp = await client.get(
                     "/api/v1/analytics/task-123/kline",
                     headers=auth_headers,
@@ -861,12 +981,25 @@ class TestAnalyticsKlineWithFilters:
         with patch("app.api.analytics.get_backtest_data", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = {
                 "symbol": "000001.SZ",
-                "klines": [{"date": "2024-01-01", "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.3, "volume": 1000000}],
+                "klines": [
+                    {
+                        "date": "2024-01-01",
+                        "open": 10.0,
+                        "high": 10.5,
+                        "low": 9.8,
+                        "close": 10.3,
+                        "volume": 1000000,
+                    }
+                ],
                 "signals": [{"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}],
                 "log_indicators": {"ma5": [10.3], "ma10": [10.2]},
             }
-            with patch("app.services.analytics_service.AnalyticsService.process_signals") as mock_signals:
-                mock_signals.return_value = [{"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}]
+            with patch(
+                "app.services.analytics_service.AnalyticsService.process_signals"
+            ) as mock_signals:
+                mock_signals.return_value = [
+                    {"date": "2024-01-01", "type": "buy", "price": 10.3, "size": 100}
+                ]
                 resp = await client.get("/api/v1/analytics/task-123/kline", headers=auth_headers)
         assert resp.status_code == 200
 

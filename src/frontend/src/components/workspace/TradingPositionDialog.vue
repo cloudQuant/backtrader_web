@@ -21,19 +21,55 @@
       size="small"
       max-height="420"
     >
-      <el-table-column prop="data_name" label="标的" min-width="140" />
-      <el-table-column prop="direction" label="方向" width="90" align="center" />
-      <el-table-column prop="size" label="数量" width="90" align="right" />
-      <el-table-column label="开仓价" width="110" align="right">
-        <template #default="{ row }">{{ formatNumber(row.price, 4) }}</template>
+      <el-table-column
+        prop="data_name"
+        label="标的"
+        min-width="140"
+      />
+      <el-table-column
+        prop="direction"
+        label="方向"
+        width="90"
+        align="center"
+      />
+      <el-table-column
+        prop="size"
+        label="数量"
+        width="90"
+        align="right"
+      />
+      <el-table-column
+        label="开仓价"
+        width="110"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatNumber(row.price, 4) }}
+        </template>
       </el-table-column>
-      <el-table-column label="当前价" width="110" align="right">
-        <template #default="{ row }">{{ formatNumber(row.current_price, 4) }}</template>
+      <el-table-column
+        label="当前价"
+        width="110"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatNumber(row.current_price, 4) }}
+        </template>
       </el-table-column>
-      <el-table-column label="市值" width="120" align="right">
-        <template #default="{ row }">{{ formatNumber(row.market_value, 2) }}</template>
+      <el-table-column
+        label="市值"
+        width="120"
+        align="right"
+      >
+        <template #default="{ row }">
+          {{ formatNumber(row.market_value, 2) }}
+        </template>
       </el-table-column>
-      <el-table-column label="持仓盈亏" width="120" align="right">
+      <el-table-column
+        label="持仓盈亏"
+        width="120"
+        align="right"
+      >
         <template #default="{ row }">
           <span :class="numberClass(row.pnl)">
             {{ formatSignedNumber(row.pnl, 2) }}

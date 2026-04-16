@@ -9,6 +9,7 @@ from typing import NotRequired, TypedDict
 
 class InstanceData(TypedDict, total=False):
     """Live trading instance data structure."""
+
     id: str
     strategy_id: str
     user_id: str
@@ -25,6 +26,7 @@ class InstanceData(TypedDict, total=False):
 
 class GatewayCredentials(TypedDict, total=False):
     """Gateway connection credentials."""
+
     # CTP specific
     userid: str
     password: str
@@ -48,6 +50,7 @@ class GatewayCredentials(TypedDict, total=False):
 
 class GatewayData(TypedDict, total=False):
     """Gateway runtime data."""
+
     key: str
     type: str
     status: str  # connected, disconnected, error
@@ -60,6 +63,7 @@ class GatewayData(TypedDict, total=False):
 
 class GatewayPreset(TypedDict):
     """Gateway preset configuration."""
+
     type: str
     name: str
     exchange_type: str
@@ -70,6 +74,7 @@ class GatewayPreset(TypedDict):
 
 class StrategyConfig(TypedDict, total=False):
     """Strategy configuration from config.yaml."""
+
     strategy: dict[str, str | int | float | bool]
     gateway: dict[str, str | int | float | bool]
     data: dict[str, str | int | float | bool]
@@ -77,6 +82,7 @@ class StrategyConfig(TypedDict, total=False):
 
 class SubprocessEnv(TypedDict):
     """Environment variables for subprocess."""
+
     PYTHONPATH: str
     STRATEGY_ID: str
     INSTANCE_ID: str
@@ -87,6 +93,7 @@ class SubprocessEnv(TypedDict):
 
 class GatewayLaunchParams(TypedDict, total=False):
     """Parameters for launching a gateway."""
+
     gateway_type: str
     transport: str
     td_address: str
@@ -105,6 +112,7 @@ class GatewayLaunchParams(TypedDict, total=False):
 
 class HealthStatus(TypedDict):
     """Gateway health status."""
+
     key: str
     type: str
     status: str
@@ -115,12 +123,14 @@ class HealthStatus(TypedDict):
 
 class InstanceListResult(TypedDict):
     """Result of listing instances."""
+
     instances: list[InstanceData]
     total: int
 
 
 class OperationResult(TypedDict):
     """Result of an operation."""
+
     success: bool
     message: str
     data: NotRequired[dict]
@@ -128,14 +138,17 @@ class OperationResult(TypedDict):
 
 class StartResult(OperationResult):
     """Result of starting an instance."""
+
     pid: NotRequired[int]
 
 
 class StopResult(OperationResult):
     """Result of stopping an instance."""
+
     was_running: NotRequired[bool]
 
 
 class ConnectResult(OperationResult):
     """Result of connecting a gateway."""
+
     key: NotRequired[str]

@@ -25,11 +25,13 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_AUTH_PATHS = frozenset([
-    "/api/v1/auth/login",
-    "/api/v1/auth/register",
-    "/api/v1/auth/refresh",
-])
+_AUTH_PATHS = frozenset(
+    [
+        "/api/v1/auth/login",
+        "/api/v1/auth/register",
+        "/api/v1/auth/refresh",
+    ]
+)
 
 
 class SecurityHeadersMiddleware:

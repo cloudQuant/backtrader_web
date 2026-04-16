@@ -62,9 +62,7 @@ class TestRootRoute:
         # Should contain main features
         assert len(data["features"]) > 0
 
-    async def test_root_route_optional_features_align_with_system_info(
-        self, client: AsyncClient
-    ):
+    async def test_root_route_optional_features_align_with_system_info(self, client: AsyncClient):
         """Test root feature labels align with dynamic system feature flags."""
         root_resp = await client.get("/")
         assert root_resp.status_code == 200
@@ -369,7 +367,9 @@ class TestAppIntegration:
 
         assert "/api/v1/live-trading-crypto/live/submit" in schema["paths"]
         assert "/api/v1/live-trading/" in schema["paths"]
-        assert schema["paths"]["/api/v1/live-trading-crypto/live/submit"]["post"]["deprecated"] is True
+        assert (
+            schema["paths"]["/api/v1/live-trading-crypto/live/submit"]["post"]["deprecated"] is True
+        )
         assert schema["paths"]["/api/v1/live-trading/"]["get"].get("deprecated") is not True
 
     async def test_docs_accessible(self, client: AsyncClient):

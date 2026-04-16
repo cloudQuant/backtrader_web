@@ -118,6 +118,7 @@ async def lifespan(app: FastAPI):
     # Clean up ZMQ tick receivers
     try:
         from app.services.quote_service import get_quote_service
+
         get_quote_service().shutdown()
     except Exception:
         pass
@@ -258,9 +259,7 @@ async def health_check():
         logger.exception("Health check database probe failed")
 
     unavailable_optional_routers = sorted(
-        name
-        for name, status in _get_optional_router_status().items()
-        if not status["available"]
+        name for name, status in _get_optional_router_status().items() if not status["available"]
     )
 
     result = {

@@ -133,7 +133,9 @@ class HkFundDividendEm(AkshareToMySql):
 
             # 生成主键
             df["R_ID"] = df.apply(
-                lambda x: f"{x['FUND_CODE']}_{x['DIVIDEND_YEAR']}_{x['RECORD_DATE'] or ''}_{x['DIVIDEND_AMOUNT'] or '0'}",
+                lambda x: (
+                    f"{x['FUND_CODE']}_{x['DIVIDEND_YEAR']}_{x['RECORD_DATE'] or ''}_{x['DIVIDEND_AMOUNT'] or '0'}"
+                ),
                 axis=1,
             )
 

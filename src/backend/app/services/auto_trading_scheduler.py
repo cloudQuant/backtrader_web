@@ -153,13 +153,15 @@ class AutoTradingScheduler:
             close_t = _parse_time(sess["close"])
             start_dt = datetime.combine(datetime.today(), open_t) - timedelta(minutes=buf)
             stop_dt = datetime.combine(datetime.today(), close_t) + timedelta(minutes=buf)
-            result.append({
-                "session": sess.get("name", ""),
-                "start": start_dt.strftime("%H:%M"),
-                "stop": stop_dt.strftime("%H:%M"),
-                "market_open": sess["open"],
-                "market_close": sess["close"],
-            })
+            result.append(
+                {
+                    "session": sess.get("name", ""),
+                    "start": start_dt.strftime("%H:%M"),
+                    "stop": stop_dt.strftime("%H:%M"),
+                    "market_open": sess["open"],
+                    "market_close": sess["close"],
+                }
+            )
         return result
 
     # ------------------------------------------------------------------
@@ -187,7 +189,9 @@ class AutoTradingScheduler:
             self._task = None
         logger.info("Auto-trading scheduler stopped")
 
-    def _should_trigger(self, action: str, session_name: str, scheduled_at: datetime, now: datetime) -> bool:
+    def _should_trigger(
+        self, action: str, session_name: str, scheduled_at: datetime, now: datetime
+    ) -> bool:
         key = _trigger_key(action, session_name, scheduled_at)
         if not _is_within_trigger_window(now, scheduled_at):
             self._triggered_actions.discard(key)

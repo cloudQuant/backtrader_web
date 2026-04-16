@@ -7,26 +7,51 @@
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">状态</div>
-          <div class="mt-1 text-lg font-semibold" :class="form.enabled ? 'text-emerald-600' : 'text-slate-700'">
+          <div class="text-xs text-slate-500">
+            状态
+          </div>
+          <div
+            class="mt-1 text-lg font-semibold"
+            :class="form.enabled ? 'text-emerald-600' : 'text-slate-700'"
+          >
             {{ form.enabled ? '已启用' : '已关闭' }}
           </div>
-          <div class="text-xs text-slate-400">自动启停调度</div>
+          <div class="text-xs text-slate-400">
+            自动启停调度
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">缓冲时间</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ form.buffer_minutes }} 分钟</div>
-          <div class="text-xs text-slate-400">开盘前 / 收盘后</div>
+          <div class="text-xs text-slate-500">
+            缓冲时间
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ form.buffer_minutes }} 分钟
+          </div>
+          <div class="text-xs text-slate-400">
+            开盘前 / 收盘后
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">作用范围</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ scopeLabel }}</div>
-          <div class="text-xs text-slate-400">调度实例范围</div>
+          <div class="text-xs text-slate-500">
+            作用范围
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ scopeLabel }}
+          </div>
+          <div class="text-xs text-slate-400">
+            调度实例范围
+          </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div class="text-xs text-slate-500">交易时段</div>
-          <div class="mt-1 text-lg font-semibold text-slate-700">{{ form.sessions.length }}</div>
-          <div class="text-xs text-slate-400">已配置场次</div>
+          <div class="text-xs text-slate-500">
+            交易时段
+          </div>
+          <div class="mt-1 text-lg font-semibold text-slate-700">
+            {{ form.sessions.length }}
+          </div>
+          <div class="text-xs text-slate-400">
+            已配置场次
+          </div>
         </div>
       </div>
 
@@ -65,9 +90,18 @@
               v-model="form.scope"
               class="w-40"
             >
-              <el-option label="所有实例" value="all" />
-              <el-option label="仅实盘" value="live" />
-              <el-option label="仅模拟" value="simulation" />
+              <el-option
+                label="所有实例"
+                value="all"
+              />
+              <el-option
+                label="仅实盘"
+                value="live"
+              />
+              <el-option
+                label="仅模拟"
+                value="simulation"
+              />
             </el-select>
           </el-form-item>
 
@@ -142,9 +176,21 @@
           class="dialog-table"
           empty-text="暂无调度计划"
         >
-          <el-table-column prop="session" label="交易时段" min-width="140" />
-          <el-table-column prop="start" label="策略启动时间" min-width="140" />
-          <el-table-column prop="stop" label="策略停止时间" min-width="140" />
+          <el-table-column
+            prop="session"
+            label="交易时段"
+            min-width="140"
+          />
+          <el-table-column
+            prop="start"
+            label="策略启动时间"
+            min-width="140"
+          />
+          <el-table-column
+            prop="stop"
+            label="策略停止时间"
+            min-width="140"
+          />
         </el-table>
       </div>
     </div>

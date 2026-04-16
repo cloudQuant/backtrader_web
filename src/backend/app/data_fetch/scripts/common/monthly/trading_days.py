@@ -174,7 +174,9 @@ class TradingDaysUpdater(AkshareToMySql):
         """
         try:
             self.connect_db()
-            sql = f"SELECT MAX(TRADE_DATE) as latest_date FROM {self.table_name} WHERE IS_ACTIVE = 1"  # nosec B608
+            sql = (
+                f"SELECT MAX(TRADE_DATE) as latest_date FROM {self.table_name} WHERE IS_ACTIVE = 1"  # nosec B608
+            )
             self.cursor.execute(sql)
             result = self.cursor.fetchone()
             self.disconnect_db()

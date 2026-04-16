@@ -2,20 +2,36 @@
   <div class="space-y-6">
     <section class="stats-grid">
       <el-card>
-        <div class="stat-title">脚本总数</div>
-        <div class="stat-value">{{ stats.total_scripts }}</div>
+        <div class="stat-title">
+          脚本总数
+        </div>
+        <div class="stat-value">
+          {{ stats.total_scripts }}
+        </div>
       </el-card>
       <el-card>
-        <div class="stat-title">启用脚本</div>
-        <div class="stat-value">{{ stats.active_scripts }}</div>
+        <div class="stat-title">
+          启用脚本
+        </div>
+        <div class="stat-value">
+          {{ stats.active_scripts }}
+        </div>
       </el-card>
       <el-card>
-        <div class="stat-title">自定义脚本</div>
-        <div class="stat-value">{{ stats.custom_scripts }}</div>
+        <div class="stat-title">
+          自定义脚本
+        </div>
+        <div class="stat-value">
+          {{ stats.custom_scripts }}
+        </div>
       </el-card>
       <el-card>
-        <div class="stat-title">覆盖分类</div>
-        <div class="stat-value">{{ stats.categories.length }}</div>
+        <div class="stat-title">
+          覆盖分类
+        </div>
+        <div class="stat-value">
+          {{ stats.categories.length }}
+        </div>
       </el-card>
     </section>
 
@@ -23,8 +39,12 @@
       <template #header>
         <div class="header-row">
           <div>
-            <div class="page-title">数据脚本</div>
-            <div class="page-subtitle">扫描内置脚本、管理自定义脚本并手动触发执行。</div>
+            <div class="page-title">
+              数据脚本
+            </div>
+            <div class="page-subtitle">
+              扫描内置脚本、管理自定义脚本并手动触发执行。
+            </div>
           </div>
           <div class="actions">
             <el-button
@@ -67,9 +87,18 @@
           class="toolbar-item"
           @change="reloadFirstPage"
         >
-          <el-option label="全部状态" value="all" />
-          <el-option label="仅启用" value="active" />
-          <el-option label="仅停用" value="inactive" />
+          <el-option
+            label="全部状态"
+            value="all"
+          />
+          <el-option
+            label="仅启用"
+            value="active"
+          />
+          <el-option
+            label="仅停用"
+            value="inactive"
+          />
         </el-select>
 
         <el-input
@@ -80,7 +109,9 @@
           @keyup.enter="reloadFirstPage"
           @clear="reloadFirstPage"
         />
-        <el-button @click="reloadFirstPage">查询</el-button>
+        <el-button @click="reloadFirstPage">
+          查询
+        </el-button>
       </div>
 
       <el-table
@@ -282,7 +313,9 @@
       </el-form>
 
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="dialogVisible = false">
+          取消
+        </el-button>
         <el-button
           type="primary"
           :loading="saving"

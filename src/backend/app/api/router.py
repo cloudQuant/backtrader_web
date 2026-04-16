@@ -73,10 +73,15 @@ api_router.include_router(status_router, tags=["System Status"])
 api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 api_router.include_router(metrics_router, tags=["Metrics"])
 api_router.include_router(
-    backtest_router, prefix="/backtest", tags=["Backtest"], deprecated=True,
+    backtest_router,
+    prefix="/backtest",
+    tags=["Backtest"],
+    deprecated=True,
 )
 api_router.include_router(
-    backtest_enhanced_router, prefix="/backtests", tags=["Enhanced Backtest"],
+    backtest_enhanced_router,
+    prefix="/backtests",
+    tags=["Enhanced Backtest"],
 )
 api_router.include_router(strategy_router, prefix="/strategy", tags=["Strategy"])
 api_router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
@@ -88,20 +93,20 @@ api_router.include_router(workspace_router, prefix="/workspace", tags=["Workspac
 
 # ── Optional routers (graceful degradation) ──────────────────────────────────
 _OPTIONAL_ROUTERS = [
-    ("auto_trading",        "app.api.auto_trading",     "/auto-trading",        ["Auto Trading"]),
-    ("paper_trading",       "app.api.paper_trading",    "/paper-trading",       ["Paper Trading"]),
-    ("comparison",          "app.api.comparison",       "/comparisons",         ["Comparison"]),
-    ("strategy_version",    "app.api.strategy_version", "/strategy-versions",   ["Strategy Version"]),
-    ("realtime_data",       "app.api.realtime_data",    "/realtime",            ["Realtime Data"]),
-    ("monitoring",          "app.api.monitoring",       "/monitoring",          ["Monitoring"]),
-    ("data",                "app.api.data",             "/data",                ["Market Data"]),
-    ("akshare_scripts",     "app.api.akshare_scripts",  "/data",                ["Data Scripts"]),
-    ("akshare_tasks",       "app.api.akshare_tasks",    "/data",                ["Data Tasks"]),
-    ("akshare_executions",  "app.api.akshare_executions","/data",               ["Data Executions"]),
-    ("akshare_tables",      "app.api.akshare_tables",   "/data",                ["Data Tables"]),
-    ("data_sync",           "app.api.sync_api",         "/data",                ["Data Sync"]),
-    ("akshare_interfaces",  "app.api.akshare_interfaces","/data",               ["Data Interfaces"]),
-    ("risk_control",        "app.api.risk_control",     "",                     ["Risk Control"]),
+    ("auto_trading", "app.api.auto_trading", "/auto-trading", ["Auto Trading"]),
+    ("paper_trading", "app.api.paper_trading", "/paper-trading", ["Paper Trading"]),
+    ("comparison", "app.api.comparison", "/comparisons", ["Comparison"]),
+    ("strategy_version", "app.api.strategy_version", "/strategy-versions", ["Strategy Version"]),
+    ("realtime_data", "app.api.realtime_data", "/realtime", ["Realtime Data"]),
+    ("monitoring", "app.api.monitoring", "/monitoring", ["Monitoring"]),
+    ("data", "app.api.data", "/data", ["Market Data"]),
+    ("akshare_scripts", "app.api.akshare_scripts", "/data", ["Data Scripts"]),
+    ("akshare_tasks", "app.api.akshare_tasks", "/data", ["Data Tasks"]),
+    ("akshare_executions", "app.api.akshare_executions", "/data", ["Data Executions"]),
+    ("akshare_tables", "app.api.akshare_tables", "/data", ["Data Tables"]),
+    ("data_sync", "app.api.sync_api", "/data", ["Data Sync"]),
+    ("akshare_interfaces", "app.api.akshare_interfaces", "/data", ["Data Interfaces"]),
+    ("risk_control", "app.api.risk_control", "", ["Risk Control"]),
 ]
 
 for _name, _module, _prefix, _tags in _OPTIONAL_ROUTERS:

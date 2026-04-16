@@ -64,7 +64,12 @@ def get_workspace_service() -> WorkspaceService:
 # ---------------------------------------------------------------------------
 
 
-@router.post("/", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED, summary="Create workspace")
+@router.post(
+    "/",
+    response_model=WorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create workspace",
+)
 async def create_workspace(
     data: WorkspaceCreate,
     current_user=Depends(get_current_user),
@@ -188,7 +193,9 @@ async def batch_create_units(
     return result
 
 
-@router.get("/{workspace_id}/units/{unit_id}", response_model=StrategyUnitResponse, summary="Get unit")
+@router.get(
+    "/{workspace_id}/units/{unit_id}", response_model=StrategyUnitResponse, summary="Get unit"
+)
 async def get_unit(
     workspace_id: str,
     unit_id: str,
@@ -260,7 +267,9 @@ async def open_unit_runtime_dir(
     return result
 
 
-@router.put("/{workspace_id}/units/{unit_id}", response_model=StrategyUnitResponse, summary="Update unit")
+@router.put(
+    "/{workspace_id}/units/{unit_id}", response_model=StrategyUnitResponse, summary="Update unit"
+)
 async def update_unit(
     workspace_id: str,
     unit_id: str,
@@ -365,7 +374,9 @@ async def run_units(
         workspace_id, current_user.sub, data.unit_ids, parallel=data.parallel
     )
     if not results:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace or units not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workspace or units not found"
+        )
     return {"results": results}
 
 
@@ -410,7 +421,9 @@ async def get_trading_auto_config(
 ):
     config = await service.get_trading_auto_config(workspace_id, current_user.sub)
     if config is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found"
+        )
     return config
 
 
@@ -431,7 +444,9 @@ async def update_trading_auto_config(
         data.model_dump(exclude_unset=True),
     )
     if config is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found"
+        )
     return config
 
 
@@ -447,7 +462,9 @@ async def get_trading_auto_schedule(
 ):
     schedule = await service.get_trading_auto_schedule(workspace_id, current_user.sub)
     if schedule is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found"
+        )
     return schedule
 
 
@@ -469,7 +486,9 @@ async def get_trading_positions(
         unit_ids=parsed_unit_ids or None,
     )
     if positions is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found"
+        )
     return positions
 
 
@@ -494,7 +513,9 @@ async def get_trading_daily_summary(
         end_date=end_date,
     )
     if summary is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Trading workspace not found"
+        )
     return summary
 
 
@@ -513,7 +534,9 @@ async def submit_unit_optimization(
     """Submit parameter optimization for a strategy unit."""
     result = await service.submit_unit_optimization(workspace_id, current_user.sub, data)
     if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace or unit not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workspace or unit not found"
+        )
     if "error" in result:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
     return result
@@ -529,7 +552,9 @@ async def get_unit_optimization_progress(
     """Get optimization progress for a strategy unit."""
     progress = await service.get_unit_optimization_progress(workspace_id, current_user.sub, unit_id)
     if progress is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No optimization task found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No optimization task found"
+        )
     return progress
 
 
@@ -543,7 +568,9 @@ async def get_unit_optimization_results(
     """Get optimization results for a strategy unit."""
     results = await service.get_unit_optimization_results(workspace_id, current_user.sub, unit_id)
     if results is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No optimization results found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="No optimization results found"
+        )
     return results
 
 
@@ -566,7 +593,9 @@ async def get_unit_optimization_result_detail(
         result_index,
     )
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Optimization result detail not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Optimization result detail not found"
+        )
 
     analytics_service = AnalyticsService()
     metrics = analytics_service.calculate_metrics(payload)
@@ -610,7 +639,9 @@ async def get_unit_optimization_result_kline(
         result_index,
     )
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Optimization result detail not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Optimization result detail not found"
+        )
 
     analytics_service = AnalyticsService()
     klines = list(payload["klines"])
@@ -649,7 +680,9 @@ async def get_unit_optimization_result_monthly_returns(
         result_index,
     )
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Optimization result detail not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Optimization result detail not found"
+        )
 
     analytics_service = AnalyticsService()
     return analytics_service.process_monthly_returns(payload["monthly_returns"])
@@ -674,7 +707,9 @@ async def get_unit_optimization_result_artifact(
         result_index,
     )
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Optimization artifact not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Optimization artifact not found"
+        )
     return OptimizationArtifactResponse(**payload)
 
 
@@ -698,7 +733,9 @@ async def download_unit_optimization_result_artifact(
     artifact_path = str((payload or {}).get("artifact_path") or "")
     artifact_dir = Path(artifact_path).expanduser() if artifact_path else None
     if payload is None or artifact_dir is None or not artifact_dir.is_dir():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Optimization artifact not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Optimization artifact not found"
+        )
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -710,11 +747,22 @@ async def download_unit_optimization_result_artifact(
                 zf.write(extra_path, arcname=str(Path(root_dir.name) / extra_path.name))
         for file_path in artifact_dir.rglob("*"):
             if file_path.is_file():
-                zf.write(file_path, arcname=str(Path(root_dir.name) / artifact_dir.name / file_path.relative_to(artifact_dir)))
+                zf.write(
+                    file_path,
+                    arcname=str(
+                        Path(root_dir.name)
+                        / artifact_dir.name
+                        / file_path.relative_to(artifact_dir)
+                    ),
+                )
     buffer.seek(0)
 
     trial_index = payload.get("trial_index")
-    suffix = f"trial_{int(trial_index) + 1:04d}" if isinstance(trial_index, int) else f"result_{result_index}"
+    suffix = (
+        f"trial_{int(trial_index) + 1:04d}"
+        if isinstance(trial_index, int)
+        else f"result_{result_index}"
+    )
     filename = f"optimization_artifact_{payload['optimization_task_id']}_{suffix}.zip"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(buffer, media_type="application/zip", headers=headers)
@@ -746,7 +794,9 @@ async def apply_best_params(
     """Apply best parameters from optimization to a strategy unit."""
     result = await service.apply_best_params(workspace_id, current_user.sub, data)
     if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace or unit not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workspace or unit not found"
+        )
     if "error" in result:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["error"])
     return result

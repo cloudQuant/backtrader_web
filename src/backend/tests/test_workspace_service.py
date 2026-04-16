@@ -42,7 +42,8 @@ async def test_resolve_unit_bar_count_uses_resolved_log_dir_parent_fallback():
 def test_task_elapsed_seconds_uses_persisted_task_timestamps():
     task = SimpleNamespace(
         created_at=datetime(2026, 4, 10, 1, 0, 0, tzinfo=timezone.utc),
-        updated_at=datetime(2026, 4, 10, 1, 0, 5, tzinfo=timezone.utc) + timedelta(milliseconds=250),
+        updated_at=datetime(2026, 4, 10, 1, 0, 5, tzinfo=timezone.utc)
+        + timedelta(milliseconds=250),
         status="completed",
     )
 
@@ -87,9 +88,7 @@ def test_runtime_optimization_elapsed_seconds_naive_iso_string_treated_as_utc():
     task = {"created_at": created.isoformat()}
 
     with patch("app.services.workspace_service.datetime") as mock_datetime:
-        mock_datetime.now.return_value = datetime(
-            2026, 4, 10, 1, 0, 5, tzinfo=timezone.utc
-        )
+        mock_datetime.now.return_value = datetime(2026, 4, 10, 1, 0, 5, tzinfo=timezone.utc)
         mock_datetime.fromisoformat = datetime.fromisoformat
         result = WorkspaceService._runtime_optimization_elapsed_seconds(task)
 
@@ -117,8 +116,7 @@ def test_runtime_optimization_elapsed_seconds_returns_none_when_missing():
     assert WorkspaceService._runtime_optimization_elapsed_seconds(None) is None
     assert WorkspaceService._runtime_optimization_elapsed_seconds({}) is None
     assert (
-        WorkspaceService._runtime_optimization_elapsed_seconds({"created_at": "not-a-date"})
-        is None
+        WorkspaceService._runtime_optimization_elapsed_seconds({"created_at": "not-a-date"}) is None
     )
 
 

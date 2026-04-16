@@ -58,10 +58,12 @@ def _save_custom_symbols(data: dict[str, dict[str, list[str]]]) -> None:
     try:
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
         _CUSTOM_SYMBOLS_FILE.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), "utf-8",
+            json.dumps(data, ensure_ascii=False, indent=2),
+            "utf-8",
         )
     except Exception:
         logger.exception("Failed to save custom symbols to %s", _CUSTOM_SYMBOLS_FILE)
+
 
 # ---------------------------------------------------------------------------
 # Data-source registry:  source_id -> { label, capabilities }
@@ -120,13 +122,11 @@ def _load_symbols_config() -> dict[str, Any]:
         return {}
 
 
-def _build_symbols_from_config() -> (
-    tuple[
-        dict[str, list[dict[str, str]]],
-        dict[str, str],
-        dict[tuple[str, str], list[dict[str, str]]],
-    ]
-):
+def _build_symbols_from_config() -> tuple[
+    dict[str, list[dict[str, str]]],
+    dict[str, str],
+    dict[tuple[str, str], list[dict[str, str]]],
+]:
     cfg = _load_symbols_config()
     symbols: dict[str, list[dict[str, str]]] = cfg.get("symbols", {})
     asset_types: dict[str, str] = cfg.get("default_asset_types", {})
@@ -153,9 +153,7 @@ def _build_symbols_from_config() -> (
     return symbols, asset_types, symbols_by_asset
 
 
-_DEFAULT_SYMBOLS, _DEFAULT_ASSET_TYPES, _DEFAULT_SYMBOLS_BY_ASSET = (
-    _build_symbols_from_config()
-)
+_DEFAULT_SYMBOLS, _DEFAULT_ASSET_TYPES, _DEFAULT_SYMBOLS_BY_ASSET = _build_symbols_from_config()
 
 _QUOTE_FIELDS_CONFIG_FILE = Path(__file__).resolve().parents[2] / "config" / "quote_fields.yaml"
 
@@ -250,7 +248,9 @@ def _resolve_quote_fields(source: str, ticks: list[dict[str, Any]]) -> list[dict
         prop = str(field.get("prop") or "").strip()
         if not prop:
             continue
-        if field.get("always_show") or any(_has_quote_field_value(tick.get(prop)) for tick in ticks):
+        if field.get("always_show") or any(
+            _has_quote_field_value(tick.get(prop)) for tick in ticks
+        ):
             resolved.append(dict(field))
     return resolved
 
@@ -261,6 +261,7 @@ _QUOTE_FIELDS_BY_SOURCE = _load_quote_fields_by_source()
 # ===================================================================
 # ZMQ tick receiver — one per gateway
 # ===================================================================
+
 
 class _ZmqTickReceiver:
     """Background thread that SUBscribes to a GatewayRuntime's market_endpoint
@@ -281,7 +282,8 @@ class _ZmqTickReceiver:
             return
         self._running = True
         self._thread = threading.Thread(
-            target=self._recv_loop, daemon=True,
+            target=self._recv_loop,
+            daemon=True,
             name=f"quote-zmq-{self.source}",
         )
         self._thread.start()
@@ -368,6 +370,7 @@ class _ZmqTickReceiver:
 # ===================================================================
 # QuoteService
 # ===================================================================
+
 
 class QuoteService:
     """Singleton service for quote page operations.
@@ -470,13 +473,15 @@ class QuoteService:
                 status = "not_connected"
                 msg = "网关未连接，请前往 Gateway 状态页连接"
 
-            results.append({
-                "source": source,
-                "source_label": label,
-                "status": status,
-                "status_message": msg,
-                "capabilities": caps,
-            })
+            results.append(
+                {
+                    "source": source,
+                    "source_label": label,
+                    "status": status,
+                    "status_message": msg,
+                    "capabilities": caps,
+                }
+            )
         return results
 
     # ------------------------------------------------------------------
@@ -493,9 +498,7 @@ class QuoteService:
             "custom_symbols": customs,
         }
 
-    def add_custom_symbols(
-        self, source: str, user_id: str, symbols: list[str]
-    ) -> list[str]:
+    def add_custom_symbols(self, source: str, user_id: str, symbols: list[str]) -> list[str]:
         """Add custom symbols for a user+source. Returns updated list."""
         if user_id not in self._custom_symbols:
             self._custom_symbols[user_id] = {}
@@ -513,9 +516,7 @@ class QuoteService:
         _save_custom_symbols(self._custom_symbols)
         return self._custom_symbols[user_id][source]
 
-    def remove_custom_symbols(
-        self, source: str, user_id: str, symbols: list[str]
-    ) -> list[str]:
+    def remove_custom_symbols(self, source: str, user_id: str, symbols: list[str]) -> list[str]:
         """Remove custom symbols. Returns updated list."""
         if user_id not in self._custom_symbols:
             return []
@@ -547,7 +548,10 @@ class QuoteService:
     # ------------------------------------------------------------------
 
     def get_quotes(
-        self, source: str, user_id: str, symbols: list[str] | None = None,
+        self,
+        source: str,
+        user_id: str,
+        symbols: list[str] | None = None,
     ) -> dict[str, Any]:
         """Fetch quote ticks for the given source and symbol list.
 
@@ -589,7 +593,9 @@ class QuoteService:
         ticks: list[dict[str, Any]] = []
 
         for sym in all_syms:
-            meta = defaults_map.get(sym, {"symbol": sym, "name": "", "exchange": "", "category": ""})
+            meta = defaults_map.get(
+                sym, {"symbol": sym, "name": "", "exchange": "", "category": ""}
+            )
             raw = self._match_cached_tick(cached_ticks, sym)
             tick = self._build_tick(source, label, sym, meta, raw, now)
             ticks.append(tick)
@@ -642,28 +648,33 @@ class QuoteService:
                 "total": 0,
             }
 
-        bars = self._send_gateway_command(
-            command_endpoint,
-            "get_bars",
-            {
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "count": count,
-            },
-            send_timeout_ms=5000,
-            recv_timeout_ms=10000,
-        ) or []
+        bars = (
+            self._send_gateway_command(
+                command_endpoint,
+                "get_bars",
+                {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "count": count,
+                },
+                send_timeout_ms=5000,
+                recv_timeout_ms=10000,
+            )
+            or []
+        )
 
         normalized: list[dict[str, Any]] = []
         for bar in bars:
-            normalized.append({
-                "date": bar.get("datetime") or bar.get("date") or bar.get("time") or "",
-                "open": float(bar.get("open") or 0),
-                "high": float(bar.get("high") or 0),
-                "low": float(bar.get("low") or 0),
-                "close": float(bar.get("close") or 0),
-                "volume": float(bar.get("volume") or bar.get("tick_volume") or 0),
-            })
+            normalized.append(
+                {
+                    "date": bar.get("datetime") or bar.get("date") or bar.get("time") or "",
+                    "open": float(bar.get("open") or 0),
+                    "high": float(bar.get("high") or 0),
+                    "low": float(bar.get("low") or 0),
+                    "close": float(bar.get("close") or 0),
+                    "volume": float(bar.get("volume") or bar.get("tick_volume") or 0),
+                }
+            )
 
         return {
             "source": source,
@@ -735,25 +746,31 @@ class QuoteService:
                 skipped_symbols: list[str] = []
                 if isinstance(result, dict):
                     accepted_candidate = (
-                        result.get("accepted")
-                        or result.get("symbols")
-                        or result.get("subscribed")
+                        result.get("accepted") or result.get("symbols") or result.get("subscribed")
                     )
                     if isinstance(accepted_candidate, list):
-                        accepted_symbols = [str(symbol) for symbol in accepted_candidate if str(symbol)]
+                        accepted_symbols = [
+                            str(symbol) for symbol in accepted_candidate if str(symbol)
+                        ]
                     skipped_candidate = result.get("skipped") or result.get("skipped_symbols")
                     if isinstance(skipped_candidate, list):
-                        skipped_symbols = [str(symbol) for symbol in skipped_candidate if str(symbol)]
+                        skipped_symbols = [
+                            str(symbol) for symbol in skipped_candidate if str(symbol)
+                        ]
                 if accepted_symbols:
                     self._subscribed_symbols[source].update(accepted_symbols)
                     logger.info(
                         "Subscribed %d symbols on %s: %s",
-                        len(accepted_symbols), source, accepted_symbols[:5],
+                        len(accepted_symbols),
+                        source,
+                        accepted_symbols[:5],
                     )
                 if skipped_symbols:
                     logger.warning(
                         "Skipped %d symbols on %s due to gateway rejection: %s",
-                        len(skipped_symbols), source, skipped_symbols[:5],
+                        len(skipped_symbols),
+                        source,
+                        skipped_symbols[:5],
                     )
         except ImportError:
             logger.warning("pyzmq not installed; cannot subscribe symbols on %s", source)
@@ -769,6 +786,7 @@ class QuoteService:
         """Lazily import LiveTradingManager to avoid circular imports."""
         try:
             from app.services.live_trading_manager import get_live_trading_manager
+
             return get_live_trading_manager()
         except Exception:
             return None
@@ -823,17 +841,19 @@ class QuoteService:
         manager = self._get_live_trading_manager()
         state = self._find_gateway_state(manager, source)
         asset_type = self._get_source_asset_type(source, state)
-        return list(_DEFAULT_SYMBOLS_BY_ASSET.get((source, asset_type), _DEFAULT_SYMBOLS.get(source, [])))
+        return list(
+            _DEFAULT_SYMBOLS_BY_ASSET.get((source, asset_type), _DEFAULT_SYMBOLS.get(source, []))
+        )
 
     @staticmethod
     def _get_source_asset_type(source: str, state: dict[str, Any] | None) -> str:
         if state is None:
             return _DEFAULT_ASSET_TYPES.get(source, "")
-        asset_type = str(
-            state.get("asset_type")
-            or getattr(state.get("config"), "asset_type", "")
-            or ""
-        ).strip().upper()
+        asset_type = (
+            str(state.get("asset_type") or getattr(state.get("config"), "asset_type", "") or "")
+            .strip()
+            .upper()
+        )
         if asset_type:
             return asset_type
         return _DEFAULT_ASSET_TYPES.get(source, "")
@@ -1003,9 +1023,15 @@ class QuoteService:
             return None
 
         price = _opt_float(snapshot.get("31") or snapshot.get("last") or snapshot.get("lastPrice"))
-        bid_price = _opt_float(snapshot.get("84") or snapshot.get("bid") or snapshot.get("bidPrice"))
-        ask_price = _opt_float(snapshot.get("86") or snapshot.get("ask") or snapshot.get("askPrice"))
-        volume = _opt_float(snapshot.get("87") or snapshot.get("volume") or snapshot.get("lastSize"))
+        bid_price = _opt_float(
+            snapshot.get("84") or snapshot.get("bid") or snapshot.get("bidPrice")
+        )
+        ask_price = _opt_float(
+            snapshot.get("86") or snapshot.get("ask") or snapshot.get("askPrice")
+        )
+        volume = _opt_float(
+            snapshot.get("87") or snapshot.get("volume") or snapshot.get("lastSize")
+        )
         if price is None and bid_price is None and ask_price is None and volume is None:
             return None
 
@@ -1129,7 +1155,9 @@ class QuoteService:
         try:
             import zmq
         except ImportError:
-            logger.warning("pyzmq not installed; cannot execute %s on %s", command, command_endpoint)
+            logger.warning(
+                "pyzmq not installed; cannot execute %s on %s", command, command_endpoint
+            )
             return None
         ctx = zmq.Context.instance()
         sock = ctx.socket(zmq.DEALER)
@@ -1143,7 +1171,9 @@ class QuoteService:
                 "command": command,
                 "payload": payload,
             }
-            sock.send(json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            sock.send(
+                json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            )
             resp_raw = sock.recv()
             resp = json.loads(resp_raw.decode("utf-8"))
             if isinstance(resp, dict) and resp.get("status") == "ok":

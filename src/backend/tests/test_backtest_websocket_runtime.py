@@ -112,9 +112,7 @@ class TestBacktestWebSocketEvents:
         """Test progress event has correct structure."""
         from app.schemas.backtest_enhanced import BacktestProgressEvent
 
-        event = BacktestProgressEvent(
-            task_id="task-1", progress=50, message="Processing..."
-        )
+        event = BacktestProgressEvent(task_id="task-1", progress=50, message="Processing...")
         data = event.model_dump(mode="python")
 
         assert data["type"] == MessageType.PROGRESS

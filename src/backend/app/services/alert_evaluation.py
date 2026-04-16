@@ -284,9 +284,7 @@ async def _get_strategy_metric(
     metric = str(config.get("metric", "sharpe_ratio"))
     backtest_task_id = config.get("backtest_task_id")
     if backtest_task_id:
-        result = await backtest_service.get_result(
-            backtest_task_id, user_id=rule.user_id
-        )
+        result = await backtest_service.get_result(backtest_task_id, user_id=rule.user_id)
         if not result:
             return None
         if metric == "sharpe_ratio":

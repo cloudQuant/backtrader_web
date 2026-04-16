@@ -157,7 +157,9 @@ class FundRatingSh(AkshareToMySql):
 
             # 生成主键ID
             df["r_id"] = df.apply(
-                lambda x: f"FRSH_{x['fund_code']}_{x['nav_date'] if pd.notna(x['nav_date']) else date}",
+                lambda x: (
+                    f"FRSH_{x['fund_code']}_{x['nav_date'] if pd.notna(x['nav_date']) else date}"
+                ),
                 axis=1,
             )
 

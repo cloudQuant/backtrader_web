@@ -124,7 +124,9 @@ class FundFeeEm(AkshareToMySql):
 
             # 生成主键ID
             result_df["r_id"] = result_df.apply(
-                lambda x: f"FFEE_{x['fund_code']}_{x['fee_type']}_{hash(frozenset(x[['condition', 'term']].dropna().items()))}",
+                lambda x: (
+                    f"FFEE_{x['fund_code']}_{x['fee_type']}_{hash(frozenset(x[['condition', 'term']].dropna().items()))}"
+                ),
                 axis=1,
             )
 

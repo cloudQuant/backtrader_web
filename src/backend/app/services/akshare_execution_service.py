@@ -126,8 +126,10 @@ class AkshareExecutionService:
             count_stmt = count_stmt.where(and_(*filters))
 
         total = int((await self.db.execute(count_stmt)).scalar() or 0)
-        stmt = stmt.order_by(TaskExecution.created_at.desc()).offset((page - 1) * page_size).limit(
-            page_size
+        stmt = (
+            stmt.order_by(TaskExecution.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all()), total
@@ -147,7 +149,9 @@ class AkshareExecutionService:
         failed = int(
             (
                 await self.db.execute(
-                    select(func.count(TaskExecution.id)).where(TaskExecution.status == TaskStatus.FAILED)
+                    select(func.count(TaskExecution.id)).where(
+                        TaskExecution.status == TaskStatus.FAILED
+                    )
                 )
             ).scalar()
             or 0
@@ -155,7 +159,9 @@ class AkshareExecutionService:
         running = int(
             (
                 await self.db.execute(
-                    select(func.count(TaskExecution.id)).where(TaskExecution.status == TaskStatus.RUNNING)
+                    select(func.count(TaskExecution.id)).where(
+                        TaskExecution.status == TaskStatus.RUNNING
+                    )
                 )
             ).scalar()
             or 0

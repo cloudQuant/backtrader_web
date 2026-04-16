@@ -32,7 +32,9 @@ def upgrade() -> None:
     if "workspace_type" not in workspace_columns:
         op.add_column(
             "workspaces",
-            sa.Column("workspace_type", sa.String(length=32), nullable=False, server_default="research"),
+            sa.Column(
+                "workspace_type", sa.String(length=32), nullable=False, server_default="research"
+            ),
         )
     if "trading_config" not in workspace_columns:
         op.add_column(

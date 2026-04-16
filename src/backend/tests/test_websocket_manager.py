@@ -325,6 +325,7 @@ class TestResultMessageAdvanced:
     def test_status_determination_completed(self):
         """Test type is 'completed' when status is completed."""
         from app.schemas.backtest_enhanced import TaskStatus
+
         msg = ResultMessage("task-1", {"status": TaskStatus.COMPLETED, "value": 100})
         assert msg.type == "completed"
 

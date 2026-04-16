@@ -68,9 +68,7 @@ async def test_require_data_admin_user_accepts_admin_role(monkeypatch):
         )
         session.add(user)
         await session.flush()
-        await session.execute(
-            user_roles.insert().values(user_id=user.id, role=Role.ADMIN.value)
-        )
+        await session.execute(user_roles.insert().values(user_id=user.id, role=Role.ADMIN.value))
         await session.commit()
         await session.refresh(user)
 
