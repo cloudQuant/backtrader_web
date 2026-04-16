@@ -77,13 +77,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff pytest pytest-asyncio httpx
-          pip install -e .
+          pip install --no-cache-dir ruff pytest pytest-asyncio httpx
+          pip install --no-cache-dir -e .
 
       - name: Run Ruff linter
         run: |
@@ -118,16 +117,15 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,backtrader]"
+          pip install --no-cache-dir -e ".[dev,backtrader]"
 
       - name: Run tests with coverage
         run: |
-          pip install pytest-cov pytest-xdist
+          pip install --no-cache-dir pytest-cov pytest-xdist
           pytest --cov=app --cov-report=xml --cov-report=term --cov-report=html --cov-fail-under=80 -n auto -v
 
       - name: Upload coverage to Codecov
@@ -160,13 +158,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install bandit safety
-          pip install -e .
+          pip install --no-cache-dir bandit safety
+          pip install --no-cache-dir -e .
 
       - name: Run Bandit security linter (blocking)
         run: |
@@ -206,14 +203,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: src/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify ESLint version
+        run: npx eslint --version
+
       - name: Run ESLint
-        run: npm run lint
+        run: npx eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts
 
       - name: TypeScript type check
         run: npx vue-tsc --noEmit --skipLibCheck
@@ -332,12 +330,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,postgres,backtrader]"
+          pip install --no-cache-dir -e ".[dev,postgres,backtrader]"
 
       - name: Run integration tests
         run: |
