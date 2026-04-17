@@ -25,6 +25,7 @@ node_modules/
 .env.local
 .env.*.local
 .venv
+src/backend/.venv-smoke-ci*/
 venv/
 env/
 
@@ -70,6 +71,7 @@ runtime/
 *.db
 *.db-journal
 data/manual_gateways.json
+workspace_units/
 
 # =====================================================
 # 构建产物

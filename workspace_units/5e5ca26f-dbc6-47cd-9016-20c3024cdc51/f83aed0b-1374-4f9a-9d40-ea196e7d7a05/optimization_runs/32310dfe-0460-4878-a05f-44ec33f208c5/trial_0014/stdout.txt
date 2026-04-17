@@ -1,2 +1,0 @@
-Loading data from /Users/yunjinqi/Documents/new_projects/backtrader_web/datas/forex/D1/AAPL_D1.csv
-Final value: 101135.07096000001

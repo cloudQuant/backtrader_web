@@ -1,6 +1,0 @@
-#!/Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/.venv-smoke-ci/bin/python
-import sys
-from watchfiles.cli import cli
-if __name__ == '__main__':
-    sys.argv[0] = sys.argv[0].removesuffix('.exe')
-    sys.exit(cli())
