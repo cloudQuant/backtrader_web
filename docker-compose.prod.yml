@@ -7,10 +7,6 @@
 # Prerequisites:
 #   - Create src/backend/.env (see scripts/docker_deploy.sh)
 #   - Docker Engine 24+ and Docker Compose v2
-#
-# SSL Certificate:
-#   - First run will auto-obtain Let's Encrypt certificate
-#   - Auto-renewal runs every 2 months via certbot-renew container
 ###############################################################################
 
 services:
@@ -143,16 +139,12 @@ services:
   certbot:
     image: certbot/certbot:latest
     container_name: backtrader_certbot
-    restart: "false"
+    restart: "no"
     volumes:
       - ./runtime/certbot/conf:/etc/letsencrypt
       - ./runtime/certbot/www:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 60 days & wait $$; done'"
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 60 days & wait $$!; done'"
 
-  networks:
+networks:
   backtrader:
     driver: bridge
-
-volumes:
-  certbot-conf:
-  certbot-www:
