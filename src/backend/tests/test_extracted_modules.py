@@ -8,6 +8,7 @@ GatewayPresetService work correctly in isolation.
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -403,6 +404,35 @@ class TestStrategyRuntimeSupport:
 
 
 class TestManualGatewayService:
+    def test_backend_env_file_candidates_includes_cwd_env(self, tmp_path, monkeypatch):
+        cwd_env = tmp_path / ".env"
+        cwd_env.write_text("IB_WEB_USERNAME=from-cwd\n", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+        candidates = manual_gateway_service._backend_env_file_candidates()
+
+        assert Path(cwd_env) in candidates
+
+    def test_load_backend_gateway_env_values_uses_env_and_env_file(self, tmp_path, monkeypatch):
+        file_env = tmp_path / ".env"
+        file_env.write_text("OKX_PASSWORD=file-password\nOKX_PASSPHRASE=\n", encoding="utf-8")
+
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_backend_env_file_candidates",
+                return_value=(file_env,),
+            ),
+            patch.dict(
+                manual_gateway_service.os.environ,
+                {"OKX_PASSWORD": "system-password"},
+                clear=False,
+            ),
+        ):
+            values = manual_gateway_service._load_backend_gateway_env_values()
+
+        assert values["OKX_PASSWORD"] == "system-password"
+
     def test_to_backend_env_relative_path_returns_bt_api_relative_cookie_path(self):
         result = manual_gateway_service._to_backend_env_relative_path(
             "/Users/yunjinqi/Documents/new_projects/bt_api_py/configs/ibkr_cookies.json"
@@ -581,6 +611,64 @@ class TestManualGatewayService:
         assert env_updates["IB_WEB_ACCOUNT_ID"] == "DU654321"
         assert env_updates["IB_WEB_COOKIE_SOURCE"] == "file:configs/ibkr_cookies.json"
         assert env_updates["IB_WEB_COOKIE_OUTPUT"] == "configs/ibkr_cookies.json"
+
+    def test_bootstrap_ib_web_session_uses_env_values_when_no_login_credentials(self):
+        auth_status = Mock(return_value=Mock(status_code=200))
+        ensure_authenticated_session = Mock(return_value={"account_id": "DU777777", "cookies": {}})
+        upsert_env_file = Mock()
+
+        with (
+            patch.object(
+                manual_gateway_service,
+                "_load_ib_web_session_state",
+                return_value=({}, {}, False, [], ""),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_import_ib_web_session_helpers",
+                return_value=(auth_status, ensure_authenticated_session, upsert_env_file),
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "IB_WEB_USERNAME": "user",
+                    "IB_WEB_PASSWORD": "pwd",
+                    "IB_WEB_LOGIN_MODE": "paper",
+                    "IB_WEB_LOGIN_BROWSER": "chrome",
+                    "IB_WEB_LOGIN_HEADLESS": "true",
+                    "IB_WEB_LOGIN_TIMEOUT": "120",
+                    "IB_WEB_COOKIE_SOURCE": "file:custom-cookie.json",
+                    "IB_WEB_COOKIE_OUTPUT": "custom-cookie.json",
+                    "IB_WEB_COOKIE_BROWSER": "chrome",
+                    "IB_WEB_COOKIE_PATH": "/custom/sso",
+                },
+            ),
+            patch.object(
+                manual_gateway_service,
+                "_backend_env_file_for_helpers",
+                return_value=Path("/tmp/ib_web.env"),
+            ),
+        ):
+            result = manual_gateway_service._bootstrap_ib_web_session(
+                {
+                    "account_id": "DU123456",
+                    "base_url": "https://localhost:5000/v1/api",
+                },
+                "https://localhost:5000/v1/api",
+                verify_ssl=False,
+                timeout=10.0,
+            )
+
+        assert result is not None
+        ensure_authenticated_session.assert_called_once()
+        called_kwargs = ensure_authenticated_session.call_args.kwargs
+        assert called_kwargs["overrides"]["username"] == "user"
+        assert called_kwargs["overrides"]["password"] == "pwd"
+        assert called_kwargs["overrides"]["cookie_source"] == "file:custom-cookie.json"
+        assert called_kwargs["overrides"]["cookie_browser"] == "chrome"
+        assert called_kwargs["overrides"]["cookie_path"] == "/custom/sso"
+        assert called_kwargs["env_file"] == Path("/tmp/ib_web.env")
 
     def test_connect_gateway_returns_existing_manual_gateway(self):
         gateways = {"manual:CTP:acc1": {"manual": True}}
@@ -1355,6 +1443,251 @@ class TestManualGatewayService:
         assert runtime_kwargs["http_proxy_port"] == 7890
         assert runtime_kwargs["async_proxy"] == "http://127.0.0.1:7890"
 
+    def test_connect_gateway_starts_binance_runtime_with_env_fallback(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            BINANCE_API_KEY="",
+            BINANCE_SECRET_KEY="",
+            BINANCE_TESTNET=False,
+            BINANCE_BASE_URL="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "BINANCE_API_KEY": "binance-key-from-env",
+                    "BINANCE_PASSWORD": "binance-secret-from-legacy-password",
+                    "BINANCE_TESTNET": "true",
+                    "BINANCE_BASE_URL": "https://api.binance.com",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="BINANCE",
+                credentials={
+                    "account_id": "acc-binance",
+                    "asset_type": "SWAP",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["api_key"] == "binance-key-from-env"
+        assert runtime_kwargs["secret_key"] == "binance-secret-from-legacy-password"
+
+    def test_connect_gateway_starts_okx_runtime_with_env_fallback(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="okx-passphrase",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "OKX_API_KEY": "okx-key-from-env",
+                    "OKX_SECRET": "okx-secret-from-legacy-secret",
+                    "OKX_PASSPHRASE": "okx-passphrase",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="OKX",
+                credentials={
+                    "account_id": "acc-okx",
+                    "asset_type": "SPOT",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["api_key"] == "okx-key-from-env"
+        assert runtime_kwargs["secret_key"] == "okx-secret-from-legacy-secret"
+        assert runtime_kwargs["passphrase"] == "okx-passphrase"
+
+    def test_connect_gateway_starts_okx_runtime_with_legacy_password_as_passphrase(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            OKX_API_KEY="",
+            OKX_SECRET_KEY="",
+            OKX_PASSPHRASE="",
+            OKX_TESTNET=False,
+            OKX_BASE_URL="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "OKX_API_KEY": "okx-key-from-env",
+                    "OKX_SECRET": "okx-secret-from-legacy-secret",
+                    "OKX_PASSWORD": "okx-passphrase-from-password",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="OKX",
+                credentials={
+                    "account_id": "acc-okx",
+                    "asset_type": "SPOT",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["passphrase"] == "okx-passphrase-from-password"
+
+    def test_connect_gateway_starts_mt5_runtime_with_env_fallback(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "MT5_LOGIN": "789012",
+                    "MT5_PASSWORD": "mt5-password",
+                    "MT5_SERVER": "Demo",
+                    "MT5_WS_URI": "wss://demo.example.com",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="MT5",
+                credentials={
+                    "account_id": "",
+                },
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["login"] == 789012
+        assert runtime_kwargs["password"] == "mt5-password"
+
+    def test_connect_gateway_starts_mt5_runtime_with_legacy_account_aliases(self):
+        gateways: dict[str, dict] = {}
+
+        class _FakeGatewayConfig:
+            @classmethod
+            def from_kwargs(cls, **kwargs):
+                return {"config": kwargs}
+
+        runtime = Mock()
+        runtime_cls = Mock(return_value=runtime)
+        fake_settings = SimpleNamespace(
+            MT5_LOGIN="",
+            MT5_PASSWORD="",
+            MT5_SERVER="",
+            MT5_WS_URI="",
+            MT5_SYMBOL_SUFFIX="",
+        )
+
+        with (
+            patch("app.config.get_settings", return_value=fake_settings),
+            patch.object(
+                manual_gateway_service,
+                "_load_backend_gateway_env_values",
+                return_value={
+                    "MT5_ACCOUNT": "123456",
+                    "MT5_PASS": "alias-pass",
+                },
+            ),
+        ):
+            result = manual_gateway_service.connect_gateway(
+                gateways=gateways,
+                exchange_type="MT5",
+                credentials={},
+                normalize_exchange_type=lambda value: str(value).upper(),
+                coerce_bool=lambda value, default=False: default,
+                coerce_float=lambda value, default=0.0: default,
+                import_gateway_runtime_classes=lambda: (_FakeGatewayConfig, runtime_cls),
+                default_transport="ipc",
+                logger=Mock(),
+            )
+
+        assert result["status"] == "connected"
+        runtime_kwargs = runtime_cls.call_args.kwargs
+        assert runtime_kwargs["login"] == 123456
+        assert runtime_kwargs["password"] == "alias-pass"
     def test_ensure_ib_clientportal_running_starts_background_process_when_local_port_down(self):
         logger = Mock()
         process = Mock()

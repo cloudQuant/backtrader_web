@@ -39,6 +39,7 @@ env/
 *~
 .DS_Store
 Thumbs.db
+.opencode/
 
 # =====================================================
 # 测试与覆盖率
@@ -66,12 +67,24 @@ src/frontend/test-results/
 # =====================================================
 .pids/
 logs/
+log/
 runtime/
 *.log
+*.log.*
+*.out
+*.err
+*.bak
 *.db
 *.db-journal
+*.sqlite
+*.sqlite3
 data/manual_gateways.json
+src/backend/data/reqdocs_source_files/
 workspace_units/
+src/clientportal.gw/.vertx/
+src/clientportal.gw/.vertx/file-cache-*/
+strategies/*/logs/
+strategies/????????-????-????-????-????????????/
 
 # =====================================================
 # 构建产物

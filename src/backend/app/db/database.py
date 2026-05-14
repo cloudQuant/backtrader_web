@@ -215,10 +215,77 @@ def _ensure_workspace_schema_compatibility_sync(bind) -> None:
             )
 
 
+def _ensure_knowledge_base_schema_compatibility_sync(bind) -> None:
+    """Create or patch tables used by the knowledge-base and AI chat modules."""
+    from app.models.knowledge_base import (
+        ChatConversation,
+        ChatMessage,
+        DocumentChunk,
+        KBDocument,
+        KnowledgeBase,
+        ModelConfig,
+        ModelUsageLog,
+    )
+
+    for table in (
+        KnowledgeBase.__table__,
+        KBDocument.__table__,
+        DocumentChunk.__table__,
+        ChatConversation.__table__,
+        ChatMessage.__table__,
+        ModelConfig.__table__,
+        ModelUsageLog.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+    dialect_name = bind.dialect.name
+    json_type = "JSON" if dialect_name != "sqlite" else "JSON"
+    datetime_type = "TIMESTAMP" if dialect_name == "postgresql" else "DATETIME"
+
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "user_id",
+        "user_id VARCHAR(36)",
+    )
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "model_id",
+        "model_id VARCHAR(200)",
+    )
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "settings",
+        f"settings {json_type}",
+    )
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "created_at",
+        f"created_at {datetime_type}",
+    )
+    _add_column_if_missing(
+        bind,
+        "chat_conversations",
+        "updated_at",
+        f"updated_at {datetime_type}",
+    )
+
+    if _has_table(bind, "chat_messages"):
+        _add_column_if_missing(bind, "chat_messages", "citations", f"citations {json_type}")
+        _add_column_if_missing(bind, "chat_messages", "tokens_used", "tokens_used INTEGER")
+        _add_column_if_missing(bind, "chat_messages", "model_id", "model_id VARCHAR(200)")
+        _add_column_if_missing(bind, "chat_messages", "reasoning", "reasoning TEXT")
+        _add_column_if_missing(bind, "chat_messages", "created_at", f"created_at {datetime_type}")
+
+
 async def ensure_schema_compatibility() -> None:
     """Patch legacy databases with columns required by the current ORM schema."""
     async with engine.begin() as conn:
         await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
+        await conn.run_sync(_ensure_knowledge_base_schema_compatibility_sync)
 
 
 async def create_tables() -> None:
@@ -228,6 +295,7 @@ async def create_tables() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
+        await conn.run_sync(_ensure_knowledge_base_schema_compatibility_sync)
 
 
 async def init_db():

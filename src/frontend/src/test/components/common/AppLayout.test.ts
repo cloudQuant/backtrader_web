@@ -22,6 +22,8 @@ Object.defineProperty(global, 'localStorage', { value: localStorageMock })
 // Element Plus 图标 mock
 vi.mock('@element-plus/icons-vue', () => ({
   Aim: { template: '<span>Aim</span>' },
+  ChatDotRound: { template: '<span>Chat</span>' },
+  Collection: { template: '<span>Collection</span>' },
   HomeFilled: { template: '<span>Home</span>' },
   DataLine: { template: '<span>Data</span>' },
   Document: { template: '<span>Doc</span>' },
@@ -129,6 +131,8 @@ describe('AppLayout', () => {
         { path: '/data', component: { template: '<div>Data</div>' } },
         { path: '/trading', component: { template: '<div>Trading</div>' } },
         { path: '/portfolio', component: { template: '<div>Portfolio</div>' } },
+        { path: '/ai-chat', component: { template: '<div>AIChat</div>' } },
+        { path: '/knowledge-base', component: { template: '<div>KnowledgeBase</div>' } },
         { path: '/settings', component: { template: '<div>Settings</div>' } },
         { path: '/login', component: { template: '<div>Login</div>' } },
       ],
@@ -203,6 +207,8 @@ describe('AppLayout', () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('首页')
+      expect(wrapper.text()).toContain('AI助手')
+      expect(wrapper.text()).toContain('知识库')
       expect(wrapper.text()).toContain('策略研究')
       expect(wrapper.text()).toContain('策略管理')
     })
@@ -224,6 +230,18 @@ describe('AppLayout', () => {
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('策略管理')
     })
+
+    it('应该包含AI助手菜单项', async () => {
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('AI助手')
+    })
+
+    it('应该包含知识库菜单项', async () => {
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('知识库')
+    })
   })
 
   describe('页面标题', () => {
@@ -239,6 +257,20 @@ describe('AppLayout', () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('策略研究')
+    })
+
+    it('AI问答页面应该显示"AI助手"', async () => {
+      await router.push('/ai-chat')
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('AI助手')
+    })
+
+    it('知识库页面应该显示"知识库"', async () => {
+      await router.push('/knowledge-base')
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('知识库')
     })
   })
 

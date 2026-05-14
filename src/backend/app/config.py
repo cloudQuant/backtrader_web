@@ -120,6 +120,20 @@ class Settings(BaseSettings):
         default="0.0.0.0", description="Server host address (use specific IP in production)"
     )
     PORT: int = Field(default=8000, description="Server port")
+    AI_CHAT_ENABLED: bool = Field(
+        default=False, description="Enable generated AI responses for knowledge-base chat"
+    )
+    AI_CHAT_BASE_URL: str = Field(
+        default="", description="Base URL for an OpenAI-compatible chat completions endpoint"
+    )
+    AI_CHAT_API_KEY: str = Field(default="", description="API key for AI chat provider")
+    AI_CHAT_MODEL: str = Field(default="", description="Model name for AI chat provider")
+    AI_CHAT_TIMEOUT: float = Field(
+        default=60.0, description="Timeout for AI chat provider requests in seconds"
+    )
+    AI_CHAT_TEMPERATURE: float = Field(
+        default=0.2, description="Sampling temperature for AI chat provider requests"
+    )
 
     # Backtest subprocess timeout (seconds)
     BACKTEST_TIMEOUT: int = Field(default=300, description="Backtest subprocess timeout in seconds")

@@ -53,12 +53,14 @@ try:
 except ImportError:
     logger = logging.getLogger(__name__)
 
-_WORKSPACE_DIR = Path(__file__).resolve().parents[5]
 _BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
-_BT_API_PY_DIR = _WORKSPACE_DIR / "bt_api_py"
 _DATA_DIR = get_backend_data_path()
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
 _MANUAL_GATEWAYS_FILE = _DATA_DIR / "manual_gateways.json"
+try:
+    _BT_API_PY_DIR = manual_gateway_service._ib_web_cookie_base_dir()
+except Exception:
+    _BT_API_PY_DIR = Path()
 
 _DEFAULT_TRANSPORT = "tcp" if sys.platform == "win32" else "ipc"
 
@@ -710,19 +712,11 @@ class LiveTradingManager:
     _gateway_import_ok: bool | None = None
 
     def _import_gateway_runtime_classes(self):
-        if _BT_API_PY_DIR.is_dir() and str(_BT_API_PY_DIR) not in sys.path:
-            sys.path.insert(0, str(_BT_API_PY_DIR))
-
         # Pre-flight: test import in an isolated subprocess to avoid crashing
         # the main process if a native C extension (CTP SDK, spdlog, etc.) is
         # broken or incompatible.  The check runs only once and is cached.
         if LiveTradingManager._gateway_import_ok is None:
             env = dict(os.environ)
-            if _BT_API_PY_DIR.is_dir():
-                existing = env.get("PYTHONPATH", "")
-                env["PYTHONPATH"] = str(_BT_API_PY_DIR) + (
-                    os.pathsep + existing if existing else ""
-                )
             try:
                 result = subprocess.run(
                     [
@@ -730,8 +724,8 @@ class LiveTradingManager:
                         "-c",
                         "import sys, types; "
                         "sys.modules.setdefault('spdlog', types.ModuleType('spdlog')); "
-                        "from bt_api_py.gateway.config import GatewayConfig; "
-                        "from bt_api_py.gateway.runtime import GatewayRuntime; "
+                        "from bt_api_base.gateway.config import GatewayConfig; "
+                        "from bt_api_base.gateway.runtime import GatewayRuntime; "
                         "print('ok')",
                     ],
                     capture_output=True,
@@ -743,18 +737,17 @@ class LiveTradingManager:
                     stderr = (result.stderr or "").strip()[:500]
                     LiveTradingManager._gateway_import_ok = False
                     raise ImportError(
-                        f"bt_api_py 网关模块无法加载 (原生扩展不可用或已损坏)。"
-                        f"请在 bt_api_py 仓库执行 git lfs pull 恢复二进制文件后重试。"
+                        f"bt_api_base 网关模块无法加载 (插件或原生扩展不可用/已损坏)。"
                         f" stderr: {stderr}"
                     )
             except subprocess.TimeoutExpired:
                 LiveTradingManager._gateway_import_ok = False
-                raise ImportError("bt_api_py 网关模块导入超时，原生扩展可能已损坏")
+                raise ImportError("bt_api_base 网关模块导入超时，插件或原生扩展可能已损坏")
             LiveTradingManager._gateway_import_ok = True
 
         if LiveTradingManager._gateway_import_ok is False:
             raise ImportError(
-                "bt_api_py 网关模块不可用 (之前的检测已失败)。请修复 bt_api_py 原生扩展后重启后端。"
+                "bt_api_base 网关模块不可用 (之前的检测已失败)。请修复对应插件或原生扩展后重启后端。"
             )
 
         # Guard: the spdlog C extension causes a native segfault on this
@@ -764,8 +757,8 @@ class LiveTradingManager:
             import types
 
             sys.modules["spdlog"] = types.ModuleType("spdlog")
-        from bt_api_py.gateway.config import GatewayConfig
-        from bt_api_py.gateway.runtime import GatewayRuntime
+        from bt_api_base.gateway.config import GatewayConfig
+        from bt_api_base.gateway.runtime import GatewayRuntime
 
         return GatewayConfig, GatewayRuntime
 

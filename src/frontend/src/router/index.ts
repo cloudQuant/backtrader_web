@@ -26,6 +26,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/DashboardPage.vue'),
       },
       {
+        path: 'ai-chat',
+        name: 'AIChat',
+        component: () => import('@/views/AIChatPage.vue'),
+      },
+      {
         path: 'backtest',
         name: 'Backtest',
         component: () => import('@/views/workspace/WorkspaceListPage.vue'),
@@ -169,6 +174,21 @@ const routes: RouteRecordRaw[] = [
         path: 'portfolio',
         name: 'Portfolio',
         component: () => import('@/views/PortfolioPage.vue'),
+      },
+      {
+        path: 'knowledge-base',
+        name: 'KnowledgeBase',
+        component: () => import('@/views/KnowledgeBasePage.vue'),
+      },
+      {
+        path: 'knowledge-base/:id',
+        name: 'KnowledgeBaseDetail',
+        component: () => import('@/views/KnowledgeBasePage.vue'),
+      },
+      {
+        path: 'knowledge-base/:kbId/documents/:docId',
+        name: 'KnowledgeBaseDocument',
+        component: () => import('@/views/KnowledgeBaseDocumentPage.vue'),
       },
       {
         path: 'settings',

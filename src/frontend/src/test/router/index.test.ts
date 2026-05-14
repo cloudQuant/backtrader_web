@@ -25,6 +25,9 @@ vi.mock('@/views/data/DataTableDetailPage.vue', () => ({ default: { template: '<
 vi.mock('@/views/data/DataInterfacesPage.vue', () => ({ default: { template: '<div>Data Interfaces</div>' } }))
 vi.mock('@/views/PortfolioPage.vue', () => ({ default: { template: '<div>Portfolio</div>' } }))
 vi.mock('@/views/SettingsPage.vue', () => ({ default: { template: '<div>Settings</div>' } }))
+vi.mock('@/views/AIChatPage.vue', () => ({ default: { template: '<div>AI Chat</div>' } }))
+vi.mock('@/views/KnowledgeBasePage.vue', () => ({ default: { template: '<div>Knowledge Base</div>' } }))
+vi.mock('@/views/KnowledgeBaseDocumentPage.vue', () => ({ default: { template: '<div>Knowledge Base Document</div>' } }))
 vi.mock('@/components/common/AppLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
 
 import { useAuthStore } from '@/stores/auth'
@@ -60,6 +63,9 @@ describe('router', () => {
     expect(names).toContain('TradingWorkspaceList')
     expect(names).toContain('TradingWorkspaceDetail')
     expect(names).toContain('Data')
+    expect(names).toContain('AIChat')
+    expect(names).toContain('KnowledgeBase')
+    expect(names).toContain('KnowledgeBaseDocument')
   })
 
   it('guard redirects unauthenticated user to Login', async () => {
@@ -109,6 +115,20 @@ describe('router', () => {
     await router.push('/settings')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('Settings')
+  })
+
+  it('guard allows authenticated user on /ai-chat', async () => {
+    mockAuthStore(true)
+    await router.push('/ai-chat')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('AIChat')
+  })
+
+  it('guard allows authenticated user on /knowledge-base', async () => {
+    mockAuthStore(true)
+    await router.push('/knowledge-base')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('KnowledgeBase')
   })
 
   it('guard passes redirect query for protected routes', async () => {

@@ -485,13 +485,21 @@ def build_mt5_gateway_runtime_kwargs(
     gateway_params: dict[str, Any],
 ) -> dict[str, Any]:
     mt5 = dict(config_data.get("mt5", {}) or {})
-    login = gateway_params.get("login") or env_data.get("MT5_LOGIN") or mt5.get("login", "")
+    login = (
+        gateway_params.get("login")
+        or env_data.get("MT5_LOGIN")
+        or env_data.get("MT5_ACCOUNT")
+        or mt5.get("login", "")
+    )
     password = (
         gateway_params.get("password") or env_data.get("MT5_PASSWORD") or mt5.get("password", "")
     )
+    if not password:
+        password = env_data.get("MT5_PASS") or ""
     account_id = (
         gateway_params.get("account_id")
         or env_data.get("MT5_ACCOUNT_ID")
+        or env_data.get("MT5_ACCOUNT")
         or mt5.get("account_id")
         or str(login)
     )
@@ -593,12 +601,15 @@ def build_okx_gateway_runtime_kwargs(
     secret_key = (
         gateway_params.get("secret_key")
         or env_data.get("OKX_SECRET_KEY")
+        or env_data.get("OKX_SECRET")
         or okx.get("secret_key", "")
     )
     passphrase = (
         gateway_params.get("passphrase")
         or env_data.get("OKX_PASSPHRASE")
+        or env_data.get("OKX_PASSWORD")
         or okx.get("passphrase", "")
+        or okx.get("password", "")
     )
     if not api_key or not secret_key or not passphrase:
         raise ValueError("OKX gateway requires api_key, secret_key and passphrase")

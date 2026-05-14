@@ -354,6 +354,15 @@ class TestBuildMt5GatewayRuntimeKwargs:
                 gateway_params={},
             )
 
+    def test_build_mt5_runtime_kwargs_with_legacy_account_aliases(self):
+        result = build_mt5_gateway_runtime_kwargs(
+            config_data={},
+            env_data={"MT5_ACCOUNT": "789012", "MT5_PASS": "legacy-pass"},
+            gateway_params={},
+        )
+        assert result["login"] == 789012
+        assert result["password"] == "legacy-pass"
+
     def test_symbol_map_from_config(self):
         result = build_mt5_gateway_runtime_kwargs(
             config_data={
@@ -393,6 +402,23 @@ class TestBuildCryptoGatewayRuntimeKwargs:
         assert result["asset_type"] == "SPOT"
         assert result["account_id"] == "acct-2"
         assert result["testnet"] is True
+
+    def test_build_okx_runtime_kwargs_with_legacy_password_passphrase(self):
+        result = build_okx_gateway_runtime_kwargs(
+            config_data={},
+            env_data={
+                "OKX_API_KEY": "api",
+                "OKX_SECRET": "secret",
+                "OKX_PASSWORD": "pass",
+            },
+            gateway_params={"asset_type": "spot", "account_id": "acct-2", "testnet": False},
+            default_transport="ipc",
+        )
+        assert result["exchange_type"] == "OKX"
+        assert result["asset_type"] == "SPOT"
+        assert result["account_id"] == "acct-2"
+        assert result["passphrase"] == "pass"
+        assert result["secret_key"] == "secret"
 
 
 class TestGatewaySessionKey:

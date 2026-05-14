@@ -9,7 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_current_user
 from app.schemas.strategy import (
+    StrategyCopilotBacktestRequest,
+    StrategyCopilotBacktestResponse,
+    StrategyCopilotDraftRequest,
+    StrategyCopilotDraftResponse,
     StrategyCreate,
+    StrategyDraftWorkspaceAddRequest,
+    StrategyDraftWorkspaceAddResponse,
     StrategyListResponse,
     StrategyResponse,
     StrategyUpdate,
@@ -183,6 +189,58 @@ async def get_template_detail(template_id: str):
     if not template:
         raise HTTPException(status_code=404, detail="Strategy template not found")
     return template
+
+
+@router.post(
+    "/copilot/draft",
+    response_model=StrategyCopilotDraftResponse,
+    summary="Generate strategy copilot draft",
+)
+async def generate_strategy_copilot_draft(
+    data: StrategyCopilotDraftRequest,
+    current_user=Depends(get_current_user),
+    service: StrategyService = Depends(get_strategy_service),
+):
+    """Generate a structured strategy draft from natural language input."""
+    return await service.generate_copilot_draft(current_user.sub, data)
+
+
+@router.post(
+    "/copilot/workspaces/{workspace_id}/units",
+    response_model=StrategyDraftWorkspaceAddResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add strategy copilot draft to workspace",
+)
+async def add_strategy_copilot_draft_to_workspace(
+    workspace_id: str,
+    data: StrategyDraftWorkspaceAddRequest,
+    current_user=Depends(get_current_user),
+    service: StrategyService = Depends(get_strategy_service),
+):
+    """Persist a strategy draft and add it to a workspace unit."""
+    result = await service.add_copilot_draft_to_workspace(current_user.sub, workspace_id, data)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Workspace or strategy not found")
+    return result
+
+
+@router.post(
+    "/copilot/workspaces/{workspace_id}/backtest",
+    response_model=StrategyCopilotBacktestResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add strategy copilot draft to workspace and run backtest",
+)
+async def backtest_strategy_copilot_draft(
+    workspace_id: str,
+    data: StrategyCopilotBacktestRequest,
+    current_user=Depends(get_current_user),
+    service: StrategyService = Depends(get_strategy_service),
+):
+    """Persist a strategy draft, create a workspace unit, and trigger backtest."""
+    result = await service.backtest_copilot_draft(current_user.sub, workspace_id, data)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Workspace or strategy not found")
+    return result
 
 
 @router.get("/{strategy_id}", response_model=StrategyResponse, summary="Get strategy detail")

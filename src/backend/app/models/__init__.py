@@ -16,6 +16,15 @@ from app.models.akshare_mgmt import (
 from app.models.alerts import Alert, AlertNotification, AlertRule
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.models.comparison import Comparison, ComparisonShare
+from app.models.knowledge_base import (
+    ChatConversation,
+    ChatMessage,
+    DocumentChunk,
+    KBDocument,
+    KnowledgeBase,
+    ModelConfig,
+    ModelUsageLog,
+)
 from app.models.optimization import OptimizationTask
 from app.models.paper_trading import Account, Order, PaperTrade, Position
 from app.models.permission import Permission, Role, user_roles
@@ -44,6 +53,13 @@ __all__ = [
     "DataTable",
     "InterfaceCategory",
     "InterfaceParameter",
+    "KnowledgeBase",
+    "KBDocument",
+    "DocumentChunk",
+    "ChatConversation",
+    "ChatMessage",
+    "ModelConfig",
+    "ModelUsageLog",
     "Order",
     "PaperTrade",
     "Permission",

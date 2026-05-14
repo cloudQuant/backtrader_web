@@ -23,6 +23,10 @@
           <el-icon><HomeFilled /></el-icon>
           <span>首页</span>
         </el-menu-item>
+        <el-menu-item index="/ai-chat">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>AI助手</span>
+        </el-menu-item>
         <el-menu-item index="/data">
           <el-icon><Grid /></el-icon>
           <span>数据管理</span>
@@ -50,6 +54,10 @@
         <el-menu-item index="/gateways">
           <el-icon><Monitor /></el-icon>
           <span>账户管理</span>
+        </el-menu-item>
+        <el-menu-item index="/knowledge-base">
+          <el-icon><Collection /></el-icon>
+          <span>知识库</span>
         </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
@@ -140,6 +148,8 @@ import { useAuthStore } from '@/stores/auth'
 import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import {
   Aim,
+  ChatDotRound,
+  Collection,
   HomeFilled,
   Document,
   Grid,
@@ -163,7 +173,7 @@ const currentRoute = computed(() => {
     return '/workspace'
   }
   // Match top-level menu items for nested routes
-  const prefixes = ['/workspace', '/trading', '/strategy', '/data', '/gateways', '/quote', '/portfolio', '/settings']
+  const prefixes = ['/ai-chat', '/workspace', '/trading', '/strategy', '/data', '/gateways', '/knowledge-base', '/quote', '/portfolio', '/settings']
   for (const prefix of prefixes) {
     if (p.startsWith(prefix + '/') || p === prefix) return prefix
   }
@@ -188,9 +198,11 @@ onMounted(() => {
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
     '/': '仪表盘',
+    '/ai-chat': 'AI助手',
     '/strategy': '策略管理',
     '/data': '数据管理',
     '/gateways': '账户管理',
+    '/knowledge-base': '知识库',
     '/quote': '行情报价',
     '/workspace': '策略研究',
     '/trading': '策略交易',

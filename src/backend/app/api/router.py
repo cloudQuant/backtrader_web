@@ -107,6 +107,9 @@ _OPTIONAL_ROUTERS = [
     ("data_sync", "app.api.sync_api", "/data", ["Data Sync"]),
     ("akshare_interfaces", "app.api.akshare_interfaces", "/data", ["Data Interfaces"]),
     ("risk_control", "app.api.risk_control", "", ["Risk Control"]),
+    ("knowledge_base", "app.api.knowledge_base", "/knowledge-base", ["Knowledge Base"]),
+    ("rag", "app.api.rag", "/rag", ["RAG"]),
+    ("kb_chat", "app.api.kb_chat", "/kb-chat", ["KB Chat"]),
 ]
 
 for _name, _module, _prefix, _tags in _OPTIONAL_ROUTERS:

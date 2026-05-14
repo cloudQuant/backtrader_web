@@ -4,8 +4,8 @@
     "strategy_id": "simulate/CF_donchian_channel",
     "strategy_name": "棉花唐奇安通道策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40555,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -25,8 +25,8 @@
     "strategy_id": "simulate/MA_trix",
     "strategy_name": "甲醇TRIX指标策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40556,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -46,8 +46,8 @@
     "strategy_id": "simulate/OI_rsi_dip_buy",
     "strategy_name": "菜籽油RSI抄底策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40557,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -67,8 +67,8 @@
     "strategy_id": "simulate/SR_keltner_channel",
     "strategy_name": "白糖肯特纳通道策略2",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40558,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -109,8 +109,8 @@
     "strategy_id": "simulate/a_td_sequential",
     "strategy_name": "豆一TD序列策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40560,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -130,8 +130,8 @@
     "strategy_id": "simulate/al_turtle",
     "strategy_name": "铝海龟交易策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40561,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -151,8 +151,8 @@
     "strategy_id": "simulate/au_boll_reverser",
     "strategy_name": "黄金布林带反转策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40562,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "period": 20,
@@ -174,8 +174,8 @@
     "strategy_id": "simulate/c_chandelier_exit",
     "strategy_name": "玉米吊灯止损策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40563,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -195,8 +195,8 @@
     "strategy_id": "simulate/cu_macd_atr",
     "strategy_name": "铜MACD+ATR策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40564,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -216,8 +216,8 @@
     "strategy_id": "simulate/hc_supertrend",
     "strategy_name": "热轧卷板SuperTrend策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40565,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "stake": 1,
@@ -240,8 +240,8 @@
     "strategy_id": "simulate/i_r_breaker",
     "strategy_name": "铁矿石R-Breaker策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40566,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -261,8 +261,8 @@
     "strategy_id": "simulate/j_dual_thrust",
     "strategy_name": "焦炭Dual Thrust策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40567,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -282,8 +282,8 @@
     "strategy_id": "simulate/jm_stochastic",
     "strategy_name": "焦煤随机指标策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40568,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -303,8 +303,8 @@
     "strategy_id": "simulate/m_ichimoku_cloud",
     "strategy_name": "豆粕一目均衡表策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40569,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -324,8 +324,8 @@
     "strategy_id": "simulate/p_bb_rsi",
     "strategy_name": "棕榈油布林带+RSI策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40570,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -345,8 +345,8 @@
     "strategy_id": "simulate/rb_dual_ma",
     "strategy_name": "螺纹钢双均线策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40571,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "short_period": 5,
@@ -368,8 +368,8 @@
     "strategy_id": "simulate/y_alligator",
     "strategy_name": "豆油鳄鱼线策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40572,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -389,8 +389,8 @@
     "strategy_id": "simulate/zn_kelter",
     "strategy_name": "锌肯特纳通道策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40574,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -410,8 +410,8 @@
     "strategy_id": "simulate/cs_hma_multitrend",
     "strategy_name": "玉米淀粉HMA多趋势策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40575,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -431,8 +431,8 @@
     "strategy_id": "simulate/mt5_audusd_rsi_pullback",
     "strategy_name": "MT5 澳美RSI回调入场策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40576,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -452,8 +452,8 @@
     "strategy_id": "simulate/mt5_eurusd_ma_cross",
     "strategy_name": "MT5 欧美双均线交叉策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40577,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -473,8 +473,8 @@
     "strategy_id": "simulate/mt5_gbpusd_bb_revert",
     "strategy_name": "MT5 英镑布林带回归策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40578,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -494,8 +494,8 @@
     "strategy_id": "simulate/mt5_usdjpy_trend_follow",
     "strategy_name": "MT5 美日ADX趋势跟踪策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40579,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -515,8 +515,8 @@
     "strategy_id": "simulate/mt5_xauusd_breakout",
     "strategy_name": "MT5 黄金区间突破策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40580,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -536,8 +536,8 @@
     "strategy_id": "simulate/al_turtle",
     "strategy_name": "铝海龟交易策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40581,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -557,8 +557,8 @@
     "strategy_id": "simulate/au_boll_reverser",
     "strategy_name": "黄金布林带反转策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40582,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -578,8 +578,8 @@
     "strategy_id": "simulate/c_chandelier_exit",
     "strategy_name": "玉米吊灯止损策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40584,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -599,8 +599,8 @@
     "strategy_id": "simulate/CF_donchian_channel",
     "strategy_name": "棉花唐奇安通道策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40585,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -620,8 +620,8 @@
     "strategy_id": "simulate/cu_macd_atr",
     "strategy_name": "铜MACD+ATR策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40586,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -641,8 +641,8 @@
     "strategy_id": "simulate/hc_supertrend",
     "strategy_name": "热轧卷板SuperTrend策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40587,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -662,8 +662,8 @@
     "strategy_id": "simulate/i_r_breaker",
     "strategy_name": "铁矿石R-Breaker策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40588,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -683,8 +683,8 @@
     "strategy_id": "simulate/j_dual_thrust",
     "strategy_name": "焦炭Dual Thrust策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40589,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -704,8 +704,8 @@
     "strategy_id": "simulate/jm_stochastic",
     "strategy_name": "焦煤随机指标策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40590,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -725,8 +725,8 @@
     "strategy_id": "simulate/m_ichimoku_cloud",
     "strategy_name": "豆粕一目均衡表策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40592,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -746,8 +746,8 @@
     "strategy_id": "simulate/MA_trix",
     "strategy_name": "甲醇TRIX指标策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40593,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -767,8 +767,8 @@
     "strategy_id": "simulate/OI_rsi_dip_buy",
     "strategy_name": "菜籽油RSI抄底策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40594,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -788,8 +788,8 @@
     "strategy_id": "simulate/p_bb_rsi",
     "strategy_name": "棕榈油布林带+RSI策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40595,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -809,8 +809,8 @@
     "strategy_id": "simulate/rb_dual_ma",
     "strategy_name": "螺纹钢双均线策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40596,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -830,8 +830,8 @@
     "strategy_id": "simulate/SR_keltner_channel",
     "strategy_name": "白糖肯特纳通道策略2",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40597,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -872,8 +872,8 @@
     "strategy_id": "simulate/y_alligator",
     "strategy_name": "豆油鳄鱼线策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40599,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -893,8 +893,8 @@
     "strategy_id": "simulate/zn_kelter",
     "strategy_name": "锌肯特纳通道策略",
     "user_id": "cd756005-0929-4821-b490-5ec289df0e62",
-    "status": "running",
-    "pid": 40600,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -914,8 +914,8 @@
     "strategy_id": "simulate/cs_hma_multitrend",
     "strategy_name": "玉米淀粉HMA多趋势策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40601,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -935,8 +935,8 @@
     "strategy_id": "simulate/mt5_audusd_rsi_pullback",
     "strategy_name": "MT5 澳美RSI回调入场策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40603,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -956,8 +956,8 @@
     "strategy_id": "simulate/mt5_eurusd_ma_cross",
     "strategy_name": "MT5 欧美双均线交叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40604,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -977,8 +977,8 @@
     "strategy_id": "simulate/mt5_gbpusd_bb_revert",
     "strategy_name": "MT5 英镑布林带回归策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40615,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -998,8 +998,8 @@
     "strategy_id": "simulate/mt5_usdjpy_trend_follow",
     "strategy_name": "MT5 美日ADX趋势跟踪策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40621,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -1019,8 +1019,8 @@
     "strategy_id": "simulate/mt5_xauusd_breakout",
     "strategy_name": "MT5 黄金区间突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40627,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "gateway": {
@@ -1040,8 +1040,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22414,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1100,8 +1100,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 40631,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1167,8 +1167,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35503,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1231,8 +1231,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35491,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 2.2,
@@ -1295,8 +1295,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35492,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1359,8 +1359,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35493,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1423,8 +1423,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35494,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 2.4,
@@ -1487,8 +1487,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35495,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1551,8 +1551,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35496,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 2.0,
@@ -1615,8 +1615,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35497,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 1.8,
@@ -1679,8 +1679,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35498,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 2.1,
@@ -1743,8 +1743,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 35499,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1807,8 +1807,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22363,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1867,8 +1867,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22365,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1927,8 +1927,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22366,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -1987,8 +1987,8 @@
     "strategy_id": "simulate/gateway_dual_ma",
     "strategy_name": "通用网关双均线金叉策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22388,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "allow_short": true,
@@ -2047,8 +2047,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22396,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 1.8,
@@ -2107,8 +2107,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22402,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 2.4,
@@ -2167,8 +2167,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22406,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 2.1,
@@ -2227,8 +2227,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22411,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 2.0,
@@ -2287,8 +2287,8 @@
     "strategy_id": "simulate/gateway_boll_breakout",
     "strategy_name": "通用网关布林突破策略",
     "user_id": "50b591ae-4bf9-4f83-a26c-b3663afc5a9b",
-    "status": "running",
-    "pid": 22428,
+    "status": "stopped",
+    "pid": null,
     "error": null,
     "params": {
       "boll_dev": 2.2,

@@ -1,6 +1,7 @@
 """Strategy service (CRUD + template/config loading)."""
 
 import logging
+import re
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
@@ -10,8 +11,19 @@ import yaml
 from app.db.sql_repository import SQLRepository
 from app.models.strategy import Strategy
 from app.schemas.strategy import (
+    AIStrategyDraft,
+    AIStrategyBacktestSpec,
+    AIStrategyDataSourceSpec,
+    AIStrategyExecutionPlan,
     ParamSpec,
+    StrategyCopilotBacktestRequest,
+    StrategyCopilotBacktestResponse,
+    StrategyCopilotDraftRequest,
+    StrategyCopilotDraftResponse,
+    StrategyCopilotRunResult,
     StrategyCreate,
+    StrategyDraftWorkspaceAddRequest,
+    StrategyDraftWorkspaceAddResponse,
     StrategyListResponse,
     StrategyResponse,
     StrategyTemplate,
@@ -87,6 +99,283 @@ def _infer_category(name: str, description: str) -> str:
     if any(k in text for k in ["macd", "ema", "signal", "indicator"]):
         return "indicator"
     return "custom"
+
+
+def _strategy_name_from_prompt(prompt: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(prompt or "")).strip(" \n\t，。,.!?！？")
+    if not cleaned:
+        return "AI Generated Strategy"
+    return f"AI策略 - {cleaned[:24]}"
+
+
+def _class_name_from_prompt(prompt: str) -> str:
+    tokens = re.findall(r"[A-Za-z0-9]+", str(prompt or ""))
+    if not tokens:
+        return "AIGeneratedStrategy"
+    return "".join(token.capitalize() for token in tokens[:4]) + "Strategy"
+
+
+def _infer_timeframe(prompt: str) -> str | None:
+    text = str(prompt or "").lower()
+    if any(token in text for token in ["1m", "5m", "15m", "30m", "60m", "分钟"]):
+        return "15m"
+    if any(token in text for token in ["1h", "4h", "hour", "小时"]):
+        return "1h"
+    if any(token in text for token in ["日线", "daily", "1d"]):
+        return "1d"
+    if any(token in text for token in ["周线", "weekly", "1w"]):
+        return "1w"
+    return None
+
+
+def _infer_data_source_type(prompt: str) -> str:
+    text = str(prompt or "").lower()
+    if any(token in text for token in ["akshare", "a股", "沪深", "基金", "期货"]):
+        return "csv"
+    if any(token in text for token in ["yfinance", "yahoo", "美股", "us stock"]):
+        return "csv"
+    return "csv"
+
+
+def _build_ai_param_specs(prompt: str) -> dict[str, ParamSpec]:
+    text = str(prompt or "").lower()
+    params: dict[str, ParamSpec] = {}
+
+    def add_param(name: str, spec: ParamSpec) -> None:
+        if name not in params:
+            params[name] = spec
+
+    if any(token in text for token in ["ma", "均线", "crossover", "cross", "trend", "趋势"]):
+        add_param(
+            "fast_period",
+            ParamSpec(type="int", default=10, min=2, max=60, description="Fast moving average period"),
+        )
+        add_param(
+            "slow_period",
+            ParamSpec(type="int", default=30, min=10, max=240, description="Slow moving average period"),
+        )
+    if any(token in text for token in ["rsi", "超卖", "超买"]):
+        add_param(
+            "rsi_period",
+            ParamSpec(type="int", default=14, min=2, max=60, description="RSI lookback period"),
+        )
+        add_param(
+            "oversold",
+            ParamSpec(type="float", default=30, min=5, max=50, description="RSI oversold threshold"),
+        )
+        add_param(
+            "overbought",
+            ParamSpec(type="float", default=70, min=50, max=95, description="RSI overbought threshold"),
+        )
+    if any(token in text for token in ["atr", "止损", "volatility", "波动"]):
+        add_param(
+            "atr_period",
+            ParamSpec(type="int", default=14, min=5, max=60, description="ATR calculation period"),
+        )
+        add_param(
+            "atr_stop_multiplier",
+            ParamSpec(type="float", default=2.0, min=0.5, max=10.0, description="ATR stop multiplier"),
+        )
+    if any(token in text for token in ["breakout", "突破", "channel", "唐奇安"]):
+        add_param(
+            "breakout_period",
+            ParamSpec(type="int", default=20, min=5, max=120, description="Breakout lookback period"),
+        )
+    if not params:
+        add_param(
+            "lookback_period",
+            ParamSpec(type="int", default=20, min=2, max=200, description="Generic lookback period"),
+        )
+        add_param(
+            "signal_threshold",
+            ParamSpec(type="float", default=0.0, min=-10.0, max=10.0, description="Generic signal threshold"),
+        )
+
+    add_param(
+        "risk_pct",
+        ParamSpec(type="float", default=0.02, min=0.001, max=0.2, description="Risk budget per trade"),
+    )
+    return params
+
+
+def _render_param_default(value: object) -> str:
+    if isinstance(value, str):
+        return repr(value)
+    return str(value)
+
+
+def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) -> AIStrategyDraft:
+    """Build a deterministic fallback strategy draft from natural language input."""
+    name = _strategy_name_from_prompt(prompt)
+    category = _infer_category(name, prompt)
+    class_name = _class_name_from_prompt(prompt)
+    params = _build_ai_param_specs(prompt)
+    timeframe = _infer_timeframe(prompt)
+    prompt_comment = re.sub(r"\s+", " ", str(prompt or "")).strip()
+    prompt_comment = prompt_comment.replace('"""', "'''")
+    reference_note = ""
+    if references:
+        reference_note = "\n".join(f"- {title}" for title in references[:3])
+    param_lines = "\n".join(
+        f"        ('{key}', {_render_param_default(spec.default)}),"
+        for key, spec in params.items()
+    )
+    setup_lines = ["        self.close = self.datas[0].close"]
+    if "fast_period" in params:
+        setup_lines.extend(
+            [
+                "        self.fast_ma = bt.indicators.SMA(self.data.close, period=self.p.fast_period)",
+                "        self.slow_ma = bt.indicators.SMA(self.data.close, period=self.p.slow_period)",
+            ]
+        )
+    if "rsi_period" in params:
+        setup_lines.append(
+            "        self.rsi = bt.indicators.RSI(self.data.close, period=self.p.rsi_period)"
+        )
+    if "atr_period" in params:
+        setup_lines.append(
+            "        self.atr = bt.indicators.ATR(self.data, period=self.p.atr_period)"
+        )
+    setup_block = "\n".join(setup_lines)
+
+    code = f'''import backtrader as bt
+
+
+class {class_name}(bt.Strategy):
+    """
+    Auto-generated draft from Backtrader Web AI Copilot.
+    Original prompt: {prompt_comment}
+    """
+
+    params = (
+{param_lines}
+    )
+
+    def __init__(self):
+{setup_block}
+
+    def next(self):
+        # TODO: Refine the trading rules below according to the original prompt.
+        # Prompt: {prompt_comment}
+        if not self.position:
+            # TODO: implement entry rules
+            pass
+        else:
+            # TODO: implement exit / stop / take-profit rules
+            pass
+'''
+
+    rationale = (
+        f"该草案基于自然语言需求“{prompt_comment[:80]}”生成，已按 {category} 类策略补齐常见参数和 Backtrader 类骨架。"
+    )
+    if reference_note:
+        rationale += f"\n参考过的知识库文档：\n{reference_note}"
+
+    return AIStrategyDraft(
+        name=name,
+        description=f"AI Copilot 根据自然语言需求生成的 {category} 策略草案。",
+        code=code,
+        params=params,
+        category=category,
+        assumptions=[
+            "默认使用标准 OHLCV K 线数据，并按信号所在 bar 后续执行。",
+            "默认未加入滑点、停牌、涨跌停和撮合冲击等市场微观结构约束。",
+        ],
+        risk_points=[
+            "需要验证参数稳定性，避免仅在样本内表现良好。",
+            "需要结合交易成本与回撤约束评估真实可执行性。",
+        ],
+        data_source=AIStrategyDataSourceSpec(
+            type=_infer_data_source_type(prompt_comment),
+            symbol=None,
+            symbol_name=None,
+            timeframe=timeframe or "1d",
+            timeframe_n=1,
+            start_date=None,
+            end_date=None,
+            adjustment=None,
+        ),
+        backtest_defaults=AIStrategyBacktestSpec(
+            initial_cash=100000.0,
+            commission=0.001,
+            annual_days=252,
+            calc_method="simple",
+            weight_mode="equal",
+        ),
+        execution_plan=AIStrategyExecutionPlan(
+            workspace_type="research",
+            group_name=name,
+            run_parallel=False,
+        ),
+        rationale=rationale,
+        next_steps=[
+            "补充 entry / exit 条件与风险控制逻辑",
+            "根据目标市场调整默认参数与时间框架",
+            "在回测工作区中创建单元并验证收益/回撤/交易频率",
+        ],
+        suggested_symbol=None,
+        suggested_timeframe=timeframe,
+    )
+
+
+def render_ai_strategy_draft_answer(draft: AIStrategyDraft) -> str:
+    """Render a human-readable chat answer from a strategy draft."""
+    params_summary = ", ".join(
+        f"{name}={spec.default}" for name, spec in draft.params.items()
+    ) or "无"
+    next_steps = "\n".join(f"- {step}" for step in draft.next_steps) or "- 无"
+    timeframe = draft.suggested_timeframe or "待确认"
+    rationale = draft.rationale or "基于自然语言需求自动生成。"
+    data_source_type = draft.data_source.type if draft.data_source else "待确认"
+    initial_cash = (
+        draft.backtest_defaults.initial_cash if draft.backtest_defaults else 100000.0
+    )
+    commission = draft.backtest_defaults.commission if draft.backtest_defaults else 0.001
+    return (
+        f"已为你生成一个可继续完善的 Backtrader 策略草案。\n\n"
+        f"策略名称：{draft.name}\n"
+        f"策略分类：{draft.category}\n"
+        f"建议周期：{timeframe}\n"
+        f"建议数据源：{data_source_type}\n"
+        f"默认回测：初始资金 {initial_cash:.2f} / 手续费 {commission}\n"
+        f"关键参数：{params_summary}\n\n"
+        f"说明：{rationale}\n\n"
+        "代码骨架：\n"
+        f"```python\n{draft.code}\n```\n\n"
+        f"下一步建议：\n{next_steps}"
+    )
+
+
+def _strategy_param_defaults(params: dict[str, ParamSpec]) -> dict[str, object]:
+    return {name: spec.default for name, spec in params.items()}
+
+
+def _sync_user_strategy_runtime_files(strategy: StrategyResponse) -> None:
+    """Persist a user strategy into runtime-consumable files under strategies/."""
+    strategy_dir = get_strategy_dir(strategy.id)
+    strategy_dir.mkdir(parents=True, exist_ok=True)
+    config = {
+        "strategy": {
+            "name": strategy.name,
+            "description": strategy.description or "",
+        },
+        "params": _strategy_param_defaults(strategy.params),
+        "data": {
+            "data_type": strategy.category or "custom",
+            "category": strategy.category or "custom",
+            "symbol": "",
+            "symbol_name": "",
+            "timeframe": "1d",
+            "timeframe_n": 1,
+        },
+        "backtest": {
+            "initial_cash": 100000.0,
+            "commission": 0.001,
+        },
+    }
+    with (strategy_dir / "config.yaml").open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)
+    (strategy_dir / "strategy_generated.py").write_text(strategy.code, encoding="utf-8")
 
 
 def _scan_strategies_folder(strategy_type: StrategyType) -> list[StrategyTemplate]:
@@ -284,8 +573,209 @@ class StrategyService:
         )
 
         strategy = await self.strategy_repo.create(strategy)
+        response = self._to_response(strategy)
+        _sync_user_strategy_runtime_files(response)
+        return response
 
-        return self._to_response(strategy)
+    async def generate_copilot_draft(
+        self, user_id: str, request: StrategyCopilotDraftRequest
+    ) -> StrategyCopilotDraftResponse:
+        """Generate a structured strategy draft for the copilot flow."""
+        if request.knowledge_base_id:
+            from app.services.rag_service import RAGService
+
+            rag_result = await RAGService().ask(
+                request.knowledge_base_id,
+                user_id,
+                request.prompt,
+                top_k=10,
+                min_similarity=0.0,
+                assistant_mode="backtrader_strategy",
+                thinking_mode=request.thinking_mode,
+            )
+            draft_payload = rag_result.get("strategy_draft")
+            draft = (
+                AIStrategyDraft.model_validate(draft_payload)
+                if draft_payload
+                else build_ai_strategy_draft(request.prompt)
+            )
+            answer = rag_result.get("answer") or render_ai_strategy_draft_answer(draft)
+            return StrategyCopilotDraftResponse(
+                answer=answer,
+                strategy_draft=draft,
+                citations=rag_result.get("citations") or [],
+                context_chunks_used=int(rag_result.get("context_chunks_used") or 0),
+                tokens_used=int(rag_result.get("tokens_used") or 0),
+                model_id=rag_result.get("model_id"),
+                reasoning=rag_result.get("reasoning"),
+            )
+
+        draft = build_ai_strategy_draft(request.prompt)
+        return StrategyCopilotDraftResponse(
+            answer=render_ai_strategy_draft_answer(draft),
+            strategy_draft=draft,
+            citations=[],
+            context_chunks_used=0,
+            tokens_used=0,
+            model_id=None,
+            reasoning=None,
+        )
+
+    async def add_copilot_draft_to_workspace(
+        self, user_id: str, workspace_id: str, request: StrategyDraftWorkspaceAddRequest
+    ) -> StrategyDraftWorkspaceAddResponse | None:
+        """Persist a copilot draft and add it into a workspace unit."""
+        from app.schemas.workspace import StrategyUnitCreate
+        from app.services.workspace_service import WorkspaceService
+
+        workspace_service = WorkspaceService()
+        workspace = await workspace_service.get_workspace(workspace_id, user_id)
+        if workspace is None:
+            return None
+
+        if request.strategy_id:
+            strategy = await self.get_strategy(request.strategy_id, user_id)
+            if strategy is None:
+                return None
+            created_strategy = False
+        else:
+            strategy = await self.create_strategy(
+                user_id,
+                StrategyCreate(
+                    name=request.strategy_draft.name,
+                    description=request.strategy_draft.description,
+                    code=request.strategy_draft.code,
+                    params=request.strategy_draft.params,
+                    category=request.strategy_draft.category,
+                ),
+            )
+            created_strategy = True
+
+        _sync_user_strategy_runtime_files(strategy)
+
+        strategy_params = {
+            name: spec.default for name, spec in request.strategy_draft.params.items()
+        }
+        timeframe = (
+            request.timeframe
+            or request.strategy_draft.data_source.timeframe
+            or request.strategy_draft.suggested_timeframe
+            or "1d"
+        )
+        symbol = (
+            request.symbol
+            or request.strategy_draft.data_source.symbol
+            or request.strategy_draft.suggested_symbol
+            or ""
+        )
+        symbol_name = request.symbol_name or symbol
+        data_config = {
+            "symbol": symbol,
+            "symbol_name": symbol_name,
+            "timeframe": timeframe,
+            "timeframe_n": request.timeframe_n or request.strategy_draft.data_source.timeframe_n,
+            "start_date": request.strategy_draft.data_source.start_date,
+            "end_date": request.strategy_draft.data_source.end_date,
+            "adjustment": request.strategy_draft.data_source.adjustment,
+            **request.data_config,
+        }
+
+        unit = await workspace_service.create_unit(
+            workspace_id,
+            user_id,
+            StrategyUnitCreate(
+                group_name=request.group_name or request.strategy_draft.name,
+                strategy_id=strategy.id,
+                strategy_name=strategy.name,
+                symbol=symbol,
+                symbol_name=symbol_name,
+                timeframe=timeframe,
+                timeframe_n=request.timeframe_n,
+                category=request.strategy_draft.category,
+                data_config=data_config,
+                unit_settings=request.unit_settings,
+                params=strategy_params,
+                optimization_config=request.optimization_config,
+            ),
+        )
+        if unit is None:
+            return None
+
+        return StrategyDraftWorkspaceAddResponse(
+            workspace_id=workspace.id,
+            created_strategy=created_strategy,
+            strategy=strategy,
+            unit=unit,
+        )
+
+    async def backtest_copilot_draft(
+        self, user_id: str, workspace_id: str, request: StrategyCopilotBacktestRequest
+    ) -> StrategyCopilotBacktestResponse | None:
+        """Persist a copilot draft, add it to workspace, and trigger backtest."""
+        from app.schemas.workspace import UnitStatusResponse
+        from app.services.workspace_service import WorkspaceService
+
+        workspace_service = WorkspaceService()
+        added = await self.add_copilot_draft_to_workspace(user_id, workspace_id, request)
+        if added is None:
+            return None
+
+        run_results = await workspace_service.run_units(
+            workspace_id,
+            user_id,
+            [added.unit.id],
+            parallel=request.parallel,
+        )
+        run_result_payload = next(
+            (item for item in run_results if str(item.get("unit_id")) == added.unit.id),
+            None,
+        )
+        if run_result_payload is None:
+            run_result_payload = {
+                "unit_id": added.unit.id,
+                "task_id": None,
+                "status": "failed",
+                "error": "Backtest task submission failed",
+            }
+
+        unit_status = None
+        statuses = await workspace_service.get_units_status(workspace_id, user_id)
+        if statuses:
+            matched = next((item for item in statuses if str(item.get("id")) == added.unit.id), None)
+            if matched:
+                unit_status = UnitStatusResponse.model_validate(matched)
+
+        report = None
+        report_ready = False
+        if (
+            request.report_config is not None
+            and unit_status is not None
+            and str(unit_status.run_status) == "completed"
+        ):
+            cfg = request.report_config
+            report = await workspace_service.get_workspace_report(
+                workspace_id,
+                user_id,
+                start_date=cfg.start_date,
+                end_date=cfg.end_date,
+                max_cash=cfg.max_cash,
+                calc_method=cfg.calc_method,
+                annual_days=cfg.annual_days,
+                weight_mode=cfg.weight_mode,
+                weights=cfg.weights,
+            )
+            report_ready = report is not None
+
+        return StrategyCopilotBacktestResponse(
+            workspace_id=workspace_id,
+            created_strategy=added.created_strategy,
+            strategy=added.strategy,
+            unit=added.unit,
+            run_result=StrategyCopilotRunResult.model_validate(run_result_payload),
+            unit_status=unit_status,
+            report_ready=report_ready,
+            report=report,
+        )
 
     async def _get_owned_strategy(self, strategy_id: str, user_id: str) -> Strategy | None:
         strategy = await self.strategy_repo.get_by_id(strategy_id)
@@ -346,8 +836,9 @@ class StrategyService:
         if update_data:
             update_data["updated_at"] = datetime.now(timezone.utc)
             strategy = await self.strategy_repo.update(strategy_id, update_data)
-
-        return self._to_response(strategy)
+        response = self._to_response(strategy)
+        _sync_user_strategy_runtime_files(response)
+        return response
 
     async def delete_strategy(self, strategy_id: str, user_id: str) -> bool:
         """Delete a strategy.

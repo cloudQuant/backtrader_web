@@ -695,6 +695,7 @@ import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
+import type { WorkspaceReportConfig, WorkspaceReportResponse, WorkspaceReportUnitRow } from '@/types/workspace'
 
 const props = defineProps<{
   workspaceId: string
@@ -706,7 +707,7 @@ const props = defineProps<{
 
 const store = useWorkspaceStore()
 const loading = ref(false)
-const report = ref<Record<string, any> | null>(null)
+const report = ref<WorkspaceReportResponse | null>(null)
 const selectedReportUnitIds = ref<string[]>([])
 
 const showStatTimeDialog = ref(false)
@@ -721,7 +722,7 @@ const reportAnnualDays = ref(252)
 const weightMode = ref('equal')
 
 function _restoreDefaults() {
-  const rc = (store.currentWorkspace?.settings as Record<string, any>)?.report_config
+  const rc: WorkspaceReportConfig | undefined = store.currentWorkspace?.settings.report_config
   if (!rc) return
   if (rc.calc_method) reportCalcMethod.value = rc.calc_method
   if (rc.annual_days) reportAnnualDays.value = rc.annual_days
@@ -805,13 +806,13 @@ const statRangeLabel = computed(() => {
 })
 
 const filteredUnits = computed(() => {
-  const rows = Array.isArray(report.value?.units) ? report.value.units : []
+  const rows = report.value?.units ?? []
   if (!selectedReportUnitIds.value.length) return rows
-  return rows.filter((row: Record<string, unknown>) => selectedReportUnitIds.value.includes(String(row.id || '')))
+  return rows.filter(row => selectedReportUnitIds.value.includes(row.id))
 })
 
 const filteredSummary = computed(() => {
-  const rows = filteredUnits.value as Array<Record<string, any>>
+  const rows = filteredUnits.value
   if (!rows.length) {
     return {
       total_units: 0,
@@ -826,20 +827,22 @@ const filteredSummary = computed(() => {
       worst_drawdown_unit: null,
     }
   }
-  const avg = (key: string) => {
-    const values = rows.map(r => r[key]).filter((v: unknown) => typeof v === 'number') as number[]
+  const avg = (key: keyof WorkspaceReportUnitRow) => {
+    const values = rows
+      .map(row => row[key])
+      .filter((value): value is number => typeof value === 'number')
     if (!values.length) return null
-    return values.reduce((sum, v) => sum + v, 0) / values.length
+    return values.reduce((sum, value) => sum + value, 0) / values.length
   }
   const totalTrades = rows
-    .map(r => r.total_trades)
-    .filter((v: unknown) => typeof v === 'number')
-    .reduce((sum: number, v: number) => sum + v, 0)
-  const bestReturnUnit = rows.reduce((best: Record<string, any> | null, row) => {
+    .map(row => row.total_trades)
+    .filter((value): value is number => typeof value === 'number')
+    .reduce((sum, value) => sum + value, 0)
+  const bestReturnUnit = rows.reduce<WorkspaceReportUnitRow | null>((best, row) => {
     if (!best) return row
     return (row.total_return ?? Number.NEGATIVE_INFINITY) > (best.total_return ?? Number.NEGATIVE_INFINITY) ? row : best
   }, null)
-  const worstDrawdownUnit = rows.reduce((worst: Record<string, any> | null, row) => {
+  const worstDrawdownUnit = rows.reduce<WorkspaceReportUnitRow | null>((worst, row) => {
     if (!worst) return row
     return Math.abs(row.max_drawdown ?? 0) > Math.abs(worst.max_drawdown ?? 0) ? row : worst
   }, null)

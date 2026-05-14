@@ -26,6 +26,7 @@ from app.schemas.live_trading_instance import (
     LiveInstanceInfo,
     LiveInstanceListResponse,
 )
+from app.services import manual_gateway_service
 from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
 from app.services.log_parser_service import (
     find_latest_log_dir,
@@ -55,6 +56,12 @@ def _first_non_empty(*values):
         if value not in (None, ""):
             return value
     return ""
+
+
+def _env_or_default(value, *fallbacks):
+    if value not in (None, ""):
+        return value
+    return _first_non_empty(*fallbacks)
 
 
 @router.get("/", response_model=LiveInstanceListResponse, summary="List live trading instances")
@@ -102,6 +109,7 @@ async def get_gateway_credentials(
     from app.config import get_settings
 
     s = get_settings()
+    env_values = manual_gateway_service._load_backend_gateway_env_values()
     ib_web_login_mode = str(s.IB_WEB_LOGIN_MODE or "").strip().lower()
     ib_web_default_is_paper = ib_web_login_mode == "paper"
     ib_web_default_is_live = ib_web_login_mode == "live"
@@ -114,26 +122,89 @@ async def get_gateway_credentials(
             "auth_code": s.CTP_AUTH_CODE,
         },
         "MT5": {
-            "login": s.MT5_LOGIN,
-            "password": s.MT5_PASSWORD,
-            "server": s.MT5_SERVER,
-            "ws_uri": s.MT5_WS_URI,
-            "symbol_suffix": s.MT5_SYMBOL_SUFFIX,
+            "login": _env_or_default(
+                s.MT5_LOGIN,
+                env_values.get("MT5_LOGIN", ""),
+                env_values.get("MT5_ACCOUNT", ""),
+            ),
+            "password": _env_or_default(
+                s.MT5_PASSWORD,
+                env_values.get("MT5_PASSWORD", ""),
+                env_values.get("MT5_PASS", ""),
+            ),
+            "server": _env_or_default(
+                s.MT5_SERVER,
+                env_values.get("MT5_SERVER", ""),
+            ),
+            "ws_uri": _env_or_default(
+                s.MT5_WS_URI,
+                env_values.get("MT5_WS_URI", ""),
+            ),
+            "symbol_suffix": _env_or_default(
+                s.MT5_SYMBOL_SUFFIX,
+                env_values.get("MT5_SYMBOL_SUFFIX", ""),
+            ),
             "timeout": s.MT5_TIMEOUT,
             "demo": {
-                "login": s.MT5_DEMO_LOGIN or s.MT5_LOGIN,
-                "password": s.MT5_DEMO_PASSWORD or s.MT5_PASSWORD,
-                "server": s.MT5_DEMO_SERVER or s.MT5_SERVER,
-                "ws_uri": s.MT5_DEMO_WS_URI or s.MT5_WS_URI,
-                "symbol_suffix": s.MT5_SYMBOL_SUFFIX,
+                "login": _env_or_default(
+                    s.MT5_DEMO_LOGIN,
+                    env_values.get("MT5_DEMO_LOGIN", ""),
+                    s.MT5_LOGIN,
+                    env_values.get("MT5_LOGIN", ""),
+                ),
+                "password": _env_or_default(
+                    s.MT5_DEMO_PASSWORD,
+                    env_values.get("MT5_DEMO_PASSWORD", ""),
+                    s.MT5_PASSWORD,
+                    env_values.get("MT5_PASSWORD", ""),
+                ),
+                "server": _env_or_default(
+                    s.MT5_DEMO_SERVER,
+                    env_values.get("MT5_DEMO_SERVER", ""),
+                    s.MT5_SERVER,
+                    env_values.get("MT5_SERVER", ""),
+                ),
+                "ws_uri": _env_or_default(
+                    s.MT5_DEMO_WS_URI,
+                    env_values.get("MT5_DEMO_WS_URI", ""),
+                    s.MT5_WS_URI,
+                    env_values.get("MT5_WS_URI", ""),
+                ),
+                "symbol_suffix": _env_or_default(
+                    s.MT5_SYMBOL_SUFFIX,
+                    env_values.get("MT5_SYMBOL_SUFFIX", ""),
+                ),
                 "timeout": s.MT5_TIMEOUT,
             },
             "live": {
-                "login": s.MT5_LIVE_LOGIN or s.MT5_LOGIN,
-                "password": s.MT5_LIVE_PASSWORD or s.MT5_PASSWORD,
-                "server": s.MT5_LIVE_SERVER or s.MT5_SERVER,
-                "ws_uri": s.MT5_LIVE_WS_URI or s.MT5_WS_URI,
-                "symbol_suffix": s.MT5_SYMBOL_SUFFIX,
+                "login": _env_or_default(
+                    s.MT5_LIVE_LOGIN,
+                    env_values.get("MT5_LIVE_LOGIN", ""),
+                    s.MT5_LOGIN,
+                    env_values.get("MT5_LOGIN", ""),
+                ),
+                "password": _env_or_default(
+                    s.MT5_LIVE_PASSWORD,
+                    env_values.get("MT5_LIVE_PASSWORD", ""),
+                    s.MT5_PASSWORD,
+                    env_values.get("MT5_PASSWORD", ""),
+                ),
+                "server": _env_or_default(
+                    s.MT5_LIVE_SERVER,
+                    env_values.get("MT5_LIVE_SERVER", ""),
+                    s.MT5_SERVER,
+                    env_values.get("MT5_SERVER", ""),
+                ),
+                "ws_uri": _env_or_default(
+                    s.MT5_LIVE_WS_URI,
+                    env_values.get("MT5_LIVE_WS_URI", ""),
+                    s.MT5_WS_URI,
+                    env_values.get("MT5_WS_URI", ""),
+                ),
+                "symbol_suffix": _env_or_default(
+                    s.MT5_SYMBOL_SUFFIX,
+                    env_values.get("MT5_SYMBOL_SUFFIX", ""),
+                ),
                 "timeout": s.MT5_TIMEOUT,
             },
         },
@@ -287,17 +358,36 @@ async def get_gateway_credentials(
         "BINANCE": {
             "account_id": s.BINANCE_ACCOUNT_ID,
             "asset_type": s.BINANCE_ASSET_TYPE,
-            "api_key": s.BINANCE_API_KEY,
-            "secret_key": s.BINANCE_SECRET_KEY,
+            "api_key": _env_or_default(
+                s.BINANCE_API_KEY,
+                env_values.get("BINANCE_API_KEY", ""),
+            ),
+            "secret_key": _env_or_default(
+                s.BINANCE_SECRET_KEY,
+                env_values.get("BINANCE_SECRET_KEY", ""),
+                env_values.get("BINANCE_PASSWORD", ""),
+                env_values.get("BINANCE_SECRET", ""),
+            ),
             "testnet": s.BINANCE_TESTNET,
             "base_url": s.BINANCE_BASE_URL,
         },
         "OKX": {
             "account_id": s.OKX_ACCOUNT_ID,
             "asset_type": s.OKX_ASSET_TYPE,
-            "api_key": s.OKX_API_KEY,
-            "secret_key": s.OKX_SECRET_KEY,
-            "passphrase": s.OKX_PASSPHRASE,
+            "api_key": _env_or_default(
+                s.OKX_API_KEY,
+                env_values.get("OKX_API_KEY", ""),
+            ),
+            "secret_key": _env_or_default(
+                s.OKX_SECRET_KEY,
+                env_values.get("OKX_SECRET_KEY", ""),
+                env_values.get("OKX_SECRET", ""),
+            ),
+            "passphrase": _env_or_default(
+                s.OKX_PASSPHRASE,
+                env_values.get("OKX_PASSPHRASE", ""),
+                env_values.get("OKX_PASSWORD", ""),
+            ),
             "testnet": s.OKX_TESTNET,
             "base_url": s.OKX_BASE_URL,
         },

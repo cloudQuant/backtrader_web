@@ -74,6 +74,7 @@ vi.mock('@element-plus/icons-vue', () => {
     'Folder', 'FolderOpened', 'Picture', 'Link', 'Position', 'Odometer',
     'ChatDotRound', 'Bell', 'QuestionFilled', 'Back', 'Right', 'Top', 'Bottom',
     'Unlock', 'Select', 'Wallet', 'Tools', 'DataAnalysis', 'Share', 'Files',
+    'Aim', 'Collection', 'Compass', 'Cpu', 'MagicStick', 'Reading', 'UserFilled',
   ]
   const result: Record<string, any> = {}
   for (const n of names) {

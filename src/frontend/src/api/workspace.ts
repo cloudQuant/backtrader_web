@@ -21,7 +21,11 @@ import type {
   UnitStatusResponse,
   UnitOptimizationRequest,
   ApplyBestParamsRequest,
+  ApplyBestParamsResponse,
+  CancelOptimizationResponse,
   OptimizationSubmitResult,
+  OptimizationProgressResponse,
+  OptimizationResultsResponse,
   OptimizationArtifactResponse,
   WorkspaceType,
   TradingAutoConfig,
@@ -29,6 +33,9 @@ import type {
   TradingPositionManagerResponse,
   TradingDailySummaryResponse,
   StrategyUnitRuntimeInfo,
+  WorkspaceReportCreateRequest,
+  WorkspaceReportDeleteResponse,
+  WorkspaceReportResponse,
 } from '@/types/workspace'
 
 export const workspaceApi = {
@@ -182,11 +189,17 @@ export const workspaceApi = {
     return api.post(`/workspace/${workspaceId}/optimize`, data)
   },
 
-  async getOptimizationProgress(workspaceId: string, unitId: string): Promise<Record<string, unknown>> {
+  async getOptimizationProgress(
+    workspaceId: string,
+    unitId: string,
+  ): Promise<OptimizationProgressResponse> {
     return api.get(`/workspace/${workspaceId}/optimize/${unitId}/progress`)
   },
 
-  async getOptimizationResults(workspaceId: string, unitId: string): Promise<Record<string, unknown>> {
+  async getOptimizationResults(
+    workspaceId: string,
+    unitId: string,
+  ): Promise<OptimizationResultsResponse> {
     return api.get(`/workspace/${workspaceId}/optimize/${unitId}/results`)
   },
 
@@ -245,24 +258,33 @@ export const workspaceApi = {
     URL.revokeObjectURL(url)
   },
 
-  async cancelOptimization(workspaceId: string, unitId: string): Promise<Record<string, unknown>> {
+  async cancelOptimization(
+    workspaceId: string,
+    unitId: string,
+  ): Promise<CancelOptimizationResponse> {
     return api.post(`/workspace/${workspaceId}/optimize/${unitId}/cancel`)
   },
 
-  async applyBestParams(workspaceId: string, data: ApplyBestParamsRequest): Promise<Record<string, unknown>> {
+  async applyBestParams(
+    workspaceId: string,
+    data: ApplyBestParamsRequest,
+  ): Promise<ApplyBestParamsResponse> {
     return api.post(`/workspace/${workspaceId}/optimize/apply`, data)
   },
 
   // Report
-  async getReport(workspaceId: string): Promise<Record<string, unknown>> {
+  async getReport(workspaceId: string): Promise<WorkspaceReportResponse> {
     return api.get(`/workspace/${workspaceId}/report`)
   },
 
-  async createReport(workspaceId: string, config: Record<string, unknown>): Promise<Record<string, unknown>> {
+  async createReport(
+    workspaceId: string,
+    config: WorkspaceReportCreateRequest,
+  ): Promise<WorkspaceReportResponse> {
     return api.post(`/workspace/${workspaceId}/report`, config)
   },
 
-  async deleteReport(workspaceId: string): Promise<Record<string, unknown>> {
+  async deleteReport(workspaceId: string): Promise<WorkspaceReportDeleteResponse> {
     return api.delete(`/workspace/${workspaceId}/report`)
   },
 }

@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import urllib.request
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -105,10 +106,10 @@ def _find_recent_bind_error(snapshot: dict[str, Any] | None) -> str:
 
 
 def _release_gateway_zmq_ports(runtime) -> None:
-    """Clear bt_api_py TCP port caches for a stopped runtime so reconnect
+    """Clear bt_api_base TCP port caches for a stopped runtime so reconnect
     can reuse or reallocate the same ports without 'Address in use' errors."""
     try:
-        from bt_api_py.gateway.config import (
+        from bt_api_base.gateway.config import (
             _TCP_PORT_ASSIGNMENTS,
             _TCP_RESERVED_BASE_PORTS,
         )
@@ -389,6 +390,334 @@ def _backend_env_file() -> Path:
     return Path(__file__).resolve().parents[2] / ".env"
 
 
+def _backend_env_file_for_helpers() -> Path:
+    for path in _backend_env_file_candidates():
+        if path.is_file():
+            return path
+    return _backend_env_file()
+
+
+def _backend_env_file_candidates() -> tuple[Path, ...]:
+    """Return backend and project-level .env files for fallback credential lookup."""
+    project_root = Path(__file__).resolve().parents[4]
+    cwd = Path.cwd()
+    candidates = [
+        Path(__file__).resolve().parents[2] / ".env",
+        project_root / ".env",
+        cwd / ".env",
+    ]
+    deduped: list[Path] = []
+    for path in candidates:
+        if path.is_file() and path not in deduped:
+            deduped.append(path)
+    return tuple(deduped)
+
+
+def _strip_quoted_env_comment(value: str) -> str:
+    if not value:
+        return ""
+    value = value.strip()
+    in_single = False
+    in_double = False
+    escaped = False
+    for index, ch in enumerate(value):
+        if ch == "\\" and not in_single:
+            escaped = not escaped
+            continue
+        if escaped:
+            escaped = False
+            continue
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            continue
+        if ch == "#" and not in_single and not in_double:
+            return value[:index].rstrip()
+    return value
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Parse KEY=VALUE pairs from a .env-like text file.
+
+    The parser is intentionally small and permissive:
+    - ignores comments and empty lines
+    - supports optional `export` prefix
+    - removes surrounding single/double quotes
+    - keeps escaped values
+    """
+    env_values: dict[str, str] = {}
+    if not path.is_file():
+        return env_values
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return env_values
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        value = _strip_quoted_env_comment(value.strip())
+        if (len(value) >= 2 and value[0] == value[-1]) and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        env_values[key] = value
+    return env_values
+
+
+def _load_backend_gateway_env_values() -> dict[str, str]:
+    """Load key/value pairs from local .env files and process env for fallback."""
+    values: dict[str, str] = {}
+    for path in _backend_env_file_candidates():
+        values.update(_parse_env_file(path))
+
+    try:
+        from dotenv import dotenv_values
+
+        for path in _backend_env_file_candidates():
+            file_values = dotenv_values(path)
+            if not isinstance(file_values, dict):
+                continue
+            for key, value in file_values.items():
+                if value not in {None, ""}:
+                    values[key] = str(value).strip()
+    except Exception:
+        pass
+
+    for key, value in os.environ.items():
+        if value not in {None, ""}:
+            values[key] = str(value).strip()
+    return values
+
+
+def _pick_explicit_or_setting_or_env(
+    explicit_value: Any,
+    settings: Any,
+    setting_names: tuple[str, ...],
+    env_names: tuple[str, ...],
+    env_values: dict[str, str] | None = None,
+    default: Any = "",
+) -> Any:
+    if explicit_value not in {None, ""}:
+        return explicit_value
+    for setting_name in setting_names:
+        value = getattr(settings, setting_name, None)
+        if value not in {None, ""}:
+            return value
+    if env_values:
+        for env_name in env_names:
+            value = env_values.get(env_name)
+            if value not in {None, ""}:
+                return value
+    return default
+
+
+def _coerce_bool_like(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value in {None, ""}:
+        return default
+    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _coerce_str(value: Any) -> str:
+    if value in {None, ""}:
+        return ""
+    return str(value).strip()
+
+
+def _merge_binance_default_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
+    from app.config import get_settings
+
+    settings = get_settings()
+    env_values = _load_backend_gateway_env_values()
+    resolved = dict(credentials)
+
+    resolved["api_key"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("api_key"),
+            settings,
+            ("BINANCE_API_KEY",),
+            ("BINANCE_API_KEY",),
+            env_values,
+            default="",
+        )
+    )
+    resolved["secret_key"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("secret_key"),
+            settings,
+            ("BINANCE_SECRET_KEY",),
+            ("BINANCE_SECRET_KEY", "BINANCE_PASSWORD", "BINANCE_SECRET"),
+            env_values,
+            default="",
+        )
+    )
+    resolved["testnet"] = _coerce_bool_like(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("testnet"),
+            settings,
+            ("BINANCE_TESTNET",),
+            ("BINANCE_TESTNET",),
+            env_values,
+            default=False,
+        ),
+        default=False,
+    )
+    resolved["base_url"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("base_url"),
+            settings,
+            ("BINANCE_BASE_URL",),
+            ("BINANCE_BASE_URL",),
+            env_values,
+            default="",
+        )
+    )
+    return resolved
+
+
+def _merge_okx_default_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
+    from app.config import get_settings
+
+    settings = get_settings()
+    env_values = _load_backend_gateway_env_values()
+    resolved = dict(credentials)
+
+    resolved["api_key"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("api_key"),
+            settings,
+            ("OKX_API_KEY",),
+            ("OKX_API_KEY",),
+            env_values,
+            default="",
+        )
+    )
+    resolved["secret_key"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("secret_key"),
+            settings,
+            ("OKX_SECRET_KEY",),
+            ("OKX_SECRET_KEY", "OKX_SECRET"),
+            env_values,
+            default="",
+        )
+    )
+    resolved["passphrase"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("passphrase"),
+            settings,
+            ("OKX_PASSPHRASE",),
+            ("OKX_PASSPHRASE", "OKX_PASSWORD"),
+            env_values,
+            default="",
+        )
+    )
+    resolved["testnet"] = _coerce_bool_like(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("testnet"),
+            settings,
+            ("OKX_TESTNET",),
+            ("OKX_TESTNET",),
+            env_values,
+            default=False,
+        ),
+        default=False,
+    )
+    resolved["base_url"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("base_url"),
+            settings,
+            ("OKX_BASE_URL",),
+            ("OKX_BASE_URL",),
+            env_values,
+            default="",
+        )
+    )
+    return resolved
+
+
+def _merge_mt5_default_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
+    from app.config import get_settings
+
+    settings = get_settings()
+    env_values = _load_backend_gateway_env_values()
+    resolved = dict(credentials)
+
+    resolved["login"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("login"),
+            settings,
+            ("MT5_LOGIN",),
+            ("MT5_LOGIN", "MT5_ACCOUNT"),
+            env_values,
+            default="",
+        )
+    )
+    resolved["password"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("password"),
+            settings,
+            ("MT5_PASSWORD",),
+            ("MT5_PASSWORD", "MT5_PASS"),
+            env_values,
+            default="",
+        )
+    )
+    resolved["server"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("server"),
+            settings,
+            ("MT5_SERVER",),
+            ("MT5_SERVER", "MT5_ACCOUNT_SERVER"),
+            env_values,
+            default="",
+        )
+    )
+    resolved["ws_uri"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("ws_uri"),
+            settings,
+            ("MT5_WS_URI",),
+            ("MT5_WS_URI",),
+            env_values,
+            default="",
+        )
+    )
+    resolved["symbol_suffix"] = _coerce_str(
+        _pick_explicit_or_setting_or_env(
+            resolved.get("symbol_suffix"),
+            settings,
+            ("MT5_SYMBOL_SUFFIX",),
+            ("MT5_SYMBOL_SUFFIX",),
+            env_values,
+            default="",
+        )
+    )
+    return resolved
+
+
+def _normalize_manual_gateway_credentials(exchange_type: str, credentials: dict[str, Any]) -> dict[str, Any]:
+    if exchange_type == "IB_WEB":
+        return _merge_ib_web_default_credentials(credentials)
+    if exchange_type == "BINANCE":
+        return _merge_binance_default_credentials(credentials)
+    if exchange_type == "OKX":
+        return _merge_okx_default_credentials(credentials)
+    if exchange_type == "MT5":
+        return _merge_mt5_default_credentials(credentials)
+    return dict(credentials)
+
+
 def _pick_explicit_or_setting(
     explicit_value: Any,
     settings: Any,
@@ -595,9 +924,26 @@ def _workspace_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
+def _installed_bt_api_py_dir() -> Path | None:
+    spec = find_spec("bt_api_py")
+    if spec is None:
+        return None
+    submodule_search_locations = spec.submodule_search_locations or []
+    if submodule_search_locations:
+        candidate = Path(next(iter(submodule_search_locations)))
+        if candidate.is_dir():
+            return candidate
+    origin = getattr(spec, "origin", None)
+    if origin:
+        candidate = Path(origin).resolve().parent
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
 def _ib_web_cookie_base_dir() -> Path:
-    bt_api_py_dir = _workspace_root().parent / "bt_api_py"
-    if bt_api_py_dir.is_dir():
+    bt_api_py_dir = _installed_bt_api_py_dir()
+    if bt_api_py_dir is not None and bt_api_py_dir.is_dir():
         return bt_api_py_dir
     return _backend_env_file().parent
 
@@ -640,10 +986,6 @@ def _swap_url_scheme(base_url: str, scheme: str) -> str:
 
 
 def _import_ib_web_session_helpers():
-    workspace_dir = Path(__file__).resolve().parents[5]
-    bt_api_py_dir = workspace_dir / "bt_api_py"
-    if bt_api_py_dir.is_dir() and str(bt_api_py_dir) not in sys.path:
-        sys.path.insert(0, str(bt_api_py_dir))
     from bt_api_py.functions.ib_web_session import (
         auth_status,
         ensure_authenticated_session,
@@ -659,10 +1001,6 @@ def _load_ib_web_session_state(
     verify_ssl: bool,
     timeout: float,
 ) -> tuple[dict[str, Any], dict[str, str], bool, list[dict[str, Any]], str]:
-    workspace_dir = Path(__file__).resolve().parents[5]
-    bt_api_py_dir = workspace_dir / "bt_api_py"
-    if bt_api_py_dir.is_dir() and str(bt_api_py_dir) not in sys.path:
-        sys.path.insert(0, str(bt_api_py_dir))
     from bt_api_py.functions.ib_web_session import (
         cookies_are_authenticated,
         current_cookie_payload,
@@ -683,7 +1021,7 @@ def _load_ib_web_session_state(
             "cookie_output": credentials.get("cookie_output", ""),
         },
         base_dir=_ib_web_cookie_base_dir(),
-        env_file=_backend_env_file(),
+        env_file=_backend_env_file_for_helpers(),
     )
     cookies = current_cookie_payload(settings)
     authenticated = cookies_are_authenticated(settings, cookies) if cookies else False
@@ -852,28 +1190,27 @@ def _bootstrap_ib_web_session(
         # ``pick("username", ...)`` lookup before the .env ``IB_WEB_USERNAME``
         # value is reached.
         try:
-            from dotenv import dotenv_values as _dotenv_values
-
-            _env = _dotenv_values(_backend_env_file())
+            env_values = _load_backend_gateway_env_values()
+            env_file = _backend_env_file_for_helpers()
             return ensure_authenticated_session(
                 overrides={
                     "base_url": base_url,
                     "account_id": credentials.get("account_id", ""),
                     "verify_ssl": verify_ssl,
                     "timeout": timeout,
-                    "username": _env.get("IB_WEB_USERNAME", ""),
-                    "password": _env.get("IB_WEB_PASSWORD", ""),
-                    "login_mode": _env.get("IB_WEB_LOGIN_MODE", "paper"),
-                    "login_browser": _env.get("IB_WEB_LOGIN_BROWSER", "chrome"),
-                    "login_headless": _env.get("IB_WEB_LOGIN_HEADLESS", "false"),
-                    "login_timeout": _env.get("IB_WEB_LOGIN_TIMEOUT", "180"),
-                    "cookie_source": _env.get("IB_WEB_COOKIE_SOURCE", ""),
-                    "cookie_output": _env.get("IB_WEB_COOKIE_OUTPUT", ""),
-                    "cookie_browser": _env.get("IB_WEB_COOKIE_BROWSER", "chrome"),
-                    "cookie_path": _env.get("IB_WEB_COOKIE_PATH", "/sso"),
+                    "username": env_values.get("IB_WEB_USERNAME", ""),
+                    "password": env_values.get("IB_WEB_PASSWORD", ""),
+                    "login_mode": env_values.get("IB_WEB_LOGIN_MODE", "paper"),
+                    "login_browser": env_values.get("IB_WEB_LOGIN_BROWSER", "chrome"),
+                    "login_headless": env_values.get("IB_WEB_LOGIN_HEADLESS", "false"),
+                    "login_timeout": env_values.get("IB_WEB_LOGIN_TIMEOUT", "180"),
+                    "cookie_source": env_values.get("IB_WEB_COOKIE_SOURCE", ""),
+                    "cookie_output": env_values.get("IB_WEB_COOKIE_OUTPUT", ""),
+                    "cookie_browser": env_values.get("IB_WEB_COOKIE_BROWSER", "chrome"),
+                    "cookie_path": env_values.get("IB_WEB_COOKIE_PATH", "/sso"),
                 },
                 base_dir=_ib_web_cookie_base_dir(),
-                env_file=_backend_env_file(),
+                env_file=env_file,
             )
         except Exception as exc:
             _logger.warning(
@@ -905,7 +1242,7 @@ def _bootstrap_ib_web_session(
             "cookie_output": credentials.get("cookie_output", ""),
         },
         base_dir=_ib_web_cookie_base_dir(),
-        env_file=_backend_env_file(),
+        env_file=_backend_env_file_for_helpers(),
     )
 
 
@@ -968,7 +1305,7 @@ def _persist_ib_web_env_updates(updates: dict[str, str]) -> None:
             "IB_WEB env persistence skipped because bt_api_py session helpers are unavailable"
         )
         return
-    env_file = _backend_env_file()
+    env_file = _backend_env_file_for_helpers()
     upsert_env_file(env_file, filtered)
     from app import config as app_config
 
@@ -1673,6 +2010,7 @@ def connect_gateway(
     _detect_working_proxy()
 
     exchange_type = normalize_exchange_type(exchange_type)
+    credentials = _normalize_manual_gateway_credentials(exchange_type, dict(credentials))
     account_id = _resolve_manual_account_id(exchange_type, credentials)
     asset_type = normalize_gateway_asset_type(exchange_type, credentials.get("asset_type"))
     session_key = _build_manual_gateway_session_key(exchange_type, credentials)
@@ -2034,6 +2372,7 @@ def connect_binance_gateway(
     default_transport: str,
     logger,
 ) -> dict[str, Any]:
+    credentials = _merge_binance_default_credentials(credentials)
     required = ["api_key", "secret_key"]
     missing = [field for field in required if not credentials.get(field)]
     if missing:
@@ -2099,6 +2438,7 @@ def connect_okx_gateway(
     default_transport: str,
     logger,
 ) -> dict[str, Any]:
+    credentials = _merge_okx_default_credentials(credentials)
     required = ["api_key", "secret_key", "passphrase"]
     missing = [field for field in required if not credentials.get(field)]
     if missing:
@@ -2164,6 +2504,7 @@ def connect_mt5_gateway(
     import_gateway_runtime_classes,
     logger,
 ) -> dict[str, Any]:
+    credentials = _merge_mt5_default_credentials(credentials)
     login = credentials.get("login")
     password = credentials.get("password")
     if not login or not password:

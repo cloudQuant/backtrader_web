@@ -52,6 +52,7 @@ mkdocs build -f docs/mkdocs.yml
 The original documentation is preserved in this directory:
 
 - `*.md` - Core documentation files
+- `AI_STRATEGY_COPILOT.md` - AI 策略 Copilot 与自然语言策略生成说明
 - `iterations/` - Development iteration history
 - `contracts/` - Project contracts and policies
 
