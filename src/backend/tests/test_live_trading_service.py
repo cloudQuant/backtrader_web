@@ -182,25 +182,17 @@ class TestLoadStrategyFromCode:
         """
         service = LiveTradingService()
 
-        # Mock backtrader Strategy
-        mock_strategy_base = type("Strategy", (), {})
-        mock_backtrader = MagicMock(Strategy=mock_strategy_base)
-
-        # Mock backtrader at sys.modules level so the import in the code works
-        with patch.dict("sys.modules", {"backtrader": mock_backtrader}):
-            # Also patch bt at module level
-            import app.services.live_trading_service as live_service_module
-
-            with patch.object(live_service_module, "bt", mock_backtrader, create=True):
-                code = """
-import backtrader as bt
+        # The sandbox preloads ``bt`` into globals; user code must reference it
+        # directly (no ``import backtrader``, which is whitelisted-only).
+        code = """
 class TestStrategy(bt.Strategy):
     pass
 """
-                result = service._load_strategy_from_code(code, {})
+        result = service._load_strategy_from_code(code, {})
 
-                # The result should be a strategy class
-                assert result is not None
+        # The result should be a strategy class
+        assert result is not None
+        assert result.__name__ == "TestStrategy"
 
     def test_load_strategy_with_params(self):
         """Test loading strategy with parameters.
@@ -210,23 +202,18 @@ class TestStrategy(bt.Strategy):
         """
         service = LiveTradingService()
 
-        mock_strategy_base = type("Strategy", (), {})
-        mock_backtrader = MagicMock(Strategy=mock_strategy_base)
-
-        with patch.dict("sys.modules", {"backtrader": mock_backtrader}):
-            import app.services.live_trading_service as live_service_module
-
-            with patch.object(live_service_module, "bt", mock_backtrader, create=True):
-                # Use code without params - just test the basic loading
-                code = """
-import backtrader as bt
+        code = """
 class TestStrategy(bt.Strategy):
     pass
 """
-                result = service._load_strategy_from_code(code, {"period": 30})
+        # ``period`` is just made available in globals; the new sandbox no
+        # longer mutates ``params._get(k).default`` (which would leak across
+        # all instantiations of the class).
+        result = service._load_strategy_from_code(code, {"period": 30})
 
-                # Should find the strategy class
-                assert result is not None
+        # Should find the strategy class
+        assert result is not None
+        assert result.__name__ == "TestStrategy"
 
     def test_load_strategy_no_strategy_found(self):
         """Test loading code without strategy class.
@@ -236,17 +223,11 @@ class TestStrategy(bt.Strategy):
         """
         service = LiveTradingService()
 
-        mock_strategy_base = type("Strategy", (), {})
-        mock_backtrader = MagicMock(Strategy=mock_strategy_base)
+        # Use code that compiles cleanly but defines no Strategy class.
+        code = "x = 1"
 
-        with patch.dict("sys.modules", {"backtrader": mock_backtrader}):
-            import app.services.live_trading_service as live_service_module
-
-            with patch.object(live_service_module, "bt", mock_backtrader, create=True):
-                code = "print('hello world')"
-
-                with pytest.raises(ValueError, match="No valid Strategy class found"):
-                    service._load_strategy_from_code(code, {})
+        with pytest.raises(ValueError, match="No valid Strategy class found"):
+            service._load_strategy_from_code(code, {})
 
 
 class TestStopLiveStrategy:

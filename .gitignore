@@ -25,7 +25,7 @@ node_modules/
 .env.local
 .env.*.local
 .venv
-src/backend/.venv-smoke-ci*/
+src/backend/.venv*/
 venv/
 env/
 
@@ -39,7 +39,16 @@ env/
 *~
 .DS_Store
 Thumbs.db
+
+# =====================================================
+# AI tooling local configs (developer-machine only;
+# do not commit. Keep `.kiro/` and `_bmad/` if used.)
+# =====================================================
+.agents/
+.claude/
+.cursor/
 .opencode/
+.windsurf/
 
 # =====================================================
 # 测试与覆盖率

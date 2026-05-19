@@ -1,0 +1,15 @@
+strategy:
+  name: n
+  description: d
+params:
+  p: 1
+data:
+  data_type: cat
+  category: cat
+  symbol: ''
+  symbol_name: ''
+  timeframe: 1d
+  timeframe_n: 1
+backtest:
+  initial_cash: 100000.0
+  commission: 0.001

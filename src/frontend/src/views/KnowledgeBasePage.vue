@@ -107,6 +107,14 @@
               <button type="button" class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" @click="openImportDialog">
                 导入文档
               </button>
+              <button
+                type="button"
+                class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                :disabled="!store.currentKnowledgeBase"
+                @click="openKnowledgeBaseSettingsDialog"
+              >
+                检索配置
+              </button>
               <div class="flex gap-2">
                 <button type="button" class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" @click="openCreateDialog(false)">
                   新建文档
@@ -117,7 +125,7 @@
               </div>
             </div>
 
-            <div v-if="store.currentKnowledgeBase" class="grid gap-2 sm:grid-cols-3">
+            <div v-if="store.currentKnowledgeBase" class="grid gap-2 sm:grid-cols-4">
               <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div class="text-xs text-slate-400">文档总数</div>
                 <div class="mt-1 text-sm font-medium text-slate-700">{{ store.documents.length }}</div>
@@ -129,6 +137,13 @@
               <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div class="text-xs text-slate-400">文件夹</div>
                 <div class="mt-1 text-sm font-medium text-slate-700">{{ folderCount }}</div>
+              </div>
+              <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
+                <div class="text-xs text-slate-400">检索策略</div>
+                <div class="mt-1 text-sm font-medium text-slate-700">{{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</div>
+                <div class="mt-1 text-xs text-slate-500">
+                  {{ currentKnowledgeBaseSettings.search_mode }} / top_k {{ currentKnowledgeBaseSettings.default_top_k }}
+                </div>
               </div>
             </div>
 
@@ -489,6 +504,86 @@
         </div>
       </div>
     </el-dialog>
+
+    <el-dialog v-if="knowledgeBaseSettingsDialog.open" model-value="true">
+      <div class="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl mx-auto">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-lg font-semibold text-slate-900">检索配置</div>
+            <div class="mt-1 text-sm text-slate-500">
+              为当前知识库配置 AI 检索和会话记忆策略
+            </div>
+          </div>
+          <button type="button" class="text-slate-400" @click="closeKnowledgeBaseSettingsDialog">✕</button>
+        </div>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <label class="text-sm text-slate-600">
+            <div class="mb-1">检索画像</div>
+            <select v-model="knowledgeBaseSettingsDialog.form.retrieval_profile" class="w-full rounded border px-3 py-2 text-sm">
+              <option value="quant_research">量化研究平衡</option>
+              <option value="precision">高精度引用</option>
+              <option value="exploration">探索式阅读</option>
+            </select>
+          </label>
+          <label class="text-sm text-slate-600">
+            <div class="mb-1">搜索模式</div>
+            <select v-model="knowledgeBaseSettingsDialog.form.search_mode" class="w-full rounded border px-3 py-2 text-sm">
+              <option value="hybrid">混合检索</option>
+              <option value="keyword">关键词优先</option>
+            </select>
+          </label>
+          <label class="text-sm text-slate-600">
+            <div class="mb-1">默认 top_k</div>
+            <input v-model.number="knowledgeBaseSettingsDialog.form.default_top_k" type="number" min="1" max="20" class="w-full rounded border px-3 py-2 text-sm">
+          </label>
+          <label class="text-sm text-slate-600">
+            <div class="mb-1">最低相似度</div>
+            <input v-model.number="knowledgeBaseSettingsDialog.form.min_similarity" type="number" min="0" max="1" step="0.01" class="w-full rounded border px-3 py-2 text-sm">
+          </label>
+          <label class="text-sm text-slate-600">
+            <div class="mb-1">最大上下文块数</div>
+            <input v-model.number="knowledgeBaseSettingsDialog.form.max_context_chunks" type="number" min="1" max="12" class="w-full rounded border px-3 py-2 text-sm">
+          </label>
+          <label class="text-sm text-slate-600">
+            <div class="mb-1">量化重点</div>
+            <select v-model="knowledgeBaseSettingsDialog.form.quant_focus" class="w-full rounded border px-3 py-2 text-sm">
+              <option value="strategy_research">策略研究</option>
+              <option value="strategy_review">策略审查</option>
+              <option value="implementation">实现落地</option>
+              <option value="general">通用问答</option>
+            </select>
+          </label>
+        </div>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+            <input v-model="knowledgeBaseSettingsDialog.form.use_conversation_memory" type="checkbox">
+            <span>启用会话记忆检索</span>
+          </label>
+          <label class="text-sm text-slate-600">
+            <div class="mb-1">会话回看条数</div>
+            <input v-model.number="knowledgeBaseSettingsDialog.form.conversation_lookback_messages" type="number" min="0" max="20" class="w-full rounded border px-3 py-2 text-sm">
+          </label>
+        </div>
+        <div class="mt-4">
+          <label class="text-sm text-slate-600">
+            <div class="mb-1">系统补充提示</div>
+            <textarea
+              v-model="knowledgeBaseSettingsDialog.form.system_prompt_suffix"
+              rows="4"
+              class="w-full rounded border px-3 py-2 text-sm"
+              placeholder="例如：优先按 A 股日线策略研究口径回答。"
+            />
+          </label>
+        </div>
+        <div class="mt-4 rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          当前配置会影响 AI 助手的检索查询改写、文档排序、上下文拼装和量化场景提示词。
+        </div>
+        <div class="mt-4 flex justify-end gap-2">
+          <button type="button" class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600" @click="closeKnowledgeBaseSettingsDialog">取消</button>
+          <button type="button" class="rounded bg-blue-600 px-3 py-2 text-sm text-white" @click="submitKnowledgeBaseSettingsDialog">保存配置</button>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -497,7 +592,11 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
-import type { KBDocumentItem, KnowledgeBaseItem } from '@/api/knowledgeBase'
+import type {
+  KBDocumentItem,
+  KnowledgeBaseItem,
+  KnowledgeBaseSettings,
+} from '@/api/knowledgeBase'
 import { useKnowledgeBaseStore } from '@/stores/knowledgeBase'
 
 type ViewMode = 'tree' | 'table'
@@ -560,6 +659,31 @@ const knowledgeBaseDeleteDialog = reactive({
   target: null as KnowledgeBaseItem | null,
 })
 
+function createDefaultKnowledgeBaseSettings(): KnowledgeBaseSettings {
+  return {
+    retrieval_profile: 'quant_research',
+    search_mode: 'hybrid',
+    default_top_k: 8,
+    min_similarity: 0.08,
+    title_weight: 0.35,
+    keyword_weight: 0.35,
+    phrase_weight: 0.2,
+    recency_weight: 0.1,
+    max_context_chunks: 6,
+    use_conversation_memory: true,
+    conversation_lookback_messages: 6,
+    prioritize_title_matches: true,
+    prefer_recent_documents: true,
+    quant_focus: 'strategy_research',
+    system_prompt_suffix: '',
+  }
+}
+
+const knowledgeBaseSettingsDialog = reactive({
+  open: false,
+  form: createDefaultKnowledgeBaseSettings(),
+})
+
 const draggedDocumentId = ref<string | null>(null)
 
 const filteredKnowledgeBases = computed(() => {
@@ -584,6 +708,10 @@ const sortedDocuments = computed(() => {
 
 const indexedDocumentCount = computed(() => store.documents.filter(doc => doc.index_status === 'indexed').length)
 const folderCount = computed(() => store.documents.filter(doc => doc.is_folder).length)
+const currentKnowledgeBaseSettings = computed<KnowledgeBaseSettings>(() => ({
+  ...createDefaultKnowledgeBaseSettings(),
+  ...(store.currentKnowledgeBase?.settings ?? {}),
+}))
 
 const displayRows = computed<TreeRow[]>(() => {
   const byParent = new Map<string | null, KBDocumentItem[]>()
@@ -646,6 +774,12 @@ function indexClass(status: string) {
 function formatDate(value?: string | null) {
   if (!value) return '未知时间'
   return value.replace('T', ' ').slice(0, 16)
+}
+
+function retrievalProfileLabel(profile?: string | null) {
+  if (profile === 'precision') return '高精度引用'
+  if (profile === 'exploration') return '探索式阅读'
+  return '量化研究平衡'
 }
 
 function documentInsight(doc: KBDocumentItem) {
@@ -938,6 +1072,42 @@ async function submitKnowledgeBaseRenameDialog() {
 function openKnowledgeBaseDeleteDialog(kb: KnowledgeBaseItem) {
   knowledgeBaseDeleteDialog.open = true
   knowledgeBaseDeleteDialog.target = kb
+}
+
+function openKnowledgeBaseSettingsDialog() {
+  knowledgeBaseSettingsDialog.open = true
+  knowledgeBaseSettingsDialog.form = {
+    ...createDefaultKnowledgeBaseSettings(),
+    ...(store.currentKnowledgeBase?.settings ?? {}),
+    system_prompt_suffix: store.currentKnowledgeBase?.settings?.system_prompt_suffix ?? '',
+  }
+}
+
+function closeKnowledgeBaseSettingsDialog() {
+  knowledgeBaseSettingsDialog.open = false
+}
+
+async function submitKnowledgeBaseSettingsDialog() {
+  if (!store.currentKnowledgeBase) {
+    ElMessage.warning('请先选择知识库')
+    return
+  }
+  const settingsPayload = {
+    ...knowledgeBaseSettingsDialog.form,
+    default_top_k: Math.min(20, Math.max(1, Number(knowledgeBaseSettingsDialog.form.default_top_k) || 8)),
+    min_similarity: Math.min(1, Math.max(0, Number(knowledgeBaseSettingsDialog.form.min_similarity) || 0)),
+    max_context_chunks: Math.min(12, Math.max(1, Number(knowledgeBaseSettingsDialog.form.max_context_chunks) || 6)),
+    conversation_lookback_messages: Math.min(
+      20,
+      Math.max(0, Number(knowledgeBaseSettingsDialog.form.conversation_lookback_messages) || 0),
+    ),
+    system_prompt_suffix: knowledgeBaseSettingsDialog.form.system_prompt_suffix?.trim() || null,
+  }
+  await store.updateKnowledgeBase(store.currentKnowledgeBase.id, {
+    settings: settingsPayload,
+  })
+  ElMessage.success('检索配置已更新')
+  closeKnowledgeBaseSettingsDialog()
 }
 
 function closeKnowledgeBaseDeleteDialog() {

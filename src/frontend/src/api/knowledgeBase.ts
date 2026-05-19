@@ -3,6 +3,32 @@ import axios from 'axios'
 
 import { getAccessToken } from '@/utils/session'
 
+export type KnowledgeBaseRetrievalProfile = 'quant_research' | 'precision' | 'exploration'
+export type KnowledgeBaseSearchMode = 'hybrid' | 'keyword'
+export type KnowledgeBaseQuantFocus =
+  | 'general'
+  | 'strategy_research'
+  | 'strategy_review'
+  | 'implementation'
+
+export interface KnowledgeBaseSettings {
+  retrieval_profile: KnowledgeBaseRetrievalProfile
+  search_mode: KnowledgeBaseSearchMode
+  default_top_k: number
+  min_similarity: number
+  title_weight: number
+  keyword_weight: number
+  phrase_weight: number
+  recency_weight: number
+  max_context_chunks: number
+  use_conversation_memory: boolean
+  conversation_lookback_messages: number
+  prioritize_title_matches: boolean
+  prefer_recent_documents: boolean
+  quant_focus: KnowledgeBaseQuantFocus
+  system_prompt_suffix?: string | null
+}
+
 export interface KnowledgeBaseItem {
   id: string
   owner_id: string
@@ -10,6 +36,7 @@ export interface KnowledgeBaseItem {
   description?: string | null
   document_count: number
   is_public: boolean
+  settings?: KnowledgeBaseSettings | null
   created_at: string
   updated_at: string
 }
@@ -25,6 +52,7 @@ export interface KnowledgeBaseUpdateRequest {
   name?: string
   description?: string | null
   is_public?: boolean
+  settings?: Partial<KnowledgeBaseSettings>
 }
 
 export interface KBDocumentItem {

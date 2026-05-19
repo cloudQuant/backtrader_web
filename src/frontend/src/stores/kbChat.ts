@@ -8,6 +8,7 @@ import {
   type KBCitation,
   type KBConversation,
   type KBHistoryMessage,
+  type KBRetrievalDiagnostics,
   type KBReasonCode,
   type KBStrategyDraft,
 } from '@/api/kbChat'
@@ -21,6 +22,7 @@ export interface KBChatMessage {
   reasoning?: string | null
   reasonCode?: KBReasonCode | null
   diagnosticMessage?: string | null
+  diagnostics?: KBRetrievalDiagnostics | null
 }
 
 export const useKBChatStore = defineStore('kbChat', () => {
@@ -48,6 +50,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
         reasoning: message.reasoning ?? undefined,
         reasonCode: message.reason_code ?? undefined,
         diagnosticMessage: message.diagnostic_message ?? undefined,
+        diagnostics: message.diagnostics ?? undefined,
       }))
       return response
     } finally {
@@ -90,6 +93,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
         reasoning: response.reasoning ?? undefined,
         reasonCode: response.reason_code ?? undefined,
         diagnosticMessage: response.diagnostic_message ?? undefined,
+        diagnostics: response.diagnostics ?? undefined,
       })
       try {
         await fetchConversations(knowledgeBaseId)

@@ -53,7 +53,7 @@ class Settings(BaseSettings):
 
     # App settings
     APP_NAME: str = "backtrader_web"
-    DEBUG: bool = Field(default=True, description="Debug mode (should be False in production)")
+    DEBUG: bool = Field(default=False, description="Debug mode (must remain False in production)")
     SECRET_KEY: str = Field(
         default="your-secret-key-change-in-production",
         description="Secret key for encryption (CHANGE IN PRODUCTION)",
@@ -110,14 +110,15 @@ class Settings(BaseSettings):
     )
     JWT_ALGORITHM: str = Field(default="HS256", description="JWT encryption algorithm")
     JWT_EXPIRE_MINUTES: int = Field(
-        default=10080, description="JWT token expiration in minutes (default 7 days)"
+        default=60, description="JWT token expiration in minutes (default 1 hour)"
     )
 
     # Service settings
-    # NOTE: HOST="0.0.0.0" binds to all interfaces for development convenience.
-    # In production, set HOST to specific IP or use firewall rules to restrict access.
+    # NOTE: defaults to 127.0.0.1 (loopback) for safety. Production / docker
+    # deployments should override via HOST=0.0.0.0 in their env files.
     HOST: str = Field(
-        default="0.0.0.0", description="Server host address (use specific IP in production)"
+        default="127.0.0.1",
+        description="Server host address (override to 0.0.0.0 in containers/production)",
     )
     PORT: int = Field(default=8000, description="Server port")
     AI_CHAT_ENABLED: bool = Field(

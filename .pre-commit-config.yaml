@@ -26,3 +26,20 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=500]
+
+  # Frontend ESLint + type check (local, only when frontend files change)
+  - repo: local
+    hooks:
+      - id: frontend-eslint
+        name: Frontend ESLint
+        entry: bash -c 'cd src/frontend && npx eslint --no-error-on-unmatched-pattern --max-warnings 0 "$@"' --
+        language: system
+        files: ^src/frontend/.*\.(vue|ts|tsx|js|jsx|cjs|mjs|cts|mts)$
+        pass_filenames: true
+        require_serial: false
+      - id: frontend-typecheck
+        name: Frontend TypeScript type-check
+        entry: bash -c 'cd src/frontend && npx vue-tsc --noEmit --skipLibCheck'
+        language: system
+        files: ^src/frontend/.*\.(vue|ts|tsx)$
+        pass_filenames: false

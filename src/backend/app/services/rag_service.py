@@ -1,4 +1,6 @@
-"""Minimal RAG service for iteration 129."""
+"""Knowledge-base retrieval and grounded answer generation."""
+
+from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
@@ -11,16 +13,21 @@ from app.models.knowledge_base import DocumentChunk, KBDocument, KnowledgeBase
 from app.services.ai_chat_service import AIChatService
 from app.services.chunk_service import chunk_service
 from app.services.strategy_service import build_ai_strategy_draft, render_ai_strategy_draft_answer
+from app.utils.knowledge_base_settings import merge_knowledge_base_settings
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(str(value or "").split()).strip()
 
 
 def _extract_query_terms(query: str) -> list[str]:
-    normalized = re.sub(r"[？?！!,，。；：:\s]+", " ", query.lower()).strip()
+    normalized = re.sub(r"[？?！!,，。；：:()（）\[\]{}<>/\\\s]+", " ", query.lower()).strip()
     tokens = [token for token in normalized.split() if token]
     if len(tokens) == 1 and any("\u4e00" <= ch <= "\u9fff" for ch in tokens[0]):
         text = tokens[0]
-        ngrams = {text[i : i + 2] for i in range(len(text) - 1) if text[i : i + 2].strip()}
+        ngrams = [text[i : i + 2] for i in range(len(text) - 1) if text[i : i + 2].strip()]
         if ngrams:
-            return list(ngrams)
+            return list(dict.fromkeys(ngrams))
     return tokens
 
 
@@ -33,23 +40,104 @@ def _keyword_similarity(query: str, content: str) -> float:
     return hits / len(query_terms)
 
 
+def _char_ngrams(text: str, size: int = 2) -> set[str]:
+    compact = re.sub(r"\s+", "", str(text or "").lower())
+    if not compact:
+        return set()
+    if len(compact) <= size:
+        return {compact}
+    return {compact[idx : idx + size] for idx in range(len(compact) - size + 1)}
+
+
+def _char_jaccard(left: str, right: str) -> float:
+    left_set = _char_ngrams(left)
+    right_set = _char_ngrams(right)
+    if not left_set or not right_set:
+        return 0.0
+    union = left_set | right_set
+    if not union:
+        return 0.0
+    return len(left_set & right_set) / len(union)
+
+
+def _history_message_to_dict(message: Any) -> dict[str, Any]:
+    if isinstance(message, dict):
+        return message
+    return {
+        "role": getattr(message, "role", None),
+        "content": getattr(message, "content", None),
+        "citations": getattr(message, "citations", None),
+    }
+
+
+def _looks_like_follow_up(question: str) -> bool:
+    normalized = _normalize_text(question).lower()
+    if not normalized:
+        return False
+    follow_up_prefixes = (
+        "那",
+        "这个",
+        "这个策略",
+        "这套",
+        "继续",
+        "再",
+        "然后",
+        "展开",
+        "细说",
+        "如何",
+        "为什么",
+        "那风控",
+        "那回测",
+        "那参数",
+        "its ",
+        "that ",
+        "those ",
+        "how about",
+        "what about",
+        "continue",
+    )
+    if normalized.startswith(follow_up_prefixes):
+        return True
+    if len(normalized) <= 24:
+        return True
+    return any(token in normalized for token in ("上面", "刚才", "前面", "上述", "这个问题"))
+
+
+def _safe_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 class RAGService:
-    """Index, search, and simple answer generation."""
+    """Index, search, and grounded answer generation."""
 
     def __init__(self) -> None:
         self.ai_chat_service = AIChatService()
 
-    async def _auto_index_documents(self, session, knowledge_base_id: str) -> int:
-        """Create keyword chunks for documents that have not been indexed yet."""
-        documents = (
-            await session.execute(
-                select(KBDocument).where(
-                    KBDocument.knowledge_base_id == knowledge_base_id,
-                    KBDocument.is_folder.is_(False),
+    async def _list_indexable_documents(self, session, knowledge_base_id: str) -> list[KBDocument]:
+        return list(
+            (
+                await session.execute(
+                    select(KBDocument).where(
+                        KBDocument.knowledge_base_id == knowledge_base_id,
+                        KBDocument.is_folder.is_(False),
+                    )
                 )
-            )
-        ).scalars().all()
-        if not documents:
+            ).scalars().all()
+        )
+
+    async def _auto_index_documents(
+        self,
+        session,
+        knowledge_base_id: str,
+        documents: list[KBDocument] | None = None,
+    ) -> int:
+        """Create keyword chunks for documents that have not been indexed yet."""
+        docs = documents or await self._list_indexable_documents(session, knowledge_base_id)
+        if not docs:
             return 0
 
         existing_document_ids = set(
@@ -64,7 +152,7 @@ class RAGService:
 
         stored = 0
         changed = False
-        for document in documents:
+        for document in docs:
             content = str(getattr(document, "content", "") or "").strip()
             has_chunks = document.id in existing_document_ids
             is_indexed = getattr(document, "index_status", None) == "indexed"
@@ -127,7 +215,7 @@ class RAGService:
                         knowledge_base_id=knowledge_base_id,
                         chunk_index=index,
                         content=chunk,
-                        token_count=len(chunk.split()),
+                        token_count=chunk_service.token_count(chunk),
                     )
                 )
                 stored += 1
@@ -137,63 +225,392 @@ class RAGService:
             await session.commit()
             return stored
 
-    async def search(
-        self, knowledge_base_id: str, owner_id: str, query: str, top_k: int, min_similarity: float
-    ) -> list[dict]:
+    async def index_document_by_id(
+        self,
+        knowledge_base_id: str,
+        document_id: str,
+        owner_id: str,
+    ) -> int | None:
+        """Index a stored document by id, splitting its content into chunks.
+
+        Performs the ownership lookup once, splits the document content via
+        :class:`ChunkService`, and persists chunks.
+
+        Returns:
+            Number of chunks stored, or ``None`` if the document is not found
+            or the caller is not its owner.
+        """
+        async with async_session_maker() as session:
+            document = (
+                await session.execute(
+                    select(KBDocument)
+                    .join(KnowledgeBase, KnowledgeBase.id == KBDocument.knowledge_base_id)
+                    .where(
+                        KBDocument.id == document_id,
+                        KBDocument.knowledge_base_id == knowledge_base_id,
+                        KnowledgeBase.owner_id == owner_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if document is None:
+                return None
+
+            chunks = chunk_service.split_text(str(getattr(document, "content", "") or ""))
+
+            await session.execute(
+                delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+            )
+
+            stored = 0
+            for index, chunk in enumerate(chunks):
+                session.add(
+                    DocumentChunk(
+                        document_id=document_id,
+                        knowledge_base_id=knowledge_base_id,
+                        chunk_index=index,
+                        content=chunk,
+                        token_count=chunk_service.token_count(chunk),
+                    )
+                )
+                stored += 1
+
+            document.index_status = "indexed" if stored > 0 else "not_indexed"
+            document.indexed_at = datetime.now(timezone.utc) if stored > 0 else None
+            await session.commit()
+            return stored
+
+    def _build_retrieval_query(
+        self,
+        question: str,
+        conversation_history: list[dict[str, Any]] | None,
+        settings: dict[str, Any],
+    ) -> tuple[str, int]:
+        normalized_question = _normalize_text(question)
+        if not normalized_question:
+            return "", 0
+        if not settings.get("use_conversation_memory", True):
+            return normalized_question, 0
+
+        history = [_history_message_to_dict(item) for item in (conversation_history or [])]
+        lookback = int(settings.get("conversation_lookback_messages") or 0)
+        if lookback <= 0 or not history:
+            return normalized_question, 0
+
+        recent_history = history[-lookback:]
+        should_rewrite = _looks_like_follow_up(normalized_question)
+        prior_user_prompts = [
+            _normalize_text(item.get("content") or "")
+            for item in recent_history
+            if item.get("role") == "user"
+        ]
+        citation_titles: list[str] = []
+        for item in recent_history:
+            if item.get("role") != "assistant":
+                continue
+            for citation in item.get("citations") or []:
+                if not isinstance(citation, dict):
+                    continue
+                title = _normalize_text(str(citation.get("document_title") or ""))
+                if title and title not in citation_titles:
+                    citation_titles.append(title)
+
+        if not should_rewrite and not citation_titles:
+            return normalized_question, 0
+
+        query_parts = [normalized_question]
+        if prior_user_prompts:
+            query_parts.append(f"历史问题：{'；'.join(prior_user_prompts[-2:])}")
+        if citation_titles:
+            query_parts.append(f"相关文档：{'、'.join(citation_titles[:3])}")
+        return " | ".join(query_parts), len(recent_history)
+
+    @staticmethod
+    def _metadata_text(document: KBDocument) -> str:
+        metadata = getattr(document, "metadata_json", None)
+        if not isinstance(metadata, dict):
+            return _normalize_text(getattr(document, "file_path", "") or "")
+
+        parts = [str(getattr(document, "file_path", "") or "")]
+        for key in ("tags", "category", "symbol", "symbol_name", "timeframe", "source", "asset_class"):
+            value = metadata.get(key)
+            if isinstance(value, str):
+                parts.append(value)
+            elif isinstance(value, list):
+                parts.extend(str(item) for item in value[:5] if item)
+        return _normalize_text(" ".join(parts))
+
+    def _score_chunk(
+        self,
+        *,
+        question: str,
+        retrieval_query: str,
+        chunk: DocumentChunk,
+        document: KBDocument,
+        settings: dict[str, Any],
+        search_mode: str,
+    ) -> tuple[float, dict[str, float]]:
+        title_text = _normalize_text(getattr(document, "title", "") or "")
+        content_text = _normalize_text(getattr(chunk, "content", "") or "")
+        metadata_text = self._metadata_text(document)
+        combined_header = _normalize_text(" ".join(part for part in (title_text, metadata_text) if part))
+
+        title_score = _keyword_similarity(retrieval_query, combined_header)
+        keyword_score = _keyword_similarity(retrieval_query, content_text)
+        phrase_score = max(
+            _char_jaccard(question, content_text),
+            _char_jaccard(question, title_text),
+        )
+        normalized_question = question.lower()
+        content_lower = content_text.lower()
+        title_lower = title_text.lower()
+        if search_mode == "keyword":
+            phrase_score = 1.0 if normalized_question and (
+                normalized_question in content_lower or normalized_question in title_lower
+            ) else 0.0
+
+        updated_at = _safe_datetime(getattr(document, "updated_at", None))
+        recency_score = 0.0
+        if settings.get("prefer_recent_documents", True) and updated_at is not None:
+            age_days = max(
+                0.0,
+                (datetime.now(timezone.utc) - updated_at).total_seconds() / 86400.0,
+            )
+            if age_days <= 7:
+                recency_score = 1.0
+            elif age_days <= 30:
+                recency_score = 0.7
+            elif age_days <= 180:
+                recency_score = 0.4
+            else:
+                recency_score = 0.1
+
+        if settings.get("prioritize_title_matches", True) and title_score > 0:
+            title_score = min(1.0, title_score * 1.15)
+
+        if max(title_score, keyword_score, phrase_score) <= 0:
+            return 0.0, {
+                "title": round(title_score, 4),
+                "keyword": round(keyword_score, 4),
+                "phrase": round(phrase_score, 4),
+                "recency": round(recency_score, 4),
+                "exact_match_boost": 0.0,
+            }
+
+        exact_match_boost = 0.0
+        if normalized_question and normalized_question in content_lower:
+            exact_match_boost = 0.15
+        if normalized_question and normalized_question in title_lower:
+            exact_match_boost = max(exact_match_boost, 0.2)
+
+        title_weight = float(settings.get("title_weight") or 0.0)
+        keyword_weight = float(settings.get("keyword_weight") or 0.0)
+        phrase_weight = float(settings.get("phrase_weight") or 0.0)
+        recency_weight = float(settings.get("recency_weight") or 0.0)
+        if search_mode == "keyword":
+            phrase_weight = max(0.05, phrase_weight * 0.25)
+
+        weight_sum = title_weight + keyword_weight + phrase_weight + recency_weight
+        if weight_sum <= 0:
+            return 0.0, {
+                "title": 0.0,
+                "keyword": 0.0,
+                "phrase": 0.0,
+                "recency": 0.0,
+                "exact_match_boost": 0.0,
+            }
+
+        weighted_score = (
+            title_score * title_weight
+            + keyword_score * keyword_weight
+            + phrase_score * phrase_weight
+            + recency_score * recency_weight
+        ) / weight_sum
+        final_score = min(1.0, weighted_score + exact_match_boost)
+        return final_score, {
+            "title": round(title_score, 4),
+            "keyword": round(keyword_score, 4),
+            "phrase": round(phrase_score, 4),
+            "recency": round(recency_score, 4),
+            "exact_match_boost": round(exact_match_boost, 4),
+        }
+
+    @staticmethod
+    def _diversify_results(results: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+        if limit <= 0:
+            return []
+        by_document: dict[str, list[dict[str, Any]]] = {}
+        for item in results:
+            by_document.setdefault(str(item["document_id"]), []).append(item)
+
+        diversified: list[dict[str, Any]] = []
+        round_index = 0
+        while len(diversified) < limit:
+            progressed = False
+            for document_id in list(by_document.keys()):
+                candidates = by_document[document_id]
+                if round_index >= len(candidates):
+                    continue
+                diversified.append(candidates[round_index])
+                progressed = True
+                if len(diversified) >= limit:
+                    break
+            if not progressed:
+                break
+            round_index += 1
+        return diversified
+
+    async def search_with_diagnostics(
+        self,
+        knowledge_base_id: str,
+        owner_id: str,
+        query: str,
+        top_k: int | None = None,
+        min_similarity: float | None = None,
+        *,
+        search_mode: str | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         async with async_session_maker() as session:
             kb = (
                 await session.execute(
-                    select(KnowledgeBase).where(KnowledgeBase.id == knowledge_base_id, KnowledgeBase.owner_id == owner_id)
+                    select(KnowledgeBase).where(
+                        KnowledgeBase.id == knowledge_base_id,
+                        KnowledgeBase.owner_id == owner_id,
+                    )
                 )
             ).scalar_one_or_none()
             if kb is None:
-                return []
+                return {"results": [], "diagnostics": None, "settings": None}
 
-            await self._auto_index_documents(session, knowledge_base_id)
+            settings = merge_knowledge_base_settings(getattr(kb, "settings", None))
+            effective_top_k = int(top_k or settings.get("default_top_k") or 8)
+            effective_min_similarity = float(
+                min_similarity if min_similarity is not None else settings.get("min_similarity") or 0.0
+            )
+            effective_search_mode = str(search_mode or settings.get("search_mode") or "hybrid")
 
+            documents = await self._list_indexable_documents(session, knowledge_base_id)
+            await self._auto_index_documents(session, knowledge_base_id, documents)
+
+            retrieval_query, history_messages_used = self._build_retrieval_query(
+                query,
+                conversation_history,
+                settings,
+            )
             rows = (
                 await session.execute(
-                    select(DocumentChunk, KBDocument.title)
+                    select(DocumentChunk, KBDocument)
                     .join(KBDocument, KBDocument.id == DocumentChunk.document_id)
                     .where(DocumentChunk.knowledge_base_id == knowledge_base_id)
                 )
             ).all()
 
-            ranked: list[dict] = []
-            for chunk, title in rows:
-                similarity = _keyword_similarity(query, chunk.content)
-                if query in chunk.content:
-                    similarity = max(similarity, 1.0)
-                if similarity < min_similarity:
+            ranked: list[dict[str, Any]] = []
+            for chunk, document in rows:
+                score, score_breakdown = self._score_chunk(
+                    question=query,
+                    retrieval_query=retrieval_query,
+                    chunk=chunk,
+                    document=document,
+                    settings=settings,
+                    search_mode=effective_search_mode,
+                )
+                if score < effective_min_similarity:
                     continue
                 ranked.append(
                     {
                         "chunk_id": chunk.id,
                         "document_id": chunk.document_id,
-                        "document_title": title,
+                        "document_title": str(getattr(document, "title", "") or "未命名文档"),
                         "chunk_index": chunk.chunk_index,
                         "content": chunk.content,
-                        "similarity": similarity,
+                        "similarity": round(score, 4),
+                        "score_breakdown": score_breakdown,
                     }
                 )
 
-            ranked.sort(key=lambda item: item["similarity"], reverse=True)
-            return ranked[:top_k]
+            ranked.sort(
+                key=lambda item: (
+                    item["similarity"],
+                    item["score_breakdown"]["title"],
+                    item["score_breakdown"]["keyword"],
+                ),
+                reverse=True,
+            )
+            diversified = self._diversify_results(ranked, effective_top_k)
+
+            total_indexable_documents = len(documents)
+            indexed_documents = sum(1 for document in documents if document.index_status == "indexed")
+            diagnostics = {
+                "retrieval_profile": str(settings.get("retrieval_profile") or "quant_research"),
+                "search_mode": effective_search_mode,
+                "search_query": retrieval_query or _normalize_text(query),
+                "query_rewritten": _normalize_text(retrieval_query) != _normalize_text(query),
+                "applied_top_k": effective_top_k,
+                "applied_min_similarity": round(effective_min_similarity, 4),
+                "history_messages_used": history_messages_used,
+                "total_indexable_documents": total_indexable_documents,
+                "indexed_documents": indexed_documents,
+                "coverage_ratio": round(
+                    indexed_documents / total_indexable_documents, 4
+                )
+                if total_indexable_documents
+                else 0.0,
+            }
+            return {
+                "results": diversified,
+                "diagnostics": diagnostics,
+                "settings": settings,
+            }
+
+    async def search(
+        self,
+        knowledge_base_id: str,
+        owner_id: str,
+        query: str,
+        top_k: int | None,
+        min_similarity: float | None,
+        *,
+        search_mode: str | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
+    ) -> list[dict]:
+        payload = await self.search_with_diagnostics(
+            knowledge_base_id,
+            owner_id,
+            query,
+            top_k,
+            min_similarity,
+            search_mode=search_mode,
+            conversation_history=conversation_history,
+        )
+        return payload["results"]
 
     async def ask(
         self,
         knowledge_base_id: str,
         owner_id: str,
         question: str,
-        top_k: int,
-        min_similarity: float,
+        top_k: int | None,
+        min_similarity: float | None,
         assistant_mode: str = "knowledge_qa",
         thinking_mode: bool = False,
+        conversation_history: list[dict[str, Any]] | None = None,
     ) -> dict:
-        results = await self.search(knowledge_base_id, owner_id, question, top_k, min_similarity)
+        search_payload = await self.search_with_diagnostics(
+            knowledge_base_id,
+            owner_id,
+            question,
+            top_k,
+            min_similarity,
+            conversation_history=conversation_history,
+        )
+        results = search_payload["results"]
+        diagnostics = search_payload["diagnostics"]
+        settings = search_payload["settings"] or {}
         if not results:
+            message = "未找到相关内容，请先确认知识库已建立索引且问题与文档内容相关。"
             return {
-                "answer": "未找到相关内容，请先确认知识库已建立索引且问题与文档内容相关。",
+                "answer": message,
                 "citations": [],
                 "context_chunks_used": 0,
                 "tokens_used": 0,
@@ -201,39 +618,47 @@ class RAGService:
                 "strategy_draft": None,
                 "reasoning": None,
                 "reason_code": "no_context_found",
-                "diagnostic_message": "未找到相关内容，请先确认知识库已建立索引且问题与文档内容相关。",
+                "diagnostic_message": message,
+                "diagnostics": diagnostics,
             }
 
+        max_context_chunks = int(settings.get("max_context_chunks") or len(results))
+        context_results = results[:max_context_chunks]
+        citations = context_results[:3]
         ai_enabled = self.ai_chat_service.is_enabled()
         generated = await self.ai_chat_service.generate_answer(
             question=question,
-            citations=results,
+            citations=context_results,
             assistant_mode=assistant_mode,
             thinking_mode=thinking_mode,
+            conversation_history=conversation_history,
+            retrieval_diagnostics=diagnostics,
+            knowledge_base_settings=settings,
         )
         if generated is not None:
             strategy_draft = generated.get("strategy_draft")
             if assistant_mode == "backtrader_strategy" and strategy_draft is None:
                 local_draft = build_ai_strategy_draft(
                     question,
-                    [str(item.get("document_title") or "") for item in results[:3]],
+                    [str(item.get("document_title") or "") for item in citations],
                 )
                 strategy_draft = local_draft.model_dump()
                 if not generated.get("answer"):
                     generated["answer"] = render_ai_strategy_draft_answer(local_draft)
             return {
                 "answer": generated["answer"],
-                "citations": results[:3],
-                "context_chunks_used": len(results),
-                "tokens_used": generated["tokens_used"],
+                "citations": citations,
+                "context_chunks_used": len(context_results),
+                "tokens_used": int(generated["tokens_used"]),
                 "model_id": generated["model_id"],
                 "strategy_draft": strategy_draft,
                 "reasoning": generated["reasoning"],
                 "reason_code": None,
                 "diagnostic_message": None,
+                "diagnostics": diagnostics,
             }
 
-        best = results[0]
+        best = context_results[0]
         fallback_reason_code = "ai_provider_failed" if ai_enabled else "ai_not_configured"
         fallback_diagnostic_message = (
             "AI 模型调用失败，已降级返回最相关的知识库片段。"
@@ -243,36 +668,44 @@ class RAGService:
         if assistant_mode == "backtrader_strategy":
             draft = build_ai_strategy_draft(
                 question,
-                [str(item.get("document_title") or "") for item in results[:3]],
+                [str(item.get("document_title") or "") for item in citations],
             )
             return {
                 "answer": render_ai_strategy_draft_answer(draft),
-                "citations": results[:3],
-                "context_chunks_used": len(results),
-                "tokens_used": len(best["content"].split()),
+                "citations": citations,
+                "context_chunks_used": len(context_results),
+                "tokens_used": int(chunk_service.token_count(best["content"])),
                 "model_id": None,
                 "strategy_draft": draft.model_dump(),
                 "reasoning": None,
                 "reason_code": fallback_reason_code,
                 "diagnostic_message": fallback_diagnostic_message,
+                "diagnostics": diagnostics,
             }
         return {
             "answer": self._build_retrieval_fallback_answer(
-                question, results, assistant_mode, ai_enabled=ai_enabled
+                question,
+                context_results,
+                assistant_mode,
+                ai_enabled=ai_enabled,
             ),
-            "citations": results[:3],
-            "context_chunks_used": len(results),
-            "tokens_used": len(best["content"].split()),
+            "citations": citations,
+            "context_chunks_used": len(context_results),
+            "tokens_used": int(chunk_service.token_count(best["content"])),
             "model_id": None,
             "strategy_draft": None,
             "reasoning": None,
             "reason_code": fallback_reason_code,
             "diagnostic_message": fallback_diagnostic_message,
+            "diagnostics": diagnostics,
         }
 
     @staticmethod
     def _build_retrieval_fallback_answer(
-        question: str, results: list[dict[str, Any]], assistant_mode: str, ai_enabled: bool = False
+        question: str,
+        results: list[dict[str, Any]],
+        assistant_mode: str,
+        ai_enabled: bool = False,
     ) -> str:
         best = results[0]
         title = str(best.get("document_title") or "未命名文档")

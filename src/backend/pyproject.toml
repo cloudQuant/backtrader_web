@@ -38,6 +38,7 @@ dev = [
     "pytest-xdist>=3.5.0",
     "httpx>=0.26.0",
     "ruff>=0.1.0",
+    "mypy>=1.10.0",
 ]
 postgres = ["asyncpg>=0.29.0"]
 mysql = ["aiomysql>=0.2.0"]
@@ -55,6 +56,9 @@ include = ["app*"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+extend-exclude = [
+    "scripts/legacy",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "B", "UP", "C4"]
@@ -70,3 +74,40 @@ markers = [
     "integration: Integration tests",
     "slow: Slow running tests",
 ]
+
+[tool.mypy]
+# Type checking is opt-in for now. Run locally with `mypy app`.
+# Once warnings drop and time allows, tighten step-by-step
+# (e.g. enable `disallow_untyped_defs` per package).
+python_version = "3.10"
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = false
+exclude = [
+    "alembic/",
+    "migrations/",
+    "tests/",
+    "scripts/",
+    ".venv.*",
+    "build/",
+    "dist/",
+]
+
+[[tool.mypy.overrides]]
+# Third-party packages without type hints we don't want noise from.
+module = [
+    "backtrader.*",
+    "akshare.*",
+    "fincore.*",
+    "loguru.*",
+    "slowapi.*",
+    "apscheduler.*",
+    "passlib.*",
+    "jose.*",
+    "monaco_editor.*",
+    "yaml.*",
+]
+ignore_missing_imports = true

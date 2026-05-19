@@ -20,7 +20,7 @@ class TestSettingsValidation:
         """Test that default settings can be loaded."""
         settings = Settings()
         assert settings.APP_NAME == "backtrader_web"
-        assert settings.DEBUG is True
+        assert settings.DEBUG is False
         assert settings.DATABASE_TYPE == "sqlite"
         assert settings.DB_AUTO_CREATE_SCHEMA is False
         assert settings.DB_AUTO_CREATE_DEFAULT_ADMIN is False
@@ -230,9 +230,9 @@ class TestSettingsSecurityDefaults:
         assert settings.BACKTEST_TIMEOUT == 300  # 5 minutes
 
     def test_debug_mode_default(self):
-        """Test that debug mode defaults to True (dev-friendly)."""
+        """Test that debug mode defaults to False (safe-by-default)."""
         settings = Settings()
-        assert settings.DEBUG is True
+        assert settings.DEBUG is False
 
     def test_sql_echo_disabled_by_default(self):
         """Test that SQL echo is disabled by default."""

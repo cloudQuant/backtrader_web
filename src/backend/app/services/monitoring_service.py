@@ -562,13 +562,19 @@ class MonitoringService:
         method = str(webhook.get("method", "POST")).upper() if isinstance(webhook, dict) else "POST"
 
         req = urllib.request.Request(url=url, data=data, headers=headers, method=method)
+
+        def _do_request() -> None:
+            # Run blocking urlopen in a worker thread; webhooks are best-effort
+            # so a 5 s timeout is enough.
+            with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+                resp.read()  # drain
+
         try:
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                _ = resp.read()  # drain
+            await asyncio.to_thread(_do_request)
             await self._record_notification(
                 alert.id, channel="webhook", status="sent", message="ok"
             )
-        except (urllib.error.URLError, ValueError) as e:
+        except (urllib.error.URLError, ValueError, TimeoutError) as e:
             await self._record_notification(
                 alert.id, channel="webhook", status="failed", message=str(e)
             )

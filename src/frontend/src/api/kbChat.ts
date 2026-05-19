@@ -76,6 +76,20 @@ export interface KBCitation {
   chunk_index?: number | null
   similarity?: number | null
   content?: string | null
+  score_breakdown?: Record<string, number> | null
+}
+
+export interface KBRetrievalDiagnostics {
+  retrieval_profile: string
+  search_mode: string
+  search_query: string
+  query_rewritten?: boolean
+  applied_top_k: number
+  applied_min_similarity: number
+  history_messages_used?: number
+  total_indexable_documents?: number
+  indexed_documents?: number
+  coverage_ratio?: number
 }
 
 export interface KBHistoryMessage {
@@ -89,6 +103,7 @@ export interface KBHistoryMessage {
   reasoning?: string | null
   reason_code?: KBReasonCode | null
   diagnostic_message?: string | null
+  diagnostics?: KBRetrievalDiagnostics | null
   created_at: string
 }
 
@@ -109,6 +124,7 @@ export interface KBAskResponse {
   reasoning?: string | null
   reason_code?: KBReasonCode | null
   diagnostic_message?: string | null
+  diagnostics?: KBRetrievalDiagnostics | null
 }
 
 export const kbChatApi = {

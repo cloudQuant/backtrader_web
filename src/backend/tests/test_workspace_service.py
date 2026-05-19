@@ -57,7 +57,7 @@ def test_db_task_elapsed_seconds_uses_now_for_running_tasks():
         status="running",
     )
 
-    with patch("app.services.workspace_service.datetime") as mock_datetime:
+    with patch("app.services.workspace._helpers.datetime") as mock_datetime:
         mock_datetime.now.return_value = datetime(2026, 4, 10, 1, 0, 9, tzinfo=timezone.utc)
         assert WorkspaceService._db_task_elapsed_seconds(task) == 9.0
 
@@ -74,7 +74,7 @@ def test_runtime_optimization_elapsed_seconds_with_utc_iso_string():
     created = datetime(2026, 4, 10, 1, 0, 0, tzinfo=timezone.utc)
     task = {"created_at": created.isoformat()}
 
-    with patch("app.services.workspace_service.datetime") as mock_datetime:
+    with patch("app.services.workspace._helpers.datetime") as mock_datetime:
         mock_datetime.now.return_value = created + timedelta(seconds=12)
         mock_datetime.fromisoformat = datetime.fromisoformat
         result = WorkspaceService._runtime_optimization_elapsed_seconds(task)
@@ -87,7 +87,7 @@ def test_runtime_optimization_elapsed_seconds_naive_iso_string_treated_as_utc():
     created = datetime(2026, 4, 10, 1, 0, 0)  # naive
     task = {"created_at": created.isoformat()}
 
-    with patch("app.services.workspace_service.datetime") as mock_datetime:
+    with patch("app.services.workspace._helpers.datetime") as mock_datetime:
         mock_datetime.now.return_value = datetime(2026, 4, 10, 1, 0, 5, tzinfo=timezone.utc)
         mock_datetime.fromisoformat = datetime.fromisoformat
         result = WorkspaceService._runtime_optimization_elapsed_seconds(task)
@@ -104,7 +104,7 @@ def test_runtime_optimization_elapsed_seconds_uses_updated_at_for_terminal_statu
         "updated_at": updated.isoformat(),
     }
 
-    with patch("app.services.workspace_service.datetime") as mock_datetime:
+    with patch("app.services.workspace._helpers.datetime") as mock_datetime:
         mock_datetime.now.return_value = created + timedelta(seconds=30)
         mock_datetime.fromisoformat = datetime.fromisoformat
         result = WorkspaceService._runtime_optimization_elapsed_seconds(task)

@@ -14,7 +14,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
 import StrategyPage from '../StrategyPage.vue'
 
-// Mock Monaco Editor (required for jsdom compatibility)
+// Mock Monaco Editor (required for happy-dom test environment compatibility)
 vi.mock('monaco-editor', () => ({
   default: {},
 }))

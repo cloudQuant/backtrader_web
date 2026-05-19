@@ -1,28 +1,38 @@
 """
 API routes for akshare interfaces.
+
+Routes only handle request parsing and HTTP error mapping;
+all DB access lives in :class:`app.services.akshare_interface_service.AkshareInterfaceService`.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.data_management_deps import require_data_admin_user
 from app.db.database import get_db
-from app.models.akshare_mgmt import DataInterface, InterfaceCategory
 from app.schemas.akshare_mgmt import DataInterfaceCreate, DataInterfaceUpdate
 from app.services.akshare_interface_loader import AkshareInterfaceLoader
+from app.services.akshare_interface_service import AkshareInterfaceService
 
 router = APIRouter()
 
 
+def get_akshare_interface_service(
+    db: AsyncSession = Depends(get_db),
+) -> AkshareInterfaceService:
+    """Per-request factory for :class:`AkshareInterfaceService`.
+
+    Bound to the request-scoped DB session, so we cannot ``@lru_cache`` here.
+    """
+    return AkshareInterfaceService(db)
+
+
 @router.get("/interfaces/categories")
 async def list_interface_categories(
-    db: AsyncSession = Depends(get_db),
+    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
     current_user=Depends(require_data_admin_user),
 ):
-    result = await db.execute(select(InterfaceCategory).order_by(InterfaceCategory.sort_order))
-    return list(result.scalars().all())
+    return await service.list_categories()
 
 
 @router.get("/interfaces")
@@ -32,51 +42,25 @@ async def list_interfaces(
     is_active: bool | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200),
-    db: AsyncSession = Depends(get_db),
+    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
     current_user=Depends(require_data_admin_user),
 ):
-    stmt = select(DataInterface).options(selectinload(DataInterface.params))
-    count_stmt = select(func.count(DataInterface.id))
-    if category_id is not None:
-        stmt = stmt.where(DataInterface.category_id == category_id)
-        count_stmt = count_stmt.where(DataInterface.category_id == category_id)
-    if search:
-        stmt = stmt.where(
-            (DataInterface.name.ilike(f"%{search}%"))
-            | (DataInterface.display_name.ilike(f"%{search}%"))
-            | (DataInterface.description.ilike(f"%{search}%"))
-        )
-        count_stmt = count_stmt.where(
-            (DataInterface.name.ilike(f"%{search}%"))
-            | (DataInterface.display_name.ilike(f"%{search}%"))
-            | (DataInterface.description.ilike(f"%{search}%"))
-        )
-    if is_active is not None:
-        stmt = stmt.where(DataInterface.is_active == is_active)
-        count_stmt = count_stmt.where(DataInterface.is_active == is_active)
-    total = int((await db.execute(count_stmt)).scalar() or 0)
-    stmt = stmt.order_by(DataInterface.id).offset((page - 1) * page_size).limit(page_size)
-    result = await db.execute(stmt)
-    return {
-        "items": list(result.scalars().all()),
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    }
+    return await service.list_interfaces(
+        category_id=category_id,
+        search=search,
+        is_active=is_active,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/interfaces/{interface_id}")
 async def get_interface(
     interface_id: int,
-    db: AsyncSession = Depends(get_db),
+    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
     current_user=Depends(require_data_admin_user),
 ):
-    result = await db.execute(
-        select(DataInterface)
-        .options(selectinload(DataInterface.params))
-        .where(DataInterface.id == interface_id)
-    )
-    interface = result.scalar_one_or_none()
+    interface = await service.get_interface(interface_id)
     if interface is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interface not found")
     return interface
@@ -85,44 +69,33 @@ async def get_interface(
 @router.post("/interfaces", status_code=status.HTTP_201_CREATED)
 async def create_interface(
     payload: DataInterfaceCreate,
-    db: AsyncSession = Depends(get_db),
+    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
     current_user=Depends(require_data_admin_user),
 ):
-    interface = DataInterface(**payload.model_dump())
-    db.add(interface)
-    await db.commit()
-    await db.refresh(interface)
-    return interface
+    return await service.create_interface(payload)
 
 
 @router.put("/interfaces/{interface_id}")
 async def update_interface(
     interface_id: int,
     payload: DataInterfaceUpdate,
-    db: AsyncSession = Depends(get_db),
+    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
     current_user=Depends(require_data_admin_user),
 ):
-    interface = await db.get(DataInterface, interface_id)
+    interface = await service.update_interface(interface_id, payload)
     if interface is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interface not found")
-    for key, value in payload.model_dump(exclude_none=True).items():
-        setattr(interface, key, value)
-    await db.commit()
-    await db.refresh(interface)
     return interface
 
 
 @router.delete("/interfaces/{interface_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_interface(
     interface_id: int,
-    db: AsyncSession = Depends(get_db),
+    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
     current_user=Depends(require_data_admin_user),
 ):
-    interface = await db.get(DataInterface, interface_id)
-    if interface is None:
+    if not await service.delete_interface(interface_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interface not found")
-    await db.delete(interface)
-    await db.commit()
 
 
 @router.post("/interfaces/bootstrap")

@@ -1,8 +1,22 @@
-# Backtrader Web Backend Dependencies
-# 注意: pyproject.toml 为单一事实来源，本文件用于兼容旧脚本/CI。
-# 安装推荐: pip install -e ".[postgres,redis,backtrader,data]"
-
-# Web框架
+# DEPRECATED — kept only for legacy scripts and external automation.
+#
+# `pyproject.toml` is the single source of truth for backend dependencies.
+# `scripts/check_deps_sync.py` will WARN if this file drifts out of sync
+# but will no longer fail CI.
+#
+# Recommended install (covers everything):
+#     pip install -e ".[dev,postgres,mysql,redis,backtrader,data]"
+#
+# Minimal install (runtime only):
+#     pip install -e ".[backtrader]"
+#
+# If you find yourself editing this file, please update `pyproject.toml`
+# instead and regenerate this file with:
+#     pip-compile --extra=dev --extra=postgres --extra=mysql --extra=redis \
+#                 --extra=backtrader --extra=data \
+#                 -o requirements.txt pyproject.toml
+#
+# Web 框架
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 apscheduler>=3.10.4
@@ -29,7 +43,7 @@ passlib[bcrypt]>=1.7.4
 # 日志
 loguru>=0.7.2
 
-# 缓存 (可选)
+# 缓存（可选）
 redis>=5.0.0
 
 # 回测引擎

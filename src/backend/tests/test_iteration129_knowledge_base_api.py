@@ -359,3 +359,36 @@ class TestIteration129KnowledgeBaseAPI:
         )
 
         assert result == (source_file.resolve(), "application/pdf")
+
+    async def test_knowledge_base_returns_default_settings_and_accepts_partial_update(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        create_resp = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "检索配置库", "description": None, "is_public": False},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        created = create_resp.json()
+        assert created["settings"]["retrieval_profile"] == "quant_research"
+        assert created["settings"]["search_mode"] == "hybrid"
+        assert created["settings"]["default_top_k"] == 8
+        assert created["settings"]["use_conversation_memory"] is True
+
+        update_resp = await client.put(
+            f"/api/v1/knowledge-base/{created['id']}",
+            headers=auth_headers,
+            json={
+                "settings": {
+                    "retrieval_profile": "precision",
+                    "default_top_k": 5,
+                    "use_conversation_memory": False,
+                }
+            },
+        )
+        assert update_resp.status_code == 200, update_resp.text
+        updated = update_resp.json()
+        assert updated["settings"]["retrieval_profile"] == "precision"
+        assert updated["settings"]["default_top_k"] == 5
+        assert updated["settings"]["use_conversation_memory"] is False
+        assert updated["settings"]["search_mode"] == "hybrid"

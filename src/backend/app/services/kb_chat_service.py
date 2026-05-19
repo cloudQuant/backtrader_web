@@ -9,6 +9,7 @@ from app.db.database import async_session_maker
 from app.models.knowledge_base import ChatConversation, ChatMessage, KnowledgeBase
 from app.schemas.kb_chat import ConversationCreate, KBChatRequest
 from app.services.rag_service import RAGService
+from app.utils.knowledge_base_settings import merge_knowledge_base_settings
 
 
 class KBChatService:
@@ -135,6 +136,8 @@ class KBChatService:
             return True
 
     async def send(self, user_id: str, data: KBChatRequest) -> dict | None:
+        conversation_history: list[dict] = []
+        kb_settings: dict = {}
         async with async_session_maker() as session:
             kb = (
                 await session.execute(
@@ -146,6 +149,7 @@ class KBChatService:
             ).scalar_one_or_none()
             if kb is None:
                 return None
+            kb_settings = merge_knowledge_base_settings(getattr(kb, "settings", None))
 
             conversation_id = data.conversation_id or str(uuid.uuid4())
             conversation_title = self._build_conversation_title(data.assistant_mode, data.question)
@@ -161,15 +165,31 @@ class KBChatService:
                 ).scalar_one_or_none()
                 if existing_conversation is None:
                     return None
+                history_rows = (
+                    await session.execute(
+                        select(ChatMessage)
+                        .where(ChatMessage.conversation_id == data.conversation_id)
+                        .order_by(ChatMessage.created_at.asc())
+                    )
+                ).scalars().all()
+                conversation_history = [
+                    {
+                        "role": message.role,
+                        "content": message.content,
+                        "citations": message.citations or [],
+                    }
+                    for message in history_rows
+                ]
 
         rag_result = await self.rag_service.ask(
             data.knowledge_base_id,
             user_id,
             data.question,
-            top_k=10,
-            min_similarity=0.0,
+            top_k=int(kb_settings.get("default_top_k") or 8),
+            min_similarity=float(kb_settings.get("min_similarity") or 0.0),
             assistant_mode=data.assistant_mode,
             thinking_mode=data.thinking_mode,
+            conversation_history=conversation_history,
         )
 
         async with async_session_maker() as session:
@@ -229,6 +249,7 @@ class KBChatService:
                 'reasoning': rag_result['reasoning'],
                 'reason_code': rag_result.get('reason_code'),
                 'diagnostic_message': rag_result.get('diagnostic_message'),
+                'diagnostics': rag_result.get('diagnostics'),
             }
 
     @staticmethod

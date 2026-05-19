@@ -450,3 +450,69 @@ class TestIteration129RAGAPI:
         )
         assert stale_search.status_code == 200, stale_search.text
         assert stale_search.json()["total"] == 0
+
+    async def test_search_and_ask_return_retrieval_diagnostics(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        kb_resp = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={
+                "name": "诊断检索库",
+                "description": None,
+                "is_public": False,
+                "settings": {
+                    "retrieval_profile": "precision",
+                    "default_top_k": 4,
+                    "min_similarity": 0.05,
+                },
+            },
+        )
+        assert kb_resp.status_code == 201, kb_resp.text
+        kb_id = kb_resp.json()["id"]
+
+        doc_resp = await client.post(
+            f"/api/v1/knowledge-base/{kb_id}/documents/",
+            headers=auth_headers,
+            json={
+                "title": "风险控制模板",
+                "content": "DIAGNOSTIC_RAG_TOKEN 用于验证检索诊断字段。ATR 止损用于控制波动风险。",
+                "content_type": "markdown",
+                "is_folder": False,
+            },
+        )
+        assert doc_resp.status_code == 201, doc_resp.text
+
+        search_resp = await client.post(
+            "/api/v1/rag/search",
+            headers=auth_headers,
+            json={
+                "knowledge_base_id": kb_id,
+                "query": "DIAGNOSTIC_RAG_TOKEN",
+                "top_k": 4,
+                "min_similarity": 0.05,
+                "search_mode": "hybrid",
+            },
+        )
+        assert search_resp.status_code == 200, search_resp.text
+        search_payload = search_resp.json()
+        assert search_payload["diagnostics"]["retrieval_profile"] == "precision"
+        assert search_payload["diagnostics"]["search_mode"] == "hybrid"
+        assert search_payload["diagnostics"]["applied_top_k"] == 4
+        assert search_payload["diagnostics"]["indexed_documents"] >= 1
+
+        ask_resp = await client.post(
+            "/api/v1/rag/ask",
+            headers=auth_headers,
+            json={
+                "knowledge_base_id": kb_id,
+                "question": "DIAGNOSTIC_RAG_TOKEN",
+                "top_k": 4,
+                "min_similarity": 0.05,
+                "thinking_mode": True,
+            },
+        )
+        assert ask_resp.status_code == 200, ask_resp.text
+        ask_payload = ask_resp.json()
+        assert ask_payload["diagnostics"]["search_query"] == "DIAGNOSTIC_RAG_TOKEN"
+        assert ask_payload["diagnostics"]["query_rewritten"] is False

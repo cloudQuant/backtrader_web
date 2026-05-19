@@ -51,11 +51,27 @@ class RAGSearchResult(BaseModel):
     similarity: float
 
 
+class RAGDiagnostics(BaseModel):
+    """Search/answer diagnostics for grounded retrieval flows."""
+
+    retrieval_profile: str
+    search_mode: str
+    search_query: str
+    query_rewritten: bool = False
+    applied_top_k: int
+    applied_min_similarity: float
+    history_messages_used: int = 0
+    total_indexable_documents: int = 0
+    indexed_documents: int = 0
+    coverage_ratio: float = 0.0
+
+
 class RAGSearchResponse(BaseModel):
     """Search response."""
 
     total: int
     results: list[RAGSearchResult]
+    diagnostics: RAGDiagnostics | None = None
 
 
 class RAGCitation(BaseModel):
@@ -100,4 +116,5 @@ class RAGAskResponse(BaseModel):
     reasoning: str | None = None
     reason_code: str | None = None
     diagnostic_message: str | None = None
+    diagnostics: RAGDiagnostics | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)

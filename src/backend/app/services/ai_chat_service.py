@@ -1,4 +1,4 @@
-"""AI chat provider integration for KB copilot generation."""
+"""AI chat provider integration for grounded KB copilots."""
 
 from __future__ import annotations
 
@@ -15,8 +15,11 @@ from app.services.strategy_service import render_ai_strategy_draft_answer
 
 _MODE_INSTRUCTIONS = {
     "knowledge_qa": """
-你是 Backtrader Web 的知识库助手。优先回答用户问题，并明确引用上下文中的平台事实、接口能力、配置项和限制。
-如果上下文不足，不要编造不存在的实现，直接说明缺失点。
+你是 Backtrader Web 的知识库助手。回答必须优先引用知识库中的平台事实、接口约束、配置项和限制。
+输出结构固定为：
+1. 直接结论
+2. 依据与引用
+3. 不确定项或需要补充的信息
 """.strip(),
     "strategy_idea": """
 你是量化策略研究助手。请把用户的一句话策略想法扩展成可执行的研究方案。
@@ -50,6 +53,30 @@ JSON 结构：
         "description": "参数说明"
       }
     },
+    "assumptions": ["关键假设1"],
+    "risk_points": ["风险点1"],
+    "data_source": {
+      "type": "csv|akshare|tushare|futures|custom",
+      "symbol": null,
+      "symbol_name": null,
+      "timeframe": "1d",
+      "timeframe_n": 1,
+      "start_date": null,
+      "end_date": null,
+      "adjustment": null
+    },
+    "backtest_defaults": {
+      "initial_cash": 100000,
+      "commission": 0.001,
+      "annual_days": 252,
+      "calc_method": "simple",
+      "weight_mode": "equal"
+    },
+    "execution_plan": {
+      "workspace_type": "research",
+      "group_name": "建议分组名",
+      "run_parallel": false
+    },
     "rationale": "为什么这么设计",
     "next_steps": ["下一步1", "下一步2"],
     "suggested_symbol": null,
@@ -67,6 +94,17 @@ JSON 结构：
 5. 建议的验证顺序
 """.strip(),
 }
+
+_QUANT_FOCUS_HINTS = {
+    "general": "保持回答通用，但仍需显式指出金融/量化场景下的不确定性与风险。",
+    "strategy_research": "优先把回答组织为研究流程，显式写出假设、信号、风险、样本外验证与回测约束。",
+    "strategy_review": "优先识别未来函数、数据泄露、样本偏差、过拟合和执行假设缺口。",
+    "implementation": "优先说明如何在 Backtrader Web 中落地，包括策略代码、参数、数据源和执行步骤。",
+}
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(str(value or "").split()).strip()
 
 
 class AIChatService:
@@ -90,6 +128,9 @@ class AIChatService:
         citations: list[dict[str, Any]],
         assistant_mode: str,
         thinking_mode: bool,
+        conversation_history: list[dict[str, Any]] | None = None,
+        retrieval_diagnostics: dict[str, Any] | None = None,
+        knowledge_base_settings: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if not self.is_enabled():
             return None
@@ -99,6 +140,9 @@ class AIChatService:
             citations=citations,
             assistant_mode=assistant_mode,
             thinking_mode=thinking_mode,
+            conversation_history=conversation_history,
+            retrieval_diagnostics=retrieval_diagnostics,
+            knowledge_base_settings=knowledge_base_settings,
         )
         try:
             return await asyncio.to_thread(self._call_provider, messages, assistant_mode)
@@ -112,63 +156,133 @@ class AIChatService:
         citations: list[dict[str, Any]],
         assistant_mode: str,
         thinking_mode: bool,
+        conversation_history: list[dict[str, Any]] | None,
+        retrieval_diagnostics: dict[str, Any] | None,
+        knowledge_base_settings: dict[str, Any] | None,
     ) -> list[dict[str, str]]:
         mode_instruction = _MODE_INSTRUCTIONS.get(assistant_mode, _MODE_INSTRUCTIONS["knowledge_qa"])
+        settings = knowledge_base_settings or {}
+        quant_focus = str(settings.get("quant_focus") or "strategy_research")
+        quant_focus_hint = _QUANT_FOCUS_HINTS.get(quant_focus, _QUANT_FOCUS_HINTS["strategy_research"])
+        context_text = self._build_context_blocks(citations)
+        diagnostics_text = self._build_diagnostics_text(retrieval_diagnostics)
+        reasoning_hint = (
+            "先给出 3-5 行的分析摘要，再给出最终回答。"
+            if thinking_mode
+            else "直接给出结构化结论，不要展开冗长推理。"
+        )
+        system_prompt = "\n".join(
+            [
+                "你是 Backtrader Web 的 AI Copilot。",
+                "你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。",
+                "如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。",
+                "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
+                quant_focus_hint,
+            ]
+        ).strip()
+
+        if settings.get("system_prompt_suffix"):
+            system_prompt = f"{system_prompt}\n{_normalize_text(str(settings['system_prompt_suffix']))}"
+
+        user_prompt = "\n".join(
+            [
+                f"当前回答模式：{assistant_mode}",
+                "",
+                "模式要求：",
+                mode_instruction,
+                "",
+                "附加要求：",
+                f"- {reasoning_hint}",
+                "- 明确区分“知识库事实”和“你的推断”。",
+                "- 若输出代码，默认使用 Python / Backtrader 风格。",
+                "- 若问题过于宽泛，先帮用户拆成可执行步骤。",
+                "- 在量化场景下，显式写出关键假设、风险点、数据依赖和回测验证建议。",
+                "",
+                "当前问题：",
+                _normalize_text(question),
+                "",
+                "检索诊断：",
+                diagnostics_text,
+                "",
+                "知识库上下文：",
+                context_text,
+            ]
+        ).strip()
+
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        messages.extend(self._build_conversation_messages(conversation_history))
+        messages.append({"role": "user", "content": user_prompt})
+        return messages
+
+    @staticmethod
+    def _build_context_blocks(citations: list[dict[str, Any]]) -> str:
         context_blocks = []
-        for index, citation in enumerate(citations[:6], start=1):
+        for index, citation in enumerate(citations[:8], start=1):
             title = str(citation.get("document_title") or "未命名文档")
             chunk_index = citation.get("chunk_index")
             similarity = citation.get("similarity")
             content = str(citation.get("content") or "").strip()
-            context_blocks.append(
-                "\n".join(
-                    [
-                        f"[参考片段 {index}]",
-                        f"文档: {title}",
-                        f"Chunk: {chunk_index}",
-                        f"相似度: {similarity}",
-                        "内容:",
-                        content,
-                    ]
-                )
-            )
-        context_text = "\n\n".join(context_blocks) if context_blocks else "无可用上下文"
-        reasoning_hint = (
-            "在最终答案前先给出一小段“分析摘要”，长度控制在 3-5 行。"
-            if thinking_mode
-            else "直接给出结构化结论，不要展开冗长推理。"
+            score_breakdown = citation.get("score_breakdown")
+            block_lines = [
+                f"[参考片段 {index}]",
+                f"文档: {title}",
+                f"Chunk: {chunk_index}",
+                f"相似度: {similarity}",
+            ]
+            if isinstance(score_breakdown, dict) and score_breakdown:
+                block_lines.append(f"打分明细: {json.dumps(score_breakdown, ensure_ascii=False)}")
+            block_lines.extend(["内容:", content])
+            context_blocks.append("\n".join(block_lines))
+        return "\n\n".join(context_blocks) if context_blocks else "无可用上下文"
+
+    @staticmethod
+    def _build_diagnostics_text(diagnostics: dict[str, Any] | None) -> str:
+        if not isinstance(diagnostics, dict) or not diagnostics:
+            return "无诊断信息"
+        coverage_ratio = diagnostics.get("coverage_ratio")
+        coverage_text = (
+            f"{round(float(coverage_ratio) * 100, 1)}%"
+            if isinstance(coverage_ratio, (int, float))
+            else "未知"
         )
-
-        system_prompt = """
-你是 Backtrader Web 的 AI Copilot。
-你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。
-如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。
-""".strip()
-
-        user_prompt = f"""
-当前回答模式：
-{assistant_mode}
-
-模式要求：
-{mode_instruction}
-
-附加要求：
-{reasoning_hint}
-- 优先使用知识库中的平台事实、接口约束和术语。
-- 若输出代码，默认使用 Python / Backtrader 风格。
-- 若问题过于宽泛，先帮用户拆成可执行步骤。
-
-用户问题：
-{question}
-
-知识库上下文：
-{context_text}
-""".strip()
-
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
+        lines = [
+            f"- 检索策略: {diagnostics.get('retrieval_profile')}",
+            f"- 搜索模式: {diagnostics.get('search_mode')}",
+            f"- 实际检索查询: {diagnostics.get('search_query')}",
+            f"- 查询是否重写: {diagnostics.get('query_rewritten')}",
+            f"- 上下文 top_k: {diagnostics.get('applied_top_k')}",
+            f"- 最低相似度阈值: {diagnostics.get('applied_min_similarity')}",
+            f"- 使用历史消息数: {diagnostics.get('history_messages_used')}",
+            (
+                f"- 索引覆盖率: {diagnostics.get('indexed_documents')}"
+                f"/{diagnostics.get('total_indexable_documents')} ({coverage_text})"
+            ),
         ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _build_conversation_messages(
+        conversation_history: list[dict[str, Any]] | None,
+    ) -> list[dict[str, str]]:
+        history = list(conversation_history or [])
+        if not history:
+            return []
+
+        trimmed = history[-4:]
+        messages: list[dict[str, str]] = []
+        for item in trimmed:
+            if not isinstance(item, dict):
+                continue
+            role = "assistant" if item.get("role") == "assistant" else "user"
+            content = _normalize_text(str(item.get("content") or ""))
+            if not content:
+                continue
+            if role == "assistant":
+                content = content[:800]
+            else:
+                content = content[:500]
+            messages.append({"role": role, "content": content})
+        return messages
 
     def _call_provider(self, messages: list[dict[str, str]], assistant_mode: str) -> dict[str, Any]:
         endpoint = self._resolve_endpoint(self.settings.AI_CHAT_BASE_URL)

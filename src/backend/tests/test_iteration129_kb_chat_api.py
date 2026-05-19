@@ -299,3 +299,52 @@ class TestIteration129KBChatAPI:
             headers=other_headers,
         )
         assert history_resp.status_code == 404
+
+    async def test_follow_up_question_uses_conversation_aware_query_rewrite(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        kb_resp = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "会话改写库", "description": None, "is_public": False},
+        )
+        assert kb_resp.status_code == 201, kb_resp.text
+        kb_id = kb_resp.json()["id"]
+
+        doc_resp = await client.post(
+            f"/api/v1/knowledge-base/{kb_id}/documents/",
+            headers=auth_headers,
+            json={
+                "title": "双均线风控说明",
+                "content": "双均线策略通常结合 ATR 止损、单笔风险限制和样本外验证。",
+                "content_type": "markdown",
+                "is_folder": False,
+            },
+        )
+        assert doc_resp.status_code == 201, doc_resp.text
+
+        first_resp = await client.post(
+            "/api/v1/kb-chat/send",
+            headers=auth_headers,
+            json={
+                "knowledge_base_id": kb_id,
+                "question": "请总结双均线策略的核心思路",
+            },
+        )
+        assert first_resp.status_code == 200, first_resp.text
+        conversation_id = first_resp.json()["conversation_id"]
+
+        follow_up_resp = await client.post(
+            "/api/v1/kb-chat/send",
+            headers=auth_headers,
+            json={
+                "knowledge_base_id": kb_id,
+                "conversation_id": conversation_id,
+                "question": "那风控呢？",
+            },
+        )
+        assert follow_up_resp.status_code == 200, follow_up_resp.text
+        payload = follow_up_resp.json()
+        assert payload["citations"][0]["document_id"] == doc_resp.json()["id"]
+        assert payload["diagnostics"]["query_rewritten"] is True
+        assert "历史问题" in payload["diagnostics"]["search_query"]

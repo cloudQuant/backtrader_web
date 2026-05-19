@@ -14,13 +14,37 @@ from app.schemas.knowledge_base import (
     KBDocumentCreate,
     KBDocumentUpdate,
     KnowledgeBaseCreate,
+    KnowledgeBaseSettings,
     KnowledgeBaseUpdate,
     ReqDocsImportRequest,
+)
+from app.utils.knowledge_base_settings import (
+    default_knowledge_base_settings,
+    merge_knowledge_base_settings,
 )
 
 
 class KnowledgeBaseService:
     """CRUD service for knowledge bases and documents."""
+
+    @staticmethod
+    def _hydrate_settings(entity: KnowledgeBase | None) -> KnowledgeBase | None:
+        if entity is None:
+            return None
+        entity.settings = merge_knowledge_base_settings(getattr(entity, "settings", None))
+        return entity
+
+    @staticmethod
+    def _merge_settings(
+        current_settings: dict | None,
+        update_settings: dict | None,
+    ) -> dict:
+        merged = merge_knowledge_base_settings(current_settings)
+        for key, value in (update_settings or {}).items():
+            if value is None:
+                continue
+            merged[key] = value
+        return KnowledgeBaseSettings.model_validate(merged).model_dump()
 
     async def _validate_parent(
         self,
@@ -68,11 +92,12 @@ class KnowledgeBaseService:
                 name=data.name,
                 description=data.description,
                 is_public=data.is_public,
+                settings=KnowledgeBaseSettings.model_validate(data.settings).model_dump(),
             )
             session.add(entity)
             await session.commit()
             await session.refresh(entity)
-            return entity
+            return self._hydrate_settings(entity)
 
     async def list_knowledge_bases(
         self, owner_id: str, skip: int = 0, limit: int = 20, search: str | None = None
@@ -94,11 +119,11 @@ class KnowledgeBaseService:
                     .limit(limit)
                 )
             ).scalars().all()
-            return total, list(items)
+            return total, [self._hydrate_settings(item) for item in items]
 
     async def get_knowledge_base(self, kb_id: str, owner_id: str) -> KnowledgeBase | None:
         async with async_session_maker() as session:
-            return (
+            entity = (
                 await session.execute(
                     select(KnowledgeBase).where(
                         KnowledgeBase.id == kb_id,
@@ -106,6 +131,7 @@ class KnowledgeBaseService:
                     )
                 )
             ).scalar_one_or_none()
+            return self._hydrate_settings(entity)
 
     async def update_knowledge_base(
         self, kb_id: str, owner_id: str, data: KnowledgeBaseUpdate
@@ -122,11 +148,16 @@ class KnowledgeBaseService:
             if entity is None:
                 return None
             payload = data.model_dump(exclude_unset=True)
+            if "settings" in payload:
+                payload["settings"] = self._merge_settings(
+                    getattr(entity, "settings", None),
+                    data.settings.model_dump(exclude_unset=True) if data.settings else None,
+                )
             for key, value in payload.items():
                 setattr(entity, key, value)
             await session.commit()
             await session.refresh(entity)
-            return entity
+            return self._hydrate_settings(entity)
 
     async def delete_knowledge_base(self, kb_id: str, owner_id: str) -> bool:
         async with async_session_maker() as session:
@@ -167,6 +198,7 @@ class KnowledgeBaseService:
             ).scalar_one_or_none()
             if kb is None:
                 return None
+            self._hydrate_settings(kb)
             items = (
                 await session.execute(
                     select(KBDocument)
@@ -280,6 +312,7 @@ class KnowledgeBaseService:
                 description=data.description,
                 is_public=False,
                 document_count=len(data.documents),
+                settings=default_knowledge_base_settings(),
             )
             session.add(kb)
             await session.flush()
@@ -299,4 +332,4 @@ class KnowledgeBaseService:
 
             await session.commit()
             await session.refresh(kb)
-            return kb, len(data.documents)
+            return self._hydrate_settings(kb), len(data.documents)

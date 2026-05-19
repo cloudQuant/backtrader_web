@@ -156,6 +156,17 @@ app.include_router(api_router, prefix="/api/v1")
 _feature_flags_cache: dict[str, bool] | None = None
 
 
+def _reset_feature_flags_cache() -> None:
+    """Reset the cached feature flags map.
+
+    Useful for tests that mutate the router topology (e.g. mounting or unmounting
+    optional routers) and want a fresh computation on the next access. Calling
+    this in production code is safe but unnecessary; the cache is rebuilt lazily.
+    """
+    global _feature_flags_cache
+    _feature_flags_cache = None
+
+
 def _get_feature_flags() -> dict[str, bool]:
     global _feature_flags_cache
     if _feature_flags_cache is not None:

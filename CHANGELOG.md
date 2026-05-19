@@ -12,11 +12,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Database performance indexes for backtest_tasks, optimization_tasks, paper_trading_orders
 - API performance monitoring middleware with X-Process-Time header
 - Slow request logging (>500ms threshold)
+- Knowledge base retrieval settings with quant-oriented defaults for hybrid search, context window size, query threshold, and conversation-memory behavior
+- Retrieval diagnostics in RAG / KB Chat responses, including actual search query, retrieval profile, search mode, history usage, and index coverage ratio
+- Conversation-aware query rewriting for follow-up questions so AI chat can reuse recent user intent and cited document titles
+- Knowledge base UI controls for editing retrieval profile, search mode, top_k, min similarity, context chunk budget, and prompt suffix
+- AI chat UI panels for retrieval diagnostics and current knowledge-base retrieval profile visibility
 
 ### Changed
 
 - Optimized slow request threshold from 5s to 500ms
 - Updated frontend dependencies: axios, dayjs, dompurify, autoprefixer
+- Upgraded the RAG scorer from a single keyword hit ratio to a configurable hybrid ranking pipeline that combines title hits, content hits, phrase overlap, recency reranking, and per-document diversification
+- Strengthened AI Copilot prompt orchestration for quant research, strategy review, and Backtrader code generation with explicit assumptions, risk, data, and backtest sections
+- KB Chat now inherits retrieval behavior from per-knowledge-base settings instead of hard-coded `top_k=10` / `min_similarity=0`
+- Backtrader strategy generation prompts now target the full `AIStrategyDraft` schema, including assumptions, risk points, data source hints, backtest defaults, and execution plan
 
 ## [1.0.0] - 2026-03-26
 

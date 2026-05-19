@@ -127,7 +127,7 @@ class LiveTradingService:
 
                 # Create and add strategy
                 strategy = self._load_strategy_from_code(strategy_code, strategy_params or {})
-                cerebro.addstrategy(strategy)
+                cerebro.addstrategy(strategy, **(strategy_params or {}))
 
                 # Create Store and Broker
                 store = CCXTStore(
@@ -185,32 +185,30 @@ class LiveTradingService:
     def _load_strategy_from_code(self, code: str, params: dict[str, Any]):
         """Load a Backtrader strategy class from executable Python code.
 
+        Strategy code is executed via :class:`StrategySandbox` to enforce the
+        same security guarantees (AST checks, restricted builtins, allowed
+        modules whitelist, execution timeout) used by backtesting and paper
+        trading. ``params`` is forwarded to the sandbox; the caller is
+        expected to pass the same parameters to ``cerebro.addstrategy(...)``
+        instead of mutating class-level ``params._get(key).default``, which
+        would leak across all instantiations of the strategy class.
+
         Args:
             code: A string containing Python code with a Strategy class definition.
-            params: Dictionary of parameters to set on the strategy.
+            params: Dictionary of parameters to make available to the strategy code.
 
         Returns:
             The loaded Backtrader Strategy class.
 
         Raises:
-            ValueError: If no valid Strategy class is found in the code.
+            ValueError: If the code contains unsafe operations or no Strategy
+                class is found.
+            SyntaxError: If the code has syntax errors.
+            RuntimeError: If sandbox execution fails or times out.
         """
-        # Create temporary module
-        import types
+        from app.utils.sandbox import StrategySandbox
 
-        module = types.ModuleType(f"strategy_{id(code)}")
-        exec(code, module.__dict__)
-
-        # Find strategy class
-        for _name, obj in module.__dict__.items():
-            if isinstance(obj, type) and issubclass(obj, bt.Strategy):
-                # Set parameters
-                if hasattr(obj, "params"):
-                    for key, value in params.items():
-                        obj.params._get(key).default = value
-                return obj
-
-        raise ValueError("No valid Strategy class found in the provided code")
+        return StrategySandbox.execute_strategy_code(code, params)
 
     async def stop_live_strategy(
         self,

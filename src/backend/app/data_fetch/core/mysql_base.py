@@ -19,6 +19,10 @@ class MysqlBase(Database):
         super().__init__(db_config, logger)
         self.db_config = db_config
         self.logger = logger or self._setup_logging("MysqlBase")
+        # In-process cache for table column introspection to avoid repeated
+        # SHOW COLUMNS queries during batch data-import runs.
+        self._columns_cache: dict[str, list[tuple[str, ...]]] = {}
+        self._table_exists_cache: dict[str, bool] = {}
 
     def connect_db(self):
         """建立数据库连接"""
@@ -132,9 +136,17 @@ class MysqlBase(Database):
 
         # 若表不存在则根据 DataFrame 自动建表
         try:
-            self.cursor.execute(f"SHOW TABLES LIKE '{safe_table}'")
-            if not self.cursor.fetchone():
+            if safe_table in self._table_exists_cache:
+                table_exists = self._table_exists_cache[safe_table]
+            else:
+                self.cursor.execute(f"SHOW TABLES LIKE '{safe_table}'")
+                table_exists = bool(self.cursor.fetchone())
+                self._table_exists_cache[safe_table] = table_exists
+            if not table_exists:
                 self._auto_create_table(safe_table, df)
+                self._table_exists_cache[safe_table] = True
+                # Invalidate column cache since we just created the table
+                self._columns_cache.pop(safe_table, None)
         except mysql.connector.Error as err:
             self.logger.warning(f"检查表 {table_name} 是否存在时出错: {err}")
 
@@ -142,8 +154,12 @@ class MysqlBase(Database):
         # This is best-effort: if schema introspection fails, we fall back to raw df columns.
         # MySQL column names are case-insensitive, so build a case-insensitive mapping.
         try:
-            self.cursor.execute(f"SHOW COLUMNS FROM `{safe_table}`")
-            table_rows = self.cursor.fetchall() or []
+            if safe_table in self._columns_cache:
+                table_rows = self._columns_cache[safe_table]
+            else:
+                self.cursor.execute(f"SHOW COLUMNS FROM `{safe_table}`")
+                table_rows = self.cursor.fetchall() or []
+                self._columns_cache[safe_table] = table_rows
             # Build case-insensitive mapping: lowercase table column -> actual table column name
             table_cols_ci = {row[0].lower(): row[0] for row in table_rows}
             if table_cols_ci:

@@ -26,11 +26,18 @@ router = APIRouter(deprecated=True)
 _DEPRECATED_SUCCESSOR = "/api/v1/live-trading"
 
 
-def get_live_trading_service():
+def get_live_trading_service() -> LiveTradingService:
     """Dependency injection for LiveTradingService.
 
+    Note:
+        Existing tests patch ``app.api.live_trading.LiveTradingService`` per-test,
+        so we cannot ``@lru_cache`` this provider without leaking the first
+        test's mock across the module. The downside is that submitted task state
+        kept on the service instance is per-request — task reconciliation runs
+        in the lifespan handler to mitigate this.
+
     Returns:
-        LiveTradingService: An instance of the live trading service.
+        LiveTradingService: A fresh instance of the live trading service.
     """
     return LiveTradingService()
 

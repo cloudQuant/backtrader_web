@@ -212,9 +212,12 @@ cd src/frontend && npm run dev
 ## 4. 策略加载测试
 
 ```bash
-# 验证策略动态加载
-python -m pytest test_strategy_load.py -v
+# 验证策略动态加载（一次性烟雾脚本，已归档至 backend 脚本目录）
+python src/backend/scripts/legacy/test_strategy_load.py
 ```
+
+> 提示：上述脚本不是 `pytest` 用例，而是一次性的烟雾验证脚本，依赖 backtrader 运行时。
+> 推荐通过 `pytest src/backend/tests/` 中的策略相关用例进行常规验证。
 
 验证内容：
 - 策略文件扫描（118+ 模板）

@@ -25,11 +25,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_live_trading_service():
+def get_live_trading_service() -> LiveTradingService:
     """Dependency injection for LiveTradingService.
 
+    Note:
+        We intentionally do NOT cache this; the test suite patches
+        ``app.api.live_trading_complete.LiveTradingService`` per-test, and
+        ``@lru_cache`` would freeze the first test's mock across the module.
+
     Returns:
-        LiveTradingService: An instance of the live trading service.
+        LiveTradingService: A fresh instance of the live trading service.
     """
     return LiveTradingService()
 

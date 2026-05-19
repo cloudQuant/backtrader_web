@@ -89,6 +89,7 @@
               <div class="context-meta">
                 {{ currentModeMeta.label }}
                 <span v-if="thinkingMode">/ 深度模式</span>
+                <span v-if="currentKnowledgeBaseId">/ {{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</span>
                 <span v-if="chatStore.currentConversationId">/ 会话进行中</span>
               </div>
             </div>
@@ -185,6 +186,30 @@
                 >
                   <div class="section-kicker">{{ getDiagnosticTitle(message.reasonCode) }}</div>
                   <div>{{ message.diagnosticMessage }}</div>
+                </section>
+
+                <section
+                  v-if="message.role === 'assistant' && message.diagnostics"
+                  class="retrieval-box"
+                >
+                  <div class="section-kicker">检索诊断</div>
+                  <div class="retrieval-meta">
+                    <span>{{ retrievalProfileLabel(message.diagnostics.retrieval_profile) }}</span>
+                    <span>{{ message.diagnostics.search_mode }}</span>
+                    <span>top_k {{ message.diagnostics.applied_top_k }}</span>
+                    <span>阈值 {{ message.diagnostics.applied_min_similarity }}</span>
+                  </div>
+                  <div class="retrieval-query">
+                    <strong>实际检索查询：</strong>{{ message.diagnostics.search_query }}
+                  </div>
+                  <div class="retrieval-meta">
+                    <span v-if="message.diagnostics.query_rewritten">已重写查询</span>
+                    <span>
+                      索引覆盖
+                      {{ message.diagnostics.indexed_documents ?? 0 }}/{{ message.diagnostics.total_indexable_documents ?? 0 }}
+                    </span>
+                    <span>历史消息 {{ message.diagnostics.history_messages_used ?? 0 }}</span>
+                  </div>
                 </section>
 
                 <section v-if="message.role === 'assistant' && message.strategyDraft" class="strategy-draft">
@@ -433,6 +458,12 @@
               <strong>{{ indexedDocumentCount }}</strong>
             </div>
           </div>
+          <div class="kb-settings">
+            <span>{{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</span>
+            <span>{{ currentKnowledgeBaseSettings.search_mode }}</span>
+            <span>top_k {{ currentKnowledgeBaseSettings.default_top_k }}</span>
+            <span v-if="currentKnowledgeBaseSettings.use_conversation_memory">会话记忆开</span>
+          </div>
           <div v-if="hasUnindexedDocuments" class="kb-index-warning">
             <div>
               当前知识库有未索引文档，AI 检索结果可能不完整。
@@ -582,6 +613,7 @@ import {
 
 import { getErrorMessage } from '@/api'
 import type { KBAssistantMode, KBCitation, KBReasonCode, KBStrategyDraft } from '@/api/kbChat'
+import type { KnowledgeBaseSettings } from '@/api/knowledgeBase'
 import { useStrategyDraftWorkspaceExecution } from '@/composables/useStrategyDraftWorkspaceExecution'
 import type { KBChatMessage } from '@/stores/kbChat'
 import { strategyApi } from '@/api/strategy'
@@ -797,6 +829,29 @@ const currentKnowledgeBaseId = computed(
   () => selectedKnowledgeBaseId.value || currentKnowledgeBase.value?.id || '',
 )
 const currentKnowledgeBaseName = computed(() => currentKnowledgeBase.value?.name ?? '')
+function createDefaultKnowledgeBaseSettings(): KnowledgeBaseSettings {
+  return {
+    retrieval_profile: 'quant_research',
+    search_mode: 'hybrid',
+    default_top_k: 8,
+    min_similarity: 0.08,
+    title_weight: 0.35,
+    keyword_weight: 0.35,
+    phrase_weight: 0.2,
+    recency_weight: 0.1,
+    max_context_chunks: 6,
+    use_conversation_memory: true,
+    conversation_lookback_messages: 6,
+    prioritize_title_matches: true,
+    prefer_recent_documents: true,
+    quant_focus: 'strategy_research',
+    system_prompt_suffix: null,
+  }
+}
+const currentKnowledgeBaseSettings = computed<KnowledgeBaseSettings>(() => ({
+  ...createDefaultKnowledgeBaseSettings(),
+  ...(currentKnowledgeBase.value?.settings ?? {}),
+}))
 const knowledgeBaseDocuments = computed(() => (
   Array.isArray(kbStore.documents) ? kbStore.documents : []
 ))
@@ -819,6 +874,12 @@ const filteredConversations = computed(() => {
 function formatDate(value?: string | null) {
   if (!value) return '未知时间'
   return value.replace('T', ' ').slice(0, 16)
+}
+
+function retrievalProfileLabel(profile?: string | null) {
+  if (profile === 'precision') return '高精度引用'
+  if (profile === 'exploration') return '探索式阅读'
+  return '量化研究平衡'
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -1679,6 +1740,7 @@ button:disabled {
 .strategy-draft,
 .citation-box,
 .diagnostic-box,
+.retrieval-box,
 .reasoning-box,
 .execution-box {
   margin-top: 12px;
@@ -1799,6 +1861,34 @@ button:disabled {
   border-color: #fecaca;
   background: #fef2f2;
   color: #991b1b;
+}
+
+.retrieval-box {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+  color: #1e3a8a;
+}
+
+.retrieval-meta,
+.kb-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.retrieval-meta span,
+.kb-settings span {
+  border-radius: 999px;
+  background: rgba(219, 234, 254, 0.8);
+  padding: 3px 8px;
+  color: #1d4ed8;
+  font-size: 12px;
+}
+
+.retrieval-query {
+  margin-top: 8px;
+  line-height: 1.7;
 }
 
 .citation-head {

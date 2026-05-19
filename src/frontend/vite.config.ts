@@ -71,7 +71,14 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
+          // Heavy editor surface — always lazy-loaded by the views that need it.
           'monaco-editor': ['monaco-editor'],
+          // Charting libs are pulled in by analytics/report views; isolating
+          // them keeps the entry chunk small.
+          'echarts': ['echarts', 'echarts-gl', 'vue-echarts'],
+          // Element Plus is large and used app-wide; isolating ensures its
+          // bytes don't churn on app code changes.
+          'element-plus': ['element-plus', '@element-plus/icons-vue'],
         },
       },
     },

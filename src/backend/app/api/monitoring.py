@@ -30,11 +30,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def get_monitoring_service():
+def get_monitoring_service() -> MonitoringService:
     """Dependency injection for MonitoringService.
 
+    Note:
+        We intentionally do NOT cache this with ``@lru_cache``. Existing tests
+        patch ``app.api.monitoring.MonitoringService`` per-test; caching would
+        leak the first test's mock across the whole module. ``MonitoringService``
+        is also stateless aside from repo instances, so per-request construction
+        is cheap.
+
     Returns:
-        MonitoringService: An instance of the monitoring service.
+        MonitoringService: A fresh instance of the monitoring service.
     """
     return MonitoringService()
 

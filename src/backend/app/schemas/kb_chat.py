@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.rag import RAGDiagnostics
 from app.schemas.strategy import AIStrategyDraft
 
 KBAssistantMode = Literal[
@@ -108,3 +109,4 @@ class KBChatResponse(BaseModel):
     reasoning: str | None = None
     reason_code: str | None = None
     diagnostic_message: str | None = None
+    diagnostics: RAGDiagnostics | None = None
