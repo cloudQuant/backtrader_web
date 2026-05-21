@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/middleware/metrics.py
+# hypothesis_version: 6.148.5
+
+[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 120, 300, 600, 1200, 3600, 'CounterProtocol', 'GaugeProtocol', 'HistogramProtocol', 'api_request_total', 'backtest_total', 'broker', 'completed', 'db_query_total', 'endpoint', 'error_total', 'error_type', 'failed', 'get_metrics_output', 'is_metrics_available', 'method', 'module', 'operation', 'record_api_error', 'record_api_request', 'record_db_query', 'record_error', 'record_live_trade', 'running', 'status', 'status_code', 'strategy_id', 'symbol', 'table', 'track_api_request', 'track_db_query', 'type', 'utf-8']

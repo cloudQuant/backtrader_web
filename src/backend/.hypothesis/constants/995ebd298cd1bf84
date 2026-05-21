@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/gateway_health_service.py
+# hypothesis_version: 6.148.5
+
+['0', '1', 'CTP', 'CTP_INVESTOR_ID', 'CTP_USER_ID', 'FUTURE', 'IB_WEB', 'account_id', 'asset_type', 'connected', 'ctp', 'disconnected', 'error', 'exchange', 'exchange_type', 'false', 'gateway', 'gateway_key', 'health', 'health_snapshot', 'heartbeat_age_sec', 'instances', 'investor_id', 'is_healthy', 'last_heartbeat', 'last_order_time', 'last_tick_time', 'manual', 'market_connection', 'message', 'n', 'no', 'not_started', 'off', 'on', 'order_count', 'pid', 'recent_errors', 'ref_count', 'registered', 'running', 'runtime', 'source', 'state', 'status', 'strategy_count', 'strategy_id', 'strategy_name', 'symbol_count', 'tick_count', 'timestamp', 'trade_connection', 'true', 'unknown', 'uptime_sec', 'y', 'yes']

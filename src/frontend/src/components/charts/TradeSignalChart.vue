@@ -32,7 +32,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import * as echarts from 'echarts'
+import type * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
 import type { KlineData, TradeSignal } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'

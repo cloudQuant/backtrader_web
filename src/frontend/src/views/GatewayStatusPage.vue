@@ -80,7 +80,7 @@
           <div class="flex justify-between items-center">
             <div class="flex items-center gap-2">
               <el-icon
-                :color="gw.is_healthy ? '#67c23a' : '#f56c6c'"
+                :color="gw.is_healthy ? 'var(--el-color-success)' : 'var(--el-color-danger)'"
                 :size="18"
               >
                 <CircleCheckFilled v-if="gw.is_healthy" />
@@ -274,7 +274,7 @@
           <template #default="{ row }">
             <div class="flex items-center gap-2">
               <el-icon
-                :color="row.is_healthy ? '#67c23a' : '#f56c6c'"
+                :color="row.is_healthy ? 'var(--el-color-success)' : 'var(--el-color-danger)'"
                 :size="16"
               >
                 <CircleCheckFilled v-if="row.is_healthy" />
@@ -1018,14 +1018,14 @@ const disconnecting = ref<string | null>(null)
 
 const connectForm = reactive<{
   exchange_type: string
-  credentials: Record<string, unknown>
+  credentials: Record<string, any>
 }>({
   exchange_type: '',
   credentials: {},
 })
 
 // ---- Saved Credentials from .env ----
-const savedCredentials = ref<Record<string, Record<string, unknown>>>({})
+const savedCredentials = ref<Record<string, Record<string, any>>>({})
 
 async function fetchSavedCredentials() {
   try {

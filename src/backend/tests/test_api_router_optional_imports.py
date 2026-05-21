@@ -18,7 +18,6 @@ def test_api_router_handles_optional_import_errors():
         "app.api.realtime_data",
         "app.api.monitoring",
         "app.api.data",
-        "app.api.live_trading",
         "app.api.risk_control",
     }
 
@@ -39,6 +38,5 @@ def test_api_router_handles_optional_import_errors():
         assert router_module.optional_router_status["realtime_data"]["available"] is False
         assert router_module.optional_router_status["monitoring"]["available"] is False
         assert router_module.optional_router_status["data"]["available"] is False
-        assert router_module.optional_router_status["live_trading_legacy"]["available"] is False
     finally:
         importlib.reload(router_module)

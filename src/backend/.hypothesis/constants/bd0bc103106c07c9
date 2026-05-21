@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/registry_registration.py
+# hypothesis_version: 6.148.5
+
+['BINANCE___SPOT', 'BINANCE___SWAP', 'account', 'binance_market_data', 'exchange_data', 'order', 'subscribe', 'topic', 'topics', 'trade', 'wss_name', 'wss_url']

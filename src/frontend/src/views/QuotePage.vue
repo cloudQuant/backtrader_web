@@ -1,5 +1,5 @@
 <template>
-  <div class="quote-page space-y-4">
+  <div class="quote-page space-y-6">
     <!-- Data Source Tabs -->
     <el-card
       class="!p-0"
@@ -1109,7 +1109,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   padding: 6px 16px;
-  border-radius: 6px;
+  border-radius: var(--el-border-radius-base);
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
@@ -1124,8 +1124,8 @@ onUnmounted(() => {
 
 .source-tab--active {
   background-color: rgba(59, 130, 246, 0.15) !important;
-  border-color: #3b82f6;
-  color: #3b82f6;
+  border-color: var(--el-color-primary);
+  color: var(--el-color-primary);
 }
 
 .source-tab__dot {
@@ -1136,19 +1136,19 @@ onUnmounted(() => {
 }
 
 .source-tab--available .source-tab__dot {
-  background-color: #67c23a;
+  background-color: var(--el-color-success);
 }
 
 .source-tab--disconnected .source-tab__dot {
-  background-color: #e6a23c;
+  background-color: var(--el-color-warning);
 }
 
 .source-tab--unavailable .source-tab__dot {
-  background-color: #909399;
+  background-color: var(--el-text-color-placeholder);
 }
 
 .source-tab--unavailable {
-  color: #909399;
+  color: var(--el-text-color-placeholder);
   cursor: not-allowed;
 }
 
@@ -1161,7 +1161,7 @@ onUnmounted(() => {
 .quote-table :deep(.el-table__header th) {
   padding: 6px 0;
   font-size: 12px;
-  background-color: #f8fafc !important;
+  background-color: var(--el-fill-color-lighter) !important;
 }
 
 /* Tick flash animation (P1) */

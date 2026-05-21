@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/economic/marco_cnbs.py
+# hypothesis_version: 6.148.5
+
+['%Y-%m', 'Central government ', 'Data', 'General government', 'Household', 'Local government', 'Non financial sector', 'Period', '__main__', 'coerce', 'openpyxl', '中央政府', '地方政府', '实体经济部门', '居民部门', '年份', '政府部门', '金融部门负债方', '金融部门资产方', '非金融企业部门']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_account_em.py
+# hypothesis_version: 6.148.5
+
+['-', '-1', '1', '500', 'ALL', 'RPT_STOCK_OPEN_DATA', 'STATISTICS_DATE', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '上证指数-收盘', '上证指数-涨跌幅', '数据日期', '新增投资者-同比', '新增投资者-数量', '新增投资者-环比', '期末投资者-A股账户', '期末投资者-B股账户', '期末投资者-总量', '沪深总市值', '沪深户均市值']

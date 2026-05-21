@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ib_web/src/bt_api_ib_web/runtime/base_stream.py
+# hypothesis_version: 6.148.5
+
+[0.0, 0.5, 30.0, 'authenticated', 'connected', 'connecting', 'disconnected', 'error', 'ib_web_stream', 'stream_name']

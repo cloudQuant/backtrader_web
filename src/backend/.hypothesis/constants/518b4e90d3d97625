@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/utils/knowledge_base_settings.py
+# hypothesis_version: 6.148.5
+
+[0.08, 0.1, 0.2, 0.35, 'default_top_k', 'hybrid', 'keyword_weight', 'max_context_chunks', 'min_similarity', 'phrase_weight', 'quant_focus', 'quant_research', 'recency_weight', 'retrieval_profile', 'search_mode', 'strategy_research', 'system_prompt_suffix', 'title_weight']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/liquidations/okx_liquidation_warning.py
+# hypothesis_version: 6.148.5
+
+['OKX', 'asset_type', 'exchange_name', 'instId', 'instType', 'inst_id', 'inst_type', 'liqPx', 'liquidation_price', 'local_update_time', 'markPx', 'mark_price', 'pos', 'posCcy', 'posSide', 'pos_side', 'position', 'position_ccy', 'server_time', 'symbol_name']

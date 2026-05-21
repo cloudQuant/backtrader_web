@@ -1,0 +1,64 @@
+###############################################################################
+# Backtrader Web - Quick Start Docker Compose (SQLite, no external deps)
+#
+# Usage:
+#   docker compose up -d
+#   Open http://localhost:3000 (frontend) or http://localhost:8000/docs (API)
+#
+# This compose file uses SQLite (zero-config) for quick evaluation.
+# For production, use docker-compose.prod.yml with MySQL/PostgreSQL.
+###############################################################################
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    container_name: backtrader_backend
+    restart: unless-stopped
+    environment:
+      APP_NAME: backtrader_web
+      DEBUG: "false"
+      SECRET_KEY: "change-me-in-production-use-a-random-string"
+      DATABASE_TYPE: sqlite
+      DATABASE_URL: "sqlite+aiosqlite:///./data/backtrader.db"
+      JWT_SECRET_KEY: "change-me-jwt-secret-key"
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: "10080"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      CORS_ORIGINS: "http://localhost:3000,http://localhost"
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: "admin123"
+      ADMIN_EMAIL: "admin@example.com"
+      DB_AUTO_CREATE_SCHEMA: "true"
+      DB_AUTO_CREATE_DEFAULT_ADMIN: "true"
+      BACKTEST_TIMEOUT: "300"
+      WEB_CONCURRENCY: "1"
+      TZ: Asia/Shanghai
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./strategies:/opt/workspace/backtrader_web/strategies:ro
+      - backtrader_data:/opt/workspace/backtrader_web/src/backend/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+    container_name: backtrader_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backtrader_data:

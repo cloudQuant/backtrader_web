@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_gddh_em.py
+# hypothesis_version: 6.148.5
+
+['\r\n2', '\r\n3', '(IS_LASTDATE="1")', '-1', '1', '500', 'DECISION_NOTICE_DATE', 'EQUITY_RECORD_DATE', 'MEETING_TITLE', 'NOTICE_DATE', 'ONSITE_RECORD_DATE', 'PROPOSAL', 'SECURITY_CODE', 'SECURITY_NAME_ABBR', 'SERIAL_NUM', 'START_ADJUST_DATE', 'WEB', 'WEB_END_DATE', 'WEB_START_DATE', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '代码', '公告日', '决议公告日', '召开开始日', '序列号', '提案', '现场登记日', '简称', '网络投票时间-开始日', '网络投票时间-结束日', '股东大会名称', '股权登记日']

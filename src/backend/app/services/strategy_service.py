@@ -11,9 +11,9 @@ import yaml
 from app.db.sql_repository import SQLRepository
 from app.models.strategy import Strategy
 from app.schemas.strategy import (
-    AIStrategyDraft,
     AIStrategyBacktestSpec,
     AIStrategyDataSourceSpec,
+    AIStrategyDraft,
     AIStrategyExecutionPlan,
     ParamSpec,
     StrategyCopilotBacktestRequest,
@@ -30,6 +30,7 @@ from app.schemas.strategy import (
     StrategyType,
     StrategyUpdate,
 )
+from app.utils.response_cache import invalidate_cache
 
 logger = logging.getLogger(__name__)
 
@@ -575,6 +576,7 @@ class StrategyService:
         strategy = await self.strategy_repo.create(strategy)
         response = self._to_response(strategy)
         _sync_user_strategy_runtime_files(response)
+        await invalidate_cache("strategies")
         return response
 
     async def generate_copilot_draft(
@@ -838,6 +840,7 @@ class StrategyService:
             strategy = await self.strategy_repo.update(strategy_id, update_data)
         response = self._to_response(strategy)
         _sync_user_strategy_runtime_files(response)
+        await invalidate_cache("strategies")
         return response
 
     async def delete_strategy(self, strategy_id: str, user_id: str) -> bool:
@@ -854,7 +857,10 @@ class StrategyService:
         if strategy is None:
             return False
 
-        return await self.strategy_repo.delete(strategy_id)
+        result = await self.strategy_repo.delete(strategy_id)
+        if result:
+            await invalidate_cache("strategies")
+        return result
 
     async def list_strategies(
         self, user_id: str, limit: int = 20, offset: int = 0, category: str | None = None

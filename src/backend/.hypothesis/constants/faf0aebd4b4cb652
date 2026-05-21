@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/exchange_data.py
+# hypothesis_version: 6.148.5
+
+['15m', '1d', '1h', '1m', '30m', '4h', '5m', 'CTP', 'CtpExchangeData']

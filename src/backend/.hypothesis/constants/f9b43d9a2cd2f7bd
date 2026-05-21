@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/version_diff_service.py
+# hypothesis_version: 6.148.5
+
+[0.0, 'added', 'annual_return', 'available', 'completed', 'created_at', 'diff', 'from', 'losing_trades', 'max_drawdown', 'metrics', 'modified', 'profitable_trades', 'removed', 'sharpe_ratio', 'task_id', 'to', 'total_return', 'total_trades', 'unchanged', 'win_rate']

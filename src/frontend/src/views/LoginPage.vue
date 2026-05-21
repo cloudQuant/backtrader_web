@@ -16,7 +16,6 @@
         ref="formRef"
         :model="form"
         :rules="rules"
-        @submit.prevent="handleLogin"
       >
         <el-form-item prop="username">
           <el-input
@@ -48,7 +47,7 @@
             size="large"
             class="w-full"
             :loading="loading"
-            native-type="submit"
+            @click="handleLogin"
           >
             {{ t('auth.login') }}
           </el-button>
@@ -83,7 +82,7 @@ const authStore = useAuthStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-const usernameInputRef = ref<InstanceType<typeof import('element-plus')['ElInput']> | null>(null)
+const usernameInputRef = ref<InstanceType<typeof import('element-plus').ElInput> | null>(null)
 
 const form = reactive({
   username: '',
@@ -100,10 +99,12 @@ const rules: FormRules = {
 }
 
 async function handleLogin() {
-  if (!formRef.value) return
-
-  const valid = await formRef.value.validate().catch(() => false)
-  if (!valid) return
+  if (!formRef.value) {
+    console.warn('[Login] formRef is null, skipping validation')
+  } else {
+    const valid = await formRef.value.validate().catch(() => false)
+    if (!valid) return
+  }
 
   loading.value = true
   try {
@@ -114,7 +115,7 @@ async function handleLogin() {
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : ''
     const safeRedirect = redirect && redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/'
     router.push(safeRedirect)
-  } catch (error) {
+  } catch {
     // 错误已在拦截器中处理
   } finally {
     loading.value = false

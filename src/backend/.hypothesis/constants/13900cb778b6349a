@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/ai_trading.py
+# hypothesis_version: 6.148.5
+
+[0.0, 0.3, 1.0, 24.0, 5000.0, 10000.0, 500, 'active', 'buy', 'cancel', 'cancelled', 'close', 'confirmed', 'critical', 'executing', 'failed', 'filled', 'high', 'limit', 'low', 'market', 'medium', 'modify', 'paper', 'partially_filled', 'pending_confirmation', 'query', 'rejected', 'sell', 'stop', 'stop_limit']

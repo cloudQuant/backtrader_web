@@ -87,6 +87,8 @@ services:
       DB_AUTO_CREATE_DEFAULT_ADMIN: ${DB_AUTO_CREATE_DEFAULT_ADMIN:-true}
       # Backtest
       BACKTEST_TIMEOUT: "300"
+      # Worker concurrency (Gunicorn workers)
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
       # Akshare
       AKSHARE_SCHEDULER_TIMEZONE: Asia/Shanghai
       AKSHARE_SCRIPT_ROOT: app/data_fetch/scripts

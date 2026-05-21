@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/economic/macro_euro.py
+# hypothesis_version: 6.148.5
+
+[1000, '-', '1.0.0', '[0, 0, 0]', '_', '__main__', 'attr_id', 'category', 'data', 'ec', 'float', 'index', 'keys', 'max_date', 'name', 'rU6QIu7JHe2gOUeR', 'user-agent', 'values', 'x-app-id', 'x-csrf-token', 'x-version', '今值', '前值', '商品', '日期', '欧元区CPI年率', '欧元区CPI月率', '欧元区PPI月率', '欧元区Sentix投资者信心指数', '欧元区ZEW经济景气指数', '欧元区制造业PMI初值', '欧元区失业率', '欧元区季度GDP年率', '欧元区季调后就业人数季率', '欧元区工业产出月率', '欧元区服务业PMI终值', '欧元区未季调贸易帐', '欧元区经常帐', '欧元区零售销售月率', '预测值']

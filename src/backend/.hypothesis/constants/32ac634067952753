@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/gateway/adapter.py
+# hypothesis_version: 6.148.5
+
+[0.0, 0.1, 1.0, 2.0, 10.0, 1000.0, 1000000000000.0, 'FUT', 'FUTURE', 'OKX', 'SPOT', 'SWAP', 'account', 'api_key', 'asset_type', 'buy', 'client_order_id', 'data_name', 'error', 'event', 'exchange', 'exchange_data', 'exchange_name', 'external_order_id', 'filled', 'get_all_data', 'get_data', 'kind', 'limit', 'offset', 'open', 'order', 'order_id', 'order_type', 'orders', 'passphrase', 'positions', 'price', 'private_key', 'public_key', 'raw', 'secret_key', 'side', 'size', 'status', 'symbol', 'symbols', 'ticker', 'topic', 'topics', 'trade', 'trade_id', 'type', 'volume']

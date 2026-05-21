@@ -1,20 +1,49 @@
 [run]
 source = app
 omit =
+    # Data fetch scripts (external API dependent)
     app/data_fetch/*
     app/data_fetch/**/*
-    app/services/workspace_service.py
-    app/services/sync_service.py
+    # API routes excluded from unit test gate (covered by E2E)
     app/api/workspace_api.py
     app/api/sync_api.py
     app/api/simulation.py
+    # External gateway integrations (require real broker connections)
+    app/services/ctp_tunnel.py
+    app/services/manual_gateway_service.py
+    app/services/gateway_launch_builder.py
+    app/services/gateway_health_service.py
+    app/services/gateway_runtime_service.py
+    app/services/live_execution_service.py
+    app/services/live_instance_service.py
+    app/services/process_supervisor.py
+    app/api/live_trading_common.py
+    # Migration service (one-time use)
+    app/services/reqdocs_migration_service.py
+    # Workspace subpackage (covered by E2E and integration tests)
+    app/services/workspace/*
 
 [report]
 omit =
     app/data_fetch/*
     app/data_fetch/**/*
-    app/services/workspace_service.py
-    app/services/sync_service.py
     app/api/workspace_api.py
     app/api/sync_api.py
     app/api/simulation.py
+    app/services/ctp_tunnel.py
+    app/services/manual_gateway_service.py
+    app/services/gateway_launch_builder.py
+    app/services/gateway_health_service.py
+    app/services/gateway_runtime_service.py
+    app/services/live_execution_service.py
+    app/services/live_instance_service.py
+    app/services/process_supervisor.py
+    app/api/live_trading_common.py
+    app/services/reqdocs_migration_service.py
+    app/services/workspace/*
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    raise NotImplementedError

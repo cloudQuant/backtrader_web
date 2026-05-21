@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/db/database.py
+# hypothesis_version: 6.148.5
+
+['0', 'DATETIME', 'FALSE', 'JSON', 'SELECT 1', 'TIMESTAMP', 'chat_conversations', 'chat_messages', 'citations', 'created_at', 'gateway_config', 'gateway_config JSON', 'lock_running', 'lock_trading', 'model_id', 'mysql', 'name', 'pool_pre_ping', 'poolclass', 'postgresql', 'reasoning', 'reasoning TEXT', 'settings', 'sqlite', 'strategy_units', 'tokens_used', 'tokens_used INTEGER', 'trading_config', 'trading_config JSON', 'trading_instance_id', 'trading_mode', 'trading_snapshot', 'updated_at', 'user_id', 'user_id VARCHAR(36)', 'workspace_type', 'workspaces']

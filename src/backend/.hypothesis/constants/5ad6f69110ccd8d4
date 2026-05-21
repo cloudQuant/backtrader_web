@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/monitoring_service.py
+# hypothesis_version: 6.148.5
+
+[1000, 5000, 'Content-Type', 'POST', 'alert', 'alert_id', 'alert_type', 'application/json', 'backtest_service', 'by_severity', 'by_status', 'by_type', 'created_at', 'cross', 'data', 'desc', 'details', 'email', 'failed', 'forbidden', 'headers', 'id', 'is_active', 'is_notification_sent', 'is_read', 'last_triggered_at', 'live_trading_service', 'manual', 'message', 'method', 'missing webhook url', 'ok', 'pending', 'push', 'rate', 'recent', 'resolved_at', 'rule_id', 'sent', 'severity', 'sms', 'status', 'threshold', 'title', 'total_alerts', 'trigger_config', 'trigger_type', 'triggered_count', 'type', 'url', 'user_id', 'utf-8', 'web', 'webhook']

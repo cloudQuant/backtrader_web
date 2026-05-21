@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/analytics_service.py
+# hypothesis_version: 6.148.5
+
+[0.02, 252, 'barlen', 'cash', 'close', 'close_price', 'commission', 'date', 'datetime', 'direction', 'drawdown', 'dtclose', 'dtopen', 'equity_curve', 'ma10', 'ma20', 'ma5', 'ma60', 'peak', 'pnl', 'pnlcomm', 'position_value', 'price', 'size', 'symbol', 'total_assets', 'trades', 'trough', 'type', 'unknown', 'value']

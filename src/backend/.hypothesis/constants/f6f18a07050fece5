@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/economic/macro_other.py
+# hypothesis_version: 6.148.5
+
+['*/*', '-', '1.0.0', '20221011', '20221017', '24小时成交量', '24小时最低', '24小时最高', '__main__', 'accept', 'accept-encoding', 'accept-language', 'cache-control', 'coerce', 'cors', 'currency_pair', 'data', 'date', 'end_date', 'index', 'no-cache', 'origin', 'pragma', 'rU6QIu7JHe2gOUeR', 'referer', 'reported_at', 'same-site', 'sec-fetch-mode', 'sec-fetch-site', 'start_date', 'user-agent', 'values', 'x-app-id', 'x-csrf-token', 'x-version', '交易品种', '市场', '更新时间', '最近报价', '涨跌幅', '涨跌额']

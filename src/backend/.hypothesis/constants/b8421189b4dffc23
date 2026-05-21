@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/plugin.py
+# hypothesis_version: 6.148.5
+
+['>=0.15,<1.0', 'BINANCE', 'BINANCE___SPOT', 'BINANCE___SWAP', 'SPOT', 'SWAP', 'bt_api_binance']

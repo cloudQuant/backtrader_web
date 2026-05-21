@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_fhps_ths.py
+# hypothesis_version: 6.148.5
+
+['%Y-%m-%d', '200596', '603444', 'A股股权登记日', 'A股除权除息日', 'B股股权登记日', 'B股除权除息日', 'User-Agent', '__main__', 'coerce', 'gbk', '实施公告日', '股东大会预案公告日期', '董事会日期']

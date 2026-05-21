@@ -35,6 +35,7 @@ from app.schemas.backtest_enhanced import (
 from app.services.backtest_manager import BacktestExecutionManager
 from app.services.backtest_runner import BacktestExecutionRunner
 from app.services.strategy_runtime_support import has_log_artifacts
+from app.utils.response_cache import invalidate_cache
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -302,6 +303,8 @@ class BacktestService:
         self.task_runner.schedule(
             str(task.id), self._execute_backtest(str(task.id), user_id, request)
         )
+
+        await invalidate_cache("backtests")
 
         return BacktestResponse(
             task_id=str(task.id),
@@ -824,6 +827,7 @@ class BacktestService:
             TaskStatus.CANCELLED,
             error_message="User cancelled task",
         )
+        await invalidate_cache("backtests")
         return True
 
     async def get_task_status(self, task_id: str, user_id: str | None = None) -> TaskStatus | None:
@@ -917,5 +921,6 @@ class BacktestService:
         # Clear cache
         if success:
             await self.cache.delete(f"backtest:result:{task_id}")
+            await invalidate_cache("backtests")
 
         return success

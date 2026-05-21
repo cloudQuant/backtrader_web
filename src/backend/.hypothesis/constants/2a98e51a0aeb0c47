@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/ai_trading.py
+# hypothesis_version: 6.148.5
+
+[100, 'ai_trading_logs', 'pending', 'trading_execution', 'users.id']

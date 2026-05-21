@@ -42,6 +42,34 @@ class BacktestExecutionManager:
             await session.commit()
             return len(tasks)
 
+    async def interrupt_active_tasks(self) -> int:
+        """Mark all active tasks as cancelled during graceful shutdown.
+
+        Unlike reconcile_orphaned_tasks (which runs on startup and marks tasks
+        as FAILED), this method is called during shutdown and marks tasks as
+        CANCELLED with a clear message indicating graceful shutdown.
+
+        Returns:
+            Number of tasks interrupted.
+        """
+        async with async_session_maker() as session:
+            result = await session.execute(
+                select(BacktestTask).where(
+                    BacktestTask.status.in_([TaskStatus.PENDING, TaskStatus.RUNNING])
+                )
+            )
+            tasks = list(result.scalars().all())
+            if not tasks:
+                return 0
+
+            for task in tasks:
+                task.status = TaskStatus.CANCELLED
+                task.error_message = "Task cancelled due to application shutdown (graceful stop)"
+
+            await session.commit()
+            logger.info("Graceful shutdown: interrupted %d active backtest tasks", len(tasks))
+            return len(tasks)
+
     async def get_user_task_count(self, user_id: str) -> int:
         """Return the current active task count for one user."""
         async with async_session_maker() as session:

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/containers/markprices/binance_mark_price.py
+# hypothesis_version: 6.148.5
+
+[0.0, 'BINANCE', 'E', 'P', 'asset_type', 'estimatedSettlePrice', 'exchange_name', 'i', 'indexPrice', 'index_price', 'local_update_time', 'markPrice', 'mark_price', 'p', 's', 'server_time', 'settlement_price', 'symbol', 'symbol_name', 'time']

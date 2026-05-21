@@ -13,6 +13,7 @@ KBAssistantMode = Literal[
     'strategy_idea',
     'backtrader_strategy',
     'strategy_review',
+    'trading_execution',
 ]
 
 

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/functions/async_base.py
+# hypothesis_version: 6.148.5
+
+[100, 'AsyncBase', '__main__', 'async_data', 'async_proxy', 'data', 'dict[Any, Any]', 'get', 'headers', 'http', 'https', 'proxy', 'timeout']

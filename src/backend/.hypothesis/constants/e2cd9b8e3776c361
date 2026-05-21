@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/kb_chat.py
+# hypothesis_version: 6.148.5
+
+['/conversations', '/send', 'Conversation deleted', 'Create conversation', 'Delete conversation', 'Get history', 'List conversations', 'Send message', 'message']

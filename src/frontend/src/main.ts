@@ -1,7 +1,6 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
-import 'element-plus/dist/index.css'
+import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 
 import App from './App.vue'
@@ -9,6 +8,10 @@ import router from './router'
 import { AUTH_EXPIRED_EVENT } from './utils/session'
 import { useAuthStore } from './stores/auth'
 import i18n from './i18n'
+
+// Element Plus base styles (CSS variables, reset) — required for auto-import to work
+import 'element-plus/dist/index.css'
+
 import './style.css'
 
 function installPerformanceMeasureGuard(): void {
@@ -17,7 +20,7 @@ function installPerformanceMeasureGuard(): void {
   }
 
   const originalMeasure = Performance.prototype.measure
-  ;(Performance.prototype as any).measure = function (...args: Parameters<Performance['measure']>) {
+  ;(Performance.prototype as unknown as Record<string, unknown>).measure = function (...args: Parameters<Performance['measure']>) {
     try {
       return originalMeasure.apply(this, args)
     } catch (error) {
@@ -38,6 +41,24 @@ installPerformanceMeasureGuard()
 async function bootstrap() {
   const app = createApp(App)
   const pinia = createPinia()
+  pinia.use(piniaPluginPersistedstate)
+
+  // 全局错误处理：捕获未处理的组件渲染错误
+  app.config.errorHandler = (err, _instance, info) => {
+    console.error('[Global Error Handler]', err, info)
+    // 在生产环境中可以上报到错误监控服务（如 Sentry）
+    if (import.meta.env.PROD) {
+      // TODO: 集成错误上报服务
+      // reportError({ error: err, component: info })
+    }
+  }
+
+  // 捕获未处理的 Promise rejection
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('[Unhandled Promise Rejection]', event.reason)
+    // 防止某些浏览器在控制台显示默认错误
+    // event.preventDefault()
+  })
 
   // 注册Element Plus图标
   for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
@@ -46,7 +67,6 @@ async function bootstrap() {
 
   app.use(pinia)
   app.use(i18n)
-  app.use(ElementPlus)
 
   const authStore = useAuthStore(pinia)
   await authStore.initialize()

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/fx/fx_quote.py
+# hypothesis_version: 6.148.5
+
+[1000, '-', '1周', '1年', '1月', '3月', '6月', '9月', '__main__', 'askPrc', 'bidPrc', 'ccyPair', 'coerce', 'label_1M', 'label_1W', 'label_1Y', 'label_3M', 'label_6M', 'label_9M', 'midprice', 'records', 't', 'time', '买报价', '卖报价', '货币对']

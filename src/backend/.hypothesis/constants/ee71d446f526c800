@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/news/news_stock.py
+# hypothesis_version: 6.148.5
+
+['"Windows"', '*/*', '-', '.html', '1764599530176', '603777', '</em>', '</em>\\)', '<em>', '?0', '\\(<em>', '\\r\\n', '\\u3000', '_', '__main__', 'accept', 'accept-encoding', 'accept-language', 'cache-control', 'cb', 'client', 'clientType', 'clientVersion', 'cmsArticleWebOld', 'code', 'connection', 'content', 'cookie', 'curr', 'date', 'default', 'host', 'image', 'keep-alive', 'keyword', 'mediaName', 'no-cache', 'no-cors', 'pageIndex', 'pageSize', 'param', 'postTag', 'pragma', 'preTag', 'referer', 'result', 'same-site', 'script', 'searchScope', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'sort', 'title', 'type', 'uid', 'url', 'user-agent', 'web', '关键词', '发布时间', '文章来源', '新闻内容', '新闻标题', '新闻链接']

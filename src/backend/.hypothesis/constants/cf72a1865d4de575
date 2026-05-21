@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/akshare_scheduler_service.py
+# hypothesis_version: 6.148.5
+
+['*/10 * * * *', '0 * * * *', '0 18 * * *', '0 18 * * 1-5', '0 8 * * *', '0 8 * * 1-5', 'Script is not active', 'Script not found', 'cron_expression', 'description', 'every_10_minutes', 'every_day_at_18', 'every_day_at_8', 'every_hour', 'label', 'script_id', 'value', 'workdays_at_18', 'workdays_at_8', '工作日18点', '工作日8点', '工作日下午18点执行', '工作日早上8点执行', '每10分钟', '每10分钟执行一次', '每天18点', '每天8点', '每天下午18点执行', '每天早上8点执行', '每小时', '每小时执行一次']

@@ -14,7 +14,6 @@ Features:
 import json
 import logging
 import sys
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -133,21 +132,46 @@ def _filter_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
 def _serialize_log(record: dict[str, Any]) -> str:
     """Serialize log record to JSON format for structured logging.
 
+    Produces a single-line JSON object with required fields:
+    - timestamp: ISO 8601 with millisecond precision
+    - level: DEBUG/INFO/WARNING/ERROR/CRITICAL
+    - message: log message text (truncated to 10000 chars)
+    - module: producing module name
+    - request_id: current request context ID or "N/A"
+
     Args:
         record: Log record dictionary.
 
     Returns:
         JSON string representation.
     """
-    # Extract relevant fields
-    log_entry = {
-        "timestamp": datetime.fromtimestamp(record["time"].timestamp()).isoformat(),
+    # Timestamp with millisecond precision in ISO 8601 format
+    ts = record["time"]
+    timestamp = ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ts.microsecond // 1000:03d}" + ts.strftime(
+        "%z"
+    )
+    # Insert colon in timezone offset for strict ISO 8601 (e.g. +0800 → +08:00)
+    if len(timestamp) > 5 and timestamp[-5] in ("+", "-") and ":" not in timestamp[-5:]:
+        timestamp = timestamp[:-2] + ":" + timestamp[-2:]
+
+    # Determine module name from record
+    name = record.get("name") or ""
+    extra_name = record["extra"].get("name", "")
+    module_source = extra_name or name
+    module = module_source.split(".")[-1] if "." in module_source else (module_source or "root")
+
+    # Truncate message to 10000 characters
+    message = record["message"]
+    if len(message) > 10000:
+        message = message[:10000]
+
+    # Build required fields
+    log_entry: dict[str, Any] = {
+        "timestamp": timestamp,
         "level": record["level"].name,
-        "logger": record["name"],
-        "function": record["function"],
-        "line": record["line"],
-        "message": record["message"],
-        "module": record["name"].split(".")[-1] if "." in record["name"] else record["name"],
+        "message": message,
+        "module": module,
+        "request_id": record["extra"].get("request_id", "N/A"),
     }
 
     # Add exception info if present
@@ -160,23 +184,21 @@ def _serialize_log(record: dict[str, Any]) -> str:
             else " interrupted",
         }
 
-    # Add extra context if present
+    # Add extra context if present (excluding tracked fields)
     if record["extra"]:
         extra = {
             k: v
             for k, v in record["extra"].items()
-            if k not in {"request_id", "user_id", "task_id"}
+            if k not in {"request_id", "user_id", "task_id", "name"}
         }
         if extra:
             extra_filtered = _filter_sensitive_data(extra)
             log_entry["context"] = extra_filtered
 
-    # Add request tracking
-    if "request_id" in record["extra"]:
-        log_entry["request_id"] = record["extra"]["request_id"]
-    if "user_id" in record["extra"]:
+    # Add optional tracking fields
+    if "user_id" in record["extra"] and record["extra"]["user_id"]:
         log_entry["user_id"] = record["extra"]["user_id"]
-    if "task_id" in record["extra"]:
+    if "task_id" in record["extra"] and record["extra"]["task_id"]:
         log_entry["task_id"] = record["extra"]["task_id"]
 
     return json.dumps(log_entry, ensure_ascii=False)
@@ -198,9 +220,19 @@ _PLAIN_FORMAT = (
 )
 
 
-def _add_console_handler(level: str, debug: bool) -> None:
-    """Add coloured (debug) or plain (production) console handler."""
-    if debug:
+def _json_console_sink(message) -> None:
+    """Sink that writes JSON-serialized log records to stdout.
+
+    Used in production to enable structured log ingestion by ELK/Loki/CloudWatch.
+    """
+    record = message.record
+    sys.stdout.write(_serialize_log(record) + "\n")
+    sys.stdout.flush()
+
+
+def _add_console_handler(level: str, use_color: bool) -> None:
+    """Add coloured (debug/text) or JSON (production) console handler."""
+    if use_color:
         fmt = (
             "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
             "<level>{level: <8}</level> | "
@@ -208,11 +240,14 @@ def _add_console_handler(level: str, debug: bool) -> None:
             "{extra[request_id]:<12} | "
             "<level>{message}</level>"
         )
+        logger.add(
+            sys.stdout, format=fmt, level=level, colorize=True, catch=True, filter=_patch_record
+        )
     else:
-        fmt = _PLAIN_FORMAT
-    logger.add(
-        sys.stdout, format=fmt, level=level, colorize=debug, catch=True, filter=_patch_record
-    )
+        # Production: structured JSON output for log aggregation systems
+        logger.add(
+            _json_console_sink, level=level, colorize=False, catch=True, filter=_patch_record
+        )
 
 
 def _add_file_handler(
@@ -227,25 +262,73 @@ def _add_file_handler(
     backtrace: bool = False,
 ) -> None:
     """Add a rotating file handler with common defaults."""
-    fmt = _serialize_log if use_json else (fmt_override or _PLAIN_FORMAT)
     filt = (
         (lambda record, t=tag_filter: t in record["extra"].get("tags", []))
         if tag_filter
         else _patch_record
     )
-    logger.add(
-        logs_path / filename,
-        rotation="00:00",
-        retention=retention,
-        compression="zip",
-        format=fmt,
-        level=level,
-        enqueue=True,
-        catch=True,
-        filter=filt,
-        backtrace=backtrace,
-        diagnose=backtrace,
-    )
+
+    if use_json:
+        # For JSON output, use "{message}" as format and serialize in a custom
+        # format function. Loguru applies .format_map() on the returned string,
+        # so we must avoid raw braces. Instead, we use the `serialize` parameter
+        # which writes the record as-is without format interpolation.
+        logger.add(
+            logs_path / filename,
+            rotation="00:00",
+            retention=retention,
+            compression="zip",
+            format="{message}",
+            level=level,
+            enqueue=True,
+            catch=True,
+            filter=filt,
+            backtrace=backtrace,
+            diagnose=backtrace,
+            serialize=True,
+        )
+    else:
+        fmt = fmt_override or _PLAIN_FORMAT
+        logger.add(
+            logs_path / filename,
+            rotation="00:00",
+            retention=retention,
+            compression="zip",
+            format=fmt,
+            level=level,
+            enqueue=True,
+            catch=True,
+            filter=filt,
+            backtrace=backtrace,
+            diagnose=backtrace,
+        )
+
+
+def _resolve_log_format(settings) -> tuple[bool, bool]:
+    """Resolve whether to use JSON output and whether to use colored text.
+
+    Fallback logic:
+    - LOG_FORMAT=json → JSON output
+    - LOG_FORMAT=text → plain text output
+    - LOG_FORMAT unset/empty:
+        - DEBUG=true → colored text
+        - DEBUG=false → JSON output
+
+    Returns:
+        Tuple of (use_json, use_color).
+    """
+    log_format = getattr(settings, "LOG_FORMAT", "").strip().lower()
+
+    if log_format == "json":
+        return True, False
+    elif log_format == "text":
+        return False, False
+
+    # Fallback based on DEBUG
+    if settings.DEBUG:
+        return False, True
+    else:
+        return True, False
 
 
 def setup_logger(
@@ -268,7 +351,14 @@ def setup_logger(
     settings = get_settings()
 
     level = log_level or ("DEBUG" if settings.DEBUG else "INFO")
-    use_json = json_logs if json_logs is not None else not settings.DEBUG
+
+    # Determine format: explicit json_logs param takes precedence, then LOG_FORMAT env var
+    if json_logs is not None:
+        use_json = json_logs
+        use_color = not json_logs and settings.DEBUG
+    else:
+        use_json, use_color = _resolve_log_format(settings)
+
     logs_path = Path(log_dir or "logs")
     logs_path.mkdir(parents=True, exist_ok=True)
 
@@ -278,7 +368,7 @@ def setup_logger(
     # ``logging.getLogger(__name__)`` are automatically routed through loguru.
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
-    _add_console_handler(level, settings.DEBUG)
+    _add_console_handler(level, use_color)
 
     _add_file_handler(logs_path, "app_{time:YYYY-MM-DD}.log", use_json, retention="30 days")
 

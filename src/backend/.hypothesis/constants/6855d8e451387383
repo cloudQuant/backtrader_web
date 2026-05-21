@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_repurchase_em.py
+# hypothesis_version: 6.148.5
+
+['-1,-1,-1', '001', '002', '003', '004', '005', '006', '1', '500', 'ALL', 'DEFAULT@SECLEVEL=1', 'DIM_SCODE', 'DIM_TRADEDATE', 'JESX', 'JEXX', 'NEWPRICE', 'REPURAMOUNT', 'REPURNUM', 'REPURNUMCAP', 'REPURNUMLOWER', 'REPURPRICECAP', 'REPURPRICECAP1', 'REPURPRICELOWER1', 'REPURPROGRESS', 'SECURITYSHORTNAME', 'UPDATEDATE', 'WEB', 'ZSZSX', 'ZSZXX', '__main__', 'columns', 'data', 'https://', 'index', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'ssl_context', '停止实施', '占公告前一日总股本比例-上限', '占公告前一日总股本比例-下限', '回购起始时间', '完成实施', '实施中', '实施进度', '已回购股份价格区间-上限', '已回购股份价格区间-下限', '已回购股份数量', '已回购金额', '序号', '最新价', '最新公告日期', '股东大会否决', '股东大会通过', '股票代码', '股票简称', '董事会预案', '计划回购价格区间', '计划回购数量区间-上限', '计划回购数量区间-下限', '计划回购金额区间-上限', '计划回购金额区间-下限']

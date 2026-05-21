@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/auto_trading_scheduler.py
+# hypothesis_version: 6.148.5
+
+['%H:%M', '09:00', '15:00', '21:00', '23:00', ':', 'all', 'buffer_minutes', 'close', 'day', 'enabled', 'market_close', 'market_open', 'name', 'night', 'open', 'scope', 'session', 'sessions', 'start', 'stop', 'utf-8']

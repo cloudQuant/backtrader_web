@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/economic/macro_info_ws.py
+# hypothesis_version: 6.148.5
+
+['%Y%m%d', '%Y-%m-%d %H:%M:%S', '20240514', 'Asia/Shanghai', '__main__', 'actual', 'coerce', 'country', 'data', 'end', 'forecast', 'importance', 'items', 'previous', 'public_date', 'revised', 's', 'start', 'title', 'uri', '事件', '今值', '修正', '前值', '地区', '时间', '重要性', '链接', '预期']

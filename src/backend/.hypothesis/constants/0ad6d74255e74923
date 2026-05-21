@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ib_web/src/bt_api_ib_web/plugin.py
+# hypothesis_version: 6.148.5
+
+['>=0.15,<1.0', 'FUT', 'IB_WEB', 'IB_WEB___FUT', 'IB_WEB___STK', 'STK', 'bt_api_ib_web']

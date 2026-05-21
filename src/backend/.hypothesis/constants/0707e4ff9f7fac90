@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_lhb_em.py
+# hypothesis_version: 6.148.5
+
+['-', '1', '159919', '200', '20220121', '20220124', '20240712', '510050', '510300', 'ALL', 'BUY_POSITION', 'BUY_POSITION_CHANGE', 'BUY_POSITION_RATIO', 'IFBILLBOARD', 'MEMBER_NAME_ABBR', 'MEMBER_RANK', 'NET_BUY_POSITION', 'RPT_IF_BILLBOARD_TD', 'SECURITY_CODE', 'TARGET_NAME', 'TRADE_DATE', 'TRADE_TYPE', 'WEB', '__main__', 'client', 'coerce', 'data', 'filter', 'p', 'pss', 'result', 'source', 'sty', 'type', 'ut', '交易日期', '交易类型', '交易量', '净交易量', '净持仓量', '净认沽量', '占总交易量比例', '名次', '增减', '持仓量', '期权交易情况-认沽交易量', '期权交易情况-认购交易量', '期权持仓情况-认沽持仓量', '期权持仓情况-认购持仓量', '机构', '标的名称', '证券代码']

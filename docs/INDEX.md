@@ -69,6 +69,16 @@ docs/
 | `REQUEST_SCOPED_SESSION.md` | Request lifecycle reference |
 | `PERFORMANCE.md` | Current performance notes |
 | `TECHNICAL_DOCS.md` | Misc technical reference |
+| `STRATEGIC_ROADMAP.md` | Long-term strategic plan and product roadmap |
+| `RELEASE_PLAN_V2.md` | v2.0.0 release plan and migration guide |
+| `project-context.md` | LLM-optimized project context for AI agents |
+| `CENTENNIAL_VISION.md` | 百年老店愿景：长期发展纲要与治理模型 |
+| `MARKET_RESEARCH.md` | 量化交易平台市场研究与竞品深度分析 |
+| `TECHNICAL_RESEARCH.md` | 技术研究：架构演进与关键技术方向 |
+| `PRODUCT_BRIEF.md` | 产品简报：定义、现状与路线图摘要 |
+| `INNOVATION_STRATEGY.md` | 创新战略：差异化与颠覆路径 |
+| `IMPROVEMENT_ROADMAP.md` | 改进优化发展方向：可执行行动计划 |
+| `adr/` | Architecture Decision Records (ADRs) |
 
 ## Building Locally
 

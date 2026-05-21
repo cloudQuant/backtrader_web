@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/bond/bond_summary.py
+# hypothesis_version: 6.148.5
+
+['20210104', '20210111', 'Accept', 'Referer', 'TRADE_DATE', 'User-Agent', '__main__', 'sqlId', 'xlrd', '债券现货', '债券类型', '当年成交笔数', '当年成交金额', '当日成交笔数', '当日成交金额', '托管只数', '托管市值', '托管面值', '数据日期']

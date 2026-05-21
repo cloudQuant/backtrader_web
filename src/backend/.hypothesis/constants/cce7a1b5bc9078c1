@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_us_sina.py
+# hypothesis_version: 6.148.5
+
+['"', '({', ');', '.DJI', '1', '1900-01-01', ';', '=', 'AAPL', 'Error:', 'FB', '__main__', 'adjust', 'amount', 'bfill', 'c', 'close', 'cname', 'count', 'd', 'data', 'date', 'f', 'ffill', 'float', 'high', 'left', 'low', 'name', 'open', 'page', 'qfq', 'qfq-factor', 'qfq_factor', 'symbol', '{}']

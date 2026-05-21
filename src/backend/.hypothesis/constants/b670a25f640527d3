@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/optimization.py
+# hypothesis_version: 6.148.5
+
+['User', 'optimization_tasks', 'pending', 'users.id']

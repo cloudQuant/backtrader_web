@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/strategy_runtime_support.py
+# hypothesis_version: 6.148.5
+
+['"', '#', "'", '..', '.env', '/', '=', 'CTP', 'FUTURE', '\\', 'asset_type', 'bar.log', 'config.yaml', 'ctp', 'ctp_gateway', 'data.log', 'enabled', 'error.log', 'exchange_type', 'gateway', 'indicator.log', 'logs', 'monitor.log', 'order.log', 'position.log', 'provider', 'r', 'run_info.json', 'signal.log', 'system.log', 'tick.log', 'trade.log', 'utf-8', 'value.log']

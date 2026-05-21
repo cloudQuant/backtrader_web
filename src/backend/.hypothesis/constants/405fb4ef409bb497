@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_hold_num_cninfo.py
+# hypothesis_version: 6.148.5
+
+['*/*', '0', '20210630', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Content-Length', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'getResCode1', 'gzip, deflate', 'keep-alive', 'no-cache', 'rdate', 'records', 'utf-8', 'webapi.cninfo.com.cn', '上期人均持股数量', '上期股东人数', '人均持股数量增幅', '变动日期', '本期人均持股数量', '本期股东人数', '股东人数增幅', '证券代码', '证券简称']

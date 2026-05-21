@@ -12,13 +12,13 @@
 
     <template v-else>
       <!-- 组合概览卡片 -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
         <el-card shadow="hover">
           <div class="text-center">
             <div class="text-gray-500 text-sm mb-1">
               组合总资产
             </div>
-            <div class="text-2xl font-bold">
+            <div class="text-3xl font-bold">
               {{ formatMoney(overview.total_assets) }}
             </div>
           </div>
@@ -29,7 +29,7 @@
               总盈亏
             </div>
             <div
-              class="text-2xl font-bold"
+              class="text-3xl font-bold"
               :class="overview.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'"
             >
               {{ overview.total_pnl >= 0 ? '+' : '' }}{{ formatMoney(overview.total_pnl) }}
@@ -52,7 +52,7 @@
             <div class="text-gray-500 text-sm mb-1">
               策略 / 运行中
             </div>
-            <div class="text-2xl font-bold">
+            <div class="text-3xl font-bold">
               <span class="text-gray-700">{{ overview.strategy_count }}</span>
               <span class="text-gray-400 mx-1">/</span>
               <span class="text-green-600">{{ overview.running_count }}</span>

@@ -406,7 +406,7 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
         resp = await bt_api.run_backtest(req, current_user=user, service=svc)
         assert resp.task_id == "t1"
 
-    ok = await bt_api.get_backtest_result("t1", current_user=user, service=svc)
+    ok = await bt_api.get_backtest_result("t1", request=Mock(), current_user=user, service=svc)
     assert ok.task_id == "t1"
 
     ok_status = await bt_api.get_backtest_status("t1", current_user=user, service=svc)
@@ -416,7 +416,7 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
     assert ok_del["message"] == "Deleted successfully"
 
     with pytest.raises(HTTPException) as e:
-        await bt_api.get_backtest_result("missing", current_user=user, service=svc)
+        await bt_api.get_backtest_result("missing", request=Mock(), current_user=user, service=svc)
     assert e.value.status_code == 404
 
     with pytest.raises(HTTPException) as e:
@@ -436,40 +436,6 @@ async def test_backtest_enhanced_api_run_list_and_reports_and_websocket_disconne
         "t1", current_user=user, backtest_service=svc, report_service=report
     )
     assert "spreadsheetml" in excel.media_type
-
-    # Optimization method checks.
-    opt_req = SimpleNamespace(method="bayesian")
-
-    from fastapi import Response
-
-    mock_response = Response()
-
-    with pytest.raises(HTTPException) as e:
-        await bt_api.grid_search_optimization(
-            SimpleNamespace(method="nope"), mock_response, current_user=user
-        )
-    assert e.value.status_code == 400
-
-    with pytest.raises(HTTPException) as e:
-        await bt_api.bayesian_optimization(
-            SimpleNamespace(method="nope"), mock_response, current_user=user
-        )
-    assert e.value.status_code == 400
-
-    with (
-        patch.object(
-            bt_api,
-            "_await_legacy_optimization_task_result",
-            new=AsyncMock(return_value={"ok": True}),
-        ),
-        patch(
-            "app.api.optimization_api.submit_backtest_optimization_task_internal",
-            new=AsyncMock(return_value=SimpleNamespace(task_id="opt-1")),
-        ),
-    ):
-        assert await bt_api.bayesian_optimization(opt_req, mock_response, current_user=user) == {
-            "ok": True
-        }
 
     # WebSocket disconnect branch.
     ws = SimpleNamespace()

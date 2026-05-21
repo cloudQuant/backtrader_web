@@ -12,20 +12,19 @@ from httpx import AsyncClient
 class TestRouterMetadata:
     """API router metadata tests."""
 
-    def test_legacy_live_trading_crypto_routes_are_deprecated(self):
+    def test_live_trading_routes_are_not_deprecated(self):
         from app.api.router import api_router
 
-        legacy_routes = [
+        live_trading_routes = [
             route
             for route in api_router.routes
-            if getattr(route, "path", "").startswith("/live-trading-crypto")
+            if getattr(route, "path", "").startswith("/live-trading")
+            and not getattr(route, "path", "").startswith("/live-trading-crypto")
         ]
-        http_routes = [route for route in legacy_routes if getattr(route, "methods", None)]
+        http_routes = [route for route in live_trading_routes if getattr(route, "methods", None)]
 
-        assert legacy_routes
         assert http_routes
-        assert all(getattr(route, "deprecated", False) is True for route in http_routes)
-        assert all("Crypto Trading (Legacy)" in getattr(route, "tags", []) for route in http_routes)
+        assert all(getattr(route, "deprecated", False) is not True for route in http_routes)
 
 
 # ==================== Data API ====================

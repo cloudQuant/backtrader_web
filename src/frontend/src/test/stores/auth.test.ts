@@ -60,7 +60,6 @@ describe('useAuthStore', () => {
     await store.login({ username: 'testuser', password: 'password123' })
     expect(store.token).toBe('mock-token')
     expect(store.isAuthenticated).toBe(true)
-    expect(sessionUtils.setAccessToken).toHaveBeenCalledWith('mock-token')
   })
 
   it('should fetch user after login', async () => {

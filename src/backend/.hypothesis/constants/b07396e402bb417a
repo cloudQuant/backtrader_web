@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/orders/okx_order.py
+# hypothesis_version: 6.148.5
+
+['OKX', 'accFillSz', 'asset_type', 'avgPx', 'clOrdId', 'client_order_id', 'data', 'exchange_name', 'executed_qty', 'instId', 'local_update_time', 'ordId', 'ordType', 'order_avg_price', 'order_id', 'order_price', 'order_size', 'order_status', 'order_symbol_name', 'order_type', 'posSide', 'position_side', 'px', 'reduceOnly', 'reduce_only', 'server_time', 'side', 'slOrdPx', 'slTriggerPx', 'slTriggerPxType', 'state', 'stop_loss_price', 'symbol_name', 'sz', 'take_profit_price', 'tpOrdPx', 'tpTriggerPx', 'tpTriggerPxType', 'tradeId', 'trade_id', 'uTime']

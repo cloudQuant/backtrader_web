@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/ctp_tunnel.py
+# hypothesis_version: 6.148.5
+
+[b'\r\n', b'\r\n\r\n', b'200', 1.0, 3.0, 5.0, 10.0, 4096, 65536, '--proxy', '1', '127.0.0.1', ':', 'HTTPEnable', 'HTTPPort', 'HTTPProxy', 'client', 'remote', 'replace', 'scutil']

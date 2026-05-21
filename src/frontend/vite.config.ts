@@ -1,6 +1,9 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import AutoImport from 'unplugin-auto-import/vite'
+import Components from 'unplugin-vue-components/vite'
+import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { resolve } from 'path'
 
 const FRONTEND_DEV_PORT = 3000
@@ -8,7 +11,17 @@ const BACKEND_PROXY_TARGET = process.env.VITE_API_TARGET || 'http://127.0.0.1:80
 const ENABLE_BUILD_SOURCEMAP = process.env.VITE_BUILD_SOURCEMAP === 'true'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    AutoImport({
+      resolvers: [ElementPlusResolver()],
+      dts: 'auto-imports.d.ts',
+    }),
+    Components({
+      resolvers: [ElementPlusResolver()],
+      dts: 'components.d.ts',
+    }),
+  ],
   test: {
     globals: true,
     environment: 'happy-dom',
@@ -76,9 +89,6 @@ export default defineConfig({
           // Charting libs are pulled in by analytics/report views; isolating
           // them keeps the entry chunk small.
           'echarts': ['echarts', 'echarts-gl', 'vue-echarts'],
-          // Element Plus is large and used app-wide; isolating ensures its
-          // bytes don't churn on app code changes.
-          'element-plus': ['element-plus', '@element-plus/icons-vue'],
         },
       },
     },

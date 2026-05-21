@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/economic/macro_uk.py
+# hypothesis_version: 6.148.5
+
+['-', '-1', '1', '5000', 'ALL', 'COUNTRY', 'EMG00010267', 'EMG00010279', 'EMG00010291', 'EMG00010348', 'EMG00010370', 'EMG00158276', 'EMG00158277', 'EMG00158297', 'EMG00158298', 'EMG00158309', 'EMG00341607', 'EMG00341608', 'EMG00342253', 'EMG00342256', 'INDICATOR_ID', 'INDICATOR_IDOLD', 'INDICATOR_NAME', 'PRE_VALUE', 'PUBLISH_DATE', 'REPORT_DATE', 'REPORT_DATE_CH', 'VALUE', 'WEB', '__main__', 'client', 'columns', 'data', 'filter', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '前值', '发布日期', '时间', '现值']

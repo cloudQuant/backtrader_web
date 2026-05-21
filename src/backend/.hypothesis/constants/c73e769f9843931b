@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/article/risk_rv.py
+# hypothesis_version: 6.148.5
+
+['%Y%m%d', '*/*', '39693', 'Accept', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Connection', 'FTSE', 'Host', 'Pragma', 'RV', 'Referer', 'Sec-Fetch-Mode', 'Sec-Fetch-Site', 'User-Agent', '\\n', '__main__', 'coerce', 'data', 'date', 'dates', 'float', 'gzip, deflate, br', 'ignore', 'keep-alive', 'lxml', 'ms', 'no-cache', 'no-cors', 'p', 'rk_th2', 'same-origin', 'ticker', '{', '}', '};']

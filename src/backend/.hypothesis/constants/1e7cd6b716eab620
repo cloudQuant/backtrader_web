@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_settlement_price_sgx.py
+# hypothesis_version: 6.148.5
+
+[791, ',', '-', '0', '1', '100.STI', '10000', '101', '20231107', '20231108', '20240110', '_', '__main__', 'amount', 'close', 'data', 'date', 'end', 'fields1', 'fields2', 'forcect', 'fqt', 'high', 'iscca', 'klines', 'klt', 'lmt', 'low', 'open', 'secid', 'txt', 'ut', 'volume']

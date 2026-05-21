@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/auth.py
+# hypothesis_version: 6.148.5
+
+['/change-password', '/login', '/login/refresh', '/logout', '/me', '/refresh', '/register', '10/minute', '30/minute', '5/hour', '5/minute', '60/minute', 'Bearer', 'Change password', 'Logout user', 'Refresh access token', 'User login', 'User not found', 'User registration', 'WWW-Authenticate', 'message', 'unknown']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/containers/positions/binance_position.py
+# hypothesis_version: 6.148.5
+
+['BINANCE', 'asset_type', 'avg_price', 'cr', 'data', 'entryPrice', 'ep', 'exchange_name', 'isAutoAddMargin', 'is_auto_add_margin', 'is_isolated', 'isolated', 'leverage', 'local_update_time', 'marginType', 'margin_type', 'markPrice', 'mark_price', 'maxNotionalValue', 'max_notional_value', 'mt', 'pa', 'positionAmt', 'positionSide', 'position_side', 'position_symbol_name', 'position_volume', 'ps', 's', 'server_time', 'symbol', 'symbol_name', 'unRealizedProfit', 'up', 'updateTime']

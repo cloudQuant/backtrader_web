@@ -4,8 +4,9 @@
 
 repos:
   # Ruff - Python linter & formatter
+  # To update: pre-commit autoupdate --repo https://github.com/astral-sh/ruff-pre-commit
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.15.11
     hooks:
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]

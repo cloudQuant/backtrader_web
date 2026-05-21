@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/interest_rate/interbank_rate_em.py
+# hypothesis_version: 6.148.5
+
+['-', '-1', '001', '002', '003', '004', '005', '006', '1', '101', '102', '103', '10月', '11月', '1周', '1年', '1月', '201', '202', '203', '204', '205', '206', '207', '208', '209', '210', '211', '2周', '2月', '301', '3周', '3月', '4月', '500', '5月', '6月', '7月', '8月', '9月', 'CNH', 'CNY', 'Chibor人民币', 'EUR', 'Euribor欧元', 'GBP', 'HKD', 'Hibor人民币', 'Hibor港币', 'Hibor美元', 'JPY', 'Libor日元', 'Libor欧元', 'Libor美元', 'Libor英镑', 'REPORT_DATE', 'RPT_IMP_INTRESTRATEN', 'SGD', 'Shibor人民币', 'Sibor星元', 'Sibor美元', 'USD', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '上海银行同业拆借市场', '中国银行同业拆借市场', '伦敦银行同业拆借市场', '利率', '报告日', '新加坡银行同业拆借市场', '欧洲银行同业拆借市场', '涨跌', '隔夜', '香港银行同业拆借市场']

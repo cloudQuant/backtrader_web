@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_hk_sina.py
+# hypothesis_version: 6.148.5
+
+[100, '"', '-', '00700', '00981', '01302', '01591', '1', '1900-01-01', '60', ';', '=', 'DEFAULT@SECLEVEL=1', 'Error:', '__main__', '_s_r_a', 'any', 'asc', 'cash', 'close', 'coerce', 'columns', 'd', 'data', 'date', 'ffill', 'float', 'hfq', 'hfq-factor', 'hfq_factor', 'high', 'https://', 'index', 'init', 'low', 'node', 'num', 'open', 'outer', 'page', 'qbgg_hk', 'qfq', 'qfq-factor', 'qfq_factor', 'sort', 'ssl_context', 'symbol', 'volume', '中文名称', '买一', '交易类型', '今开', '代码', '卖一', '成交量', '成交额', '日期时间', '昨收', '最低', '最新价', '最高', '涨跌幅', '涨跌额', '英文名称']

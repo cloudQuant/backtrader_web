@@ -136,6 +136,12 @@ class Settings(BaseSettings):
         default=0.2, description="Sampling temperature for AI chat provider requests"
     )
 
+    # Graceful shutdown timeout (seconds)
+    SHUTDOWN_TIMEOUT: int = Field(
+        default=30,
+        description="Graceful shutdown timeout in seconds (range 1-300)",
+    )
+
     # Backtest subprocess timeout (seconds)
     BACKTEST_TIMEOUT: int = Field(default=300, description="Backtest subprocess timeout in seconds")
 
@@ -156,6 +162,14 @@ class Settings(BaseSettings):
     # CORS allowed origins (comma-separated)
     CORS_ORIGINS: str = Field(
         default="http://localhost:3000", description="Comma-separated list of allowed CORS origins"
+    )
+
+    # Logging format: "json" for structured JSON, "text" for plain text.
+    # If unset, falls back to DEBUG-based default (DEBUG=true → colored text, DEBUG=false → JSON).
+    LOG_FORMAT: str = Field(
+        default="",
+        description="Log output format: 'json' for structured JSON, 'text' for plain text, "
+        "empty for auto-detection based on DEBUG flag",
     )
 
     # SQL logging (independent of DEBUG to avoid too much noise)
@@ -333,6 +347,19 @@ class Settings(BaseSettings):
         """Validate that port is in valid range."""
         if not (1 <= v <= 65535):
             raise ValueError(f"PORT must be between 1 and 65535, got: {v}")
+        return v
+
+    @field_validator("SHUTDOWN_TIMEOUT")
+    @classmethod
+    def validate_shutdown_timeout(cls, v: int) -> int:
+        """Validate that shutdown timeout is in valid range (1-300)."""
+        if not (1 <= v <= 300):
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "SHUTDOWN_TIMEOUT=%d is out of range (1-300), using default 30s", v
+            )
+            return 30
         return v
 
     @field_validator("AKSHARE_INTERFACE_BOOTSTRAP_MODE")

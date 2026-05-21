@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/containers/bars/binance_bar.py
+# hypothesis_version: 6.148.5
+
+['BINANCE', 'E', 'Q', 'T', 'V', 'amount', 'asset_type', 'bar_status', 'c', 'close_price', 'close_time', 'exchange_name', 'h', 'high_price', 'k', 'l', 'local_update_time', 'low_price', 'n', 'num_trades', 'o', 'open_price', 'open_time', 'q', 'server_time', 'symbol_name', 't', 'v', 'volume', 'x']

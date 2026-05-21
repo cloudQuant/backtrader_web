@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/feeds/feed.py
+# hypothesis_version: 6.148.5
+
+[0.5, 2.0, 10.0, 100, 404, 410, '***', '-', '404', '410', 'ALL', '_', 'accesskey', 'apikey', 'authorization', 'exchange_name', 'feed', 'open', 'passphrase', 'password', 'privatekey', 'proxies', 'proxy_error', 'publickey', 'secret', 'signature', 'status_code', 'timeout', 'token']

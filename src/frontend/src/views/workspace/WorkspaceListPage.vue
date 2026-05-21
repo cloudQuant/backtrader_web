@@ -287,8 +287,8 @@ function onSaved() {
   store.fetchWorkspaces(0, 50, workspaceType.value)
 }
 
-function statusTagType(status: string) {
-  const map: Record<string, string> = {
+function statusTagType(status: string): '' | 'success' | 'warning' | 'info' | 'danger' {
+  const map: Record<string, '' | 'success' | 'warning' | 'info' | 'danger'> = {
     idle: 'info',
     running: 'warning',
     completed: 'success',

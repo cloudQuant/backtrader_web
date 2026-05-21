@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/utils/func.py
+# hypothesis_version: 6.148.5
+
+['DEFAULT@SECLEVEL=1', 'coerce', 'data', 'diff', 'f3', 'http://', 'https://', 'index', 'pn', 'ssl_context', 'total']

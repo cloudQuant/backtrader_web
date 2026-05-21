@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/qdii/qdii_jsl.py
+# hypothesis_version: 6.148.5
+
+['22', 'T-1估值', 'T-1指数涨幅', 'T-1溢价率', 'T-2净值', '___jsl', '__main__', 'amount', 'amount_incr', 'apply_fee', 'cell', 'coerce', 'discount_rt', 'estimate_value', 'fund_id', 'fund_nav', 'fund_nm', 'increase_rt', 'index_nm', 'issuer_nm', 'last_est_dt', 'mt_fee', 'nav_dt', 'price', 'redeem_fee', 'ref_increase_rt', 'rows', 'rp', 'volume', '代码', '估值', '估值日期', '净值', '净值日期', '名称', '场内份额', '场内新增', '基金公司', '成交', '托管费', '指数涨幅', '涨幅', '溢价率', '现价', '申购费', '相关标的', '赎回费']

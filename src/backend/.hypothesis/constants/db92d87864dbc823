@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/bond/bond_cb_ths.py
+# hypothesis_version: 6.148.5
+
+['%Y-%m-%d', '-', 'User-Agent', '__main__', 'bond_code', 'bond_name', 'code', 'coerce', 'expire_date', 'issue_price', 'issue_total', 'list', 'listing_date', 'market_id', 'name', 'number', 'plan_total', 'price', 'quota', 'share_code', 'sign_date', 'stock_market_id', 'sub_code', 'sub_date', 'success_rate', '上市日期', '中签公布日', '中签号', '中签率', '债券代码', '债券简称', '到期时间', '原股东配售码', '实际发行量', '正股代码', '正股简称', '每股获配额', '申购代码', '申购日期', '计划发行量', '转股价格']

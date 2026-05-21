@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_info_em.py
+# hypothesis_version: 6.148.5
+
+['000002', '2', '6', '603777', '__main__', 'dlmkts', 'f116', 'f117', 'f127', 'f189', 'f43', 'f57', 'f58', 'f84', 'f85', 'fields', 'fltt', 'full', 'index', 'invt', 'item', 'lt', 'rc', 'rt', 'secid', 'svr', 'value', '上市时间', '总市值', '总股本', '最新', '流通市值', '流通股', '股票代码', '股票简称', '行业']

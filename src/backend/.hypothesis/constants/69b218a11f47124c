@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_tfp_em.py
+# hypothesis_version: 6.148.5
+
+['-', '-1', '1', '20240426', '500', 'ALL', 'SUSPEND_START_DATE', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '代码', '停牌原因', '停牌开始日期', '停牌截止时间', '停牌时间', '停牌期限', '名称', '序号', '所属市场', '预计复牌时间']

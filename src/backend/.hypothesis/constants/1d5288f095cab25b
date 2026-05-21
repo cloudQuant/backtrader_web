@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_gdzjc_em.py
+# hypothesis_version: 6.148.5
+
+['(DIRECTION="减持")', '(DIRECTION="增持")', '-', '-1,-1,-1', '0', '1', '500', 'ALL', 'DEFAULT@SECLEVEL=1', 'WEB', '_', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'https://', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'quoteType', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'ssl_context', '代码', '全部', '公告日', '变动后持股情况-占总股本比例', '变动后持股情况-占流通股比例', '变动后持股情况-持流通股数', '变动后持股情况-持股总数', '变动开始日', '变动截止日', '名称', '持股变动信息-占总股本比例', '持股变动信息-占流通股比例', '持股变动信息-变动数量', '持股变动信息-增减', '最新价', '涨跌幅', '股东减持', '股东名称', '股东增持']

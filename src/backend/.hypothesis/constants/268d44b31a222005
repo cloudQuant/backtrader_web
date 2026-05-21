@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/middleware/rate_limit_headers.py
+# hypothesis_version: 6.148.5
+
+[200, 429, '60', 'Rate limit exceeded', 'Retry-After', 'X-RateLimit-Limit', 'X-RateLimit-Reset', 'app', 'application/json', 'body', 'content-length', 'content-type', 'detail', 'http', 'http.response.body', 'http.response.start', 'limit', 'limiter', 'more_body', 'remaining', 'reset', 'retry_after', 'state', 'status', 'type', 'utf-8', 'view_rate_limit']

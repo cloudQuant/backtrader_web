@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_cg_guarantee.py
+# hypothesis_version: 6.148.5
+
+['*/*', '-', '0', '012001', '012002', '012015', '012029', '20180630', '20180928', '20210927', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Content-Length', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'edate', 'getResCode1', 'gzip, deflate', 'keep-alive', 'market', 'no-cache', 'records', 'sdate', 'utf-8', 'webapi.cninfo.com.cn', '全部', '公告统计区间', '创业板', '归属于母公司所有者权益', '担保笔数', '担保金融占净资产比例', '担保金额', '沪市', '深市主板', '科创板', '证券代码', '证券简称']

@@ -14,7 +14,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import {
   clearAccessToken,
   getAccessToken,
-  setAccessToken,
 } from '@/utils/session'
 import { authApi } from '@/api/auth'
 
@@ -31,7 +30,6 @@ vi.mock('@/api/auth', () => ({
 
 vi.mock('@/utils/session', () => ({
   getAccessToken: vi.fn(),
-  setAccessToken: vi.fn(),
   clearAccessToken: vi.fn(),
 }))
 
@@ -51,7 +49,7 @@ describe('useAuthStore', () => {
       expect(store.isAuthenticated).toBe(false)
     })
 
-    it('should load token from storage on init', () => {
+    it('should load token from storage on init (migration from localStorage)', async () => {
       vi.mocked(getAccessToken).mockReturnValue('stored-token')
       vi.mocked(authApi.getMe).mockResolvedValue({
         id: '1',
@@ -62,6 +60,7 @@ describe('useAuthStore', () => {
       })
 
       const store = useAuthStore()
+      await store.initialize()
 
       expect(store.token).toBe('stored-token')
       expect(store.isAuthenticated).toBe(true)
@@ -95,7 +94,6 @@ describe('useAuthStore', () => {
         is_active: true,
         created_at: '2024-01-01',
       })
-      expect(setAccessToken).toHaveBeenCalledWith('new-token')
     })
 
     it('should throw on login failure', async () => {
@@ -113,8 +111,7 @@ describe('useAuthStore', () => {
   })
 
   describe('logout', () => {
-    it('should clear token and user on logout', () => {
-      vi.mocked(getAccessToken).mockReturnValue('stored-token')
+    it('should clear token and user on logout', async () => {
       vi.mocked(authApi.getMe).mockResolvedValue({
         id: '1',
         username: 'testuser',
@@ -124,6 +121,10 @@ describe('useAuthStore', () => {
       })
 
       const store = useAuthStore()
+      // Simulate logged-in state
+      store.token = 'stored-token'
+      await store.fetchUser()
+
       store.logout()
 
       expect(store.token).toBeNull()
@@ -161,7 +162,6 @@ describe('useAuthStore', () => {
 
   describe('fetchUser', () => {
     it('should fetch user when token exists', async () => {
-      vi.mocked(getAccessToken).mockReturnValue('stored-token')
       vi.mocked(authApi.getMe).mockResolvedValue({
         id: '1',
         username: 'testuser',
@@ -171,10 +171,9 @@ describe('useAuthStore', () => {
       })
 
       const store = useAuthStore()
-      // Wait for initial fetchUser to complete
-      await vi.waitFor(() => {
-        expect(store.user).not.toBeNull()
-      })
+      // Set token directly (simulating persistence plugin hydration)
+      store.token = 'stored-token'
+      await store.fetchUser()
 
       expect(store.user).toEqual({
         id: '1',
@@ -186,16 +185,14 @@ describe('useAuthStore', () => {
     })
 
     it('should logout on fetchUser failure', async () => {
-      vi.mocked(getAccessToken).mockReturnValue('invalid-token')
       vi.mocked(authApi.getMe).mockRejectedValue(new Error('Unauthorized'))
 
       const store = useAuthStore()
+      // Set token directly (simulating persistence plugin hydration)
+      store.token = 'invalid-token'
+      await store.fetchUser()
 
-      // Wait for the logout to happen
-      await vi.waitFor(() => {
-        expect(store.token).toBeNull()
-      })
-
+      expect(store.token).toBeNull()
       expect(clearAccessToken).toHaveBeenCalled()
     })
   })
@@ -216,6 +213,7 @@ describe('useAuthStore', () => {
       await store.initialize()
 
       expect(store.initialized).toBe(true)
+      // getMe called once during initialize (migration picks up token from localStorage)
       expect(authApi.getMe).toHaveBeenCalledTimes(1)
     })
   })

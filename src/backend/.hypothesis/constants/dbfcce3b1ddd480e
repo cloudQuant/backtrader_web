@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_current_sse.py
+# hypothesis_version: 6.148.5
+
+['*/*', 'Accept', 'Accept-Encoding', 'Accept-Language', 'CALL_OR_PUT', 'CONTRACT_ID', 'CONTRACT_SYMBOL', 'CONTRACT_UNIT', 'Cache-Control', 'Connection', 'DELIVERY_DATE', 'END_DATE', 'EXERCISE_PRICE', 'EXPIRE_DATE', 'Host', 'Pragma', 'Referer', 'SECURITYNAMEBYID', 'SECURITY_ID', 'START_DATE', 'User-Agent', '__main__', 'expireDate', 'false', 'gzip, deflate', 'isPagination', 'keep-alive', 'no-cache', 'query.sse.com.cn', 'result', 'securityId', 'sqlId', '到期日', '合约交易代码', '合约单位', '合约简称', '合约编码', '开始日期', '期权行权日', '标的券名称及代码', '类型', '行权交收日', '行权价']

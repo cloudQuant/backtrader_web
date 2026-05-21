@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/fortune/fortune_bloomberg.py
+# hypothesis_version: 6.148.5
+
+['$ Last change', '$ YTD change', '1', '2021', '?1', 'Age', 'Citizenship', 'Country', 'Industry', 'Name', 'Net Worth(bil US$)', 'Rank', 'YTD_change', '__main__', 'accept', 'accept-encoding', 'accept-language', 'age', 'cache-control', 'class', 'country', 'document', 'gzip, deflate, br', 'industry', 'last_change', 'lxml', 'name', 'navigate', 'no-cache', 'pragma', 'rank', 'referer', 'same-origin', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'sec-fetch-user', 'table', 'table-chart', 'table-row', 'td', 'total_net_worth', 'tr', 'user-agent', 'ytd_change']

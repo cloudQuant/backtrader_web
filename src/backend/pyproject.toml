@@ -1,6 +1,6 @@
 [project]
 name = "backtrader-web-backend"
-version = "1.0.0"
+version = "0.1.0"
 description = "Backtrader Web Backend Service"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,13 +20,19 @@ dependencies = [
     "slowapi>=0.1.9",
     "sqlalchemy[asyncio]>=2.0.25",
     "aiosqlite>=0.19.0",
-    "python-jose[cryptography]>=3.3.0",
+    "PyJWT[crypto]>=2.8.0",
     "passlib[bcrypt]>=1.7.4",
     "loguru>=0.7.2",
     "python-multipart>=0.0.6",
     "PyYAML>=6.0.1",
     "fincore>=0.3.0",
     "mysql-connector-python>=8.0.0",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-instrumentation-fastapi>=0.41b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.41b0",
+    "opentelemetry-instrumentation-httpx>=0.41b0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.20.0",
 ]
 
 [project.optional-dependencies]
@@ -39,12 +45,15 @@ dev = [
     "httpx>=0.26.0",
     "ruff>=0.1.0",
     "mypy>=1.10.0",
+    "diff-cover>=9.0.0",
+    "openapi-spec-validator>=0.7.1",
 ]
 postgres = ["asyncpg>=0.29.0"]
 mysql = ["aiomysql>=0.2.0"]
 redis = ["redis>=5.0.0"]
 backtrader = ["backtrader>=1.9.78.123", "pandas>=2.1.0", "numpy>=1.26.0"]
 data = ["akshare>=1.12.0"]
+prod = ["gunicorn>=22.0.0"]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -85,7 +94,7 @@ follow_imports = "silent"
 warn_redundant_casts = true
 warn_unused_ignores = true
 no_implicit_optional = true
-check_untyped_defs = false
+check_untyped_defs = true
 exclude = [
     "alembic/",
     "migrations/",
@@ -97,6 +106,10 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
+module = ["app.api.*", "app.schemas.*"]
+disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
 # Third-party packages without type hints we don't want noise from.
 module = [
     "backtrader.*",
@@ -106,7 +119,7 @@ module = [
     "slowapi.*",
     "apscheduler.*",
     "passlib.*",
-    "jose.*",
+    "jwt.*",
     "monaco_editor.*",
     "yaml.*",
 ]

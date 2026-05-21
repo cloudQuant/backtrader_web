@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_a_below_net_asset_statistics.py
+# hypothesis_version: 6.148.5
+
+['000016.SH', '000300.XSHG', '000905.SH', '1', '__main__', 'below_net_asset', 'coerce', 'date', 'marketId', 'ms', 'token', 'total_company', '上证50', '中证500', '全部A股', '沪深300']

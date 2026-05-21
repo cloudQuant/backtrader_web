@@ -2,8 +2,11 @@
  * Shared constants for strategy/backtest status and category display.
  */
 
+/** Element Plus component type union. */
+export type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger' | ''
+
 /** Map backtest/task status to Element Plus tag type. */
-export const STATUS_TYPE_MAP: Record<string, string> = {
+export const STATUS_TYPE_MAP: Record<string, TagType> = {
   completed: 'success',
   running: 'warning',
   pending: 'info',
@@ -21,7 +24,7 @@ export const STATUS_TEXT_MAP: Record<string, string> = {
 }
 
 /** Map strategy category to Element Plus tag type. */
-export const CATEGORY_TYPE_MAP: Record<string, string> = {
+export const CATEGORY_TYPE_MAP: Record<string, TagType> = {
   trend: '',
   mean_reversion: 'success',
   volatility: 'warning',

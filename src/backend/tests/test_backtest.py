@@ -17,7 +17,7 @@ class TestBacktestRun:
             None
         """
         resp = await client.post(
-            "/api/v1/backtest/run",
+            "/api/v1/backtests/run",
             headers=auth_headers,
             json={
                 "strategy_id": "001_ma_cross",
@@ -43,7 +43,7 @@ class TestBacktestRun:
             None
         """
         resp = await client.post(
-            "/api/v1/backtest/run",
+            "/api/v1/backtests/run",
             json={
                 "strategy_id": "001_ma_cross",
                 "symbol": "000001.SZ",
@@ -67,7 +67,7 @@ class TestBacktestList:
         Returns:
             None
         """
-        resp = await client.get("/api/v1/backtest/", headers=auth_headers)
+        resp = await client.get("/api/v1/backtests/", headers=auth_headers)
         assert resp.status_code == 200
         data = resp.json()
         assert "items" in data
@@ -83,7 +83,7 @@ class TestBacktestList:
         Returns:
             None
         """
-        resp = await client.get("/api/v1/backtest/?limit=5&offset=0", headers=auth_headers)
+        resp = await client.get("/api/v1/backtests/?limit=5&offset=0", headers=auth_headers)
         assert resp.status_code == 200
 
     async def test_list_backtests_no_auth(self, client: AsyncClient):
@@ -95,7 +95,7 @@ class TestBacktestList:
         Returns:
             None
         """
-        resp = await client.get("/api/v1/backtest/")
+        resp = await client.get("/api/v1/backtests/")
         assert resp.status_code == 401  # Unauthorized when no token provided
 
 
@@ -112,7 +112,7 @@ class TestBacktestResult:
         Returns:
             None
         """
-        resp = await client.get("/api/v1/backtest/nonexistent-task-id", headers=auth_headers)
+        resp = await client.get("/api/v1/backtests/nonexistent-task-id", headers=auth_headers)
         assert resp.status_code == 404
 
     async def test_get_status_not_found(self, client: AsyncClient, auth_headers: dict):
@@ -125,7 +125,9 @@ class TestBacktestResult:
         Returns:
             None
         """
-        resp = await client.get("/api/v1/backtest/nonexistent-task-id/status", headers=auth_headers)
+        resp = await client.get(
+            "/api/v1/backtests/nonexistent-task-id/status", headers=auth_headers
+        )
         assert resp.status_code == 404
 
     async def test_cancel_nonexistent(self, client: AsyncClient, auth_headers: dict):
@@ -139,7 +141,7 @@ class TestBacktestResult:
             None
         """
         resp = await client.post(
-            "/api/v1/backtest/nonexistent-task-id/cancel", headers=auth_headers
+            "/api/v1/backtests/nonexistent-task-id/cancel", headers=auth_headers
         )
         assert resp.status_code == 400
 
@@ -153,5 +155,5 @@ class TestBacktestResult:
         Returns:
             None
         """
-        resp = await client.delete("/api/v1/backtest/nonexistent-task-id", headers=auth_headers)
+        resp = await client.delete("/api/v1/backtests/nonexistent-task-id", headers=auth_headers)
         assert resp.status_code == 404

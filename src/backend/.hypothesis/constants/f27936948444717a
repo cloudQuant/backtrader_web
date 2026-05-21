@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/ctp/client.py
+# hypothesis_version: 6.148.5
+
+[0.2, '0000000000000000', '1', 'ErrorID', 'ErrorMsg', 'MaxOrderRef', '_', 'ctp_client', 'error_id', 'error_msg', 'event', 'external_ctp_python', 'field', 'on', 'order_insert_error', 'request_id', 'response_error', 'simnow_client_test', 'this', 'thisown', 'true', 'utf-8', 'vendored_bt_api_py', 'yes']

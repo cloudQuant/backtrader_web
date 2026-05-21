@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/economic/macro_swiss.py
+# hypothesis_version: 6.148.5
+
+['-', '-1', '1', '5000', 'ALL', 'COUNTRY', 'EMG00341600', 'EMG00341601', 'EMG00341602', 'EMG00341603', 'EMG00341604', 'EMG00341606', 'INDICATOR_ID', 'INDICATOR_IDOLD', 'INDICATOR_NAME', 'PRE_VALUE', 'PUBLISH_DATE', 'REPORT_DATE', 'REPORT_DATE_CH', 'RPT_ECONOMICVALUE_CH', 'VALUE', 'WEB', '__main__', 'client', 'columns', 'data', 'filter', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '前值', '发布日期', '时间', '现值']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/akshare_tables.py
+# hypothesis_version: 6.148.5
+
+[200, '/tables', '/tables/{table_id}', 'Table not found', 'columns', 'items', 'last_update_time', 'page', 'page_size', 'row_count', 'rows', 'table_name', 'total']

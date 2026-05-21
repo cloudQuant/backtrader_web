@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/gateway/storage/tick_writer.py
+# hypothesis_version: 6.148.5
+
+[0.0, 1.0, 5.0, 10.0, 1000, '%Y%m%d', 'ask_price', 'ask_volume', 'asset_type', 'base_dir', 'bid_price', 'bid_volume', 'buffered', 'exchange', 'flush_errors', 'price', 'snappy', 'symbol', 'tick-writer-flush', 'timestamp', 'total_flushed', 'total_written', 'volume']

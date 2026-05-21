@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/request.py
+# hypothesis_version: 6.148.5
+
+[200, 429, 'Empty response data']

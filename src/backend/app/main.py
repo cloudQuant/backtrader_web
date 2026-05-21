@@ -23,8 +23,10 @@ from app.middleware.logging import (
     LoggingMiddleware,
     PerformanceLoggingMiddleware,
 )
+from app.middleware.rate_limit_headers import RateLimitHeadersMiddleware
 from app.middleware.security_headers import add_security_headers
 from app.rate_limit import limiter
+from app.telemetry import setup_telemetry
 from app.utils.logger import setup_logger
 
 settings = get_settings()
@@ -110,6 +112,24 @@ async def lifespan(app: FastAPI):
     logger.info("Application ready - accepting requests")
     yield
     logger.info("Shutting down Backtrader Web API...")
+
+    # Graceful shutdown: signal load balancers and drain connections
+    from app.shutdown import GracefulShutdownManager
+
+    shutdown_mgr = GracefulShutdownManager()
+    await shutdown_mgr.initiate(app)
+
+    # Graceful shutdown: mark active backtest tasks as interrupted
+    try:
+        from app.services.backtest_manager import BacktestExecutionManager
+
+        mgr = BacktestExecutionManager()
+        interrupted = await mgr.interrupt_active_tasks()
+        if interrupted:
+            logger.warning("Interrupted %d active backtest tasks during shutdown", interrupted)
+    except Exception:
+        logger.exception("Failed to interrupt active tasks during shutdown")
+
     if akshare_scheduler_service is not None:
         try:
             await akshare_scheduler_service.shutdown()
@@ -135,8 +155,12 @@ app = FastAPI(
 
 app.state.limiter = limiter
 
+# OpenTelemetry instrumentation (opt-in via OTEL_ENABLED=true)
+setup_telemetry(app)
+
 register_exception_handlers(app)
 add_security_headers(app)
+app.add_middleware(RateLimitHeadersMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
@@ -181,8 +205,7 @@ def _get_feature_flags() -> dict[str, bool]:
         "sandbox_execution": True,
         "rbac": True,
         "rate_limiting": True,
-        "optimization": has_prefix("/api/v1/optimization")
-        or has_prefix("/api/v1/backtests/optimization"),
+        "optimization": has_prefix("/api/v1/optimization"),
         "report_export": any(
             path.startswith("/api/v1/backtests/") and "/report/" in path for path in route_paths
         ),
@@ -259,13 +282,26 @@ async def health_check():
 
     from sqlalchemy import text
 
-    from app.db.database import async_session_maker
+    from app.db.database import _get_engine, async_session_maker
 
     db_status = "disconnected"
+    pool_info = None
     try:
         async with async_session_maker() as session:
             await session.execute(text("SELECT 1"))
         db_status = "connected"
+
+        # Expose connection pool metrics (if pool is available)
+        real_engine = _get_engine()
+        pool = real_engine.pool
+        if hasattr(pool, "size"):
+            pool_info = {
+                "pool_size": pool.size(),
+                "checked_in": pool.checkedin(),
+                "checked_out": pool.checkedout(),
+                "overflow": pool.overflow(),
+                "invalid": pool.status(),
+            }
     except Exception:
         logger.exception("Health check database probe failed")
 
@@ -277,6 +313,7 @@ async def health_check():
         "status": "healthy" if db_status == "connected" else "degraded",
         "service": settings.APP_NAME,
         "database": db_status,
+        "database_pool": pool_info,
         "backtrader": "available",
         "optional_routers": {
             "unavailable_count": len(unavailable_optional_routers),

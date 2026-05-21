@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_warehouse_receipt.py
+# hypothesis_version: 6.148.5
+
+[0.0, 200, 20251101, '$', '20140516', '20140519', '20200702', '20240122', '20251014', '20251027', '20251103', 'Accept', 'Content-Type', 'Origin', 'REGNAME', 'Referer', 'User-Agent', 'VARNAME', 'WHABBRNAME', '[a-zA-Z]+', '__main__', 'all', 'any', 'application/json', 'coerce', 'data', 'deliveryAbbr', 'diff', 'entityList', 'gen_date', 'lastWbillQty', 'o_cursor', 'regWbillQty', 'symbol', 'tradeDate', 'variety', 'varietyId', 'varietyOrder', 'wbillQty', 'whAbbr', 'whType', '今日仓单量', '今日仓单量（手）', '仓库/分库', '单位：', '可选提货地点/分库-数量', '品种', '品种代码', '品种名称', '增减', '增减（手）', '昨日仓单量', '昨日仓单量（手）', '注：']

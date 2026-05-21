@@ -414,7 +414,7 @@ async def get_gateway_health(
         _logger.exception("Unhandled error in get_gateway_health")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"获取网关健康状态失败: {type(exc).__name__}: {exc}",
+            detail=f"Failed to get gateway health / 获取网关健康状态失败: {type(exc).__name__}: {exc}",
         )
     return {"total": len(gateways), "gateways": gateways}
 
@@ -441,7 +441,7 @@ def connect_gateway(
         _logger.exception("Unhandled error in connect_gateway")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"连接网关失败: {type(exc).__name__}: {exc}",
+            detail=f"Failed to connect gateway / 连接网关失败: {type(exc).__name__}: {exc}",
         )
     if result["status"] == "error":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])

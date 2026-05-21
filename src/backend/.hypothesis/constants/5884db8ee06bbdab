@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/strategy.py
+# hypothesis_version: 6.148.5
+
+[0.001, 100000.0, 100, 200, 252, '1d', '2025-01-08T10:15:00Z', '2025-01-10T09:00:00Z', '2025-01-11T16:45:00Z', '2025-01-12T14:30:00Z', 'Citation list / 引用列表', 'Creation time', 'Default value', 'Enum options', 'Maximum value', 'Minimum value', 'Strategy ID', 'Strategy category', 'Strategy code', 'Strategy description', 'Strategy name', 'Symbol code / 标的代码', 'Symbol name / 标的名称', 'Timeframe / 周期', 'Unit settings / 单元配置', 'Update time', 'User ID', 'Workspace ID / 工作区ID', 'backtest', 'category', 'code', 'created_at', 'csv', 'custom', 'default', 'description', 'equal', 'examples', 'fast_period', 'float', 'id', 'int', 'items', 'live', 'max', 'min', 'name', 'params', 'research', 'signal_period', 'simple', 'simulate', 'slow_period', 'strat_3c4d5e6f7a8b', 'strat_7f8e9d0c1b2a', 'total', 'type', 'updated_at', 'user_id', 'usr_a1b2c3d4e5f6']

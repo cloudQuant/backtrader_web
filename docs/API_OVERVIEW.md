@@ -3,6 +3,7 @@
 The backend is a FastAPI service. The interactive OpenAPI docs are available at:
 
 - `http://localhost:8000/docs` (开发环境)
+- English API Reference: [API_REFERENCE_EN.md](API_REFERENCE_EN.md)
 
 All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 转发至后端。
 
@@ -16,7 +17,6 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 |--------|------|---------|
 | POST | `/auth/register` | 用户注册 |
 | POST | `/auth/login` | 用户登录（返回 JWT） |
-| POST | `/auth/login` | 登录（含 refresh token） |
 | POST | `/auth/refresh` | 刷新 token |
 | POST | `/auth/logout` | 退出登录 |
 | PUT | `/auth/change-password` | 修改密码 |
@@ -36,23 +36,7 @@ All API routes are mounted under `/api/v1`。前端通过 Vite proxy 将 `/api` 
 | PUT | `/strategy/{id}` | 更新策略 |
 | DELETE | `/strategy/{id}` | 删除策略 |
 
-## 3. Backtest（回测）⚠️ DEPRECATED
-
-> **警告**: 此模块已废弃，请使用 **Enhanced Backtest (`/backtests/`)** 模块。
-> 计划移除时间: **v2.0.0** (预计 2026-Q2)
-
-| Method | Path | Summary | Status |
-|--------|------|---------|--------|
-| POST | `/backtest/run` | 运行回测 | ⚠️ Deprecated |
-| GET | `/backtest/` | 回测历史列表 | ⚠️ Deprecated |
-| GET | `/backtest/{task_id}` | 获取回测结果 | ⚠️ Deprecated |
-| GET | `/backtest/{task_id}/status` | 查询回测任务状态 | ⚠️ Deprecated |
-| POST | `/backtest/{task_id}/cancel` | 取消回测任务 | ⚠️ Deprecated |
-| DELETE | `/backtest/{task_id}` | 删除回测结果 | ⚠️ Deprecated |
-
-**推荐替代**: 使用 `/backtests/run`、`/backtests/`、`/backtests/{task_id}` 等增强版端点。
-
-## 4. Analytics（回测分析）
+## 3. Enhanced Backtest（增强回测）
 
 | Method | Path | Summary |
 |--------|------|---------|

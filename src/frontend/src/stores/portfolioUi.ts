@@ -14,5 +14,10 @@ export const usePortfolioUiStore = defineStore('portfolioUi', () => {
     tradingType,
     setTradingType,
   }
+}, {
+  persist: {
+    storage: localStorage,
+    paths: ['tradingType'],
+  },
 })
 

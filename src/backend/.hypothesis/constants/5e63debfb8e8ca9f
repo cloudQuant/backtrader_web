@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_finance.py
+# hypothesis_version: 6.148.5
+
+['%Y%m%d%H%M%S', ',', '-', '0.10642298535346595', '1', '2306', '510300', 'CATALOGID', 'JSON', 'PAGENO', 'SHOWTYPE', 'TABKEY', 'User-Agent', '__main__', 'data', 'date', 'end_month', 'instrument', 'list', 'metadata', 'pagecount', 'random', 'tab1', 'time', 'total', 'ysplbrb', '上证50股指期权', '中证1000股指期权', '代码', '前结价', '华夏上证50ETF期权', '华夏科创50ETF期权', '华泰柏瑞沪深300ETF期权', '南方中证500ETF期权', '合约交易代码', '合约单位', '合约简称', '合约编码', '名称', '嘉实沪深300ETF期权', '当前价', '成交量(手)', '成交额(万元)', '振幅', '数量', '日期', '易方达科创50ETF期权', '更新日期', '期权行权日', '标的名称', '沪深300股指期权', '涨跌', '涨跌幅', '类型', '行权交收日', '行权价']

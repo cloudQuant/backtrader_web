@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/knowledge_base.py
+# hypothesis_version: 6.148.5
+
+[100, '/', '/import/reqdocs', '/{kb_id}', '/{kb_id}/documents/', 'Create document', 'Delete document', 'Document deleted', 'Document not found', 'Get document', 'Get knowledge base', 'List documents', 'List knowledge bases', 'Update document', 'message', 'metadata_json', 'reqdocs_source_files']

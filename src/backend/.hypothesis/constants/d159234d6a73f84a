@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/feeds/capability.py
+# hypothesis_version: 6.148.5
+
+['account_stream', 'batch_order', 'cancel_all', 'cancel_all_symbol', 'cancel_order', 'conditional_order', 'cross_margin', 'exchange_name', 'get_account', 'get_balance', 'get_clear_price', 'get_deals', 'get_depth', 'get_exchange_info', 'get_funding_rate', 'get_kline', 'get_mark_price', 'get_position', 'get_server_time', 'get_tick', 'hedge_mode', 'isolated_margin', 'make_order', 'market_stream', 'oco_order', 'query_open_orders', 'query_order', 'trailing_stop']

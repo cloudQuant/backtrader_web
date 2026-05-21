@@ -1,10 +1,7 @@
 <template>
   <div class="space-y-6">
-    <!-- 页面标题和操作栏 -->
-    <div class="flex justify-between items-center">
-      <h1 class="text-2xl font-bold">
-        策略中心
-      </h1>
+    <!-- 页面操作栏 -->
+    <div class="flex justify-end items-center">
       <el-button
         type="primary"
         @click="showCreateDialog"
@@ -351,7 +348,7 @@
           <el-input
             v-model="form.description"
             type="textarea"
-            rows="2"
+            :rows="2"
             placeholder="策略描述"
           />
         </el-form-item>

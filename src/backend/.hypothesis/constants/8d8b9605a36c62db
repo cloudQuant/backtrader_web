@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/backtest_analyzers.py
+# hypothesis_version: 6.148.5
+
+[0.0, 252, '%Y-%m-%d', '%Y-%m-%d %H:%M:%S', 'Analyzer', 'barlen', 'buy', 'cash', 'commission', 'date', 'datetime', 'detailed_trades', 'direction', 'drawdown', 'drawdown_curve', 'equity_curve', 'id', 'monthly_returns', 'peak', 'pnl', 'pnlcomm', 'position_value', 'price', 'ref', 'sell', 'signals', 'size', 'symbol', 'total_assets', 'trade_signals', 'trades', 'trough', 'type', 'unknown', 'value']

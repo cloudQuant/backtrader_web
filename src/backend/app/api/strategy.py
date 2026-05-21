@@ -5,7 +5,7 @@ Strategy API routes.
 import logging
 from functools import lru_cache
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.api.deps import get_current_user
 from app.schemas.strategy import (
@@ -26,6 +26,7 @@ from app.services.strategy_service import (
     get_strategy_readme,
     get_template_by_id,
 )
+from app.utils.response_cache import cache_response
 
 _logger = logging.getLogger(__name__)
 
@@ -58,7 +59,9 @@ async def create_strategy(
 
 
 @router.get("/", response_model=StrategyListResponse, summary="List strategies")
+@cache_response(ttl=30, key_prefix="strategies")
 async def list_strategies(
+    request: Request,
     current_user=Depends(get_current_user),
     service: StrategyService = Depends(get_strategy_service),
     limit: int = Query(20, ge=1, le=100),

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/utils/logger.py
+# hypothesis_version: 6.148.5
+
+[10000, '\n{exception}', ' interrupted', '%Y-%m-%dT%H:%M:%S.', '%z', '****', '+', '-', '.', '00:00', '30 days', '365 days', '60 days', '90 days', ':', 'CRITICAL', 'DEBUG', 'ERROR', 'FAILED', 'INFO', 'KeyboardInterrupt', 'LOG_FORMAT', 'N/A', 'SUCCESS', 'WARNING', 'access_token', 'api_key', 'audit', 'authorization', 'backtest', 'backtest_complete', 'backtest_start', 'context', 'credential', 'exception', 'extra', 'json', 'level', 'login_failed', 'login_success', 'logout', 'logs', 'message', 'module', 'name', 'password', 'permission_denied', 'refresh_token', 'request_id', 'root', 'secret', 'strategy_access', 'tags', 'task_id', 'text', 'time', 'timestamp', 'token', 'traceback', 'type', 'user_id', 'zip', '{message}']

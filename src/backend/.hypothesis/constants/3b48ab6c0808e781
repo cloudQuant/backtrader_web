@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/pymt5/pymt5/transport.py
+# hypothesis_version: 6.148.5
+
+[0.0, '<H', 'Origin', '__name__', 'additional_headers', 'closing', 'closing transport', 'connecting', 'connecting to %s', 'disconnected', 'error', 'max_size', 'open_timeout', 'ping_interval', 'proxy', 'pymt5.transport', 'ready', 'transport closed']

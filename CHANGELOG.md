@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-20
+
+### Breaking Changes
+
+- **Removed deprecated API endpoints:**
+  - `/api/v1/backtest/*` (use `/api/v1/backtests/*`)
+  - `/api/v1/live-trading-crypto/*` (use `/api/v1/live-trading/*`)
+  - `/api/v1/backtests/optimization/grid` (use `/api/v1/optimization/submit`)
+  - `/api/v1/backtests/optimization/bayesian` (use `/api/v1/optimization/submit`)
+- Removed `DeprecationHeadersMiddleware` (no longer needed)
+
 ### Added
 
 - Database performance indexes for backtest_tasks, optimization_tasks, paper_trading_orders
@@ -17,15 +28,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Conversation-aware query rewriting for follow-up questions so AI chat can reuse recent user intent and cited document titles
 - Knowledge base UI controls for editing retrieval profile, search mode, top_k, min similarity, context chunk budget, and prompt suffix
 - AI chat UI panels for retrieval diagnostics and current knowledge-base retrieval profile visibility
+- AI trading logs table with full audit trail (migration 0005)
+- Composite listing indexes for backtest task queries (migration 0004)
+- Trading workspace fields for enhanced workspace management (migration 0003)
 
 ### Changed
 
+- Unified Alembic migration chain (fixed dual-head branch issue)
 - Optimized slow request threshold from 5s to 500ms
 - Updated frontend dependencies: axios, dayjs, dompurify, autoprefixer
 - Upgraded the RAG scorer from a single keyword hit ratio to a configurable hybrid ranking pipeline that combines title hits, content hits, phrase overlap, recency reranking, and per-document diversification
 - Strengthened AI Copilot prompt orchestration for quant research, strategy review, and Backtrader code generation with explicit assumptions, risk, data, and backtest sections
 - KB Chat now inherits retrieval behavior from per-knowledge-base settings instead of hard-coded `top_k=10` / `min_similarity=0`
 - Backtrader strategy generation prompts now target the full `AIStrategyDraft` schema, including assumptions, risk points, data source hints, backtest defaults, and execution plan
+
+### Removed
+
+- `app/api/backtest.py` — legacy singular backtest routes
+- `app/api/live_trading.py` — legacy crypto trading routes
+- `app/api/live_trading_complete.py` — orphaned Cerebro-based API
+- `app/middleware/deprecation.py` — deprecation headers middleware
+- Legacy optimization proxy functions from `backtest_enhanced.py`
 
 ## [1.0.0] - 2026-03-26
 

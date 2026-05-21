@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/akshare_tasks.py
+# hypothesis_version: 6.148.5
+
+[200, '/tasks', '/tasks/{task_id}', '/tasks/{task_id}/run', 'Task not found', 'execution_id', 'items', 'page', 'page_size', 'status', 'templates', 'total']

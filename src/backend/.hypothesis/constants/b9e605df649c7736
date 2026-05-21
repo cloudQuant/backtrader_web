@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_report_em.py
+# hypothesis_version: 6.148.5
+
+['-1,-1', '1', '20240331', '500', 'ALL', 'DEFAULT@SECLEVEL=1', 'RPT_DMSK_FN_BALANCE', 'RPT_DMSK_FN_CASHFLOW', 'RPT_DMSK_FN_INCOME', '_', '__main__', 'coerce', 'columns', 'data', 'filter', 'https://', 'ignore', 'index', 'outer', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', 'ssl_context', '公告日期', '净利润', '净利润同比', '净现金流-净现金流', '净现金流-同比增长', '利润总额', '序号', '投资性现金流-净现金流占比', '投资性现金流-现金流量净额', '经营性现金流-净现金流占比', '经营性现金流-现金流量净额', '股东权益合计', '股票代码', '股票简称', '营业利润', '营业总支出-管理费用', '营业总支出-营业总支出', '营业总支出-营业支出', '营业总支出-财务费用', '营业总支出-销售费用', '营业总收入', '营业总收入同比', '融资性现金流-净现金流占比', '融资性现金流-现金流量净额', '负债-应付账款', '负债-总负债', '负债-总负债同比', '负债-预收账款', '资产-存货', '资产-应收账款', '资产-总资产', '资产-总资产同比', '资产-货币资金', '资产负债率']

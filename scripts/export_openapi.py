@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""
-Export OpenAPI specification to JSON file.
+"""Export OpenAPI schema from FastAPI app.
 
-This script exports the FastAPI OpenAPI schema to a JSON file for documentation
-and API client generation purposes.
+Exports the OpenAPI specification to a JSON file for CI validation,
+documentation, and API client generation purposes.
 
 Usage:
-    python scripts/export_openapi.py
+    python scripts/export_openapi.py              # exports to openapi.json
+    python scripts/export_openapi.py output.json  # exports to custom path
 """
 
 import json
@@ -14,33 +14,37 @@ import sys
 from pathlib import Path
 
 
-def export_openapi():
-    """Export OpenAPI specification to docs/openapi.json."""
-    # Add project root to path
+def export_openapi(output_path: str = "openapi.json") -> Path:
+    """Export OpenAPI specification to a JSON file.
+
+    Args:
+        output_path: Destination file path. Defaults to 'openapi.json' in cwd.
+
+    Returns:
+        Path to the exported file.
+    """
+    # Add backend source to path
     project_root = Path(__file__).parent.parent / "src" / "backend"
     sys.path.insert(0, str(project_root))
 
     # Import app after path setup
     from app.main import app
 
-    # Get OpenAPI schema
-    openapi_schema = app.openapi()
+    schema = app.openapi()
 
-    # Ensure docs directory exists
-    docs_dir = Path(__file__).parent.parent / "docs"
-    docs_dir.mkdir(exist_ok=True)
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
 
-    # Write to file
-    output_file = docs_dir / "openapi.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(openapi_schema, f, indent=2, ensure_ascii=False)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(schema, f, indent=2, ensure_ascii=False)
 
-    print(f"✓ OpenAPI schema exported to {output_file}")
-    print(f"  - API Version: {openapi_schema.get('info', {}).get('version', 'unknown')}")
-    print(f"  - Endpoints: {len(openapi_schema.get('paths', {}))}")
+    print(f"Exported OpenAPI schema: {len(schema.get('paths', {}))} paths")
+    print(f"  Version: {schema.get('info', {}).get('version', 'unknown')}")
+    print(f"  Output: {out}")
 
-    return output_file
+    return out
 
 
 if __name__ == "__main__":
-    export_openapi()
+    dest = sys.argv[1] if len(sys.argv) > 1 else "openapi.json"
+    export_openapi(dest)

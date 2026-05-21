@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures_derivative/futures_contract_info_cffex.py
+# hypothesis_version: 6.148.5
+
+['%Y%m%d', './/INDEX', '20240228', 'BASIS_PRICE', 'END_TRADING_DAY', 'INSTRUMENT_ID', 'INSTRUMENT_MONTH', 'LONG_LIMIT', 'LOWERLIMITPRICE', 'LOWER_VALUE', 'OPEN_DATE', 'PRODUCT_ID', 'TRADING_DAY', 'UPPERLIMITPRICE', 'UPPER_VALUE', 'User-Agent', '__main__', 'coerce', '上市日', '合约代码', '合约月份', '品种', '持仓限额', '挂盘基准价', '最后交易日', '查询交易日', '涨停板价位', '涨停板幅度', '跌停板价位', '跌停板幅度']

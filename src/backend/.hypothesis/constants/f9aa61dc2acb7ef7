@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/risk_control_service.py
+# hypothesis_version: 6.148.5
+
+[0.8, 5.0, 20.0, 30.0, 80.0, 100000.0, 100, 'abnormal_trading', 'action', 'close_position', 'critical', 'current_price', 'daily_loss', 'daily_pnl', 'daily_pnl_pct', 'entry_price', 'info', 'limit', 'max_drawdown', 'order_size', 'pnl_pct', 'position_limit', 'position_pct', 'stop_loss', 'stop_loss_pct', 'symbol', 'take_profit', 'take_profit_pct', 'threshold', 'total_position_pct', 'trade_count', 'warning']

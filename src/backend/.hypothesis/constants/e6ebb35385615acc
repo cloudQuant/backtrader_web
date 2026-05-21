@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_dividend_cninfo.py
+# hypothesis_version: 6.148.5
+
+['*/*', '0', '600009', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Content-Length', 'F001V', 'F006D', 'F007V', 'F010N', 'F011N', 'F012N', 'F018D', 'F020D', 'F023D', 'F025D', 'F044V', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'getResCode1', 'gzip, deflate', 'keep-alive', 'no-cache', 'records', 'scode', 'utf-8', 'webapi.cninfo.com.cn', '分红类型', '实施方案公告日期', '实施方案分红说明', '报告时间', '派息日', '派息比例', '股份到账日', '股权登记日', '转增比例', '送股比例', '除权日']

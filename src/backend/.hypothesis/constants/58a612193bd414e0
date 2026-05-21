@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_roll_yield.py
+# hypothesis_version: 6.148.5
+
+['%Y%m%d', '%s非交易日', '20191008', '20201030', '20210201', '20230801', '20230810', 'BB', 'HO', 'IO', 'MO', 'RB', '\\D', '__main__', 'cffex', 'close', 'czce', 'date', 'dce', 'deferred', 'efp', 'gfex', 'near_by', 'open_interest', 'roll_yield', 'shfe', 'symbol', 'var', 'variety']

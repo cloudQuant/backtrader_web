@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_to_spot.py
+# hypothesis_version: 6.148.5
+
+[0.5, 300, 500, 502, 503, 504, ',', '.', '1', '202101', '20210106', '20210112', '202312', '20231228', '20251014', 'Accept', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Connection', 'DEFAULT@SECLEVEL=1', 'ExchangeDelivery', 'Host', 'Pragma', 'Referer', 'User-Agent', '_', '__main__', 'a', 'all', 'coerce', 'contract.contract_id', 'contract.variety_id', 'gzip, deflate', 'http://', 'https://', 'keep-alive', 'month', 'no-cache', 'o_curdelivery', 'ssl_context', 'utf-8', 'www.czce.com.cn', 'year', '买方会员', '买方会员-会员简称', '交割数量', '交割日期', '交割结算价', '交割量', '交割量-本年累计', '交割量-本月', '交割量-比重', '交割量-累计同比', '交割金额', '交割额', '卖方会员', '卖方会员-会员简称', '合约', '合约代码', '合约数量', '品种', '品种代码', '小计|合计', '小计|总计', '日期', '期转现发生日期', '期转现数量', '期转现量', '配对手数', '配对日期', '：']

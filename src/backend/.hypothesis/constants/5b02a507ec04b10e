@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/middleware/exception_handling.py
+# hypothesis_version: 6.148.5
+
+['.', '; ', 'ConfigurationError', 'DataNotFoundError', 'ExternalServiceError', 'Invalid value', 'InvalidInputError', 'InvalidTokenError', 'MissingFieldError', 'PasswordTooWeakError', 'Request failed', 'TokenExpiredError', 'UserInactiveError', 'UserNotFoundError', 'VALIDATION_ERROR', 'ValidationError', 'detail', 'details', 'error', 'error_code', 'field', 'fields', 'loc', 'message', 'msg', 'path', 'request_id', 'type', 'validation_error']

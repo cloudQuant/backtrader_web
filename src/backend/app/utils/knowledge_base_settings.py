@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
-from typing import Any, Mapping
+from typing import Any
 
 DEFAULT_KNOWLEDGE_BASE_SETTINGS: dict[str, Any] = {
     "retrieval_profile": "quant_research",

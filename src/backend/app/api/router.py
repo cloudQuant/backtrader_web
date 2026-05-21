@@ -11,8 +11,8 @@ from fastapi import APIRouter
 
 from app.api.analytics import router as analytics_router
 from app.api.auth import router as auth_router
-from app.api.backtest import router as backtest_router
 from app.api.backtest_enhanced import router as backtest_enhanced_router
+from app.api.docs import router as docs_router
 from app.api.live_trading_api import router as live_trading_router
 from app.api.metrics import router as metrics_router
 from app.api.optimization_api import router as optimization_router
@@ -73,12 +73,6 @@ api_router.include_router(status_router, tags=["System Status"])
 api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 api_router.include_router(metrics_router, tags=["Metrics"])
 api_router.include_router(
-    backtest_router,
-    prefix="/backtest",
-    tags=["Backtest"],
-    deprecated=True,
-)
-api_router.include_router(
     backtest_enhanced_router,
     prefix="/backtests",
     tags=["Enhanced Backtest"],
@@ -90,6 +84,7 @@ api_router.include_router(portfolio_router, prefix="/portfolio", tags=["Portfoli
 api_router.include_router(optimization_router, prefix="/optimization", tags=["Optimization"])
 api_router.include_router(simulation_router, prefix="/simulation", tags=["Simulation"])
 api_router.include_router(workspace_router, prefix="/workspace", tags=["Workspace"])
+api_router.include_router(docs_router, prefix="/docs", tags=["Documentation"])
 
 # ── Optional routers (graceful degradation) ──────────────────────────────────
 _OPTIONAL_ROUTERS = [
@@ -110,19 +105,11 @@ _OPTIONAL_ROUTERS = [
     ("knowledge_base", "app.api.knowledge_base", "/knowledge-base", ["Knowledge Base"]),
     ("rag", "app.api.rag", "/rag", ["RAG"]),
     ("kb_chat", "app.api.kb_chat", "/kb-chat", ["KB Chat"]),
+    ("ai_trading", "app.api.ai_trading", "/ai-trading", ["AI Trading"]),
 ]
 
 for _name, _module, _prefix, _tags in _OPTIONAL_ROUTERS:
     _register_optional_router(_name, _module, prefix=_prefix, tags=_tags)
-
-# Legacy deprecated router
-_register_optional_router(
-    "live_trading_legacy",
-    "app.api.live_trading",
-    prefix="/live-trading-crypto",
-    tags=["Crypto Trading (Legacy)"],
-    deprecated=True,
-)
 
 _register_optional_router(
     "quote",

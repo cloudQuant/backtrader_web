@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ib_web/src/bt_api_ib_web/runtime/session.py
+# hypothesis_version: 6.148.5
+
+[180, 200, '.env', '/', '/sso', '/v1/api', '1', ';', '=', 'DU', 'IB_WEB_ACCOUNT_ID', 'IB_WEB_BASE_URL', 'IB_WEB_COOKIE_OUTPUT', 'IB_WEB_COOKIE_PATH', 'IB_WEB_COOKIE_SOURCE', 'IB_WEB_LOGIN_BROWSER', 'IB_WEB_LOGIN_MODE', 'IB_WEB_LOGIN_TIMEOUT', 'IB_WEB_PASSWORD', 'IB_WEB_TIMEOUT', 'IB_WEB_USERNAME', 'IB_WEB_VERIFY_SSL', '\\', 'accountId', 'accountIdKey', 'account_id', 'authenticated', 'base_url', 'browser', 'chrome', 'configs', 'connected', 'cookie_base_dir', 'cookie_browser', 'cookie_output', 'cookie_path', 'cookie_source', 'cookies', 'env', 'env_file', 'file:', 'ibkr_cookies.json', 'id', 'login_browser', 'login_headless', 'login_mode', 'login_timeout', 'on', 'paper', 'password', 'status_code', 'timeout', 'true', 'used_login', 'username', 'verify_ssl', 'yes']

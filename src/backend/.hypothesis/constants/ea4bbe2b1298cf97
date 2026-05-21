@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_cg_equity_mortgage.py
+# hypothesis_version: 6.148.5
+
+['*/*', '-', '0', '20210930', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Content-Length', 'DEFAULT@SECLEVEL=1', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'getResCode1', 'gzip, deflate', 'https://', 'keep-alive', 'no-cache', 'records', 'ssl_context', 'tdate', 'utf-8', 'webapi.cninfo.com.cn', '公告日期', '出质人', '占总股本比例', '累计质押占总股本比例', '股票代码', '股票简称', '质押事项', '质押数量', '质押解除数量', '质权人']

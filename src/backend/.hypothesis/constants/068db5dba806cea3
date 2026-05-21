@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_three_report_em.py
+# hypothesis_version: 6.148.5
+
+["'", ',', '-1', '0', '05767841728614413', '07306678536291241', '1', '2', '200', '3', 'APP_F10_GCASHFLOW', 'APP_F10_GINCOME', 'DEFAULT@SECLEVEL=1', 'F10_FINANCE_GBALANCE', 'HSF10', 'PC', 'REPORT_DATE', 'SH600036', 'SH600519', 'SH601398', 'SZ000013', '__main__', 'client', 'code', 'coerce', 'companyType', 'data', 'dates', 'filter', 'hidctype', 'https://', 'id', 'lxml', 'p', 'ps', 'reportDateType', 'reportType', 'result', 'source', 'sr', 'ssl_context', 'st', 'sty', 'type', 'v', 'value', 'web']

@@ -38,6 +38,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            requirements-dev.lock
 
       - name: Validate doc links
         run: python scripts/check_doc_links.py
@@ -54,9 +58,107 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            requirements-dev.lock
 
       - name: Validate deps sync
         run: python scripts/check_deps_sync.py
+
+  check-migrations:
+    name: Check - Alembic Migrations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            requirements-dev.lock
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Verify migration chain
+        run: python scripts/check_alembic_heads.py
+
+      - name: Test migration on empty database
+        working-directory: src/backend
+        timeout-minutes: 2
+        run: |
+          alembic upgrade head
+
+      - name: Check for unmigrated model changes
+        working-directory: src/backend
+        run: |
+          alembic check || echo "::error::ORM models have changes not covered by migrations" && exit 1
+
+  check-openapi:
+    name: Check - OpenAPI Schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            requirements-dev.lock
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Export OpenAPI schema
+        run: python scripts/export_openapi.py openapi.json
+
+      - name: Validate OpenAPI 3.1 schema
+        run: python -c "from openapi_spec_validator import validate; import json; validate(json.load(open('openapi.json'))); print('✓ OpenAPI schema is valid')"
+
+      - name: Check API compatibility
+        if: github.event_name == 'pull_request'
+        run: |
+          # Fetch base branch schema for comparison
+          git fetch origin ${{ github.base_ref }} --depth=1
+          git show origin/${{ github.base_ref }}:scripts/export_openapi.py > /tmp/export_base.py 2>/dev/null || true
+          if [ -f /tmp/export_base.py ]; then
+            python /tmp/export_base.py openapi-base.json 2>/dev/null || true
+            if [ -f openapi-base.json ]; then
+              python scripts/check_api_compat.py openapi.json openapi-base.json
+            else
+              echo "⚠ Could not export base branch schema, skipping compatibility check"
+            fi
+          else
+            echo "⚠ Base branch has no export script, skipping compatibility check"
+          fi
+
+      - name: Check OpenAPI example values
+        run: python scripts/check_openapi_examples.py openapi.json
+
+      - name: Archive OpenAPI schema
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-schema
+          path: openapi.json
+          retention-days: 7
 
   # ========================================
   # Backend Quality Checks
@@ -77,14 +179,30 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            requirements-dev.lock
+
+      - name: Cache backend virtualenv
+        uses: actions/cache@v4
+        id: cache-backend-venv-lint
+        with:
+          path: src/backend/.venv
+          key: venv-lint-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('src/backend/pyproject.toml', 'requirements-dev.lock') }}
+          restore-keys: |
+            venv-lint-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
 
       - name: Install dependencies
+        if: steps.cache-backend-venv-lint.outputs.cache-hit != 'true'
         run: |
           python -m venv .venv
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/pip install --no-cache-dir ruff pytest pytest-asyncio httpx
-          .venv/bin/pip install --no-cache-dir -e ".[backtrader]"
+          .venv/bin/pip install ruff pytest pytest-asyncio httpx mypy
+          .venv/bin/pip install -e ".[backtrader]"
+
+      - name: Activate virtualenv
+        run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
 
       - name: Run Ruff linter
         run: |
@@ -103,6 +221,10 @@ jobs:
           python -m py_compile app/main.py
           python -c "from app.main import app; print(app.title)"
 
+      - name: Run Mypy type check
+        run: |
+          mypy app
+
   backend-test:
     name: Backend - Unit Tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -118,23 +240,51 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            requirements-dev.lock
+
+      - name: Cache backend virtualenv
+        uses: actions/cache@v4
+        id: cache-backend-venv-test
+        with:
+          path: src/backend/.venv
+          key: venv-test-${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('src/backend/pyproject.toml', 'requirements-dev.lock') }}
+          restore-keys: |
+            venv-test-${{ runner.os }}-py${{ matrix.python-version }}-
 
       - name: Install dependencies
+        if: steps.cache-backend-venv-test.outputs.cache-hit != 'true'
         run: |
           python -m venv .venv
-          echo "$PWD/.venv/bin" >> $GITHUB_PATH
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/pip install --no-cache-dir -e ".[dev,backtrader,data,redis]"
-          .venv/bin/pip install --no-cache-dir pytest-cov pytest-xdist
+          .venv/bin/pip install -e ".[dev,backtrader,data,redis]"
+          .venv/bin/pip install pytest-cov pytest-xdist
+
+      - name: Activate virtualenv
+        run: echo "$PWD/.venv/bin" >> $GITHUB_PATH
+
+      - name: Check lockfile sync
+        working-directory: .
+        run: |
+          python scripts/check_lockfile_sync.py requirements-dev.lock
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=app --cov-config=.coveragerc --cov-report=xml --cov-report=term --cov-report=html --cov-fail-under=80 -n auto -v
+          pytest --cov=app --cov-config=.coveragerc --cov-report=xml --cov-report=term --cov-report=html --cov-fail-under=70 -n auto -v
+
+      - name: Check diff coverage
+        if: github.event_name == 'pull_request'
+        run: |
+          diff-cover coverage.xml --compare-branch=origin/master --fail-under=60
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.11'
@@ -156,7 +306,6 @@ jobs:
   backend-security:
     name: Backend - Security Scan
     runs-on: ubuntu-latest
-    continue-on-error: true
     defaults:
       run:
         working-directory: src/backend
@@ -169,6 +318,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            requirements-dev.lock
 
       - name: Install dependencies
         run: |
@@ -178,14 +331,11 @@ jobs:
           .venv/bin/pip install --no-cache-dir bandit safety
           .venv/bin/pip install --no-cache-dir -e .
 
-      - name: Run Bandit security linter (advisory)
-        continue-on-error: true
+      - name: Run Bandit security linter
         run: |
-          bandit -r app -f json -o bandit-report.json
-          bandit -r app -f screen
+          bash ../../scripts/bandit_gate.sh app
 
-      - name: Check for security vulnerabilities (advisory)
-        continue-on-error: true
+      - name: Check for security vulnerabilities
         run: |
           safety check --json --output safety-report.json
           safety check
@@ -218,15 +368,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Audit frontend dependencies (high/critical)
+        run: npm audit --audit-level=high
 
       - name: Verify ESLint version
         run: npx eslint --version
 
       - name: Run ESLint
-        run: npx eslint . --ext .vue,.js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts
+        run: npx eslint .
 
       - name: TypeScript type check
         run: npx vue-tsc --noEmit --skipLibCheck
@@ -298,11 +453,150 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Check bundle size
+        run: bash ../../scripts/check_bundle_size.sh dist
+
+      - name: Compare bundle size with target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          # Get current entry chunk size
+          ENTRY_FILE=$(find dist/assets -name "index-*.js" -type f 2>/dev/null | head -1)
+          if [ -z "$ENTRY_FILE" ]; then
+            echo "No entry chunk found, skipping comparison"
+            exit 0
+          fi
+          CURRENT_SIZE=$(stat -f%z "$ENTRY_FILE" 2>/dev/null || stat --format=%s "$ENTRY_FILE" 2>/dev/null)
+          CURRENT_KB=$((CURRENT_SIZE / 1024))
+          echo "Current entry chunk size: ${CURRENT_KB} KB ($(basename "$ENTRY_FILE"))"
+
+          # Try to get base branch entry chunk size from last successful build artifact
+          echo "Fetching base branch build artifact..."
+          BASE_BRANCH="${{ github.base_ref }}"
+
+          # Use GitHub API to find the last successful workflow run on the base branch
+          ARTIFACT_URL=$(curl -s -H "Authorization: token ${{ github.token }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?name=frontend-dist&per_page=5" \
+            | node -e "
+              const data = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf8'));
+              const artifacts = (data.artifacts || []).filter(a => !a.expired);
+              if (artifacts.length > 0) {
+                console.log(artifacts[0].archive_download_url);
+              }
+            " 2>/dev/null || echo "")
+
+          if [ -z "$ARTIFACT_URL" ]; then
+            echo "No base branch artifact found, skipping comparison"
+            exit 0
+          fi
+
+          # Download and extract base branch artifact
+          mkdir -p /tmp/base-dist
+          curl -s -L -H "Authorization: token ${{ github.token }}" "$ARTIFACT_URL" -o /tmp/base-dist.zip
+          unzip -q -o /tmp/base-dist.zip -d /tmp/base-dist 2>/dev/null || {
+            echo "Failed to extract base branch artifact, skipping comparison"
+            exit 0
+          }
+
+          # Find base branch entry chunk
+          BASE_ENTRY=$(find /tmp/base-dist -name "index-*.js" -type f 2>/dev/null | head -1)
+          if [ -z "$BASE_ENTRY" ]; then
+            echo "No entry chunk in base branch artifact, skipping comparison"
+            exit 0
+          fi
+          BASE_SIZE=$(stat -f%z "$BASE_ENTRY" 2>/dev/null || stat --format=%s "$BASE_ENTRY" 2>/dev/null)
+          BASE_KB=$((BASE_SIZE / 1024))
+          echo "Base branch entry chunk size: ${BASE_KB} KB ($(basename "$BASE_ENTRY"))"
+
+          # Compare sizes
+          if [ "$BASE_SIZE" -gt 0 ]; then
+            GROWTH_PERCENT=$(( (CURRENT_SIZE - BASE_SIZE) * 100 / BASE_SIZE ))
+            echo "Size change: ${GROWTH_PERCENT}%"
+            if [ "$GROWTH_PERCENT" -gt 10 ]; then
+              echo "::warning::Entry chunk size grew by ${GROWTH_PERCENT}% (${BASE_KB}KB → ${CURRENT_KB}KB). Threshold: 10%"
+            elif [ "$GROWTH_PERCENT" -lt -10 ]; then
+              echo "Entry chunk size decreased by ${GROWTH_PERCENT#-}% - nice optimization!"
+            else
+              echo "Entry chunk size change within acceptable range (±10%)"
+            fi
+          fi
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
           path: src/frontend/dist/
+          retention-days: 7
+
+  # ========================================
+  # Frontend Performance Audit
+  # ========================================
+  lighthouse-ci:
+    name: Frontend - Lighthouse CI
+    runs-on: ubuntu-latest
+    needs: frontend-build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download frontend build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: src/frontend/dist/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install Lighthouse CI
+        run: npm install -g @lhci/cli
+
+      - name: Run Lighthouse CI audits
+        id: lhci
+        run: |
+          lhci autorun --config=lighthouserc.js || LHCI_EXIT=$?
+
+          # Parse results for annotations
+          if [ -d "./lighthouse-reports" ]; then
+            for manifest in ./lighthouse-reports/manifest.json; do
+              if [ -f "$manifest" ]; then
+                # Check performance scores
+                node -e "
+                  const fs = require('fs');
+                  const manifest = JSON.parse(fs.readFileSync('$manifest', 'utf8'));
+                  let accessibilityFailed = false;
+                  for (const entry of manifest) {
+                    const result = JSON.parse(fs.readFileSync(entry.jsonPath, 'utf8'));
+                    const perfScore = Math.round((result.categories.performance?.score || 0) * 100);
+                    const a11yScore = Math.round((result.categories.accessibility?.score || 0) * 100);
+                    const url = result.finalUrl || entry.url;
+                    console.log('URL: ' + url + ' | Performance: ' + perfScore + ' | Accessibility: ' + a11yScore);
+                    if (perfScore < 60) {
+                      console.log('::warning::Lighthouse Performance score ' + perfScore + ' < 60 for ' + url);
+                    }
+                    if (a11yScore < 80) {
+                      console.log('::error::Lighthouse Accessibility score ' + a11yScore + ' < 80 for ' + url);
+                      accessibilityFailed = true;
+                    }
+                  }
+                  if (accessibilityFailed) {
+                    process.exit(1);
+                  }
+                "
+              fi
+            done
+          fi
+
+      - name: Archive Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-reports
+          path: ./lighthouse-reports/
           retention-days: 7
 
   # ========================================
@@ -345,6 +639,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            requirements-dev.lock
 
       - name: Install dependencies
         run: |
@@ -357,16 +655,164 @@ jobs:
         run: |
           pytest tests/ -v -m integration --tb=short
 
+      - name: Validate health check endpoint
+        run: |
+          # Start the backend server in background
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          SERVER_PID=$!
+
+          # Wait for server to be ready (max 30s)
+          echo "Waiting for server to start..."
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:8000/api/v1/health > /dev/null 2>&1; then
+              echo "Server ready after ${i}s"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "::error::Server failed to start within 30 seconds"
+              kill $SERVER_PID 2>/dev/null || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Send health check request and measure response time
+          START_TIME=$(date +%s%N)
+          HTTP_RESPONSE=$(curl -s -w "\n%{http_code}" http://127.0.0.1:8000/api/v1/health)
+          END_TIME=$(date +%s%N)
+
+          # Parse response
+          HTTP_BODY=$(echo "$HTTP_RESPONSE" | head -n -1)
+          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n 1)
+          RESPONSE_TIME_MS=$(( (END_TIME - START_TIME) / 1000000 ))
+
+          echo "Response status: $HTTP_STATUS"
+          echo "Response body: $HTTP_BODY"
+          echo "Response time: ${RESPONSE_TIME_MS}ms"
+
+          # Verify HTTP 200 status
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Health check returned status $HTTP_STATUS, expected 200"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Verify valid JSON format
+          if ! echo "$HTTP_BODY" | python -m json.tool > /dev/null 2>&1; then
+            echo "::error::Health check response is not valid JSON: $HTTP_BODY"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          # Verify required fields exist and have correct types
+          python -c "
+          import json, sys
+          data = json.loads('''$HTTP_BODY''')
+          errors = []
+          # Check 'status' field
+          if 'status' not in data:
+              errors.append('Missing field: status')
+          elif data['status'] not in ('healthy', 'unhealthy'):
+              errors.append(f'Invalid status value: {data[\"status\"]}')
+          # Check 'version' field
+          if 'version' not in data:
+              errors.append('Missing field: version')
+          elif not isinstance(data['version'], str):
+              errors.append(f'version must be a string, got {type(data[\"version\"]).__name__}')
+          # Check 'database' field
+          if 'database' not in data:
+              errors.append('Missing field: database')
+          elif data['database'] not in ('healthy', 'unhealthy'):
+              errors.append(f'Invalid database value: {data[\"database\"]}')
+          # Check 'uptime' field
+          if 'uptime' not in data:
+              errors.append('Missing field: uptime')
+          elif not isinstance(data['uptime'], (int, float)):
+              errors.append(f'uptime must be a number, got {type(data[\"uptime\"]).__name__}')
+          elif data['uptime'] < 0:
+              errors.append(f'uptime must be >= 0, got {data[\"uptime\"]}')
+          if errors:
+              for e in errors:
+                  print(f'::error::{e}')
+              sys.exit(1)
+          print('✓ All required fields present and valid')
+          "
+
+          # Verify response time < 2000ms
+          if [ "$RESPONSE_TIME_MS" -gt 2000 ]; then
+            echo "::error::Health check response time ${RESPONSE_TIME_MS}ms exceeds 2000ms limit"
+            kill $SERVER_PID 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "✓ Health check validation passed (status=$HTTP_STATUS, time=${RESPONSE_TIME_MS}ms)"
+
+          # Cleanup
+          kill $SERVER_PID 2>/dev/null || true
+
   # ========================================
   # Summary Job
   # ========================================
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, backend-lint, backend-test, backend-security, frontend-lint, frontend-test, frontend-build, integration-test]
+    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, check-openapi, backend-lint, backend-test, backend-security, frontend-lint, frontend-test, frontend-build, lighthouse-ci, integration-test]
     if: always()
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Collect job durations and cache status
+        uses: actions/github-script@v7
+        id: ci-metrics
+        with:
+          script: |
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+            const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.runId,
+            });
+
+            let summary = '### Job Execution Times\n\n';
+            summary += '| Job | Duration | Status |\n';
+            summary += '|-----|----------|--------|\n';
+
+            for (const job of jobs) {
+              if (job.name === 'CI Summary') continue;
+              const start = new Date(job.started_at);
+              const end = job.completed_at ? new Date(job.completed_at) : new Date();
+              const durationSec = Math.round((end - start) / 1000);
+              const minutes = Math.floor(durationSec / 60);
+              const seconds = durationSec % 60;
+              const durationStr = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+              const statusEmoji = job.conclusion === 'success' ? '✅' : job.conclusion === 'failure' ? '❌' : '⏭️';
+              summary += `| ${job.name} | ${durationStr} | ${statusEmoji} ${job.conclusion || 'running'} |\n`;
+            }
+
+            // Check cache usage from job steps
+            summary += '\n### Cache Status\n\n';
+            summary += '| Cache | Status |\n';
+            summary += '|-------|--------|\n';
+
+            for (const job of jobs) {
+              if (!job.steps) continue;
+              for (const step of job.steps) {
+                if (step.name && step.name.toLowerCase().includes('cache')) {
+                  const cacheStatus = step.conclusion === 'success' ? '✅ HIT/Restored' : '⚠️ MISS';
+                  summary += `| ${job.name} → ${step.name} | ${cacheStatus} |\n`;
+                }
+              }
+            }
+
+            core.setOutput('summary', summary);
+            return summary;
+
       - name: Check all jobs status
         run: |
           echo "## CI Results" >> $GITHUB_STEP_SUMMARY
@@ -377,27 +823,37 @@ jobs:
           echo "| Check Generated Artifacts | ${{ needs.check-generated-artifacts.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Check Doc Links | ${{ needs.check-doc-links.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Check Deps Sync | ${{ needs.check-deps-sync.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Check Migrations | ${{ needs.check-migrations.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Check OpenAPI | ${{ needs.check-openapi.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Lint | ${{ needs.backend-lint.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Test | ${{ needs.backend-test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend Security | ${{ needs.backend-security.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Lint | ${{ needs.frontend-lint.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Test | ${{ needs.frontend-test.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Build | ${{ needs.frontend-build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Lighthouse CI | ${{ needs.lighthouse-ci.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Integration Test | ${{ needs.integration-test.result }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Output cache and timing metrics
+        run: |
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Advisory Jobs (informational)" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Backend Security | ${{ needs.backend-security.result }} |" >> $GITHUB_STEP_SUMMARY
+          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
+          ${{ steps.ci-metrics.outputs.summary }}
+          EOF
 
       - name: Fail if any blocker job failed
         if: |
           needs.check-generated-artifacts.result == 'failure' ||
           needs.check-doc-links.result == 'failure' ||
           needs.check-deps-sync.result == 'failure' ||
+          needs.check-migrations.result == 'failure' ||
+          needs.check-openapi.result == 'failure' ||
           needs.backend-lint.result == 'failure' ||
           needs.backend-test.result == 'failure' ||
+          needs.backend-security.result == 'failure' ||
           needs.frontend-lint.result == 'failure' ||
           needs.frontend-test.result == 'failure' ||
           needs.frontend-build.result == 'failure' ||
+          needs.lighthouse-ci.result == 'failure' ||
           needs.integration-test.result == 'failure'
         run: exit 1

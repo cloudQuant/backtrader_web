@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/index/index_zh_em.py
+# hypothesis_version: 6.148.5
+
+[',', '0', '000003', '000859', '1', '100', '101', '102', '103', '19700101', '1979-09-01 09:32:00', '2', '2025-03-17 09:30:00', '2025-03-17 19:00:00', '20500000', '2222-01-01 09:32:00', '22220101', '399006', '5', '932000', '__main__', 'beg', 'coerce', 'daily', 'data', 'end', 'f1,f2,f3,f4,f5,f6', 'f12', 'f13', 'f3', 'f3,f12,f13', 'fid', 'fields', 'fields1', 'fields2', 'fltt', 'fqt', 'fs', 'invt', 'iscr', 'klines', 'klt', 'monthly', 'ndays', 'np', 'pn', 'po', 'pz', 'secid', 'trends', 'ut', 'weekly', '均价', '开盘', '成交量', '成交额', '振幅', '换手率', '收盘', '日期', '时间', '最低', '最高', '涨跌幅', '涨跌额']

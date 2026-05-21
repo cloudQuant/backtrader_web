@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_congestion_lg.py
+# hypothesis_version: 6.148.5
+
+['__main__', 'close', 'coerce', 'congestion', 'date', 'items', 'token']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/orderbooks/okx_l2_orderbook.py
+# hypothesis_version: 6.148.5
+
+['OKX', 'action', 'arg', 'ask_liquidation_list', 'ask_orders_list', 'ask_price_list', 'ask_volume_list', 'asks', 'asset_type', 'bid_liquidation_list', 'bid_orders_list', 'bid_price_list', 'bid_volume_list', 'bids', 'checksum', 'data', 'exchange_name', 'instId', 'local_update_time', 'server_time', 'symbol_name', 'ts']

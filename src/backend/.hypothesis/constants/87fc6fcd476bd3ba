@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/pymt5/pymt5/_trading.py
+# hypothesis_version: 6.148.5
+
+[0.0, 100.0, 1000, '\x00', '<I', '<ii', 'Empty response', 'Not enough money', '_T', 'action', 'action_id', 'ask', 'balance', 'bid', 'comment', 'currency', 'currency_margin', 'currency_profit', 'deals', 'deviation', 'equity', 'expiration', 'filling_mode', 'leverage', 'margin', 'margin_free', 'margin_level', 'order', 'orders', 'position', 'position_by', 'position_id', 'positions', 'price', 'price_order', 'price_trigger', 'profit', 'pymt5.client', 'request', 'request_id', 'retcode', 'sl', 'stoplimit', 'symbol', 'symbol is close-only', 'symbol is long-only', 'symbol is short-only', 'time_create', 'time_create_ms', 'time_update', 'time_update_ms', 'tp', 'trade_calc_mode', 'trade_mode', 'trade_order', 'trade_symbol', 'type', 'type_filling', 'type_flags', 'type_reason', 'type_time', 'volume']

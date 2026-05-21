@@ -123,8 +123,8 @@ async def test_report_service_raises_when_disabled(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_backtest_api_success_paths(client: AsyncClient, auth_headers: dict):
-    from app.api import backtest as backtest_api
-    from app.schemas.backtest import (
+    from app.api import backtest_enhanced as backtest_api
+    from app.schemas.backtest_enhanced import (
         BacktestListResponse,
         BacktestResponse,
         BacktestResult,
@@ -142,9 +142,9 @@ async def test_backtest_api_success_paths(client: AsyncClient, auth_headers: dic
         created_at=now,
     )
 
-    # app.api.backtest.get_backtest_service is lru_cached; clear it to ensure our patch is used.
+    # app.api.backtest_enhanced.get_backtest_service is lru_cached; clear it to ensure our patch.
     backtest_api.get_backtest_service.cache_clear()
-    with patch("app.api.backtest.BacktestService") as mock_cls:
+    with patch("app.api.backtest_enhanced.BacktestService") as mock_cls:
         svc = AsyncMock()
         svc.get_result = AsyncMock(return_value=result_obj)
         svc.get_task_status = AsyncMock(return_value=TaskStatus.RUNNING)
@@ -157,7 +157,7 @@ async def test_backtest_api_success_paths(client: AsyncClient, auth_headers: dic
         mock_cls.return_value = svc
 
         run = await client.post(
-            "/api/v1/backtest/run",
+            "/api/v1/backtests/run",
             headers=auth_headers,
             json={
                 "strategy_id": "001_ma_cross",
@@ -171,19 +171,19 @@ async def test_backtest_api_success_paths(client: AsyncClient, auth_headers: dic
         )
         assert run.status_code == 200
 
-        r1 = await client.get("/api/v1/backtest/t1", headers=auth_headers)
+        r1 = await client.get("/api/v1/backtests/t1", headers=auth_headers)
         assert r1.status_code == 200
 
-        s1 = await client.get("/api/v1/backtest/t1/status", headers=auth_headers)
+        s1 = await client.get("/api/v1/backtests/t1/status", headers=auth_headers)
         assert s1.status_code == 200
 
-        l1 = await client.get("/api/v1/backtest/?sort_order=desc", headers=auth_headers)
+        l1 = await client.get("/api/v1/backtests/?sort_order=desc", headers=auth_headers)
         assert l1.status_code == 200
 
-        c1 = await client.post("/api/v1/backtest/t1/cancel", headers=auth_headers)
+        c1 = await client.post("/api/v1/backtests/t1/cancel", headers=auth_headers)
         assert c1.status_code == 200
 
-        d1 = await client.delete("/api/v1/backtest/t1", headers=auth_headers)
+        d1 = await client.delete("/api/v1/backtests/t1", headers=auth_headers)
         assert d1.status_code == 200
 
     backtest_api.get_backtest_service.cache_clear()

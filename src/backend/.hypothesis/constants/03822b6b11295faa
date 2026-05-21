@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/air/air_zhenqi.py
+# hypothesis_version: 6.148.5
+
+[' "', '"', '-', '20190327', '2020-05-01', '20200427', '20220408', '20220409', '20220801', '20240402', 'AQI', 'CETCITYPERIOD', 'DAY', 'DESC', 'GETCITYPOINTAVG', 'MONTH', 'PM2.5浓度', 'User-Agent', 'WEB', 'X-Requested-With', 'XMLHttpRequest', 'YEAR', '\\', '__main__', 'air', 'appId', 'b.decode', 'city', 'clienttype', 'crypto.js', 'data', 'date', 'day', 'decode_result', 'decryptData', 'encode_param', 'encode_secret', 'endTime', 'hex_md5', 'ignore', 'index', 'method', 'month', 'monthdata.php', 'object', 'order', 'outcrypto.js', 'p":', 'p": ', 'param', 'rank', 'result', 'rows', 'secret', 'startTime', 't":', 't": ', 'tab', 'time', 'timestamp', 'type', 'year', '北京', '城市', '实时', '序号', '杭州', '省份', '空气质量', '降序', '首要污染物']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/strategy.py
+# hypothesis_version: 6.148.5
+
+[100, 'StrategyVersion', 'User', 'custom', 'strategies', 'strategy', 'users.id']

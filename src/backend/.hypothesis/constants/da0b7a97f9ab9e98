@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_comment_em.py
+# hypothesis_version: 6.148.5
+
+[100, '-', '-1', '/', '1', '30', '500', '5日平均参与意愿变化', '600000', 'ALL', 'ApiResults', 'DIAGNOSE_DATE', 'MARKET_FOCUS', 'MajorPeopleNumChg', 'ORG_PARTICIPATE', 'PeopleNumChange', 'RPT_DMSK_TS_STOCKNEW', 'RetailPeopleNumChg', 'SECURITY_CODE', 'TOTAL_SCORE', 'TRADE_DATE', 'UpdateTime', 'WEB', 'XData', 'Ydata', '__main__', 'client', 'coerce', 'columns', 'data', 'desire', 'filter', 'index', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'reportName', 'result', 'scrd', 'sortColumns', 'sortTypes', 'source', 'token', '上升', '主力成本', '交易日', '代码', '全部', '关注指数', '名称', '大户', '市盈率', '序号', '当日意愿上升', '换手率', '散户', '日期时间', '最新价', '机构参与度', '涨跌幅', '用户关注指数', '目前排名', '综合得分', '评分']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/pymt5/pymt5/_currency.py
+# hypothesis_version: 6.148.5
+
+[-1.0, 0.0, 1.0, 100.0, 'USD', '_T', 'accrued_interest', 'ask', 'bid', 'contract_size', 'face_value', 'margin_initial', 'pymt5.client', 'tick_size', 'tick_value', 'trade_calc_mode']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/strategy_version.py
+# hypothesis_version: 6.148.5
+
+['BacktestTask', 'Strategy', 'StrategyVersion', 'alpha', 'archived', 'beta', 'child_versions', 'deprecated', 'draft', 'latest', 'main', 'rc', 'stable', 'strategies.id', 'strategy_branches', 'strategy_version', 'strategy_versions', 'strategy_versions.id', 'users.id', 'version_comparisons', 'version_rollbacks', 'versions']

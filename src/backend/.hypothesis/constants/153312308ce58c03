@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_hold_control_em.py
+# hypothesis_version: 6.148.5
+
+['-', '-1,1,1', '001308', '1', '5000', 'ALL', 'AVERAGE_PRICE', 'BEGIN_HOLD_NUM', 'CHANGE_AFTER_HOLDNUM', 'CHANGE_AMOUNT', 'CHANGE_DATE', 'CHANGE_RATIO', 'CHANGE_REASON', 'CHANGE_SHARES', 'DEFAULT@SECLEVEL=1', 'DERIVE_SECURITY_CODE', 'DSE_PERSON_NAME', 'END_HOLD_NUM', 'GGEID', 'HOLD_TYPE', 'ORG_CODE', 'PERSON_DSE_RELATION', 'PERSON_NAME', 'POSITION_NAME', 'SECURITY_CODE', 'SECURITY_NAME', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'https://', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'ssl_context', '代码', '变动人', '变动人与董监高的关系', '变动原因', '变动后持股数', '变动比例', '变动股数', '变动金额', '名称', '吴远', '开始时持有', '成交均价', '持股种类', '日期', '结束后持有', '职务', '董监高人员姓名']

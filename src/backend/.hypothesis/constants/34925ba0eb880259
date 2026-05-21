@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_zh_kcb_sina.py
+# hypothesis_version: 6.148.5
+
+[10000, '%Y_%m_%d', '-', '=', 'Error:', '[', '\\d+', ']', '__main__', '_s_r_a', 'after_amount', 'after_volume', 'amount', 'close', 'd', 'data', 'date', 'ffill', 'hfq', 'hfq-factor', 'hfq_factor', 'high', 'left', 'low', 'open', 'outstanding_share', 'page', 'qfq', 'qfq-factor', 'qfq_factor', 'sh688399', 'turnover', 'v', 'volume', '买入', '今开', '代码', '卖出', '名称', '市净率', '市盈率', '总市值', '成交量', '成交额', '换手率', '时点', '昨收', '最低', '最新价', '最高', '流通市值', '涨跌幅', '涨跌额']

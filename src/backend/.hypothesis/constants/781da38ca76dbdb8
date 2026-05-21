@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_info.py
+# hypothesis_version: 6.148.5
+
+['%Y-%m-%d %H:%M:%S', '0', '1', '102', '1207', '152', '1710314682980', '1710315450384', '20', '200', '50', 'A', 'Asia/Shanghai', 'B', 'User-Agent', '__main__', 'biz', 'client', 'code', 'column', 'content', 'create_time', 'ctime', 'data', 'detailUrl', 'digest', 'dire', 'dpc', 'f', 'fastColumn', 'fastNewsList', 'feed', 'fields', 'level', 'list', 'needInteractData', 'news', 'order', 'page', 'pageSize', 'page_index', 'page_size', 'pagesize', 'req_trace', 'result', 'rich_text', 'roll_data', 'rtime', 's', 'showTime', 'sortEnd', 'summary', 'tag', 'tag_id', 'time', 'title', 'track', 'type', 'uniqueUrl', 'url', 'web', 'web_724', 'web_news_col', 'website', 'zhibo_id', '全部', '内容', '发布日期', '发布时间', '摘要', '时间', '标题', '等级', '重点', '链接']

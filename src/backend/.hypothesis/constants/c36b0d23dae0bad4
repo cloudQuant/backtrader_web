@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/exchange_data/binance_exchange_data.py
+# hypothesis_version: 6.148.5
+
+[0.001, 100, '-', '12h', '15m', '1M', '1d', '1h', '1m', '1s', '1w', '2h', '30m', '3d', '3m', '4h', '5m', '6h', '8h', '<symbol>', 'BCH-USDT', 'BNB-USDT', 'BTC', 'BTC-USDT', 'DOGE-USDT', 'ETH', 'ETH-USDT', 'OP-USDT', 'SUBSCRIBE', 'USD', 'USDT', 'algo', 'binance', 'binance.yaml', 'coin_m', 'configs', 'grid', 'id', 'margin', 'method', 'mining', 'option', 'pair', 'params', 'period', 'portfolio', 'spot', 'staking', 'sub_account', 'swap', 'symbol', 'symbol_list', 'topic', 'vip_loan', 'wallet']

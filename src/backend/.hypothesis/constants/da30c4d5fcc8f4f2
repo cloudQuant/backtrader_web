@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/economic/macro_china_nbs.py
+# hypothesis_version: 6.148.5
+
+['(', ')', '2018-', '2018-2022', '>', 'LAST10', 'LAST5', 'QueryData', '[]', '__main__', 'cname', 'code', 'colcode', 'csnd', 'csyd', 'data', 'datanodes', 'dbcode', 'dfwds', 'fname', 'fsjd', 'fsnd', 'fsyd', 'funit', 'gatnd', 'gatyd', 'getOtherWds', 'getTree', 'hasdata', 'hgjd', 'hgnd', 'hgyd', 'id', 'k1', 'm', 'nodes', 'reg', 'returndata', 'rowcode', 'sj', 'unit', 'wdcode', 'wdnodes', 'wds', 'zb', '主要城市年度数据', '主要城市月度价格', '人民生活 > 居民人均可支配收入', '分省季度数据', '分省年度数据', '分省月度数据', '北京市', '国民经济核算 > 地区生产总值', '地区生产总值_累计值(亿元)', '季度数据', '年度数据', '月度数据', '港澳台年度数据', '港澳台月度数据']

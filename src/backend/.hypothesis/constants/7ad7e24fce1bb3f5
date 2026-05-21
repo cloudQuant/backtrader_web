@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/ai_chat_service.py
+# hypothesis_version: 6.148.5
+
+[500, 800, '/', '/chat/completions', 'Authorization', 'Content-Type', 'POST', 'answer', 'answer_markdown', 'application/json', 'assistant', 'backtrader_strategy', 'choices', 'chunk_index', 'content', 'coverage_ratio', 'document_title', 'general', 'implementation', 'knowledge_qa', 'message', 'messages', 'model', 'model_id', 'quant_focus', 'reasoning', 'role', 'score_breakdown', 'similarity', 'strategy_draft', 'strategy_idea', 'strategy_research', 'strategy_review', 'system', 'system_prompt_suffix', 'temperature', 'text', 'tokens_used', 'total_tokens', 'usage', 'user', 'utf-8', '{', '}', '内容:', '当前问题：', '无可用上下文', '无诊断信息', '未命名文档', '未知', '检索诊断：', '模式要求：', '直接给出结构化结论，不要展开冗长推理。', '知识库上下文：', '附加要求：']

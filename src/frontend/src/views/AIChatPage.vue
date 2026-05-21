@@ -2,7 +2,9 @@
   <div class="ai-chat-page">
     <section class="ai-hero">
       <div class="min-w-0">
-        <div class="eyebrow">AI Copilot</div>
+        <div class="eyebrow">
+          AI Copilot
+        </div>
         <h2>AI助手</h2>
         <p>
           围绕知识库、策略想法、Backtrader 草稿和策略审查组织对话，引用与执行动作集中在同一条回答内完成。
@@ -10,62 +12,91 @@
       </div>
 
       <div class="hero-controls">
-        <label class="control-label">
+        <div class="control-label">
           <span>知识库</span>
-          <select v-model="selectedKnowledgeBaseId">
-            <option value="">请选择知识库</option>
-            <option v-for="kb in kbStore.knowledgeBases" :key="kb.id" :value="kb.id">
-              {{ kb.name }}
-            </option>
-          </select>
-        </label>
-        <button type="button" class="ghost-button" @click="handleNewConversation">
+          <el-select
+            v-model="selectedKnowledgeBaseId"
+            placeholder="请选择知识库"
+            style="min-width: 240px"
+          >
+            <el-option
+              v-for="kb in kbStore.knowledgeBases"
+              :key="kb.id"
+              :label="kb.name"
+              :value="kb.id"
+            />
+          </el-select>
+        </div>
+        <el-button @click="handleNewConversation">
           <el-icon><Plus /></el-icon>
           新会话
-        </button>
+        </el-button>
       </div>
     </section>
 
     <section class="mode-strip">
-      <button
-        v-for="option in assistantModeOptions"
-        :key="option.value"
-        type="button"
-        class="mode-tab"
-        :class="{ active: option.value === selectedAssistantMode }"
-        @click="selectedAssistantMode = option.value"
+      <el-radio-group
+        v-model="selectedAssistantMode"
+        size="default"
       >
-        {{ option.label }}
-      </button>
-      <label class="thinking-toggle">
-        <input v-model="thinkingMode" type="checkbox">
+        <el-radio-button
+          v-for="option in assistantModeOptions"
+          :key="option.value"
+          :value="option.value"
+        >
+          {{ option.label }}
+        </el-radio-button>
+      </el-radio-group>
+      <div class="thinking-toggle">
+        <el-switch
+          v-model="thinkingMode"
+          size="small"
+        />
         <span>深度模式</span>
-      </label>
+      </div>
     </section>
 
     <div class="workspace-grid">
       <aside class="ai-panel conversation-panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">会话</div>
-            <div class="panel-subtitle">{{ chatStore.conversations.length }} 条记录</div>
+            <div class="panel-title">
+              会话
+            </div>
+            <div class="panel-subtitle">
+              {{ chatStore.conversations.length }} 条记录
+            </div>
           </div>
-          <button type="button" class="icon-button" title="新建会话" @click="handleNewConversation">
+          <el-button
+            circle
+            size="small"
+            title="新建会话"
+            @click="handleNewConversation"
+          >
             <el-icon><Plus /></el-icon>
-          </button>
+          </el-button>
         </div>
 
-        <label class="search-box">
-          <el-icon><Search /></el-icon>
-          <input v-model="conversationSearch" placeholder="搜索会话标题">
-        </label>
+        <el-input
+          v-model="conversationSearch"
+          placeholder="搜索会话标题"
+          :prefix-icon="Search"
+          clearable
+          class="conversation-search"
+        />
 
-        <div v-if="filteredConversations.length === 0" class="empty-rail">
+        <div
+          v-if="filteredConversations.length === 0"
+          class="empty-rail"
+        >
           <el-icon><ChatDotRound /></el-icon>
           <span>暂无会话</span>
         </div>
 
-        <div v-else class="conversation-list">
+        <div
+          v-else
+          class="conversation-list"
+        >
           <button
             v-for="conversation in filteredConversations"
             :key="conversation.id"
@@ -85,7 +116,9 @@
           <div class="chat-context">
             <span class="context-icon"><el-icon><Collection /></el-icon></span>
             <div class="min-w-0">
-              <div class="context-title">{{ currentKnowledgeBaseName || '未选择知识库' }}</div>
+              <div class="context-title">
+                {{ currentKnowledgeBaseName || '未选择知识库' }}
+              </div>
               <div class="context-meta">
                 {{ currentModeMeta.label }}
                 <span v-if="thinkingMode">/ 深度模式</span>
@@ -96,30 +129,34 @@
           </div>
 
           <div class="chat-actions">
-            <button
+            <el-button
               v-if="chatStore.messages.length > 0"
-              type="button"
-              class="toolbar-button"
+              size="small"
               @click="copyConversation"
             >
               <el-icon><CopyDocument /></el-icon>
               复制
-            </button>
-            <button
+            </el-button>
+            <el-button
               v-if="chatStore.messages.length > 0"
-              type="button"
-              class="toolbar-button danger"
+              size="small"
+              type="danger"
               @click="handleNewConversation"
             >
               <el-icon><Delete /></el-icon>
               清空
-            </button>
+            </el-button>
           </div>
         </div>
 
         <div class="message-scroll">
-          <div v-if="chatStore.messages.length === 0 && !chatStore.loading" class="empty-chat">
-            <div class="empty-chat-icon"><el-icon><MagicStick /></el-icon></div>
+          <div
+            v-if="chatStore.messages.length === 0 && !chatStore.loading"
+            class="empty-chat"
+          >
+            <div class="empty-chat-icon">
+              <el-icon><MagicStick /></el-icon>
+            </div>
             <h3>{{ currentModeMeta.emptyTitle }}</h3>
             <p>{{ currentModeMeta.emptyDescription }}</p>
             <div class="prompt-grid">
@@ -142,8 +179,12 @@
               :class="message.role"
             >
               <div class="message-avatar">
-                <el-icon v-if="message.role === 'assistant'"><Cpu /></el-icon>
-                <el-icon v-else><UserFilled /></el-icon>
+                <el-icon v-if="message.role === 'assistant'">
+                  <Cpu />
+                </el-icon>
+                <el-icon v-else>
+                  <UserFilled />
+                </el-icon>
               </div>
 
               <div class="message-body">
@@ -167,24 +208,28 @@
                       {{ getStrategyDraftIssue(message.strategyDraft) ? '草稿待补全' : '可保存为策略' }}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    class="icon-button subtle"
+                  <el-button
+                    circle
+                    size="small"
                     title="复制消息"
                     @click="copyMessage(message.content)"
                   >
                     <el-icon><CopyDocument /></el-icon>
-                  </button>
+                  </el-button>
                 </div>
 
-                <div class="message-content">{{ message.content }}</div>
+                <div class="message-content">
+                  {{ message.content }}
+                </div>
 
                 <section
                   v-if="message.role === 'assistant' && message.diagnosticMessage"
                   class="diagnostic-box"
                   :class="message.reasonCode || ''"
                 >
-                  <div class="section-kicker">{{ getDiagnosticTitle(message.reasonCode) }}</div>
+                  <div class="section-kicker">
+                    {{ getDiagnosticTitle(message.reasonCode) }}
+                  </div>
                   <div>{{ message.diagnosticMessage }}</div>
                 </section>
 
@@ -192,7 +237,9 @@
                   v-if="message.role === 'assistant' && message.diagnostics"
                   class="retrieval-box"
                 >
-                  <div class="section-kicker">检索诊断</div>
+                  <div class="section-kicker">
+                    检索诊断
+                  </div>
                   <div class="retrieval-meta">
                     <span>{{ retrievalProfileLabel(message.diagnostics.retrieval_profile) }}</span>
                     <span>{{ message.diagnostics.search_mode }}</span>
@@ -212,10 +259,15 @@
                   </div>
                 </section>
 
-                <section v-if="message.role === 'assistant' && message.strategyDraft" class="strategy-draft">
+                <section
+                  v-if="message.role === 'assistant' && message.strategyDraft"
+                  class="strategy-draft"
+                >
                   <div class="draft-head">
                     <div>
-                      <div class="draft-title">{{ message.strategyDraft.name }}</div>
+                      <div class="draft-title">
+                        {{ message.strategyDraft.name }}
+                      </div>
                       <div class="draft-meta">
                         {{ message.strategyDraft.category || '未分类' }}
                         / {{ getDraftParamCount(message.strategyDraft) }} 个参数
@@ -225,9 +277,9 @@
                       </div>
                     </div>
                     <div class="draft-actions">
-                      <button
-                        type="button"
-                        class="primary-action"
+                      <el-button
+                        type="primary"
+                        size="small"
                         :disabled="
                           savingStrategyIndex === index
                             || Boolean(savedStrategyIds[index])
@@ -243,10 +295,9 @@
                               ? '保存中...'
                               : '保存为策略'
                         }}
-                      </button>
-                      <button
-                        type="button"
-                        class="secondary-action"
+                      </el-button>
+                      <el-button
+                        size="small"
                         :disabled="
                           Boolean(addedWorkspaceUnitIds[index])
                             || Boolean(getStrategyDraftIssue(message.strategyDraft))
@@ -255,11 +306,10 @@
                       >
                         <el-icon><Aim /></el-icon>
                         {{ addedWorkspaceUnitIds[index] ? '已添加到工作区' : '添加到工作区' }}
-                      </button>
-                      <button
+                      </el-button>
+                      <el-button
                         v-if="workspaceExecutions[index]"
-                        type="button"
-                        class="secondary-action"
+                        size="small"
                         :disabled="
                           runningBacktestIndex === index
                             || Boolean(getStrategyDraftIssue(message.strategyDraft))
@@ -268,21 +318,19 @@
                       >
                         <el-icon><Promotion /></el-icon>
                         {{ runningBacktestIndex === index ? '回测提交中...' : '一键回测' }}
-                      </button>
-                      <button
+                      </el-button>
+                      <el-button
                         v-if="workspaceExecutions[index]"
-                        type="button"
-                        class="secondary-action"
+                        size="small"
                         :disabled="refreshingStatusIndex === index"
                         @click="handleRefreshWorkspaceExecution(index)"
                       >
                         <el-icon><Refresh /></el-icon>
                         {{ refreshingStatusIndex === index ? '刷新中...' : '刷新状态' }}
-                      </button>
-                      <button
+                      </el-button>
+                      <el-button
                         v-if="workspaceExecutions[index]"
-                        type="button"
-                        class="secondary-action"
+                        size="small"
                         :disabled="
                           generatingReportIndex === index
                             || Boolean(getStrategyDraftIssue(message.strategyDraft))
@@ -291,23 +339,28 @@
                       >
                         <el-icon><DataAnalysis /></el-icon>
                         {{ generatingReportIndex === index ? '生成中...' : '生成报告' }}
-                      </button>
-                      <button
-                        type="button"
-                        class="secondary-action"
+                      </el-button>
+                      <el-button
+                        size="small"
                         @click="copyMessage(message.strategyDraft.code || '')"
                       >
                         <el-icon><CopyDocument /></el-icon>
                         复制代码
-                      </button>
+                      </el-button>
                     </div>
                   </div>
 
-                  <p v-if="message.strategyDraft.rationale" class="draft-rationale">
+                  <p
+                    v-if="message.strategyDraft.rationale"
+                    class="draft-rationale"
+                  >
                     {{ message.strategyDraft.rationale }}
                   </p>
 
-                  <p v-if="getStrategyDraftIssue(message.strategyDraft)" class="draft-warning">
+                  <p
+                    v-if="getStrategyDraftIssue(message.strategyDraft)"
+                    class="draft-warning"
+                  >
                     {{ getStrategyDraftIssue(message.strategyDraft) }}
                   </p>
 
@@ -318,32 +371,58 @@
                     <span>手续费 {{ getDraftCommission(message.strategyDraft) }}</span>
                   </div>
 
-                  <div v-if="getDraftAssumptions(message.strategyDraft).length" class="draft-list">
+                  <div
+                    v-if="getDraftAssumptions(message.strategyDraft).length"
+                    class="draft-list"
+                  >
                     <div class="draft-list-title">
                       <el-icon><CircleCheck /></el-icon>
                       关键假设
                     </div>
-                    <div v-for="item in getDraftAssumptions(message.strategyDraft)" :key="item">{{ item }}</div>
+                    <div
+                      v-for="item in getDraftAssumptions(message.strategyDraft)"
+                      :key="item"
+                    >
+                      {{ item }}
+                    </div>
                   </div>
 
-                  <div v-if="getDraftRiskPoints(message.strategyDraft).length" class="draft-list warning">
+                  <div
+                    v-if="getDraftRiskPoints(message.strategyDraft).length"
+                    class="draft-list warning"
+                  >
                     <div class="draft-list-title">
                       <el-icon><Warning /></el-icon>
                       风险提示
                     </div>
-                    <div v-for="item in getDraftRiskPoints(message.strategyDraft)" :key="item">{{ item }}</div>
+                    <div
+                      v-for="item in getDraftRiskPoints(message.strategyDraft)"
+                      :key="item"
+                    >
+                      {{ item }}
+                    </div>
                   </div>
 
-                  <div v-if="workspaceExecutions[index]" class="execution-box">
-                    <div class="execution-title">工作区执行状态</div>
+                  <div
+                    v-if="workspaceExecutions[index]"
+                    class="execution-box"
+                  >
+                    <div class="execution-title">
+                      工作区执行状态
+                    </div>
                     <div>工作区：{{ workspaceExecutions[index].workspaceName }}</div>
                     <div>单元ID：{{ workspaceExecutions[index].unitId }}</div>
                     <div>回测状态：{{ workspaceExecutions[index].runStatus || '未运行' }}</div>
                     <div v-if="workspaceExecutions[index].lastTaskId">
                       任务ID：{{ workspaceExecutions[index].lastTaskId }}
                     </div>
-                    <div v-if="workspaceExecutions[index].report" class="report-box">
-                      <div class="execution-title">最新报告摘要</div>
+                    <div
+                      v-if="workspaceExecutions[index].report"
+                      class="report-box"
+                    >
+                      <div class="execution-title">
+                        最新报告摘要
+                      </div>
                       <div>
                         完成单元：
                         {{ workspaceExecutions[index].report?.summary.completed_units }}
@@ -353,16 +432,28 @@
                       <div>平均夏普：{{ workspaceExecutions[index].report?.summary.avg_sharpe_ratio ?? '-' }}</div>
                       <div>平均回撤：{{ workspaceExecutions[index].report?.summary.avg_max_drawdown ?? '-' }}</div>
                     </div>
-                    <div v-if="workspaceExecutions[index].analysis" class="analysis-box">
-                      <div class="execution-title">AI复盘建议</div>
+                    <div
+                      v-if="workspaceExecutions[index].analysis"
+                      class="analysis-box"
+                    >
+                      <div class="execution-title">
+                        AI复盘建议
+                      </div>
                       <div>{{ workspaceExecutions[index].analysis?.summary }}</div>
-                      <div class="mt-2 font-medium">{{ workspaceExecutions[index].analysis?.verdict }}</div>
+                      <div class="mt-2 font-medium">
+                        {{ workspaceExecutions[index].analysis?.verdict }}
+                      </div>
                     </div>
                   </div>
                 </section>
 
-                <section v-if="message.role === 'assistant' && message.reasoning" class="reasoning-box">
-                  <div class="section-kicker">分析摘要</div>
+                <section
+                  v-if="message.role === 'assistant' && message.reasoning"
+                  class="reasoning-box"
+                >
+                  <div class="section-kicker">
+                    分析摘要
+                  </div>
                   <div>{{ message.reasoning }}</div>
                 </section>
 
@@ -397,7 +488,10 @@
               </div>
             </article>
 
-            <div v-if="chatStore.loading" class="typing-line">
+            <div
+              v-if="chatStore.loading"
+              class="typing-line"
+            >
               <span />
               <span />
               <span />
@@ -412,22 +506,25 @@
             <span>{{ question.length }}/500</span>
           </div>
           <div class="composer-row">
-            <textarea
+            <el-input
               v-model="question"
+              type="textarea"
               :maxlength="500"
               :disabled="!selectedKnowledgeBaseId || chatStore.loading"
               :placeholder="inputPlaceholder"
+              :rows="3"
+              resize="vertical"
               @keydown.enter.exact.prevent="handleAsk"
             />
-            <button
-              type="button"
-              class="send-button"
+            <el-button
+              type="primary"
               :disabled="!selectedKnowledgeBaseId || !question.trim() || chatStore.loading"
+              class="send-button"
               @click="handleAsk"
             >
               <el-icon><Promotion /></el-icon>
               {{ chatStore.loading ? '发送中' : '发送' }}
-            </button>
+            </el-button>
           </div>
         </div>
       </main>
@@ -435,15 +532,26 @@
       <aside class="ai-panel insight-panel">
         <div class="panel-header">
           <div>
-            <div class="panel-title">上下文</div>
-            <div class="panel-subtitle">{{ currentModeMeta.label }}</div>
+            <div class="panel-title">
+              上下文
+            </div>
+            <div class="panel-subtitle">
+              {{ currentModeMeta.label }}
+            </div>
           </div>
-          <span class="status-dot" :class="{ active: Boolean(selectedKnowledgeBaseId) }" />
+          <span
+            class="status-dot"
+            :class="{ active: Boolean(selectedKnowledgeBaseId) }"
+          />
         </div>
 
         <div class="kb-card">
-          <div class="kb-name">{{ currentKnowledgeBaseName || '未选择知识库' }}</div>
-          <div class="kb-desc">{{ currentKnowledgeBase?.description || '选择知识库后开始问答' }}</div>
+          <div class="kb-name">
+            {{ currentKnowledgeBaseName || '未选择知识库' }}
+          </div>
+          <div class="kb-desc">
+            {{ currentKnowledgeBase?.description || '选择知识库后开始问答' }}
+          </div>
           <div class="metric-grid">
             <div>
               <span>文档</span>
@@ -464,28 +572,36 @@
             <span>top_k {{ currentKnowledgeBaseSettings.default_top_k }}</span>
             <span v-if="currentKnowledgeBaseSettings.use_conversation_memory">会话记忆开</span>
           </div>
-          <div v-if="hasUnindexedDocuments" class="kb-index-warning">
+          <div
+            v-if="hasUnindexedDocuments"
+            class="kb-index-warning"
+          >
             <div>
               当前知识库有未索引文档，AI 检索结果可能不完整。
               <span>{{ indexedDocumentCount }}/{{ knowledgeBaseDocuments.length }} 已索引</span>
             </div>
-            <button type="button" class="inline-link" @click="goToReindex">
+            <button
+              type="button"
+              class="inline-link"
+              @click="goToReindex"
+            >
               前往重建索引
             </button>
           </div>
-          <button
-            type="button"
-            class="wide-link"
+          <el-button
+            class="w-full mt-3"
             :disabled="!currentKnowledgeBaseId"
             @click="goToKnowledgeBase"
           >
             <el-icon><Reading /></el-icon>
             打开知识库
-          </button>
+          </el-button>
         </div>
 
         <div class="tool-section">
-          <div class="section-kicker">快捷工具</div>
+          <div class="section-kicker">
+            快捷工具
+          </div>
           <button
             v-for="tool in quickTools"
             :key="tool.title"
@@ -503,82 +619,98 @@
       </aside>
     </div>
 
-    <el-dialog v-model="showAddToWorkspaceDialog" title="添加策略草稿到工作区" width="520px">
+    <el-dialog
+      v-model="showAddToWorkspaceDialog"
+      title="添加策略草稿到工作区"
+      width="520px"
+    >
       <div class="dialog-form">
-        <label>
-          <span>研究工作区</span>
-          <select v-model="workspaceDraftForm.workspaceId">
-            <option value="">请选择工作区</option>
-            <option v-for="workspace in researchWorkspaces" :key="workspace.id" :value="workspace.id">
-              {{ workspace.name }}
-            </option>
-          </select>
-        </label>
+        <el-form-item label="研究工作区">
+          <el-select
+            v-model="workspaceDraftForm.workspaceId"
+            placeholder="请选择工作区"
+            class="w-full"
+          >
+            <el-option
+              v-for="workspace in researchWorkspaces"
+              :key="workspace.id"
+              :label="workspace.name"
+              :value="workspace.id"
+            />
+          </el-select>
+        </el-form-item>
 
         <div class="dialog-grid">
-          <label>
-            <span>标的代码</span>
-            <input v-model="workspaceDraftForm.symbol" placeholder="例如 600519.SH">
-          </label>
-          <label>
-            <span>标的名称</span>
-            <input v-model="workspaceDraftForm.symbolName" placeholder="例如 贵州茅台">
-          </label>
+          <el-form-item label="标的代码">
+            <el-input
+              v-model="workspaceDraftForm.symbol"
+              placeholder="例如 600519.SH"
+            />
+          </el-form-item>
+          <el-form-item label="标的名称">
+            <el-input
+              v-model="workspaceDraftForm.symbolName"
+              placeholder="例如 贵州茅台"
+            />
+          </el-form-item>
         </div>
 
         <div class="dialog-grid">
-          <label>
-            <span>周期</span>
-            <select v-model="workspaceDraftForm.timeframe">
-              <option value="1m">1m</option>
-              <option value="5m">5m</option>
-              <option value="15m">15m</option>
-              <option value="30m">30m</option>
-              <option value="1h">1h</option>
-              <option value="1d">1d</option>
-              <option value="1w">1w</option>
-            </select>
-          </label>
-          <label>
-            <span>分组名</span>
-            <input v-model="workspaceDraftForm.groupName" placeholder="例如 AI策略草稿">
-          </label>
+          <el-form-item label="周期">
+            <el-select
+              v-model="workspaceDraftForm.timeframe"
+              class="w-full"
+            >
+              <el-option label="1m" value="1m" />
+              <el-option label="5m" value="5m" />
+              <el-option label="15m" value="15m" />
+              <el-option label="30m" value="30m" />
+              <el-option label="1h" value="1h" />
+              <el-option label="1d" value="1d" />
+              <el-option label="1w" value="1w" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="分组名">
+            <el-input
+              v-model="workspaceDraftForm.groupName"
+              placeholder="例如 AI策略草稿"
+            />
+          </el-form-item>
         </div>
 
-        <div v-if="researchWorkspaces.length === 0" class="dialog-warning">
+        <div
+          v-if="researchWorkspaces.length === 0"
+          class="dialog-warning"
+        >
           当前没有可用的研究工作区，请先创建一个研究工作区。
         </div>
       </div>
 
       <template #footer>
         <div class="dialog-actions">
-          <button
+          <el-button
             v-if="researchWorkspaces.length === 0"
-            type="button"
-            class="secondary-action"
             @click="router.push({ name: 'WorkspaceList' })"
           >
             前往创建工作区
-          </button>
-          <button type="button" class="secondary-action" @click="resetWorkspaceDraftState">
+          </el-button>
+          <el-button @click="resetWorkspaceDraftState">
             取消
-          </button>
-          <button
-            type="button"
-            class="primary-action"
-            :disabled="addingToWorkspace"
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="addingToWorkspace"
             @click="handleConfirmAddToWorkspace()"
           >
-            {{ addingToWorkspace ? '添加中...' : '确认添加' }}
-          </button>
-          <button
-            type="button"
-            class="primary-action accent"
-            :disabled="addingToWorkspace"
+            确认添加
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="addingToWorkspace"
             @click="handleConfirmAddToWorkspace(true)"
           >
-            {{ addingToWorkspace ? '提交中...' : '添加并回测' }}
-          </button>
+            添加并回测
+          </el-button>
         </div>
       </template>
     </el-dialog>
@@ -666,6 +798,7 @@ const assistantModeOptions: Array<{ value: KBAssistantMode; label: string }> = [
   { value: 'strategy_idea', label: '策略构思' },
   { value: 'backtrader_strategy', label: 'Backtrader策略生成' },
   { value: 'strategy_review', label: '策略审查' },
+  { value: 'trading_execution', label: '交易执行' },
 ]
 
 interface QuickTool {
@@ -811,6 +944,40 @@ const assistantModeMetaMap: Record<KBAssistantMode, AssistantModeMeta> = {
         title: '给出优化顺序',
         description: '生成下一步修改建议',
         prompt: '请为这个策略生成按优先级排序的优化建议与验证顺序：',
+      },
+    ],
+  },
+  trading_execution: {
+    label: '交易执行',
+    emptyTitle: '自然语言交易',
+    emptyDescription: '用自然语言描述交易意图，AI 自动解析并执行。支持期货、加密货币等多品种。',
+    inputHint: '描述您的交易意图',
+    inputPlaceholder: '例如：买入1手螺纹钢主力合约 / 帮我在币安买入0.1个BTC / 查看当前持仓',
+    suggestedPrompts: [
+      '买入1手螺纹钢主力合约',
+      '帮我在币安买入0.1个BTC',
+      '以3500限价卖出2手铁矿石',
+      '查看当前持仓',
+      '平掉所有螺纹钢仓位',
+    ],
+    quickTools: [
+      {
+        icon: 'trade',
+        title: '快速下单',
+        description: '用自然语言描述交易',
+        prompt: '买入',
+      },
+      {
+        icon: 'position',
+        title: '查看持仓',
+        description: '查询当前持仓状态',
+        prompt: '查看我当前的持仓情况',
+      },
+      {
+        icon: 'close',
+        title: '平仓',
+        description: '平掉指定品种仓位',
+        prompt: '平掉所有',
       },
     ],
   },
@@ -1242,12 +1409,13 @@ onMounted(async () => {
 })
 </script>
 
-<style scoped>
+<style scoped lang="scss">
+/* AIChatPage - Refactored: CSS variables + Element Plus tokens */
+
 .ai-chat-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  color: #0f172a;
+  gap: 24px;
 }
 
 .ai-hero {
@@ -1256,33 +1424,30 @@ onMounted(async () => {
   gap: 20px;
   align-items: end;
   padding: 20px;
-  border: 1px solid #dbe3ef;
-  border-radius: 10px;
-  background:
-    linear-gradient(135deg, rgba(236, 253, 245, 0.85), rgba(239, 246, 255, 0.92)),
-    radial-gradient(circle at top right, rgba(20, 184, 166, 0.18), transparent 34%);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: linear-gradient(135deg, rgba(239, 246, 255, 0.85), rgba(243, 244, 246, 0.92));
 }
 
 .eyebrow,
 .section-kicker {
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0;
-  color: #0f766e;
+  color: var(--primary-color, #3b82f6);
   text-transform: uppercase;
 }
 
 .ai-hero h2 {
   margin: 4px 0 6px;
-  font-size: 28px;
-  font-weight: 750;
-  color: #0f172a;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-color-primary, #1f2937);
 }
 
 .ai-hero p {
   max-width: 760px;
   margin: 0;
-  color: #475569;
+  color: var(--text-color-secondary, #6b7280);
   line-height: 1.7;
 }
 
@@ -1298,24 +1463,24 @@ onMounted(async () => {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
 }
 
 select,
 input,
 textarea {
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  color: #0f172a;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
+  color: var(--text-color-primary, #1f2937);
   outline: none;
 }
 
 select:focus,
 input:focus,
 textarea:focus {
-  border-color: #0f766e;
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
 .control-label select {
@@ -1343,33 +1508,37 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 8px;
-  font-weight: 650;
+  border-radius: var(--el-border-radius-base);
+  font-weight: 600;
 }
 
 .ghost-button,
 .toolbar-button,
 .secondary-action,
 .wide-link {
-  border: 1px solid #cbd5e1;
-  background: #fff;
-  color: #334155;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-color-card, #fff);
+  color: var(--text-color-regular, #4b5563);
 }
 
-.ghost-button {
-  padding: 9px 12px;
-}
+
 
 .primary-action,
 .send-button {
-  border: 1px solid #0f766e;
-  background: #0f766e;
+  border: 1px solid var(--primary-color, #3b82f6);
+  background: var(--primary-color, #3b82f6);
   color: #fff;
 }
 
+.primary-action:hover:not(:disabled),
+.send-button:hover:not(:disabled) {
+  background: var(--primary-color-dark, #2563eb);
+  border-color: var(--primary-color-dark, #2563eb);
+}
+
 .primary-action.accent {
-  border-color: #2563eb;
-  background: #2563eb;
+  border-color: var(--primary-color-dark, #2563eb);
+  background: var(--primary-color-dark, #2563eb);
 }
 
 .mode-strip {
@@ -1378,24 +1547,26 @@ button:disabled {
   align-items: center;
   gap: 8px;
   padding: 8px;
-  border: 1px solid #dbe3ef;
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
 }
 
 .mode-tab,
 .thinking-toggle {
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--el-border-radius-base);
   padding: 9px 12px;
   font-size: 14px;
-  color: #475569;
+  color: var(--text-color-secondary, #6b7280);
+  cursor: pointer;
+  background: transparent;
 }
 
 .mode-tab.active {
-  border-color: #99f6e4;
-  background: #ccfbf1;
-  color: #0f766e;
+  border-color: var(--el-color-primary-light-5, #a0cfff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  color: var(--primary-color, #3b82f6);
   font-weight: 700;
 }
 
@@ -1404,21 +1575,21 @@ button:disabled {
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  background: #f8fafc;
+  background: var(--bg-color-hover, #f3f4f6);
 }
 
 .workspace-grid {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr) 300px;
-  gap: 16px;
+  gap: 24px;
   align-items: stretch;
 }
 
 .ai-panel,
 .chat-shell {
-  border: 1px solid #dbe3ef;
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
 }
 
 .ai-panel {
@@ -1440,51 +1611,21 @@ button:disabled {
 
 .panel-title {
   font-size: 15px;
-  font-weight: 750;
-  color: #0f172a;
+  font-weight: 700;
+  color: var(--text-color-primary, #1f2937);
 }
 
 .panel-subtitle {
   margin-top: 2px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
 }
 
-.icon-button {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
-}
 
-.icon-button.subtle {
-  width: 28px;
-  height: 28px;
-  border-color: transparent;
-  color: #64748b;
-}
 
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* Conversation search uses el-input */
+.conversation-search {
   margin: 14px 0;
-  padding: 9px 10px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  color: #64748b;
-}
-
-.search-box input {
-  width: 100%;
-  border: 0;
-  padding: 0;
-  box-shadow: none;
 }
 
 .conversation-list {
@@ -1499,29 +1640,30 @@ button:disabled {
   gap: 6px;
   width: 100%;
   padding: 10px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
   text-align: left;
+  cursor: pointer;
 }
 
 .conversation-item.active {
-  border-color: #5eead4;
-  background: #f0fdfa;
+  border-color: var(--el-color-primary-light-5, #a0cfff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
 }
 
 .conversation-title {
   overflow: hidden;
-  color: #0f172a;
+  color: var(--text-color-primary, #1f2937);
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .conversation-meta {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-color-placeholder, #9ca3af);
 }
 
 .empty-rail {
@@ -1530,7 +1672,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   padding: 40px 0;
-  color: #94a3b8;
+  color: var(--text-color-placeholder, #9ca3af);
   font-size: 13px;
 }
 
@@ -1543,8 +1685,8 @@ button:disabled {
 
 .chat-topbar {
   padding: 14px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-color-hover, #f3f4f6);
 }
 
 .chat-context {
@@ -1560,9 +1702,9 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  background: #ccfbf1;
-  color: #0f766e;
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  color: var(--primary-color, #3b82f6);
 }
 
 .context-icon {
@@ -1572,14 +1714,14 @@ button:disabled {
 
 .context-title {
   overflow: hidden;
-  font-weight: 750;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .context-meta {
   margin-top: 2px;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
   font-size: 12px;
 }
 
@@ -1595,7 +1737,7 @@ button:disabled {
 }
 
 .toolbar-button.danger {
-  color: #be123c;
+  color: var(--danger-color, #ef4444);
 }
 
 .message-scroll {
@@ -1603,9 +1745,7 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
   padding: 18px;
-  background:
-    linear-gradient(#fff, #fff),
-    linear-gradient(135deg, rgba(236, 253, 245, 0.45), rgba(239, 246, 255, 0.45));
+  background: var(--bg-color-card, #fff);
 }
 
 .empty-chat {
@@ -1627,13 +1767,13 @@ button:disabled {
 .empty-chat h3 {
   margin: 0;
   font-size: 20px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .empty-chat p {
   max-width: 460px;
   margin: 8px 0 0;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
   line-height: 1.7;
 }
 
@@ -1647,11 +1787,12 @@ button:disabled {
 
 .prompt-grid button,
 .tool-item {
-  border: 1px solid #dbe3ef;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
+  color: var(--text-color-regular, #4b5563);
   text-align: left;
+  cursor: pointer;
 }
 
 .prompt-grid button {
@@ -1673,8 +1814,8 @@ button:disabled {
 .message-card.user .message-avatar {
   grid-column: 2;
   grid-row: 1;
-  background: #e2e8f0;
-  color: #334155;
+  background: var(--bg-color-hover, #f3f4f6);
+  color: var(--text-color-regular, #4b5563);
 }
 
 .message-card.user .message-body {
@@ -1687,7 +1828,7 @@ button:disabled {
 }
 
 .message-card.user .message-content {
-  background: #f8fafc;
+  background: var(--bg-color-hover, #f3f4f6);
 }
 
 .message-avatar {
@@ -1701,16 +1842,16 @@ button:disabled {
 
 .message-author {
   font-size: 13px;
-  font-weight: 750;
-  color: #0f172a;
+  font-weight: 700;
+  color: var(--text-color-primary, #1f2937);
 }
 
 .message-badge {
   margin-left: 8px;
-  border-radius: 999px;
-  background: #dbeafe;
+  border-radius: 9999px;
+  background: var(--el-color-primary-light-9, #ecf5ff);
   padding: 3px 8px;
-  color: #1d4ed8;
+  color: var(--primary-color, #3b82f6);
   font-size: 12px;
 }
 
@@ -1726,11 +1867,11 @@ button:disabled {
 
 .message-content {
   margin-top: 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
   padding: 13px 14px;
-  color: #1e293b;
+  color: var(--text-color-primary, #1f2937);
   font-size: 15px;
   line-height: 1.8;
   white-space: pre-wrap;
@@ -1744,9 +1885,9 @@ button:disabled {
 .reasoning-box,
 .execution-box {
   margin-top: 12px;
-  border: 1px solid #dbe3ef;
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
   padding: 12px;
 }
 
@@ -1756,7 +1897,7 @@ button:disabled {
 }
 
 .draft-title {
-  font-weight: 750;
+  font-weight: 700;
   color: #14532d;
 }
 
@@ -1794,7 +1935,7 @@ button:disabled {
 
 .draft-stats span {
   border: 1px solid #bbf7d0;
-  border-radius: 8px;
+  border-radius: var(--el-border-radius-base);
   background: rgba(255, 255, 255, 0.78);
   padding: 8px;
   color: #14532d;
@@ -1803,7 +1944,7 @@ button:disabled {
 
 .draft-list {
   border: 1px solid #bbf7d0;
-  border-radius: 8px;
+  border-radius: var(--el-border-radius-base);
   background: rgba(255, 255, 255, 0.82);
   padding: 9px;
 }
@@ -1817,7 +1958,7 @@ button:disabled {
 .draft-warning {
   margin-top: 8px;
   border: 1px solid #fde68a;
-  border-radius: 8px;
+  border-radius: var(--el-border-radius-base);
   background: #fffbeb;
   padding: 8px 10px;
   color: #92400e;
@@ -1831,15 +1972,15 @@ button:disabled {
   align-items: center;
   gap: 6px;
   margin-bottom: 5px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .report-box,
 .analysis-box {
   margin-top: 10px;
-  border: 1px solid #bfdbfe;
-  border-radius: 8px;
-  background: #eff6ff;
+  border: 1px solid var(--el-color-primary-light-7, #bfdbfe);
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-color-primary-light-9, #eff6ff);
   padding: 10px;
   color: #1e3a8a;
 }
@@ -1864,7 +2005,7 @@ button:disabled {
 }
 
 .retrieval-box {
-  border-color: #bfdbfe;
+  border-color: var(--el-color-primary-light-7, #bfdbfe);
   background: #f8fbff;
   color: #1e3a8a;
 }
@@ -1879,10 +2020,10 @@ button:disabled {
 
 .retrieval-meta span,
 .kb-settings span {
-  border-radius: 999px;
-  background: rgba(219, 234, 254, 0.8);
+  border-radius: 9999px;
+  background: var(--el-color-primary-light-9, rgba(219, 234, 254, 0.8));
   padding: 3px 8px;
-  color: #1d4ed8;
+  color: var(--primary-color, #3b82f6);
   font-size: 12px;
 }
 
@@ -1893,9 +2034,9 @@ button:disabled {
 
 .citation-head {
   margin-bottom: 8px;
-  color: #334155;
+  color: var(--text-color-regular, #4b5563);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .citation-item {
@@ -1904,11 +2045,12 @@ button:disabled {
   gap: 10px;
   width: 100%;
   align-items: start;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #f8fafc;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-hover, #f3f4f6);
   padding: 10px;
   text-align: left;
+  cursor: pointer;
 }
 
 .citation-item + .citation-item {
@@ -1921,11 +2063,11 @@ button:disabled {
   height: 24px;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
-  background: #dbeafe;
-  color: #1d4ed8;
+  border-radius: 9999px;
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  color: var(--primary-color, #3b82f6);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .citation-content {
@@ -1936,13 +2078,13 @@ button:disabled {
 }
 
 .citation-content strong {
-  color: #0f172a;
+  color: var(--text-color-primary, #1f2937);
   font-size: 13px;
 }
 
 .citation-content small,
 .citation-content span {
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
   font-size: 12px;
 }
 
@@ -1950,33 +2092,28 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid #dbe3ef;
-  border-radius: 999px;
-  background: #fff;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 9999px;
+  background: var(--bg-color-card, #fff);
   padding: 8px 12px;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
   font-size: 13px;
 }
 
 .typing-line span {
   width: 6px;
   height: 6px;
-  border-radius: 999px;
-  background: #0f766e;
+  border-radius: 9999px;
+  background: var(--primary-color, #3b82f6);
   animation: pulse-dot 1.2s infinite ease-in-out;
 }
 
-.typing-line span:nth-child(2) {
-  animation-delay: 0.12s;
-}
-
-.typing-line span:nth-child(3) {
-  animation-delay: 0.24s;
-}
+.typing-line span:nth-child(2) { animation-delay: 0.12s; }
+.typing-line span:nth-child(3) { animation-delay: 0.24s; }
 
 .composer {
-  border-top: 1px solid #e2e8f0;
-  background: #fff;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+  background: var(--bg-color-card, #fff);
   padding: 14px;
 }
 
@@ -1985,7 +2122,7 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
   font-size: 12px;
 }
 
@@ -2003,37 +2140,35 @@ button:disabled {
   line-height: 1.6;
 }
 
+/* Send button sizing */
 .send-button {
   min-width: 104px;
-  padding: 0 16px;
 }
 
 .status-dot {
   width: 10px;
   height: 10px;
-  border-radius: 999px;
-  background: #cbd5e1;
+  border-radius: 9999px;
+  background: var(--border-color, #e5e7eb);
 }
 
 .status-dot.active {
-  background: #14b8a6;
+  background: var(--success-color, #10b981);
 }
 
 .kb-card {
   margin-top: 14px;
-  border: 1px solid #dbe3ef;
-  border-radius: 10px;
-  background: #f8fafc;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-hover, #f3f4f6);
   padding: 12px;
 }
 
-.kb-name {
-  font-weight: 750;
-}
+.kb-name { font-weight: 700; }
 
 .kb-desc {
   margin-top: 5px;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -2044,21 +2179,21 @@ button:disabled {
 }
 
 .metric-grid div {
-  border-radius: 8px;
-  background: #fff;
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
   padding: 8px;
 }
 
 .metric-grid span {
   display: block;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
   font-size: 12px;
 }
 
 .metric-grid strong {
   display: block;
   margin-top: 2px;
-  color: #0f172a;
+  color: var(--text-color-primary, #1f2937);
 }
 
 .wide-link {
@@ -2070,7 +2205,7 @@ button:disabled {
 .kb-index-warning {
   margin-top: 12px;
   border: 1px solid #fde68a;
-  border-radius: 8px;
+  border-radius: var(--el-border-radius-base);
   background: #fffbeb;
   padding: 10px;
   color: #92400e;
@@ -2089,14 +2224,13 @@ button:disabled {
   border: 0;
   background: transparent;
   padding: 0;
-  color: #0f766e;
+  color: var(--primary-color, #3b82f6);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 700;
+  cursor: pointer;
 }
 
-.tool-section {
-  margin-top: 16px;
-}
+.tool-section { margin-top: 16px; }
 
 .tool-item {
   display: grid;
@@ -2105,20 +2239,15 @@ button:disabled {
   width: 100%;
   margin-top: 8px;
   padding: 10px;
+  cursor: pointer;
 }
 
 .tool-item strong,
-.tool-item small {
-  display: block;
-}
-
-.tool-item strong {
-  font-size: 13px;
-}
-
+.tool-item small { display: block; }
+.tool-item strong { font-size: 13px; }
 .tool-item small {
   margin-top: 3px;
-  color: #64748b;
+  color: var(--text-color-secondary, #6b7280);
   font-size: 12px;
 }
 
@@ -2142,7 +2271,7 @@ button:disabled {
 
 .dialog-warning {
   border: 1px solid #fde68a;
-  border-radius: 8px;
+  border-radius: var(--el-border-radius-base);
   background: #fffbeb;
   padding: 10px;
   color: #92400e;
@@ -2150,71 +2279,24 @@ button:disabled {
 }
 
 @keyframes pulse-dot {
-  0%,
-  80%,
-  100% {
-    transform: scale(0.7);
-    opacity: 0.45;
-  }
-
-  40% {
-    transform: scale(1);
-    opacity: 1;
-  }
+  0%, 80%, 100% { transform: scale(0.7); opacity: 0.45; }
+  40% { transform: scale(1); opacity: 1; }
 }
 
 @media (max-width: 1280px) {
-  .workspace-grid {
-    grid-template-columns: 260px minmax(0, 1fr);
-  }
-
-  .insight-panel {
-    grid-column: 1 / -1;
-    min-height: auto;
-  }
+  .workspace-grid { grid-template-columns: 260px minmax(0, 1fr); }
+  .insight-panel { grid-column: 1 / -1; min-height: auto; }
 }
 
 @media (max-width: 900px) {
-  .ai-hero {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-controls {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .control-label select {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .workspace-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .ai-panel,
-  .chat-shell {
-    min-height: auto;
-  }
-
-  .conversation-panel {
-    max-height: 360px;
-    overflow: auto;
-  }
-
-  .prompt-grid,
-  .draft-stats,
-  .dialog-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .composer-row {
-    grid-template-columns: 1fr;
-  }
-
-  .send-button {
-    min-height: 44px;
-  }
+  .ai-hero { grid-template-columns: 1fr; }
+  .hero-controls { align-items: stretch; flex-direction: column; }
+  .control-label select { min-width: 0; width: 100%; }
+  .workspace-grid { grid-template-columns: 1fr; }
+  .ai-panel, .chat-shell { min-height: auto; }
+  .conversation-panel { max-height: 360px; overflow: auto; }
+  .prompt-grid, .draft-stats, .dialog-grid { grid-template-columns: 1fr; }
+  .composer-row { grid-template-columns: 1fr; }
+  .send-button { min-height: 44px; }
 }
 </style>

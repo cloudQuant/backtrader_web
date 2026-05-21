@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/fund/fund_etf_sina.py
+# hypothesis_version: 6.148.5
+
+['"', '([', '0', '1', '1900-01-01', '5000', ';', '=', 'ETF基金', 'LOF基金', '_', '__main__', 'asc', 'close', 'close_fund', 'coerce', 'd', 'data', 'date', 'etf_hq_fund', 'f', 'high', 'lof_hq_fund', 'low', 'node', 'num', 'open', 'page', 'qvvne', 's', 'sh510050', 'sort', 'symbol', 'u', 'var', 'volume', '}', '买入', '今开', '代码', '卖出', '名称', '封闭式基金', '成交量', '成交额', '日期', '昨收', '最低', '最新价', '最高', '涨跌幅', '涨跌额', '累计分红']

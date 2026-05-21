@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/containers/ctp/ctp_trade.py
+# hypothesis_version: 6.148.5
+
+[0.0, '0', '1', '3', '4', 'CNY', 'CTP', 'Direction', 'ExchangeID', 'FUTURE', 'InstrumentID', 'OffsetFlag', 'OrderRef', 'OrderSysID', 'Price', 'TradeDate', 'TradeID', 'TradeTime', 'Volume', 'buy', 'close', 'close_today', 'close_yesterday', 'direction', 'exchange_id', 'exchange_name', 'instrument_id', 'offset', 'open', 'order_sys_id', 'price', 'sell', 'trade_date', 'trade_id', 'trade_time', 'volume']

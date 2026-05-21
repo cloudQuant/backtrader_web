@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/knowledge_base.py
+# hypothesis_version: 6.148.5
+
+[100, 200, 255, 500, 1000, 'CASCADE', 'ChatConversation', 'ChatMessage', 'KBDocument', 'KnowledgeBase', 'SET NULL', 'all, delete-orphan', 'chat', 'chat_conversations', 'chat_messages', 'conversation', 'document', 'document_chunks', 'documents', 'draft', 'kb_documents', 'kb_documents.id', 'knowledge_base', 'knowledge_bases', 'knowledge_bases.id', 'markdown', 'messages', 'metadata', 'model_configs', 'model_configs.id', 'model_usage_logs', 'not_indexed', 'users.id', '新对话']

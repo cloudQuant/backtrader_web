@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/currency/currency.py
+# hypothesis_version: 6.148.5
+
+['10000', '2023-02-03', '2023-03-04', 'CNY', 'USD', '__main__', 'amount', 'api_key', 'base', 'currency', 'date', 'end_date', 'fiat', 'from', 'index', 'item', 'response', 's', 'start_date', 'symbols', 'timestamp', 'to', 'type', 'value']

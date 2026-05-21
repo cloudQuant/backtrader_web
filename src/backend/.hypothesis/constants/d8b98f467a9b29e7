@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_fundamental/stock_finance_us_em.py
+# hypothesis_version: 6.148.5
+
+['"', "'", ')', '-1', '/', '04406064331266868', '09583551779242467', '1', '1,-1', '200', 'BABA', 'BRK', 'BRK_A', 'FY', 'PC', 'Q1', 'Q2', 'Q3', 'Q4', 'Q6', 'Q9', 'REPORT', 'REPORT_DATE', 'RPT_USF10_FN_BALANCE', 'RPT_USF10_FN_INCOME', 'RPT_USSK_FN_CASHFLOW', 'SECUCODE', 'SECURITIES', 'TSLA', '_', '__main__', 'client', 'columns', 'data', 'filter', 'pageNumber', 'pageSize', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'v', '单季报', '年报', '现金流量表', '累计季报', '综合损益表', '请输入正确的 indicator 参数', '请输入正确的 symbol 参数', '资产负债表']

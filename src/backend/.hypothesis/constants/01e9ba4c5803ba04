@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/containers/tickers/binance_ticker.py
+# hypothesis_version: 6.148.5
+
+['A', 'B', 'BINANCE', 'E', 'P', 'Q', 'a', 'askPrice', 'askQty', 'ask_price', 'ask_volume', 'asset_type', 'b', 'bidPrice', 'bidQty', 'bid_price', 'bid_volume', 'c', 'exchange_name', 'h', 'high_price', 'l', 'last_price', 'last_volume', 'local_update_time', 'low_price', 'o', 'open_price', 'p', 'prev_close', 'price_change', 'price_change_pct', 'q', 's', 'server_time', 'symbol', 'symbol_name', 'ticker_symbol_name', 'time', 'turnover_24h', 'v', 'volume_24h', 'x']

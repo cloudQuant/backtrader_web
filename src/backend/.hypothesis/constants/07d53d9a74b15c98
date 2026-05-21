@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/spread_trading_mixin.py
+# hypothesis_version: 6.148.5
+
+['0', 'ALL', 'accFillSzYday', 'acc_fill_sz_yday', 'after', 'asset_type', 'avgPx', 'avg_px', 'before', 'cTime', 'ccy', 'clOrdId', 'client_order_id', 'code', 'create_time', 'data', 'exchange_name', 'fee', 'feeCcy', 'fee_ccy', 'fillSz', 'filled_sz', 'instType', 'limit', 'normalize_function', 'ordId', 'order_id', 'posSide', 'pos_side', 'price', 'px', 'reduceOnly', 'reduce_only', 'request_type', 'sCode', 'sMsg', 's_code', 's_msg', 'side', 'size', 'source', 'sprdId', 'sprd_cancel_order', 'sprd_get_order', 'sprd_get_trades', 'sprd_id', 'sprd_order', 'state', 'symbol_name', 'sz', 'tag', 'timestamp', 'tradeId', 'trade_id', 'true', 'ts', 'uTime', 'update_time']

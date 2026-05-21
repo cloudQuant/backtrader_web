@@ -72,10 +72,39 @@ class KnowledgeBaseSettingsUpdate(BaseModel):
 class KnowledgeBaseCreate(BaseModel):
     """Create knowledge base request."""
 
-    name: str = Field(..., min_length=1, max_length=255)
-    description: str | None = None
+    name: str = Field(..., min_length=1, max_length=255, examples=["量化策略研究库"])
+    description: str | None = Field(None, examples=["收录经典量化策略论文、因子研究报告和回测分析文档"])
     is_public: bool = False
     settings: KnowledgeBaseSettings = Field(default_factory=KnowledgeBaseSettings)
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "name": "量化策略研究库",
+                    "description": "收录经典量化策略论文、因子研究报告和回测分析文档",
+                    "is_public": False,
+                    "settings": {
+                        "retrieval_profile": "quant_research",
+                        "search_mode": "hybrid",
+                        "default_top_k": 8,
+                        "quant_focus": "strategy_research",
+                    },
+                },
+                {
+                    "name": "A股市场数据手册",
+                    "description": "沪深两市交易规则、数据接口文档和行情数据说明",
+                    "is_public": True,
+                    "settings": {
+                        "retrieval_profile": "precision",
+                        "search_mode": "keyword",
+                        "default_top_k": 5,
+                        "quant_focus": "implementation",
+                    },
+                },
+            ]
+        }
+    )
 
 
 class KnowledgeBaseUpdate(BaseModel):
@@ -90,17 +119,50 @@ class KnowledgeBaseUpdate(BaseModel):
 class KnowledgeBaseResponse(BaseModel):
     """Knowledge base response."""
 
-    id: str
-    owner_id: str
-    name: str
-    description: str | None = None
-    document_count: int = 0
+    id: str = Field(examples=["kb_1a2b3c4d5e6f"])
+    owner_id: str = Field(examples=["usr_a1b2c3d4e5f6"])
+    name: str = Field(examples=["量化策略研究库"])
+    description: str | None = Field(None, examples=["收录经典量化策略论文、因子研究报告和回测分析文档"])
+    document_count: int = Field(0, examples=[15])
     is_public: bool = False
     settings: KnowledgeBaseSettings = Field(default_factory=KnowledgeBaseSettings)
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "kb_1a2b3c4d5e6f",
+                    "owner_id": "usr_a1b2c3d4e5f6",
+                    "name": "量化策略研究库",
+                    "description": "收录经典量化策略论文、因子研究报告和回测分析文档",
+                    "document_count": 15,
+                    "is_public": False,
+                    "settings": {
+                        "retrieval_profile": "quant_research",
+                        "search_mode": "hybrid",
+                        "default_top_k": 8,
+                        "min_similarity": 0.08,
+                        "title_weight": 0.35,
+                        "keyword_weight": 0.35,
+                        "phrase_weight": 0.2,
+                        "recency_weight": 0.1,
+                        "max_context_chunks": 6,
+                        "use_conversation_memory": True,
+                        "conversation_lookback_messages": 6,
+                        "prioritize_title_matches": True,
+                        "prefer_recent_documents": True,
+                        "quant_focus": "strategy_research",
+                        "system_prompt_suffix": None,
+                    },
+                    "created_at": "2025-01-05T08:00:00Z",
+                    "updated_at": "2025-01-14T16:20:00Z",
+                }
+            ]
+        },
+    )
 
     @field_validator("settings", mode="before")
     @classmethod
@@ -120,11 +182,35 @@ class KnowledgeBaseListResponse(BaseModel):
 class KBDocumentCreate(BaseModel):
     """Create document request."""
 
-    title: str = Field(..., min_length=1, max_length=500)
-    content: str | None = None
-    content_type: str = Field("markdown", max_length=50)
+    title: str = Field(
+        ..., min_length=1, max_length=500,
+        examples=["双均线交叉策略研究报告"],
+    )
+    content: str | None = Field(None, examples=["# 双均线交叉策略\n\n## 策略原理\n\n利用短期均线与长期均线的交叉信号..."])
+    content_type: str = Field("markdown", max_length=50, examples=["markdown"])
     parent_id: str | None = None
     is_folder: bool = False
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "title": "双均线交叉策略研究报告",
+                    "content": "# 双均线交叉策略\n\n## 策略原理\n\n利用短期均线与长期均线的交叉信号判断趋势方向。\n\n## 参数选择\n\n- 快线周期: 5日\n- 慢线周期: 20日",
+                    "content_type": "markdown",
+                    "parent_id": None,
+                    "is_folder": False,
+                },
+                {
+                    "title": "因子研究",
+                    "content": None,
+                    "content_type": "markdown",
+                    "parent_id": None,
+                    "is_folder": True,
+                },
+            ]
+        }
+    )
 
 
 class KBDocumentUpdate(BaseModel):

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_fundamental/stock_finance_hk_em.py
+# hypothesis_version: 6.148.5
+
+['-1', '-1,1', '00700', '00853', '01742', '01975982096513973', '02092616586970355', '1', '9', 'F10', 'PC', 'REPORT_DATE', 'REPORT_LIST', 'REPORT_TYPE', 'STD_REPORT_DATE', '__main__', 'client', 'columns', 'data', 'filter', 'pageNumber', 'pageSize', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'v', '利润表', '年度', '年报', '报告期', '现金流量表', '资产负债表']

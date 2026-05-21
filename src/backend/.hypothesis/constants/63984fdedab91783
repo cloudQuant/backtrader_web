@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/db/cache.py
+# hypothesis_version: 6.148.5
+
+[0.0, 300, 3600, 10000, 'connected_clients', 'entries', 'error', 'expire_at', 'hit_rate', 'hits', 'max_entries', 'memory', 'misses', 'redis', 'type', 'unable to get stats', 'unknown', 'used_memory', 'used_memory_human', 'value']

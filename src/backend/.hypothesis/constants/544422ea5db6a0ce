@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/akshare_mgmt.py
+# hypothesis_version: 6.148.5
+
+[200, 300, 'DataFrame', 'akshare', 'metadata_json']

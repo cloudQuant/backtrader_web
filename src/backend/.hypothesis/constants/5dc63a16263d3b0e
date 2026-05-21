@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/economic/macro_germany.py
+# hypothesis_version: 6.148.5
+
+['-', '-1', '1', '5000', 'ALL', 'COUNTRY', 'EMG00009720', 'EMG00009753', 'EMG00009756', 'EMG00009758', 'EMG00172577', 'EMG00179154', 'EMG01333186', 'EMG01333192', 'INDICATOR_ID', 'INDICATOR_IDOLD', 'INDICATOR_NAME', 'PRE_VALUE', 'PUBLISH_DATE', 'REPORT_DATE', 'REPORT_DATE_CH', 'VALUE', 'WEB', '__main__', 'client', 'columns', 'data', 'filter', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '前值', '发布日期', '时间', '现值']

@@ -547,4 +547,9 @@ export const useQuoteStore = defineStore('quote', () => {
     resetColumnConfig,
     clearAdvancedFilters,
   }
+}, {
+  persist: {
+    storage: localStorage,
+    paths: ['activeSource', 'autoRefresh', 'refreshInterval', 'chartTimeframe'],
+  },
 })

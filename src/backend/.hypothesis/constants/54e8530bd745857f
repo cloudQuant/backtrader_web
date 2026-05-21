@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_risk_indicator_sse.py
+# hypothesis_version: 6.148.5
+
+['*/*', '20240626', 'Accept', 'Accept-Encoding', 'Accept-Language', 'CONTRACT_ID', 'CONTRACT_SYMBOL', 'Cache-Control', 'Connection', 'DELTA_VALUE', 'GAMMA_VALUE', 'Host', 'IMPLC_VOLATLTY', 'Pragma', 'RHO_VALUE', 'Referer', 'SECURITY_ID', 'THETA_VALUE', 'TRADE_DATE', 'User-Agent', 'VEGA_VALUE', '__main__', 'coerce', 'contractSymbol', 'false', 'gzip, deflate', 'isPagination', 'keep-alive', 'no-cache', 'query.sse.com.cn', 'result', 'sqlId', 'trade_date']

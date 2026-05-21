@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/auth.py
+# hypothesis_version: 6.148.5
+
+['Access token', 'Creation time', 'Current password', 'Email', 'Email address', 'Expiration timestamp', 'New access token', 'New password', 'New refresh token', 'Password', 'Refresh token', 'Token type', 'User ID', 'Username', 'Whether active', 'access', 'bearer', 'email', 'example', 'password', 'password123', 'trader', 'trader@example.com', 'username']

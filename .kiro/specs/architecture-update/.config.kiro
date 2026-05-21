@@ -1,0 +1,6 @@
+{
+  "specType": "feature",
+  "workflowType": "design-first",
+  "featureName": "architecture-update",
+  "designArtifacts": ["high-level", "low-level"]
+}

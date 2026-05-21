@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/energy/energy_oil_em.py
+# hypothesis_version: 6.148.5
+
+['-', '-1', '1', '1000', '20220517', '20240118', 'ALL', 'QE_0', 'QE_89', 'QE_92', 'QE_95', 'RPTA_WEB_YJ_BD', 'RPTA_WEB_YJ_JH', 'V_0', 'V_89', 'V_92', 'V_95', 'WEB', 'ZDE_0', 'ZDE_89', 'ZDE_92', 'ZDE_95', '__main__', 'cityname', 'coerce', 'columns', 'data', 'dim_date', 'filter', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'token', '地区', '日期', '柴油价格', '柴油涨跌', '汽油价格', '汽油涨跌', '调整日期', '首字母']

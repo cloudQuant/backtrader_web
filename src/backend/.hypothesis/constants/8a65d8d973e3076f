@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures_derivative/futures_index_sina.py
+# hypothesis_version: 6.148.5
+
+['([', '([\\w])(\\d)', '0', '19900101', '20210817', '20240124', '20240301', '22220101', 'CF0', 'V0', '])', '_', '__main__', 'cffex', 'coerce', 'czce', 'dce', 'gb2312', 'gfex', 'name', 'node', 'shfe', 'symbol', '{', '};', '上海期货交易所', '中国金融期货交易所', '动态结算价', '大连商品交易所', '广州期货交易所', '开盘价', '成交量', '持仓量', '收盘价', '日期', '最低价', '最高价', '连续', '郑州商品交易所']

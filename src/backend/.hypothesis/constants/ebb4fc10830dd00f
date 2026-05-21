@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/news/news_cctv.py
+# hypothesis_version: 6.148.5
+
+["'", '(http.*)', '(新闻联播)：', '1', '20130708', '20160203', '20240424', 'Accept', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Cookie', 'Host', 'Pragma', 'Proxy-Connection', 'User-Agent', '[视频]', '__main__', 'a', 'class', 'cnt_bd', 'content', 'content_area', 'date', 'div', 'gbk', 'gzip, deflate', 'h3', 'href', 'id', 'keep-alive', 'li', 'lxml', 'no-cache', 'tit', 'title', 'title_array_01\\((.*)', 'tv.cctv.com', 'utf-8', '央视网消息(新闻联播)：', '央视网消息（新闻联播）：']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/akshare_mgmt.py
+# hypothesis_version: 6.148.5
+
+[100, 200, 255, 300, 'DataFrame', 'DataInterface', 'DataScript', 'DataTable', 'InterfaceCategory', 'InterfaceParameter', 'ParameterType', 'ScheduleType', 'ScheduledTask', 'ScriptFrequency', 'TaskExecution', 'TaskStatus', 'TriggeredBy', 'ak_data_interfaces', 'ak_data_scripts', 'ak_data_tables', 'ak_scheduled_tasks', 'ak_task_executions', 'akshare', 'all, delete-orphan', 'api', 'boolean', 'cancelled', 'category', 'completed', 'cron', 'daily', 'date', 'executions', 'failed', 'float', 'hourly', 'integer', 'interface', 'interfaces', 'interval', 'list', 'manual', 'metadata', 'monthly', 'once', 'option', 'params', 'pending', 'running', 'scheduler', 'script', 'string', 'task', 'tasks', 'timeout', 'users.id', 'weekly']

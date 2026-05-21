@@ -18,6 +18,10 @@ node_modules/
 .npm
 .eslintcache
 
+# Element Plus auto-import generated type declarations
+src/frontend/auto-imports.d.ts
+src/frontend/components.d.ts
+
 # =====================================================
 # 环境与配置
 # =====================================================

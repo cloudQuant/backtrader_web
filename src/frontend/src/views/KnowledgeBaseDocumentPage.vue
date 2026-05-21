@@ -2,8 +2,12 @@
   <div class="space-y-4">
     <div class="flex items-center justify-between gap-3">
       <div>
-        <div class="text-sm text-slate-500">知识库文档</div>
-        <h2 class="text-2xl font-semibold text-slate-900">{{ docData?.title || '文档详情' }}</h2>
+        <div class="text-sm text-slate-500">
+          知识库文档
+        </div>
+        <h2 class="text-2xl font-semibold text-slate-900">
+          {{ docData?.title || '文档详情' }}
+        </h2>
       </div>
       <button
         type="button"
@@ -14,20 +18,35 @@
       </button>
     </div>
 
-    <div v-if="loading" class="rounded border border-slate-200 bg-white px-4 py-8 text-sm text-slate-500">
+    <div
+      v-if="loading"
+      class="rounded border border-slate-200 bg-white px-4 py-8 text-sm text-slate-500"
+    >
       正在加载文档...
     </div>
 
-    <div v-else-if="errorMessage" class="rounded border border-rose-200 bg-rose-50 px-4 py-8 text-sm text-rose-700">
+    <div
+      v-else-if="errorMessage"
+      class="rounded border border-rose-200 bg-rose-50 px-4 py-8 text-sm text-rose-700"
+    >
       {{ errorMessage }}
     </div>
 
     <template v-else-if="docData">
       <!-- 文档类型 / 状态标签行 -->
       <div class="flex flex-wrap items-center gap-2 text-xs">
-            <span class="rounded px-2 py-0.5" :class="statusClass(doc.status)">{{ doc.status }}</span>
-            <span class="rounded px-2 py-0.5" :class="indexClass(doc.index_status)">{{ doc.index_status }}</span>
-        <span v-if="sourceFileName" class="rounded bg-slate-100 px-2 py-0.5 text-slate-600">{{ sourceFileName }}</span>
+        <span
+          class="rounded px-2 py-0.5"
+          :class="statusClass(doc.status)"
+        >{{ doc.status }}</span>
+        <span
+          class="rounded px-2 py-0.5"
+          :class="indexClass(doc.index_status)"
+        >{{ doc.index_status }}</span>
+        <span
+          v-if="sourceFileName"
+          class="rounded bg-slate-100 px-2 py-0.5 text-slate-600"
+        >{{ sourceFileName }}</span>
       </div>
 
       <!-- 三栏: 文档预览 / 摘要 / 信息 -->
@@ -36,13 +55,28 @@
         <el-card class="min-w-0">
           <template #header>
             <div class="flex items-center justify-between gap-3">
-              <div class="font-medium text-slate-900">文档内容</div>
+              <div class="font-medium text-slate-900">
+                文档内容
+              </div>
               <div class="flex items-center gap-2 text-xs">
                 <!-- 视图切换 Tab -->
-                <el-tabs v-model="activeTab" class="kb-doc-tabs" @tab-change="onTabChange">
-                  <el-tab-pane label="源文件" name="source" />
-                  <el-tab-pane label="Markdown" name="markdown" />
-                  <el-tab-pane label="元信息" name="metadata" />
+                <el-tabs
+                  v-model="activeTab"
+                  class="kb-doc-tabs"
+                  @tab-change="onTabChange"
+                >
+                  <el-tab-pane
+                    label="源文件"
+                    name="source"
+                  />
+                  <el-tab-pane
+                    label="Markdown"
+                    name="markdown"
+                  />
+                  <el-tab-pane
+                    label="元信息"
+                    name="metadata"
+                  />
                 </el-tabs>
                 <!-- 缩放控制（仅 PDF 源文件模式） -->
                 <template v-if="activeTab === 'source' && sourceMimeType === 'application/pdf'">
@@ -96,7 +130,10 @@
           </template>
 
           <!-- ========== 源文件视图 ========== -->
-          <div v-show="activeTab === 'source'" class="min-h-[60vh]">
+          <div
+            v-show="activeTab === 'source'"
+            class="min-h-[60vh]"
+          >
             <!-- PDF 预览 -->
             <div
               v-if="sourceMimeType === 'application/pdf' && sourcePreviewUrl"
@@ -127,9 +164,15 @@
               v-else-if="sourceFileName"
               class="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 py-16 text-sm text-slate-500"
             >
-              <div class="mb-4 text-4xl">📄</div>
-              <div class="font-medium text-slate-700">{{ sourceFileName }}</div>
-              <div class="mt-2 text-xs text-slate-400">此文件类型暂不支持浏览器内联预览</div>
+              <div class="mb-4 text-4xl">
+                📄
+              </div>
+              <div class="font-medium text-slate-700">
+                {{ sourceFileName }}
+              </div>
+              <div class="mt-2 text-xs text-slate-400">
+                此文件类型暂不支持浏览器内联预览
+              </div>
               <div class="mt-4 flex gap-2">
                 <button
                   type="button"
@@ -154,13 +197,20 @@
               v-else
               class="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 py-16 text-sm text-slate-500"
             >
-              <div class="text-4xl">📭</div>
-              <div class="mt-2">暂无源文件</div>
+              <div class="text-4xl">
+                📭
+              </div>
+              <div class="mt-2">
+                暂无源文件
+              </div>
             </div>
           </div>
 
           <!-- ========== Markdown 视图 ========== -->
-          <div v-show="activeTab === 'markdown'" class="min-h-[60vh]">
+          <div
+            v-show="activeTab === 'markdown'"
+            class="min-h-[60vh]"
+          >
             <article
               v-if="doc.content"
               class="document-reader max-h-[72vh] overflow-auto whitespace-pre-wrap break-words text-[15px] leading-8 text-slate-800"
@@ -171,66 +221,138 @@
               v-else
               class="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 py-16 text-sm text-slate-500"
             >
-              <div class="text-4xl">📝</div>
-              <div class="mt-2">暂无 Markdown 正文内容</div>
+              <div class="text-4xl">
+                📝
+              </div>
+              <div class="mt-2">
+                暂无 Markdown 正文内容
+              </div>
             </div>
           </div>
 
           <!-- ========== 元信息视图 ========== -->
-          <div v-show="activeTab === 'metadata'" class="min-h-[60vh] space-y-4 py-2">
+          <div
+            v-show="activeTab === 'metadata'"
+            class="min-h-[60vh] space-y-4 py-2"
+          >
             <div class="grid grid-cols-2 gap-3 text-sm">
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">文档 ID</div>
-                <div class="mt-1 break-all text-slate-700">{{ doc.id }}</div>
+                <div class="text-xs text-slate-400">
+                  文档 ID
+                </div>
+                <div class="mt-1 break-all text-slate-700">
+                  {{ doc.id }}
+                </div>
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">知识库 ID</div>
-                <div class="mt-1 break-all text-slate-700">{{ doc.knowledge_base_id }}</div>
+                <div class="text-xs text-slate-400">
+                  知识库 ID
+                </div>
+                <div class="mt-1 break-all text-slate-700">
+                  {{ doc.knowledge_base_id }}
+                </div>
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">类型</div>
-                <div class="mt-1 text-slate-700">{{ doc.is_folder ? '文件夹' : doc.content_type }}</div>
+                <div class="text-xs text-slate-400">
+                  类型
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ doc.is_folder ? '文件夹' : doc.content_type }}
+                </div>
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">状态</div>
-                <div class="mt-1 text-slate-700">{{ doc.status }}</div>
+                <div class="text-xs text-slate-400">
+                  状态
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ doc.status }}
+                </div>
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">索引状态</div>
-                <div class="mt-1 text-slate-700">{{ doc.index_status }}</div>
+                <div class="text-xs text-slate-400">
+                  索引状态
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ doc.index_status }}
+                </div>
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">创建时间</div>
-                <div class="mt-1 text-slate-700">{{ formatDate(doc.created_at) }}</div>
+                <div class="text-xs text-slate-400">
+                  创建时间
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ formatDate(doc.created_at) }}
+                </div>
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">更新时间</div>
-                <div class="mt-1 text-slate-700">{{ formatDate(doc.updated_at) }}</div>
+                <div class="text-xs text-slate-400">
+                  更新时间
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ formatDate(doc.updated_at) }}
+                </div>
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">内容长度</div>
-                <div class="mt-1 text-slate-700">{{ doc.content?.length ?? 0 }} 字符</div>
+                <div class="text-xs text-slate-400">
+                  内容长度
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ doc.content?.length ?? 0 }} 字符
+                </div>
               </div>
-              <div v-if="sourceFileName" class="rounded border border-slate-100 bg-slate-50 p-3 col-span-2">
-                <div class="text-xs text-slate-400">原始文件名</div>
-                <div class="mt-1 text-slate-700">{{ sourceFileName }}</div>
+              <div
+                v-if="sourceFileName"
+                class="rounded border border-slate-100 bg-slate-50 p-3 col-span-2"
+              >
+                <div class="text-xs text-slate-400">
+                  原始文件名
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ sourceFileName }}
+                </div>
               </div>
-              <div v-if="sourceMimeType" class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">MIME 类型</div>
-                <div class="mt-1 text-slate-700">{{ sourceMimeType }}</div>
+              <div
+                v-if="sourceMimeType"
+                class="rounded border border-slate-100 bg-slate-50 p-3"
+              >
+                <div class="text-xs text-slate-400">
+                  MIME 类型
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ sourceMimeType }}
+                </div>
               </div>
-              <div v-if="sourceFileSize" class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">文件大小</div>
-                <div class="mt-1 text-slate-700">{{ formatBytes(sourceFileSize) }}</div>
+              <div
+                v-if="sourceFileSize"
+                class="rounded border border-slate-100 bg-slate-50 p-3"
+              >
+                <div class="text-xs text-slate-400">
+                  文件大小
+                </div>
+                <div class="mt-1 text-slate-700">
+                  {{ formatBytes(sourceFileSize) }}
+                </div>
               </div>
-              <div v-if="doc.file_path" class="rounded border border-slate-100 bg-slate-50 p-3 col-span-2">
-                <div class="text-xs text-slate-400">文件路径</div>
-                <div class="mt-1 break-all text-slate-700">{{ doc.file_path }}</div>
+              <div
+                v-if="doc.file_path"
+                class="rounded border border-slate-100 bg-slate-50 p-3 col-span-2"
+              >
+                <div class="text-xs text-slate-400">
+                  文件路径
+                </div>
+                <div class="mt-1 break-all text-slate-700">
+                  {{ doc.file_path }}
+                </div>
               </div>
             </div>
 
-            <div v-if="doc.metadata" class="rounded border border-slate-200 p-4">
-              <div class="mb-2 text-sm font-medium text-slate-700">完整元数据</div>
+            <div
+              v-if="doc.metadata"
+              class="rounded border border-slate-200 p-4"
+            >
+              <div class="mb-2 text-sm font-medium text-slate-700">
+                完整元数据
+              </div>
               <pre class="overflow-auto whitespace-pre-wrap break-all text-xs text-slate-600">{{ JSON.stringify(doc.metadata, null, 2) }}</pre>
             </div>
           </div>
@@ -241,11 +363,18 @@
           <!-- 文档摘要卡片 -->
           <el-card>
             <template #header>
-              <div class="font-medium">文档摘要</div>
+              <div class="font-medium">
+                文档摘要
+              </div>
             </template>
             <div class="space-y-3 text-sm">
-              <div class="leading-6 text-slate-700">{{ documentSummary }}</div>
-              <div v-if="sourceFileName" class="flex flex-wrap gap-2">
+              <div class="leading-6 text-slate-700">
+                {{ documentSummary }}
+              </div>
+              <div
+                v-if="sourceFileName"
+                class="flex flex-wrap gap-2"
+              >
                 <button
                   v-if="sourceMimeType === 'application/pdf' || isOfficeFile"
                   type="button"
@@ -277,20 +406,32 @@
           <!-- 阅读建议 -->
           <el-card>
             <template #header>
-              <div class="font-medium">阅读建议</div>
+              <div class="font-medium">
+                阅读建议
+              </div>
             </template>
             <ul class="space-y-2 text-sm text-slate-600">
-              <li v-if="sourceMimeType === 'application/pdf' || isOfficeFile">优先查看"源文件"标签页获取原始文档内容。</li>
-              <li v-if="doc.content">使用"Markdown"标签页可全文检索/复制。</li>
-              <li v-if="doc.index_status !== 'indexed'">⚠️ 当前文档尚未完成索引，AI 检索结果可能不完整。</li>
-              <li v-else>✅ 当前文档已索引，可在 AI 问答页结合上下文进行追问。</li>
+              <li v-if="sourceMimeType === 'application/pdf' || isOfficeFile">
+                优先查看"源文件"标签页获取原始文档内容。
+              </li>
+              <li v-if="doc.content">
+                使用"Markdown"标签页可全文检索/复制。
+              </li>
+              <li v-if="doc.index_status !== 'indexed'">
+                ⚠️ 当前文档尚未完成索引，AI 检索结果可能不完整。
+              </li>
+              <li v-else>
+                ✅ 当前文档已索引，可在 AI 问答页结合上下文进行追问。
+              </li>
             </ul>
           </el-card>
 
           <!-- AI 快捷问答入口 -->
           <el-card>
             <template #header>
-              <div class="font-medium">快捷 AI 问答</div>
+              <div class="font-medium">
+                快捷 AI 问答
+              </div>
             </template>
             <div class="space-y-2 text-sm">
               <button

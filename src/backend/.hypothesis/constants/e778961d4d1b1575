@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/containers/positions/position.py
+# hypothesis_version: 6.148.5
+
+['PositionEvent', 'account_id', 'asset_type', 'avg_price', 'exchange_name', 'initial_margin', 'is_auto_add_margin', 'is_isolated', 'leverage', 'liquidation_price', 'local_update_time', 'maintain_margin', 'margin_type', 'mark_price', 'max_notional_value', 'position_fee', 'position_id', 'position_side', 'position_symbol_name', 'position_volume', 'server_time', 'symbol_name', 'trade_num']

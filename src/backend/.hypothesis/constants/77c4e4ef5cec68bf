@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_a/stock_zh_a_spot.py
+# hypothesis_version: 6.148.5
+
+[100, '-', '1', '100', '2', '5分钟涨跌', '60日涨跌幅', '_', '__main__', 'coerce', 'data', 'diff', 'f1', 'f10', 'f11', 'f115', 'f12', 'f128', 'f13', 'f136', 'f14', 'f15', 'f152', 'f16', 'f17', 'f18', 'f2', 'f20', 'f21', 'f22', 'f23', 'f24', 'f25', 'f3', 'f4', 'f5', 'f6', 'f62', 'f7', 'f8', 'f9', 'fid', 'fields', 'fltt', 'fs', 'ignore', 'invt', 'np', 'page_index', 'page_number', 'pn', 'po', 'pz', 'rc', 'total', 'ut', '今开', '代码', '原序号', '名称', '市净率', '市盈率-动态', '年初至今涨跌幅', '序号', '总市值', '成交量', '成交额', '振幅', '换手率', '昨收', '最低', '最新价', '最高', '流通市值', '涨跌幅', '涨跌额', '涨速', '量比']

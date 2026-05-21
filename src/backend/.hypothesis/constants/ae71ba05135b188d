@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/realtime_data.py
+# hypothesis_version: 6.148.5
+
+['1d', 'Best ask price.', 'Best ask size.', 'Best bid price.', 'Best bid size.', 'Broker id.', 'Close.', 'High.', 'Low.', 'Message type.', 'Open.', 'Symbol list.', 'Symbol.', 'Tick payload.', 'Timestamp.', 'Volume.', 'tick_update']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/coin_m.py
+# hypothesis_version: 6.148.5
+
+['COIN_M', 'asset_type', 'binance_coin_m_feed', 'logger_name']

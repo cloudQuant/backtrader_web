@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/containers/orders/order.py
+# hypothesis_version: 6.148.5
+
+['CANCELED', 'EXPIRED', 'EXPIRED_IN_MATCH', 'FILLED', 'NEW', 'OrderEvent', 'PARTIALLY_FILLED', 'REJECTED', 'accepted', 'asset_type', 'canceled', 'client_order_id', 'close_position', 'cum_quote', 'exchange_name', 'executed_qty', 'expired', 'expired_in_match', 'filled', 'live', 'local_update_time', 'margin', 'mmp_canceled', 'new', 'order_avg_price', 'order_exchange_id', 'order_id', 'order_offset', 'order_price', 'order_side', 'order_size', 'order_status', 'order_symbol_name', 'order_time_in_force', 'order_type', 'origin_order_type', 'partially_filled', 'position_side', 'reduce_only', 'rejected', 'server_time', 'stop_loss_price', 'submitted', 'symbol_name', 'take_profit_price', 'trade_id', 'trailing_stop_price', 'unknown']

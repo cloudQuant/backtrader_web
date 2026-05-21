@@ -7,7 +7,7 @@
 
 <script setup lang="ts">
 import { watch } from 'vue'
-import * as echarts from 'echarts'
+import type * as echarts from 'echarts'
 import type { KlineData } from '@/types'
 import { useChartResize } from '@/composables/useChartResize'
 

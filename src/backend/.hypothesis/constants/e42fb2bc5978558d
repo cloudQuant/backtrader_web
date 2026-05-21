@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/live_execution_service.py
+# hypothesis_version: 6.148.5
+
+[-500, '%Y-%m-%d %H:%M:%S', 'cp936', 'creationflags', 'details', 'error', 'failed', 'gbk', 'id', 'log_dir', 'pid', 'replace', 'result', 'run.py', 'running', 'runtime_dir', 'started', 'started_at', 'status', 'stopped', 'stopped_at', 'strategy_id', 'success', 'user_id', 'utf-8', 'win32']

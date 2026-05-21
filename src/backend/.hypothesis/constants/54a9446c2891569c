@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/fincore_metrics_helper.py
+# hypothesis_version: 6.148.5
+
+[0.0, 0.01, 0.02, 1.0, 100.0, 100000.0, 100, 252, 'adjusted_return_risk', 'annual_return', 'avg_profit', 'avg_profit_rate', 'commission', 'daily_avg_return', 'daily_max_loss', 'daily_max_profit', 'differences', 'equity_curve', 'final_value', 'fincore', 'initial_cash', 'losing_trades', 'manual', 'max_drawdown', 'max_drawdown_value', 'max_leverage', 'max_market_value', 'metrics_source', 'monthly_avg_return', 'monthly_max_loss', 'monthly_max_profit', 'net_profit', 'net_value', 'odds', 'pnlcomm', 'profit_factor', 'profit_loss_ratio', 'profit_rate_factor', 'profitable_trades', 'relative_errors', 'sharpe_ratio', 'total_loss_amount', 'total_return', 'total_trades', 'total_win_amount', 'trades', 'trading_cost', 'trading_days', 'weekly_avg_return', 'weekly_max_loss', 'weekly_max_profit', 'win_rate']

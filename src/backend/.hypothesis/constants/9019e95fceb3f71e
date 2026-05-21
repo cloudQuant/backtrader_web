@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/process_supervisor.py
+# hypothesis_version: 6.148.5
+
+[4096, ',', '-eo', '/', '/F', '/FORMAT:CSV', '/PID', '/T', '\\', 'get', 'node,', 'pid,args', 'process', 'ps', 'run.py', 'strategies', 'taskkill', 'where', 'win32', 'wmic']

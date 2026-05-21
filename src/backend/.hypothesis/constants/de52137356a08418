@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/paper_trading.py
+# hypothesis_version: 6.148.5
+
+[100, '/accounts', '/orders', '/orders/{order_id}', '/positions', '/trades', 'Account ID', 'Order status', 'Trading symbol', 'account_id', 'current_cash', 'data', 'message', 'profit_loss', 'profit_loss_pct', 'side', 'status', 'symbol', 'total_equity', 'type', 'user_id']

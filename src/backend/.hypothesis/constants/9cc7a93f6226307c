@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/pymt5/pymt5/helpers.py
+# hypothesis_version: 6.148.5
+
+[b'\x00', '!', '&', '0x0', '1', ';', 'big', 'en-US', 'ignore', 'latin1', 'little', 'python', 'utf-16-le', 'utf-8']

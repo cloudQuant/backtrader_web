@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_hist_tx.py
+# hypothesis_version: 6.148.5
+
+['-', '0.8205512681390605', '19000101', '20200101', '20231027', '20500101', '={', 'DEFAULT@SECLEVEL=1', '__main__', '_var', 'amount', 'close', 'coerce', 'data', 'date', 'day', 'hfq', 'hfqday', 'high', 'https://', 'low', 'open', 'param', 'qfqday', 'r', 'ssl_context', 'sz000001']

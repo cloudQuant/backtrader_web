@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_current_szse.py
+# hypothesis_version: 6.148.5
+
+['CATALOGID', 'SHOWTYPE', 'TABKEY', '__main__', 'coerce', 'ignore', 'option_drhy', 'tab1', 'xlsx', '下次合约调整剩余交易天数', '下次合约调整剩余自然天数', '交收日', '交易日期', '停牌', '到期日', '前结算价', '原合约代码', '原合约单位', '原合约简称', '原行权价格', '合约代码', '合约到期剩余交易天数', '合约到期剩余自然天数', '合约单位', '合约总持仓', '合约简称', '合约类型', '合约编码', '合约调整', '序号', '挂牌原因', '新挂', '最后交易日', '标的证券简称(代码)', '涨停价格', '行权价', '行权日', '跌停价格']

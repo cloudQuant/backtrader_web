@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/simulation.py
+# hypothesis_version: 6.148.5
+
+[400, 404, 500, 50000, '..', '.json', '.log', '.yaml', '.yml', '/', '/start-all', '/stop-all', '/{instance_id}', '/{instance_id}/logs', '/{instance_id}/start', '/{instance_id}/stop', 'Deleted successfully', 'Failed to clear log', 'Instance not found', 'Invalid filename', 'Log file not found', 'Return last N lines', '\\', 'cleared', 'config', 'config.yaml', 'files', 'instances', 'message', 'name', 'raw', 'replace', 'run_info.json', 'size', 'strategy_id', 'text/plain', 'total', 'utf-8']

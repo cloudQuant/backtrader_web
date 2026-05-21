@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/kb_chat.py
+# hypothesis_version: 6.148.5
+
+[200, 2000, 'backtrader_strategy', 'knowledge_qa', 'question', 'strategy_idea', 'strategy_review', 'title', '新对话']

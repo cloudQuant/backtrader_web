@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/spot.py
+# hypothesis_version: 6.148.5
+
+[200, '-', 'ALL', 'GTC', 'SPOT', 'SUBSCRIBE', 'TRADE', 'amend_keep_priority', 'amount', 'apiKey', 'asset', 'asset_type', 'balanceUpdate', 'binance_spot_feed', 'buy-limit', 'cancelOrderId', 'cancelRestrictions', 'cancel_all', 'cancel_replace_order', 'cert_reqs', 'e', 'endTime', 'error', 'exchange_data', 'exchange_name', 'executionReport', 'futures_transfer', 'get_account_snapshot', 'id', 'limit', 'listenKey', 'logger_name', 'make_order', 'market', 'method', 'newClientOrderId', 'normalize_function', 'open', 'orderId', 'origClientOrderId', 'page', 'params', 'post_only', 'price', 'quantity', 'request_type', 'result', 's', 'side', 'start-listen-key', 'startTime', 'status', 'stopPrice', 'symbol', 'symbol_name', 'timeInForce', 'time_in_force', 'transfer', 'type', 'userDataStream.start', 'x']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_fund_hold.py
+# hypothesis_version: 6.148.5
+
+['-', '-1', '0', '005827', '008286', '1', '2', '20200630', '20210331', '20220331', '3', '4', '5', '500', '6', 'ALL', 'HOULD_NUM', 'QFII持仓', 'SECURITY_CODE', 'WEB', '_', '__main__', 'client', 'columns', 'data', 'date', 'filter', 'index', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortDirec', 'sortField', 'sortTypes', 'source', 'type', 'zjc', '保险持仓', '信托持仓', '券商持仓', '占总股本比例', '占流通股本比例', '基金持仓', '序号', '持有基金家数', '持股变动数值', '持股变动比例', '持股变化', '持股市值', '持股总数', '持股数', '社保持仓', '股票代码', '股票简称']

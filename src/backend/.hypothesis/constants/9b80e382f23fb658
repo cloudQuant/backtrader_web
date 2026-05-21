@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/workspace.py
+# hypothesis_version: 6.148.5
+
+[100, 200, '1d', 'CASCADE', 'StrategyUnit', 'User', 'Workspace', 'all, delete-orphan', 'idle', 'paper', 'research', 'strategy_units', 'users.id', 'workspace', 'workspaces', 'workspaces.id']

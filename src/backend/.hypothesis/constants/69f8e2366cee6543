@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_hsgt_exchange_rate.py
+# hypothesis_version: 6.148.5
+
+['-', '0.9184251620553985', '1', '10000', '20120601', 'CATALOGID', 'FW_HGT_GGTHL', 'FW_HGT_JSHDBL', 'Host', 'Referer', 'SGT_LSHL', 'SHOWTYPE', 'TABKEY', 'User-Agent', '__main__', 'always', 'buyPrice', 'coerce', 'currencyType', 'isPagination', 'openpyxl', 'pageHelp.beginPage', 'pageHelp.cacheSize', 'pageHelp.endPage', 'pageHelp.pageNo', 'pageHelp.pageSize', 'query.sse.com.cn', 'random', 'result', 'sellPrice', 'sqlId', 'tab1', 'tab2', 'true', 'updateDate', 'updateDateEnd', 'validDate', 'xlsx', '买入结算汇兑比率', '卖出结算汇兑比率', '参考汇率买入价', '参考汇率卖出价', '货币种类', '适用日期']

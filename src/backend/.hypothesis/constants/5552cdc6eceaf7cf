@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_premium_analysis_em.py
+# hypothesis_version: 6.148.5
+
+['-', '1', '100', '2', '__main__', 'coerce', 'f250', 'fid', 'fields', 'fltt', 'fs', 'invt', 'm:10', 'np', 'pn', 'po', 'pz', 'ut', '到期日', '折溢价率', '最新价', '期权代码', '期权名称', '标的名称', '标的最新价', '标的涨跌幅', '涨跌幅', '盈亏平衡价', '行权价']

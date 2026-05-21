@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/backtest.py
+# hypothesis_version: 6.148.5
+
+[100, '/', '/api/v1/backtests', '/run', '/{task_id}', '/{task_id}/cancel', '/{task_id}/status', 'Cancel backtest task', 'Get backtest result', 'Run backtest', 'backtest', 'created_at', 'desc']

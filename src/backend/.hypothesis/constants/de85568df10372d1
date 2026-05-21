@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/__init__.py
+# hypothesis_version: 6.148.5
+
+['Account', 'Alert', 'AlertNotification', 'AlertRule', 'BacktestResultModel', 'BacktestTask', 'ChatConversation', 'ChatMessage', 'Comparison', 'ComparisonShare', 'DataInterface', 'DataScript', 'DataTable', 'DocumentChunk', 'InterfaceCategory', 'InterfaceParameter', 'KBDocument', 'KnowledgeBase', 'ModelConfig', 'ModelUsageLog', 'OptimizationTask', 'Order', 'PaperTrade', 'Permission', 'Position', 'RefreshToken', 'Role', 'ScheduledTask', 'Strategy', 'StrategyUnit', 'StrategyVersion', 'TaskExecution', 'User', 'VersionBranch', 'VersionComparison', 'VersionRollback', 'Workspace', 'user_roles']

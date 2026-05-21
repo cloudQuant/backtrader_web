@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/staking.py
+# hypothesis_version: 6.148.5
+
+['ALL', 'STAKING', 'amount', 'asset', 'asset_type', 'binance_staking', 'binance_staking_feed', 'current', 'endTime', 'exchange_data', 'exchange_name', 'get_staking_history', 'get_staking_position', 'get_staking_products', 'logger_name', 'normalize_function', 'positionId', 'productId', 'renew', 'request_type', 'size', 'staking_purchase', 'staking_redeem', 'startTime', 'symbol_name', 'type']

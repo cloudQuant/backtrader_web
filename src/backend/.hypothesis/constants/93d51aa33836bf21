@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/strategy_version.py
+# hypothesis_version: 6.148.5
+
+[100, 'Branch ID', 'Branch list', 'Branch name', 'Change log', 'Comparison ID', 'Creation time', 'Default parameters', 'Parameter difference', 'Parent branch', 'Parent version ID', 'Rollback reason', 'Source version ID', 'Strategy ID', 'Strategy code', 'Target version ID', 'Total count', 'Update time', 'Version ID', 'Version description', 'Version list', 'Version name', 'Version tags', '^[a-zA-Z0-9/_-]+$', 'code', 'main']

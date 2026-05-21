@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/akshare_data_service.py
+# hypothesis_version: 6.148.5
+
+['[^A-Za-z0-9_]+', '_', '_+', 'asset_type', 'code', 'coerce', 'columns', 'data', 'date', 'datetime', 'default', 'limit', 'market', 'name', 'nullable', 'offset', 'replace', 'success', 'symbol', 'table_name', 'ticker', 'timestamp', 'trade_date', 'type']

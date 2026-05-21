@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/report_service.py
+# hypothesis_version: 6.148.5
+
+['%Y-%m-%d %H:%M:%S', 'Annual Return', 'Date', 'End Date', 'Equity', 'Equity Curve', 'Losing Trades', 'Max Drawdown', 'Metric', 'Overview', 'Profitable Trades', 'Sharpe Ratio', 'Start Date', 'Strategy Name', 'Symbol', 'Total Return', 'Total Trades', 'Trades', 'Value', 'Win Rate', 'annual_return', 'backtest_report.html', 'end_date', 'equity_curve', 'equity_dates', 'losing_trades', 'max_drawdown', 'name', 'openpyxl', 'params', 'profitable_trades', 'sharpe_ratio', 'start_date', 'symbol', 'templates', 'total_return', 'total_trades', 'trades', 'utf-8', 'win_rate']

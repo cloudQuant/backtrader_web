@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_lhb_sina.py
+# hypothesis_version: 6.148.5
+
+['-', '1', '20240222', '5', '60', 'DEFAULT@SECLEVEL=1', '__main__', 'class', 'coerce', 'div', 'https://', 'last', 'list', 'list_table', 'lxml', 'p', 'page', 'ssl_context', 'table', 'tradedate', '上榜次数', '买入前三股票', '买入席位数', '买入次数', '交易日期', '净额', '卖出席位数', '卖出次数', '对应值', '序号', '当前价', '成交量', '成交额', '指标', '收盘价', '机构席位买入额', '机构席位买入额(万)', '机构席位卖出额', '机构席位卖出额(万)', '查看详情', '涨跌幅', '累积买入额', '累积卖出额', '累积购买额', '股票代码', '股票名称', '营业部名称']

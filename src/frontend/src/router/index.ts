@@ -31,6 +31,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/AIChatPage.vue'),
       },
       {
+        path: 'ai-trading',
+        name: 'AITrading',
+        component: () => import('@/views/AITradingPage.vue'),
+      },
+      {
         path: 'backtest',
         name: 'Backtest',
         component: () => import('@/views/workspace/WorkspaceListPage.vue'),

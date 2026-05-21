@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/pricelimits/okx_price_limit.py
+# hypothesis_version: 6.148.5
+
+['OKX', 'PriceLimitEvent', 'asset_type', 'buyLmt', 'buy_limit', 'exchange_name', 'instId', 'local_update_time', 'sellLmt', 'sell_limit', 'server_time', 'symbol_name', 'ts']

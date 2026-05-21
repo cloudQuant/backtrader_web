@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_yjbb_em.py
+# hypothesis_version: 6.148.5
+
+['-1,-1', '1', '20200331', '20220331', '500', 'ALL', 'RPT_LICO_FN_CPD', '_', '__main__', 'coerce', 'columns', 'data', 'filter', 'ignore', 'index', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', '净利润-净利润', '净利润-同比增长', '净利润-季度环比增长', '净资产收益率', '序号', '所处行业', '最新公告日期', '每股净资产', '每股收益', '每股经营现金流量', '股票代码', '股票简称', '营业总收入-同比增长', '营业总收入-季度环比增长', '营业总收入-营业总收入', '销售毛利率']

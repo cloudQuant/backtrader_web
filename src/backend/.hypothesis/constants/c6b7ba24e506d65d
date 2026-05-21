@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/market_wss_base.py
+# hypothesis_version: 6.148.5
+
+[0.1, '1m', '24hrMiniTicker', '24hrTicker', 'ACCOUNT_UPDATE', 'ANY', 'BINANCE', 'BTC-USDT', 'BTC—USDT', 'SWAP', 'UNKNOWN', 'aggTrade', 'agg_trade', 'all_book_ticker', 'all_force_order', 'all_mark_price', 'all_mini_ticker', 'all_ticker', 'arg', 'asset_type', 'async_proxy', 'binance_market_wss', 'bookTicker', 'book_ticker', 'continuous_kline', 'contract_info', 'data', 'depth', 'depthUpdate', 'e', 'exchange_name', 'forceOrder', 'force_order', 'funding_rate', 'id', 'kline', 'liquidation', 'listen_key', 'markPriceUpdate', 'mark_price', 'mini_ticker', 'o', 'pair', 'period', 'private_key', 'proxies', 'ps', 'public_key', 'restart操作', 'result', 's', 'step0', 'symbol', 'symbol_list', 'ticker', 'topic', 'topics', 'wss_url']

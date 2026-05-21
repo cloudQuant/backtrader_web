@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/knowledge_base.py
+# hypothesis_version: 6.148.5
+
+[0.0, 0.08, 0.1, 0.2, 0.35, 1.0, 255, 500, 1000, '2025-01-05T08:00:00Z', '2025-01-14T16:20:00Z', 'A股市场数据手册', 'after', 'before', 'content', 'content_type', 'created_at', 'default_top_k', 'description', 'document_count', 'draft', 'examples', 'exploration', 'general', 'hybrid', 'id', 'implementation', 'is_folder', 'is_public', 'kb_1a2b3c4d5e6f', 'keyword', 'keyword_weight', 'markdown', 'max_context_chunks', 'metadata_json', 'min_similarity', 'name', 'not_indexed', 'owner_id', 'parent_id', 'phrase_weight', 'precision', 'quant_focus', 'quant_research', 'recency_weight', 'retrieval_profile', 'search_mode', 'settings', 'strategy_research', 'strategy_review', 'system_prompt_suffix', 'title', 'title_weight', 'updated_at', 'usr_a1b2c3d4e5f6', '双均线交叉策略研究报告', '因子研究', '量化策略研究库']

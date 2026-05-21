@@ -16,8 +16,8 @@
       }
     },
     "created_at": "2026-03-09 18:51:36",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/CF_donchian_channel/logs"
   },
   "5b4c412f": {
@@ -37,8 +37,8 @@
       }
     },
     "created_at": "2026-03-09 18:51:42",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/MA_trix/logs"
   },
   "f121b049": {
@@ -58,8 +58,8 @@
       }
     },
     "created_at": "2026-03-09 18:51:50",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/OI_rsi_dip_buy/logs"
   },
   "773ad461": {
@@ -79,8 +79,8 @@
       }
     },
     "created_at": "2026-03-09 18:51:55",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/SR_keltner_channel/logs"
   },
   "c41b9efc": {
@@ -100,8 +100,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:01",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-04-14 21:00:12",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/TA_cci/logs"
   },
   "dda7a9e0": {
@@ -121,8 +121,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:07",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/a_td_sequential/logs"
   },
   "716c2706": {
@@ -142,8 +142,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:14",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/al_turtle/logs"
   },
   "38084451": {
@@ -165,8 +165,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:23",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/au_boll_reverser/logs"
   },
   "f96e2b2d": {
@@ -186,8 +186,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:30",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/c_chandelier_exit/logs"
   },
   "6386fa0e": {
@@ -207,8 +207,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:37",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/cu_macd_atr/logs"
   },
   "c054f9b7": {
@@ -231,8 +231,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:44",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/hc_supertrend/logs"
   },
   "21843ca4": {
@@ -252,8 +252,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:49",
-    "started_at": "2026-04-14 20:44:27",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/i_r_breaker/logs"
   },
   "4121d0e7": {
@@ -273,8 +273,8 @@
       }
     },
     "created_at": "2026-03-09 18:52:58",
-    "started_at": "2026-04-14 20:44:28",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/j_dual_thrust/logs"
   },
   "20991ac5": {
@@ -294,8 +294,8 @@
       }
     },
     "created_at": "2026-03-09 18:53:04",
-    "started_at": "2026-04-14 20:44:28",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/jm_stochastic/logs"
   },
   "594ef629": {
@@ -315,8 +315,8 @@
       }
     },
     "created_at": "2026-03-09 18:53:09",
-    "started_at": "2026-04-14 20:44:28",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/m_ichimoku_cloud/logs"
   },
   "a358f9d3": {
@@ -336,8 +336,8 @@
       }
     },
     "created_at": "2026-03-09 18:53:16",
-    "started_at": "2026-04-14 20:44:28",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/p_bb_rsi/logs"
   },
   "24037c62": {
@@ -359,8 +359,8 @@
       }
     },
     "created_at": "2026-03-09 18:53:21",
-    "started_at": "2026-04-14 20:44:28",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/rb_dual_ma/logs"
   },
   "0e3222d3": {
@@ -380,8 +380,8 @@
       }
     },
     "created_at": "2026-03-09 18:53:27",
-    "started_at": "2026-04-14 20:44:28",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/y_alligator/logs"
   },
   "a49e9207": {
@@ -401,8 +401,8 @@
       }
     },
     "created_at": "2026-03-09 18:53:33",
-    "started_at": "2026-04-14 20:44:28",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/zn_kelter/logs"
   },
   "3a94674d": {
@@ -926,8 +926,8 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-04-14 20:44:31",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/cs_hma_multitrend/logs"
   },
   "f88ef06f": {
@@ -947,8 +947,8 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-04-14 20:44:31",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": null
   },
   "cd1c2590": {
@@ -968,8 +968,8 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-04-14 20:44:31",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": null
   },
   "763a3b71": {
@@ -989,8 +989,8 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-04-14 20:44:31",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": null
   },
   "50a53267": {
@@ -1010,8 +1010,8 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-04-14 20:44:31",
-    "stopped_at": "2026-03-13 13:54:53",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": "/Users/yunjinqi/Documents/new_projects/backtrader_web/strategies/simulate/mt5_usdjpy_trend_follow/logs"
   },
   "072d4a83": {
@@ -1031,8 +1031,8 @@
       }
     },
     "created_at": "2026-03-13 11:31:56",
-    "started_at": "2026-04-14 20:44:31",
-    "stopped_at": "2026-03-13 13:53:56",
+    "started_at": "2026-05-21 08:45:21",
+    "stopped_at": "2026-05-21 08:45:22",
     "log_dir": null
   },
   "cd00d3d3": {

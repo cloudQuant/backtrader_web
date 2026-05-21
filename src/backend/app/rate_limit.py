@@ -1,10 +1,47 @@
-"""Shared rate limiter configuration."""
+"""Shared rate limiter configuration.
 
+Supports Redis backend for distributed rate limiting when REDIS_URL is configured.
+Falls back to in-memory storage when Redis is unavailable.
+"""
+
+import logging
 from pathlib import Path
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from app.config import get_settings
+
+logger = logging.getLogger(__name__)
+
 _SLOWAPI_CONFIG_FILE = Path(__file__).resolve().parents[1] / ".slowapi.env"
 
-limiter = Limiter(key_func=get_remote_address, config_filename=str(_SLOWAPI_CONFIG_FILE))
+
+def _create_limiter() -> Limiter:
+    """Create rate limiter with Redis backend if available, else in-memory."""
+    settings = get_settings()
+    storage_uri = None
+
+    if settings.REDIS_URL:
+        try:
+            import redis  # noqa: F401
+
+            storage_uri = settings.REDIS_URL
+            logger.info("Rate limiter using Redis backend: %s", settings.REDIS_URL.split("@")[-1])
+        except ImportError:
+            logger.warning(
+                "Redis URL configured but redis package not installed. "
+                "Falling back to in-memory rate limiting."
+            )
+
+    if not storage_uri:
+        logger.info("Rate limiter using in-memory backend (not suitable for multi-instance)")
+
+    return Limiter(
+        key_func=get_remote_address,
+        storage_uri=storage_uri,
+        config_filename=str(_SLOWAPI_CONFIG_FILE),
+    )
+
+
+limiter = _create_limiter()

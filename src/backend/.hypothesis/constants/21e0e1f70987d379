@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/reqdocs_migration_service.py
+# hypothesis_version: 6.148.5
+
+['#', '.env', '/', ':', '=', '@', 'DATABASE_URL', 'MONGODB_URL', 'REQDOCS_ENV_PATH', 'ReqDocs', '_id', 'backend', 'content', 'conversation_id', 'conversations', 'created_at', 'current_version', 'data', 'description', 'document_contents', 'document_id', 'documents', 'draft', 'file_size', 'filename', 'generated_at', 'gridfs', 'gridfs_id', 'id', 'is_folder', 'isoformat', 'kb_chat_messages', 'kb_conversations', 'knowledge_base_id', 'knowledge_bases', 'markdown', 'markdown_contents', 'messages', 'mime_type', 'model', 'mysql+pymysql://', 'name', 'not_indexed', 'parent_id', 'path', 'project_id', 'projects', 'reqdocs_document_id', 'reqdocs_project_id', 'reqdocs_source_files', 'reqdocs_type', 'role', 'sort_order', 'source_files', 'source_files_gridfs', 'status', 'storage_type', 'title', 'type', 'updated_at', 'utf8mb4', '新对话']

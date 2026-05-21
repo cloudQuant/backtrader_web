@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/errors/binance_translator.py
+# hypothesis_version: 6.148.5
+
+[-2015, -2014, -2013, -2011, -2010, -1115, -1114, -1112, -1111, -1106, -1104, -1103, -1102, -1101, -1100, -1022, -1021, -1006, -1003, -1002, -1001, -1000, 'Disconnected', 'Order already filled', 'Order does not exist', 'Order rejected', 'Parameter is empty', 'Signature not valid', 'Too many parameters', 'Too many requests', 'Unauthorized', 'Unknown error', 'Unknown parameter']

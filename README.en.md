@@ -1,267 +1,314 @@
 # Backtrader Web
 
-A modern, full-featured web backtesting platform built on [Backtrader](https://www.backtrader.com/).
+**The open-source quantitative trading platform that takes you from idea to live trading.**
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
-[![Vue](https://img.shields.io/badge/Vue-3.4+-green.svg)](https://vuejs.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-teal.svg)](https://fastapi.tiangolo.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
+[![Vue 3](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg?logo=vuedotjs&logoColor=white)](https://vuejs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/cloudQuant/backtrader_web/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/cloudQuant/backtrader_web/actions)
 
-## Features
+[中文文档](README.md) | **English**
 
-- **Backtest Engine** — Run backtests on 100+ built-in strategy templates or your own custom strategies
-- **Financial Metrics** — Standardized metrics via [fincore](https://github.com/quantopian/fincore) library
-- **Strategy Version Control** — Branch, compare, and rollback strategy versions like Git
-- **Paper Trading** — Simulate live trading with real-time market data
-- **Parameter Optimization** — Grid search and genetic algorithm optimization
-- **Portfolio Management** — Multi-strategy portfolio construction and monitoring
-- **Real-time Data** — Live market data feeds and subscriptions
-- **Strategy Comparison** — Side-by-side comparison of multiple strategies
-- **Analytics & Reports** — HTML/PDF/Excel report generation with 10+ chart types
-- **System Monitoring** — Health checks, performance metrics, and alerts
-- **REST API** — Programmatic access to implemented platform modules
+---
 
-## Tech Stack
+Backtrader Web is a full-stack quantitative trading management platform built for developers and traders who want professional-grade tools without vendor lock-in. Strategy development, backtesting, parameter optimization, paper trading, live trading, and AI-assisted research — all in one open-source package.
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Vue 3 + TypeScript + Vite + Element Plus + ECharts |
-| Backend | FastAPI + Uvicorn + Pydantic + SQLAlchemy 2.0 |
-| Database | SQLite (default) / PostgreSQL / MySQL |
-| Backtest Engine | Backtrader |
-| Financial Metrics | fincore (industry-standard calculations) |
-| Auth | JWT + bcrypt |
+## Highlights
 
-## Quick Start
+- 🚀 **5-Minute Quick Start** — Clone, install, run your first backtest
+- 🤖 **AI Strategy Copilot** — Natural language → strategy code → auto-backtest → performance report
+- 📊 **Professional Charts** — ECharts K-line charts with 10+ analytical visualizations
+- 🎯 **118 Built-in Strategies** — Ready-to-use templates covering momentum, mean-reversion, ML, and more
+- 🔌 **API-First Design** — Every feature accessible via REST API; modular route registration with observable degradation
+- 💾 **Multi-Database** — SQLite (zero-config default), PostgreSQL, or MySQL
+- 🔴 **Research to Production** — Seamless path from backtest → paper trading → live trading (CTP/CCXT)
+- 🧠 **Knowledge Base & RAG** — Document management, auto-indexing, citation navigation, AI-powered Q&A
 
-### Requirements
+## Key Features
+
+### Strategy & Backtesting
+
+- Strategy CRUD with built-in code editor and version control
+- Subprocess-isolated backtest execution with multi-dimensional analysis
+- Parameter optimization (grid search + Bayesian optimization)
+- Strategy comparison and performance attribution
+- 118 built-in strategy templates as starting points
+
+### AI & Knowledge
+
+- AI Strategy Copilot: knowledge Q&A, strategy ideation, code generation, strategy review
+- RAG-powered knowledge base with document chunking and semantic search
+- Strategy drafts can be saved, added to workspace, backtested, and auto-reviewed
+- OpenAI-compatible API integration (works with any LLM provider)
+
+### Trading
+
+- Paper trading with simulated accounts and order management
+- Live trading via CTP (futures) and CCXT (crypto: Binance, OKX, etc.)
+- Real-time market data via WebSocket
+- Monitoring and alerting system
+
+### Data Management
+
+- Akshare data interface integration
+- Data scripts, scheduled tasks, and execution history
+- Data table browser with MySQL sync support
+- Direct MySQL mode (no SSH/Docker dependency)
+
+### Platform
+
+- JWT authentication with role-based access
+- Workspace management (research & trading environments)
+- Modular API with graceful degradation — failed optional modules don't crash the system
+- Health checks and router status endpoint (`/api/v1/status/routers`)
+
+## Quick Start (5 Minutes)
+
+### Prerequisites
 
 - Python 3.10+
-- Node.js 20 LTS
+- Node.js 20+
+- Git
 
-### Installation
+### Setup
 
 ```bash
+# Clone
 git clone https://github.com/cloudQuant/backtrader_web.git
 cd backtrader_web
-./scripts/verify-dev-env.sh --preinstall
 
 # Backend
 cd src/backend
 python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -e ".[dev,backtrader]"
 cp .env.example .env
-python scripts/init_db.py --init-all
-cd ../..
-./scripts/verify-dev-env.sh --postinstall
-
-cd src/backend
-uvicorn app.main:app --reload --port 8000
 
 # Frontend (new terminal)
 cd src/frontend
-npm ci
+npm install
+```
+
+### Run
+
+```bash
+# Terminal 1 — Backend
+cd src/backend
+uvicorn app.main:app --reload --port 8000
+
+# Terminal 2 — Frontend
+cd src/frontend
 npm run dev
 ```
 
-If the preinstall check fails, fix the reported Node or Python mismatch first. If
-the postinstall check fails, reinstall backend dependencies and verify that the
-installed `backtrader` package exposes `Analyzer`.
-
 ### Access
 
-- **Frontend**: http://localhost:3000
-- **Swagger API Docs**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+| Service | URL |
+| ------- | --- |
+| Frontend | http://localhost:3000 |
+| API Docs (Swagger) | http://localhost:8000/docs |
+| API Docs (ReDoc) | http://localhost:8000/redoc |
+| WebSocket | ws://localhost:8000/ws |
+
+### Docker (Alternative)
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+# Frontend: http://localhost | API: http://localhost:8000/docs
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Vue 3 Frontend                     │
+│         TypeScript · Vite · Element Plus · ECharts   │
+└──────────────────────┬──────────────────────────────┘
+                       │ REST / WebSocket
+┌──────────────────────▼──────────────────────────────┐
+│                  FastAPI Backend                      │
+│    Pydantic · SQLAlchemy 2.0 · Async · JWT Auth      │
+├──────────────┬───────────────┬───────────────────────┤
+│  API Layer   │ Service Layer │   Backtrader Engine    │
+│  (15+ modules)│ (Business Logic)│ (Subprocess Isolation)│
+└──────┬───────┴───────┬───────┴───────────┬───────────┘
+       │               │                   │
+┌──────▼───────┐ ┌─────▼──────┐  ┌────────▼──────────┐
+│   Database   │ │  AI / RAG  │  │  Broker Gateways   │
+│ SQLite/PG/MY │ │ OpenAI API │  │  CTP · CCXT · MT5  │
+└──────────────┘ └────────────┘  └────────────────────┘
+```
+
+## API Modules
+
+| Module | Endpoint Prefix | Description |
+| ------ | --------------- | ----------- |
+| Auth | `/api/v1/auth` | JWT registration, login, user management |
+| Strategy | `/api/v1/strategy` | Strategy CRUD, templates, code editor |
+| Backtests | `/api/v1/backtests` | Enhanced backtest execution and results |
+| Analytics | `/api/v1/analytics` | Backtest data analysis and metrics |
+| Optimization | `/api/v1/optimization` | Grid search and Bayesian parameter optimization |
+| Paper Trading | `/api/v1/paper-trading` | Simulated accounts and orders |
+| Live Trading | `/api/v1/live-trading` | Multi-broker live execution (CTP/CCXT) |
+| Market Data | `/api/v1/quote`, `/api/v1/realtime` | Real-time and historical quotes |
+| Monitoring | `/api/v1/monitoring` | Health checks, metrics, alert rules |
+| Workspace | `/api/v1/workspace` | Research and trading workspace management |
+| Data | `/api/v1/data` | Akshare data, scripts, tasks, sync |
+| Knowledge Base | `/api/v1/knowledge-base` | Documents, folders, indexing status |
+| RAG | `/api/v1/rag` | Document indexing, retrieval, Q&A |
+| KB Chat | `/api/v1/kb-chat` | Knowledge base conversations and AI assistant |
+| Status | `/api/v1/status` | System health, optional router status |
+
+Full API documentation: [docs/API.md](docs/API.md)
+
+## Technology Stack
+
+| Layer | Technology |
+| ----- | ---------- |
+| Frontend | Vue 3 + TypeScript + Vite + Element Plus + ECharts |
+| Backend | FastAPI + Uvicorn + Pydantic + SQLAlchemy 2.0 (async) |
+| Database | SQLite (default) / PostgreSQL / MySQL |
+| Backtest Engine | Backtrader + fincore (standardized metrics) |
+| AI / RAG | Knowledge base chunking + OpenAI-compatible chat/completions |
+| Data Sources | Akshare + custom scripts + MySQL sync |
+| Auth | JWT + bcrypt |
+| Testing | pytest + Playwright (E2E) + Vitest (frontend) |
+| CI/CD | GitHub Actions (lint, test, build, deploy) |
+| Code Quality | Ruff + pre-commit + conventional commits |
+
+## Configuration
+
+Copy `.env.example` to `.env` and customize:
+
+```bash
+# Database (default: SQLite, zero-config)
+DATABASE_TYPE=sqlite
+DATABASE_URL=sqlite+aiosqlite:///./backtrader.db
+
+# PostgreSQL alternative
+# DATABASE_TYPE=postgresql
+# DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
+
+# JWT (MUST change in production)
+SECRET_KEY=your-secret-key
+JWT_SECRET_KEY=your-jwt-secret
+JWT_EXPIRE_MINUTES=1440
+
+# AI Strategy Copilot (optional)
+AI_CHAT_ENABLED=false
+AI_CHAT_BASE_URL=https://api.openai.com/v1
+AI_CHAT_API_KEY=sk-...
+AI_CHAT_MODEL=gpt-4o
+
+# CORS (production)
+CORS_ORIGINS=https://your-domain.com
+```
+
+> ⚠️ **Security**: Never commit real secrets. Replace all placeholder values before deploying to production.
+
+## Testing
+
+```bash
+# Backend
+cd src/backend
+pytest                              # All tests
+pytest --cov=app --cov-report=term  # With coverage
+pytest tests/test_auth.py -v        # Single file
+
+# Frontend
+cd src/frontend
+npm run test                        # Unit tests (Vitest)
+npm run typecheck                   # TypeScript validation
+npm run test:e2e                    # E2E tests (Playwright)
+```
 
 ## Project Structure
 
 ```
 backtrader_web/
- ├── src/
- │   ├── backend/                # FastAPI backend
- │   │   ├── app/
- │   │   │   ├── api/            # API routes (auth, backtest, strategy, etc.)
- │   │   │   ├── services/       # Business logic layer
- │   │   │   ├── db/             # Database abstraction (SQLite/PostgreSQL/MySQL)
- │   │   │   ├── models/         # SQLAlchemy ORM models
- │   │   │   ├── schemas/        # Pydantic request/response schemas
- │   │   │   └── utils/          # Utilities (sandbox, security, logging)
- │   │   └── tests/              # Backend tests (pytest unit tests + coverage)
- │   └── frontend/               # Vue 3 frontend
- │       └── src/
- │           ├── api/            # API client
- │           ├── components/     # Reusable components
- │           ├── views/          # Page views
- │           └── stores/         # Pinia state management
- ├── strategies/                 # 100+ built-in strategy templates
- ├── examples/                   # Usage examples
- └── docs/                       # Documentation
+├── src/
+│   ├── backend/              # FastAPI backend
+│   │   ├── app/
+│   │   │   ├── api/         # API routes (15+ modules)
+│   │   │   ├── services/    # Business logic
+│   │   │   ├── db/          # Database repositories
+│   │   │   ├── models/      # SQLAlchemy ORM models
+│   │   │   ├── schemas/     # Pydantic DTOs
+│   │   │   └── middleware/  # Logging, security
+│   │   └── strategies/      # Built-in strategy files
+│   └── frontend/             # Vue 3 SPA
+│       └── src/
+│           ├── api/          # API client layer
+│           ├── components/   # Reusable UI components
+│           ├── views/        # Page views
+│           └── stores/       # Pinia state management
+├── strategies/               # 118 built-in strategy templates
+├── examples/                 # API usage examples
+├── tests/                    # Integration tests
+├── docs/                     # 30+ documentation pages
+└── scripts/                  # Dev and deployment scripts
 ```
-
-## API Reference
-
-All endpoints require JWT authentication (except `/api/v1/auth/register` and `/api/v1/auth/login`).
-
-### Authentication
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/auth/register` | Register a new user |
-| POST | `/api/v1/auth/login` | Login and get JWT token |
-| GET | `/api/v1/auth/me` | Get current user info |
-
-### Backtest
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/backtest/run` | Run a backtest |
-| GET | `/api/v1/backtest/{id}` | Get backtest result |
-| GET | `/api/v1/backtest/` | List backtest history |
-| DELETE | `/api/v1/backtest/{id}` | Delete a backtest |
-
-### Strategy Management
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/strategy/` | Create user strategy |
-| GET | `/api/v1/strategy/` | List user strategies |
-| GET | `/api/v1/strategy/{id}` | Get strategy detail |
-| PUT | `/api/v1/strategy/{id}` | Update strategy |
-| DELETE | `/api/v1/strategy/{id}` | Delete strategy |
-| GET | `/api/v1/strategy/templates` | List built-in templates |
-
-### Strategy Version Control
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/strategy-versions/versions` | Create version |
-| GET | `/api/v1/strategy-versions/strategies/{id}/versions` | List versions |
-| GET | `/api/v1/strategy-versions/versions/{id}` | Get version detail |
-| PUT | `/api/v1/strategy-versions/versions/{id}` | Update version |
-| POST | `/api/v1/strategy-versions/versions/compare` | Compare two versions |
-| POST | `/api/v1/strategy-versions/versions/rollback` | Rollback to version |
-| POST | `/api/v1/strategy-versions/branches` | Create branch |
-| GET | `/api/v1/strategy-versions/strategies/{id}/branches` | List branches |
-
-### Paper Trading
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/paper-trading/sessions` | Create paper trading session |
-| GET | `/api/v1/paper-trading/sessions` | List sessions |
-| POST | `/api/v1/paper-trading/sessions/{id}/start` | Start session |
-| POST | `/api/v1/paper-trading/sessions/{id}/stop` | Stop session |
-
-### Parameter Optimization
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/optimization/tasks` | Create optimization task |
-| GET | `/api/v1/optimization/tasks` | List tasks |
-| GET | `/api/v1/optimization/tasks/{id}` | Get task result |
-
-### Portfolio Management
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/portfolio/` | Create portfolio |
-| GET | `/api/v1/portfolio/` | List portfolios |
-| POST | `/api/v1/portfolio/{id}/strategies` | Add strategy to portfolio |
-
-### Monitoring
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/monitoring/health` | System health check |
-| GET | `/api/v1/monitoring/metrics` | Performance metrics |
-| GET | `/api/v1/monitoring/alerts` | Active alerts |
-
-## Examples
-
-| Example | Description |
-|---------|-------------|
-| `backend_api_quickstart.py` | Register, login, fetch strategy templates |
-| `backend_api_enhanced_backtest_demo.py` | Run enhanced backtest with analyzers |
-| `backend_api_market_data_demo.py` | Fetch A-share kline data via AkShare |
-| `backend_api_monitoring_demo.py` | System monitoring and health checks |
-| `backend_api_optimization_demo.py` | Parameter grid search optimization |
-| `backend_api_paper_trading_demo.py` | Paper trading session management |
-| `backend_api_portfolio_demo.py` | Portfolio construction and management |
-| `backend_api_strategy_version_demo.py` | Version control, branching, rollback |
-| `backend_api_comparison_demo.py` | Side-by-side strategy comparison |
-| `backend_api_realtime_data_demo.py` | Real-time data subscriptions |
-| `demo_custom_strategy.py` | Custom strategy with Backtrader + WebServer |
-| `demo_webserver.py` | Minimal WebServer demo |
-
-Run any example:
-
-```bash
-python examples/backend_api_quickstart.py --base-url http://localhost:8000
-```
-
-## Configuration
-
-Environment variables (`.env`):
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DATABASE_TYPE` | `sqlite` | Database type (sqlite/postgresql/mysql) |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./backtrader.db` | Database connection URL |
-| `JWT_SECRET_KEY` | (auto-generated) | JWT signing secret |
-| `JWT_EXPIRE_MINUTES` | `1440` | Token expiration (minutes) |
-| `DEBUG` | `true` | Debug mode |
-| `SQL_ECHO` | `false` | SQLAlchemy query logging |
-
-## Testing
-
-```bash
-cd src/backend
-
-# Run all tests
-pytest tests/
-
-# With coverage report
-pytest tests/ --cov=app --cov-report=term-missing
-
-# Run a specific test file
-pytest tests/test_auth.py -v
-```
-
-Current status: **1218+ tests, 100% code coverage**.
-
-## Documentation
-
-- **[Installation Guide](docs/INSTALLATION.md)** — Quick start and setup
-- **[Deployment Guide](docs/DEPLOYMENT.md)** — Production deployment
-- **[Operations Guide](docs/OPERATIONS.md)** — System administration
-- **[Backend README](src/backend/README.md)** — Backend architecture
-- **[Fincore Migration Guide](src/backend/FINCORE_MIGRATION.md)** — Metrics integration
-
-## Development
-
-### Adding a New API Endpoint
-
-1. Define schemas in `app/schemas/`
-2. Implement service logic in `app/services/`
-3. Create route in `app/api/`
-4. Register route in `app/api/router.py`
-5. Add tests in `tests/`
-
-### Code Style
-
-- Python: [Ruff](https://docs.astral.sh/ruff/) for linting and formatting
-- Docstrings: Google style (English)
-- Type hints: required for all public functions
 
 ## Contributing
 
+We welcome contributions from the community. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide.
+
+**Quick version:**
+
 1. Fork the repository
-2. Create a feature branch (`feature/my-feature`)
-3. Write tests for your changes
-4. Submit a Pull Request
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Follow [conventional commits](https://www.conventionalcommits.org/): `feat(backtest): add cancel endpoint`
+4. Write tests for your changes
+5. Submit a Pull Request
+
+**Development tools:**
+
+```bash
+pip install pre-commit && pre-commit install  # Auto-lint on commit
+ruff check src/backend                        # Python linting
+npm run lint                                  # Frontend linting
+```
+
+## Roadmap
+
+The project is in active development:
+
+- **v0.1.0 (Current)**: Initial public release — clean API surface, 118 strategy templates, AI Copilot, full trading pipeline
+- **v0.2 (2026 Q3)**: UI/UX overhaul, 85%+ test coverage, i18n, Docker Hub official image
+- **v0.3 (2026 Q4)**: AI deep integration, smart risk control, natural language trading
+- **Future**: Strategy marketplace, plugin system, multi-tenant, cloud-native deployment
+
+See [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md) for the full strategic plan.
+
+## Documentation
+
+| Document | Description |
+| -------- | ----------- |
+| [Installation Guide](docs/INSTALLATION.md) | Environment setup and installation |
+| [Quick Start](docs/QUICKSTART.md) | 5-minute first backtest tutorial |
+| [API Reference](docs/API.md) | Complete REST API documentation |
+| [API Usage Guide](docs/API_GUIDE.md) | Examples and best practices |
+| [Architecture](docs/ARCHITECTURE.md) | System design and decisions |
+| [Development Guide](docs/DEVELOPMENT.md) | Local dev environment setup |
+| [AI Strategy Copilot](docs/AI_STRATEGY_COPILOT.md) | AI assistant and NL strategy generation |
+| [Strategy Development](docs/STRATEGY_DEVELOPMENT.md) | Writing custom trading strategies |
+| [Database Design](docs/DATABASE.md) | Data models and relationships |
+| [Security Guide](docs/SECURITY.md) | Security best practices |
+| [Testing Guide](docs/TESTING.md) | Unit, integration, and E2E testing |
+| [Coding Standards](docs/CODING_STANDARDS.md) | Python and Vue code style |
+| [CI/CD](docs/CI_CD.md) | GitHub Actions pipeline |
+| [Changelog](CHANGELOG.md) | Version history |
 
 ## License
 
-[MIT License](LICENSE)
+[MIT License](LICENSE) — Use it freely for personal, commercial, or educational purposes.
+
+---
+
+<p align="center">
+  Built with ❤️ for the quantitative trading community<br>
+  <a href="https://github.com/cloudQuant/backtrader_web">GitHub</a> ·
+  <a href="https://github.com/cloudQuant/backtrader_web/issues">Issues</a> ·
+  <a href="https://github.com/cloudQuant/backtrader_web/discussions">Discussions</a>
+</p>

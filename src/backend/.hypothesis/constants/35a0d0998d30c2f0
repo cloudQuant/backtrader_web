@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/risk_control.py
+# hypothesis_version: 6.148.5
+
+[0.1, 5.0, 20.0, 30.0, 80.0, 100000.0, 100, 500, 1000, '/alerts', '/config', '/reset-daily', '/risk-control', 'Risk Control', 'cleared', 'message', 'success']

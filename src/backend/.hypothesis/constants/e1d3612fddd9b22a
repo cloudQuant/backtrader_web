@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/accounts/okx_account.py
+# hypothesis_version: 6.148.5
+
+['OKX', 'asset_type', 'balances', 'details', 'exchange_name', 'imr', 'local_update_time', 'mmr', 'ordFroz', 'server_time', 'symbol_name', 'totalEq', 'total_margin', 'total_used_margin', 'total_wallet_balance', 'uTime', 'upl']

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/utils/validation.py
+# hypothesis_version: 6.148.5
+
+[10000, '\x00', '"', '#', '$', '%252e', '%2e%2e', '&', "'", '(', ')', '--', '/', '/\\*', '/tmp', ';', '<', '>', 'URL must be a string', '[^a-zA-Z0-9_-]', '\\', '\\*/', '\\.\\./', '\\.\\.\\\\', '\\x00', '^[A-Za-z]:\\\\', '`', 'applet', 'body', 'button', 'chmod', 'chown', 'cp', 'curl', 'embed', 'errors', 'eval', 'exec', 'form', 'http', 'https', 'iframe', 'input', 'is_valid', 'javascript', 'javascript:', 'link', 'meta', 'mv', 'nc', 'netcat', 'object', 'onblur', 'onchange', 'onclick', 'onerror', 'onfocus', 'onkeydown', 'onkeypress', 'onkeyup', 'onload', 'onmouseout', 'onmouseover', 'onreset', 'onscroll', 'onsubmit', 'passthru', 'ping', 'rm', 'script', 'shell_exec', 'ssh', 'style', 'system', 'telnet', 'warnings', 'wget', '|', '~']

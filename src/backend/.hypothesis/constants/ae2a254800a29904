@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/functions/calculate_time.py
+# hypothesis_version: 6.148.5
+
+[1692611135.737, '%Y-%m-%d %H:%M:%S.%f', 'Asia/Shanghai', 'Asia/Singapore', '__main__', '考虑时区的时间', '获取当前的UTC时间:']

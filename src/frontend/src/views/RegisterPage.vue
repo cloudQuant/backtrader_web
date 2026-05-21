@@ -157,7 +157,7 @@ async function handleRegister() {
     })
     ElMessage.success(t('auth.registerSuccessMsg'))
     router.push('/login')
-  } catch (error) {
+  } catch {
     // 错误已在拦截器中处理
   } finally {
     loading.value = false

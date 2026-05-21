@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/copy_trading_mixin.py
+# hypothesis_version: 6.148.5
+
+[',', '0', 'ALL', 'PUBLIC', 'after', 'asset_type', 'before', 'code', 'copyInstId', 'data', 'exchange_name', 'instId', 'instType', 'lever', 'limit', 'normalize_function', 'profitSharingRatio', 'request_type', 'slOrdPx', 'slTriggerPx', 'slTriggerPxType', 'sortBy', 'subPosId', 'symbol_name', 'tpOrdPx', 'tpTriggerPx', 'tpTriggerPxType', 'uly']

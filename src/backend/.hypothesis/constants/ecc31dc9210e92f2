@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_inner_trade_xq.py
+# hypothesis_version: 6.148.5
+
+['"Windows"', '*/*', '-', '1', '100000', '?0', 'Accept', 'Accept-Encoding', 'Accept-Language', 'Asia/Shanghai', 'Cache-Control', 'Connection', 'Host', 'Pragma', 'Referer', 'Sec-Fetch-Dest', 'Sec-Fetch-Mode', 'Sec-Fetch-Site', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'coerce', 'cors', 'data', 'empty', 'extend', 'gzip, deflate, br', 'items', 'keep-alive', 'ms', 'no-cache', 'page', 'same-origin', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'size', 'true', 'xueqiu.com', '与董监高关系', '变动人', '变动后持股数', '变动日期', '变动股数', '成交均价', '股票代码', '股票名称', '董监高职务']

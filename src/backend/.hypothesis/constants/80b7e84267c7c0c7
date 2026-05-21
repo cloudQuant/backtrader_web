@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/live_trading_service.py
+# hypothesis_version: 6.148.5
+
+[100000.0, '1d', 'Documents', 'backtrader', 'cash', 'config', 'created_at', 'enableRateLimit', 'error', 'exchange', 'failed', 'initial_cash', 'order_id', 'orders', 'ordtype', 'pnl', 'pnlcomm', 'positions', 'price', 'running', 'sandbox', 'side', 'size', 'status', 'stopped', 'stopped_at', 'symbol', 'symbols', 'task_id', 'user_id', 'value']

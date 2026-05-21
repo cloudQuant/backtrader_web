@@ -7,7 +7,8 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError
 
 from app.config import get_settings
 
@@ -193,7 +194,7 @@ def decode_access_token(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         return payload
-    except JWTError:
+    except InvalidTokenError:
         return None
 
 
@@ -212,5 +213,5 @@ def decode_refresh_token(token: str) -> dict | None:
         if payload.get("token_type") != TOKEN_TYPE_REFRESH:
             return None
         return payload
-    except JWTError:
+    except InvalidTokenError:
         return None

@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/fund/fund_rating.py
+# hypothesis_version: 6.148.5
+
+[100, '"', '%', '-', '20230331', '20230630', '3年期评级-3年评级', '3年期评级-较上期', '5年期评级-5年评级', '5年期评级-较上期', '5星评级家数', ';', '=', '_', '__main__', 'coerce', 'div', 'fundinfo', 'id', 'lxml', 'rqoptions', 'script', 'select', 'value', 'var', '|', '|_', '上海证券', '代码', '单位净值', '基金公司', '基金经理', '手续费', '招商证券', '日增长率', '日期', '晨星评级', '济安金信', '简称', '类型', '近1年涨幅', '近3年涨幅', '近5年涨幅']

@@ -1,8 +1,9 @@
 # generated: 2026-03-23
+# last_updated: 2026-05-20
 # project: backtrader_web
 # project_key: NOKEY
 # tracking_system: file-system
-# story_location: {implementation_artifacts}
+# story_location: _bmad-output/implementation-artifacts
 
 # STATUS DEFINITIONS:
 # ==================
@@ -34,6 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-23
+last_updated: 2026-05-20
 project: backtrader_web
 project_key: NOKEY
 tracking_system: file-system
@@ -57,10 +59,10 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: 迭代126质量与遗留链路收口
-  epic-3: in-progress
+  epic-3: done
   3-1-frontend-mainline-hardening: done
   3-2-test-credibility-hardening: done
   3-3-optimization-state-refactor: done
   3-4-security-and-infra-baseline: done
-  3-5-legacy-live-trading-and-doc-sync: in-progress
+  3-5-legacy-live-trading-and-doc-sync: done
   epic-3-retrospective: optional

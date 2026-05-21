@@ -6,6 +6,7 @@ export type KBAssistantMode =
   | 'strategy_idea'
   | 'backtrader_strategy'
   | 'strategy_review'
+  | 'trading_execution'
 
 export type KBReasonCode =
   | 'no_context_found'

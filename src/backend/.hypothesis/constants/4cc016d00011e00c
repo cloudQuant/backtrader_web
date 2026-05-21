@@ -1,0 +1,4 @@
+# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/containers/ctp/ctp_ticker.py
+# hypothesis_version: 6.148.5
+
+[0.0, 'AskPrice1', 'AskVolume1', 'BidPrice1', 'BidVolume1', 'CTP', 'ExchangeID', 'FUTURE', 'HighestPrice', 'InstrumentID', 'LastPrice', 'LowerLimitPrice', 'LowestPrice', 'OpenInterest', 'OpenPrice', 'PreSettlementPrice', 'TradingDay', 'Turnover', 'UpdateMillisec', 'UpdateTime', 'UpperLimitPrice', 'Volume', 'ask_price_1', 'ask_volume_1', 'bid_price_1', 'bid_volume_1', 'exchange_id', 'exchange_name', 'highest_price', 'instrument_id', 'last_price', 'lower_limit_price', 'lowest_price', 'open_interest', 'open_price', 'pre_settlement_price', 'trading_day', 'turnover', 'update_time', 'upper_limit_price', 'volume']
