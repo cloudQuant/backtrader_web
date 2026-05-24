@@ -9,7 +9,10 @@ import logging
 
 from fastapi import APIRouter
 
+from app.api.airflow_callback import router as airflow_callback_router
+from app.api.airflow_dags import router as airflow_dags_router
 from app.api.analytics import router as analytics_router
+from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.backtest_enhanced import router as backtest_enhanced_router
 from app.api.docs import router as docs_router
@@ -71,6 +74,9 @@ def _register_optional_router(
 # ── Core routers (always available) ──────────────────────────────────────────
 api_router.include_router(status_router, tags=["System Status"])
 api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+api_router.include_router(audit_router, prefix="/audit", tags=["Audit"])
+api_router.include_router(airflow_callback_router, prefix="/data", tags=["Airflow Callback"])
+api_router.include_router(airflow_dags_router, prefix="/data/airflow", tags=["Airflow DAGs"])
 api_router.include_router(metrics_router, tags=["Metrics"])
 api_router.include_router(
     backtest_enhanced_router,

@@ -263,6 +263,9 @@ class TaskExecution(Base):
     retry_count = Column(Integer, default=0, nullable=False)
     triggered_by = Column(Enum(TriggeredBy), default=TriggeredBy.SCHEDULER, nullable=False)
     operator_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    airflow_dag_id = Column(String(200), nullable=True, index=True)
+    airflow_run_id = Column(String(200), nullable=True, index=True)
+    airflow_task_id = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(
         DateTime,

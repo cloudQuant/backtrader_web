@@ -281,11 +281,26 @@ def _ensure_knowledge_base_schema_compatibility_sync(bind) -> None:
         _add_column_if_missing(bind, "chat_messages", "created_at", f"created_at {datetime_type}")
 
 
+def _ensure_airflow_schema_compatibility_sync(bind) -> None:
+    """Add Airflow-related columns to ak_task_executions if missing."""
+    if _has_table(bind, "ak_task_executions"):
+        _add_column_if_missing(
+            bind, "ak_task_executions", "airflow_dag_id", "airflow_dag_id VARCHAR(200)"
+        )
+        _add_column_if_missing(
+            bind, "ak_task_executions", "airflow_run_id", "airflow_run_id VARCHAR(200)"
+        )
+        _add_column_if_missing(
+            bind, "ak_task_executions", "airflow_task_id", "airflow_task_id VARCHAR(200)"
+        )
+
+
 async def ensure_schema_compatibility() -> None:
     """Patch legacy databases with columns required by the current ORM schema."""
     async with engine.begin() as conn:
         await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
         await conn.run_sync(_ensure_knowledge_base_schema_compatibility_sync)
+        await conn.run_sync(_ensure_airflow_schema_compatibility_sync)
 
 
 async def create_tables() -> None:
@@ -296,6 +311,7 @@ async def create_tables() -> None:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
         await conn.run_sync(_ensure_knowledge_base_schema_compatibility_sync)
+        await conn.run_sync(_ensure_airflow_schema_compatibility_sync)
 
 
 async def init_db():

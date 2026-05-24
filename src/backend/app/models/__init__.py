@@ -14,6 +14,7 @@ from app.models.akshare_mgmt import (
     TaskExecution,
 )
 from app.models.alerts import Alert, AlertNotification, AlertRule
+from app.models.audit_record import AuditRecord
 from app.models.backtest import BacktestResultModel, BacktestTask
 from app.models.comparison import Comparison, ComparisonShare
 from app.models.knowledge_base import (
@@ -41,6 +42,7 @@ from app.models.workspace import StrategyUnit, Workspace
 __all__ = [
     "Account",
     "Alert",
+    "AuditRecord",
     "OptimizationTask",
     "AlertNotification",
     "AlertRule",

@@ -93,6 +93,13 @@ async def lifespan(app: FastAPI):
     cache_type = "Redis" if settings.REDIS_URL else "Memory"
     logger.info(f"Cache backend: {cache_type}")
 
+    try:
+        from app.api.audit import get_audit_service
+
+        await get_audit_service().start()
+    except Exception:
+        logger.exception("Failed to start audit async sink")
+
     # Security warnings
     if settings.SECRET_KEY in _DEFAULT_SECRETS or settings.JWT_SECRET_KEY in _DEFAULT_SECRETS:
         logger.warning("Using default security key. Set SECRET_KEY / JWT_SECRET_KEY in production.")
@@ -101,17 +108,43 @@ async def lifespan(app: FastAPI):
 
     if settings.AKSHARE_DATA_DATABASE_URL:
         try:
-            from app.services.akshare_scheduler_service import get_akshare_scheduler_service
+            from app.api.airflow_dags import set_orchestration_backend
+            from app.services.orchestration.detector import BackendDetector
 
-            akshare_scheduler_service = get_akshare_scheduler_service()
-            await akshare_scheduler_service.start()
-            logger.info("Akshare scheduler started")
+            detector = BackendDetector()
+            orchestration_backend = await detector.detect()
+            await orchestration_backend.start()
+            set_orchestration_backend(orchestration_backend)
+
+            backend_status = await orchestration_backend.get_backend_status()
+            logger.info(
+                f"Orchestration backend started: {backend_status.get('type', 'unknown')}"
+            )
         except Exception:
-            logger.exception("Failed to start akshare scheduler")
+            logger.exception("Failed to start orchestration backend")
+            # Fallback: try legacy APScheduler directly
+            try:
+                from app.services.akshare_scheduler_service import get_akshare_scheduler_service
+
+                akshare_scheduler_service = get_akshare_scheduler_service()
+                await akshare_scheduler_service.start()
+                logger.info("Fallback: Akshare APScheduler started directly")
+            except Exception:
+                logger.exception("Failed to start fallback APScheduler")
 
     logger.info("Application ready - accepting requests")
     yield
     logger.info("Shutting down Backtrader Web API...")
+
+    # Shutdown orchestration backend
+    try:
+        from app.api.airflow_dags import _orchestration_backend
+
+        if _orchestration_backend is not None:
+            await _orchestration_backend.shutdown()
+            logger.info("Orchestration backend shut down")
+    except Exception:
+        logger.exception("Failed to shutdown orchestration backend")
 
     # Graceful shutdown: signal load balancers and drain connections
     from app.shutdown import GracefulShutdownManager
@@ -135,6 +168,14 @@ async def lifespan(app: FastAPI):
             await akshare_scheduler_service.shutdown()
         except Exception:
             logger.exception("Failed to shutdown akshare scheduler")
+
+    try:
+        from app.api.audit import get_audit_service
+
+        await get_audit_service().shutdown()
+    except Exception:
+        logger.exception("Failed to shutdown audit async sink")
+
     # Clean up ZMQ tick receivers
     try:
         from app.services.quote_service import get_quote_service

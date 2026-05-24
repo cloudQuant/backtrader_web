@@ -1,0 +1,38 @@
+"""Auto-generated DAG for {{ script_id }}. DO NOT EDIT MANUALLY."""
+from datetime import timedelta
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.utils.dates import days_ago
+
+default_args = {
+    "owner": "backtrader_web",
+    "retries": {{ retries }},
+    "retry_delay": timedelta(minutes=5),
+    "execution_timeout": timedelta(seconds={{ timeout }}),
+}
+
+dag = DAG(
+    dag_id="dag_{{ script_id }}",
+    default_args=default_args,
+    description="{{ description }}",
+    schedule_interval="{{ schedule_interval }}",
+    start_date=days_ago(1),
+    catchup=False,
+    tags={{ tags }},
+)
+
+
+def _execute(**context):
+    import sys
+    sys.path.insert(0, "/opt/airflow/app")
+    from app.data_fetch.providers.factory import get_data_provider
+    provider = get_data_provider("{{ source }}")
+    provider.fetch_data({{ parameters }})
+
+
+task_{{ script_id }} = PythonOperator(
+    task_id="{{ script_id }}",
+    python_callable=_execute,
+    dag=dag,
+)

@@ -172,6 +172,56 @@ class Settings(BaseSettings):
         "empty for auto-detection based on DEBUG flag",
     )
 
+    # Log level override: when set, overrides the DEBUG-based default level.
+    # Valid values: DEBUG, INFO, WARNING, ERROR, CRITICAL (case-insensitive).
+    LOG_LEVEL: str = Field(
+        default="",
+        description="Explicit log level override. Empty = auto (DEBUG→DEBUG, prod→WARNING/INFO)",
+    )
+
+    # Log output directory
+    LOG_DIR: str = Field(default="./logs", description="Log output directory path")
+
+    # Log retention periods per category (days)
+    LOG_RETENTION_APP_DAYS: int = Field(
+        default=30, description="Application log retention in days"
+    )
+    LOG_RETENTION_ERROR_DAYS: int = Field(
+        default=90, description="Error log retention in days"
+    )
+    LOG_RETENTION_AUDIT_DAYS: int = Field(
+        default=365, description="Audit log retention in days"
+    )
+
+    # Audit settings
+    AUDIT_RETENTION_DAYS: int = Field(
+        default=90, description="Database audit record retention in days (7-365)"
+    )
+    AUDIT_CLEANUP_HOUR: int = Field(
+        default=2, description="Hour of day to run audit cleanup (0-23)"
+    )
+    AUDIT_EVENT_MAX_SIZE_KB: int = Field(
+        default=10, description="Maximum size of a single audit event_data in KB (1-100)"
+    )
+
+    # Airflow integration settings
+    AIRFLOW_API_BASE_URL: str = Field(
+        default="", description="Airflow REST API base URL (e.g. http://localhost:8080/api/v1)"
+    )
+    AIRFLOW_USERNAME: str = Field(default="admin", description="Airflow API username")
+    AIRFLOW_PASSWORD: str = Field(default="", description="Airflow API password")
+    ORCHESTRATION_BACKEND: str = Field(
+        default="auto",
+        description="Orchestration backend: airflow, apscheduler, auto (auto-detect)",
+    )
+    AIRFLOW_DAG_OUTPUT_DIR: str = Field(
+        default="./dags", description="Directory for generated Airflow DAG files"
+    )
+    AIRFLOW_CALLBACK_BASE_URL: str = Field(
+        default="http://localhost:8000",
+        description="Base URL for Airflow task callbacks to backtrader_web",
+    )
+
     # SQL logging (independent of DEBUG to avoid too much noise)
     SQL_ECHO: bool = Field(default=False, description="Enable SQLAlchemy query logging")
 
