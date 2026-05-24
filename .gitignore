@@ -70,10 +70,12 @@ coverage/
 coverage.json
 src/backend/coverage/
 src/backend/coverage.json
+src/backend/dags/
 src/frontend/coverage/
 src/frontend/e2e-results/
 src/frontend/playwright-report/
 src/frontend/test-results/
+dags/
 
 # =====================================================
 # 项目运行时文件

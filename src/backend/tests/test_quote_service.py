@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+from app.services.quote.cache import match_cached_tick
 from app.services.quote_service import QuoteService
 
 
@@ -24,7 +25,7 @@ def test_match_cached_tick_returns_exact_symbol_match():
     payload = {"symbol": "EURUSD", "bid_price": 1.1}
     cached = {"EURUSD": payload}
 
-    result = QuoteService._match_cached_tick(cached, "EURUSD")
+    result = match_cached_tick(cached, "EURUSD")
 
     assert result == payload
 
@@ -230,6 +231,6 @@ def test_match_cached_tick_matches_mt5_broker_symbol_via_instrument_id_prefix():
     }
     cached = {"EURUSDm": payload}
 
-    result = QuoteService._match_cached_tick(cached, "EURUSD")
+    result = match_cached_tick(cached, "EURUSD")
 
     assert result == payload

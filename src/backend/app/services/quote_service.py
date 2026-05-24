@@ -29,40 +29,19 @@ from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
-from app.utils.backend_data_paths import get_backend_data_path
+from app.services.quote.cache import (
+    get_cached_tick_metrics,
+    load_custom_symbols,
+    match_cached_tick,
+    save_custom_symbols,
+    wait_for_initial_ticks,
+)
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Persistent storage for custom symbols
 # ---------------------------------------------------------------------------
-
-_DATA_DIR = get_backend_data_path()
-_CUSTOM_SYMBOLS_FILE = _DATA_DIR / "quote_custom_symbols.json"
-
-
-def _load_custom_symbols() -> dict[str, dict[str, list[str]]]:
-    """Load custom symbols from disk. Returns {user_id: {source: [symbols]}}."""
-    try:
-        if _CUSTOM_SYMBOLS_FILE.exists():
-            data = json.loads(_CUSTOM_SYMBOLS_FILE.read_text("utf-8"))
-            if isinstance(data, dict):
-                return data
-    except Exception:
-        logger.exception("Failed to load custom symbols from %s", _CUSTOM_SYMBOLS_FILE)
-    return {}
-
-
-def _save_custom_symbols(data: dict[str, dict[str, list[str]]]) -> None:
-    """Persist custom symbols to disk."""
-    try:
-        _DATA_DIR.mkdir(parents=True, exist_ok=True)
-        _CUSTOM_SYMBOLS_FILE.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            "utf-8",
-        )
-    except Exception:
-        logger.exception("Failed to save custom symbols to %s", _CUSTOM_SYMBOLS_FILE)
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +373,7 @@ class QuoteService:
 
     def _init_state(self) -> None:
         # custom symbols: {user_id: {source: [symbol, ...]}}
-        self._custom_symbols: dict[str, dict[str, list[str]]] = _load_custom_symbols()
+        self._custom_symbols: dict[str, dict[str, list[str]]] = load_custom_symbols()
         # ZMQ receivers: {source: _ZmqTickReceiver}
         self._receivers: dict[str, _ZmqTickReceiver] = {}
         # Symbols we have already asked gateways to subscribe
@@ -415,33 +394,7 @@ class QuoteService:
         self._auto_connect_suppressed_sources.discard(normalized)
 
     def get_cached_tick_metrics(self, source: str) -> dict[str, Any]:
-        normalized = str(source or "").strip().upper()
-        if not normalized:
-            return {"tick_count": 0, "last_tick_time": None}
-        receiver = self._receivers.get(normalized)
-        if receiver is None:
-            return {"tick_count": 0, "last_tick_time": None}
-        cached_ticks = receiver.get_all_ticks()
-        last_tick_time: int | None = None
-        for payload in cached_ticks.values():
-            if not isinstance(payload, dict):
-                continue
-            raw_timestamp = payload.get("timestamp")
-            if raw_timestamp in (None, ""):
-                continue
-            try:
-                timestamp = float(raw_timestamp)
-            except (TypeError, ValueError, OverflowError):
-                continue
-            if math.isnan(timestamp) or math.isinf(timestamp):
-                continue
-            normalized_timestamp = int(timestamp / 1000.0) if timestamp > 1e12 else int(timestamp)
-            if last_tick_time is None or normalized_timestamp > last_tick_time:
-                last_tick_time = normalized_timestamp
-        return {
-            "tick_count": len(cached_ticks),
-            "last_tick_time": last_tick_time,
-        }
+        return get_cached_tick_metrics(self._receivers, source)
 
     # ------------------------------------------------------------------
     # Data-source status
@@ -513,7 +466,7 @@ class QuoteService:
 
         # Subscribe newly added symbols on the gateway
         self._subscribe_symbols_on_gateway(source, symbols)
-        _save_custom_symbols(self._custom_symbols)
+        save_custom_symbols(self._custom_symbols)
         return self._custom_symbols[user_id][source]
 
     def remove_custom_symbols(self, source: str, user_id: str, symbols: list[str]) -> list[str]:
@@ -527,7 +480,7 @@ class QuoteService:
         self._custom_symbols[user_id][source] = [
             s for s in self._custom_symbols[user_id][source] if s not in remove_set
         ]
-        _save_custom_symbols(self._custom_symbols)
+        save_custom_symbols(self._custom_symbols)
         return self._custom_symbols[user_id][source]
 
     def search_symbols(self, source: str, keyword: str) -> list[dict[str, str]]:
@@ -578,7 +531,7 @@ class QuoteService:
             defaults_map[item["symbol"]] = item
 
         receiver = self._receivers.get(source)
-        cached_ticks = self._wait_for_initial_ticks(receiver, all_syms)
+        cached_ticks = wait_for_initial_ticks(receiver, all_syms)
         if source in {"IB_WEB", "BINANCE", "OKX"}:
             cached_ticks = self._hydrate_snapshot_ticks(
                 manager,
@@ -596,7 +549,7 @@ class QuoteService:
             meta = defaults_map.get(
                 sym, {"symbol": sym, "name": "", "exchange": "", "category": ""}
             )
-            raw = self._match_cached_tick(cached_ticks, sym)
+            raw = match_cached_tick(cached_ticks, sym)
             tick = self._build_tick(source, label, sym, meta, raw, now)
             ticks.append(tick)
         fields = _resolve_quote_fields(source, ticks)
@@ -925,47 +878,6 @@ class QuoteService:
             pass
         return None
 
-    @staticmethod
-    def _wait_for_initial_ticks(
-        receiver: _ZmqTickReceiver | None,
-        symbols: list[str],
-        timeout_sec: float = 1.5,
-    ) -> dict[str, dict[str, Any]]:
-        if receiver is None or not receiver.is_alive:
-            return {}
-        cached = receiver.get_all_ticks()
-        if not symbols or any(sym in cached for sym in symbols):
-            return cached
-        deadline = time.time() + timeout_sec
-        while time.time() < deadline:
-            time.sleep(0.2)
-            cached = receiver.get_all_ticks()
-            if any(sym in cached for sym in symbols):
-                return cached
-        return cached
-
-    @staticmethod
-    def _match_cached_tick(
-        cached_ticks: dict[str, dict[str, Any]],
-        symbol: str,
-    ) -> dict[str, Any] | None:
-        raw = cached_ticks.get(symbol)
-        if raw is not None:
-            return raw
-        target = symbol.upper()
-        for key, payload in cached_ticks.items():
-            candidates = [
-                str(key or ""),
-                str(payload.get("symbol") or ""),
-                str(payload.get("instrument_id") or ""),
-            ]
-            normalized = [candidate.upper() for candidate in candidates if candidate]
-            if target in normalized:
-                return payload
-            if any(value.startswith(target) for value in normalized):
-                return payload
-        return None
-
     def _hydrate_snapshot_ticks(
         self,
         manager: Any,
@@ -985,7 +897,7 @@ class QuoteService:
             return cached_ticks
         hydrated = dict(cached_ticks)
         for symbol in symbols:
-            if self._match_cached_tick(hydrated, symbol) is not None:
+            if match_cached_tick(hydrated, symbol) is not None:
                 continue
             raw = self._fetch_gateway_snapshot_tick(source, feed, symbol)
             if raw is None:

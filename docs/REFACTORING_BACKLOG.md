@@ -187,6 +187,20 @@ remaining slices follow the same recipe.
   scope as packages get cleaned up.
 - **Effort**: S to set up, M-L to chase down errors.
 
+### 13. `quote_service.py` still mixes transport, cache, symbol persistence, and normalization
+
+- **Where**: `src/backend/app/services/quote_service.py` (~1260 lines after cache slice)
+- **Status**: cache/persistence helpers were extracted to `app/services/quote/cache.py`,
+  and `quote_service.py` shrank by 89 lines. The remaining module still owns
+  gateway discovery, ZMQ subscription lifecycle, snapshot hydration, symbol
+  normalization, and response shaping.
+- **Recommended slices**:
+  1. Move gateway/runtime discovery and receiver lifecycle into `quote/runtime.py`.
+  2. Move symbol/default-source normalization into `quote/symbols.py`.
+  3. Keep `QuoteService` as the thin façade/singleton boundary used by the API.
+  4. Add focused unit tests per slice before touching transport behavior.
+- **Effort**: M.
+
 ---
 
 ## How to use this list
