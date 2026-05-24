@@ -415,7 +415,7 @@ async def get_gateway_health(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get gateway health / 获取网关健康状态失败: {type(exc).__name__}: {exc}",
-        )
+        ) from exc
     return {"total": len(gateways), "gateways": gateways}
 
 
@@ -442,7 +442,7 @@ def connect_gateway(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to connect gateway / 连接网关失败: {type(exc).__name__}: {exc}",
-        )
+        ) from exc
     if result["status"] == "error":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
     return result
@@ -533,7 +533,7 @@ async def add_instance(
     try:
         return mgr.add_instance(req.strategy_id, req.params, user_id=current_user.sub)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.delete("/{instance_id}", summary="Delete live trading instance")
@@ -611,7 +611,7 @@ async def start_instance(
     try:
         return await mgr.start_instance(instance_id)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post(
@@ -638,7 +638,7 @@ async def stop_instance(
     try:
         return await mgr.stop_instance(instance_id)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post(

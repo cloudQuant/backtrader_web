@@ -87,7 +87,7 @@ async def add_instance(
     try:
         return mgr.add_instance(req.strategy_id, req.params, user_id=current_user.sub)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.delete("/{instance_id}", summary="Delete simulation instance")
@@ -167,7 +167,7 @@ async def start_instance(
     try:
         return await mgr.start_instance(instance_id)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post(
@@ -196,7 +196,7 @@ async def stop_instance(
     try:
         return await mgr.stop_instance(instance_id)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post(

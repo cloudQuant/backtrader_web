@@ -218,12 +218,15 @@ SYNC_LOCAL_MYSQL_PASSWORD=
 
 ## 常用验证命令
 
+前端覆盖率当前按实测基线渐进收紧；本轮先将 `lines/statements` 提升到 `29%`、`functions` 提升到 `35%`，后续每个迭代至少继续提升 `+5`，直至达到 60%+ 的稳定门槛。
+
 后端：
 
 ```bash
 cd src/backend
 ruff check app tests
 pytest tests/test_iteration129_knowledge_base_api.py tests/test_iteration129_rag_api.py tests/test_iteration129_kb_chat_api.py -q --tb=short
+mypy app/utils app/schemas
 ```
 
 前端：
@@ -232,6 +235,7 @@ pytest tests/test_iteration129_knowledge_base_api.py tests/test_iteration129_rag
 cd src/frontend
 npm run typecheck
 npm run test -- src/test/views/AIChatPage.test.ts src/test/stores/kbChat.test.ts --run
+npm run test -- --run --coverage
 ```
 
 ## 文档

@@ -390,7 +390,7 @@ async def get_pdf_report(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"PDF generation not enabled, need to install weasyprint: {e}",
-        )
+        ) from e
 
 
 @router.get("/{task_id}/report/excel", summary="Export Excel report")
@@ -426,7 +426,7 @@ async def get_excel_report(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Excel export not enabled, need to install pandas and openpyxl: {e}",
-        )
+        ) from e
 
 
 # ==================== WebSocket Endpoint ====================

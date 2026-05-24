@@ -196,11 +196,11 @@ async def get_alerts(
     if level:
         try:
             alert_level = RiskAlertLevel(level)
-        except ValueError:
+        except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid alert level: {level}. Must be one of: info, warning, critical",
-            )
+            ) from exc
 
     alerts = service.get_alerts(
         instance_id=instance_id,

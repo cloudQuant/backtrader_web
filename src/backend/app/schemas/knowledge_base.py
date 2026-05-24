@@ -17,6 +17,26 @@ KnowledgeBaseQuantFocus = Literal[
 ]
 
 
+def _default_knowledge_base_settings() -> "KnowledgeBaseSettings":
+    return KnowledgeBaseSettings(
+        retrieval_profile="quant_research",
+        search_mode="hybrid",
+        default_top_k=8,
+        min_similarity=0.08,
+        title_weight=0.35,
+        keyword_weight=0.35,
+        phrase_weight=0.2,
+        recency_weight=0.1,
+        max_context_chunks=6,
+        use_conversation_memory=True,
+        conversation_lookback_messages=6,
+        prioritize_title_matches=True,
+        prefer_recent_documents=True,
+        quant_focus="strategy_research",
+        system_prompt_suffix=None,
+    )
+
+
 class KnowledgeBaseSettings(BaseModel):
     """Retrieval and orchestration defaults for a knowledge base."""
 
@@ -75,7 +95,7 @@ class KnowledgeBaseCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255, examples=["量化策略研究库"])
     description: str | None = Field(None, examples=["收录经典量化策略论文、因子研究报告和回测分析文档"])
     is_public: bool = False
-    settings: KnowledgeBaseSettings = Field(default_factory=KnowledgeBaseSettings)
+    settings: KnowledgeBaseSettings = Field(default_factory=_default_knowledge_base_settings)
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -125,7 +145,7 @@ class KnowledgeBaseResponse(BaseModel):
     description: str | None = Field(None, examples=["收录经典量化策略论文、因子研究报告和回测分析文档"])
     document_count: int = Field(0, examples=[15])
     is_public: bool = False
-    settings: KnowledgeBaseSettings = Field(default_factory=KnowledgeBaseSettings)
+    settings: KnowledgeBaseSettings = Field(default_factory=_default_knowledge_base_settings)
     created_at: datetime
     updated_at: datetime
 

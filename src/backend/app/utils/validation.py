@@ -609,7 +609,7 @@ class ValidationResult:
         Returns:
             Dictionary representation of the result.
         """
-        result = {"is_valid": self.is_valid}
+        result: dict[str, object] = {"is_valid": self.is_valid}
         if self.errors:
             result["errors"] = self.errors
         if self.warnings:

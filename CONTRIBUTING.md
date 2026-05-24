@@ -52,6 +52,14 @@ Use conventional commit messages:
 git commit -m "feat: add new strategy backtest feature"
 ```
 
+提交前自检清单：
+
+- 不要提交数据库文件（如 `backtrader.db`）或其他本地产生的数据副本
+- 不要提交 coverage 产物（如 `coverage.xml`、`coverage.json`、`htmlcov/`、`.coverage.*`）
+- 不要提交真实 `.env`、API Key、JWT 密钥、管理员密码或其他敏感配置
+- 不要提交 IDE / 系统元数据（如 `.DS_Store`、`.idea/`、临时日志、调试输出）
+- 提交前确认 `git status` 中没有意外的生成文件或大体积产物
+
 Commit types:
 - `feat`: New feature
 - `fix`: Bug fix

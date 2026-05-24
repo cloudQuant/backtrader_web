@@ -132,7 +132,7 @@ async def submit_optimization_task_internal(
             persist_to_db=True,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     return OptimizationSubmitResponse(
         task_id=task_id,
@@ -182,7 +182,7 @@ async def submit_backtest_optimization_task_internal(
             persist_to_db=True,
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
     return OptimizationSubmitResponse(
         task_id=task_id,

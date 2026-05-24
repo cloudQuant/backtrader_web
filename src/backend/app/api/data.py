@@ -103,4 +103,4 @@ async def get_kline_data(
         raise
     except Exception as e:
         logger.error(f"Failed to fetch market data: {symbol}, {e}")
-        raise HTTPException(status_code=500, detail=f"Query failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Query failed: {e}") from e

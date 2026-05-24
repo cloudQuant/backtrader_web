@@ -133,10 +133,10 @@ async def get_alert_rule(
     """
     try:
         rule = await service.get_alert_rule(rule_id=rule_id, user_id=current_user.sub)
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this rule"
-        )
+        ) from exc
 
     if not rule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert rule not found")
@@ -261,10 +261,10 @@ async def get_alert(
     """
     try:
         alert = await service.get_alert(alert_id=alert_id, user_id=current_user.sub)
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this alert"
-        )
+        ) from exc
 
     if not alert:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
@@ -409,7 +409,7 @@ async def get_alerts_by_type(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {e}"
-        )
+        ) from e
 
     stats = await service.get_alerts_by_type(
         user_id=current_user.sub, start_dt=start_dt, end_dt=end_dt

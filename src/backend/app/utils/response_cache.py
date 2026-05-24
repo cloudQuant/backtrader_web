@@ -13,9 +13,9 @@ import hashlib
 import json
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Any, Protocol
+from typing import Any, ParamSpec, Protocol, TypeVar
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -24,6 +24,9 @@ from app.config import get_settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+P = ParamSpec("P")
+TResponse = TypeVar("TResponse", bound=Response)
 
 
 class CacheBackend(Protocol):
@@ -172,7 +175,9 @@ def _build_cache_key(key_prefix: str, path: str, query_params: dict[str, Any]) -
     return f"{key_prefix}:{path}:{params_hash}"
 
 
-def cache_response(ttl: int = 60, key_prefix: str = "api") -> Callable:
+def cache_response(
+    ttl: int = 60, key_prefix: str = "api"
+) -> Callable[[Callable[P, Awaitable[TResponse]]], Callable[P, Awaitable[Response]]]:
     """API response cache decorator for FastAPI route handlers.
 
     Caches GET request responses and adds X-Cache: HIT/MISS headers.
@@ -196,11 +201,12 @@ def cache_response(ttl: int = 60, key_prefix: str = "api") -> Callable:
     ttl = max(1, min(86400, ttl))
     key_prefix = key_prefix[:64] if key_prefix else "api"
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[P, Awaitable[TResponse]]) -> Callable[P, Awaitable[Response]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs) -> Response:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> Response:
             # Extract Request from args/kwargs (FastAPI injects it)
-            request: Request | None = kwargs.get("request")
+            request_obj = kwargs.get("request")
+            request: Request | None = request_obj if isinstance(request_obj, Request) else None
             if request is None:
                 for arg in args:
                     if isinstance(arg, Request):

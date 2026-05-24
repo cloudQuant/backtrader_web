@@ -193,7 +193,7 @@ async def get_historical_ticks(
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid date format: {e}"
-        )
+        ) from e
 
     try:
         ticks = await service.get_historical_data(

@@ -82,10 +82,10 @@ async def create_strategy_version(
             changelog=request.changelog,
             is_default=request.is_default,
         )
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy"
-        )
+        ) from exc
 
     # Push version creation notification
     await ws_manager.send_to_task(
@@ -323,10 +323,10 @@ async def compare_strategy_versions(
             from_version_id=request.from_version_id,
             to_version_id=request.to_version_id,
         )
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access these versions"
-        )
+        ) from exc
 
     # Push comparison completion notification
     await ws_manager.send_to_task(
@@ -387,10 +387,10 @@ async def rollback_strategy_version(
             target_version_id=request.target_version_id,
             reason=request.reason,
         )
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this version"
-        )
+        ) from exc
 
     # Push rollback notification
     await ws_manager.send_to_task(
@@ -445,12 +445,12 @@ async def create_strategy_branch(
             branch_name=request.branch_name,
             parent_branch=request.parent_branch,
         )
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy"
-        )
+        ) from exc
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
     return service.branch_to_response(branch)
 
@@ -489,12 +489,12 @@ async def list_strategy_branches(
             limit=limit,
             offset=offset,
         )
-    except PermissionError:
+    except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="No permission to access this strategy"
-        )
+        ) from exc
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
     return BranchListResponse(
         total=total,

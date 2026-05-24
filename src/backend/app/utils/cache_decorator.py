@@ -6,16 +6,19 @@ Automatically caches API responses to Redis/Memory cache.
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import wraps
-from typing import Any
+from typing import Any, ParamSpec, TypeVar
 
 from app.db.cache import get_cache
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 def cache_response(
     ttl: int = 300, key_prefix: str = "api", vary_by_params: list[str] | None = None
-):
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
     """
     Decorator to cache API responses.
 
@@ -25,9 +28,9 @@ def cache_response(
         vary_by_params: List of parameter names to include in cache key
     """
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             # Generate cache key
             key_parts = [key_prefix, func.__name__]
 

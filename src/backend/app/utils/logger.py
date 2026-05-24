@@ -14,6 +14,7 @@ Features:
 import json
 import logging
 import sys
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -75,21 +76,21 @@ class LogLevel(str, Enum):
 class LogContext:
     """Context manager for adding contextual information to logs."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         """Initialize log context.
 
         Args:
             **kwargs: Key-value pairs to include in log context.
         """
-        self.context = kwargs
-        self.bind_vars = {}
+        self.context: dict[str, Any] = kwargs
+        self.bind_vars: Any = {}
 
-    def __enter__(self):
+    def __enter__(self) -> "LogContext":
         """Enter context, bind variables to logger."""
         self.bind_vars = logger.bind(**self.context)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit context, unbind variables.
 
         Note: loguru context is automatically managed, no explicit cleanup needed.
@@ -109,7 +110,7 @@ def _filter_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data, dict):
         return data
 
-    filtered = {}
+    filtered: dict[str, Any] = {}
     for key, value in data.items():
         key_lower = key.lower()
         if any(pattern in key_lower for pattern in SENSITIVE_PATTERNS):
@@ -204,11 +205,11 @@ def _serialize_log(record: dict[str, Any]) -> str:
     return json.dumps(log_entry, ensure_ascii=False)
 
 
-def _patch_record(record: dict[str, Any]) -> dict[str, Any]:
+def _patch_record(record: Any) -> bool:
     """Ensure record has default values for optional fields."""
     if "request_id" not in record["extra"]:
         record["extra"]["request_id"] = "N/A"
-    return record
+    return True
 
 
 _PLAIN_FORMAT = (
@@ -220,12 +221,12 @@ _PLAIN_FORMAT = (
 )
 
 
-def _json_console_sink(message) -> None:
+def _json_console_sink(message: Any) -> None:
     """Sink that writes JSON-serialized log records to stdout.
 
     Used in production to enable structured log ingestion by ELK/Loki/CloudWatch.
     """
-    record = message.record
+    record: dict[str, Any] = message.record
     sys.stdout.write(_serialize_log(record) + "\n")
     sys.stdout.flush()
 
@@ -262,11 +263,10 @@ def _add_file_handler(
     backtrace: bool = False,
 ) -> None:
     """Add a rotating file handler with common defaults."""
-    filt = (
-        (lambda record, t=tag_filter: t in record["extra"].get("tags", []))
-        if tag_filter
-        else _patch_record
-    )
+    def _tag_filter(record: Any) -> bool:
+        return bool(tag_filter and tag_filter in record["extra"].get("tags", []))
+
+    filt: Callable[[Any], bool] = _tag_filter if tag_filter else _patch_record
 
     if use_json:
         # For JSON output, use "{message}" as format and serialize in a custom
@@ -304,7 +304,7 @@ def _add_file_handler(
         )
 
 
-def _resolve_log_format(settings) -> tuple[bool, bool]:
+def _resolve_log_format(settings: Any) -> tuple[bool, bool]:
     """Resolve whether to use JSON output and whether to use colored text.
 
     Fallback logic:
@@ -339,6 +339,11 @@ def setup_logger(
 ) -> Any:
     """Configure and return an enhanced logger instance.
 
+    Log level policy:
+    - LOG_LEVEL env var (highest priority): use specified level for all sinks
+    - DEBUG=true (dev/test): console=DEBUG, file=DEBUG (output everything)
+    - DEBUG=false (production): console=WARNING, file=INFO
+
     Args:
         name: Optional logger name (for compatibility, loguru uses global logger).
         log_level: Override log level from config.
@@ -350,7 +355,22 @@ def setup_logger(
     """
     settings = get_settings()
 
-    level = log_level or ("DEBUG" if settings.DEBUG else "INFO")
+    # Resolve log levels: explicit LOG_LEVEL > function param > environment-based default
+    explicit_level = getattr(settings, "LOG_LEVEL", "").strip().upper()
+    if log_level:
+        console_level = log_level
+        file_level = log_level
+    elif explicit_level:
+        console_level = explicit_level
+        file_level = explicit_level
+    elif settings.DEBUG:
+        # Dev/test: output everything
+        console_level = "DEBUG"
+        file_level = "DEBUG"
+    else:
+        # Production: console only WARNING+, file keeps INFO+
+        console_level = "WARNING"
+        file_level = "INFO"
 
     # Determine format: explicit json_logs param takes precedence, then LOG_FORMAT env var
     if json_logs is not None:
@@ -359,7 +379,7 @@ def setup_logger(
     else:
         use_json, use_color = _resolve_log_format(settings)
 
-    logs_path = Path(log_dir or "logs")
+    logs_path = Path(log_dir or getattr(settings, "LOG_DIR", "./logs") or "./logs")
     logs_path.mkdir(parents=True, exist_ok=True)
 
     logger.remove()
@@ -368,16 +388,24 @@ def setup_logger(
     # ``logging.getLogger(__name__)`` are automatically routed through loguru.
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
-    _add_console_handler(level, use_color)
+    _add_console_handler(console_level, use_color)
 
-    _add_file_handler(logs_path, "app_{time:YYYY-MM-DD}.log", use_json, retention="30 days")
+    # Resolve retention periods from config
+    app_retention = f"{getattr(settings, 'LOG_RETENTION_APP_DAYS', 30)} days"
+    error_retention = f"{getattr(settings, 'LOG_RETENTION_ERROR_DAYS', 90)} days"
+    audit_retention = f"{getattr(settings, 'LOG_RETENTION_AUDIT_DAYS', 365)} days"
+
+    _add_file_handler(
+        logs_path, "app_{time:YYYY-MM-DD}.log", use_json,
+        level=file_level, retention=app_retention,
+    )
 
     _add_file_handler(
         logs_path,
         "errors_{time:YYYY-MM-DD}.log",
         use_json,
         level="ERROR",
-        retention="90 days",
+        retention=error_retention,
         fmt_override=_PLAIN_FORMAT + "\n{exception}",
         backtrace=True,
     )
@@ -386,7 +414,8 @@ def setup_logger(
         logs_path,
         "audit_{time:YYYY-MM-DD}.log",
         use_json,
-        retention="365 days",
+        retention=audit_retention,
+        level=file_level,
         fmt_override=(
             "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
             "{name}:{function}:{line} | user:{extra[user_id]:<12} | {message}"
@@ -399,6 +428,7 @@ def setup_logger(
         "backtest_{time:YYYY-MM-DD}.log",
         use_json,
         retention="60 days",
+        level=file_level,
         fmt_override=(
             "{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | "
             "task:{extra[task_id]:<12} | user:{extra[user_id]:<12} | {message}"
@@ -428,7 +458,7 @@ def get_logger(name: str | None = None) -> Any:
     return logger
 
 
-def log_with_context(message: str, level: str = "INFO", **context) -> None:
+def log_with_context(message: str, level: str = "INFO", **context: Any) -> None:
     """Log a message with additional context.
 
     Args:
@@ -447,7 +477,7 @@ def log_with_context(message: str, level: str = "INFO", **context) -> None:
 class AuditLogger:
     """Specialized logger for security and audit events."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize audit logger."""
         self.logger = logger.bind(tags=["audit"])
 
@@ -560,7 +590,7 @@ class AuditLogger:
 audit_logger = AuditLogger()
 
 
-def bind_request_context(request_id: str, user_id: str = None, **extra) -> logger:
+def bind_request_context(request_id: str, user_id: str | None = None, **extra: Any) -> Any:
     """Bind request context to logger for all subsequent logs in the request.
 
     Args:
@@ -575,14 +605,18 @@ def bind_request_context(request_id: str, user_id: str = None, **extra) -> logge
         >>> logger = bind_request_context("req-123", user_id="user-456")
         >>> logger.info("Processing request")  # Will include request_id and user_id
     """
-    context = {"request_id": request_id}
+    context: dict[str, Any] = {"request_id": request_id}
     if user_id:
         context["user_id"] = user_id
     context.update(extra)
     return logger.bind(**context)
 
 
-def bind_task_context(task_id: str, user_id: str = None, task_type: str = None) -> logger:
+def bind_task_context(
+    task_id: str,
+    user_id: str | None = None,
+    task_type: str | None = None,
+) -> Any:
     """Bind task context to logger for task-related logs.
 
     Args:
@@ -597,9 +631,11 @@ def bind_task_context(task_id: str, user_id: str = None, task_type: str = None) 
         >>> logger = bind_task_context("task-123", user_id="user-456", task_type="backtest")
         >>> logger.info("Starting task")  # Will include task_id and user_id
     """
-    context = {"task_id": task_id, "tags": []}
+    context: dict[str, Any] = {"task_id": task_id, "tags": []}
     if user_id:
         context["user_id"] = user_id
     if task_type:
-        context["tags"].append(task_type)
+        tags = context.setdefault("tags", [])
+        if isinstance(tags, list):
+            tags.append(task_type)
     return logger.bind(**context)

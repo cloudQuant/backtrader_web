@@ -8,6 +8,7 @@ import ast
 import math
 import signal
 import threading
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -90,11 +91,11 @@ class StrategySandbox:
     @staticmethod
     def _safe_import(
         name: str,
-        globals: dict | None = None,
-        locals: dict | None = None,
-        fromlist: list | None = None,
+        globals: dict[str, Any] | None = None,
+        locals: dict[str, Any] | None = None,
+        fromlist: Sequence[str] | None = None,
         level: int = 0,
-    ):
+    ) -> Any:
         """Safe import function.
 
         Only allows importing whitelisted modules.
@@ -138,7 +139,7 @@ class StrategySandbox:
         return imported_module
 
     @staticmethod
-    def _safe_print(*args, **kwargs):
+    def _safe_print(*args: Any, **kwargs: Any) -> None:
         """Safe print function.
 
         Disables print to prevent user strategy output.
@@ -231,7 +232,7 @@ class StrategySandbox:
         """
         if hasattr(signal, "SIGALRM"):
             # Unix: use signal-based timeout (works within the same thread)
-            def _timeout_handler(signum, frame):
+            def _timeout_handler(signum: int, frame: Any) -> None:
                 raise _SandboxTimeoutError()
 
             old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
@@ -245,7 +246,7 @@ class StrategySandbox:
             # Fallback: use threading (less reliable but cross-platform)
             error: list[Exception] = []
 
-            def _run():
+            def _run() -> None:
                 try:
                     exec(compiled_code, safe_globals)
                 except Exception as e:

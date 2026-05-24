@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 
 def _to_utc(dt: datetime) -> datetime:
@@ -95,7 +95,7 @@ class BacktestRequest(BaseModel):
 
     @field_validator("end_date")
     @classmethod
-    def validate_date_range(cls, v: datetime, info) -> datetime:
+    def validate_date_range(cls, v: datetime, info: ValidationInfo) -> datetime:
         """Validate date range.
 
         Args:
@@ -130,7 +130,7 @@ class BacktestRequest(BaseModel):
 
     @field_validator("params")
     @classmethod
-    def validate_params(cls, v: dict[str, Any], info) -> dict[str, Any]:
+    def validate_params(cls, v: dict[str, Any], info: ValidationInfo) -> dict[str, Any]:
         """Validate strategy parameters.
 
         Args:
@@ -147,6 +147,8 @@ class BacktestRequest(BaseModel):
             return {}
 
         strategy_id = info.data.get("strategy_id")
+        if not isinstance(strategy_id, str):
+            return v
 
         # Get strategy parameter definitions
         param_specs = get_strategy_params(strategy_id)
