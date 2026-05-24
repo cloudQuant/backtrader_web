@@ -24,60 +24,67 @@ describe('useThemeStore', () => {
     document.querySelector('meta[name="theme-color"]')?.remove()
   })
 
-  it('initializes with light mode by default', () => {
+  it('initializes with aurora mode by default', () => {
     const store = useThemeStore()
-    expect(store.mode).toBe('light')
+    expect(store.mode).toBe('aurora')
   })
 
-  it('reads saved theme from localStorage', () => {
-    localStorage.setItem('theme-mode', 'dark')
+  it('setTheme updates mode', () => {
     const store = useThemeStore()
-    expect(store.mode).toBe('dark')
-  })
-
-  it('setTheme updates mode and saves to localStorage', () => {
-    const store = useThemeStore()
-    store.setTheme('dark')
-    expect(store.mode).toBe('dark')
-    expect(localStorage.getItem('theme-mode')).toBe('dark')
+    store.setTheme('obsidian')
+    expect(store.mode).toBe('obsidian')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
-  it('setTheme to light removes dark class', () => {
+  it('setTheme to light-based theme removes dark class', () => {
     const store = useThemeStore()
-    store.setTheme('dark')
-    store.setTheme('light')
-    expect(store.mode).toBe('light')
+    store.setTheme('obsidian')
+    store.setTheme('aurora')
+    expect(store.mode).toBe('aurora')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 
-  it('toggleTheme switches between light and dark', () => {
+  it('toggleTheme switches between aurora and obsidian', () => {
     const store = useThemeStore()
-    expect(store.mode).toBe('light')
+    expect(store.mode).toBe('aurora')
     store.toggleTheme()
-    expect(store.mode).toBe('dark')
+    expect(store.mode).toBe('obsidian')
     store.toggleTheme()
-    expect(store.mode).toBe('light')
+    expect(store.mode).toBe('aurora')
   })
 
-  it('getActualTheme returns mode for non-auto', () => {
+  it('getActualTheme returns dark for dark-based themes', () => {
     const store = useThemeStore()
-    store.setTheme('dark')
+    store.setTheme('obsidian')
     expect(store.getActualTheme()).toBe('dark')
-    store.setTheme('light')
+    store.setTheme('nebula')
+    expect(store.getActualTheme()).toBe('dark')
+    store.setTheme('solaris')
+    expect(store.getActualTheme()).toBe('dark')
+  })
+
+  it('getActualTheme returns light for light-based themes', () => {
+    const store = useThemeStore()
+    store.setTheme('aurora')
+    expect(store.getActualTheme()).toBe('light')
+    store.setTheme('glacier')
+    expect(store.getActualTheme()).toBe('light')
+    store.setTheme('meridian')
+    expect(store.getActualTheme()).toBe('light')
+    store.setTheme('verdant')
     expect(store.getActualTheme()).toBe('light')
   })
 
-  it('setTheme auto uses system preference', () => {
-    const matchMediaMock = vi.fn().mockReturnValue({
-      matches: true,
-      addEventListener: vi.fn(),
-    })
-    Object.defineProperty(window, 'matchMedia', { value: matchMediaMock, writable: true })
+  it('all 7 themes apply CSS variables', () => {
     const store = useThemeStore()
-    store.setTheme('auto')
-    expect(store.mode).toBe('auto')
-    expect(store.getActualTheme()).toBe('dark')
+    const themes = ['aurora', 'obsidian', 'nebula', 'solaris', 'glacier', 'meridian', 'verdant'] as const
+    for (const theme of themes) {
+      store.setTheme(theme)
+      expect(document.documentElement.style.getPropertyValue('--bg-color')).toBeTruthy()
+      expect(document.documentElement.style.getPropertyValue('--bg-color-sidebar')).toBeTruthy()
+      expect(document.documentElement.style.getPropertyValue('--sidebar-active-color')).toBeTruthy()
+      expect(document.documentElement.dataset.theme).toBe(theme)
+    }
   })
 
   it('init applies theme and creates meta tag', () => {
@@ -87,18 +94,17 @@ describe('useThemeStore', () => {
     expect(meta).toBeTruthy()
   })
 
-  it('init with auto mode listens for system changes', () => {
-    const addEventListenerMock = vi.fn()
-    Object.defineProperty(window, 'matchMedia', {
-      value: vi.fn().mockReturnValue({
-        matches: false,
-        addEventListener: addEventListenerMock,
-      }),
-      writable: true,
-    })
-    localStorage.setItem('theme-mode', 'auto')
+  it('currentThemeLabel returns correct label', () => {
     const store = useThemeStore()
-    store.init()
-    expect(addEventListenerMock).toHaveBeenCalledWith('change', expect.any(Function))
+    expect(store.currentThemeLabel).toBe('极光')
+    store.setTheme('solaris')
+    expect(store.currentThemeLabel).toBe('烈阳')
+  })
+
+  it('currentThemeIcon returns correct icon', () => {
+    const store = useThemeStore()
+    expect(store.currentThemeIcon).toBe('💎')
+    store.setTheme('nebula')
+    expect(store.currentThemeIcon).toBe('🔮')
   })
 })

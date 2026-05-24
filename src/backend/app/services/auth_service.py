@@ -21,6 +21,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.utils.logger import get_logger
+from app.utils.call_logger import call_logger
 from app.utils.security import (
     REFRESH_TOKEN_EXPIRE_DAYS,
     create_access_token,
@@ -142,6 +143,7 @@ class AuthService:
         await session.flush()
         return len(tokens)
 
+    @call_logger()
     async def register(self, user_create: UserCreate) -> UserResponse | None:
         """Register a new user.
 
@@ -181,6 +183,7 @@ class AuthService:
             created_at=user.created_at,
         )
 
+    @call_logger()
     async def login(self, user_login: UserLogin) -> Token | None:
         """Authenticate a user and generate JWT token.
 
@@ -351,6 +354,7 @@ class AuthService:
         async with unit_of_work() as session:
             return await self._revoke_all_user_tokens_in_session(session, user_id)
 
+    @call_logger()
     async def change_password(self, user_id: str, old_password: str, new_password: str) -> bool:
         """Change user password and revoke all refresh tokens.
 

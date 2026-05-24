@@ -7,6 +7,7 @@ import App from './App.vue'
 import router from './router'
 import { AUTH_EXPIRED_EVENT } from './utils/session'
 import { useAuthStore } from './stores/auth'
+import { AuditTracker } from './utils/auditTracker'
 import i18n from './i18n'
 
 // Element Plus base styles (CSS variables, reset) — required for auto-import to work
@@ -73,6 +74,26 @@ async function bootstrap() {
 
   app.use(router)
   await router.isReady()
+
+  // Initialize audit tracker — only tracks when user is authenticated
+  const auditTracker = new AuditTracker(() => authStore.user?.id ?? null)
+  if (authStore.isAuthenticated) {
+    auditTracker.start(router)
+  }
+
+  // Watch auth state changes to start/stop tracker
+  const { watch } = await import('vue')
+  watch(
+    () => authStore.isAuthenticated,
+    (isAuth) => {
+      if (isAuth) {
+        auditTracker.start(router)
+      } else {
+        void auditTracker.flush()
+        auditTracker.stop()
+      }
+    },
+  )
 
   window.addEventListener(AUTH_EXPIRED_EVENT, () => {
     const currentRoute = router.currentRoute.value

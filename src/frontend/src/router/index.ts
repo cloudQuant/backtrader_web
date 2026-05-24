@@ -123,6 +123,12 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/data/DataInterfacesPage.vue'),
             meta: { requiresAdmin: true },
           },
+          {
+            path: 'airflow',
+            name: 'DataAirflow',
+            component: () => import('@/views/data/AirflowDagsPage.vue'),
+            meta: { requiresAdmin: true },
+          },
         ],
       },
       {

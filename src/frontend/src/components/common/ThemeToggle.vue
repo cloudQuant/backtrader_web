@@ -6,34 +6,24 @@
   >
     <el-button 
       circle 
-      :icon="currentIcon"
       data-shortcut="toggle-dark-mode"
-      :title="`当前主题: ${themeText}`"
-    />
+      :title="`当前主题: ${themeStore.currentThemeLabel}`"
+    >
+      <span class="theme-toggle-icon">{{ themeStore.currentThemeIcon }}</span>
+    </el-button>
     
     <template #dropdown>
       <el-dropdown-menu>
         <el-dropdown-item 
-          command="light" 
-          :class="{ 'is-active': themeStore.mode === 'light' }"
+          v-for="theme in themeStore.themes"
+          :key="theme.value"
+          :command="theme.value" 
+          :class="{ 'is-active': themeStore.mode === theme.value }"
         >
-          <el-icon><Sunny /></el-icon>
-          <span class="ml-2">亮色模式</span>
-        </el-dropdown-item>
-        <el-dropdown-item 
-          command="dark" 
-          :class="{ 'is-active': themeStore.mode === 'dark' }"
-        >
-          <el-icon><Moon /></el-icon>
-          <span class="ml-2">暗色模式</span>
-        </el-dropdown-item>
-        <el-dropdown-item 
-          command="auto" 
-          :class="{ 'is-active': themeStore.mode === 'auto' }"
-          divided
-        >
-          <el-icon><Monitor /></el-icon>
-          <span class="ml-2">跟随系统</span>
+          <span class="theme-toggle-option">
+            <span>{{ theme.icon }}</span>
+            <span class="ml-2">{{ theme.label }}</span>
+          </span>
         </el-dropdown-item>
       </el-dropdown-menu>
     </template>
@@ -41,37 +31,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
-import { Moon, Sunny, Monitor } from '@element-plus/icons-vue'
 
 const themeStore = useThemeStore()
-
-const currentIcon = computed(() => {
-  switch (themeStore.mode) {
-    case 'dark':
-      return Moon
-    case 'light':
-      return Sunny
-    case 'auto':
-      return Monitor
-    default:
-      return Sunny
-  }
-})
-
-const themeText = computed(() => {
-  switch (themeStore.mode) {
-    case 'dark':
-      return '暗色'
-    case 'light':
-      return '亮色'
-    case 'auto':
-      return '自动'
-    default:
-      return '亮色'
-  }
-})
 
 function handleCommand(command: string) {
   themeStore.setTheme(command as ThemeMode)
@@ -79,6 +41,17 @@ function handleCommand(command: string) {
 </script>
 
 <style scoped>
+.theme-toggle-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.theme-toggle-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .is-active {
   background-color: var(--el-dropdown-menuitem-hover-fill);
   color: var(--el-color-primary);

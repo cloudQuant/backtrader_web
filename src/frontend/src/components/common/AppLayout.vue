@@ -3,10 +3,10 @@
     <!-- 桌面端侧边栏 -->
     <el-aside
       width="220px"
-      class="bg-slate-900 app-sidebar-desktop"
+      class="app-sidebar-desktop"
     >
       <div class="p-4">
-        <h1 class="text-xl font-bold text-white flex items-center gap-2">
+        <h1 class="text-xl font-bold sidebar-title flex items-center gap-2">
           <el-icon><TrendCharts /></el-icon>
           Backtrader Web
         </h1>
@@ -14,9 +14,7 @@
       
       <el-menu
         :default-active="currentRoute"
-        class="!border-none bg-transparent"
-        text-color="#94a3b8"
-        active-text-color="#3b82f6"
+        class="!border-none bg-transparent sidebar-menu"
         router
       >
         <el-menu-item index="/">
@@ -77,12 +75,12 @@
     >
       <template #header>
         <div class="flex items-center justify-between w-full">
-          <h1 class="text-lg font-bold text-white flex items-center gap-2">
+          <h1 class="text-lg font-bold sidebar-title flex items-center gap-2">
             <el-icon><TrendCharts /></el-icon>
             Backtrader Web
           </h1>
           <el-icon
-            class="text-white cursor-pointer text-xl"
+            class="sidebar-title cursor-pointer text-xl"
             @click="mobileMenuOpen = false"
           >
             <Close />
@@ -91,9 +89,7 @@
       </template>
       <el-menu
         :default-active="currentRoute"
-        class="!border-none bg-transparent mobile-sidebar-menu"
-        text-color="#94a3b8"
-        active-text-color="#3b82f6"
+        class="!border-none bg-transparent sidebar-menu mobile-sidebar-menu"
         @select="handleMobileMenuSelect"
       >
         <el-menu-item index="/">
@@ -146,7 +142,7 @@
     <!-- 主内容区 -->
     <el-container>
       <!-- 顶部栏 -->
-      <el-header class="app-header flex items-center justify-between bg-white border-b px-6">
+      <el-header class="app-header flex items-center justify-between border-b px-6">
         <div class="app-header-left flex items-center gap-4 flex-1 min-w-0 flex-wrap">
           <!-- 移动端汉堡按钮 -->
           <div
@@ -326,16 +322,12 @@ function handleCommand(command: string) {
   transition: width 0.3s;
 }
 
-.el-menu-item {
-  margin: 4px 8px;
-  border-radius: 8px;
+.app-header {
+  background-color: var(--bg-color, #ffffff);
+  border-color: var(--border-color, #e4e7ed);
 }
 
-.el-menu-item:hover {
-  background-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-.el-menu-item.is-active {
-  background-color: rgba(59, 130, 246, 0.2) !important;
+.sidebar-title {
+  color: var(--sidebar-text-color, #303133);
 }
 </style>

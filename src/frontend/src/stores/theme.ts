@@ -3,13 +3,24 @@ import { ref, computed } from 'vue'
 
 /**
  * Available theme identifiers.
- * - light: Default light theme
- * - dark: Dark theme for low-light environments
- * - blue: Professional blue theme
- * - green: Trading-oriented green theme
- * - auto: Follow system preference (resolves to light or dark)
+ *
+ * Inspired by leading fintech platforms:
+ * - aurora: Clean trust-focused style (Coinbase-inspired)
+ * - obsidian: Sleek dark interface (Revolut-inspired)
+ * - nebula: Purple-accented data-dense UI (Kraken-inspired)
+ * - solaris: Bold yellow on monochrome (Binance-inspired)
+ * - glacier: Signature purple gradients (Stripe-inspired)
+ * - meridian: Warm cream editorial feel (Mastercard-inspired)
+ * - verdant: Bright green friendly style (Wise-inspired)
  */
-export type ThemeMode = 'light' | 'dark' | 'blue' | 'green' | 'auto'
+export type ThemeMode =
+  | 'aurora'
+  | 'obsidian'
+  | 'nebula'
+  | 'solaris'
+  | 'glacier'
+  | 'meridian'
+  | 'verdant'
 
 export interface ThemeOption {
   value: ThemeMode
@@ -20,99 +31,217 @@ export interface ThemeOption {
 
 /** All available themes with metadata for the UI selector. */
 export const THEME_OPTIONS: ThemeOption[] = [
-  { value: 'light', label: '浅色', icon: '☀️', description: '默认浅色主题' },
-  { value: 'dark', label: '深色', icon: '🌙', description: '深色护眼主题' },
-  { value: 'blue', label: '专业蓝', icon: '💎', description: '专业金融风格' },
-  { value: 'green', label: '交易绿', icon: '📈', description: '交易看盘风格' },
-  { value: 'auto', label: '跟随系统', icon: '🖥️', description: '自动跟随系统设置' },
+  { value: 'aurora', label: '极光', icon: '💎', description: '清爽信赖·机构风格' },
+  { value: 'obsidian', label: '黑曜', icon: '🌙', description: '暗夜精密·科技质感' },
+  { value: 'nebula', label: '星云', icon: '🔮', description: '紫韵数据·专业看盘' },
+  { value: 'solaris', label: '烈阳', icon: '⚡', description: '金色脉冲·交易激情' },
+  { value: 'glacier', label: '冰川', icon: '🧊', description: '紫调优雅·极简美学' },
+  { value: 'meridian', label: '暖阳', icon: '☀️', description: '暖色编辑·温润阅读' },
+  { value: 'verdant', label: '翠谷', icon: '🌿', description: '清新绿意·友好明快' },
 ]
 
 /** CSS variable definitions for each theme. */
 const THEME_VARIABLES: Record<string, Record<string, string>> = {
-  light: {
+  // Aurora — Coinbase-inspired: clean blue, trust-focused, institutional
+  aurora: {
     '--bg-color': '#FFFFFF',
-    '--bg-color-page': '#F2F3F5',
+    '--bg-color-page': '#F7F8FA',
     '--bg-color-overlay': '#FFFFFF',
-    '--bg-color-sidebar': '#1e293b',
-    '--text-color-primary': '#303133',
-    '--text-color-regular': '#606266',
-    '--text-color-secondary': '#909399',
-    '--text-color-placeholder': '#C0C4CC',
-    '--border-color': '#DCDFE6',
-    '--border-color-light': '#E4E7ED',
-    '--border-color-lighter': '#EBEEF5',
+    '--bg-color-sidebar': '#FFFFFF',
+    '--sidebar-text-color': '#1E2329',
+    '--sidebar-text-color-muted': '#5E6673',
+    '--sidebar-active-color': '#1652F0',
+    '--sidebar-active-bg': 'rgba(22, 82, 240, 0.08)',
+    '--sidebar-hover-bg': 'rgba(22, 82, 240, 0.04)',
+    '--sidebar-border-color': '#E8ECEF',
+    '--text-color-primary': '#1E2329',
+    '--text-color-regular': '#474D57',
+    '--text-color-secondary': '#707A8A',
+    '--text-color-placeholder': '#AEB4BC',
+    '--border-color': '#E8ECEF',
+    '--border-color-light': '#F0F2F5',
+    '--border-color-lighter': '#F5F7FA',
     '--fill-color': '#F0F2F5',
-    '--fill-color-light': '#F5F7FA',
-    '--fill-color-lighter': '#FAFAFA',
-    '--shadow-color': 'rgba(0, 0, 0, 0.12)',
-    '--accent-color': '#409eff',
-    '--success-color': '#67c23a',
-    '--danger-color': '#f56c6c',
+    '--fill-color-light': '#F7F8FA',
+    '--fill-color-lighter': '#FAFBFC',
+    '--shadow-color': 'rgba(0, 0, 0, 0.08)',
+    '--accent-color': '#1652F0',
+    '--success-color': '#05B169',
+    '--danger-color': '#CF304A',
   },
-  dark: {
-    '--bg-color': '#141414',
-    '--bg-color-page': '#0A0A0A',
-    '--bg-color-overlay': '#1D1D1D',
-    '--bg-color-sidebar': '#0f0f0f',
-    '--text-color-primary': '#E5EAF3',
-    '--text-color-regular': '#CFD3DC',
-    '--text-color-secondary': '#A3A6AD',
-    '--text-color-placeholder': '#8D9095',
-    '--border-color': '#4C4D4F',
-    '--border-color-light': '#414243',
-    '--border-color-lighter': '#363637',
-    '--fill-color': '#303030',
-    '--fill-color-light': '#262727',
-    '--fill-color-lighter': '#1D1D1D',
-    '--shadow-color': 'rgba(0, 0, 0, 0.48)',
-    '--accent-color': '#409eff',
-    '--success-color': '#67c23a',
-    '--danger-color': '#f56c6c',
+
+  // Obsidian — Revolut-inspired: sleek dark, gradient cards, fintech precision
+  obsidian: {
+    '--bg-color': '#191C1F',
+    '--bg-color-page': '#0D0F11',
+    '--bg-color-overlay': '#242830',
+    '--bg-color-sidebar': '#141618',
+    '--sidebar-text-color': '#F0F2F5',
+    '--sidebar-text-color-muted': '#8A919E',
+    '--sidebar-active-color': '#6C7BFF',
+    '--sidebar-active-bg': 'rgba(108, 123, 255, 0.12)',
+    '--sidebar-hover-bg': 'rgba(255, 255, 255, 0.04)',
+    '--sidebar-border-color': '#2C3038',
+    '--text-color-primary': '#F0F2F5',
+    '--text-color-regular': '#C8CDD5',
+    '--text-color-secondary': '#8A919E',
+    '--text-color-placeholder': '#5C6370',
+    '--border-color': '#2C3038',
+    '--border-color-light': '#363C44',
+    '--border-color-lighter': '#242830',
+    '--fill-color': '#242830',
+    '--fill-color-light': '#1E2226',
+    '--fill-color-lighter': '#191C1F',
+    '--shadow-color': 'rgba(0, 0, 0, 0.5)',
+    '--accent-color': '#6C7BFF',
+    '--success-color': '#00D68F',
+    '--danger-color': '#FF4D6A',
   },
-  blue: {
-    '--bg-color': '#f0f5ff',
-    '--bg-color-page': '#e8eef8',
-    '--bg-color-overlay': '#ffffff',
-    '--bg-color-sidebar': '#1e3a5f',
-    '--text-color-primary': '#1a2a4a',
-    '--text-color-regular': '#3a4a6a',
-    '--text-color-secondary': '#5a6a8a',
-    '--text-color-placeholder': '#8a9aba',
-    '--border-color': '#b8cce8',
-    '--border-color-light': '#d0dff0',
-    '--border-color-lighter': '#e0ecf8',
-    '--fill-color': '#e0ecf8',
-    '--fill-color-light': '#eaf2fc',
-    '--fill-color-lighter': '#f5f9ff',
-    '--shadow-color': 'rgba(30, 58, 95, 0.1)',
-    '--accent-color': '#2563eb',
-    '--success-color': '#059669',
-    '--danger-color': '#dc2626',
+
+  // Nebula — Kraken-inspired: purple-accented dark, data-dense dashboards
+  nebula: {
+    '--bg-color': '#1B1426',
+    '--bg-color-page': '#110D1A',
+    '--bg-color-overlay': '#251D33',
+    '--bg-color-sidebar': '#150F20',
+    '--sidebar-text-color': '#E8E0F5',
+    '--sidebar-text-color-muted': '#9B8FB5',
+    '--sidebar-active-color': '#B07FFF',
+    '--sidebar-active-bg': 'rgba(176, 127, 255, 0.15)',
+    '--sidebar-hover-bg': 'rgba(176, 127, 255, 0.06)',
+    '--sidebar-border-color': '#2D2440',
+    '--text-color-primary': '#E8E0F5',
+    '--text-color-regular': '#C4B8D9',
+    '--text-color-secondary': '#9B8FB5',
+    '--text-color-placeholder': '#6B5F80',
+    '--border-color': '#2D2440',
+    '--border-color-light': '#382E4D',
+    '--border-color-lighter': '#251D33',
+    '--fill-color': '#251D33',
+    '--fill-color-light': '#1F1829',
+    '--fill-color-lighter': '#1B1426',
+    '--shadow-color': 'rgba(0, 0, 0, 0.5)',
+    '--accent-color': '#B07FFF',
+    '--success-color': '#00E5A0',
+    '--danger-color': '#FF5C7C',
   },
-  green: {
-    '--bg-color': '#f0fdf4',
-    '--bg-color-page': '#e8f8ec',
-    '--bg-color-overlay': '#ffffff',
-    '--bg-color-sidebar': '#14532d',
-    '--text-color-primary': '#14532d',
-    '--text-color-regular': '#2d5a3f',
-    '--text-color-secondary': '#4a7a5f',
-    '--text-color-placeholder': '#7aaa8f',
-    '--border-color': '#a7d8b8',
-    '--border-color-light': '#c0e8d0',
-    '--border-color-lighter': '#d8f0e0',
-    '--fill-color': '#d8f0e0',
-    '--fill-color-light': '#e8f8ec',
-    '--fill-color-lighter': '#f5fdf8',
-    '--shadow-color': 'rgba(20, 83, 45, 0.1)',
-    '--accent-color': '#16a34a',
-    '--success-color': '#16a34a',
-    '--danger-color': '#dc2626',
+
+  // Solaris — Binance-inspired: bold yellow on monochrome, trading-floor urgency
+  // Key differentiator: warm-tinted dark background + prominent gold accents
+  solaris: {
+    '--bg-color': '#1E1E1E',
+    '--bg-color-page': '#121212',
+    '--bg-color-overlay': '#2A2A2A',
+    '--bg-color-sidebar': '#1A1A1A',
+    '--sidebar-text-color': '#F0E6D3',
+    '--sidebar-text-color-muted': '#A89B8C',
+    '--sidebar-active-color': '#F0B90B',
+    '--sidebar-active-bg': 'rgba(240, 185, 11, 0.12)',
+    '--sidebar-hover-bg': 'rgba(240, 185, 11, 0.05)',
+    '--sidebar-border-color': '#3A3530',
+    '--text-color-primary': '#F0E6D3',
+    '--text-color-regular': '#C8B9A8',
+    '--text-color-secondary': '#A89B8C',
+    '--text-color-placeholder': '#6B6055',
+    '--border-color': '#3A3530',
+    '--border-color-light': '#4A4035',
+    '--border-color-lighter': '#2A2520',
+    '--fill-color': '#2A2520',
+    '--fill-color-light': '#222018',
+    '--fill-color-lighter': '#1E1C16',
+    '--shadow-color': 'rgba(0, 0, 0, 0.5)',
+    '--accent-color': '#F0B90B',
+    '--success-color': '#0ECB81',
+    '--danger-color': '#F6465D',
+  },
+
+  // Glacier — Stripe-inspired: signature purple gradients, weight-300 elegance
+  glacier: {
+    '--bg-color': '#FFFFFF',
+    '--bg-color-page': '#F6F9FC',
+    '--bg-color-overlay': '#FFFFFF',
+    '--bg-color-sidebar': '#F6F9FC',
+    '--sidebar-text-color': '#32325D',
+    '--sidebar-text-color-muted': '#6B7C93',
+    '--sidebar-active-color': '#635BFF',
+    '--sidebar-active-bg': 'rgba(99, 91, 255, 0.08)',
+    '--sidebar-hover-bg': 'rgba(99, 91, 255, 0.04)',
+    '--sidebar-border-color': '#E3E8EE',
+    '--text-color-primary': '#32325D',
+    '--text-color-regular': '#525F7F',
+    '--text-color-secondary': '#6B7C93',
+    '--text-color-placeholder': '#ADB5BD',
+    '--border-color': '#E3E8EE',
+    '--border-color-light': '#EDF0F4',
+    '--border-color-lighter': '#F6F9FC',
+    '--fill-color': '#F0F3F7',
+    '--fill-color-light': '#F6F9FC',
+    '--fill-color-lighter': '#FAFCFE',
+    '--shadow-color': 'rgba(50, 50, 93, 0.1)',
+    '--accent-color': '#635BFF',
+    '--success-color': '#3ECF8E',
+    '--danger-color': '#E25950',
+  },
+
+  // Meridian — Mastercard-inspired: warm cream canvas, editorial warmth
+  meridian: {
+    '--bg-color': '#FFFBF5',
+    '--bg-color-page': '#FFF7EE',
+    '--bg-color-overlay': '#FFFFFF',
+    '--bg-color-sidebar': '#FFFBF5',
+    '--sidebar-text-color': '#2D2926',
+    '--sidebar-text-color-muted': '#6B5E54',
+    '--sidebar-active-color': '#CF4500',
+    '--sidebar-active-bg': 'rgba(207, 69, 0, 0.08)',
+    '--sidebar-hover-bg': 'rgba(207, 69, 0, 0.04)',
+    '--sidebar-border-color': '#EDE5DA',
+    '--text-color-primary': '#2D2926',
+    '--text-color-regular': '#4A4340',
+    '--text-color-secondary': '#6B5E54',
+    '--text-color-placeholder': '#A89B90',
+    '--border-color': '#EDE5DA',
+    '--border-color-light': '#F5EFE7',
+    '--border-color-lighter': '#FAF6F0',
+    '--fill-color': '#F5EFE7',
+    '--fill-color-light': '#FAF6F0',
+    '--fill-color-lighter': '#FFFCF8',
+    '--shadow-color': 'rgba(45, 41, 38, 0.08)',
+    '--accent-color': '#CF4500',
+    '--success-color': '#2E7D32',
+    '--danger-color': '#C62828',
+  },
+
+  // Verdant — Wise-inspired: bright green accent, friendly and clear
+  verdant: {
+    '--bg-color': '#FFFFFF',
+    '--bg-color-page': '#F2F7F2',
+    '--bg-color-overlay': '#FFFFFF',
+    '--bg-color-sidebar': '#FFFFFF',
+    '--sidebar-text-color': '#1A3A2A',
+    '--sidebar-text-color-muted': '#4A6B5A',
+    '--sidebar-active-color': '#00B856',
+    '--sidebar-active-bg': 'rgba(0, 184, 86, 0.08)',
+    '--sidebar-hover-bg': 'rgba(0, 184, 86, 0.04)',
+    '--sidebar-border-color': '#DCE8E0',
+    '--text-color-primary': '#1A3A2A',
+    '--text-color-regular': '#37574A',
+    '--text-color-secondary': '#4A6B5A',
+    '--text-color-placeholder': '#8FA89A',
+    '--border-color': '#DCE8E0',
+    '--border-color-light': '#E8F0EA',
+    '--border-color-lighter': '#F2F7F2',
+    '--fill-color': '#E8F0EA',
+    '--fill-color-light': '#F2F7F2',
+    '--fill-color-lighter': '#F8FBF8',
+    '--shadow-color': 'rgba(26, 58, 42, 0.08)',
+    '--accent-color': '#00B856',
+    '--success-color': '#00B856',
+    '--danger-color': '#D32F2F',
   },
 }
 
 export const useThemeStore = defineStore('theme', () => {
-  const mode = ref<ThemeMode>('light')
+  const mode = ref<ThemeMode>('aurora')
   const sidebarCollapsed = ref(false)
 
   /** List of available themes for the UI. */
@@ -121,25 +250,23 @@ export const useThemeStore = defineStore('theme', () => {
   /** Current theme label for display. */
   const currentThemeLabel = computed(() => {
     const option = THEME_OPTIONS.find(t => t.value === mode.value)
-    return option?.label ?? '浅色'
+    return option?.label ?? '极光'
   })
 
   /** Current theme icon for display. */
   const currentThemeIcon = computed(() => {
     const option = THEME_OPTIONS.find(t => t.value === mode.value)
-    return option?.icon ?? '☀️'
+    return option?.icon ?? '💎'
   })
 
   /**
    * Resolve the effective base theme (light or dark) for Element Plus class toggling.
-   * Blue and green themes use light-mode Element Plus components.
+   * Dark-based themes: obsidian, nebula, solaris
+   * Light-based themes: aurora, glacier, meridian, verdant
    */
   function resolveBaseTheme(theme: ThemeMode): 'light' | 'dark' {
-    if (theme === 'dark') return 'dark'
-    if (theme === 'auto') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-    }
-    return 'light' // light, blue, green all use light base
+    if (['obsidian', 'nebula', 'solaris'].includes(theme)) return 'dark'
+    return 'light'
   }
 
   /**
@@ -147,11 +274,10 @@ export const useThemeStore = defineStore('theme', () => {
    */
   function applyTheme(theme: ThemeMode) {
     const html = document.documentElement
-    const effectiveTheme = theme === 'auto' ? resolveBaseTheme('auto') : theme
     const baseTheme = resolveBaseTheme(theme)
 
     // Set data-theme for CSS selectors
-    html.dataset.theme = effectiveTheme
+    html.dataset.theme = theme
 
     // Toggle Element Plus dark class
     if (baseTheme === 'dark') {
@@ -161,7 +287,7 @@ export const useThemeStore = defineStore('theme', () => {
     }
 
     // Apply CSS variables
-    const variables = THEME_VARIABLES[effectiveTheme] || THEME_VARIABLES.light
+    const variables = THEME_VARIABLES[theme] || THEME_VARIABLES.aurora
     Object.entries(variables).forEach(([key, value]) => {
       html.style.setProperty(key, value)
     })
@@ -173,9 +299,9 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
-  /** Toggle between light and dark (simple toggle for the button). */
+  /** Toggle between aurora and obsidian (simple light/dark toggle). */
   function toggleTheme() {
-    const next = mode.value === 'dark' ? 'light' : 'dark'
+    const next = resolveBaseTheme(mode.value) === 'dark' ? 'aurora' : 'obsidian'
     setTheme(next)
   }
 
@@ -185,7 +311,7 @@ export const useThemeStore = defineStore('theme', () => {
     applyTheme(theme)
   }
 
-  /** Get the actual rendered theme (resolves 'auto'). */
+  /** Get the actual rendered base theme (light or dark). */
   function getActualTheme(): 'light' | 'dark' {
     return resolveBaseTheme(mode.value)
   }
@@ -193,16 +319,6 @@ export const useThemeStore = defineStore('theme', () => {
   /** Initialize theme on app mount. */
   function init() {
     applyTheme(mode.value)
-
-    // Listen for system theme changes when in auto mode
-    if (mode.value === 'auto') {
-      window.matchMedia('(prefers-color-scheme: dark)')
-        .addEventListener('change', () => {
-          if (mode.value === 'auto') {
-            applyTheme('auto')
-          }
-        })
-    }
 
     // Add meta theme-color if missing
     if (!document.querySelector('meta[name="theme-color"]')) {

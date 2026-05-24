@@ -136,12 +136,12 @@
   .el-drawer__header {
     padding: 16px;
     margin-bottom: 0;
-    border-bottom: 1px solid var(--el-border-color-lighter);
+    border-bottom: 1px solid var(--sidebar-border-color, #e4e7ed);
   }
   
   .el-drawer__body {
     padding: 0;
-    background-color: #1e293b;
+    background-color: var(--bg-color-sidebar, #ffffff);
   }
 }
 

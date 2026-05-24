@@ -71,9 +71,9 @@ describe('Pinia Persistence', () => {
   })
 
   describe('Theme Store persistence', () => {
-    it('theme store mode defaults to light', () => {
+    it('theme store mode defaults to aurora', () => {
       const theme = useThemeStore()
-      expect(theme.mode).toBe('light')
+      expect(theme.mode).toBe('aurora')
     })
 
     it('theme store sidebarCollapsed defaults to false', () => {
@@ -81,10 +81,10 @@ describe('Pinia Persistence', () => {
       expect(theme.sidebarCollapsed).toBe(false)
     })
 
-    it('theme store mode can be set to dark', () => {
+    it('theme store mode can be set to obsidian', () => {
       const theme = useThemeStore()
-      theme.mode = 'dark'
-      expect(theme.mode).toBe('dark')
+      theme.mode = 'obsidian'
+      expect(theme.mode).toBe('obsidian')
     })
 
     it('theme store sidebarCollapsed can be toggled', () => {
@@ -112,11 +112,11 @@ describe('Pinia Persistence', () => {
     it('theme store persist config uses localStorage', () => {
       // Verify the theme store works correctly with its persist config
       const theme = useThemeStore()
-      theme.mode = 'dark'
+      theme.mode = 'obsidian'
 
       // The store is configured with localStorage persistence
       // We verify the store's behavior is correct
-      expect(theme.mode).toBe('dark')
+      expect(theme.mode).toBe('obsidian')
     })
   })
 
@@ -129,14 +129,14 @@ describe('Pinia Persistence', () => {
       expect(() => {
         auth.token = 'test-token'
         auth.refreshToken = 'test-refresh'
-        theme.mode = 'dark'
+        theme.mode = 'obsidian'
         theme.sidebarCollapsed = true
       }).not.toThrow()
 
       // Values should be accessible in memory
       expect(auth.token).toBe('test-token')
       expect(auth.refreshToken).toBe('test-refresh')
-      expect(theme.mode).toBe('dark')
+      expect(theme.mode).toBe('obsidian')
       expect(theme.sidebarCollapsed).toBe(true)
     })
 
