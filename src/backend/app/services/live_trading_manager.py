@@ -726,7 +726,7 @@ class LiveTradingManager:
                         "sys.modules.setdefault('spdlog', types.ModuleType('spdlog')); "
                         "from bt_api_base.gateway.config import GatewayConfig; "
                         "from bt_api_base.gateway.runtime import GatewayRuntime; "
-                        "print('ok')",
+                        "sys.stdout.write('ok')",
                     ],
                     capture_output=True,
                     text=True,

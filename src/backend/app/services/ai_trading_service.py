@@ -36,6 +36,10 @@ _pending_trades: dict[str, dict[str, Any]] = {}
 _risk_guard: TradingRiskGuard | None = None
 
 
+class MissingGatewayContextError(ValueError):
+    """Raised when AI trading execution lacks a valid account or gateway context."""
+
+
 def get_risk_guard() -> TradingRiskGuard:
     """Get or create the global risk guard instance."""
     global _risk_guard
@@ -78,11 +82,30 @@ class AITradingService:
             market_context=self._build_market_context(request),
         )
 
+        context = await self._resolve_trading_context(user_id=user_id, request=request)
+        if context.get("degraded"):
+            diagnostic_message = str(context.get("diagnostic_message") or "交易上下文不可用")
+            degraded_risk = self._build_degraded_risk_assessment(diagnostic_message)
+            return AITradingResponse(
+                trade_id=trade_id,
+                intent=intent,
+                risk_assessment=degraded_risk,
+                status=TradeStatus.REJECTED,
+                message=f"⚠️ 交易上下文不可用，已停止自动交易: {diagnostic_message}",
+                ai_reasoning=intent.reason,
+                suggestions=[
+                    "请先在交易页面补齐可用账户或已连接网关后再重试",
+                    *self._build_suggestions(intent, degraded_risk),
+                ],
+                degraded=True,
+                diagnostic_message=diagnostic_message,
+            )
+
         # Step 2: Risk assessment
         risk_assessment = self.risk_guard.assess(
             intent=intent,
-            account_balance=0.0,  # TODO: fetch from gateway
-            current_positions=None,  # TODO: fetch from gateway
+            account_balance=float(context.get("account_balance") or 0.0),
+            current_positions=context.get("current_positions"),
         )
 
         # Step 3: Determine action based on risk assessment
@@ -136,7 +159,7 @@ class AITradingService:
             )
 
         # Real execution
-        execution_result = await self._execute_trade(intent, request)
+        execution_result = await self._execute_trade(user_id, intent, request)
         status = (
             TradeStatus.FILLED
             if execution_result.get("success")
@@ -197,7 +220,7 @@ class AITradingService:
         intent = TradingIntent(**pending["intent"])
         original_request = AITradingRequest(**pending["request"])
 
-        execution_result = await self._execute_trade(intent, original_request)
+        execution_result = await self._execute_trade(user_id, intent, original_request)
         status = (
             TradeStatus.FILLED
             if execution_result.get("success")
@@ -213,6 +236,7 @@ class AITradingService:
 
     async def _execute_trade(
         self,
+        user_id: str,
         intent: TradingIntent,
         request: AITradingRequest,
     ) -> dict[str, Any]:
@@ -229,14 +253,14 @@ class AITradingService:
                 # Use paper trading system
                 return await order_service.execute_paper_trade(
                     intent=intent,
-                    user_id="",  # Will be set by caller context
+                    user_id=user_id,
                     account_id=request.account_id,
                 )
             else:
                 # Attempt live trading
                 return await order_service.execute_live_trade(
                     intent=intent,
-                    user_id="",
+                    user_id=user_id,
                     gateway_id=request.gateway_id,
                 )
         except Exception as e:
@@ -289,6 +313,221 @@ class AITradingService:
                 await session.commit()
         except Exception as e:
             logger.warning("Failed to persist trade log: %s", e)
+
+    async def _resolve_trading_context(
+        self,
+        user_id: str,
+        request: AITradingRequest,
+    ) -> dict[str, Any]:
+        """Resolve account or gateway context for risk assessment.
+
+        Returns a context dictionary with real account balance and positions.
+        When live gateway data is unavailable but a gateway is selected, returns a
+        degraded context instead of silently falling back to fake values.
+        """
+        if request.dry_run:
+            return await self._resolve_paper_trading_context(
+                user_id=user_id,
+                account_id=request.account_id,
+            )
+        return self._resolve_live_trading_context(gateway_id=request.gateway_id)
+
+    async def _resolve_paper_trading_context(
+        self,
+        user_id: str,
+        account_id: str | None,
+    ) -> dict[str, Any]:
+        """Load real paper-trading account balance and positions."""
+        if not account_id:
+            raise MissingGatewayContextError(
+                "模拟交易必须提供有效的 paper trading 账户 account_id。"
+            )
+
+        from app.services.paper_trading_service import PaperTradingService
+
+        service = PaperTradingService()
+        account = await service.get_account(account_id)
+        if account is None or account.user_id != user_id or not account.is_active:
+            raise MissingGatewayContextError(
+                "未找到当前用户可用的模拟交易账户，请先选择有效的 account_id。"
+            )
+
+        positions, _ = await service.list_positions(
+            filters={"account_id": account.id},
+            limit=200,
+            offset=0,
+        )
+        return {
+            "account_balance": float(account.total_equity),
+            "current_positions": [
+                {"symbol": position.symbol, "size": position.size}
+                for position in positions
+            ],
+        }
+
+    def _resolve_live_trading_context(self, gateway_id: str | None) -> dict[str, Any]:
+        """Load live-gateway context or return a degraded response."""
+        if not gateway_id:
+            raise MissingGatewayContextError("实盘交易必须提供已连接的 gateway_id。")
+
+        from app.services.live_trading_manager import get_live_trading_manager
+
+        manager = get_live_trading_manager()
+        gateway = next(
+            (
+                item
+                for item in manager.list_connected_gateways()
+                if str(item.get("gateway_key") or "") == gateway_id
+            ),
+            None,
+        )
+        if gateway is None:
+            raise MissingGatewayContextError(
+                "未找到有效的网关上下文，请先在实盘交易页面连接并选择可用 gateway。"
+            )
+        if not gateway.get("has_runtime"):
+            return self._build_degraded_context(
+                "所选网关已配置但尚未建立运行时连接，请先完成连接后再试。"
+            )
+
+        account_snapshot = manager.query_gateway_account(gateway_id)
+        if not account_snapshot:
+            return self._build_degraded_context(
+                "网关已连接，但当前无法读取账户快照，已停止自动交易。"
+            )
+
+        gateway_state = str(account_snapshot.get("state") or "").strip().lower()
+        trade_connection = str(account_snapshot.get("trade_connection") or "").strip().lower()
+        if gateway_state in {"error", "stopped"} or (
+            trade_connection and trade_connection not in {"connected", "ready", "ok"}
+        ):
+            return self._build_degraded_context(
+                "网关交易连接尚未就绪，已停止自动交易。"
+            )
+
+        account_balance = self._extract_account_balance(account_snapshot)
+        if account_balance is None:
+            return self._build_degraded_context(
+                "当前网关未返回账户权益或余额，AI 交易已降级为仅解析意图。"
+            )
+
+        return {
+            "account_balance": account_balance,
+            "current_positions": self._normalize_positions(
+                manager.query_gateway_positions(gateway_id)
+            ),
+        }
+
+    def _build_degraded_context(self, diagnostic_message: str) -> dict[str, Any]:
+        """Return a degraded context marker with a diagnostic message."""
+        return {
+            "degraded": True,
+            "diagnostic_message": diagnostic_message,
+        }
+
+    def _build_degraded_risk_assessment(self, diagnostic_message: str) -> RiskAssessment:
+        """Build a rejected risk assessment for degraded responses."""
+        return RiskAssessment(
+            approved=False,
+            risk_level=RiskLevel.HIGH,
+            warnings=[diagnostic_message],
+            blocked_reasons=[diagnostic_message],
+            requires_confirmation=False,
+        )
+
+    def _extract_account_balance(self, account_snapshot: dict[str, Any]) -> float | None:
+        """Extract a usable account balance from a gateway snapshot."""
+        balance_keys = (
+            "total_equity",
+            "equity",
+            "balance",
+            "current_cash",
+            "available_balance",
+            "net_liquidation",
+        )
+        for key in balance_keys:
+            value = self._coerce_optional_float(account_snapshot.get(key))
+            if value is not None:
+                return value
+        return None
+
+    def _normalize_positions(self, positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Normalize gateway positions into the schema expected by the risk guard."""
+        normalized_positions: list[dict[str, Any]] = []
+        for position in positions:
+            symbol = str(
+                position.get("symbol")
+                or position.get("vt_symbol")
+                or position.get("instrument_id")
+                or position.get("ticker")
+                or ""
+            ).strip()
+            size = self._coerce_optional_float(position.get("size"))
+            if size is None:
+                size = self._coerce_optional_float(position.get("volume"))
+            if size is None:
+                size = self._coerce_optional_float(position.get("position"))
+            if size is None:
+                size = self._coerce_optional_float(position.get("qty"))
+            if not symbol or size is None:
+                continue
+
+            direction = str(position.get("direction") or position.get("side") or "").lower()
+            if direction in {"short", "sell"} and size > 0:
+                size = -size
+
+            normalized_positions.append({"symbol": symbol, "size": size})
+        return normalized_positions
+
+    def _coerce_optional_float(self, value: Any) -> float | None:
+        """Safely coerce a value to float."""
+        if value in {None, ""}:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def list_available_gateways(self) -> list[dict[str, Any]]:
+        """List live gateways that can be selected from the AI trading page."""
+        try:
+            from app.services.live_trading_manager import get_live_trading_manager
+
+            manager = get_live_trading_manager()
+            return [
+                {
+                    "gateway_id": str(item.get("gateway_key") or ""),
+                    "exchange_type": str(item.get("exchange_type") or ""),
+                    "account_id": str(item.get("account_id") or ""),
+                    "connected": bool(item.get("has_runtime")),
+                }
+                for item in manager.list_connected_gateways()
+                if item.get("gateway_key")
+            ]
+        except Exception as exc:
+            logger.debug("Failed to list available gateways: %s", exc)
+            return []
+
+    async def list_available_accounts(self, user_id: str) -> list[dict[str, Any]]:
+        """List selectable paper-trading accounts for the current user."""
+        try:
+            from app.services.paper_trading_service import PaperTradingService
+
+            service = PaperTradingService()
+            accounts, _ = await service.list_accounts(user_id=user_id, limit=100, offset=0)
+            return [
+                {
+                    "account_id": account.id,
+                    "name": account.name,
+                    "total_equity": float(account.total_equity),
+                    "current_cash": float(account.current_cash),
+                    "is_active": bool(account.is_active),
+                }
+                for account in accounts
+            ]
+        except Exception as exc:
+            logger.debug("Failed to list available paper-trading accounts: %s", exc)
+            return []
 
     def _build_market_context(self, request: AITradingRequest) -> str:
         """Build market context string for intent parsing."""

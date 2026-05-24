@@ -29,15 +29,28 @@ const config = ref<AITradingConfig | null>(null)
 const history = ref<TradeHistoryItem[]>([])
 const currentResponse = ref<AITradingResponse | null>(null)
 const responses = ref<AITradingResponse[]>([])
+const selectedAccountId = ref('')
+const selectedGatewayId = ref('')
 
 // Computed
 const canSend = computed(() => message.value.trim().length > 0 && !loading.value)
 const modeLabel = computed(() => dryRun.value ? '模拟模式' : '实盘模式')
 const modeClass = computed(() => dryRun.value ? 'mode-paper' : 'mode-live')
+const availableAccounts = computed(() => config.value?.available_accounts ?? [])
+const availableGateways = computed(() => config.value?.available_gateways ?? [])
 
 // Methods
 async function handleSend() {
   if (!canSend.value) return
+
+  if (dryRun.value && !selectedAccountId.value) {
+    ElMessage.warning('请先选择一个模拟交易账户')
+    return
+  }
+  if (!dryRun.value && !selectedGatewayId.value) {
+    ElMessage.warning('请先选择一个已连接的实盘网关')
+    return
+  }
 
   const input = message.value.trim()
   message.value = ''
@@ -47,6 +60,8 @@ async function handleSend() {
   try {
     const result = await executeTrade({
       message: input,
+      gateway_id: dryRun.value ? undefined : selectedGatewayId.value,
+      account_id: dryRun.value ? selectedAccountId.value : undefined,
       dry_run: dryRun.value,
       auto_confirm: autoConfirm.value,
     })
@@ -96,6 +111,15 @@ async function handleConfirmDialog(response: AITradingResponse) {
 async function loadConfig() {
   try {
     config.value = await getTradingConfig()
+    if (!selectedAccountId.value && config.value.available_accounts.length > 0) {
+      selectedAccountId.value = config.value.available_accounts[0].account_id
+    }
+    if (!selectedGatewayId.value) {
+      const connectedGateway = config.value.available_gateways.find(item => item.connected)
+      if (connectedGateway) {
+        selectedGatewayId.value = connectedGateway.gateway_id
+      }
+    }
   } catch {
     // Config load failure is non-critical
   }
@@ -204,6 +228,58 @@ onMounted(async () => {
           <div class="input-hints">
             <span>示例: "买入1手螺纹钢主力合约" | "以3500限价卖出2手铁矿石" | "帮我在币安买入0.1个BTC"</span>
           </div>
+          <div class="context-row">
+            <label
+              v-if="dryRun"
+              class="context-field"
+            >
+              <span>模拟账户</span>
+              <select
+                v-model="selectedAccountId"
+                :disabled="loading || availableAccounts.length === 0"
+              >
+                <option value="">
+                  请选择模拟账户
+                </option>
+                <option
+                  v-for="account in availableAccounts"
+                  :key="account.account_id"
+                  :value="account.account_id"
+                >
+                  {{ account.name }} · 总资产 {{ account.total_equity.toFixed(2) }}
+                </option>
+              </select>
+            </label>
+            <label
+              v-else
+              class="context-field"
+            >
+              <span>实盘网关</span>
+              <select
+                v-model="selectedGatewayId"
+                :disabled="loading || availableGateways.length === 0"
+              >
+                <option value="">
+                  请选择实盘网关
+                </option>
+                <option
+                  v-for="gateway in availableGateways"
+                  :key="gateway.gateway_id"
+                  :value="gateway.gateway_id"
+                >
+                  {{ gateway.exchange_type }} · {{ gateway.account_id || gateway.gateway_id }}{{ gateway.connected ? '' : '（未连接）' }}
+                </option>
+              </select>
+            </label>
+            <span
+              v-if="dryRun && availableAccounts.length === 0"
+              class="context-hint"
+            >暂无可用模拟账户，请先在模拟交易页面创建账户。</span>
+            <span
+              v-else-if="!dryRun && availableGateways.length === 0"
+              class="context-hint"
+            >暂无可用网关，请先在实盘交易页面连接网关。</span>
+          </div>
           <div class="input-row">
             <textarea
               v-model="message"
@@ -273,6 +349,13 @@ onMounted(async () => {
           </div>
 
           <!-- Message -->
+          <div
+            v-if="currentResponse.degraded || currentResponse.diagnostic_message"
+            class="diagnostic-box"
+          >
+            <el-icon><Warning /></el-icon>
+            <span>{{ currentResponse.diagnostic_message || '当前请求处于降级模式，系统未执行自动交易。' }}</span>
+          </div>
           <div class="response-message">
             {{ currentResponse.message }}
           </div>
@@ -470,6 +553,36 @@ onMounted(async () => {
   margin-bottom: 8px;
 }
 
+.context-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.context-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
+.context-field select {
+  min-width: 260px;
+  padding: 8px 10px;
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-bg-color);
+  color: var(--el-text-color-primary);
+}
+
+.context-hint {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
 .input-row {
   display: flex;
   gap: 8px;
@@ -569,6 +682,18 @@ onMounted(async () => {
   margin-bottom: 12px;
   font-size: 14px;
   line-height: 1.5;
+}
+
+.diagnostic-box {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: #fdf6ec;
+  color: #c45656;
+  font-size: 13px;
 }
 
 .warnings-box {

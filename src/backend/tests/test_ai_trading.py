@@ -164,6 +164,11 @@ class TestAITradingService:
             "app.services.ai_trading_service.parse_trading_intent",
             new_callable=AsyncMock,
             return_value=mock_intent,
+        ), patch.object(
+            service,
+            "_resolve_trading_context",
+            new_callable=AsyncMock,
+            return_value={"account_balance": 100000.0, "current_positions": []},
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=True)
             result = await service.process_trading_request("user1", request)
@@ -186,12 +191,80 @@ class TestAITradingService:
             "app.services.ai_trading_service.parse_trading_intent",
             new_callable=AsyncMock,
             return_value=mock_intent,
+        ), patch.object(
+            service,
+            "_resolve_trading_context",
+            new_callable=AsyncMock,
+            return_value={"account_balance": 100000.0, "current_positions": []},
         ):
             request = AITradingRequest(message="买点什么", dry_run=True)
             result = await service.process_trading_request("user1", request)
 
         assert result.status == TradeStatus.REJECTED
         assert "风控拦截" in result.message
+
+    async def test_missing_paper_account_context_raises(self, service):
+        """Dry-run execution now requires an explicit paper-trading account context."""
+        from app.services.ai_trading_service import MissingGatewayContextError
+
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="rb2501",
+            quantity=1,
+            confidence=0.9,
+            risk_level=RiskLevel.LOW,
+        )
+
+        with patch(
+            "app.services.ai_trading_service.parse_trading_intent",
+            new_callable=AsyncMock,
+            return_value=mock_intent,
+        ):
+            request = AITradingRequest(message="买入1手螺纹钢", dry_run=True)
+            with pytest.raises(MissingGatewayContextError, match="account_id"):
+                await service.process_trading_request("user1", request)
+
+    async def test_live_gateway_without_runtime_returns_degraded_response(self, service):
+        """A configured but not connected gateway returns a degraded response."""
+
+        class FakeManager:
+            def list_connected_gateways(self):
+                return [
+                    {
+                        "gateway_key": "manual:CTP:test",
+                        "exchange_type": "CTP",
+                        "account_id": "investor-001",
+                        "has_runtime": False,
+                    }
+                ]
+
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="rb2501",
+            quantity=1,
+            confidence=0.9,
+            risk_level=RiskLevel.LOW,
+        )
+
+        with patch(
+            "app.services.ai_trading_service.parse_trading_intent",
+            new_callable=AsyncMock,
+            return_value=mock_intent,
+        ), patch(
+            "app.services.live_trading_manager.get_live_trading_manager",
+            return_value=FakeManager(),
+        ):
+            request = AITradingRequest(
+                message="买入1手螺纹钢",
+                dry_run=False,
+                gateway_id="manual:CTP:test",
+            )
+            result = await service.process_trading_request("user1", request)
+
+        assert result.status == TradeStatus.REJECTED
+        assert result.degraded is True
+        assert result.diagnostic_message is not None
+        assert "尚未建立运行时连接" in result.diagnostic_message
 
 
 class TestAITradingAPI:
@@ -217,6 +290,66 @@ class TestAITradingAPI:
         """History endpoint requires authentication."""
         response = await client.get("/api/v1/ai-trading/history")
         assert response.status_code in (401, 403)
+
+    async def test_execute_missing_context_returns_422(self, client, auth_headers):
+        """Missing paper account context is translated to HTTP 422."""
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="rb2501",
+            quantity=1,
+            confidence=0.9,
+            risk_level=RiskLevel.LOW,
+        )
+
+        with patch(
+            "app.services.ai_trading_service.parse_trading_intent",
+            new_callable=AsyncMock,
+            return_value=mock_intent,
+        ):
+            response = await client.post(
+                "/api/v1/ai-trading/execute",
+                json={"message": "买入1手螺纹钢", "dry_run": True},
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 422
+        payload = response.json()
+        error_message = payload.get("detail") or payload.get("message") or ""
+        assert "account_id" in error_message
+
+    async def test_config_exposes_available_context_options(self, client, auth_headers):
+        """Config endpoint returns selectable gateway and paper-account options."""
+        with patch.object(
+            AITradingService,
+            "list_available_gateways",
+            return_value=[
+                {
+                    "gateway_id": "manual:CTP:test",
+                    "exchange_type": "CTP",
+                    "account_id": "investor-001",
+                    "connected": True,
+                }
+            ],
+        ), patch.object(
+            AITradingService,
+            "list_available_accounts",
+            new_callable=AsyncMock,
+            return_value=[
+                {
+                    "account_id": "paper-001",
+                    "name": "主模拟账户",
+                    "total_equity": 100000.0,
+                    "current_cash": 80000.0,
+                    "is_active": True,
+                }
+            ],
+        ):
+            response = await client.get("/api/v1/ai-trading/config", headers=auth_headers)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["available_gateways"][0]["gateway_id"] == "manual:CTP:test"
+        assert data["available_accounts"][0]["account_id"] == "paper-001"
 
 
 class TestTradingIntentParser:
@@ -361,6 +494,11 @@ class TestAITradingServiceConfirmation:
             "app.services.ai_trading_service.parse_trading_intent",
             new_callable=AsyncMock,
             return_value=mock_intent,
+        ), patch.object(
+            service,
+            "_resolve_trading_context",
+            new_callable=AsyncMock,
+            return_value={"account_balance": 100000.0, "current_positions": []},
         ):
             request = AITradingRequest(message="买入1个BTC", dry_run=False)
             result = await service.process_trading_request("user1", request)
@@ -386,6 +524,11 @@ class TestAITradingServiceConfirmation:
             "app.services.ai_trading_service.parse_trading_intent",
             new_callable=AsyncMock,
             return_value=mock_intent,
+        ), patch.object(
+            service,
+            "_resolve_trading_context",
+            new_callable=AsyncMock,
+            return_value={"account_balance": 100000.0, "current_positions": []},
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=False)
             pending_result = await service.process_trading_request("user1", request)
@@ -420,6 +563,11 @@ class TestAITradingServiceConfirmation:
             "app.services.ai_trading_service.parse_trading_intent",
             new_callable=AsyncMock,
             return_value=mock_intent,
+        ), patch.object(
+            service,
+            "_resolve_trading_context",
+            new_callable=AsyncMock,
+            return_value={"account_balance": 100000.0, "current_positions": []},
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=False)
             pending_result = await service.process_trading_request("user1", request)
@@ -459,6 +607,11 @@ class TestAITradingServiceConfirmation:
             "app.services.ai_trading_service.parse_trading_intent",
             new_callable=AsyncMock,
             return_value=mock_intent,
+        ), patch.object(
+            service,
+            "_resolve_trading_context",
+            new_callable=AsyncMock,
+            return_value={"account_balance": 100000.0, "current_positions": []},
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=False)
             pending_result = await service.process_trading_request("user1", request)
@@ -777,7 +930,7 @@ class TestConditionalOrders:
         manager = ConditionalOrderManager()
 
         # Create an order that's already expired
-        result = manager.create_conditional_order(
+        manager.create_conditional_order(
             "user1", "条件", "动作", expiry_hours=0.0
         )
 

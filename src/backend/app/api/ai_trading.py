@@ -9,7 +9,7 @@ Provides endpoints for:
 
 from functools import lru_cache
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_current_user
 from app.schemas.ai_trading import (
@@ -20,7 +20,7 @@ from app.schemas.ai_trading import (
     TradeConfirmResponse,
 )
 from app.schemas.auth import TokenPayload
-from app.services.ai_trading_service import AITradingService
+from app.services.ai_trading_service import AITradingService, MissingGatewayContextError
 
 router = APIRouter()
 
@@ -56,11 +56,17 @@ async def execute_trade(
     Returns:
         AITradingResponse with parsed intent, risk assessment, and status.
     """
-    result = await service.process_trading_request(
-        user_id=current_user.sub,
-        request=request,
-    )
-    return result
+    try:
+        result = await service.process_trading_request(
+            user_id=current_user.sub,
+            request=request,
+        )
+        return result
+    except MissingGatewayContextError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
 
 
 @router.post(
@@ -105,6 +111,8 @@ async def get_config(
         Current configuration including limits, available gateways, and mode.
     """
     config = service.risk_guard.config
+    available_gateways = service.list_available_gateways()
+    available_accounts = await service.list_available_accounts(current_user.sub)
     return AITradingConfigResponse(
         enabled=True,
         default_mode="paper",
@@ -113,7 +121,8 @@ async def get_config(
         max_position_ratio=config.max_position_ratio,
         require_confirmation_above=config.require_confirmation_above,
         blocked_symbols=config.blocked_symbols,
-        available_gateways=[],  # TODO: fetch from gateway manager
+        available_gateways=available_gateways,
+        available_accounts=available_accounts,
     )
 
 

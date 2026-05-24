@@ -109,6 +109,8 @@ class AITradingResponse(BaseModel):
     ai_reasoning: str = ""
     suggestions: list[str] = Field(default_factory=list)
     requires_confirmation: bool = False
+    degraded: bool = False
+    diagnostic_message: str | None = None
 
 
 class TradeConfirmRequest(BaseModel):
@@ -161,6 +163,7 @@ class AITradingConfigResponse(BaseModel):
     require_confirmation_above: float = 5000.0
     blocked_symbols: list[str] = Field(default_factory=list)
     available_gateways: list[dict[str, Any]] = Field(default_factory=list)
+    available_accounts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ConditionalOrderCreate(BaseModel):

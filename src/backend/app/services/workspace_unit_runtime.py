@@ -35,6 +35,7 @@ _UNIT_RUN_PY = textwrap.dedent(
     from __future__ import annotations
 
     import importlib.util
+    import logging
     import os
     import sys
     from pathlib import Path
@@ -45,6 +46,7 @@ _UNIT_RUN_PY = textwrap.dedent(
     from backtrader.comminfo import ComminfoFuturesPercent
 
     BASE_DIR = Path(__file__).resolve().parent
+    logger = logging.getLogger(__name__)
 
 
     class UnitPandasFeed(bt.feeds.PandasData):
@@ -271,10 +273,10 @@ _UNIT_RUN_PY = textwrap.dedent(
             log_dir=str(log_dir),
             log_format='text',
         )
-        print(f'Loading data from {csv_path}')
+        logger.info('Loading data from %s', csv_path)
         results = cerebro.run()
         final_value = cerebro.broker.getvalue()
-        print(f'Final value: {final_value}')
+        logger.info('Final value: %s', final_value)
         return results, final_value
 
 

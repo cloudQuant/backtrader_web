@@ -34,6 +34,21 @@ export interface RiskAssessment {
   position_impact: string | null
 }
 
+export interface AITradingGatewayOption {
+  gateway_id: string
+  exchange_type: string
+  account_id: string
+  connected: boolean
+}
+
+export interface AITradingAccountOption {
+  account_id: string
+  name: string
+  total_equity: number
+  current_cash: number
+  is_active: boolean
+}
+
 export interface AITradingResponse {
   trade_id: string
   intent: TradingIntent
@@ -44,6 +59,8 @@ export interface AITradingResponse {
   ai_reasoning: string
   suggestions: string[]
   requires_confirmation: boolean
+  degraded: boolean
+  diagnostic_message: string | null
 }
 
 export interface AITradingConfig {
@@ -54,7 +71,8 @@ export interface AITradingConfig {
   max_position_ratio: number
   require_confirmation_above: number
   blocked_symbols: string[]
-  available_gateways: Record<string, unknown>[]
+  available_gateways: AITradingGatewayOption[]
+  available_accounts: AITradingAccountOption[]
 }
 
 export interface TradeHistoryItem {

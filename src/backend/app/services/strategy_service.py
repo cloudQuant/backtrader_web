@@ -196,6 +196,26 @@ def _build_ai_param_specs(prompt: str) -> dict[str, ParamSpec]:
         "risk_pct",
         ParamSpec(type="float", default=0.02, min=0.001, max=0.2, description="Risk budget per trade"),
     )
+    add_param(
+        "stop_loss_pct",
+        ParamSpec(
+            type="float",
+            default=0.03,
+            min=0.001,
+            max=0.5,
+            description="Fallback stop-loss percentage when ATR is unavailable",
+        ),
+    )
+    add_param(
+        "take_profit_pct",
+        ParamSpec(
+            type="float",
+            default=0.08,
+            min=0.005,
+            max=1.0,
+            description="Take-profit percentage for the default template",
+        ),
+    )
     return params
 
 
@@ -221,12 +241,18 @@ def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) ->
         f"        ('{key}', {_render_param_default(spec.default)}),"
         for key, spec in params.items()
     )
-    setup_lines = ["        self.close = self.datas[0].close"]
+    setup_lines = [
+        "        self.close = self.datas[0].close",
+        "        self.entry_price = None",
+        "        self.stop_price = None",
+        "        self.take_profit_price = None",
+    ]
     if "fast_period" in params:
         setup_lines.extend(
             [
                 "        self.fast_ma = bt.indicators.SMA(self.data.close, period=self.p.fast_period)",
                 "        self.slow_ma = bt.indicators.SMA(self.data.close, period=self.p.slow_period)",
+                "        self.ma_crossover = bt.indicators.CrossOver(self.fast_ma, self.slow_ma)",
             ]
         )
     if "rsi_period" in params:
@@ -255,15 +281,47 @@ class {class_name}(bt.Strategy):
     def __init__(self):
 {setup_block}
 
+    def _entry_signal(self):
+        if hasattr(self, 'ma_crossover'):
+            return self.ma_crossover[0] > 0
+        if hasattr(self, 'rsi'):
+            return self.rsi[0] < self.p.oversold
+        return len(self) == 1
+
+    def _exit_signal(self):
+        if hasattr(self, 'ma_crossover'):
+            return self.ma_crossover[0] < 0
+        if hasattr(self, 'rsi'):
+            return self.rsi[0] > self.p.overbought
+        return False
+
     def next(self):
-        # TODO: Refine the trading rules below according to the original prompt.
-        # Prompt: {prompt_comment}
         if not self.position:
-            # TODO: implement entry rules
-            pass
+            if self._entry_signal():
+                entry_price = float(self.close[0])
+                risk_budget = max(float(self.broker.getvalue()) * self.p.risk_pct, 0.0)
+                size = 1
+                if hasattr(self, 'atr'):
+                    atr_stop = float(self.atr[0]) * self.p.atr_stop_multiplier
+                    if atr_stop > 0 and risk_budget > 0:
+                        size = max(int(risk_budget / atr_stop), 1)
+                    self.stop_price = entry_price - atr_stop
+                else:
+                    self.stop_price = entry_price * (1.0 - self.p.stop_loss_pct)
+                self.take_profit_price = entry_price * (1.0 + self.p.take_profit_pct)
+                self.entry_price = entry_price
+                self.buy(size=size)
         else:
-            # TODO: implement exit / stop / take-profit rules
-            pass
+            should_exit = self._exit_signal()
+            if self.stop_price is not None and self.close[0] <= self.stop_price:
+                should_exit = True
+            if self.take_profit_price is not None and self.close[0] >= self.take_profit_price:
+                should_exit = True
+            if should_exit:
+                self.close()
+                self.entry_price = None
+                self.stop_price = None
+                self.take_profit_price = None
 '''
 
     rationale = (
