@@ -1,0 +1,313 @@
+<template>
+  <article
+    class="message-card"
+    :class="message.role"
+  >
+    <div class="message-avatar">
+      <el-icon v-if="message.role === 'assistant'">
+        <Cpu />
+      </el-icon>
+      <el-icon v-else>
+        <UserFilled />
+      </el-icon>
+    </div>
+
+    <div class="message-body">
+      <div class="message-head">
+        <div>
+          <span class="message-author">{{ message.role === 'assistant' ? 'AI 助手' : '你' }}</span>
+          <span
+            v-if="message.role === 'assistant' && message.citations?.length"
+            class="message-badge"
+          >
+            {{ message.citations.length }} 条引用
+          </span>
+          <span
+            v-if="message.role === 'assistant' && message.strategyDraft"
+            class="message-badge"
+            :class="{
+              success: !getStrategyDraftIssue(message.strategyDraft),
+              warning: Boolean(getStrategyDraftIssue(message.strategyDraft)),
+            }"
+          >
+            {{ getStrategyDraftIssue(message.strategyDraft) ? '草稿待补全' : '可保存为策略' }}
+          </span>
+        </div>
+        <el-button
+          circle
+          size="small"
+          title="复制消息"
+          @click="emit('copyMessage', message.content)"
+        >
+          <el-icon><CopyDocument /></el-icon>
+        </el-button>
+      </div>
+
+      <div class="message-content">
+        {{ message.content }}
+      </div>
+
+      <section
+        v-if="message.role === 'assistant' && message.diagnosticMessage"
+        class="diagnostic-box"
+        :class="message.reasonCode || ''"
+      >
+        <div class="section-kicker">
+          {{ getDiagnosticTitle(message.reasonCode) }}
+        </div>
+        <div>{{ message.diagnosticMessage }}</div>
+      </section>
+
+      <section
+        v-if="message.role === 'assistant' && message.diagnostics"
+        class="retrieval-box"
+      >
+        <div class="section-kicker">
+          检索诊断
+        </div>
+        <div class="retrieval-meta">
+          <span>{{ retrievalProfileLabel(message.diagnostics.retrieval_profile) }}</span>
+          <span>{{ message.diagnostics.search_mode }}</span>
+          <span>top_k {{ message.diagnostics.applied_top_k }}</span>
+          <span>阈值 {{ message.diagnostics.applied_min_similarity }}</span>
+        </div>
+        <div class="retrieval-query">
+          <strong>实际检索查询：</strong>{{ message.diagnostics.search_query }}
+        </div>
+        <div class="retrieval-meta">
+          <span v-if="message.diagnostics.query_rewritten">已重写查询</span>
+          <span>
+            索引覆盖
+            {{ message.diagnostics.indexed_documents ?? 0 }}/{{ message.diagnostics.total_indexable_documents ?? 0 }}
+          </span>
+          <span>历史消息 {{ message.diagnostics.history_messages_used ?? 0 }}</span>
+        </div>
+      </section>
+
+      <StrategyDraftCard
+        v-if="message.role === 'assistant' && message.strategyDraft"
+        :draft="message.strategyDraft"
+        :saving="saving"
+        :saved="saved"
+        :added="added"
+        :running-backtest="runningBacktest"
+        :refreshing-status="refreshingStatus"
+        :generating-report="generatingReport"
+        :execution="execution"
+        @save="emit('saveStrategy')"
+        @add-to-workspace="emit('addToWorkspace')"
+        @run-backtest="emit('runBacktest')"
+        @refresh-execution="emit('refreshExecution')"
+        @generate-report="emit('generateReport')"
+        @copy-code="emit('copyCode')"
+      />
+
+      <section
+        v-if="message.role === 'assistant' && message.reasoning"
+        class="reasoning-box"
+      >
+        <div class="section-kicker">
+          分析摘要
+        </div>
+        <div>{{ message.reasoning }}</div>
+      </section>
+
+      <CitationList
+        v-if="message.role === 'assistant' && message.citations?.length"
+        :citations="message.citations"
+        @jump="documentId => emit('jumpCitation', documentId)"
+      />
+    </div>
+  </article>
+</template>
+
+<script setup lang="ts">
+import { CopyDocument, Cpu, UserFilled } from '@element-plus/icons-vue'
+
+import type { DraftWorkspaceExecutionState } from '@/composables/useStrategyDraftWorkspaceExecution'
+import type { KBChatMessage } from '@/stores/kbChat'
+import {
+  getDiagnosticTitle,
+  getStrategyDraftIssue,
+  retrievalProfileLabel,
+} from '@/composables/useAIChatRendering'
+import CitationList from './CitationList.vue'
+import StrategyDraftCard from './StrategyDraftCard.vue'
+
+defineProps<{
+  message: KBChatMessage
+  saving: boolean
+  saved: boolean
+  added: boolean
+  runningBacktest: boolean
+  refreshingStatus: boolean
+  generatingReport: boolean
+  execution?: DraftWorkspaceExecutionState
+}>()
+
+const emit = defineEmits<{
+  copyMessage: [content: string]
+  saveStrategy: []
+  addToWorkspace: []
+  runBacktest: []
+  refreshExecution: []
+  generateReport: []
+  copyCode: []
+  jumpCitation: [documentId?: string | null]
+}>()
+</script>
+
+<style scoped lang="scss">
+.message-card {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.message-card.user {
+  grid-template-columns: minmax(0, 1fr) 38px;
+}
+
+.message-card.user .message-avatar {
+  grid-column: 2;
+  grid-row: 1;
+  background: var(--bg-color-hover, #f3f4f6);
+  color: var(--text-color-regular, #4b5563);
+}
+
+.message-card.user .message-body {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.message-card.user .message-head {
+  flex-direction: row-reverse;
+}
+
+.message-card.user .message-content {
+  background: var(--bg-color-hover, #f3f4f6);
+}
+
+.message-avatar {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--el-border-radius-base);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  color: var(--primary-color, #3b82f6);
+}
+
+.message-body {
+  min-width: 0;
+}
+
+.message-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.message-author {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-color-primary, #1f2937);
+}
+
+.message-badge {
+  margin-left: 8px;
+  border-radius: 9999px;
+  background: var(--el-color-primary-light-9, #ecf5ff);
+  padding: 3px 8px;
+  color: var(--primary-color, #3b82f6);
+  font-size: 12px;
+}
+
+.message-badge.success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.message-badge.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.message-content {
+  margin-top: 8px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
+  padding: 13px 14px;
+  color: var(--text-color-primary, #1f2937);
+  font-size: 15px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diagnostic-box,
+.retrieval-box,
+.reasoning-box {
+  margin-top: 12px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--el-border-radius-base);
+  background: var(--bg-color-card, #fff);
+  padding: 12px;
+}
+
+.section-kicker {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-color, #3b82f6);
+  text-transform: uppercase;
+}
+
+.reasoning-box {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.diagnostic-box {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.diagnostic-box.ai_provider_failed {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.retrieval-box {
+  border-color: var(--el-color-primary-light-7, #bfdbfe);
+  background: #f8fbff;
+  color: #1e3a8a;
+}
+
+.retrieval-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.retrieval-meta span {
+  border-radius: 9999px;
+  background: var(--el-color-primary-light-9, rgba(219, 234, 254, 0.8));
+  padding: 3px 8px;
+  color: var(--primary-color, #3b82f6);
+  font-size: 12px;
+}
+
+.retrieval-query {
+  margin-top: 8px;
+  line-height: 1.7;
+}
+</style>

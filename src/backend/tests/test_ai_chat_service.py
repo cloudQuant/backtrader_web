@@ -1,7 +1,7 @@
 """Tests for AIChatService - AI chat provider integration."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -401,3 +401,228 @@ class TestAIChatServiceGenerateAnswer:
                 thinking_mode=False,
             )
             assert result is None
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_records_ai_call_log(self):
+        from sqlalchemy import select
+
+        from app.db.session_provider import unit_of_work
+        from app.models.ai_call_log import AICallLog
+        from app.services.ai_observability.logger import get_ai_call_log_sink
+
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = "http://localhost:8000"
+            settings.AI_CHAT_API_KEY = "sk-test-key"
+            settings.AI_CHAT_MODEL = "gpt-4o-mini"
+            mock_settings.return_value = settings
+            service = AIChatService()
+            service._call_provider = MagicMock(
+                return_value={
+                    "answer": "测试回答",
+                    "tokens_used": 42,
+                    "model_id": "gpt-4o-mini",
+                    "strategy_draft": None,
+                    "reasoning": None,
+                }
+            )
+
+            result = await service.generate_answer(
+                question="什么是均线策略？",
+                citations=[],
+                assistant_mode="knowledge_qa",
+                thinking_mode=False,
+            )
+            sink = get_ai_call_log_sink()
+            try:
+                await sink.flush()
+            finally:
+                await sink.shutdown()
+
+        assert result["answer"] == "测试回答"
+        async with unit_of_work() as session:
+            rows = (await session.execute(select(AICallLog))).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].service_name == "ai_chat"
+        assert rows[0].mode == "knowledge_qa"
+        assert rows[0].model_name == "gpt-4o-mini"
+        assert rows[0].total_tokens == 42
+        assert rows[0].prompt_hash
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_uses_ai_router_completion(self):
+        from app.services.ai_router.router import ChatCompletionResponse
+
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = "http://localhost:8000"
+            settings.AI_CHAT_API_KEY = "sk-test-key"
+            settings.AI_CHAT_MODEL = "gpt-4o-mini"
+            settings.AI_CHAT_TIMEOUT = 30
+            settings.AI_CHAT_TEMPERATURE = 0.2
+            mock_settings.return_value = settings
+            service = AIChatService()
+            captured = {}
+
+            async def fake_chat_completion(**kwargs):
+                captured.update(kwargs)
+                return ChatCompletionResponse(
+                    content="路由层回答",
+                    model="gpt-4o-mini",
+                    provider="openai_compatible",
+                    prompt_tokens=3,
+                    completion_tokens=4,
+                    total_tokens=7,
+                )
+
+            service.ai_router.chat_completion = fake_chat_completion
+
+            result = await service.generate_answer(
+                question="什么是均线策略？",
+                citations=[],
+                assistant_mode="knowledge_qa",
+                thinking_mode=False,
+            )
+
+        assert result["answer"] == "路由层回答"
+        assert result["tokens_used"] == 7
+        assert result["model_id"] == "gpt-4o-mini"
+        assert captured["model"] == "gpt-4o-mini"
+        assert captured["provider"] == "openai_compatible"
+        assert captured["base_url"] == "http://localhost:8000"
+        assert captured["api_key"] == "sk-test-key"
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_uses_saved_user_model_preference(self):
+        from app.services.ai_router.preferences import ResolvedAIModelPreference
+        from app.services.ai_router.router import ChatCompletionResponse
+
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = ""
+            settings.AI_CHAT_API_KEY = ""
+            settings.AI_CHAT_MODEL = ""
+            settings.AI_CHAT_TIMEOUT = 30
+            settings.AI_CHAT_TEMPERATURE = 0.2
+            mock_settings.return_value = settings
+            service = AIChatService()
+            service.budget_checker = AsyncMock()
+            service._record_ai_call = AsyncMock()
+            service.model_preference_service.resolve_model_key = MagicMock(return_value=None)
+            service.model_preference_service.resolve_for_user = AsyncMock(
+                return_value=ResolvedAIModelPreference(
+                    provider="litellm",
+                    model="ollama/qwen2.5-coder:7b",
+                    base_url="http://localhost:11434",
+                    api_key=None,
+                )
+            )
+            captured = {}
+
+            async def fake_chat_completion(**kwargs):
+                captured.update(kwargs)
+                return ChatCompletionResponse(
+                    content="本地模型回答",
+                    model="ollama/qwen2.5-coder:7b",
+                    provider="litellm",
+                    total_tokens=9,
+                )
+
+            service.ai_router.chat_completion = fake_chat_completion
+
+            result = await service.generate_answer(
+                question="什么是均线策略？",
+                citations=[],
+                assistant_mode="knowledge_qa",
+                thinking_mode=False,
+                user_id="user-1",
+            )
+
+        assert result["answer"] == "本地模型回答"
+        assert captured["model"] == "ollama/qwen2.5-coder:7b"
+        assert captured["provider"] == "litellm"
+        assert captured["base_url"] == "http://localhost:11434"
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_uses_session_model_override(self):
+        from app.services.ai_router.router import ChatCompletionResponse
+
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = ""
+            settings.AI_CHAT_API_KEY = ""
+            settings.AI_CHAT_MODEL = ""
+            settings.AI_CHAT_TIMEOUT = 30
+            settings.AI_CHAT_TEMPERATURE = 0.2
+            mock_settings.return_value = settings
+            service = AIChatService()
+            service.budget_checker = AsyncMock()
+            service._record_ai_call = AsyncMock()
+            captured = {}
+
+            async def fake_chat_completion(**kwargs):
+                captured.update(kwargs)
+                return ChatCompletionResponse(
+                    content="会话模型回答",
+                    model="ollama/llama3.1:8b",
+                    provider="litellm",
+                    total_tokens=8,
+                )
+
+            service.ai_router.chat_completion = fake_chat_completion
+
+            result = await service.generate_answer(
+                question="什么是均线策略？",
+                citations=[],
+                assistant_mode="knowledge_qa",
+                thinking_mode=False,
+                user_id="missing-user",
+                model_id="ollama::ollama/llama3.1:8b",
+            )
+
+        assert result["answer"] == "会话模型回答"
+        assert captured["model"] == "ollama/llama3.1:8b"
+        assert captured["provider"] == "litellm"
+        assert captured["base_url"] == "http://localhost:11434"
+
+    @pytest.mark.asyncio
+    async def test_generate_answer_blocks_provider_when_hard_budget_exceeded(self):
+        from datetime import datetime, timezone
+
+        from app.services.ai_observability.budget import AIBudgetExceededError
+
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = "http://localhost:8000"
+            settings.AI_CHAT_API_KEY = "sk-test-key"
+            settings.AI_CHAT_MODEL = "gpt-4o-mini"
+            mock_settings.return_value = settings
+            service = AIChatService()
+            service._call_provider = MagicMock(return_value={"answer": "should not run"})
+
+            async def deny_budget(*, user_id: str | None) -> None:
+                assert user_id == "user-1"
+                raise AIBudgetExceededError(
+                    reason_code="budget_exceeded",
+                    limit_usd=0.01,
+                    used_usd=0.02,
+                    reset_at=datetime.now(timezone.utc),
+                )
+
+            service.budget_checker = deny_budget
+
+            with pytest.raises(AIBudgetExceededError):
+                await service.generate_answer(
+                    question="什么是均线策略？",
+                    citations=[],
+                    assistant_mode="knowledge_qa",
+                    thinking_mode=False,
+                    user_id="user-1",
+                )
+
+        service._call_provider.assert_not_called()

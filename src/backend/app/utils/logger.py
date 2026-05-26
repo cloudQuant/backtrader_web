@@ -317,7 +317,8 @@ def _resolve_log_format(settings: Any) -> tuple[bool, bool]:
     Returns:
         Tuple of (use_json, use_color).
     """
-    log_format = getattr(settings, "LOG_FORMAT", "").strip().lower()
+    raw_log_format = getattr(settings, "LOG_FORMAT", "")
+    log_format = raw_log_format.strip().lower() if isinstance(raw_log_format, str) else ""
 
     if log_format == "json":
         return True, False
@@ -329,6 +330,18 @@ def _resolve_log_format(settings: Any) -> tuple[bool, bool]:
         return False, True
     else:
         return True, False
+
+
+def _resolve_int_setting(settings: Any, name: str, default: int) -> int:
+    value = getattr(settings, name, default)
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return default
+    return default
 
 
 def setup_logger(
@@ -356,7 +369,8 @@ def setup_logger(
     settings = get_settings()
 
     # Resolve log levels: explicit LOG_LEVEL > function param > environment-based default
-    explicit_level = getattr(settings, "LOG_LEVEL", "").strip().upper()
+    raw_explicit_level = getattr(settings, "LOG_LEVEL", "")
+    explicit_level = raw_explicit_level.strip().upper() if isinstance(raw_explicit_level, str) else ""
     if log_level:
         console_level = log_level
         file_level = log_level
@@ -391,9 +405,9 @@ def setup_logger(
     _add_console_handler(console_level, use_color)
 
     # Resolve retention periods from config
-    app_retention = f"{getattr(settings, 'LOG_RETENTION_APP_DAYS', 30)} days"
-    error_retention = f"{getattr(settings, 'LOG_RETENTION_ERROR_DAYS', 90)} days"
-    audit_retention = f"{getattr(settings, 'LOG_RETENTION_AUDIT_DAYS', 365)} days"
+    app_retention = f"{_resolve_int_setting(settings, 'LOG_RETENTION_APP_DAYS', 30)} days"
+    error_retention = f"{_resolve_int_setting(settings, 'LOG_RETENTION_ERROR_DAYS', 90)} days"
+    audit_retention = f"{_resolve_int_setting(settings, 'LOG_RETENTION_AUDIT_DAYS', 365)} days"
 
     _add_file_handler(
         logs_path, "app_{time:YYYY-MM-DD}.log", use_json,

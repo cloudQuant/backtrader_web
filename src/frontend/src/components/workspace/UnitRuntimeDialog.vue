@@ -74,7 +74,7 @@
             >
               <el-option
                 label="全部"
-                :value="null"
+                :value="0"
               />
               <el-option
                 label="200 行"
@@ -173,7 +173,7 @@ const runtimeInfo = ref<StrategyUnitRuntimeInfo | null>(null)
 const selectedFile = ref('')
 const fileContent = ref('')
 const contentError = ref('')
-const tailLines = ref<number | null>(500)
+const tailLines = ref<number>(500)
 const loadingInfo = ref(false)
 const loadingContent = ref(false)
 const openingDir = ref(false)
@@ -268,7 +268,7 @@ async function loadSelectedFile() {
       props.workspaceId,
       props.unit.id,
       selectedFile.value,
-      tailLines.value,
+      tailLines.value || null,
     )
   } catch (error: unknown) {
     fileContent.value = ''

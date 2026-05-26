@@ -11,9 +11,11 @@ sync logic.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, cast
 
 from app.db.database import async_session_maker
+from app.models.workspace import StrategyUnit
 from app.schemas.workspace import ApplyBestParamsRequest
 from app.services.optimization_execution_manager import get_optimization_execution_manager
 from app.services.optimization_task_state import build_results_response
@@ -24,6 +26,176 @@ from app.services.param_optimization_service import (
 from app.services.workspace._helpers import build_optimization_artifact_metadata
 
 logger = logging.getLogger(__name__)
+
+
+def build_optimization_trial_payload(
+    task_id: str,
+    result_index: int,
+    unit: StrategyUnit,
+    log_result: dict[str, Any],
+    created_at: str,
+    result_entry: dict[str, Any],
+) -> dict[str, Any]:
+    from app.services.workspace_service import _normalize_unit_data_config
+
+    equity_values = [float(v or 0.0) for v in (log_result.get("equity_curve") or [])]
+    equity_dates = [str(v or "") for v in (log_result.get("equity_dates") or [])]
+    cash_values = [float(v or 0.0) for v in (log_result.get("cash_curve") or [])]
+    raw_trades = list(log_result.get("trades") or [])
+    kline = cast(dict[str, Any], log_result.get("kline") or {})
+    kline_dates = [str(v or "") for v in (kline.get("dates") or [])]
+    kline_ohlc = list(kline.get("ohlc") or [])
+    kline_volumes = list(kline.get("volumes") or [])
+    log_indicators = cast(dict[str, list[float | None]], kline.get("indicators") or {})
+
+    equity_curve: list[dict[str, Any]] = []
+    drawdown_curve: list[dict[str, Any]] = []
+    peak = 0.0
+    for index, value in enumerate(equity_values):
+        if value > peak:
+            peak = value
+        date = (equity_dates[index] if index < len(equity_dates) else "")[:10]
+        cash = cash_values[index] if index < len(cash_values) else value
+        position_value = value - cash
+        drawdown = ((value - peak) / peak) if peak > 0 else 0.0
+        equity_curve.append(
+            {
+                "date": date,
+                "total_assets": round(value, 2),
+                "cash": round(cash, 2),
+                "position_value": round(position_value, 2),
+            }
+        )
+        drawdown_curve.append(
+            {
+                "date": date,
+                "drawdown": round(drawdown, 6),
+                "peak": round(peak, 2),
+                "trough": round(value, 2),
+            }
+        )
+
+    klines: list[dict[str, Any]] = []
+    kline_close_map: dict[str, float] = {}
+    for index, date in enumerate(kline_dates):
+        normalized_date = date[:10]
+        ohlc = kline_ohlc[index] if index < len(kline_ohlc) else [0.0, 0.0, 0.0, 0.0]
+        open_price = float(ohlc[0]) if len(ohlc) > 0 else 0.0
+        close_price = float(ohlc[1]) if len(ohlc) > 1 else 0.0
+        low_price = float(ohlc[2]) if len(ohlc) > 2 else 0.0
+        high_price = float(ohlc[3]) if len(ohlc) > 3 else 0.0
+        klines.append(
+            {
+                "date": normalized_date,
+                "open": round(open_price, 4),
+                "high": round(high_price, 4),
+                "low": round(low_price, 4),
+                "close": round(close_price, 4),
+                "volume": kline_volumes[index] if index < len(kline_volumes) else 0,
+            }
+        )
+        if normalized_date:
+            kline_close_map[normalized_date] = round(close_price, 4)
+
+    trades: list[dict[str, Any]] = []
+    signals: list[dict[str, Any]] = []
+    symbol = str(unit.symbol or unit.symbol_name or unit.strategy_name or "Unknown")
+    for index, trade in enumerate(raw_trades):
+        trade_data = dict(trade or {})
+        pnl = trade_data.get("pnl")
+        if pnl is None:
+            pnl = trade_data.get("pnlcomm")
+        open_price = float(trade_data.get("price", 0) or 0)
+        size = float(trade_data.get("size", 0) or 0)
+        direction = str(trade_data.get("direction", "buy") or "buy")
+        dtopen = str(trade_data.get("dtopen", "") or "")[:10]
+        dtclose = str(trade_data.get("dtclose", trade_data.get("datetime", "")) or "")[:10]
+
+        trade_payload = {
+            "id": index + 1,
+            "datetime": str(trade_data.get("datetime", dtclose) or dtclose)[:10],
+            "dtopen": dtopen,
+            "dtclose": dtclose,
+            "symbol": symbol,
+            "direction": direction,
+            "price": open_price,
+            "close_price": trade_data.get("close_price"),
+            "size": size,
+            "value": float(trade_data.get("value", 0) or 0),
+            "commission": float(trade_data.get("commission", 0) or 0),
+            "pnl": pnl,
+            "barlen": trade_data.get("barlen"),
+        }
+        trades.append(trade_payload)
+
+        is_long = direction == "buy"
+        if dtopen:
+            signals.append(
+                {
+                    "date": dtopen,
+                    "type": "buy" if is_long else "sell",
+                    "price": kline_close_map.get(dtopen, open_price),
+                    "size": abs(size),
+                }
+            )
+        if dtclose:
+            signals.append(
+                {
+                    "date": dtclose,
+                    "type": "sell" if is_long else "buy",
+                    "price": kline_close_map.get(dtclose, open_price),
+                    "size": abs(size),
+                }
+            )
+
+    monthly_returns: dict[tuple[int, int], float] = {}
+    if equity_dates and equity_values:
+        month_start_value = equity_values[0]
+        current_month: tuple[int, int] | None = None
+        for date_text, value in zip(equity_dates, equity_values, strict=False):
+            try:
+                dt = datetime.strptime(str(date_text)[:10], "%Y-%m-%d")
+            except ValueError:
+                continue
+            month_key = (dt.year, dt.month)
+            if current_month != month_key:
+                if current_month and month_start_value > 0:
+                    monthly_returns[current_month] = round(
+                        (value - month_start_value) / month_start_value,
+                        6,
+                    )
+                month_start_value = value
+                current_month = month_key
+        if current_month and month_start_value > 0:
+            monthly_returns[current_month] = round(
+                (equity_values[-1] - month_start_value) / month_start_value,
+                6,
+            )
+
+    data_config = _normalize_unit_data_config(unit.data_config)
+    start_date = str(data_config.get("start_date") or (equity_dates[0] if equity_dates else ""))[
+        :10
+    ]
+    end_date = str(data_config.get("end_date") or (equity_dates[-1] if equity_dates else ""))[:10]
+    strategy_name = str(unit.strategy_name or unit.strategy_id or "Unknown")
+    artifact_metadata = build_optimization_artifact_metadata(task_id, result_index, result_entry)
+
+    return {
+        "task_id": f"{task_id}:{result_index}",
+        "strategy_name": strategy_name,
+        "symbol": symbol,
+        "start_date": start_date,
+        "end_date": end_date,
+        "equity_curve": equity_curve,
+        "drawdown_curve": drawdown_curve,
+        "trades": trades,
+        "signals": signals,
+        "klines": klines,
+        "log_indicators": log_indicators,
+        "monthly_returns": monthly_returns,
+        "created_at": created_at,
+        **artifact_metadata,
+    }
 
 
 async def get_unit_optimization_result_artifact_metadata(

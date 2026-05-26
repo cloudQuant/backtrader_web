@@ -5,7 +5,7 @@ User ORM model.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -31,6 +31,10 @@ class User(Base):
     email = Column(String(100), unique=True, nullable=False, index=True)
     hashed_password = Column(String(128), nullable=False)
     is_active = Column(Boolean, default=True)
+    ai_budget_daily_usd = Column(Float, nullable=True)
+    ai_budget_mode = Column(String(20), nullable=True)
+    ai_preferred_provider = Column(String(50), nullable=True)
+    ai_preferred_model = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime,

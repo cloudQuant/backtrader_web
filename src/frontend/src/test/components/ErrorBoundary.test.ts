@@ -59,19 +59,6 @@ const ThrowingChild = defineComponent({
   },
 })
 
-// A child component that conditionally throws based on a prop
-const ConditionalThrowChild = defineComponent({
-  name: 'ConditionalThrowChild',
-  props: { shouldThrow: { type: Boolean, default: true } },
-  setup(props) {
-    return () => {
-      if (props.shouldThrow) {
-        throw new Error('Conditional error')
-      }
-      return h('div', { class: 'recovered-child' }, 'Recovered!')
-    }
-  },
-})
 
 describe('ErrorBoundary', () => {
   const globalStubs = {

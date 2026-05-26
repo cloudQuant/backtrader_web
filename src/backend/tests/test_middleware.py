@@ -231,7 +231,7 @@ class TestSecurityHeadersMiddleware:
         # Verify security headers
         assert response.headers.get("X-Content-Type-Options") == "nosniff"
         assert response.headers.get("X-Frame-Options") == "DENY"
-        assert response.headers.get("X-XSS-Protection") == "1; mode=block"
+        assert response.headers.get("X-XSS-Protection") == "0"
         assert "Content-Security-Policy" in response.headers
         assert response.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
         assert "Permissions-Policy" in response.headers
@@ -320,7 +320,7 @@ class TestSecurityHeadersMiddleware:
         response = client.get("/test")
 
         # In debug mode (test default), should show app name
-        assert response.headers.get("X-Powered-By") == "Backtrader Web"
+        assert response.headers.get("X-Powered-By") is None
 
 
 class TestMiddlewareIntegration:
@@ -453,4 +453,4 @@ class TestCustomExceptionIntegration:
                 # Should have to_dict method
                 assert hasattr(exc, "to_dict")
             except Exception as e:
-                raise AssertionError(f"Failed to instantiate {exc_class.__name__}: {e}")
+                raise AssertionError(f"Failed to instantiate {exc_class.__name__}: {e}") from e

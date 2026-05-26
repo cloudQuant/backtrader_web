@@ -595,6 +595,7 @@ class RAGService:
         assistant_mode: str = "knowledge_qa",
         thinking_mode: bool = False,
         conversation_history: list[dict[str, Any]] | None = None,
+        model_id: str | None = None,
     ) -> dict:
         search_payload = await self.search_with_diagnostics(
             knowledge_base_id,
@@ -634,6 +635,8 @@ class RAGService:
             conversation_history=conversation_history,
             retrieval_diagnostics=diagnostics,
             knowledge_base_settings=settings,
+            user_id=owner_id,
+            model_id=model_id,
         )
         if generated is not None:
             strategy_draft = generated.get("strategy_draft")

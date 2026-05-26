@@ -26,6 +26,8 @@ vi.mock('@/views/data/DataInterfacesPage.vue', () => ({ default: { template: '<d
 vi.mock('@/views/PortfolioPage.vue', () => ({ default: { template: '<div>Portfolio</div>' } }))
 vi.mock('@/views/SettingsPage.vue', () => ({ default: { template: '<div>Settings</div>' } }))
 vi.mock('@/views/AIChatPage.vue', () => ({ default: { template: '<div>AI Chat</div>' } }))
+vi.mock('@/views/AIObservabilityPage.vue', () => ({ default: { template: '<div>AI Observability</div>' } }))
+vi.mock('@/views/PromptTemplatesPage.vue', () => ({ default: { template: '<div>Prompt Templates</div>' } }))
 vi.mock('@/views/KnowledgeBasePage.vue', () => ({ default: { template: '<div>Knowledge Base</div>' } }))
 vi.mock('@/views/KnowledgeBaseDocumentPage.vue', () => ({ default: { template: '<div>Knowledge Base Document</div>' } }))
 vi.mock('@/components/common/AppLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
@@ -64,6 +66,8 @@ describe('router', () => {
     expect(names).toContain('TradingWorkspaceDetail')
     expect(names).toContain('Data')
     expect(names).toContain('AIChat')
+    expect(names).toContain('AIObservability')
+    expect(names).toContain('PromptTemplates')
     expect(names).toContain('KnowledgeBase')
     expect(names).toContain('KnowledgeBaseDocument')
   })
@@ -151,6 +155,34 @@ describe('router', () => {
     await router.push('/data/interfaces')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('DataInterfaces')
+  })
+
+  it('guard redirects non-admin user away from /admin/ai-observability', async () => {
+    mockAuthStore(true, false)
+    await router.push('/admin/ai-observability')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataMarket')
+  })
+
+  it('guard allows admin user to access /admin/ai-observability', async () => {
+    mockAuthStore(true, true)
+    await router.push('/admin/ai-observability')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('AIObservability')
+  })
+
+  it('guard redirects non-admin user away from /admin/prompt-templates', async () => {
+    mockAuthStore(true, false)
+    await router.push('/admin/prompt-templates')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataMarket')
+  })
+
+  it('guard allows admin user to access /admin/prompt-templates', async () => {
+    mockAuthStore(true, true)
+    await router.push('/admin/prompt-templates')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('PromptTemplates')
   })
 
   it('redirects legacy /live-trading route to trading workspace', async () => {

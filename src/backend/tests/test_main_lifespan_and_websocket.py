@@ -25,6 +25,7 @@ async def test_lifespan_runs_startup_and_shutdown(monkeypatch):
     monkeypatch.setattr(main_module.settings, "ADMIN_PASSWORD", "admin123", raising=False)
 
     logs = {"info": 0, "warning": 0}
+    ai_sink = SimpleNamespace(start=AsyncMock(), shutdown=AsyncMock())
 
     class FakeLogger:
         def info(self, *_args, **_kwargs):
@@ -34,11 +35,18 @@ async def test_lifespan_runs_startup_and_shutdown(monkeypatch):
             logs["warning"] += 1
 
     monkeypatch.setattr(main_module, "logger", FakeLogger(), raising=True)
+    monkeypatch.setattr(
+        "app.services.ai_observability.logger.get_ai_call_log_sink",
+        lambda: ai_sink,
+        raising=True,
+    )
 
     async with main_module.lifespan(main_module.app):
         pass
 
     assert ensure_database_ready.await_count == 1
+    assert ai_sink.start.await_count == 1
+    assert ai_sink.shutdown.await_count == 1
     assert logs["warning"] >= 2  # default key + default admin password
     assert logs["info"] >= 2  # startup + shutdown
 

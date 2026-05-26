@@ -116,6 +116,132 @@ export interface StrategyCopilotBacktestResponse {
   report?: WorkspaceReportResponse | null
 }
 
+export interface StrategyScoreDimension {
+  key: string
+  label: string
+  score: number
+  weight: number
+  explanation: string
+  sub_metrics: Record<string, unknown>
+  degraded: boolean
+}
+
+export interface StrategyScoreRequest {
+  backtest_id?: string
+  backtest_result?: Record<string, unknown> | null
+}
+
+export interface StrategyScoreResponse {
+  backtest_id: string
+  total_score: number
+  level: 'S' | 'A' | 'B' | 'C' | 'D'
+  model_version: string
+  disclaimer: string
+  dimensions: StrategyScoreDimension[]
+}
+
+export type StrategyOverfittingMethod = 'walk_forward' | 'out_of_sample' | 'monte_carlo'
+export type StrategyOverfittingRiskLevel = 'low' | 'medium' | 'high'
+
+export interface StrategyOverfittingAnalysisRequest {
+  methods: StrategyOverfittingMethod[]
+  walk_forward_train_days?: number
+  walk_forward_test_days?: number
+  walk_forward_step_days?: number
+  walk_forward_max_concurrency?: number
+  out_of_sample_ratio?: number
+  monte_carlo_iterations?: number
+  random_seed?: number | null
+}
+
+export interface StrategyOverfittingMethodResult {
+  method: StrategyOverfittingMethod
+  status: string
+  risk_level: StrategyOverfittingRiskLevel
+  score: number
+  explanation: string
+  metrics: Record<string, unknown>
+  degraded: boolean
+}
+
+export interface StrategyOverfittingTaskSubmission {
+  task_id: string
+  backtest_id: string
+  status: string
+  methods: StrategyOverfittingMethod[]
+}
+
+export interface StrategyOverfittingTaskResult {
+  task_id: string
+  backtest_id: string
+  status: string
+  overall_level: StrategyOverfittingRiskLevel
+  robustness_score: number
+  summary: string
+  methods: StrategyOverfittingMethodResult[]
+  error_message?: string | null
+}
+
+export interface StrategyIndicator {
+  name: string
+  alias?: string | null
+  params: Record<string, unknown>
+}
+
+export interface StrategySignal {
+  condition: string
+  side: string
+}
+
+export interface StrategyRiskControl {
+  type: string
+  value?: unknown
+  source?: string | null
+}
+
+export interface StrategyParamInfo {
+  name: string
+  default?: unknown
+}
+
+export interface StrategyStructure {
+  parsable: boolean
+  indicators: StrategyIndicator[]
+  entry_signals: StrategySignal[]
+  exit_signals: StrategySignal[]
+  risk_controls: StrategyRiskControl[]
+  params: StrategyParamInfo[]
+  data_sources: string[]
+  raw_code?: string | null
+  parse_error?: string | null
+}
+
+export interface StrategyExplainRequest {
+  code?: string | null
+  strategy_id?: string | null
+  backtest_id?: string | null
+  strategy_name?: string | null
+  category?: string | null
+  params?: Record<string, unknown> | null
+}
+
+export interface StrategyExplanation {
+  code_hash: string
+  strategy_name: string
+  summary: string
+  indicators_explanation: string
+  entry_explanation: string
+  exit_explanation: string
+  params_explanation: string
+  market_fit: string
+  risk_notes: string[]
+  ast: StrategyStructure
+  reason_code: string
+  model_id?: string | null
+  cached: boolean
+  disclaimer: string
+}
+
 export const strategyApi = {
   async create(data: StrategyCreate): Promise<Strategy> {
     return api.post<Strategy, StrategyCreate>('/strategy/', data)
@@ -143,6 +269,36 @@ export const strategyApi = {
       `/strategy/copilot/workspaces/${workspaceId}/backtest`,
       data
     )
+  },
+
+  async createScore(data: StrategyScoreRequest): Promise<StrategyScoreResponse> {
+    return api.post<StrategyScoreResponse, StrategyScoreRequest>('/strategy/score', data)
+  },
+
+  async getScore(backtestId: string): Promise<StrategyScoreResponse> {
+    return api.get<StrategyScoreResponse>(`/strategy/score/${backtestId}`)
+  },
+
+  async createOverfittingTask(
+    backtestId: string,
+    data: StrategyOverfittingAnalysisRequest
+  ): Promise<StrategyOverfittingTaskSubmission> {
+    return api.post<StrategyOverfittingTaskSubmission, StrategyOverfittingAnalysisRequest>(
+      `/strategy/overfitting/${backtestId}`,
+      data,
+    )
+  },
+
+  async getOverfittingTask(taskId: string): Promise<StrategyOverfittingTaskResult> {
+    return api.get<StrategyOverfittingTaskResult>(`/strategy/overfitting/task/${taskId}`)
+  },
+
+  async explainStrategy(data: StrategyExplainRequest): Promise<StrategyExplanation> {
+    return api.post<StrategyExplanation, StrategyExplainRequest>('/strategy/explain', data)
+  },
+
+  async getCachedExplanation(codeHash: string): Promise<StrategyExplanation> {
+    return api.get<StrategyExplanation>(`/strategy/explain/cached/${codeHash}`)
   },
 
   async get(id: string): Promise<Strategy> {

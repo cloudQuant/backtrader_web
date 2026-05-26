@@ -43,12 +43,22 @@ const workspaceApiMocks = vi.hoisted(() => ({
   createReport: vi.fn(),
 }))
 
+const aiObservabilityMocks = vi.hoisted(() => ({
+  getMyAvailableModels: vi.fn(),
+}))
+
 vi.mock('@/api/workspace', () => ({
   workspaceApi: {
     list: workspaceApiMocks.list,
     runUnits: workspaceApiMocks.runUnits,
     getUnitsStatus: workspaceApiMocks.getUnitsStatus,
     createReport: workspaceApiMocks.createReport,
+  },
+}))
+
+vi.mock('@/api/aiObservability', () => ({
+  aiObservabilityApi: {
+    getMyAvailableModels: aiObservabilityMocks.getMyAvailableModels,
   },
 }))
 
@@ -195,6 +205,14 @@ describe('AIChatPage', () => {
     workspaceApiMocks.runUnits.mockReset()
     workspaceApiMocks.getUnitsStatus.mockReset()
     workspaceApiMocks.createReport.mockReset()
+    aiObservabilityMocks.getMyAvailableModels.mockReset()
+    aiObservabilityMocks.getMyAvailableModels.mockResolvedValue({
+      providers: [],
+      models: [
+        { provider: 'ollama', model: 'ollama/llama3.1:8b', display_name: 'Ollama / ollama/llama3.1:8b' },
+      ],
+      preferences: { provider: null, model: null },
+    })
     workspaceApiMocks.list.mockResolvedValue({
       total: 1,
       items: [
@@ -354,6 +372,25 @@ describe('AIChatPage', () => {
     expect(mocks.sendMessage).toHaveBeenCalledWith('kb-1', '请生成一个双均线策略', {
       assistantMode: 'backtrader_strategy',
       thinkingMode: false,
+      modelId: undefined,
+    })
+  })
+
+  it('passes selected session model when sending a message', async () => {
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.selectedSessionModelKey = 'ollama::ollama/llama3.1:8b'
+    await wrapper.find('textarea').setValue('请解释均线策略')
+    const sendButton = wrapper.findAll('button').find(button => button.text().includes('发送'))
+    expect(sendButton).toBeTruthy()
+    await sendButton!.trigger('click')
+
+    expect(aiObservabilityMocks.getMyAvailableModels).toHaveBeenCalled()
+    expect(mocks.sendMessage).toHaveBeenCalledWith('kb-1', '请解释均线策略', {
+      assistantMode: 'knowledge_qa',
+      thinkingMode: false,
+      modelId: 'ollama::ollama/llama3.1:8b',
     })
   })
 

@@ -52,6 +52,24 @@ const inputStub = defineComponent({
       blur: vi.fn(),
       select: vi.fn(),
     })
+    if (props.type === 'textarea') {
+      return () =>
+        h('textarea', {
+          class: 'el-input',
+          value: props.modelValue ?? '',
+          placeholder: props.placeholder,
+          disabled: props.disabled,
+          onInput: (event: Event) => {
+            const target = event.target as HTMLTextAreaElement
+            emit('update:modelValue', target.value)
+            emit('input', target.value)
+          },
+          onChange: (event: Event) => {
+            const target = event.target as HTMLTextAreaElement
+            emit('change', target.value)
+          },
+        })
+    }
     return () =>
       h('input', {
         class: 'el-input',

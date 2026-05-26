@@ -16,6 +16,7 @@ from app.schemas.ai_trading import (
     TradeAction,
     TradingIntent,
 )
+from app.services.ai_chat_service import AIChatService
 
 logger = logging.getLogger(__name__)
 
@@ -26,21 +27,20 @@ async def _call_llm(question: str, system_prompt: str) -> str:
     Uses the same AI chat infrastructure as the KB Copilot.
     Builds messages directly and calls the provider.
     """
-    import asyncio
-
-    from app.services.ai_chat_service import AIChatService
-
     service = AIChatService()
     if not service.is_enabled():
         raise RuntimeError("AI chat is not enabled (AI_CHAT_ENABLED=false)")
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": question},
-    ]
     try:
-        result = await asyncio.to_thread(service._call_provider, messages, "knowledge_qa")
-        return result.get("answer", "")
+        result = await service.generate_answer(
+            question=f"{system_prompt}\n\n用户指令：{question}",
+            citations=[],
+            assistant_mode="trading_execution",
+            thinking_mode=False,
+        )
+        if not result or not result.get("answer"):
+            raise RuntimeError("AI provider returned empty intent response")
+        return str(result.get("answer") or "")
     except Exception as e:
         raise RuntimeError(f"AI provider call failed: {e}") from e
 

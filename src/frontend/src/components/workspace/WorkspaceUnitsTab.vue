@@ -618,6 +618,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { workspaceApi } from '@/api/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit } from '@/types/workspace'
+import type { TagType } from '@/constants/strategy'
 import CreateUnitDialog from './CreateUnitDialog.vue'
 import DataSourceDialog from './DataSourceDialog.vue'
 import UnitSettingsDialog from './UnitSettingsDialog.vue'
@@ -1155,9 +1156,9 @@ async function handleCopyOptParams() {
 }
 
 // --- Formatters ---
-function runStatusTagType(status: string) {
-  const map: Record<string, string> = {
-    idle: 'info', queued: 'warning', running: '', completed: 'success', failed: 'danger', cancelled: 'warning',
+function runStatusTagType(status: string): TagType {
+  const map: Record<string, TagType> = {
+    idle: 'info', queued: 'warning', running: 'primary', completed: 'success', failed: 'danger', cancelled: 'warning',
   }
   return map[status] || 'info'
 }
@@ -1169,8 +1170,8 @@ function runStatusLabel(status: string) {
   return map[status] || status
 }
 
-function optimizationStatusTagType(status: string | null | undefined) {
-  const map: Record<string, string> = {
+function optimizationStatusTagType(status: string | null | undefined): TagType {
+  const map: Record<string, TagType> = {
     completed: 'success', failed: 'danger', cancelled: 'warning',
   }
   return map[status || ''] || 'info'

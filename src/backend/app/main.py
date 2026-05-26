@@ -14,6 +14,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api.backtest_enhanced import websocket_endpoint as stream_backtest_progress
+from app.api.overfitting import websocket_endpoint as stream_overfitting_progress
 from app.api.router import api_router, optional_router_status
 from app.config import _DEFAULT_PASSWORDS, _DEFAULT_SECRETS, get_settings
 from app.db.database import ensure_database_ready
@@ -100,6 +101,13 @@ async def lifespan(app: FastAPI):
     except Exception:
         logger.exception("Failed to start audit async sink")
 
+    try:
+        from app.services.ai_observability.logger import get_ai_call_log_sink
+
+        await get_ai_call_log_sink().start()
+    except Exception:
+        logger.exception("Failed to start AI call log async sink")
+
     # Security warnings
     if settings.SECRET_KEY in _DEFAULT_SECRETS or settings.JWT_SECRET_KEY in _DEFAULT_SECRETS:
         logger.warning("Using default security key. Set SECRET_KEY / JWT_SECRET_KEY in production.")
@@ -175,6 +183,13 @@ async def lifespan(app: FastAPI):
         await get_audit_service().shutdown()
     except Exception:
         logger.exception("Failed to shutdown audit async sink")
+
+    try:
+        from app.services.ai_observability.logger import get_ai_call_log_sink
+
+        await get_ai_call_log_sink().shutdown()
+    except Exception:
+        logger.exception("Failed to shutdown AI call log async sink")
 
     # Clean up ZMQ tick receivers
     try:
@@ -383,6 +398,12 @@ async def system_info():
 async def websocket_backtest_progress(websocket: WebSocket, task_id: str):
     """Stream backtest progress updates over WebSocket."""
     await stream_backtest_progress(websocket, task_id)
+
+
+@app.websocket("/ws/overfitting/{task_id}")
+async def websocket_overfitting_progress(websocket: WebSocket, task_id: str):
+    """Stream overfitting progress updates over WebSocket."""
+    await stream_overfitting_progress(websocket, task_id)
 
 
 if __name__ == "__main__":  # pragma: no cover

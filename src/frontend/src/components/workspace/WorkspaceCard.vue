@@ -69,6 +69,7 @@
 import { computed } from 'vue'
 import { FolderOpened } from '@element-plus/icons-vue'
 import type { Workspace } from '@/types/workspace'
+import type { TagType } from '@/constants/strategy'
 
 const props = defineProps<{
   workspace: Workspace
@@ -82,8 +83,8 @@ defineEmits<{
   'toggle-select': []
 }>()
 
-const statusTagType = computed(() => {
-  const map: Record<string, string> = { idle: 'info', running: 'warning', completed: 'success', error: 'danger' }
+const statusTagType = computed<TagType>(() => {
+  const map: Record<string, TagType> = { idle: 'info', running: 'warning', completed: 'success', error: 'danger' }
   return map[props.workspace.status] || 'info'
 })
 

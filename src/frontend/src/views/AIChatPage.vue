@@ -35,18 +35,16 @@
     </section>
 
     <section class="mode-strip">
-      <el-radio-group
-        v-model="selectedAssistantMode"
-        size="default"
+      <button
+        v-for="option in assistantModeOptions"
+        :key="option.value"
+        type="button"
+        class="mode-tab"
+        :class="{ active: selectedAssistantMode === option.value }"
+        @click="selectedAssistantMode = option.value"
       >
-        <el-radio-button
-          v-for="option in assistantModeOptions"
-          :key="option.value"
-          :value="option.value"
-        >
-          {{ option.label }}
-        </el-radio-button>
-      </el-radio-group>
+        {{ option.label }}
+      </button>
       <div class="thinking-toggle">
         <el-switch
           v-model="thinkingMode"
@@ -172,321 +170,26 @@
           </div>
 
           <template v-else>
-            <article
+            <ChatMessageBubble
               v-for="(message, index) in chatStore.messages"
               :key="`${message.role}-${index}`"
-              class="message-card"
-              :class="message.role"
-            >
-              <div class="message-avatar">
-                <el-icon v-if="message.role === 'assistant'">
-                  <Cpu />
-                </el-icon>
-                <el-icon v-else>
-                  <UserFilled />
-                </el-icon>
-              </div>
-
-              <div class="message-body">
-                <div class="message-head">
-                  <div>
-                    <span class="message-author">{{ message.role === 'assistant' ? 'AI 助手' : '你' }}</span>
-                    <span
-                      v-if="message.role === 'assistant' && message.citations?.length"
-                      class="message-badge"
-                    >
-                      {{ message.citations.length }} 条引用
-                    </span>
-                    <span
-                      v-if="message.role === 'assistant' && message.strategyDraft"
-                      class="message-badge"
-                      :class="{
-                        success: !getStrategyDraftIssue(message.strategyDraft),
-                        warning: Boolean(getStrategyDraftIssue(message.strategyDraft)),
-                      }"
-                    >
-                      {{ getStrategyDraftIssue(message.strategyDraft) ? '草稿待补全' : '可保存为策略' }}
-                    </span>
-                  </div>
-                  <el-button
-                    circle
-                    size="small"
-                    title="复制消息"
-                    @click="copyMessage(message.content)"
-                  >
-                    <el-icon><CopyDocument /></el-icon>
-                  </el-button>
-                </div>
-
-                <div class="message-content">
-                  {{ message.content }}
-                </div>
-
-                <section
-                  v-if="message.role === 'assistant' && message.diagnosticMessage"
-                  class="diagnostic-box"
-                  :class="message.reasonCode || ''"
-                >
-                  <div class="section-kicker">
-                    {{ getDiagnosticTitle(message.reasonCode) }}
-                  </div>
-                  <div>{{ message.diagnosticMessage }}</div>
-                </section>
-
-                <section
-                  v-if="message.role === 'assistant' && message.diagnostics"
-                  class="retrieval-box"
-                >
-                  <div class="section-kicker">
-                    检索诊断
-                  </div>
-                  <div class="retrieval-meta">
-                    <span>{{ retrievalProfileLabel(message.diagnostics.retrieval_profile) }}</span>
-                    <span>{{ message.diagnostics.search_mode }}</span>
-                    <span>top_k {{ message.diagnostics.applied_top_k }}</span>
-                    <span>阈值 {{ message.diagnostics.applied_min_similarity }}</span>
-                  </div>
-                  <div class="retrieval-query">
-                    <strong>实际检索查询：</strong>{{ message.diagnostics.search_query }}
-                  </div>
-                  <div class="retrieval-meta">
-                    <span v-if="message.diagnostics.query_rewritten">已重写查询</span>
-                    <span>
-                      索引覆盖
-                      {{ message.diagnostics.indexed_documents ?? 0 }}/{{ message.diagnostics.total_indexable_documents ?? 0 }}
-                    </span>
-                    <span>历史消息 {{ message.diagnostics.history_messages_used ?? 0 }}</span>
-                  </div>
-                </section>
-
-                <section
-                  v-if="message.role === 'assistant' && message.strategyDraft"
-                  class="strategy-draft"
-                >
-                  <div class="draft-head">
-                    <div>
-                      <div class="draft-title">
-                        {{ message.strategyDraft.name }}
-                      </div>
-                      <div class="draft-meta">
-                        {{ message.strategyDraft.category || '未分类' }}
-                        / {{ getDraftParamCount(message.strategyDraft) }} 个参数
-                        <span v-if="message.strategyDraft.suggested_timeframe">
-                          / {{ message.strategyDraft.suggested_timeframe }}
-                        </span>
-                      </div>
-                    </div>
-                    <div class="draft-actions">
-                      <el-button
-                        type="primary"
-                        size="small"
-                        :disabled="
-                          savingStrategyIndex === index
-                            || Boolean(savedStrategyIds[index])
-                            || Boolean(getStrategyDraftIssue(message.strategyDraft))
-                        "
-                        @click="handleSaveStrategyDraft(message, index)"
-                      >
-                        <el-icon><Document /></el-icon>
-                        {{
-                          savedStrategyIds[index]
-                            ? '已保存到策略中心'
-                            : savingStrategyIndex === index
-                              ? '保存中...'
-                              : '保存为策略'
-                        }}
-                      </el-button>
-                      <el-button
-                        size="small"
-                        :disabled="
-                          Boolean(addedWorkspaceUnitIds[index])
-                            || Boolean(getStrategyDraftIssue(message.strategyDraft))
-                        "
-                        @click="openAddToWorkspaceDialog(message, index)"
-                      >
-                        <el-icon><Aim /></el-icon>
-                        {{ addedWorkspaceUnitIds[index] ? '已添加到工作区' : '添加到工作区' }}
-                      </el-button>
-                      <el-button
-                        v-if="workspaceExecutions[index]"
-                        size="small"
-                        :disabled="
-                          runningBacktestIndex === index
-                            || Boolean(getStrategyDraftIssue(message.strategyDraft))
-                        "
-                        @click="handleRunStrategyDraftBacktest(index)"
-                      >
-                        <el-icon><Promotion /></el-icon>
-                        {{ runningBacktestIndex === index ? '回测提交中...' : '一键回测' }}
-                      </el-button>
-                      <el-button
-                        v-if="workspaceExecutions[index]"
-                        size="small"
-                        :disabled="refreshingStatusIndex === index"
-                        @click="handleRefreshWorkspaceExecution(index)"
-                      >
-                        <el-icon><Refresh /></el-icon>
-                        {{ refreshingStatusIndex === index ? '刷新中...' : '刷新状态' }}
-                      </el-button>
-                      <el-button
-                        v-if="workspaceExecutions[index]"
-                        size="small"
-                        :disabled="
-                          generatingReportIndex === index
-                            || Boolean(getStrategyDraftIssue(message.strategyDraft))
-                        "
-                        @click="handleGenerateWorkspaceReport(message, index)"
-                      >
-                        <el-icon><DataAnalysis /></el-icon>
-                        {{ generatingReportIndex === index ? '生成中...' : '生成报告' }}
-                      </el-button>
-                      <el-button
-                        size="small"
-                        @click="copyMessage(message.strategyDraft.code || '')"
-                      >
-                        <el-icon><CopyDocument /></el-icon>
-                        复制代码
-                      </el-button>
-                    </div>
-                  </div>
-
-                  <p
-                    v-if="message.strategyDraft.rationale"
-                    class="draft-rationale"
-                  >
-                    {{ message.strategyDraft.rationale }}
-                  </p>
-
-                  <p
-                    v-if="getStrategyDraftIssue(message.strategyDraft)"
-                    class="draft-warning"
-                  >
-                    {{ getStrategyDraftIssue(message.strategyDraft) }}
-                  </p>
-
-                  <div class="draft-stats">
-                    <span>数据源 {{ getDraftDataSourceType(message.strategyDraft) }}</span>
-                    <span>周期 {{ getDraftTimeframe(message.strategyDraft) }}</span>
-                    <span>资金 {{ getDraftInitialCash(message.strategyDraft) }}</span>
-                    <span>手续费 {{ getDraftCommission(message.strategyDraft) }}</span>
-                  </div>
-
-                  <div
-                    v-if="getDraftAssumptions(message.strategyDraft).length"
-                    class="draft-list"
-                  >
-                    <div class="draft-list-title">
-                      <el-icon><CircleCheck /></el-icon>
-                      关键假设
-                    </div>
-                    <div
-                      v-for="item in getDraftAssumptions(message.strategyDraft)"
-                      :key="item"
-                    >
-                      {{ item }}
-                    </div>
-                  </div>
-
-                  <div
-                    v-if="getDraftRiskPoints(message.strategyDraft).length"
-                    class="draft-list warning"
-                  >
-                    <div class="draft-list-title">
-                      <el-icon><Warning /></el-icon>
-                      风险提示
-                    </div>
-                    <div
-                      v-for="item in getDraftRiskPoints(message.strategyDraft)"
-                      :key="item"
-                    >
-                      {{ item }}
-                    </div>
-                  </div>
-
-                  <div
-                    v-if="workspaceExecutions[index]"
-                    class="execution-box"
-                  >
-                    <div class="execution-title">
-                      工作区执行状态
-                    </div>
-                    <div>工作区：{{ workspaceExecutions[index].workspaceName }}</div>
-                    <div>单元ID：{{ workspaceExecutions[index].unitId }}</div>
-                    <div>回测状态：{{ workspaceExecutions[index].runStatus || '未运行' }}</div>
-                    <div v-if="workspaceExecutions[index].lastTaskId">
-                      任务ID：{{ workspaceExecutions[index].lastTaskId }}
-                    </div>
-                    <div
-                      v-if="workspaceExecutions[index].report"
-                      class="report-box"
-                    >
-                      <div class="execution-title">
-                        最新报告摘要
-                      </div>
-                      <div>
-                        完成单元：
-                        {{ workspaceExecutions[index].report?.summary.completed_units }}
-                        / {{ workspaceExecutions[index].report?.summary.total_units }}
-                      </div>
-                      <div>平均收益：{{ workspaceExecutions[index].report?.summary.avg_total_return ?? '-' }}</div>
-                      <div>平均夏普：{{ workspaceExecutions[index].report?.summary.avg_sharpe_ratio ?? '-' }}</div>
-                      <div>平均回撤：{{ workspaceExecutions[index].report?.summary.avg_max_drawdown ?? '-' }}</div>
-                    </div>
-                    <div
-                      v-if="workspaceExecutions[index].analysis"
-                      class="analysis-box"
-                    >
-                      <div class="execution-title">
-                        AI复盘建议
-                      </div>
-                      <div>{{ workspaceExecutions[index].analysis?.summary }}</div>
-                      <div class="mt-2 font-medium">
-                        {{ workspaceExecutions[index].analysis?.verdict }}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section
-                  v-if="message.role === 'assistant' && message.reasoning"
-                  class="reasoning-box"
-                >
-                  <div class="section-kicker">
-                    分析摘要
-                  </div>
-                  <div>{{ message.reasoning }}</div>
-                </section>
-
-                <section
-                  v-if="message.role === 'assistant' && message.citations?.length"
-                  class="citation-box"
-                >
-                  <div class="citation-head">
-                    <span>参考文档</span>
-                    <span>{{ message.citations.length }} 条引用</span>
-                  </div>
-                  <button
-                    v-for="(citation, cIdx) in message.citations"
-                    :key="getCitationKey(citation, cIdx)"
-                    type="button"
-                    class="citation-item"
-                    :disabled="!citation.document_id"
-                    @click="handleJumpToCitation(citation.document_id)"
-                  >
-                    <span class="citation-index">{{ cIdx + 1 }}</span>
-                    <span class="citation-content">
-                      <strong>{{ getCitationTitle(citation) }}</strong>
-                      <small>
-                        chunk #{{ getCitationChunkIndex(citation) }}
-                        / {{ getCitationSimilarity(citation) }}%
-                      </small>
-                      <span v-if="citation.content">{{ citation.content }}</span>
-                    </span>
-                    <el-icon><Link /></el-icon>
-                  </button>
-                </section>
-              </div>
-            </article>
+              :message="message"
+              :saving="savingStrategyIndex === index"
+              :saved="Boolean(savedStrategyIds[index])"
+              :added="Boolean(addedWorkspaceUnitIds[index])"
+              :running-backtest="runningBacktestIndex === index"
+              :refreshing-status="refreshingStatusIndex === index"
+              :generating-report="generatingReportIndex === index"
+              :execution="workspaceExecutions[index]"
+              @copy-message="copyMessage"
+              @save-strategy="handleSaveStrategyDraft(message, index)"
+              @add-to-workspace="openAddToWorkspaceDialog(message, index)"
+              @run-backtest="handleRunStrategyDraftBacktest(index)"
+              @refresh-execution="handleRefreshWorkspaceExecution(index)"
+              @generate-report="handleGenerateWorkspaceReport(message, index)"
+              @copy-code="copyMessage(message.strategyDraft?.code || '')"
+              @jump-citation="handleJumpToCitation"
+            />
 
             <div
               v-if="chatStore.loading"
@@ -516,6 +219,22 @@
               resize="vertical"
               @keydown.enter.exact.prevent="handleAsk"
             />
+            <el-select
+              v-model="selectedSessionModelKey"
+              class="session-model-select"
+              placeholder="默认模型"
+            >
+              <el-option
+                label="默认模型"
+                value=""
+              />
+              <el-option
+                v-for="model in sessionModelOptions"
+                :key="`${model.provider}::${model.model}`"
+                :label="model.display_name"
+                :value="`${model.provider}::${model.model}`"
+              />
+            </el-select>
             <el-button
               type="primary"
               :disabled="!selectedKnowledgeBaseId || !question.trim() || chatStore.loading"
@@ -661,13 +380,34 @@
               v-model="workspaceDraftForm.timeframe"
               class="w-full"
             >
-              <el-option label="1m" value="1m" />
-              <el-option label="5m" value="5m" />
-              <el-option label="15m" value="15m" />
-              <el-option label="30m" value="30m" />
-              <el-option label="1h" value="1h" />
-              <el-option label="1d" value="1d" />
-              <el-option label="1w" value="1w" />
+              <el-option
+                label="1m"
+                value="1m"
+              />
+              <el-option
+                label="5m"
+                value="5m"
+              />
+              <el-option
+                label="15m"
+                value="15m"
+              />
+              <el-option
+                label="30m"
+                value="30m"
+              />
+              <el-option
+                label="1h"
+                value="1h"
+              />
+              <el-option
+                label="1d"
+                value="1d"
+              />
+              <el-option
+                label="1w"
+                value="1w"
+              />
             </el-select>
           </el-form-item>
           <el-form-item label="分组名">
@@ -722,30 +462,30 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  Aim,
   ChatDotRound,
-  CircleCheck,
   Collection,
   Compass,
   CopyDocument,
-  Cpu,
-  DataAnalysis,
   Delete,
-  Document,
-  Link,
   MagicStick,
   Plus,
   Promotion,
   Reading,
-  Refresh,
   Search,
-  UserFilled,
-  Warning,
 } from '@element-plus/icons-vue'
 
 import { getErrorMessage } from '@/api'
-import type { KBAssistantMode, KBCitation, KBReasonCode, KBStrategyDraft } from '@/api/kbChat'
+import { aiObservabilityApi, type AIModelOption } from '@/api/aiObservability'
+import type { KBAssistantMode, KBStrategyDraft } from '@/api/kbChat'
 import type { KnowledgeBaseSettings } from '@/api/knowledgeBase'
+import ChatMessageBubble from '@/components/aichat/ChatMessageBubble.vue'
+import {
+  assistantModeMetaMap,
+  assistantModeOptions,
+  formatDate,
+  getStrategyDraftIssue,
+  retrievalProfileLabel,
+} from '@/composables/useAIChatRendering'
 import { useStrategyDraftWorkspaceExecution } from '@/composables/useStrategyDraftWorkspaceExecution'
 import type { KBChatMessage } from '@/stores/kbChat'
 import { strategyApi } from '@/api/strategy'
@@ -764,6 +504,8 @@ const selectedAssistantMode = ref<KBAssistantMode>('knowledge_qa')
 const thinkingMode = ref(false)
 const conversationSearch = ref('')
 const question = ref('')
+const selectedSessionModelKey = ref('')
+const sessionModelOptions = ref<AIModelOption[]>([])
 const savingStrategyIndex = ref<number | null>(null)
 const savedStrategyIds = ref<Record<number, string>>({})
 const addedWorkspaceUnitIds = ref<Record<number, string>>({})
@@ -793,196 +535,6 @@ const {
   resetExecutions,
 } = useStrategyDraftWorkspaceExecution()
 
-const assistantModeOptions: Array<{ value: KBAssistantMode; label: string }> = [
-  { value: 'knowledge_qa', label: '知识问答' },
-  { value: 'strategy_idea', label: '策略构思' },
-  { value: 'backtrader_strategy', label: 'Backtrader策略生成' },
-  { value: 'strategy_review', label: '策略审查' },
-  { value: 'trading_execution', label: '交易执行' },
-]
-
-interface QuickTool {
-  icon: string
-  title: string
-  description: string
-  prompt: string
-}
-
-interface AssistantModeMeta {
-  label: string
-  emptyTitle: string
-  emptyDescription: string
-  inputHint: string
-  inputPlaceholder: string
-  suggestedPrompts: string[]
-  quickTools: QuickTool[]
-}
-
-const assistantModeMetaMap: Record<KBAssistantMode, AssistantModeMeta> = {
-  knowledge_qa: {
-    label: '知识问答',
-    emptyTitle: '从知识库开始提问',
-    emptyDescription: '选择知识库后输入问题，回答会优先引用已经保存的文档内容。',
-    inputHint: '输入问题，AI 将结合知识库回答',
-    inputPlaceholder: '请输入问题... (Enter 发送，Shift+Enter 换行)',
-    suggestedPrompts: [
-      '这个知识库主要包含哪些内容？',
-      '总结当前知识库的核心主题',
-      '有哪些值得重点阅读的文档？',
-    ],
-    quickTools: [
-      {
-        icon: 'summary',
-        title: '总结知识库',
-        description: '快速生成核心主题摘要',
-        prompt: '请总结这个知识库的核心主题与重点文档。',
-      },
-      {
-        icon: 'docs',
-        title: '提取关键文档',
-        description: '找出最值得优先阅读的内容',
-        prompt: '请列出这个知识库中最值得优先阅读的文档，并说明原因。',
-      },
-      {
-        icon: 'path',
-        title: '生成阅读路径',
-        description: '给出推荐阅读顺序',
-        prompt: '请为我生成这个知识库的推荐阅读路径。',
-      },
-    ],
-  },
-  strategy_idea: {
-    label: '策略构思',
-    emptyTitle: '拆解策略想法',
-    emptyDescription: '把一句策略设想拆成信号、风控、数据需求和回测验证步骤。',
-    inputHint: '输入一句话策略想法，AI 将生成结构化研究方案',
-    inputPlaceholder: '例如：我想做一个基于均线突破和成交量放大的日线趋势策略',
-    suggestedPrompts: [
-      '把“均线突破 + 放量确认”的想法扩展成完整研究方案',
-      '帮我设计一个适合 A 股日线回测的低频趋势策略',
-      '把“回撤后反弹买入”整理成可验证的量化假设',
-    ],
-    quickTools: [
-      {
-        icon: 'expand',
-        title: '一句话扩展',
-        description: '把模糊策略想法拆成研究任务',
-        prompt: '请把下面这句自然语言策略想法扩展成结构化研究方案：',
-      },
-      {
-        icon: 'test',
-        title: '生成回测计划',
-        description: '补充样本区间、指标和验证步骤',
-        prompt: '请基于这个策略想法生成详细的回测计划与验证步骤：',
-      },
-      {
-        icon: 'risk',
-        title: '补风控框架',
-        description: '为策略添加仓位和止损框架',
-        prompt: '请为这个策略补充仓位控制、止损止盈和风险暴露约束：',
-      },
-    ],
-  },
-  backtrader_strategy: {
-    label: 'Backtrader策略生成',
-    emptyTitle: '生成策略实现草案',
-    emptyDescription: '输入自然语言策略需求，生成可保存、可加入工作区的 Backtrader 草稿。',
-    inputHint: '输入自然语言需求，AI 将生成 Backtrader 策略草案',
-    inputPlaceholder: '例如：帮我生成一个 RSI 超卖反弹 + ATR 止损的 Backtrader 策略骨架',
-    suggestedPrompts: [
-      '请生成一个“双均线 + ATR 止损”的 Backtrader 策略代码骨架',
-      '请把“突破20日高点买入，跌破10日低点卖出”转成 Backtrader 策略',
-      '请生成一个适合期货分钟级别的布林带均值回归策略草案',
-    ],
-    quickTools: [
-      {
-        icon: 'code',
-        title: '生成代码骨架',
-        description: '输出 Backtrader 类与关键参数',
-        prompt: '请把下面的自然语言策略需求生成 Backtrader 策略代码骨架：',
-      },
-      {
-        icon: 'platform',
-        title: '生成接入建议',
-        description: '补充平台参数与运行建议',
-        prompt: '请为这个 Backtrader 策略补充在 Backtrader Web 中的接入建议：',
-      },
-      {
-        icon: 'params',
-        title: '生成参数表',
-        description: '提炼可优化参数与默认值',
-        prompt: '请为这个策略生成参数表、默认值以及建议优化区间：',
-      },
-    ],
-  },
-  strategy_review: {
-    label: '策略审查',
-    emptyTitle: '审查策略质量',
-    emptyDescription: '粘贴策略描述或代码片段，从逻辑、风控、数据和回测偏差角度审查。',
-    inputHint: '输入策略描述或代码，AI 将执行结构化审查',
-    inputPlaceholder: '例如：请审查这个动量策略的风控设计是否充分...',
-    suggestedPrompts: [
-      '请审查一个“动量轮动 + 每周调仓”策略的主要风险',
-      '请从回测偏差角度审查“财报因子选股”策略',
-      '请检查这个趋势策略是否存在过拟合和数据窥探风险',
-    ],
-    quickTools: [
-      {
-        icon: 'logic',
-        title: '审查策略逻辑',
-        description: '识别核心假设和漏洞',
-        prompt: '请从策略逻辑、风险和可执行性角度审查下面的策略：',
-      },
-      {
-        icon: 'bias',
-        title: '审查回测偏差',
-        description: '检查未来函数、幸存者偏差等问题',
-        prompt: '请重点审查下面策略是否存在未来函数、数据泄露或样本偏差：',
-      },
-      {
-        icon: 'next',
-        title: '给出优化顺序',
-        description: '生成下一步修改建议',
-        prompt: '请为这个策略生成按优先级排序的优化建议与验证顺序：',
-      },
-    ],
-  },
-  trading_execution: {
-    label: '交易执行',
-    emptyTitle: '自然语言交易',
-    emptyDescription: '用自然语言描述交易意图，AI 自动解析并执行。支持期货、加密货币等多品种。',
-    inputHint: '描述您的交易意图',
-    inputPlaceholder: '例如：买入1手螺纹钢主力合约 / 帮我在币安买入0.1个BTC / 查看当前持仓',
-    suggestedPrompts: [
-      '买入1手螺纹钢主力合约',
-      '帮我在币安买入0.1个BTC',
-      '以3500限价卖出2手铁矿石',
-      '查看当前持仓',
-      '平掉所有螺纹钢仓位',
-    ],
-    quickTools: [
-      {
-        icon: 'trade',
-        title: '快速下单',
-        description: '用自然语言描述交易',
-        prompt: '买入',
-      },
-      {
-        icon: 'position',
-        title: '查看持仓',
-        description: '查询当前持仓状态',
-        prompt: '查看我当前的持仓情况',
-      },
-      {
-        icon: 'close',
-        title: '平仓',
-        description: '平掉指定品种仓位',
-        prompt: '平掉所有',
-      },
-    ],
-  },
-}
-
 const currentModeMeta = computed(() => assistantModeMetaMap[selectedAssistantMode.value])
 const suggestedPrompts = computed(() => currentModeMeta.value.suggestedPrompts)
 const quickTools = computed(() => currentModeMeta.value.quickTools)
@@ -996,6 +548,17 @@ const currentKnowledgeBaseId = computed(
   () => selectedKnowledgeBaseId.value || currentKnowledgeBase.value?.id || '',
 )
 const currentKnowledgeBaseName = computed(() => currentKnowledgeBase.value?.name ?? '')
+
+async function loadSessionModelOptions() {
+  try {
+    const payload = await aiObservabilityApi.getMyAvailableModels()
+    sessionModelOptions.value = payload.models
+  } catch {
+    sessionModelOptions.value = []
+    selectedSessionModelKey.value = ''
+  }
+}
+
 function createDefaultKnowledgeBaseSettings(): KnowledgeBaseSettings {
   return {
     retrieval_profile: 'quant_research',
@@ -1037,100 +600,6 @@ const filteredConversations = computed(() => {
   if (!keyword) return chatStore.conversations
   return chatStore.conversations.filter(c => c.title.toLowerCase().includes(keyword))
 })
-
-function formatDate(value?: string | null) {
-  if (!value) return '未知时间'
-  return value.replace('T', ' ').slice(0, 16)
-}
-
-function retrievalProfileLabel(profile?: string | null) {
-  if (profile === 'precision') return '高精度引用'
-  if (profile === 'exploration') return '探索式阅读'
-  return '量化研究平衡'
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function getDraftParamCount(draft?: KBStrategyDraft | null) {
-  return isPlainRecord(draft?.params) ? Object.keys(draft.params).length : 0
-}
-
-function getDraftAssumptions(draft?: KBStrategyDraft | null) {
-  return Array.isArray(draft?.assumptions) ? draft.assumptions : []
-}
-
-function getDraftRiskPoints(draft?: KBStrategyDraft | null) {
-  return Array.isArray(draft?.risk_points) ? draft.risk_points : []
-}
-
-function getDraftDataSourceType(draft?: KBStrategyDraft | null) {
-  return draft?.data_source?.type || '未设置'
-}
-
-function getDraftTimeframe(draft?: KBStrategyDraft | null) {
-  return draft?.data_source?.timeframe || draft?.suggested_timeframe || '未设置'
-}
-
-function getDraftInitialCash(draft?: KBStrategyDraft | null) {
-  return typeof draft?.backtest_defaults?.initial_cash === 'number'
-    ? draft.backtest_defaults.initial_cash
-    : '未设置'
-}
-
-function getDraftCommission(draft?: KBStrategyDraft | null) {
-  return typeof draft?.backtest_defaults?.commission === 'number'
-    ? draft.backtest_defaults.commission
-    : '未设置'
-}
-
-function getStrategyDraftIssue(draft?: KBStrategyDraft | null) {
-  if (!draft) return '当前回答未包含策略草稿'
-  if (!draft.name?.trim()) return '策略草稿缺少名称，暂不能保存或执行'
-  if (!draft.code?.trim()) return '策略草稿缺少 Backtrader 代码，暂不能保存或执行'
-  if (!isPlainRecord(draft.params)) return '策略草稿参数格式异常，暂不能保存或执行'
-  if (!draft.category?.trim()) return '策略草稿缺少策略分类，暂不能保存或执行'
-  if (!draft.data_source || !draft.data_source.timeframe) {
-    return '策略草稿缺少数据源周期，暂不能添加到工作区'
-  }
-  if (
-    !draft.backtest_defaults
-      || typeof draft.backtest_defaults.initial_cash !== 'number'
-      || typeof draft.backtest_defaults.commission !== 'number'
-  ) {
-    return '策略草稿缺少回测默认参数，暂不能执行'
-  }
-  if (!draft.execution_plan || typeof draft.execution_plan.run_parallel !== 'boolean') {
-    return '策略草稿缺少执行计划，暂不能添加到工作区'
-  }
-  return null
-}
-
-function getDiagnosticTitle(reasonCode?: KBReasonCode | null) {
-  if (reasonCode === 'no_context_found') return '未找到相关上下文'
-  if (reasonCode === 'ai_not_configured') return 'AI 模型未配置'
-  if (reasonCode === 'ai_provider_failed') return 'AI 模型调用失败'
-  return 'AI 助手诊断'
-}
-
-function getCitationTitle(citation: KBCitation) {
-  const title = citation.document_title?.trim()
-  return title || '未命名文档'
-}
-
-function getCitationKey(citation: KBCitation, index: number) {
-  return citation.chunk_id || `${citation.document_id || 'missing-doc'}-${citation.chunk_index ?? index}`
-}
-
-function getCitationChunkIndex(citation: KBCitation) {
-  return typeof citation.chunk_index === 'number' ? citation.chunk_index : '未知'
-}
-
-function getCitationSimilarity(citation: KBCitation) {
-  const similarity = typeof citation.similarity === 'number' ? citation.similarity : 0
-  return Math.round(Math.max(0, Math.min(1, similarity)) * 100)
-}
 
 function ensureUsableStrategyDraft(draft?: KBStrategyDraft | null): draft is KBStrategyDraft {
   const issue = getStrategyDraftIssue(draft)
@@ -1333,6 +802,7 @@ async function handleAsk() {
     await chatStore.sendMessage(selectedKnowledgeBaseId.value, q, {
       assistantMode: selectedAssistantMode.value,
       thinkingMode: thinkingMode.value,
+      modelId: selectedSessionModelKey.value || undefined,
     })
   } catch (error) {
     ElMessage.error(getErrorMessage(error, '发送失败，请检查知识库或 AI 模型配置'))
@@ -1393,6 +863,7 @@ watch(selectedKnowledgeBaseId, async (value) => {
 })
 
 onMounted(async () => {
+  void loadSessionModelOptions()
   await kbStore.fetchKnowledgeBases()
   const queryKbId = typeof route.query.kbId === 'string' ? route.query.kbId : ''
   const firstId = kbStore.knowledgeBases[0]?.id
@@ -1599,9 +1070,6 @@ button:disabled {
 
 .panel-header,
 .chat-topbar,
-.message-head,
-.draft-head,
-.citation-head,
 .dialog-actions {
   display: flex;
   align-items: center;
@@ -1697,7 +1165,6 @@ button:disabled {
 }
 
 .context-icon,
-.message-avatar,
 .empty-chat-icon {
   display: inline-flex;
   align-items: center;
@@ -1800,217 +1267,15 @@ button:disabled {
   line-height: 1.5;
 }
 
-.message-card {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.message-card.user {
-  grid-template-columns: minmax(0, 1fr) 38px;
-}
-
-.message-card.user .message-avatar {
-  grid-column: 2;
-  grid-row: 1;
-  background: var(--bg-color-hover, #f3f4f6);
-  color: var(--text-color-regular, #4b5563);
-}
-
-.message-card.user .message-body {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-.message-card.user .message-head {
-  flex-direction: row-reverse;
-}
-
-.message-card.user .message-content {
-  background: var(--bg-color-hover, #f3f4f6);
-}
-
-.message-avatar {
-  width: 38px;
-  height: 38px;
-}
-
-.message-body {
-  min-width: 0;
-}
-
-.message-author {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-color-primary, #1f2937);
-}
-
-.message-badge {
-  margin-left: 8px;
-  border-radius: 9999px;
-  background: var(--el-color-primary-light-9, #ecf5ff);
-  padding: 3px 8px;
-  color: var(--primary-color, #3b82f6);
-  font-size: 12px;
-}
-
-.message-badge.success {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.message-badge.warning {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.message-content {
-  margin-top: 8px;
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card, #fff);
-  padding: 13px 14px;
-  color: var(--text-color-primary, #1f2937);
-  font-size: 15px;
-  line-height: 1.8;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.strategy-draft,
-.citation-box,
-.diagnostic-box,
-.retrieval-box,
-.reasoning-box,
-.execution-box {
-  margin-top: 12px;
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card, #fff);
-  padding: 12px;
-}
-
-.strategy-draft {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
-}
-
-.draft-title {
-  font-weight: 700;
-  color: #14532d;
-}
-
-.draft-meta,
-.draft-rationale,
-.draft-list,
-.execution-box {
-  margin-top: 6px;
-  color: #166534;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.draft-actions,
-.dialog-actions {
-  flex-wrap: wrap;
-}
-
-.primary-action,
-.secondary-action {
-  padding: 7px 10px;
-  font-size: 12px;
-}
-
-.draft-stats,
 .metric-grid {
   display: grid;
   gap: 8px;
 }
 
-.draft-stats {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 10px;
+.dialog-actions {
+  flex-wrap: wrap;
 }
 
-.draft-stats span {
-  border: 1px solid #bbf7d0;
-  border-radius: var(--el-border-radius-base);
-  background: rgba(255, 255, 255, 0.78);
-  padding: 8px;
-  color: #14532d;
-  font-size: 12px;
-}
-
-.draft-list {
-  border: 1px solid #bbf7d0;
-  border-radius: var(--el-border-radius-base);
-  background: rgba(255, 255, 255, 0.82);
-  padding: 9px;
-}
-
-.draft-list.warning {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #92400e;
-}
-
-.draft-warning {
-  margin-top: 8px;
-  border: 1px solid #fde68a;
-  border-radius: var(--el-border-radius-base);
-  background: #fffbeb;
-  padding: 8px 10px;
-  color: #92400e;
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.draft-list-title,
-.execution-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
-  font-weight: 700;
-}
-
-.report-box,
-.analysis-box {
-  margin-top: 10px;
-  border: 1px solid var(--el-color-primary-light-7, #bfdbfe);
-  border-radius: var(--el-border-radius-base);
-  background: var(--el-color-primary-light-9, #eff6ff);
-  padding: 10px;
-  color: #1e3a8a;
-}
-
-.reasoning-box {
-  background: #fffbeb;
-  color: #92400e;
-}
-
-.diagnostic-box {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #92400e;
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.diagnostic-box.ai_provider_failed {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
-}
-
-.retrieval-box {
-  border-color: var(--el-color-primary-light-7, #bfdbfe);
-  background: #f8fbff;
-  color: #1e3a8a;
-}
-
-.retrieval-meta,
 .kb-settings {
   display: flex;
   flex-wrap: wrap;
@@ -2018,73 +1283,11 @@ button:disabled {
   margin-top: 8px;
 }
 
-.retrieval-meta span,
 .kb-settings span {
   border-radius: 9999px;
   background: var(--el-color-primary-light-9, rgba(219, 234, 254, 0.8));
   padding: 3px 8px;
   color: var(--primary-color, #3b82f6);
-  font-size: 12px;
-}
-
-.retrieval-query {
-  margin-top: 8px;
-  line-height: 1.7;
-}
-
-.citation-head {
-  margin-bottom: 8px;
-  color: var(--text-color-regular, #4b5563);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.citation-item {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) 20px;
-  gap: 10px;
-  width: 100%;
-  align-items: start;
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-hover, #f3f4f6);
-  padding: 10px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.citation-item + .citation-item {
-  margin-top: 8px;
-}
-
-.citation-index {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  background: var(--el-color-primary-light-9, #ecf5ff);
-  color: var(--primary-color, #3b82f6);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.citation-content {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.citation-content strong {
-  color: var(--text-color-primary, #1f2937);
-  font-size: 13px;
-}
-
-.citation-content small,
-.citation-content span {
-  color: var(--text-color-secondary, #6b7280);
   font-size: 12px;
 }
 

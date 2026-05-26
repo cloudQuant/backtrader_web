@@ -73,7 +73,7 @@
             <el-option
               v-for="unit in store.units"
               :key="unit.id"
-              :label="unit.strategy_name || unit.strategy_id"
+              :label="unit.strategy_name || unit.strategy_id || unit.id"
               :value="unit.id"
             />
           </el-select>

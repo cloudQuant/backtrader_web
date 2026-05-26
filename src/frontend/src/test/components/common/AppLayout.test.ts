@@ -41,6 +41,9 @@ vi.mock('@element-plus/icons-vue', () => ({
   Delete: { template: '<span>Delete</span>' },
   Edit: { template: '<span>Edit</span>' },
   Search: { template: '<span>Search</span>' },
+  Fold: { template: '<span>Fold</span>' },
+  Close: { template: '<span>Close</span>' },
+  Check: { template: '<span>Check</span>' },
 }))
 
 // Mock Element Plus ElMessage
@@ -84,7 +87,8 @@ const elIconStub = defineComponent({
 const elButtonStub = defineComponent({
   name: 'ElButton',
   props: ['circle'],
-  render() { return h('button', { class: 'el-button' }, this.$slots.default?.()) }
+  emits: ['click'],
+  render() { return h('button', { class: 'el-button', onClick: () => this.$emit('click') }, this.$slots.default?.()) }
 })
 const elTooltipStub = defineComponent({
   name: 'ElTooltip',
@@ -93,7 +97,8 @@ const elTooltipStub = defineComponent({
 })
 const elDropdownStub = defineComponent({
   name: 'ElDropdown',
-  render() { return h('div', { class: 'el-dropdown' }, this.$slots.default?.()) }
+  emits: ['command'],
+  render() { return h('div', { class: 'el-dropdown', onClick: () => this.$emit('command', 'obsidian') }, this.$slots.default?.()) }
 })
 const elDropdownMenuStub = defineComponent({
   name: 'ElDropdownMenu',
@@ -108,6 +113,11 @@ const elAvatarStub = defineComponent({
   name: 'ElAvatar',
   props: ['size'],
   render() { return h('div', { class: 'el-avatar' }, this.$slots.default?.()) }
+})
+const elDrawerStub = defineComponent({
+  name: 'ElDrawer',
+  props: ['modelValue', 'direction', 'size', 'showClose', 'zIndex'],
+  render() { return h('div', { class: 'el-drawer' }, [this.$slots.header?.(), this.$slots.default?.()]) }
 })
 
 describe('AppLayout', () => {
@@ -132,6 +142,8 @@ describe('AppLayout', () => {
         { path: '/trading', component: { template: '<div>Trading</div>' } },
         { path: '/portfolio', component: { template: '<div>Portfolio</div>' } },
         { path: '/ai-chat', component: { template: '<div>AIChat</div>' } },
+        { path: '/admin/ai-observability', component: { template: '<div>AIObservability</div>' } },
+        { path: '/admin/prompt-templates', component: { template: '<div>PromptTemplates</div>' } },
         { path: '/knowledge-base', component: { template: '<div>KnowledgeBase</div>' } },
         { path: '/settings', component: { template: '<div>Settings</div>' } },
         { path: '/login', component: { template: '<div>Login</div>' } },
@@ -147,7 +159,7 @@ describe('AppLayout', () => {
     // Mock auth store
     vi.doMock('@/stores/auth', () => ({
       useAuthStore: () => ({
-        user: { username: 'testuser' },
+        user: { username: 'testuser', is_admin: true },
         logout: vi.fn(),
       }),
     }))
@@ -163,11 +175,15 @@ describe('AppLayout', () => {
     ElMenuItem: elMenuItemStub,
     ElIcon: elIconStub,
     ElButton: elButtonStub,
+    'el-button': elButtonStub,
     ElTooltip: elTooltipStub,
     ElDropdown: elDropdownStub,
+    'el-dropdown': elDropdownStub,
     ElDropdownMenu: elDropdownMenuStub,
     ElDropdownItem: elDropdownItemStub,
     ElAvatar: elAvatarStub,
+    ElDrawer: elDrawerStub,
+    'el-drawer': elDrawerStub,
     RouterView: { template: '<div>RouterView</div>' },
   })
 
@@ -208,6 +224,8 @@ describe('AppLayout', () => {
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('首页')
       expect(wrapper.text()).toContain('AI助手')
+      expect(wrapper.text()).toContain('AI成本')
+      expect(wrapper.text()).toContain('Prompt治理')
       expect(wrapper.text()).toContain('知识库')
       expect(wrapper.text()).toContain('策略研究')
       expect(wrapper.text()).toContain('策略管理')
@@ -235,6 +253,18 @@ describe('AppLayout', () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('AI助手')
+    })
+
+    it('管理员应该看到AI成本菜单项', async () => {
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('AI成本')
+    })
+
+    it('管理员应该看到Prompt治理菜单项', async () => {
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('Prompt治理')
     })
 
     it('应该包含知识库菜单项', async () => {
@@ -266,6 +296,20 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('AI助手')
     })
 
+    it('AI成本页面应该显示"AI成本看板"', async () => {
+      await router.push('/admin/ai-observability')
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('AI成本看板')
+    })
+
+    it('Prompt治理页面应该显示"Prompt模板治理"', async () => {
+      await router.push('/admin/prompt-templates')
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.text()).toContain('Prompt模板治理')
+    })
+
     it('知识库页面应该显示"知识库"', async () => {
       await router.push('/knowledge-base')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
@@ -286,13 +330,12 @@ describe('AppLayout', () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
 
-      // 模拟点击主题切换按钮
-      const button = wrapper.find('.el-button')
-      if (button.exists()) {
-        button.trigger('click')
-        // 检查localStorage是否被调用
-        expect(localStorageMock.setItem).toHaveBeenCalled()
+      // 模拟下拉菜单选择主题
+      for (const dropdown of wrapper.findAll('.el-dropdown')) {
+        await dropdown.trigger('click')
       }
+      // 检查主题是否实际应用
+      expect(document.documentElement.dataset.theme).toBe('obsidian')
     })
   })
 

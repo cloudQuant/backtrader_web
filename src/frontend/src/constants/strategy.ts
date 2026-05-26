@@ -3,7 +3,7 @@
  */
 
 /** Element Plus component type union. */
-export type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger' | ''
+export type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger'
 
 /** Map backtest/task status to Element Plus tag type. */
 export const STATUS_TYPE_MAP: Record<string, TagType> = {
@@ -25,7 +25,7 @@ export const STATUS_TEXT_MAP: Record<string, string> = {
 
 /** Map strategy category to Element Plus tag type. */
 export const CATEGORY_TYPE_MAP: Record<string, TagType> = {
-  trend: '',
+  trend: 'info',
   mean_reversion: 'success',
   volatility: 'warning',
   indicator: 'info',
@@ -43,7 +43,7 @@ export const CATEGORY_LABEL_MAP: Record<string, string> = {
   custom: '其他',
 }
 
-export function getStatusType(status: string): string {
+export function getStatusType(status: string): TagType {
   return STATUS_TYPE_MAP[status] || 'info'
 }
 
@@ -51,7 +51,7 @@ export function getStatusText(status: string): string {
   return STATUS_TEXT_MAP[status] || status
 }
 
-export function getCategoryType(category: string): string {
+export function getCategoryType(category: string): TagType {
   return CATEGORY_TYPE_MAP[category] || 'info'
 }
 

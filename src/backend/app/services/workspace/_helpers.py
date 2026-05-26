@@ -314,6 +314,53 @@ def open_path_in_file_manager(path: Path) -> None:
     subprocess.Popen(command)
 
 
+def unit_to_dict(unit: StrategyUnit, opt_info: dict[str, Any] | None = None) -> dict[str, Any]:
+    from app.services.trading_workspace_service import TradingWorkspaceService
+    from app.services.workspace_service import _normalize_unit_data_config
+
+    opt_info = opt_info or {}
+    return {
+        "id": unit.id,
+        "workspace_id": unit.workspace_id,
+        "group_name": unit.group_name or "",
+        "strategy_id": unit.strategy_id,
+        "strategy_name": unit.strategy_name or "",
+        "symbol": unit.symbol or "",
+        "symbol_name": unit.symbol_name or "",
+        "timeframe": unit.timeframe or "1d",
+        "timeframe_n": unit.timeframe_n or 1,
+        "category": unit.category or "",
+        "sort_order": unit.sort_order or 0,
+        "data_config": _normalize_unit_data_config(unit.data_config),
+        "unit_settings": unit.unit_settings or {},
+        "params": unit.params or {},
+        "optimization_config": unit.optimization_config or {},
+        "trading_mode": TradingWorkspaceService.normalize_trading_mode(unit.trading_mode),
+        "gateway_config": TradingWorkspaceService.normalize_gateway_config(
+            unit.gateway_config or {}
+        ),
+        "lock_trading": bool(unit.lock_trading),
+        "lock_running": bool(unit.lock_running),
+        "trading_instance_id": unit.trading_instance_id,
+        "trading_snapshot": unit.trading_snapshot or {},
+        "run_status": unit.run_status or "idle",
+        "run_count": unit.run_count or 0,
+        "last_run_time": unit.last_run_time,
+        "last_task_id": unit.last_task_id,
+        "last_optimization_task_id": unit.last_optimization_task_id,
+        "bar_count": unit.bar_count,
+        "metrics_snapshot": unit.metrics_snapshot or {},
+        "opt_status": opt_info.get("opt_status"),
+        "opt_total": opt_info.get("opt_total"),
+        "opt_completed": opt_info.get("opt_completed"),
+        "opt_progress": opt_info.get("opt_progress"),
+        "opt_elapsed_time": opt_info.get("opt_elapsed_time"),
+        "opt_remaining_time": opt_info.get("opt_remaining_time"),
+        "created_at": unit.created_at,
+        "updated_at": unit.updated_at,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Rename helper
 # ---------------------------------------------------------------------------

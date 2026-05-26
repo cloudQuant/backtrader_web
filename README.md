@@ -120,6 +120,18 @@ docker compose -f docker-compose.prod.yml up -d
 - 后端 API 文档: http://localhost:8000/docs
 - WebSocket: ws://localhost:8000/ws
 
+### v0.2.0 RC1 演示路径
+
+当前 RC1 可完整体验已交付的 AI 可信度能力：
+
+1. 在策略中心创建或选择策略，运行一次回测。
+2. 打开回测结果页，查看策略评分卡、过拟合检测和策略解释面板。
+3. 在 AI 助手中选择知识库或策略生成模式，生成策略草稿并保存到策略中心/添加到研究工作区。
+4. 运行 `cd src/backend && pytest tests/perf/ -q --tb=short` 查看 API 与回测任务吞吐基线。
+5. 运行 `cd src/frontend && npm run test -- --run --coverage` 验证前端覆盖率阈值。
+
+AI 调用可观测、多模型路由、VaR/CVaR、因子分析、绩效归因和市场状态识别属于 v0.2.x 后续迭代目标；当前 RC1 已在 [发布说明](docs/RELEASE_NOTES_V0.2.0.md) 中标注其路线边界。
+
 ## 项目结构
 
 ```
@@ -218,7 +230,13 @@ SYNC_LOCAL_MYSQL_PASSWORD=
 
 ## 常用验证命令
 
-前端覆盖率当前按实测基线渐进收紧；本轮先将 `lines/statements` 提升到 `29%`、`functions` 提升到 `35%`，后续每个迭代至少继续提升 `+5`，直至达到 60%+ 的稳定门槛。
+前端覆盖率按实测基线渐进收紧：
+
+| 阶段 | lines/statements | functions | branches |
+|------|------------------|-----------|----------|
+| 迭代163 基线 | 29% | 35% | 40% |
+| 迭代169 / v0.2.0 RC | 34% | 40% | 45% |
+| 后续目标 | 每轮 +5，直至 60%+ 稳定门槛 | 每轮 +5，直至 60%+ 稳定门槛 | 每轮 +5，直至 60%+ 稳定门槛 |
 
 后端：
 
@@ -254,6 +272,7 @@ npm run test -- --run --coverage
 - [数据库设计](docs/DATABASE.md) - 数据模型和关系
 - [安全指南](docs/SECURITY.md) - 安全最佳实践
 - [AI策略 Copilot](docs/AI_STRATEGY_COPILOT.md) - AI 助手、自然语言策略生成、工作区接入、回测、自动报告与复盘说明
+- [v0.2.0 RC 发布说明](docs/RELEASE_NOTES_V0.2.0.md) - RC1 交付内容、验证命令和已知边界
 - [迭代历史](docs/iterations/README.md) - 当前活跃迭代与历史迭代索引
 - [迭代163 Goal 夜间项目完善](docs/iterations/迭代163-Goal夜间项目完善/index.md) - 当前稳定性、测试覆盖和文档一致性优化任务书
 - [策略开发](docs/STRATEGY_DEVELOPMENT.md) - 如何编写交易策略

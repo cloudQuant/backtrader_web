@@ -117,8 +117,34 @@ describe('useKBChatStore', () => {
       knowledge_base_id: 'kb-1',
       question: '开仓条件是什么？',
       conversation_id: null,
+      model_id: undefined,
       assistant_mode: 'backtrader_strategy',
       thinking_mode: true,
+    })
+  })
+
+  it('sendMessage should pass session model override', async () => {
+    vi.mocked(kbChatApi.send).mockResolvedValue({
+      conversation_id: 'conv-1',
+      answer: '使用会话模型回答',
+      citations: [],
+      context_chunks_used: 0,
+      tokens_used: 1,
+      model_id: 'ollama/llama3.1:8b',
+    })
+
+    const store = useKBChatStore()
+    await store.sendMessage('kb-1', '测试模型覆盖', {
+      modelId: 'ollama::ollama/llama3.1:8b',
+    })
+
+    expect(kbChatApi.send).toHaveBeenCalledWith({
+      knowledge_base_id: 'kb-1',
+      question: '测试模型覆盖',
+      conversation_id: null,
+      model_id: 'ollama::ollama/llama3.1:8b',
+      assistant_mode: undefined,
+      thinking_mode: undefined,
     })
   })
 

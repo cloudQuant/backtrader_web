@@ -74,6 +74,27 @@
       <el-card class="mb-6">
         <PerformancePanel :metrics="detail.metrics" />
       </el-card>
+
+      <StrategyScoreCard
+        v-if="strategyScore"
+        :score="strategyScore"
+        class="mb-6"
+      />
+
+      <OverfittingPanel
+        v-if="overfittingTask || overfittingLoading"
+        :result="overfittingTask"
+        :loading="overfittingLoading"
+        :progress-message="overfittingProgressInfo.message"
+        class="mb-6"
+        @rerun="loadOverfitting"
+      />
+
+      <StrategyExplanationCard
+        v-if="strategyExplanation"
+        :explanation="strategyExplanation"
+        class="mb-6"
+      />
       
       <!-- 图表区域 -->
       <el-tabs
@@ -165,13 +186,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Loading, CircleCloseFilled, Download, Back, FolderOpened } from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/api'
 import { analyticsApi } from '@/api/analytics'
+import { strategyApi } from '@/api/strategy'
+import type {
+  StrategyExplanation,
+  StrategyOverfittingMethod,
+  StrategyOverfittingTaskResult,
+  StrategyScoreResponse,
+} from '@/api/strategy'
 import { workspaceApi } from '@/api/workspace'
+import { useOverfittingRuntime } from '@/composables/useOverfittingRuntime'
+import OverfittingPanel from '@/components/backtest/OverfittingPanel.vue'
+import StrategyExplanationCard from '@/components/backtest/StrategyExplanationCard.vue'
+import StrategyScoreCard from '@/components/backtest/StrategyScoreCard.vue'
 import PerformancePanel from '@/components/charts/PerformancePanel.vue'
 import TradeSignalChart from '@/components/charts/TradeSignalChart.vue'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
@@ -213,19 +245,42 @@ const activeTab = ref('kline')
 const detail = ref<BacktestDetailResponse | null>(null)
 const klineData = ref<KlineWithSignalsResponse | null>(null)
 const monthlyReturns = ref<MonthlyReturnsResponse | null>(null)
+const strategyScore = ref<StrategyScoreResponse | null>(null)
+const strategyExplanation = ref<StrategyExplanation | null>(null)
+const overfittingTask = ref<StrategyOverfittingTaskResult | null>(null)
+
+const {
+  loading: overfittingLoading,
+  progressInfo: overfittingProgressInfo,
+  startRuntime: startOverfittingRuntime,
+  stopRuntime: stopOverfittingRuntime,
+  disposeRuntime: disposeOverfittingRuntime,
+} = useOverfittingRuntime({
+  currentResult: overfittingTask,
+})
 
 onMounted(() => {
   loadData()
 })
 
+onUnmounted(() => {
+  disposeOverfittingRuntime()
+})
+
 async function loadData() {
+  stopOverfittingRuntime()
   loading.value = true
   error.value = null
+  strategyScore.value = null
+  strategyExplanation.value = null
+  overfittingTask.value = null
   
   try {
     let detailRes: BacktestDetailResponse
     let klineRes: KlineWithSignalsResponse
     let returnsRes: MonthlyReturnsResponse
+    let scoreRes: StrategyScoreResponse | null = null
+    let explanationRes: StrategyExplanation | null = null
 
     if (isOptimizationArtifactMode.value && workspaceId.value && optimizationUnitId.value && optimizationResultIndex.value !== null) {
       [detailRes, klineRes, returnsRes] = await Promise.all([
@@ -234,21 +289,51 @@ async function loadData() {
         workspaceApi.getOptimizationResultMonthlyReturns(workspaceId.value, optimizationUnitId.value, optimizationResultIndex.value),
       ])
     } else {
-      [detailRes, klineRes, returnsRes] = await Promise.all([
+      [detailRes, klineRes, returnsRes, scoreRes, explanationRes] = await Promise.all([
         analyticsApi.getBacktestDetail(taskId.value),
         analyticsApi.getKlineWithSignals(taskId.value),
         analyticsApi.getMonthlyReturns(taskId.value),
+        strategyApi.createScore({ backtest_id: taskId.value }).catch(() => null),
+        strategyApi.explainStrategy({ backtest_id: taskId.value }).catch(() => null),
       ])
     }
     
     detail.value = detailRes
     klineData.value = klineRes
     monthlyReturns.value = returnsRes
+    strategyScore.value = scoreRes
+    strategyExplanation.value = explanationRes
+
+    if (!isOptimizationArtifactMode.value) {
+      void loadOverfitting()
+    }
     
   } catch (e: unknown) {
     error.value = getErrorMessage(e, '加载失败')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadOverfitting(
+  methods: StrategyOverfittingMethod[] = ['walk_forward', 'out_of_sample', 'monte_carlo'],
+) {
+  stopOverfittingRuntime()
+  overfittingTask.value = null
+  try {
+    const submission = await strategyApi.createOverfittingTask(taskId.value, {
+      methods,
+      walk_forward_train_days: 180,
+      walk_forward_test_days: 60,
+      walk_forward_step_days: 60,
+      walk_forward_max_concurrency: 4,
+      out_of_sample_ratio: 0.3,
+      monte_carlo_iterations: 300,
+    })
+    startOverfittingRuntime(submission.task_id)
+  } catch {
+    stopOverfittingRuntime()
+    overfittingTask.value = null
   }
 }
 

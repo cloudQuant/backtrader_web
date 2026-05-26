@@ -111,6 +111,18 @@ npm run dev
 | API Docs (ReDoc) | http://localhost:8000/redoc |
 | WebSocket | ws://localhost:8000/ws |
 
+### v0.2.0 RC1 Demo Path
+
+RC1 lets you validate the shipped AI trust capabilities end to end:
+
+1. Create or select a strategy, then run a backtest.
+2. Open the backtest result page and inspect the strategy score card, overfitting diagnostics, and strategy explanation panel.
+3. Use AI Assistant knowledge or strategy-generation mode to create a draft, save it to Strategy Center, or add it to a research workspace.
+4. Run `cd src/backend && pytest tests/perf/ -q --tb=short` to inspect API and backtest-task throughput baselines.
+5. Run `cd src/frontend && npm run test -- --run --coverage` to verify frontend coverage thresholds.
+
+AI observability, multi-model routing, VaR/CVaR, factor analytics, performance attribution, and market-regime detection remain v0.2.x roadmap items. RC1 boundaries are documented in [v0.2.0 release notes](docs/RELEASE_NOTES_V0.2.0.md).
+
 ### Docker (Alternative)
 
 ```bash
@@ -219,9 +231,18 @@ pytest tests/test_auth.py -v        # Single file
 # Frontend
 cd src/frontend
 npm run test                        # Unit tests (Vitest)
+npm run test -- --run --coverage    # Unit tests with coverage thresholds
 npm run typecheck                   # TypeScript validation
 npm run test:e2e                    # E2E tests (Playwright)
 ```
+
+Frontend coverage thresholds are tightened gradually from measured baselines:
+
+| Stage | lines/statements | functions | branches |
+| ----- | ---------------- | --------- | -------- |
+| Iteration 163 baseline | 29% | 35% | 40% |
+| Iteration 169 / v0.2.0 RC | 34% | 40% | 45% |
+| Future target | +5 per iteration until 60%+ | +5 per iteration until 60%+ | +5 per iteration until 60%+ |
 
 ## Project Structure
 
@@ -295,6 +316,7 @@ See [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md) for the full strategi
 | [Strategy Development](docs/STRATEGY_DEVELOPMENT.md) | Writing custom trading strategies |
 | [Database Design](docs/DATABASE.md) | Data models and relationships |
 | [Security Guide](docs/SECURITY.md) | Security best practices |
+| [v0.2.0 RC Release Notes](docs/RELEASE_NOTES_V0.2.0.md) | RC1 scope, validation commands, and known boundaries |
 | [Testing Guide](docs/TESTING.md) | Unit, integration, and E2E testing |
 | [Coding Standards](docs/CODING_STANDARDS.md) | Python and Vue code style |
 | [CI/CD](docs/CI_CD.md) | GitHub Actions pipeline |

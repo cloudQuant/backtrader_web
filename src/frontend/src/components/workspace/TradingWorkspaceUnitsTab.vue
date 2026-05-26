@@ -4,343 +4,42 @@
       to="#page-header-actions"
       :disabled="!props.toolbarInHeader || !props.active"
     >
-      <div
-        class="trading-toolbar"
-        :class="props.toolbarInHeader && props.active ? 'mb-0' : 'mb-4'"
-      >
-        <div class="trading-toolbar__groups">
-          <el-button-group class="toolbar-group">
-            <el-tooltip
-              content="全选 / 取消全选"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                @click="handleSelectAll"
-              >
-                <el-icon><Select /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="启动自动交易"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                type="success"
-                plain
-                :loading="autoTradingLoading"
-                :disabled="autoTradingEnabled"
-                @click="handleEnableAutoTrading"
-              >
-                <el-icon><Timer /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="关闭自动交易"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                type="warning"
-                plain
-                :loading="autoTradingLoading"
-                :disabled="!autoTradingEnabled"
-                @click="handleDisableAutoTrading"
-              >
-                <el-icon><SwitchButton /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </el-button-group>
-
-          <el-button-group class="toolbar-group">
-            <el-tooltip
-              content="锁定交易"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSelection"
-                @click="handleLockTrading"
-              >
-                <el-icon><Lock /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="锁定运行"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSelection"
-                @click="handleLockRunning"
-              >
-                <el-icon><Files /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="解锁"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSelection"
-                @click="handleUnlock"
-              >
-                <el-icon><Unlock /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </el-button-group>
-
-          <el-button-group class="toolbar-group">
-            <el-tooltip
-              content="启动策略单元"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                type="success"
-                :disabled="!hasSelection || store.running"
-                @click="handleStartSelected"
-              >
-                <el-icon><VideoPlay /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="停止策略单元"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                type="danger"
-                plain
-                :disabled="!hasSelection"
-                @click="handleStopSelected"
-              >
-                <el-icon><CircleCloseFilled /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </el-button-group>
-
-          <el-button-group class="toolbar-group">
-            <el-tooltip
-              content="新建策略单元"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                type="primary"
-                @click="showCreateUnit = true"
-              >
-                <el-icon><Plus /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="删除策略单元"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSelection"
-                @click="handleBulkDelete"
-              >
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="导入策略单元"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                @click="handleImportUnits"
-              >
-                <el-icon><FolderOpened /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="导出策略单元"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSelection"
-                @click="handleExportUnits"
-              >
-                <el-icon><Download /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </el-button-group>
-
-          <el-button-group class="toolbar-group">
-            <el-tooltip
-              content="数据源设置"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSingleSelection"
-                @click="showDataSource = true"
-              >
-                <el-icon><DataLine /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="策略单元设置"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSingleSelection"
-                @click="showUnitSettings = true"
-              >
-                <el-icon><Setting /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="公式应用设置"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSingleSelection"
-                @click="showStrategyParams = true"
-              >
-                <el-icon><Document /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </el-button-group>
-
-          <el-button-group class="toolbar-group">
-            <el-tooltip
-              content="头寸管理器"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="store.units.length === 0"
-                @click="showPositionManager = true"
-              >
-                <el-icon><Wallet /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="打开K线"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSingleSelection"
-                @click="handleOpenKline"
-              >
-                <el-icon><TrendCharts /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="打开组合报告"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSelection"
-                @click="emit('switch-tab', 'report', store.selectedUnitIds[0], [...store.selectedUnitIds])"
-              >
-                <el-icon><PieChart /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </el-button-group>
-
-          <el-button-group class="toolbar-group">
-            <el-tooltip
-              content="自动交易配置"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                @click="showAutoTradingConfig = true"
-              >
-                <el-icon><Tools /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="新建优化任务"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSelection"
-                @click="handleCreateOptimizationTask"
-              >
-                <el-icon><Promotion /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="打开优化结果"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSingleSelection"
-                @click="emit('switch-tab', 'optimization', store.selectedUnitIds[0])"
-              >
-                <el-icon><DataAnalysis /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="定时优化设置"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                @click="showScheduledOptimization = true"
-              >
-                <el-icon><Calendar /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="交易日统计选项"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="store.units.length === 0"
-                @click="showTradingDayStats = true"
-              >
-                <el-icon><Histogram /></el-icon>
-              </el-button>
-            </el-tooltip>
-            <el-tooltip
-              content="联动分组"
-              placement="top"
-            >
-              <el-button
-                size="small"
-                :disabled="!hasSelection"
-                @click="showGroupLink = true"
-              >
-                <el-icon><Share /></el-icon>
-              </el-button>
-            </el-tooltip>
-          </el-button-group>
-        </div>
-
-        <div class="trading-toolbar__meta">
-          <el-tag
-            size="small"
-            effect="dark"
-            :type="autoTradingEnabled ? 'success' : 'info'"
-          >
-            自动交易{{ autoTradingEnabled ? '已启用' : '已关闭' }}
-          </el-tag>
-          <span
-            v-if="autoTradingScheduleSummary"
-            class="text-slate-500"
-          >
-            {{ autoTradingScheduleSummary }}
-          </span>
-          <span class="text-slate-500">已选 {{ store.selectedUnitIds.length }} / {{ store.units.length }}</span>
-        </div>
-      </div>
+      <UnitActionsBar
+        :active="props.active"
+        :toolbar-in-header="props.toolbarInHeader"
+        :has-selection="hasSelection"
+        :has-single-selection="hasSingleSelection"
+        :running="store.running"
+        :auto-trading-enabled="autoTradingEnabled"
+        :auto-trading-loading="autoTradingLoading"
+        :auto-trading-schedule-summary="autoTradingScheduleSummary"
+        :selected-count="store.selectedUnitIds.length"
+        :unit-count="store.units.length"
+        @select-all="handleSelectAll"
+        @enable-auto-trading="handleEnableAutoTrading"
+        @disable-auto-trading="handleDisableAutoTrading"
+        @lock-trading="handleLockTrading"
+        @lock-running="handleLockRunning"
+        @unlock="handleUnlock"
+        @start-selected="handleStartSelected"
+        @stop-selected="handleStopSelected"
+        @create-unit="showCreateUnit = true"
+        @bulk-delete="handleBulkDelete"
+        @import-units="handleImportUnits"
+        @export-units="handleExportUnits"
+        @open-data-source="showDataSource = true"
+        @open-unit-settings="showUnitSettings = true"
+        @open-strategy-params="showStrategyParams = true"
+        @open-position-manager="showPositionManager = true"
+        @open-kline="handleOpenKline"
+        @open-report="emit('switch-tab', 'report', store.selectedUnitIds[0], [...store.selectedUnitIds])"
+        @open-auto-trading-config="showAutoTradingConfig = true"
+        @create-optimization-task="handleCreateOptimizationTask"
+        @open-optimization="emit('switch-tab', 'optimization', store.selectedUnitIds[0])"
+        @open-scheduled-optimization="showScheduledOptimization = true"
+        @open-trading-day-stats="showTradingDayStats = true"
+        @open-group-link="showGroupLink = true"
+      />
     </teleport>
 
     <div class="trading-overview-grid">
@@ -381,279 +80,13 @@
       </div>
     </div>
 
-    <el-table
+    <UnitTable
       ref="tableRef"
-      :data="store.units"
-      row-key="id"
-      stripe
-      border
-      size="small"
-      class="trading-units-table"
-      empty-text="暂无策略单元，点击「新建策略单元」开始"
+      :units="store.units"
       @selection-change="onSelectionChange"
       @row-dblclick="openDetail"
-    >
-      <el-table-column
-        type="selection"
-        width="42"
-      />
-      <el-table-column
-        label="序号"
-        width="60"
-        align="center"
-      >
-        <template #default="{ row }">
-          {{ row.sort_order + 1 }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="状态"
-        width="156"
-        fixed="left"
-      >
-        <template #default="{ row }">
-          <div class="status-cell">
-            <div class="status-cell__main">
-              <span
-                class="status-dot"
-                :class="statusDotClass(row)"
-              />
-              <span class="status-text">{{ statusLabel(row) }}</span>
-            </div>
-            <div class="status-cell__meta">
-              <el-tag
-                size="small"
-                effect="plain"
-                :type="row.trading_mode === 'live' ? 'danger' : 'info'"
-              >
-                {{ row.trading_mode === 'live' ? '实盘' : '模拟' }}
-              </el-tag>
-              <span
-                v-if="row.lock_trading"
-                class="status-flag"
-              >锁交</span>
-              <span
-                v-if="row.lock_running"
-                class="status-flag"
-              >锁运</span>
-            </div>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column
-        prop="group_name"
-        label="组名"
-        min-width="120"
-        show-overflow-tooltip
-      />
-      <el-table-column
-        prop="strategy_name"
-        label="单元名"
-        min-width="150"
-        show-overflow-tooltip
-      >
-        <template #default="{ row }">
-          <span class="font-medium text-slate-700">{{ row.strategy_name || row.strategy_id }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column
-        prop="strategy_id"
-        label="公式"
-        min-width="160"
-        show-overflow-tooltip
-      >
-        <template #default="{ row }">
-          <span class="font-mono text-xs text-slate-600">{{ row.strategy_id || '-' }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column
-        prop="symbol"
-        label="商品代码"
-        width="110"
-      />
-      <el-table-column
-        prop="symbol_name"
-        label="商品简称"
-        width="120"
-        show-overflow-tooltip
-      />
-      <el-table-column
-        prop="timeframe"
-        label="周期"
-        width="90"
-        align="center"
-      />
-      <el-table-column
-        prop="category"
-        label="分类"
-        width="90"
-      />
-      <el-table-column
-        label="起始日期"
-        width="120"
-      >
-        <template #default="{ row }">
-          {{ formatDate(row.data_config?.start_date) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="结束日期"
-        width="120"
-      >
-        <template #default="{ row }">
-          {{ row.data_config?.use_end_date ? formatDate(row.data_config?.end_date) : '-' }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="更新时间"
-        width="160"
-      >
-        <template #default="{ row }">
-          {{ row.trading_snapshot?.updated_at || formatTime(row.updated_at) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="bar数"
-        width="80"
-        align="right"
-      >
-        <template #default="{ row }">
-          {{ formatNumber(row.bar_count, 0, false) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="多仓"
-        width="90"
-        align="right"
-      >
-        <template #default="{ row }">
-          {{ formatNumber(row.trading_snapshot?.long_position, 0, false) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="空仓"
-        width="90"
-        align="right"
-      >
-        <template #default="{ row }">
-          {{ formatNumber(row.trading_snapshot?.short_position, 0, false) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="当日盈亏"
-        width="110"
-        align="right"
-      >
-        <template #default="{ row }">
-          <span :class="numberClass(row.trading_snapshot?.today_pnl)">
-            {{ formatSignedNumber(row.trading_snapshot?.today_pnl, 2, false) }}
-          </span>
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="持仓盈亏"
-        width="110"
-        align="right"
-      >
-        <template #default="{ row }">
-          <span :class="numberClass(row.trading_snapshot?.position_pnl)">
-            {{ formatSignedNumber(row.trading_snapshot?.position_pnl, 2, false) }}
-          </span>
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="最新价"
-        width="100"
-        align="right"
-      >
-        <template #default="{ row }">
-          {{ formatPrice(row.trading_snapshot?.latest_price) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="涨幅(%)"
-        width="100"
-        align="right"
-      >
-        <template #default="{ row }">
-          <span :class="numberClass(row.trading_snapshot?.change_pct)">
-            {{ formatSignedNumber(row.trading_snapshot?.change_pct, 2, false, '%') }}
-          </span>
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="多头市值"
-        width="110"
-        align="right"
-      >
-        <template #default="{ row }">
-          {{ formatAmountCompact(row.trading_snapshot?.long_market_value) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="空头市值"
-        width="110"
-        align="right"
-      >
-        <template #default="{ row }">
-          {{ formatAmountCompact(row.trading_snapshot?.short_market_value) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="杠杆"
-        width="90"
-        align="right"
-      >
-        <template #default="{ row }">
-          {{ formatNumber(row.trading_snapshot?.leverage, 2, false) }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="累计盈亏"
-        width="110"
-        align="right"
-      >
-        <template #default="{ row }">
-          <span :class="numberClass(row.trading_snapshot?.cumulative_pnl)">
-            {{ formatSignedNumber(row.trading_snapshot?.cumulative_pnl, 2, false) }}
-          </span>
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="最大回撤率"
-        width="110"
-        align="right"
-      >
-        <template #default="{ row }">
-          {{ formatSignedNumber(row.trading_snapshot?.max_drawdown_rate, 2, false, '%') }}
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="详情"
-        width="90"
-        fixed="right"
-      >
-        <template #default="{ row }">
-          <el-button
-            link
-            type="primary"
-            size="small"
-            @click="openDetail(row)"
-          >
-            详情
-          </el-button>
-        </template>
-      </el-table-column>
-      <el-table-column
-        label="交易日"
-        width="110"
-        fixed="right"
-      >
-        <template #default="{ row }">
-          {{ row.trading_snapshot?.trading_day || '-' }}
-        </template>
-      </el-table-column>
-    </el-table>
+      @open-detail="openDetail"
+    />
 
     <CreateUnitDialog
       v-model="showCreateUnit"
@@ -956,31 +389,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  CircleCloseFilled,
-  DataAnalysis,
-  DataLine,
-  Delete,
-  Document,
-  Download,
-  Files,
-  FolderOpened,
-  Histogram,
-  Lock,
-  PieChart,
-  Plus,
-  Promotion,
-  Select,
-  Setting,
-  Share,
-  SwitchButton,
-  Timer,
-  Tools,
-  TrendCharts,
-  Unlock,
-  VideoPlay,
-  Wallet,
-} from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/api/index'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -989,6 +397,16 @@ import type {
   TradingAutoConfig,
   TradingAutoScheduleItem,
 } from '@/types/workspace'
+import {
+  directionLabel,
+  formatAmountCompact,
+  formatNumber,
+  formatPrice,
+  formatSignedNumber,
+  formatTime,
+  numberClass,
+  statusLabel,
+} from '@/composables/useUnitTableRendering'
 import AutoTradingConfigDialog from './AutoTradingConfigDialog.vue'
 import BatchOptimizationConfigDialog from './BatchOptimizationConfigDialog.vue'
 import CreateUnitDialog from './CreateUnitDialog.vue'
@@ -1001,7 +419,9 @@ import PositionManagerDialog from './PositionManagerDialog.vue'
 import ScheduledOptimizationDialog from './ScheduledOptimizationDialog.vue'
 import StrategyParamsDialog from './StrategyParamsDialog.vue'
 import TradingDayStatsDialog from './TradingDayStatsDialog.vue'
+import UnitActionsBar from './UnitActionsBar.vue'
 import UnitRuntimeDialog from './UnitRuntimeDialog.vue'
+import UnitTable from './UnitTable.vue'
 import UnitSettingsDialog from './UnitSettingsDialog.vue'
 
 const props = defineProps<{
@@ -1307,121 +727,9 @@ function handleOpenRuntimeDialog(unit: StrategyUnit) {
   showRuntimeDialog.value = true
 }
 
-function statusDotClass(row: StrategyUnit) {
-  const status = row.trading_snapshot?.instance_status || row.run_status
-  if (status === 'running') return 'is-running'
-  if (status === 'queued') return 'is-queued'
-  if (status === 'error' || row.trading_snapshot?.error || row.run_status === 'failed') return 'is-error'
-  return 'is-idle'
-}
-
-function statusLabel(row: StrategyUnit) {
-  const status = row.trading_snapshot?.instance_status || row.run_status
-  const map: Record<string, string> = {
-    idle: '空闲',
-    queued: '排队中',
-    running: '运行中',
-    stopped: '已停止',
-    completed: '已完成',
-    failed: '失败',
-    error: '错误',
-    cancelled: '已取消',
-  }
-  return map[status] || status
-}
-
-function formatDate(value: unknown) {
-  const text = String(value ?? '').trim()
-  return text ? text.slice(0, 10) : '-'
-}
-
-function formatTime(value: string) {
-  return value ? new Date(value).toLocaleString('zh-CN') : '-'
-}
-
-function formatNumber(value: number | null | undefined, digits = 2, trimTrailingZeros = true) {
-  if (value == null || Number.isNaN(value)) return '-'
-  const formatted = Number(value).toFixed(digits)
-  return trimTrailingZeros && digits > 0
-    ? formatted.replace(/\.?0+$/, '')
-    : formatted
-}
-
-function formatPrice(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value)) return '-'
-  const number = Number(value)
-  if (Number.isInteger(number)) {
-    return String(number)
-  }
-  return Math.abs(number) >= 100 ? number.toFixed(2) : number.toFixed(4)
-}
-
-function formatSignedNumber(
-  value: number | null | undefined,
-  digits = 2,
-  showSign = true,
-  suffix = '',
-) {
-  if (value == null || Number.isNaN(value)) return '-'
-  const number = Number(value)
-  const prefix = showSign && number >= 0 ? '+' : ''
-  return `${prefix}${number.toFixed(digits)}${suffix}`
-}
-
-function formatAmountCompact(value: number | null | undefined, digits = 2) {
-  if (value == null || Number.isNaN(value)) return '-'
-  const number = Number(value)
-  const abs = Math.abs(number)
-  if (abs >= 100000000) {
-    return `${(number / 100000000).toFixed(digits)}亿`
-  }
-  if (abs >= 10000) {
-    return `${(number / 10000).toFixed(digits)}万`
-  }
-  return number.toFixed(digits)
-}
-
-function numberClass(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value) || value === 0) return 'text-gray-500'
-  return value > 0 ? 'text-red-500' : 'text-green-600'
-}
-
-function directionLabel(value: string | null | undefined) {
-  const text = String(value || '').toLowerCase()
-  if (text.includes('long')) return '多头'
-  if (text.includes('short')) return '空头'
-  return value || '-'
-}
 </script>
 
 <style scoped>
-.trading-toolbar {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.trading-toolbar__groups {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.toolbar-group {
-  box-shadow: 0 1px 2px rgb(15 23 42 / 0.08);
-}
-
-.trading-toolbar__meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-size: 12px;
-}
-
 .trading-overview-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1501,84 +809,10 @@ function directionLabel(value: string | null | undefined) {
   text-overflow: ellipsis;
 }
 
-.trading-units-table :deep(.el-table__header th) {
-  background: #f8fafc;
-  color: #475569;
-  font-weight: 600;
-}
-
-.trading-units-table :deep(.el-table__row:hover > td) {
-  background: #f8fbff !important;
-}
-
 .detail-positions-table :deep(.el-table__header th) {
   background: #f8fafc;
   color: #475569;
   font-weight: 600;
-}
-
-.status-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.status-cell__main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.status-text {
-  font-weight: 500;
-  color: #334155;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  flex: 0 0 auto;
-  background: #94a3b8;
-}
-
-.status-dot.is-running {
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgb(34 197 94 / 0.14);
-}
-
-.status-dot.is-queued {
-  background: #f59e0b;
-  box-shadow: 0 0 0 3px rgb(245 158 11 / 0.14);
-}
-
-.status-dot.is-error {
-  background: #ef4444;
-  box-shadow: 0 0 0 3px rgb(239 68 68 / 0.14);
-}
-
-.status-dot.is-idle {
-  background: #94a3b8;
-}
-
-.status-cell__meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.status-flag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 32px;
-  padding: 0 6px;
-  height: 20px;
-  border-radius: 999px;
-  font-size: 11px;
-  color: #92400e;
-  background: #fef3c7;
 }
 
 @media (max-width: 1200px) {

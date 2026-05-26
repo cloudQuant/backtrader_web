@@ -43,7 +43,7 @@
       >
         <el-option
           label="全部"
-          :value="null"
+          :value="0"
         />
         <el-option
           label="最近 500 行"
@@ -179,7 +179,7 @@ const logContent = ref('')
 const loading = ref(false)
 const error = ref<string | null>(null)
 const searchText = ref('')
-const tailLines = ref<number | null>(null)
+const tailLines = ref<number>(0)
 const contentRef = ref<HTMLElement | null>(null)
 
 const displayMode = ref<'raw' | 'formatted'>('formatted')
@@ -452,7 +452,7 @@ async function loadLog() {
     logContent.value = await simulationApi.getLog(
       props.instanceId,
       selectedFile.value,
-      tailLines.value ?? undefined
+      tailLines.value || undefined
     )
   } catch (e: unknown) {
     error.value = (e as Error).message || '加载日志失败'

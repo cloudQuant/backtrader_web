@@ -24,9 +24,83 @@ vi.mock('vue-i18n', () => ({
   useI18n: vi.fn(() => ({ t: (key: string) => key })),
 }))
 
+vi.mock('@/utils/session', () => ({
+  getAccessToken: vi.fn(() => null),
+}))
+
 vi.mock('@/api/strategy', () => ({
   strategyApi: {
     getTemplates: vi.fn().mockResolvedValue({ templates: [], total: 0 }),
+    createScore: vi.fn().mockResolvedValue({
+      backtest_id: 't1',
+      total_score: 78,
+      level: 'A',
+      model_version: 'v1',
+      disclaimer: '评分仅供研究参考，不构成投资建议。',
+      dimensions: [
+        {
+          key: 'profitability',
+          label: '收益质量',
+          score: 80,
+          weight: 0.2,
+          explanation: '收益表现较好。',
+          sub_metrics: { annual_return: 0.2 },
+          degraded: false,
+        },
+      ],
+    }),
+    createOverfittingTask: vi.fn().mockResolvedValue({
+      task_id: 'ot-1',
+      backtest_id: 't1',
+      status: 'pending',
+      methods: ['monte_carlo'],
+    }),
+    getOverfittingTask: vi.fn().mockResolvedValue({
+      task_id: 'ot-1',
+      backtest_id: 't1',
+      status: 'completed',
+      overall_level: 'low',
+      robustness_score: 82,
+      summary: 'Monte Carlo 检测完成。',
+      methods: [
+        {
+          method: 'monte_carlo',
+          status: 'completed',
+          risk_level: 'low',
+          score: 82,
+          explanation: '实际收益位于高分位。',
+          metrics: { bootstrap_percentile: 96 },
+          degraded: false,
+        },
+      ],
+      error_message: null,
+    }),
+    explainStrategy: vi.fn().mockResolvedValue({
+      code_hash: 'abc123',
+      strategy_name: 'SMA',
+      summary: 'SMA 策略通过均线交叉识别趋势。',
+      indicators_explanation: '使用 SMA 指标。',
+      entry_explanation: '金叉时买入。',
+      exit_explanation: '死叉时卖出。',
+      params_explanation: 'fast_period 控制快线。',
+      market_fit: '适合趋势市场。',
+      risk_notes: ['震荡市场可能假信号'],
+      ast: {
+        parsable: true,
+        indicators: [],
+        entry_signals: [],
+        exit_signals: [],
+        risk_controls: [],
+        params: [],
+        data_sources: [],
+        raw_code: null,
+        parse_error: null,
+      },
+      reason_code: 'static_fallback',
+      model_id: null,
+      cached: false,
+      disclaimer: '解释仅供研究参考，不构成投资建议。',
+    }),
   },
 }))
 
@@ -112,6 +186,63 @@ describe('BacktestResultPage', () => {
   it('mounts without error', () => {
     const wrapper = mount(BacktestResultPage, { global: { stubs: { ...elStubs, EquityCurve: true, DrawdownChart: true, TradeRecordsTable: true, TradeSignalChart: true, ReturnHeatmap: true, MetricCard: true, PerformancePanel: true } } })
     expect(wrapper.exists()).toBe(true)
+  })
+
+  it('renders strategy score section when score loads', async () => {
+    const wrapper = mount(BacktestResultPage, {
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('策略评分')
+    expect(wrapper.text()).toContain('78')
+    expect(wrapper.text()).toContain('评分仅供研究参考')
+    expect(wrapper.text()).toContain('过拟合诊断')
+    expect(wrapper.text()).toContain('Monte Carlo 检测完成')
+    expect(wrapper.text()).toContain('策略解释')
+    expect(wrapper.text()).toContain('SMA 策略通过均线交叉识别趋势')
+  })
+
+  it('reruns overfitting analysis from the panel action', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const wrapper = mount(BacktestResultPage, {
+      global: {
+        stubs: {
+          ...elStubs,
+          EquityCurve: true,
+          DrawdownChart: true,
+          TradeRecordsTable: true,
+          TradeSignalChart: true,
+          ReturnHeatmap: true,
+          MetricCard: true,
+          PerformancePanel: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const button = wrapper.findAll('button').find((item) => item.text().includes('重新检测'))
+    expect(button).toBeTruthy()
+    await button?.trigger('click')
+    await flushPromises()
+
+    expect(strategyApi.createOverfittingTask).toHaveBeenLastCalledWith('t1', expect.objectContaining({
+      methods: ['walk_forward', 'out_of_sample', 'monte_carlo'],
+      walk_forward_max_concurrency: 4,
+    }))
   })
 
   it('returns to workspace detail when workspaceId is present', async () => {

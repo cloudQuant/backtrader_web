@@ -20,8 +20,8 @@ from app.schemas.auth import (
     UserLogin,
     UserResponse,
 )
-from app.utils.logger import get_logger
 from app.utils.call_logger import call_logger
+from app.utils.logger import get_logger
 from app.utils.security import (
     REFRESH_TOKEN_EXPIRE_DAYS,
     create_access_token,

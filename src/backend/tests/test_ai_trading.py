@@ -355,6 +355,32 @@ class TestAITradingAPI:
 class TestTradingIntentParser:
     """Test the intent parser with mocked LLM responses."""
 
+    async def test_call_llm_uses_observable_ai_chat_entrypoint(self):
+        from app.services.trading_intent_parser import _call_llm
+
+        mock_response = (
+            '{"action":"query","symbol":null,"exchange":null,"quantity":null,'
+            '"price":null,"order_type":"market","stop_loss":null,"take_profit":null,'
+            '"reason":"查询","confidence":0.9,"risk_level":"low"}'
+        )
+
+        with patch("app.services.trading_intent_parser.AIChatService") as mock_service_class:
+            service = mock_service_class.return_value
+            service.is_enabled.return_value = True
+            service.generate_answer = AsyncMock(
+                return_value={
+                    "answer": mock_response,
+                    "tokens_used": 10,
+                    "model_id": "gpt-4o-mini",
+                    "strategy_draft": None,
+                    "reasoning": None,
+                }
+            )
+            result = await _call_llm("看看持仓", "system prompt")
+
+        assert result == mock_response
+        service.generate_answer.assert_awaited_once()
+
     async def test_parse_buy_intent(self):
         """Parse a simple buy instruction."""
         from app.services.trading_intent_parser import parse_trading_intent

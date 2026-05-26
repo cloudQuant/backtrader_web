@@ -61,15 +61,31 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
+def disable_live_gateway_restore(monkeypatch):
+    live_trading_manager = importlib.import_module("app.services.live_trading_manager")
+    monkeypatch.setattr(
+        live_trading_manager.LiveTradingManager,
+        "_start_restore_manual_gateways_background",
+        lambda self: None,
+    )
+    live_trading_manager._manager = None
+    yield
+    live_trading_manager._manager = None
+
+
+@pytest.fixture(autouse=True)
 async def setup_db():
     """Rebuild all tables before each test, cleanup after."""
     limiter.reset()
+    response_cache = importlib.import_module("app.utils.response_cache")
+    response_cache._cache_backend = response_cache.MemoryCacheBackend()
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with _test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     limiter.reset()
+    response_cache._cache_backend = response_cache.MemoryCacheBackend()
 
 
 # ==================== HTTP Client Fixture ====================

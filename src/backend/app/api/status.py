@@ -6,6 +6,7 @@ Provides observability for cache, database, and application state.
 
 import asyncio
 import time
+from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -43,7 +44,7 @@ async def _check_database_health() -> str:
 
 
 @router.get("/health", summary="Health check")
-async def health_check(request: Request):
+async def health_check(request: Request) -> Any:
     """Standardized health check endpoint.
 
     Returns:
@@ -82,7 +83,7 @@ async def health_check(request: Request):
 
 
 @router.get("/status/cache", summary="Cache statistics")
-async def get_cache_status():
+async def get_cache_status() -> dict[str, Any]:
     """Get cache statistics for observability.
 
     Returns:
@@ -96,7 +97,7 @@ async def get_cache_status():
 
 
 @router.get("/status/routers", summary="Optional router status")
-async def get_router_status():
+async def get_router_status() -> dict[str, Any]:
     """Get status of optional routers.
 
     Returns:

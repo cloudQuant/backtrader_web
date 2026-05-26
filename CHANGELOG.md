@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0-rc1] - 2026-05-24
+
+### Added
+
+- Strategy trust kernel for backtest results, including strategy scoring, overfitting diagnostics, and strategy explanation surfaces.
+- Overfitting detection support for Walk-forward, Out-of-Sample, and Monte Carlo methods with frontend evidence cards and rerun controls.
+- API performance baselines with `pytest-benchmark` for login, strategy listing, backtest submission/result retrieval, RAG search, and KB Chat roundtrip.
+- Backtest task throughput baselines for five-strategy submission, status polling, and submit-and-poll roundtrip.
+- Docker Hub release workflow for tag-triggered backend/frontend image publishing.
+- v0.2.0 RC release notes in `docs/RELEASE_NOTES_V0.2.0.md`.
+
+### Changed
+
+- Split large backend services by extracting workspace lifecycle/unit/optimization helpers and manual gateway helper/IB Client Portal modules while preserving compatibility facades.
+- Split large frontend views into focused AI chat and workspace components plus rendering composables.
+- Raised frontend coverage thresholds to lines/statements `34%`, functions `40%`, and branches `45%`.
+- Extended backend B904 and mypy ratchets to selected service/API scopes.
+- Updated README coverage target tables and v0.2.0 RC quick-start guidance.
+
+### Quality
+
+- Documented API and backtest throughput baselines in `docs/perf-baseline-v0.2.0.md`.
+- Added `pytest-benchmark` to backend development dependencies and registered the `performance` pytest marker.
+- Fixed AppLayout test stubs for current Element Plus icon, drawer, dropdown, and theme-switching behavior.
+
+### Known Boundaries
+
+- This is a release candidate, not the final v0.2.0 production release.
+- Performance baselines measure API, database, serialization, and task orchestration overhead; they do not run real strategy subprocesses.
+- AI observability, multi-model routing, VaR/CVaR, factor analytics, performance attribution, and market-regime detection remain planned for later v0.2.x iterations.
+- Docker Hub publishing requires `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets.
+
 ## [0.1.0] - 2026-05-20
 
 ### Breaking Changes
@@ -120,6 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Key Changes |
 |---------|------|-------------|
+| 0.2.0-rc1 | 2026-05-24 | AI trust kernel, engineering debt reduction, performance baselines, Docker release workflow |
 | 1.0.0 | 2026-03-26 | Initial stable release |
 | 0.9.0 | 2026-03-20 | Live trading integration |
 | 0.8.0 | 2026-03-15 | Paper trading system |

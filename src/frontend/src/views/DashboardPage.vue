@@ -230,6 +230,7 @@ import { DataLine, Document, Grid, TrendCharts, Trophy } from '@element-plus/ico
 import { useI18n } from 'vue-i18n'
 import { useBacktestStore } from '@/stores/backtest'
 import { useStrategyStore } from '@/stores/strategy'
+import type { TagType } from '@/constants/strategy'
 import type { BacktestResult } from '@/types'
 
 const { t } = useI18n()
@@ -246,8 +247,8 @@ const stats = ref({
 
 const recentBacktests = ref<BacktestResult[]>([])
 
-function getStatusType(status: string) {
-  const types: Record<string, string> = {
+function getStatusType(status: string): TagType {
+  const types: Record<string, TagType> = {
     completed: 'success',
     running: 'warning',
     pending: 'info',

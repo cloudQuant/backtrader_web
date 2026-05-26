@@ -6,15 +6,12 @@ and _extract_rate_limit_headers helper method.
 Requirements: 4.1-4.5
 """
 
-import json
-
 import pytest
 from fastapi import FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
 from starlette.responses import JSONResponse
 
 from app.middleware.rate_limit_headers import RateLimitHeadersMiddleware
-
 
 # ==================== Helper Method Tests ====================
 
@@ -171,6 +168,31 @@ class TestRateLimitResponseStandardization:
         assert "retry-after" in resp.headers
         # Default retry-after when no rate limit state is available
         assert resp.headers["retry-after"] == "60"
+
+    async def test_structured_429_response_body_is_preserved(self):
+        app = FastAPI()
+        app.add_middleware(RateLimitHeadersMiddleware)
+
+        @app.get("/budget-exceeded")
+        async def budget_exceeded():
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "error": "HTTP_429",
+                    "message": "AI budget exceeded",
+                    "details": {"reason_code": "budget_exceeded"},
+                },
+            )
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            resp = await ac.get("/budget-exceeded")
+
+        assert resp.status_code == 429
+        body = resp.json()
+        assert body["message"] == "AI budget exceeded"
+        assert body["details"]["reason_code"] == "budget_exceeded"
+        assert "detail" not in body
 
 
 # ==================== Fail-Open Behavior Tests ====================

@@ -31,6 +31,18 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/AIChatPage.vue'),
       },
       {
+        path: 'admin/ai-observability',
+        name: 'AIObservability',
+        component: () => import('@/views/AIObservabilityPage.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'admin/prompt-templates',
+        name: 'PromptTemplates',
+        component: () => import('@/views/PromptTemplatesPage.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
         path: 'ai-trading',
         name: 'AITrading',
         component: () => import('@/views/AITradingPage.vue'),

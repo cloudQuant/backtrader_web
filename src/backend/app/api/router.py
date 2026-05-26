@@ -9,6 +9,7 @@ import logging
 
 from fastapi import APIRouter
 
+from app.api.ai_observability import router as ai_observability_router
 from app.api.airflow_callback import router as airflow_callback_router
 from app.api.airflow_dags import router as airflow_dags_router
 from app.api.analytics import router as analytics_router
@@ -16,13 +17,20 @@ from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.backtest_enhanced import router as backtest_enhanced_router
 from app.api.docs import router as docs_router
+from app.api.factor_lib import router as factor_lib_router
 from app.api.live_trading_api import router as live_trading_router
 from app.api.metrics import router as metrics_router
 from app.api.optimization_api import router as optimization_router
+from app.api.overfitting import router as overfitting_router
+from app.api.perf_attribution import router as perf_attribution_router
 from app.api.portfolio_api import router as portfolio_router
+from app.api.prompt_templates import router as prompt_templates_router
+from app.api.risk_analytics import router as risk_analytics_router
 from app.api.simulation import router as simulation_router
 from app.api.status import router as status_router
 from app.api.strategy import router as strategy_router
+from app.api.strategy_explainer import router as strategy_explainer_router
+from app.api.strategy_score import router as strategy_score_router
 from app.api.workspace_api import router as workspace_router
 
 logger = logging.getLogger(__name__)
@@ -77,6 +85,11 @@ api_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 api_router.include_router(audit_router, prefix="/audit", tags=["Audit"])
 api_router.include_router(airflow_callback_router, prefix="/data", tags=["Airflow Callback"])
 api_router.include_router(airflow_dags_router, prefix="/data/airflow", tags=["Airflow DAGs"])
+api_router.include_router(ai_observability_router, tags=["AI Observability"])
+api_router.include_router(prompt_templates_router, tags=["Prompt Templates"])
+api_router.include_router(risk_analytics_router)
+api_router.include_router(factor_lib_router)
+api_router.include_router(perf_attribution_router)
 api_router.include_router(metrics_router, tags=["Metrics"])
 api_router.include_router(
     backtest_enhanced_router,
@@ -84,6 +97,9 @@ api_router.include_router(
     tags=["Enhanced Backtest"],
 )
 api_router.include_router(strategy_router, prefix="/strategy", tags=["Strategy"])
+api_router.include_router(strategy_score_router, prefix="/strategy", tags=["Strategy Score"])
+api_router.include_router(overfitting_router, prefix="/strategy", tags=["Overfitting"])
+api_router.include_router(strategy_explainer_router, prefix="/strategy", tags=["Strategy Explainer"])
 api_router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(live_trading_router, prefix="/live-trading", tags=["Live Trading"])
 api_router.include_router(portfolio_router, prefix="/portfolio", tags=["Portfolio"])

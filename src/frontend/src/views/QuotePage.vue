@@ -215,7 +215,7 @@
                 active-text=""
                 inactive-text=""
                 size="small"
-                @change="(v: boolean) => store.setAutoRefresh(v)"
+                @change="v => store.setAutoRefresh(Boolean(v))"
               />
             </el-tooltip>
             <el-select
@@ -625,7 +625,7 @@
         <el-radio-group
           :model-value="store.chartTimeframe"
           size="small"
-          @change="(v: string) => store.setChartTimeframe(v)"
+          @change="v => store.setChartTimeframe(String(v))"
         >
           <el-radio-button label="M1">
             1分
@@ -700,6 +700,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
+import type { Sort } from 'element-plus'
 import * as echarts from 'echarts'
 import {
   Search,
@@ -805,8 +806,8 @@ const isDataStale = computed(() => {
 })
 
 // ---- table sort ----
-const tableSortProp = computed(() => {
-  if (!store.sortField) return {}
+const tableSortProp = computed<Sort | undefined>(() => {
+  if (!store.sortField) return undefined
   return { prop: store.sortField, order: store.sortOrder === 'asc' ? 'ascending' : 'descending' }
 })
 

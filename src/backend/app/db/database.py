@@ -295,12 +295,48 @@ def _ensure_airflow_schema_compatibility_sync(bind) -> None:
         )
 
 
+def _ensure_ai_budget_schema_compatibility_sync(bind) -> None:
+    if _has_table(bind, "users"):
+        _add_column_if_missing(bind, "users", "ai_budget_daily_usd", "ai_budget_daily_usd FLOAT")
+        _add_column_if_missing(bind, "users", "ai_budget_mode", "ai_budget_mode VARCHAR(20)")
+        _add_column_if_missing(
+            bind, "users", "ai_preferred_provider", "ai_preferred_provider VARCHAR(50)"
+        )
+        _add_column_if_missing(bind, "users", "ai_preferred_model", "ai_preferred_model VARCHAR(100)")
+
+
+def _ensure_prompt_template_schema_compatibility_sync(bind) -> None:
+    from app.models.prompt_template import PromptTemplate
+
+    PromptTemplate.__table__.create(bind=bind, checkfirst=True)
+    _add_column_if_missing(
+        bind,
+        "prompt_templates",
+        "rollout_percentage",
+        "rollout_percentage INTEGER NOT NULL DEFAULT 0",
+    )
+    _add_column_if_missing(
+        bind,
+        "ai_call_logs",
+        "prompt_template_version",
+        "prompt_template_version VARCHAR(50)",
+    )
+    _ensure_index_if_missing(
+        bind,
+        "ai_call_logs",
+        "ix_ai_call_logs_prompt_template_version",
+        "prompt_template_version",
+    )
+
+
 async def ensure_schema_compatibility() -> None:
     """Patch legacy databases with columns required by the current ORM schema."""
     async with engine.begin() as conn:
         await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
         await conn.run_sync(_ensure_knowledge_base_schema_compatibility_sync)
         await conn.run_sync(_ensure_airflow_schema_compatibility_sync)
+        await conn.run_sync(_ensure_ai_budget_schema_compatibility_sync)
+        await conn.run_sync(_ensure_prompt_template_schema_compatibility_sync)
 
 
 async def create_tables() -> None:
@@ -312,6 +348,8 @@ async def create_tables() -> None:
         await conn.run_sync(_ensure_workspace_schema_compatibility_sync)
         await conn.run_sync(_ensure_knowledge_base_schema_compatibility_sync)
         await conn.run_sync(_ensure_airflow_schema_compatibility_sync)
+        await conn.run_sync(_ensure_ai_budget_schema_compatibility_sync)
+        await conn.run_sync(_ensure_prompt_template_schema_compatibility_sync)
 
 
 async def init_db():

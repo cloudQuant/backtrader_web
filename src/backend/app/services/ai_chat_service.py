@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 import json
 import re
-import urllib.error
-import urllib.request
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.config import get_settings
+from app.schemas.ai_observability import AICallLogCreate, AICallStatus
 from app.schemas.strategy import AIStrategyDraft
+from app.services.ai_observability.budget import AIBudgetService
+from app.services.ai_observability.cost_calculator import calculate_estimated_cost_usd
+from app.services.ai_observability.logger import get_ai_call_log_sink, hash_prompt
+from app.services.ai_router.preferences import AIModelPreferenceService, ResolvedAIModelPreference
+from app.services.ai_router.router import get_ai_chat_router
+from app.services.prompt_registry import PromptRegistry
 from app.services.strategy_service import render_ai_strategy_draft_answer
+
+_BudgetChecker = Callable[..., Awaitable[None]]
 
 _MODE_INSTRUCTIONS = {
     "knowledge_qa": """
@@ -142,6 +151,10 @@ class AIChatService:
 
     def __init__(self) -> None:
         self.settings = get_settings()
+        self.budget_checker: _BudgetChecker = AIBudgetService().ensure_budget_available
+        self.ai_router = get_ai_chat_router()
+        self.model_preference_service = AIModelPreferenceService()
+        self.prompt_registry = PromptRegistry()
 
     def is_enabled(self) -> bool:
         return bool(
@@ -161,11 +174,18 @@ class AIChatService:
         conversation_history: list[dict[str, Any]] | None = None,
         retrieval_diagnostics: dict[str, Any] | None = None,
         knowledge_base_settings: dict[str, Any] | None = None,
+        user_id: str | None = None,
+        model_id: str | None = None,
     ) -> dict[str, Any] | None:
-        if not self.is_enabled():
+        if not self.settings.AI_CHAT_ENABLED:
+            return None
+        preference = self.model_preference_service.resolve_model_key(model_id)
+        if preference is None:
+            preference = await self.model_preference_service.resolve_for_user(user_id)
+        if not self.is_enabled() and preference is None:
             return None
 
-        messages = self._build_messages(
+        messages, prompt_template_id, prompt_template_version = await self._build_messages_with_registry(
             question=question,
             citations=citations,
             assistant_mode=assistant_mode,
@@ -173,11 +193,147 @@ class AIChatService:
             conversation_history=conversation_history,
             retrieval_diagnostics=retrieval_diagnostics,
             knowledge_base_settings=knowledge_base_settings,
+            user_id=user_id,
         )
+        started = time.perf_counter()
+        prompt_text = "\n".join(message["content"] for message in messages)
+        await self.budget_checker(user_id=user_id)
         try:
-            return await asyncio.to_thread(self._call_provider, messages, assistant_mode)
-        except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+            provider_result = self._call_provider(
+                messages,
+                assistant_mode,
+                user_id=user_id,
+                preference=preference,
+            )
+            result = await provider_result if inspect.isawaitable(provider_result) else provider_result
+        except (
+            OSError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            await self._record_ai_call(
+                assistant_mode=assistant_mode,
+                prompt_text=prompt_text,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                status=AICallStatus.FAILED,
+                user_id=user_id,
+                exc=exc,
+                prompt_template_id=prompt_template_id,
+                prompt_template_version=prompt_template_version,
+            )
             return None
+        await self._record_ai_call(
+            assistant_mode=assistant_mode,
+            prompt_text=prompt_text,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            status=AICallStatus.SUCCESS,
+            user_id=user_id,
+            result=result,
+            prompt_template_id=prompt_template_id,
+            prompt_template_version=prompt_template_version,
+        )
+        return result
+
+    async def _record_ai_call(
+        self,
+        *,
+        assistant_mode: str,
+        prompt_text: str,
+        latency_ms: int,
+        status: AICallStatus,
+        user_id: str | None = None,
+        result: dict[str, Any] | None = None,
+        exc: BaseException | None = None,
+        prompt_template_id: str | None = None,
+        prompt_template_version: str | None = None,
+    ) -> None:
+        model_name = str((result or {}).get("model_id") or self.settings.AI_CHAT_MODEL or "unknown")
+        total_tokens = int((result or {}).get("tokens_used") or 0)
+        payload = AICallLogCreate(
+            user_id=user_id,
+            service_name="ai_chat",
+            mode=assistant_mode,
+            model_name=model_name,
+            provider=str((result or {}).get("provider") or "openai_compatible"),
+            prompt_tokens=int((result or {}).get("prompt_tokens") or 0),
+            completion_tokens=int((result or {}).get("completion_tokens") or 0),
+            total_tokens=total_tokens,
+            estimated_cost_usd=calculate_estimated_cost_usd(
+                model_name,
+                int((result or {}).get("prompt_tokens") or 0),
+                int((result or {}).get("completion_tokens") or total_tokens),
+            ),
+            latency_ms=latency_ms,
+            status=status,
+            error_code=type(exc).__name__ if exc else None,
+            error_message=str(exc)[:1000] if exc else None,
+            response_chars=len(str((result or {}).get("answer") or "")),
+            prompt_hash=hash_prompt(prompt_text),
+            prompt_template_id=prompt_template_id,
+            prompt_template_version=prompt_template_version,
+        )
+        await get_ai_call_log_sink().enqueue(payload)
+
+    async def _build_messages_with_registry(
+        self,
+        *,
+        question: str,
+        citations: list[dict[str, Any]],
+        assistant_mode: str,
+        thinking_mode: bool,
+        conversation_history: list[dict[str, Any]] | None,
+        retrieval_diagnostics: dict[str, Any] | None,
+        knowledge_base_settings: dict[str, Any] | None,
+        user_id: str | None = None,
+    ) -> tuple[list[dict[str, str]], str | None, str | None]:
+        settings = knowledge_base_settings or {}
+        context_text = self._build_context_blocks(citations)
+        diagnostics_text = self._build_diagnostics_text(retrieval_diagnostics)
+        reasoning_hint = (
+            "先给出 3-5 行的分析摘要，再给出最终回答。"
+            if thinking_mode
+            else "直接给出结构化结论，不要展开冗长推理。"
+        )
+        rendered = await self.prompt_registry.render_active_template(
+            assistant_mode,
+            {
+                "question": _normalize_text(question),
+                "context_text": context_text,
+                "diagnostics_text": diagnostics_text,
+                "assistant_mode": assistant_mode,
+                "reasoning_hint": reasoning_hint,
+                "quant_focus": str(settings.get("quant_focus") or "strategy_research"),
+            },
+            user_id=user_id,
+        )
+        if rendered is None:
+            return (
+                self._build_messages(
+                    question=question,
+                    citations=citations,
+                    assistant_mode=assistant_mode,
+                    thinking_mode=thinking_mode,
+                    conversation_history=conversation_history,
+                    retrieval_diagnostics=retrieval_diagnostics,
+                    knowledge_base_settings=knowledge_base_settings,
+                ),
+                None,
+                None,
+            )
+        system_prompt = "\n".join(
+            [
+                "你是 Backtrader Web 的 AI Copilot。",
+                "你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。",
+                "如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。",
+                "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
+            ]
+        ).strip()
+        if settings.get("system_prompt_suffix"):
+            system_prompt = f"{system_prompt}\n{_normalize_text(str(settings['system_prompt_suffix']))}"
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        messages.extend(self._build_conversation_messages(conversation_history))
+        messages.append({"role": "user", "content": rendered.rendered_prompt.strip()})
+        return messages, rendered.template_id, rendered.version
 
     def _build_messages(
         self,
@@ -314,30 +470,28 @@ class AIChatService:
             messages.append({"role": role, "content": content})
         return messages
 
-    def _call_provider(self, messages: list[dict[str, str]], assistant_mode: str) -> dict[str, Any]:
-        endpoint = self._resolve_endpoint(self.settings.AI_CHAT_BASE_URL)
-        payload = {
-            "model": self.settings.AI_CHAT_MODEL,
-            "messages": messages,
-            "temperature": self.settings.AI_CHAT_TEMPERATURE,
-        }
-        request = urllib.request.Request(
-            endpoint,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.settings.AI_CHAT_API_KEY}",
-            },
-            method="POST",
+    async def _call_provider(
+        self,
+        messages: list[dict[str, str]],
+        assistant_mode: str,
+        user_id: str | None = None,
+        preference: ResolvedAIModelPreference | None = None,
+    ) -> dict[str, Any]:
+        if preference is None:
+            preference = await self.model_preference_service.resolve_for_user(user_id)
+        response = await self.ai_router.chat_completion(
+            messages=messages,
+            model=preference.model if preference else self.settings.AI_CHAT_MODEL,
+            provider=preference.provider if preference else "openai_compatible",
+            base_url=preference.base_url if preference else self.settings.AI_CHAT_BASE_URL,
+            api_key=preference.api_key if preference else self.settings.AI_CHAT_API_KEY,
+            timeout=self.settings.AI_CHAT_TIMEOUT,
+            temperature=self.settings.AI_CHAT_TEMPERATURE,
         )
-        with urllib.request.urlopen(request, timeout=self.settings.AI_CHAT_TIMEOUT) as response:
-            body = json.loads(response.read().decode("utf-8"))
-
-        answer = self._extract_content(body)
+        answer = response.content
         if not answer:
             raise ValueError("AI provider returned empty content")
 
-        usage = body.get("usage") or {}
         parsed_strategy_draft: dict[str, Any] | None = None
         if assistant_mode == "backtrader_strategy":
             parsed = self._parse_strategy_generation(answer)
@@ -347,10 +501,13 @@ class AIChatService:
 
         return {
             "answer": answer,
-            "tokens_used": int(usage.get("total_tokens") or 0),
-            "model_id": str(body.get("model") or self.settings.AI_CHAT_MODEL),
+            "tokens_used": response.total_tokens,
+            "model_id": response.model,
+            "provider": response.provider,
+            "prompt_tokens": response.prompt_tokens,
+            "completion_tokens": response.completion_tokens,
             "strategy_draft": parsed_strategy_draft,
-            "reasoning": None,
+            "reasoning": response.reasoning,
         }
 
     @staticmethod

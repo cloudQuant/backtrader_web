@@ -2,9 +2,11 @@
 Configuration management - Load configuration from environment variables.
 """
 
+import json
 import os
 import warnings
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -134,6 +136,56 @@ class Settings(BaseSettings):
     )
     AI_CHAT_TEMPERATURE: float = Field(
         default=0.2, description="Sampling temperature for AI chat provider requests"
+    )
+    AI_BUDGET_DAILY_USD: float | None = Field(
+        default=None, description="Default daily AI cost budget in USD. None means unlimited"
+    )
+    AI_BUDGET_MODE: str = Field(
+        default="soft", description="AI budget mode: soft or hard"
+    )
+    AI_PROVIDERS: dict[str, dict[str, Any]] = Field(
+        default_factory=lambda: {
+            "openai": {
+                "base_url": None,
+                "api_key_env": "OPENAI_API_KEY",
+                "models": ["gpt-4o", "gpt-4o-mini"],
+            },
+            "anthropic": {
+                "base_url": None,
+                "api_key_env": "ANTHROPIC_API_KEY",
+                "models": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+            },
+            "ollama": {
+                "base_url": "http://localhost:11434",
+                "api_key_env": None,
+                "models": ["ollama/qwen2.5-coder:7b", "ollama/llama3.1:8b"],
+            },
+            "together": {
+                "base_url": None,
+                "api_key_env": "TOGETHER_API_KEY",
+                "models": ["together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
+            },
+            "groq": {
+                "base_url": None,
+                "api_key_env": "GROQ_API_KEY",
+                "models": ["groq/llama-3.3-70b-versatile"],
+            },
+        },
+        description="AI provider registry keyed by provider name",
+    )
+    STRATEGY_SCORE_MODEL_VERSION: str = Field(
+        default="v1", description="Model version for strategy score outputs"
+    )
+    STRATEGY_SCORE_WEIGHTS: dict[str, float] = Field(
+        default_factory=lambda: {
+            "profitability": 0.2,
+            "risk_control": 0.2,
+            "stability": 0.2,
+            "overfitting_risk": 0.15,
+            "executability": 0.15,
+            "benchmark_comparison": 0.1,
+        },
+        description="Strategy score dimension weights",
     )
 
     # Graceful shutdown timeout (seconds)
@@ -425,6 +477,38 @@ class Settings(BaseSettings):
             )
         return normalized
 
+    @field_validator("AI_BUDGET_MODE")
+    @classmethod
+    def validate_ai_budget_mode(cls, v: str) -> str:
+        normalized = str(v or "soft").strip().lower()
+        supported_modes = {"soft", "hard"}
+        if normalized not in supported_modes:
+            raise ValueError(
+                "AI_BUDGET_MODE must be one of: "
+                f"{', '.join(sorted(supported_modes))}"
+            )
+        return normalized
+
+    @field_validator("AI_PROVIDERS", mode="before")
+    @classmethod
+    def validate_ai_providers(cls, v: object) -> dict[str, dict[str, Any]]:
+        if isinstance(v, dict):
+            return {str(key): dict(value) for key, value in v.items() if isinstance(value, dict)}
+        if isinstance(v, str):
+            text = v.strip()
+            if not text:
+                raise ValueError("AI_PROVIDERS cannot be empty")
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError("AI_PROVIDERS must be valid JSON") from exc
+            if not isinstance(data, dict):
+                raise ValueError("AI_PROVIDERS must decode to an object")
+            return {str(key): dict(value) for key, value in data.items() if isinstance(value, dict)}
+        if v is None:
+            raise ValueError("AI_PROVIDERS cannot be null")
+        raise ValueError("AI_PROVIDERS must be a dict or JSON string")
+
     @field_validator("JWT_EXPIRE_MINUTES")
     @classmethod
     def validate_jwt_expiration(cls, v: int) -> int:
@@ -452,6 +536,27 @@ class Settings(BaseSettings):
                 )
 
         return v
+
+    @field_validator("STRATEGY_SCORE_WEIGHTS", mode="before")
+    @classmethod
+    def validate_strategy_score_weights(cls, v: object) -> dict[str, float]:
+        """Validate strategy score weights from dict or JSON string."""
+        if isinstance(v, dict):
+            return {str(key): float(value) for key, value in v.items()}
+        if isinstance(v, str):
+            text = v.strip()
+            if not text:
+                raise ValueError("STRATEGY_SCORE_WEIGHTS cannot be empty")
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError("STRATEGY_SCORE_WEIGHTS must be valid JSON") from exc
+            if not isinstance(data, dict):
+                raise ValueError("STRATEGY_SCORE_WEIGHTS must decode to an object")
+            return {str(key): float(value) for key, value in data.items()}
+        if v is None:
+            raise ValueError("STRATEGY_SCORE_WEIGHTS cannot be null")
+        raise ValueError("STRATEGY_SCORE_WEIGHTS must be a dict or JSON string")
 
 
 # Use simple cache to avoid lru_cache issues in pydantic-settings v2

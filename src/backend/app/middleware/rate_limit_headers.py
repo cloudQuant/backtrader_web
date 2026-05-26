@@ -95,17 +95,22 @@ class RateLimitHeadersMiddleware:
                         headers.append("Retry-After", "60")
 
                 # For 429 responses, buffer the start message so we can fix
-                # content-length after building the standardized body
+                # content-length after deciding whether the body should be standardized.
                 if status_code == 429:
-                    headers = MutableHeaders(scope=message)
-                    headers["content-type"] = "application/json"
                     buffered_start = message
                 else:
                     await send(message)
 
             elif message["type"] == "http.response.body":
                 if status_code == 429:
-                    # Standardize 429 response body
+                    original_body = message.get("body", b"")
+                    if rate_limit_info is None and _looks_like_structured_json_429(original_body):
+                        if buffered_start is not None:
+                            await send(buffered_start)
+                            buffered_start = None
+                        await send(message)
+                        return
+
                     retry_after_seconds = "60"
                     if rate_limit_info and "retry_after" in rate_limit_info:
                         retry_after_seconds = rate_limit_info["retry_after"]
@@ -120,6 +125,7 @@ class RateLimitHeadersMiddleware:
                     # Fix content-length in the buffered start message
                     if buffered_start is not None:
                         headers = MutableHeaders(scope=buffered_start)
+                        headers["content-type"] = "application/json"
                         headers["content-length"] = str(len(standardized_body))
                         await send(buffered_start)
                         buffered_start = None
@@ -191,3 +197,13 @@ class RateLimitHeadersMiddleware:
             "reset": str(reset_time),
             "retry_after": str(retry_after),
         }
+
+
+def _looks_like_structured_json_429(body: bytes) -> bool:
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    return any(key in payload for key in ("error", "message", "details"))

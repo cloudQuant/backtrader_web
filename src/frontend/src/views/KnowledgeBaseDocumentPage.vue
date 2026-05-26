@@ -616,7 +616,7 @@ function openQuickChat(prompt: string) {
   router.push({ path: '/ai-chat', query: { kbId, prompt } })
 }
 
-function onTabChange(tab: string) {
+function onTabChange(tab: string | number) {
   if (tab === 'source' && !sourcePreviewUrl.value && sourceFileName.value) {
     loadSourceFile()
   }

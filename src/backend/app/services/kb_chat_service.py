@@ -190,6 +190,7 @@ class KBChatService:
             assistant_mode=data.assistant_mode,
             thinking_mode=data.thinking_mode,
             conversation_history=conversation_history,
+            model_id=data.model_id,
         )
 
         async with async_session_maker() as session:

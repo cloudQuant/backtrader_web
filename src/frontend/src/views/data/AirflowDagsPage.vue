@@ -18,40 +18,61 @@
       <template #header>
         <div class="flex items-center justify-between">
           <span class="text-lg font-medium">Airflow DAGs</span>
-          <el-button size="small" @click="refreshDags">
+          <el-button
+            size="small"
+            @click="refreshDags"
+          >
             刷新
           </el-button>
         </div>
       </template>
 
-      <el-table :data="dags" v-loading="loading" stripe>
-        <el-table-column prop="dag_id" label="DAG ID" min-width="200" />
-        <el-table-column prop="schedule_interval" label="调度表达式" width="150" />
-        <el-table-column label="状态" width="100">
+      <el-table
+        v-loading="loading"
+        :data="dags"
+        stripe
+      >
+        <el-table-column
+          prop="dag_id"
+          label="DAG ID"
+          min-width="200"
+        />
+        <el-table-column
+          prop="schedule_interval"
+          label="调度表达式"
+          width="150"
+        />
+        <el-table-column
+          label="状态"
+          width="100"
+        >
           <template #default="{ row }">
             <el-switch
               :model-value="!row.is_paused"
-              @change="(val: string | number | boolean) => togglePause(row.dag_id, !(val as boolean))"
               active-text="运行"
               inactive-text="暂停"
               data-testid="dag-pause-switch"
+              @change="(val: string | number | boolean) => togglePause(row.dag_id, !(val as boolean))"
             />
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200">
+        <el-table-column
+          label="操作"
+          width="200"
+        >
           <template #default="{ row }">
             <el-button
               size="small"
               type="primary"
-              @click="triggerDag(row.dag_id)"
               data-testid="dag-trigger-btn"
+              @click="triggerDag(row.dag_id)"
             >
               执行
             </el-button>
             <el-button
               size="small"
-              @click="viewRuns(row.dag_id)"
               data-testid="dag-runs-btn"
+              @click="viewRuns(row.dag_id)"
             >
               历史
             </el-button>

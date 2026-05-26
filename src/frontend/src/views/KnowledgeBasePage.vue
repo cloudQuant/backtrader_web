@@ -745,7 +745,7 @@
 
     <el-dialog
       v-if="createDialog.open"
-      model-value="true"
+      :model-value="true"
     >
       <div class="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
@@ -798,7 +798,7 @@
 
     <el-dialog
       v-if="renameDialog.open && renameDialog.target"
-      model-value="true"
+      :model-value="true"
     >
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
@@ -839,7 +839,7 @@
 
     <el-dialog
       v-if="importDialog.open"
-      model-value="true"
+      :model-value="true"
     >
       <div class="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
@@ -888,7 +888,7 @@
 
     <el-dialog
       v-if="bulkDialog.open"
-      model-value="true"
+      :model-value="true"
     >
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
@@ -928,7 +928,7 @@
 
     <el-dialog
       v-if="deleteDialog.open && deleteDialog.target"
-      model-value="true"
+      :model-value="true"
     >
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
@@ -967,7 +967,7 @@
 
     <el-dialog
       v-if="knowledgeBaseRenameDialog.open && knowledgeBaseRenameDialog.target"
-      model-value="true"
+      :model-value="true"
     >
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
@@ -1008,7 +1008,7 @@
 
     <el-dialog
       v-if="knowledgeBaseDeleteDialog.open && knowledgeBaseDeleteDialog.target"
-      model-value="true"
+      :model-value="true"
     >
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
@@ -1047,7 +1047,7 @@
 
     <el-dialog
       v-if="knowledgeBaseSettingsDialog.open"
-      model-value="true"
+      :model-value="true"
     >
       <div class="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">

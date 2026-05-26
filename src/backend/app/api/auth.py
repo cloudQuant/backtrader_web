@@ -3,6 +3,7 @@ Authentication API routes.
 """
 
 from functools import lru_cache
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
@@ -13,6 +14,7 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     RefreshTokenResponse,
     Token,
+    TokenPayload,
     UserCreate,
     UserLogin,
     UserResponse,
@@ -25,7 +27,7 @@ logger = get_logger(__name__)
 
 
 @lru_cache
-def get_auth_service():
+def get_auth_service() -> AuthService:
     return AuthService()
 
 
@@ -35,7 +37,7 @@ async def register(
     user_create: UserCreate,
     request: Request,
     service: AuthService = Depends(get_auth_service),
-):
+) -> UserResponse:
     """Register a new user account.
 
     Rate limited to 5 requests per hour per IP to prevent abuse.
@@ -67,7 +69,7 @@ async def login(
     user_login: UserLogin,
     request: Request,
     service: AuthService = Depends(get_auth_service),
-):
+) -> Token:
     """Authenticate and return a JWT access token.
 
     Rate limited to 10 requests per minute per IP to prevent brute force attacks.
@@ -107,7 +109,7 @@ async def login_with_refresh(
     user_login: UserLogin,
     request: Request,
     service: AuthService = Depends(get_auth_service),
-):
+) -> RefreshTokenResponse:
     """Authenticate and return JWT access and refresh tokens.
 
     This endpoint provides enhanced security by issuing both an access token
@@ -149,7 +151,7 @@ async def refresh_tokens(
     request: Request,
     request_data: RefreshTokenRequest,
     auth_service: AuthService = Depends(get_auth_service),
-):
+) -> RefreshTokenResponse:
     """Refresh an access token using a refresh token.
 
     This endpoint implements token rotation - the old refresh token is
@@ -186,7 +188,7 @@ async def logout(
     request: Request,
     request_data: RefreshTokenRequest,
     auth_service: AuthService = Depends(get_auth_service),
-):
+) -> dict[str, str]:
     """Logout user by revoking their refresh token.
 
     Args:
@@ -212,9 +214,9 @@ async def logout(
 async def change_password(
     req: ChangePassword,
     request: Request,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
-):
+) -> dict[str, str]:
     """Change the current user's password.
 
     Note: Changing password will revoke all existing refresh tokens
@@ -245,9 +247,9 @@ async def change_password(
 @limiter.limit("60/minute")
 async def get_me(
     request: Request,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
-):
+) -> Any:
     """Get information about the currently authenticated user.
 
     Args:

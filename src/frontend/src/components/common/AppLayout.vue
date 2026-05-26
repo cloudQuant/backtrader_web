@@ -25,6 +25,20 @@
           <el-icon><ChatDotRound /></el-icon>
           <span>AI助手</span>
         </el-menu-item>
+        <el-menu-item
+          v-if="user?.is_admin"
+          index="/admin/ai-observability"
+        >
+          <el-icon><ChatDotRound /></el-icon>
+          <span>AI成本</span>
+        </el-menu-item>
+        <el-menu-item
+          v-if="user?.is_admin"
+          index="/admin/prompt-templates"
+        >
+          <el-icon><Document /></el-icon>
+          <span>Prompt治理</span>
+        </el-menu-item>
         <el-menu-item index="/data">
           <el-icon><Grid /></el-icon>
           <span>数据管理</span>
@@ -100,6 +114,20 @@
           <el-icon><ChatDotRound /></el-icon>
           <span>AI助手</span>
         </el-menu-item>
+        <el-menu-item
+          v-if="user?.is_admin"
+          index="/admin/ai-observability"
+        >
+          <el-icon><ChatDotRound /></el-icon>
+          <span>AI成本</span>
+        </el-menu-item>
+        <el-menu-item
+          v-if="user?.is_admin"
+          index="/admin/prompt-templates"
+        >
+          <el-icon><Document /></el-icon>
+          <span>Prompt治理</span>
+        </el-menu-item>
         <el-menu-item index="/data">
           <el-icon><Grid /></el-icon>
           <span>数据管理</span>
@@ -149,7 +177,9 @@
             class="hamburger-btn"
             @click="mobileMenuOpen = true"
           >
-            <el-icon :size="22"><Fold /></el-icon>
+            <el-icon :size="22">
+              <Fold />
+            </el-icon>
           </div>
           <div class="flex items-center gap-3 min-w-0 flex-wrap">
             <div class="text-lg font-medium shrink-0">
@@ -281,7 +311,7 @@ const currentRoute = computed(() => {
     return '/workspace'
   }
   // Match top-level menu items for nested routes
-  const prefixes = ['/ai-chat', '/workspace', '/trading', '/strategy', '/data', '/gateways', '/knowledge-base', '/quote', '/portfolio', '/settings']
+  const prefixes = ['/ai-chat', '/admin/ai-observability', '/admin/prompt-templates', '/workspace', '/trading', '/strategy', '/data', '/gateways', '/knowledge-base', '/quote', '/portfolio', '/settings']
   for (const prefix of prefixes) {
     if (p.startsWith(prefix + '/') || p === prefix) return prefix
   }
@@ -293,6 +323,8 @@ const pageTitle = computed(() => {
   const titles: Record<string, string> = {
     '/': '仪表盘',
     '/ai-chat': 'AI助手',
+    '/admin/ai-observability': 'AI成本看板',
+    '/admin/prompt-templates': 'Prompt模板治理',
     '/strategy': '策略管理',
     '/data': '数据管理',
     '/gateways': '账户管理',

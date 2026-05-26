@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,7 +29,6 @@ from app.schemas.workspace import (
     StrategyUnitUpdate,
     UnitOptimizationRequest,
     UnitRenameRequest,
-    UnitRuntimeInfoResponse,
     UnitStatusResponse,
     WorkspaceCreate,
     WorkspaceResponse,
@@ -352,170 +351,15 @@ class WorkspaceService:
         created_at: str,
         result_entry: dict[str, Any],
     ) -> dict[str, Any]:
-        equity_values = [float(v or 0.0) for v in (log_result.get("equity_curve") or [])]
-        equity_dates = [str(v or "") for v in (log_result.get("equity_dates") or [])]
-        cash_values = [float(v or 0.0) for v in (log_result.get("cash_curve") or [])]
-        raw_trades = list(log_result.get("trades") or [])
-        kline = cast(dict[str, Any], log_result.get("kline") or {})
-        kline_dates = [str(v or "") for v in (kline.get("dates") or [])]
-        kline_ohlc = list(kline.get("ohlc") or [])
-        kline_volumes = list(kline.get("volumes") or [])
-        log_indicators = cast(dict[str, list[float | None]], kline.get("indicators") or {})
-
-        equity_curve: list[dict[str, Any]] = []
-        drawdown_curve: list[dict[str, Any]] = []
-        peak = 0.0
-        for index, value in enumerate(equity_values):
-            if value > peak:
-                peak = value
-            date = (equity_dates[index] if index < len(equity_dates) else "")[:10]
-            cash = cash_values[index] if index < len(cash_values) else value
-            position_value = value - cash
-            drawdown = ((value - peak) / peak) if peak > 0 else 0.0
-            equity_curve.append(
-                {
-                    "date": date,
-                    "total_assets": round(value, 2),
-                    "cash": round(cash, 2),
-                    "position_value": round(position_value, 2),
-                }
-            )
-            drawdown_curve.append(
-                {
-                    "date": date,
-                    "drawdown": round(drawdown, 6),
-                    "peak": round(peak, 2),
-                    "trough": round(value, 2),
-                }
-            )
-
-        klines: list[dict[str, Any]] = []
-        kline_close_map: dict[str, float] = {}
-        for index, date in enumerate(kline_dates):
-            normalized_date = date[:10]
-            ohlc = kline_ohlc[index] if index < len(kline_ohlc) else [0.0, 0.0, 0.0, 0.0]
-            open_price = float(ohlc[0]) if len(ohlc) > 0 else 0.0
-            close_price = float(ohlc[1]) if len(ohlc) > 1 else 0.0
-            low_price = float(ohlc[2]) if len(ohlc) > 2 else 0.0
-            high_price = float(ohlc[3]) if len(ohlc) > 3 else 0.0
-            klines.append(
-                {
-                    "date": normalized_date,
-                    "open": round(open_price, 4),
-                    "high": round(high_price, 4),
-                    "low": round(low_price, 4),
-                    "close": round(close_price, 4),
-                    "volume": kline_volumes[index] if index < len(kline_volumes) else 0,
-                }
-            )
-            if normalized_date:
-                kline_close_map[normalized_date] = round(close_price, 4)
-
-        trades: list[dict[str, Any]] = []
-        signals: list[dict[str, Any]] = []
-        symbol = str(unit.symbol or unit.symbol_name or unit.strategy_name or "Unknown")
-        for index, trade in enumerate(raw_trades):
-            trade_data = dict(trade or {})
-            pnl = trade_data.get("pnl")
-            if pnl is None:
-                pnl = trade_data.get("pnlcomm")
-            open_price = float(trade_data.get("price", 0) or 0)
-            size = float(trade_data.get("size", 0) or 0)
-            direction = str(trade_data.get("direction", "buy") or "buy")
-            dtopen = str(trade_data.get("dtopen", "") or "")[:10]
-            dtclose = str(trade_data.get("dtclose", trade_data.get("datetime", "")) or "")[:10]
-
-            trade_payload = {
-                "id": index + 1,
-                "datetime": str(trade_data.get("datetime", dtclose) or dtclose)[:10],
-                "dtopen": dtopen,
-                "dtclose": dtclose,
-                "symbol": symbol,
-                "direction": direction,
-                "price": open_price,
-                "close_price": trade_data.get("close_price"),
-                "size": size,
-                "value": float(trade_data.get("value", 0) or 0),
-                "commission": float(trade_data.get("commission", 0) or 0),
-                "pnl": pnl,
-                "barlen": trade_data.get("barlen"),
-            }
-            trades.append(trade_payload)
-
-            is_long = direction == "buy"
-            if dtopen:
-                signals.append(
-                    {
-                        "date": dtopen,
-                        "type": "buy" if is_long else "sell",
-                        "price": kline_close_map.get(dtopen, open_price),
-                        "size": abs(size),
-                    }
-                )
-            if dtclose:
-                signals.append(
-                    {
-                        "date": dtclose,
-                        "type": "sell" if is_long else "buy",
-                        "price": kline_close_map.get(dtclose, open_price),
-                        "size": abs(size),
-                    }
-                )
-
-        monthly_returns: dict[tuple[int, int], float] = {}
-        if equity_dates and equity_values:
-            month_start_value = equity_values[0]
-            current_month: tuple[int, int] | None = None
-            for date_text, value in zip(equity_dates, equity_values, strict=False):
-                try:
-                    dt = datetime.strptime(str(date_text)[:10], "%Y-%m-%d")
-                except ValueError:
-                    continue
-                month_key = (dt.year, dt.month)
-                if current_month != month_key:
-                    if current_month and month_start_value > 0:
-                        monthly_returns[current_month] = round(
-                            (value - month_start_value) / month_start_value,
-                            6,
-                        )
-                    month_start_value = value
-                    current_month = month_key
-            if current_month and month_start_value > 0:
-                monthly_returns[current_month] = round(
-                    (equity_values[-1] - month_start_value) / month_start_value,
-                    6,
-                )
-
-        data_config = _normalize_unit_data_config(unit.data_config)
-        start_date = str(
-            data_config.get("start_date") or (equity_dates[0] if equity_dates else "")
-        )[:10]
-        end_date = str(data_config.get("end_date") or (equity_dates[-1] if equity_dates else ""))[
-            :10
-        ]
-        strategy_name = str(unit.strategy_name or unit.strategy_id or "Unknown")
-        artifact_metadata = WorkspaceService._build_optimization_artifact_metadata(
+        from app.services.workspace.optimization import build_optimization_trial_payload
+        return build_optimization_trial_payload(
             task_id,
             result_index,
+            unit,
+            log_result,
+            created_at,
             result_entry,
         )
-
-        return {
-            "task_id": f"{task_id}:{result_index}",
-            "strategy_name": strategy_name,
-            "symbol": symbol,
-            "start_date": start_date,
-            "end_date": end_date,
-            "equity_curve": equity_curve,
-            "drawdown_curve": drawdown_curve,
-            "trades": trades,
-            "signals": signals,
-            "klines": klines,
-            "log_indicators": log_indicators,
-            "monthly_returns": monthly_returns,
-            "created_at": created_at,
-            **artifact_metadata,
-        }
 
     async def get_unit_optimization_result_artifact_metadata(
         self,
@@ -648,221 +492,24 @@ class WorkspaceService:
     async def create_unit(
         self, workspace_id: str, user_id: str, data: StrategyUnitCreate
     ) -> dict[str, Any] | None:
-        async with async_session_maker() as session:
-            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
-            if ws is None:
-                return None
-
-            # Determine next sort_order
-            max_order_q = select(func.coalesce(func.max(StrategyUnit.sort_order), -1)).where(
-                StrategyUnit.workspace_id == workspace_id
-            )
-            max_order = (await session.execute(max_order_q)).scalar() or 0
-
-            unit = StrategyUnit(
-                workspace_id=workspace_id,
-                group_name=data.group_name,
-                strategy_id=data.strategy_id,
-                strategy_name=data.strategy_name,
-                symbol=data.symbol,
-                symbol_name=data.symbol_name,
-                timeframe=data.timeframe,
-                timeframe_n=data.timeframe_n,
-                category=data.category,
-                sort_order=max_order + 1,
-                data_config=_normalize_unit_data_config(data.data_config),
-                unit_settings=data.unit_settings,
-                params=data.params,
-                optimization_config=data.optimization_config,
-                trading_mode=self.trading_service.normalize_trading_mode(data.trading_mode),
-                gateway_config=self.trading_service.normalize_gateway_config(
-                    data.gateway_config.model_dump()
-                    if hasattr(data.gateway_config, "model_dump")
-                    else cast(dict[str, Any], data.gateway_config)
-                ),
-                lock_trading=bool(data.lock_trading),
-                lock_running=bool(data.lock_running),
-                trading_snapshot=(
-                    data.trading_snapshot.model_dump()
-                    if hasattr(data.trading_snapshot, "model_dump")
-                    else cast(dict[str, Any], data.trading_snapshot)
-                ),
-            )
-            session.add(unit)
-            await session.commit()
-            await session.refresh(unit)
-            workspace_unit_runtime.sync_workspace_unit_runtime(
-                unit,
-                ws.settings or {},
-                ws.workspace_type,
-            )
-            return self._unit_to_dict(unit)
+        from app.services.workspace.units import create_unit as _impl
+        return await _impl(workspace_id, user_id, data, self.trading_service)
 
     async def batch_create_units(
         self, workspace_id: str, user_id: str, units_data: list[StrategyUnitCreate]
     ) -> list[dict[str, Any]] | None:
-        async with async_session_maker() as session:
-            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
-            if ws is None:
-                return None
-
-            max_order_q = select(func.coalesce(func.max(StrategyUnit.sort_order), -1)).where(
-                StrategyUnit.workspace_id == workspace_id
-            )
-            max_order = (await session.execute(max_order_q)).scalar() or 0
-
-            created = []
-            for i, data in enumerate(units_data):
-                unit = StrategyUnit(
-                    workspace_id=workspace_id,
-                    group_name=data.group_name,
-                    strategy_id=data.strategy_id,
-                    strategy_name=data.strategy_name,
-                    symbol=data.symbol,
-                    symbol_name=data.symbol_name,
-                    timeframe=data.timeframe,
-                    timeframe_n=data.timeframe_n,
-                    category=data.category,
-                    sort_order=max_order + 1 + i,
-                    data_config=_normalize_unit_data_config(data.data_config),
-                    unit_settings=data.unit_settings,
-                    params=data.params,
-                    optimization_config=data.optimization_config,
-                    trading_mode=self.trading_service.normalize_trading_mode(data.trading_mode),
-                    gateway_config=self.trading_service.normalize_gateway_config(
-                        data.gateway_config.model_dump()
-                        if hasattr(data.gateway_config, "model_dump")
-                        else cast(dict[str, Any], data.gateway_config)
-                    ),
-                    lock_trading=bool(data.lock_trading),
-                    lock_running=bool(data.lock_running),
-                    trading_snapshot=(
-                        data.trading_snapshot.model_dump()
-                        if hasattr(data.trading_snapshot, "model_dump")
-                        else cast(dict[str, Any], data.trading_snapshot)
-                    ),
-                )
-                session.add(unit)
-                created.append(unit)
-
-            await session.commit()
-            for u in created:
-                await session.refresh(u)
-                workspace_unit_runtime.sync_workspace_unit_runtime(
-                    u,
-                    ws.settings or {},
-                    ws.workspace_type,
-                )
-            return [self._unit_to_dict(u) for u in created]
+        from app.services.workspace.units import batch_create_units as _impl
+        return await _impl(workspace_id, user_id, units_data, self.trading_service)
 
     async def list_units(self, workspace_id: str, user_id: str) -> list[dict[str, Any]] | None:
-        async with async_session_maker() as session:
-            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
-            if ws is None:
-                return None
-
-            q = (
-                select(StrategyUnit)
-                .where(StrategyUnit.workspace_id == workspace_id)
-                .order_by(StrategyUnit.sort_order)
-            )
-            result = await session.execute(q)
-            units = list(result.scalars().all())
-
-            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
-                changed = await self.trading_service.hydrate_units(units, user_id)
-                if changed:
-                    await session.commit()
-                return [self._unit_to_dict(unit) for unit in units]
-
-            task_ids = [
-                str(cast(Any, unit).last_task_id) for unit in units if cast(Any, unit).last_task_id
-            ]
-            task_by_id: dict[str, BacktestTask] = {}
-            if task_ids:
-                task_result = await session.execute(
-                    select(BacktestTask).where(BacktestTask.id.in_(task_ids))
-                )
-                task_by_id = {str(task.id): task for task in task_result.scalars().all()}
-
-            changed = False
-            backtest_service = None
-            for unit in units:
-                unit_obj = cast(Any, unit)
-                last_task_id = str(unit_obj.last_task_id or "").strip()
-                if not last_task_id:
-                    continue
-
-                task = task_by_id.get(last_task_id)
-                elapsed_seconds = self._task_elapsed_seconds(task)
-                if elapsed_seconds is not None and unit_obj.last_run_time != elapsed_seconds:
-                    unit_obj.last_run_time = elapsed_seconds
-                    changed = True
-
-                if str(unit_obj.run_status or "") != "completed":
-                    continue
-
-                if backtest_service is None:
-                    from app.services.backtest_service import BacktestService
-
-                    backtest_service = BacktestService()
-
-                resolved_bar_count = await self._resolve_unit_bar_count(
-                    backtest_service,
-                    last_task_id,
-                    user_id,
-                )
-                if resolved_bar_count > 0 and int(unit_obj.bar_count or 0) != resolved_bar_count:
-                    unit_obj.bar_count = resolved_bar_count
-                    changed = True
-
-            if changed:
-                await session.commit()
-
-            opt_progress_map: dict[str, dict[str, Any]] = {}
-            opt_task_ids = {
-                str(cast(Any, u).last_optimization_task_id)
-                for u in units
-                if cast(Any, u).last_optimization_task_id
-            }
-            if opt_task_ids:
-                for tid in opt_task_ids:
-                    try:
-                        progress = get_optimization_progress(tid, user_id=user_id, use_db=True)
-                        opt_info = self._optimization_progress_response_to_opt_info(progress)
-                        if opt_info:
-                            opt_progress_map[tid] = opt_info
-                    except Exception:
-                        pass
-
-            return [
-                self._unit_to_dict(
-                    u,
-                    opt_progress_map.get(
-                        str(cast(Any, u).last_optimization_task_id),
-                        {},
-                    )
-                    if cast(Any, u).last_optimization_task_id
-                    else {},
-                )
-                for u in units
-            ]
+        from app.services.workspace.units import list_units as _impl
+        return await _impl(workspace_id, user_id, self.trading_service)
 
     async def get_unit(
         self, workspace_id: str, unit_id: str, user_id: str
     ) -> dict[str, Any] | None:
-        async with async_session_maker() as session:
-            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
-            if ws is None:
-                return None
-            unit = await self._get_unit(session, workspace_id, unit_id)
-            if unit is None:
-                return None
-            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
-                changed = await self.trading_service.hydrate_units([unit], user_id)
-                if changed:
-                    await session.commit()
-            return self._unit_to_dict(unit)
+        from app.services.workspace.units import get_unit as _impl
+        return await _impl(workspace_id, unit_id, user_id, self.trading_service)
 
     async def get_unit_runtime_info(
         self,
@@ -870,43 +517,8 @@ class WorkspaceService:
         unit_id: str,
         user_id: str,
     ) -> dict[str, Any] | None:
-        async with async_session_maker() as session:
-            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
-            if ws is None:
-                return None
-            unit = await self._get_unit(session, workspace_id, unit_id)
-            if unit is None:
-                return None
-            if _normalize_workspace_type(getattr(ws, "workspace_type", None)) == "trading":
-                changed = await self.trading_service.hydrate_units([unit], user_id)
-                if changed:
-                    await session.commit()
-
-            runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
-            if not runtime_dir.is_dir():
-                return None
-
-            log_dir = runtime_dir / "logs"
-            files: list[dict[str, Any]] = []
-            for relative_path in self._collect_runtime_files(runtime_dir):
-                file_path = runtime_dir / relative_path
-                if not file_path.is_file():
-                    continue
-                files.append(
-                    {
-                        "name": file_path.name,
-                        "relative_path": relative_path.as_posix(),
-                        "size": file_path.stat().st_size,
-                        "kind": self._runtime_file_kind(relative_path),
-                    }
-                )
-
-            return UnitRuntimeInfoResponse(
-                unit_id=unit_id,
-                runtime_dir=str(runtime_dir),
-                log_dir=str(log_dir) if log_dir.is_dir() else None,
-                files=files,
-            ).model_dump()
+        from app.services.workspace.units import get_unit_runtime_info as _impl
+        return await _impl(workspace_id, unit_id, user_id, self.trading_service)
 
     async def read_unit_runtime_file(
         self,
@@ -916,18 +528,8 @@ class WorkspaceService:
         relative_path: str,
         tail: int | None = None,
     ) -> str | None:
-        runtime_dir = await self._get_unit_runtime_dir(workspace_id, unit_id, user_id)
-        if runtime_dir is None:
-            return None
-        file_path = self._resolve_runtime_file(runtime_dir, relative_path)
-        if file_path is None or not file_path.is_file():
-            return None
-
-        content = file_path.read_text(encoding="utf-8", errors="replace")
-        if tail is not None and tail > 0:
-            lines = content.splitlines()
-            content = "\n".join(lines[-tail:])
-        return content
+        from app.services.workspace.units import read_unit_runtime_file as _impl
+        return await _impl(workspace_id, unit_id, user_id, relative_path, tail)
 
     async def open_unit_runtime_dir(
         self,
@@ -935,53 +537,14 @@ class WorkspaceService:
         unit_id: str,
         user_id: str,
     ) -> dict[str, Any] | None:
-        runtime_dir = await self._get_unit_runtime_dir(workspace_id, unit_id, user_id)
-        if runtime_dir is None:
-            return None
-        self._open_path_in_file_manager(runtime_dir)
-        return {
-            "unit_id": unit_id,
-            "runtime_dir": str(runtime_dir),
-            "message": "策略单元目录已打开",
-        }
+        from app.services.workspace.units import open_unit_runtime_dir as _impl
+        return await _impl(workspace_id, unit_id, user_id)
 
     async def update_unit(
         self, workspace_id: str, unit_id: str, user_id: str, data: StrategyUnitUpdate
     ) -> dict[str, Any] | None:
-        async with async_session_maker() as session:
-            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
-            if ws is None:
-                return None
-            unit = await self._get_unit(session, workspace_id, unit_id)
-            if unit is None:
-                return None
-            update_data = data.model_dump(exclude_unset=True)
-            for key, value in update_data.items():
-                if key == "data_config":
-                    value = _normalize_unit_data_config(cast(dict[str, Any] | None, value))
-                elif key == "trading_mode":
-                    value = self.trading_service.normalize_trading_mode(value)
-                elif key == "gateway_config":
-                    value = self.trading_service.normalize_gateway_config(
-                        value.model_dump()
-                        if hasattr(value, "model_dump")
-                        else cast(dict[str, Any], value)
-                    )
-                elif key == "trading_snapshot":
-                    value = (
-                        value.model_dump()
-                        if hasattr(value, "model_dump")
-                        else cast(dict[str, Any], value)
-                    )
-                setattr(unit, key, value)
-            await session.commit()
-            await session.refresh(unit)
-            workspace_unit_runtime.sync_workspace_unit_runtime(
-                unit,
-                ws.settings or {},
-                ws.workspace_type,
-            )
-            return self._unit_to_dict(unit)
+        from app.services.workspace.units import update_unit as _impl
+        return await _impl(workspace_id, unit_id, user_id, data, self.trading_service)
 
     async def delete_unit(self, workspace_id: str, unit_id: str, user_id: str) -> bool:
         """Delegate to :func:`app.services.workspace.units.delete_unit`."""
@@ -1644,22 +1207,6 @@ class WorkspaceService:
             params=params,
         )
 
-    async def _get_unit_runtime_dir(
-        self,
-        workspace_id: str,
-        unit_id: str,
-        user_id: str,
-    ) -> Path | None:
-        async with async_session_maker() as session:
-            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
-            if ws is None:
-                return None
-            unit = await self._get_unit(session, workspace_id, unit_id)
-            if unit is None:
-                return None
-            runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
-            return runtime_dir if runtime_dir.is_dir() else None
-
     @staticmethod
     def _collect_runtime_files(runtime_dir: Path) -> list[Path]:
         from app.services.workspace._helpers import collect_runtime_files
@@ -1814,47 +1361,8 @@ class WorkspaceService:
 
     @staticmethod
     def _unit_to_dict(unit: StrategyUnit, opt_info: dict[str, Any] | None = None) -> dict[str, Any]:
-        opt_info = opt_info or {}
-        return {
-            "id": unit.id,
-            "workspace_id": unit.workspace_id,
-            "group_name": unit.group_name or "",
-            "strategy_id": unit.strategy_id,
-            "strategy_name": unit.strategy_name or "",
-            "symbol": unit.symbol or "",
-            "symbol_name": unit.symbol_name or "",
-            "timeframe": unit.timeframe or "1d",
-            "timeframe_n": unit.timeframe_n or 1,
-            "category": unit.category or "",
-            "sort_order": unit.sort_order or 0,
-            "data_config": _normalize_unit_data_config(unit.data_config),
-            "unit_settings": unit.unit_settings or {},
-            "params": unit.params or {},
-            "optimization_config": unit.optimization_config or {},
-            "trading_mode": TradingWorkspaceService.normalize_trading_mode(unit.trading_mode),
-            "gateway_config": TradingWorkspaceService.normalize_gateway_config(
-                unit.gateway_config or {}
-            ),
-            "lock_trading": bool(unit.lock_trading),
-            "lock_running": bool(unit.lock_running),
-            "trading_instance_id": unit.trading_instance_id,
-            "trading_snapshot": unit.trading_snapshot or {},
-            "run_status": unit.run_status or "idle",
-            "run_count": unit.run_count or 0,
-            "last_run_time": unit.last_run_time,
-            "last_task_id": unit.last_task_id,
-            "last_optimization_task_id": unit.last_optimization_task_id,
-            "bar_count": unit.bar_count,
-            "metrics_snapshot": unit.metrics_snapshot or {},
-            "opt_status": opt_info.get("opt_status"),
-            "opt_total": opt_info.get("opt_total"),
-            "opt_completed": opt_info.get("opt_completed"),
-            "opt_progress": opt_info.get("opt_progress"),
-            "opt_elapsed_time": opt_info.get("opt_elapsed_time"),
-            "opt_remaining_time": opt_info.get("opt_remaining_time"),
-            "created_at": unit.created_at,
-            "updated_at": unit.updated_at,
-        }
+        from app.services.workspace._helpers import unit_to_dict
+        return unit_to_dict(unit, opt_info)
 
     @staticmethod
     def _compute_rename(

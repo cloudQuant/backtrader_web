@@ -68,4 +68,43 @@ describe('strategyApi', () => {
     await strategyApi.getTemplateConfig('t1')
     expect(api.get).toHaveBeenCalledWith('/strategy/templates/t1/config')
   })
+
+  it('createScore', async () => {
+    vi.mocked(api.post).mockResolvedValue({ backtest_id: 't1' })
+    await strategyApi.createScore({ backtest_id: 't1' })
+    expect(api.post).toHaveBeenCalledWith('/strategy/score', { backtest_id: 't1' })
+  })
+
+  it('getScore', async () => {
+    vi.mocked(api.get).mockResolvedValue({ backtest_id: 't1' })
+    await strategyApi.getScore('t1')
+    expect(api.get).toHaveBeenCalledWith('/strategy/score/t1')
+  })
+
+  it('createOverfittingTask', async () => {
+    vi.mocked(api.post).mockResolvedValue({ task_id: 'ot-1' })
+    await strategyApi.createOverfittingTask('t1', { methods: ['monte_carlo'] })
+    expect(api.post).toHaveBeenCalledWith('/strategy/overfitting/t1', { methods: ['monte_carlo'] })
+  })
+
+  it('getOverfittingTask', async () => {
+    vi.mocked(api.get).mockResolvedValue({ task_id: 'ot-1' })
+    await strategyApi.getOverfittingTask('ot-1')
+    expect(api.get).toHaveBeenCalledWith('/strategy/overfitting/task/ot-1')
+  })
+
+  it('explainStrategy', async () => {
+    vi.mocked(api.post).mockResolvedValue({ code_hash: 'abc123' })
+    await strategyApi.explainStrategy({ code: 'class Demo: pass', strategy_name: 'Demo' })
+    expect(api.post).toHaveBeenCalledWith('/strategy/explain', {
+      code: 'class Demo: pass',
+      strategy_name: 'Demo',
+    })
+  })
+
+  it('getCachedExplanation', async () => {
+    vi.mocked(api.get).mockResolvedValue({ code_hash: 'abc123' })
+    await strategyApi.getCachedExplanation('abc123')
+    expect(api.get).toHaveBeenCalledWith('/strategy/explain/cached/abc123')
+  })
 })

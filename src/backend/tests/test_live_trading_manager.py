@@ -492,6 +492,7 @@ class TestGatewayLifecycle:
                     "IB_WEB_LOGIN_BROWSER=chrome",
                     "IB_WEB_LOGIN_HEADLESS=false",
                     "IB_WEB_LOGIN_TIMEOUT=180",
+                    "IB_WEB_COOKIE_SOURCE=file:../bt_api_py/configs/ibkr_cookies.json",
                     "IB_WEB_COOKIE_OUTPUT=../bt_api_py/configs/ibkr_cookies.json",
                 ]
             ),

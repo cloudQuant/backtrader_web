@@ -69,6 +69,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
     options?: {
       assistantMode?: KBAssistantMode
       thinkingMode?: boolean
+      modelId?: string
     },
   ) {
     loading.value = true
@@ -78,6 +79,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
         knowledge_base_id: knowledgeBaseId,
         question,
         conversation_id: currentConversationId.value,
+        model_id: options?.modelId,
         assistant_mode: options?.assistantMode,
         thinking_mode: options?.thinkingMode,
       })

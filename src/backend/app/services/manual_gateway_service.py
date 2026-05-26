@@ -506,204 +506,58 @@ def _pick_explicit_or_setting_or_env(
     env_values: dict[str, str] | None = None,
     default: Any = "",
 ) -> Any:
-    if explicit_value not in {None, ""}:
-        return explicit_value
-    for setting_name in setting_names:
-        value = getattr(settings, setting_name, None)
-        if value not in {None, ""}:
-            return value
-    if env_values:
-        for env_name in env_names:
-            value = env_values.get(env_name)
-            if value not in {None, ""}:
-                return value
-    return default
+    from app.services.manual_gateway.utils import pick_explicit_or_setting_or_env
+    return pick_explicit_or_setting_or_env(
+        explicit_value,
+        settings,
+        setting_names,
+        env_names,
+        env_values,
+        default,
+    )
 
 
 def _coerce_bool_like(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    if value in {None, ""}:
-        return default
-    return str(value).strip().lower() not in {"0", "false", "no", "off"}
+    from app.services.manual_gateway.utils import coerce_bool_like
+    return coerce_bool_like(value, default)
 
 
 def _coerce_str(value: Any) -> str:
-    if value in {None, ""}:
-        return ""
-    return str(value).strip()
+    from app.services.manual_gateway.utils import coerce_str
+    return coerce_str(value)
 
 
 def _merge_binance_default_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
     from app.config import get_settings
+    from app.services.manual_gateway.utils import merge_binance_default_credentials
 
-    settings = get_settings()
-    env_values = _load_backend_gateway_env_values()
-    resolved = dict(credentials)
-
-    resolved["api_key"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("api_key"),
-            settings,
-            ("BINANCE_API_KEY",),
-            ("BINANCE_API_KEY",),
-            env_values,
-            default="",
-        )
+    return merge_binance_default_credentials(
+        credentials,
+        get_settings(),
+        _load_backend_gateway_env_values(),
     )
-    resolved["secret_key"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("secret_key"),
-            settings,
-            ("BINANCE_SECRET_KEY",),
-            ("BINANCE_SECRET_KEY", "BINANCE_PASSWORD", "BINANCE_SECRET"),
-            env_values,
-            default="",
-        )
-    )
-    resolved["testnet"] = _coerce_bool_like(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("testnet"),
-            settings,
-            ("BINANCE_TESTNET",),
-            ("BINANCE_TESTNET",),
-            env_values,
-            default=False,
-        ),
-        default=False,
-    )
-    resolved["base_url"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("base_url"),
-            settings,
-            ("BINANCE_BASE_URL",),
-            ("BINANCE_BASE_URL",),
-            env_values,
-            default="",
-        )
-    )
-    return resolved
 
 
 def _merge_okx_default_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
     from app.config import get_settings
+    from app.services.manual_gateway.utils import merge_okx_default_credentials
 
-    settings = get_settings()
-    env_values = _load_backend_gateway_env_values()
-    resolved = dict(credentials)
-
-    resolved["api_key"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("api_key"),
-            settings,
-            ("OKX_API_KEY",),
-            ("OKX_API_KEY",),
-            env_values,
-            default="",
-        )
+    return merge_okx_default_credentials(
+        credentials,
+        get_settings(),
+        _load_backend_gateway_env_values(),
     )
-    resolved["secret_key"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("secret_key"),
-            settings,
-            ("OKX_SECRET_KEY",),
-            ("OKX_SECRET_KEY", "OKX_SECRET"),
-            env_values,
-            default="",
-        )
-    )
-    resolved["passphrase"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("passphrase"),
-            settings,
-            ("OKX_PASSPHRASE",),
-            ("OKX_PASSPHRASE", "OKX_PASSWORD"),
-            env_values,
-            default="",
-        )
-    )
-    resolved["testnet"] = _coerce_bool_like(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("testnet"),
-            settings,
-            ("OKX_TESTNET",),
-            ("OKX_TESTNET",),
-            env_values,
-            default=False,
-        ),
-        default=False,
-    )
-    resolved["base_url"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("base_url"),
-            settings,
-            ("OKX_BASE_URL",),
-            ("OKX_BASE_URL",),
-            env_values,
-            default="",
-        )
-    )
-    return resolved
 
 
 def _merge_mt5_default_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
     from app.config import get_settings
+    from app.services.manual_gateway.utils import merge_mt5_default_credentials
 
-    settings = get_settings()
-    env_values = _load_backend_gateway_env_values()
-    resolved = dict(credentials)
-
-    resolved["login"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("login"),
-            settings,
-            ("MT5_LOGIN",),
-            ("MT5_LOGIN", "MT5_ACCOUNT"),
-            env_values,
-            default="",
-        )
+    return merge_mt5_default_credentials(
+        credentials,
+        get_settings(),
+        _load_backend_gateway_env_values(),
     )
-    resolved["password"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("password"),
-            settings,
-            ("MT5_PASSWORD",),
-            ("MT5_PASSWORD", "MT5_PASS"),
-            env_values,
-            default="",
-        )
-    )
-    resolved["server"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("server"),
-            settings,
-            ("MT5_SERVER",),
-            ("MT5_SERVER", "MT5_ACCOUNT_SERVER"),
-            env_values,
-            default="",
-        )
-    )
-    resolved["ws_uri"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("ws_uri"),
-            settings,
-            ("MT5_WS_URI",),
-            ("MT5_WS_URI",),
-            env_values,
-            default="",
-        )
-    )
-    resolved["symbol_suffix"] = _coerce_str(
-        _pick_explicit_or_setting_or_env(
-            resolved.get("symbol_suffix"),
-            settings,
-            ("MT5_SYMBOL_SUFFIX",),
-            ("MT5_SYMBOL_SUFFIX",),
-            env_values,
-            default="",
-        )
-    )
-    return resolved
 
 
 def _normalize_manual_gateway_credentials(exchange_type: str, credentials: dict[str, Any]) -> dict[str, Any]:
@@ -724,200 +578,15 @@ def _pick_explicit_or_setting(
     *setting_names: str,
     default: Any = "",
 ) -> Any:
-    if explicit_value not in {None, ""}:
-        return explicit_value
-    for name in setting_names:
-        value = getattr(settings, name, None)
-        if value not in {None, ""}:
-            return value
-    return default
+    from app.services.manual_gateway.utils import pick_explicit_or_setting
+    return pick_explicit_or_setting(explicit_value, settings, *setting_names, default=default)
 
 
 def _merge_ib_web_default_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
     from app.config import get_settings
+    from app.services.manual_gateway.utils import merge_ib_web_default_credentials
 
-    settings = get_settings()
-    resolved = dict(credentials)
-    login_mode = (
-        str(
-            _pick_explicit_or_setting(
-                resolved.get("login_mode"),
-                settings,
-                "IB_WEB_LOGIN_MODE",
-                default="paper",
-            )
-            or "paper"
-        )
-        .strip()
-        .lower()
-    )
-    if login_mode not in {"paper", "live"}:
-        login_mode = "paper"
-    mode_prefix = "LIVE" if login_mode == "live" else "PAPER"
-
-    resolved["login_mode"] = login_mode
-    resolved["account_id"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("account_id"),
-            settings,
-            "IB_WEB_ACCOUNT_ID",
-            f"IB_{mode_prefix}_ACCOUNT_ID",
-            "IB_ACCOUNT_ID",
-            default="",
-        )
-        or ""
-    ).strip()
-    resolved["asset_type"] = (
-        str(
-            _pick_explicit_or_setting(
-                resolved.get("asset_type"),
-                settings,
-                "IB_WEB_ASSET_TYPE",
-                f"IB_{mode_prefix}_ASSET_TYPE",
-                "IB_ASSET_TYPE",
-                default="STK",
-            )
-            or "STK"
-        ).strip()
-        or "STK"
-    )
-    resolved["base_url"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("base_url"),
-            settings,
-            "IB_WEB_BASE_URL",
-            f"IB_{mode_prefix}_BASE_URL",
-            "IB_BASE_URL",
-            default="https://localhost:5000",
-        )
-        or "https://localhost:5000"
-    ).strip()
-    resolved["access_token"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("access_token"),
-            settings,
-            "IB_WEB_ACCESS_TOKEN",
-            f"IB_{mode_prefix}_ACCESS_TOKEN",
-            "IB_ACCESS_TOKEN",
-            default="",
-        )
-        or ""
-    ).strip()
-    resolved["verify_ssl"] = _pick_explicit_or_setting(
-        resolved.get("verify_ssl"),
-        settings,
-        "IB_WEB_VERIFY_SSL",
-        f"IB_{mode_prefix}_VERIFY_SSL",
-        "IB_VERIFY_SSL",
-        default=False,
-    )
-    resolved["timeout"] = _pick_explicit_or_setting(
-        resolved.get("timeout"),
-        settings,
-        "IB_WEB_TIMEOUT",
-        f"IB_{mode_prefix}_TIMEOUT",
-        "IB_TIMEOUT",
-        default=10.0,
-    )
-    resolved["cookie_browser"] = (
-        str(
-            _pick_explicit_or_setting(
-                resolved.get("cookie_browser"),
-                settings,
-                "IB_WEB_COOKIE_BROWSER",
-                f"IB_{mode_prefix}_COOKIE_BROWSER",
-                "IB_COOKIE_BROWSER",
-                default="chrome",
-            )
-            or "chrome"
-        ).strip()
-        or "chrome"
-    )
-    resolved["cookie_path"] = (
-        str(
-            _pick_explicit_or_setting(
-                resolved.get("cookie_path"),
-                settings,
-                "IB_WEB_COOKIE_PATH",
-                f"IB_{mode_prefix}_COOKIE_PATH",
-                "IB_COOKIE_PATH",
-                default="/sso",
-            )
-            or "/sso"
-        ).strip()
-        or "/sso"
-    )
-    resolved["cookie_output"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("cookie_output"),
-            settings,
-            "IB_WEB_COOKIE_OUTPUT",
-            "IB_COOKIE_OUTPUT",
-            default="",
-        )
-        or ""
-    ).strip()
-    resolved["cookie_source"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("cookie_source"),
-            settings,
-            "IB_WEB_COOKIE_SOURCE",
-            f"IB_{mode_prefix}_COOKIE_SOURCE",
-            "IB_COOKIE_SOURCE",
-            default="",
-        )
-        or ""
-    ).strip()
-    if not resolved["cookie_source"] and resolved["cookie_output"]:
-        resolved["cookie_source"] = f"file:{resolved['cookie_output']}"
-    resolved["username"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("username"),
-            settings,
-            "IB_WEB_USERNAME",
-            "IB_USERNAME",
-            default="",
-        )
-        or ""
-    ).strip()
-    resolved["password"] = str(
-        _pick_explicit_or_setting(
-            resolved.get("password"),
-            settings,
-            "IB_WEB_PASSWORD",
-            "IB_PASSWORD",
-            default="",
-        )
-        or ""
-    ).strip()
-    resolved["login_browser"] = (
-        str(
-            _pick_explicit_or_setting(
-                resolved.get("login_browser"),
-                settings,
-                "IB_WEB_LOGIN_BROWSER",
-                "IB_LOGIN_BROWSER",
-                default=resolved["cookie_browser"],
-            )
-            or resolved["cookie_browser"]
-        ).strip()
-        or resolved["cookie_browser"]
-    )
-    resolved["login_headless"] = _pick_explicit_or_setting(
-        resolved.get("login_headless"),
-        settings,
-        "IB_WEB_LOGIN_HEADLESS",
-        "IB_LOGIN_HEADLESS",
-        default=False,
-    )
-    resolved["login_timeout"] = _pick_explicit_or_setting(
-        resolved.get("login_timeout"),
-        settings,
-        "IB_WEB_LOGIN_TIMEOUT",
-        "IB_LOGIN_TIMEOUT",
-        default=180,
-    )
-    return resolved
+    return merge_ib_web_default_credentials(credentials, get_settings())
 
 
 def _workspace_root() -> Path:
@@ -942,47 +611,23 @@ def _installed_bt_api_py_dir() -> Path | None:
 
 
 def _ib_web_cookie_base_dir() -> Path:
-    bt_api_py_dir = _installed_bt_api_py_dir()
-    if bt_api_py_dir is not None and bt_api_py_dir.is_dir():
-        return bt_api_py_dir
-    return _backend_env_file().parent
+    from app.services.manual_gateway.ib_clientportal import ib_web_cookie_base_dir
+    return ib_web_cookie_base_dir(_installed_bt_api_py_dir, _backend_env_file)
 
 
 def _to_backend_env_relative_path(path_value: str) -> str:
-    candidate = str(path_value or "").strip()
-    if not candidate:
-        return ""
-    resolved = Path(candidate)
-    if not resolved.is_absolute():
-        resolved = (_ib_web_cookie_base_dir() / resolved).resolve()
-    bt_api_parts = resolved.parts
-    if "bt_api_py" in bt_api_parts:
-        bt_api_index = max(index for index, part in enumerate(bt_api_parts) if part == "bt_api_py")
-        relative_parts = bt_api_parts[bt_api_index + 1 :]
-        if relative_parts:
-            return "/".join(relative_parts)
-    base_dir = _ib_web_cookie_base_dir().resolve()
-    try:
-        return str(resolved.relative_to(base_dir)).replace("\\", "/")
-    except ValueError:
-        return str(resolved)
+    from app.services.manual_gateway.ib_clientportal import to_backend_env_relative_path
+    return to_backend_env_relative_path(path_value, _ib_web_cookie_base_dir)
 
 
 def _normalize_ib_web_base_url(base_url: str) -> str:
-    raw = str(base_url or "https://localhost:5000").strip()
-    parsed = urlparse(raw)
-    scheme = parsed.scheme or "https"
-    netloc = parsed.netloc or parsed.path or "localhost:5000"
-    path = parsed.path if parsed.netloc else ""
-    normalized_path = path.rstrip("/")
-    if normalized_path in {"", "/"}:
-        normalized_path = "/v1/api"
-    return parsed._replace(scheme=scheme, netloc=netloc, path=normalized_path).geturl()
+    from app.services.manual_gateway.ib_clientportal import normalize_ib_web_base_url
+    return normalize_ib_web_base_url(base_url)
 
 
 def _swap_url_scheme(base_url: str, scheme: str) -> str:
-    parsed = urlparse(base_url)
-    return parsed._replace(scheme=scheme).geturl()
+    from app.services.manual_gateway.ib_clientportal import swap_url_scheme
+    return swap_url_scheme(base_url, scheme)
 
 
 def _import_ib_web_session_helpers():
@@ -1001,44 +646,15 @@ def _load_ib_web_session_state(
     verify_ssl: bool,
     timeout: float,
 ) -> tuple[dict[str, Any], dict[str, str], bool, list[dict[str, Any]], str]:
-    from bt_api_py.functions.ib_web_session import (
-        cookies_are_authenticated,
-        current_cookie_payload,
-        fetch_accounts,
-        load_ib_web_settings,
-        pick_account_id,
+    from app.services.manual_gateway.ib_clientportal import load_ib_web_session_state
+    return load_ib_web_session_state(
+        credentials,
+        base_url,
+        verify_ssl,
+        timeout,
+        _ib_web_cookie_base_dir,
+        _backend_env_file_for_helpers,
     )
-
-    settings = load_ib_web_settings(
-        overrides={
-            "base_url": base_url,
-            "account_id": credentials.get("account_id", ""),
-            "verify_ssl": verify_ssl,
-            "timeout": timeout,
-            "cookie_source": credentials.get("cookie_source", ""),
-            "cookie_browser": credentials.get("cookie_browser", "chrome"),
-            "cookie_path": credentials.get("cookie_path", "/sso"),
-            "cookie_output": credentials.get("cookie_output", ""),
-        },
-        base_dir=_ib_web_cookie_base_dir(),
-        env_file=_backend_env_file_for_helpers(),
-    )
-    cookies = current_cookie_payload(settings)
-    authenticated = cookies_are_authenticated(settings, cookies) if cookies else False
-    accounts = (
-        fetch_accounts(
-            str(settings.get("base_url") or base_url),
-            cookies,
-            verify_ssl=bool(settings.get("verify_ssl", verify_ssl)),
-            timeout=int(settings.get("timeout", timeout)),
-        )
-        if authenticated
-        else []
-    )
-    account_id = (
-        pick_account_id(accounts, str(settings.get("login_mode") or "paper")) if accounts else ""
-    )
-    return settings, cookies, authenticated, accounts, account_id
 
 
 def _parse_base_url_endpoint(base_url: str) -> tuple[str, int]:
@@ -1079,47 +695,15 @@ def _resolve_ib_web_base_url(
     timeout: float,
     logger,
 ) -> str:
-    normalized = _normalize_ib_web_base_url(base_url)
-    if not _should_manage_ib_clientportal(normalized):
-        return normalized
-    auth_status, _, _ = _import_ib_web_session_helpers()
-    candidates = [normalized]
-    alternate_scheme = "http" if urlparse(normalized).scheme == "https" else "https"
-    alternate = _swap_url_scheme(normalized, alternate_scheme)
-    if alternate != normalized:
-        candidates.append(alternate)
-    last_error: Exception | None = None
-    request_timeout = min(max(int(timeout), 2), 5)
-    deadline = time.monotonic() + max(float(timeout), 0.0) + 8.0
-    while time.monotonic() < deadline:
-        for candidate in candidates:
-            try:
-                auth_status(
-                    candidate,
-                    {},
-                    verify_ssl=verify_ssl,
-                    timeout=request_timeout,
-                )
-                if candidate != normalized:
-                    logger.warning(
-                        "IB Web base_url protocol fallback applied: %s -> %s",
-                        normalized,
-                        candidate,
-                    )
-                return candidate
-            except Exception as exc:
-                last_error = exc
-        if time.monotonic() + 1.0 >= deadline:
-            break
-        time.sleep(1.0)
-    if last_error is not None:
-        logger.warning(
-            "IB Web base_url probe failed for %s: %s: %s",
-            normalized,
-            type(last_error).__name__,
-            last_error,
-        )
-    return normalized
+    from app.services.manual_gateway.ib_clientportal import resolve_ib_web_base_url
+    return resolve_ib_web_base_url(
+        base_url,
+        verify_ssl,
+        timeout,
+        logger,
+        _should_manage_ib_clientportal,
+        _import_ib_web_session_helpers,
+    )
 
 
 def _bootstrap_ib_web_session(
@@ -1129,120 +713,19 @@ def _bootstrap_ib_web_session(
     timeout: float,
     allow_interactive_login: bool = True,
 ) -> dict[str, Any] | None:
-    has_cookie_config = bool(
-        credentials.get("cookies")
-        or credentials.get("cookie_source")
-        or credentials.get("cookie_output")
-    )
-    has_login_credentials = bool(credentials.get("username") and credentials.get("password"))
-    _logger.info(
-        "IB_WEB bootstrap: has_cookie_config=%s, has_login_credentials=%s, "
-        "cookie_source=%r, cookie_output=%r, username=%r",
-        has_cookie_config,
-        has_login_credentials,
-        credentials.get("cookie_source"),
-        credentials.get("cookie_output"),
-        credentials.get("username"),
-    )
-    if has_cookie_config:
-        try:
-            settings, cookies, authenticated, _, account_id = _load_ib_web_session_state(
-                credentials,
-                base_url,
-                verify_ssl,
-                timeout,
-            )
-        except Exception as exc:
-            if not allow_interactive_login:
-                raise RuntimeError(
-                    "IB Web恢复失败: 本地会话已失效，请在页面中手动重新连接"
-                ) from exc
-            _logger.warning(
-                "IB_WEB bootstrap: failed to load existing session, falling back to login: %s: %s",
-                type(exc).__name__,
-                exc,
-            )
-        else:
-            if authenticated:
-                return {
-                    "cookies": cookies,
-                    "cookie_output": str(settings.get("cookie_output") or ""),
-                    "cookie_source": str(settings.get("cookie_source") or ""),
-                    "account_id": account_id or str(settings.get("account_id") or ""),
-                    "status_code": 200,
-                    "used_login": False,
-                }
-            if not allow_interactive_login:
-                raise RuntimeError("IB Web恢复失败: 本地会话已失效，请在页面中手动重新连接")
-            _logger.info("IB_WEB bootstrap: cookies expired/invalid, will try login")
-        # Fall through to ensure_authenticated_session for browser login
-    if not allow_interactive_login:
-        if credentials.get("access_token"):
-            return None
-        raise RuntimeError("IB Web恢复失败: 未找到有效会话，请在页面中手动重新连接")
-    _, ensure_authenticated_session, _ = _import_ib_web_session_helpers()
-    if not has_login_credentials:
-        # Fallback: auto-detect credentials and cookies from .env / default
-        # cookie output path.  ensure_authenticated_session reads IB_WEB_*
-        # env vars, checks existing cookies, and falls back to browser login.
-        # NOTE: We must explicitly pass username/password in overrides because
-        # Windows ``os.environ["USERNAME"]`` (the OS login name) shadows the
-        # ``pick("username", ...)`` lookup before the .env ``IB_WEB_USERNAME``
-        # value is reached.
-        try:
-            env_values = _load_backend_gateway_env_values()
-            env_file = _backend_env_file_for_helpers()
-            return ensure_authenticated_session(
-                overrides={
-                    "base_url": base_url,
-                    "account_id": credentials.get("account_id", ""),
-                    "verify_ssl": verify_ssl,
-                    "timeout": timeout,
-                    "username": env_values.get("IB_WEB_USERNAME", ""),
-                    "password": env_values.get("IB_WEB_PASSWORD", ""),
-                    "login_mode": env_values.get("IB_WEB_LOGIN_MODE", "paper"),
-                    "login_browser": env_values.get("IB_WEB_LOGIN_BROWSER", "chrome"),
-                    "login_headless": env_values.get("IB_WEB_LOGIN_HEADLESS", "false"),
-                    "login_timeout": env_values.get("IB_WEB_LOGIN_TIMEOUT", "180"),
-                    "cookie_source": env_values.get("IB_WEB_COOKIE_SOURCE", ""),
-                    "cookie_output": env_values.get("IB_WEB_COOKIE_OUTPUT", ""),
-                    "cookie_browser": env_values.get("IB_WEB_COOKIE_BROWSER", "chrome"),
-                    "cookie_path": env_values.get("IB_WEB_COOKIE_PATH", "/sso"),
-                },
-                base_dir=_ib_web_cookie_base_dir(),
-                env_file=env_file,
-            )
-        except Exception as exc:
-            _logger.warning(
-                "IB_WEB auto-session bootstrap failed: %s: %s",
-                type(exc).__name__,
-                exc,
-            )
-            return None
-    return ensure_authenticated_session(
-        overrides={
-            "base_url": base_url,
-            "account_id": credentials.get("account_id", ""),
-            "verify_ssl": verify_ssl,
-            "timeout": timeout,
-            "cookie_source": credentials.get("cookie_source", ""),
-            "cookie_browser": credentials.get("cookie_browser", "chrome"),
-            "cookie_path": credentials.get("cookie_path", "/sso"),
-            "username": credentials.get("username", ""),
-            "password": credentials.get("password", ""),
-            "login_mode": credentials.get("login_mode", "paper"),
-            "login_browser": credentials.get(
-                "login_browser",
-                credentials.get("cookie_browser", "chrome"),
-            ),
-            "login_headless": credentials.get("login_headless", False),
-            "login_timeout": 180
-            if credentials.get("login_timeout") in {None, ""}
-            else credentials.get("login_timeout"),
-            "cookie_output": credentials.get("cookie_output", ""),
-        },
-        base_dir=_ib_web_cookie_base_dir(),
-        env_file=_backend_env_file_for_helpers(),
+    from app.services.manual_gateway.ib_clientportal import bootstrap_ib_web_session
+    return bootstrap_ib_web_session(
+        credentials,
+        base_url,
+        verify_ssl,
+        timeout,
+        allow_interactive_login=allow_interactive_login,
+        load_session_state=_load_ib_web_session_state,
+        import_session_helpers=_import_ib_web_session_helpers,
+        load_env_values=_load_backend_gateway_env_values,
+        backend_env_file_for_helpers=_backend_env_file_for_helpers,
+        cookie_base_dir=_ib_web_cookie_base_dir,
+        logger=_logger,
     )
 
 
@@ -1253,45 +736,15 @@ def _build_ib_web_env_updates(
     timeout: float,
     session: dict[str, Any] | None,
 ) -> dict[str, str]:
-    updates = {
-        "IB_WEB_BASE_URL": base_url,
-        "IB_WEB_VERIFY_SSL": "true" if verify_ssl else "false",
-        "IB_WEB_TIMEOUT": str(timeout),
-    }
-    account_id = str(
-        (session or {}).get("account_id") or credentials.get("account_id") or ""
-    ).strip()
-    if account_id:
-        updates["IB_WEB_ACCOUNT_ID"] = account_id
-    cookie_output_value = str((session or {}).get("cookie_output") or "").strip()
-    if cookie_output_value:
-        backend_relative_output = _to_backend_env_relative_path(cookie_output_value)
-        updates["IB_WEB_COOKIE_OUTPUT"] = backend_relative_output
-        updates["IB_WEB_COOKIE_SOURCE"] = f"file:{backend_relative_output}"
-    elif credentials.get("cookie_output"):
-        cookie_output = _to_backend_env_relative_path(str(credentials["cookie_output"]))
-        updates["IB_WEB_COOKIE_OUTPUT"] = cookie_output
-        updates["IB_WEB_COOKIE_SOURCE"] = f"file:{cookie_output}"
-    elif credentials.get("cookie_source"):
-        updates["IB_WEB_COOKIE_SOURCE"] = str(credentials["cookie_source"])
-    for key in (
-        "cookie_browser",
-        "cookie_path",
-        "username",
-        "password",
-        "login_mode",
-        "login_browser",
-    ):
-        value = str(credentials.get(key) or "").strip()
-        if value:
-            updates[f"IB_WEB_{key.upper()}"] = value
-    if credentials.get("login_headless") is not None:
-        updates["IB_WEB_LOGIN_HEADLESS"] = (
-            "true" if bool(credentials.get("login_headless")) else "false"
-        )
-    if credentials.get("login_timeout") not in {None, ""}:
-        updates["IB_WEB_LOGIN_TIMEOUT"] = str(credentials.get("login_timeout"))
-    return updates
+    from app.services.manual_gateway.ib_clientportal import build_ib_web_env_updates
+    return build_ib_web_env_updates(
+        credentials,
+        base_url,
+        verify_ssl,
+        timeout,
+        session,
+        _to_backend_env_relative_path,
+    )
 
 
 def _persist_ib_web_env_updates(updates: dict[str, str]) -> None:
@@ -2227,141 +1680,31 @@ def connect_ib_web_gateway(
     logger,
     allow_interactive_login: bool = True,
 ) -> dict[str, Any]:
-    credentials = _merge_ib_web_default_credentials(credentials)
-    account_id = credentials.get("account_id", "")
-    if not account_id:
-        return {
-            "gateway_key": key,
-            "status": "error",
-            "message": "Missing required field: account_id",
-        }
-    try:
-        gateway_config_cls, gateway_runtime_cls = import_gateway_runtime_classes()
-        source_credentials = credentials
-        verify_ssl = coerce_bool(credentials.get("verify_ssl"), default=False)
-        timeout = coerce_float(credentials.get("timeout"), default=10.0)
-        base_url = _normalize_ib_web_base_url(credentials.get("base_url", "https://localhost:5000"))
-        _ensure_ib_clientportal_running(base_url, logger)
-        base_url = _resolve_ib_web_base_url(base_url, verify_ssl, timeout, logger)
-        session = _bootstrap_ib_web_session(
-            credentials,
-            base_url,
-            verify_ssl,
-            timeout,
-            allow_interactive_login=allow_interactive_login,
-        )
-        resolved_account_id = str((session or {}).get("account_id") or account_id).strip()
-        source_credentials["account_id"] = resolved_account_id
-        source_credentials["base_url"] = base_url
-        credentials = dict(source_credentials)
-        if session is not None:
-            if session.get("cookie_output"):
-                cookie_output = _to_backend_env_relative_path(str(session["cookie_output"]))
-                credentials["cookie_output"] = cookie_output
-                credentials["cookie_source"] = f"file:{cookie_output}"
-                source_credentials["cookie_output"] = cookie_output
-                source_credentials["cookie_source"] = f"file:{cookie_output}"
-            if session.get("cookies"):
-                credentials["cookies"] = session["cookies"]
-            _persist_ib_web_env_updates(
-                _build_ib_web_env_updates(
-                    credentials,
-                    base_url,
-                    verify_ssl,
-                    timeout,
-                    session,
-                )
-            )
-        kwargs = {
-            "exchange_type": "IB_WEB",
-            "asset_type": credentials.get("asset_type", "STK"),
-            "account_id": resolved_account_id,
-            "transport": resolve_gateway_transport(
-                "IB_WEB", credentials.get("transport"), default_transport
-            ),
-            "base_url": base_url,
-            "verify_ssl": verify_ssl,
-            "timeout": timeout,
-            "cookie_base_dir": str(_ib_web_cookie_base_dir()),
-        }
-        if _should_manage_ib_clientportal(base_url):
-            kwargs["proxies"] = {}
-            kwargs["async_proxy"] = ""
-        if credentials.get("access_token"):
-            kwargs["access_token"] = credentials["access_token"]
-        if credentials.get("cookie_source"):
-            kwargs["cookie_source"] = credentials["cookie_source"]
-        if credentials.get("cookie_browser"):
-            kwargs["cookie_browser"] = credentials["cookie_browser"]
-        if credentials.get("cookie_path"):
-            kwargs["cookie_path"] = credentials["cookie_path"]
-        if credentials.get("cookies"):
-            kwargs["cookies"] = credentials["cookies"]
-        if credentials.get("username"):
-            kwargs["username"] = credentials["username"]
-        if credentials.get("password"):
-            kwargs["password"] = credentials["password"]
-        if credentials.get("login_mode"):
-            kwargs["login_mode"] = credentials["login_mode"]
-        if credentials.get("login_browser"):
-            kwargs["login_browser"] = credentials["login_browser"]
-        if credentials.get("login_headless") is not None:
-            kwargs["login_headless"] = coerce_bool(
-                credentials.get("login_headless"),
-                default=False,
-            )
-        if credentials.get("login_timeout") not in {None, ""}:
-            kwargs["login_timeout"] = coerce_float(
-                credentials.get("login_timeout"),
-                default=180.0,
-            )
-        if credentials.get("cookie_output"):
-            kwargs["cookie_output"] = credentials["cookie_output"]
-        config = gateway_config_cls.from_kwargs(**kwargs)
-        runtime = gateway_runtime_cls(config, **kwargs)
-        runtime.start_in_thread()
-        ready_timeout = max(
-            float(getattr(config, "startup_timeout_sec", 10.0) or 10.0) * 3.0 + 4.0, 8.0
-        )
-        _wait_for_runtime_ready(runtime, logger, timeout_sec=ready_timeout)
-        gateways[key] = {
-            "config": config,
-            "runtime": runtime,
-            "instances": set(),
-            "ref_count": 0,
-            "lock": threading.Lock(),
-            "manual": True,
-            "exchange_type": "IB_WEB",
-            "asset_type": kwargs["asset_type"],
-            "account_id": resolved_account_id,
-            "session_key": build_gateway_session_key_from_runtime_kwargs(kwargs),
-        }
-        _persist_ib_web_env_updates(
-            _build_ib_web_env_updates(
-                credentials,
-                base_url,
-                verify_ssl,
-                timeout,
-                session,
-            )
-        )
-        return {
-            "gateway_key": key,
-            "status": "connected",
-            "message": "IB Web gateway started successfully",
-        }
-    except Exception as exc:
-        if "runtime" in locals():
-            try:
-                runtime.stop()
-            except Exception:
-                logger.debug("Failed to stop IB Web runtime after connect error", exc_info=True)
-        logger.exception("Failed to connect IB Web gateway %s", key)
-        return {
-            "gateway_key": key,
-            "status": "error",
-            "message": f"IB Web连接失败: {type(exc).__name__}: {exc}",
-        }
+    from app.services.manual_gateway.ib_clientportal import connect_ib_web_gateway as _impl
+    return _impl(
+        gateways,
+        key,
+        credentials,
+        coerce_bool,
+        coerce_float,
+        import_gateway_runtime_classes,
+        default_transport,
+        logger,
+        allow_interactive_login=allow_interactive_login,
+        merge_credentials=_merge_ib_web_default_credentials,
+        normalize_base_url=_normalize_ib_web_base_url,
+        ensure_clientportal_running=_ensure_ib_clientportal_running,
+        resolve_base_url=_resolve_ib_web_base_url,
+        bootstrap_session=_bootstrap_ib_web_session,
+        to_relative_path=_to_backend_env_relative_path,
+        persist_env_updates=_persist_ib_web_env_updates,
+        build_env_updates=_build_ib_web_env_updates,
+        cookie_base_dir=_ib_web_cookie_base_dir,
+        should_manage_clientportal=_should_manage_ib_clientportal,
+        resolve_transport=resolve_gateway_transport,
+        build_session_key=build_gateway_session_key_from_runtime_kwargs,
+        wait_for_runtime_ready=_wait_for_runtime_ready,
+    )
 
 
 def connect_binance_gateway(

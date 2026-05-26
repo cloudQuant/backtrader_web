@@ -1265,7 +1265,10 @@ class TestManualGatewayService:
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["td_address"] == "tcp://182.254.243.31:30002"
         assert runtime_kwargs["md_address"] == "tcp://182.254.243.31:30012"
-        logger.warning.assert_called_once()
+        assert any(
+            "Requested CTP SimNow front" in str(call.args[0])
+            for call in logger.warning.call_args_list
+        )
 
     def test_connect_gateway_returns_clear_error_when_all_current_simnow_fronts_unreachable(self):
         gateways: dict[str, dict] = {}

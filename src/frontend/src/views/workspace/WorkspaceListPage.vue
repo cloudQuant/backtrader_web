@@ -187,6 +187,7 @@ import { Delete, Grid, List, Loading, Plus } from '@element-plus/icons-vue'
 import { getErrorMessage } from '@/api/index'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { ViewMode, Workspace, WorkspaceType } from '@/types/workspace'
+import type { TagType } from '@/constants/strategy'
 import CreateWorkspaceDialog from '@/components/workspace/CreateWorkspaceDialog.vue'
 import WorkspaceCard from '@/components/workspace/WorkspaceCard.vue'
 
@@ -287,8 +288,8 @@ function onSaved() {
   store.fetchWorkspaces(0, 50, workspaceType.value)
 }
 
-function statusTagType(status: string): '' | 'success' | 'warning' | 'info' | 'danger' {
-  const map: Record<string, '' | 'success' | 'warning' | 'info' | 'danger'> = {
+function statusTagType(status: string): TagType {
+  const map: Record<string, TagType> = {
     idle: 'info',
     running: 'warning',
     completed: 'success',

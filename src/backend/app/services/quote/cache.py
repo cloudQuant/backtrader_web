@@ -56,6 +56,8 @@ def get_cached_tick_metrics(receivers: dict[str, Any], source: str) -> dict[str,
         raw_timestamp = payload.get("timestamp")
         if raw_timestamp in (None, ""):
             continue
+        if not isinstance(raw_timestamp, str | bytes | int | float):
+            continue
         try:
             timestamp = float(raw_timestamp)
         except (TypeError, ValueError, OverflowError):
