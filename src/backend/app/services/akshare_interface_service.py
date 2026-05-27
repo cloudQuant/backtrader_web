@@ -3,7 +3,7 @@ Akshare interface CRUD service.
 
 Encapsulates the SQLAlchemy queries and persistence for the
 ``ak_data_interfaces`` and ``ak_interface_categories`` tables so that the
-matching API routes (:mod:`app.api.akshare_interfaces`) only handle request
+matching API routes (:mod:`app.api.akshare.interfaces`) only handle request
 parsing and response shaping.
 
 Service-layer conventions (per AGENTS.md):

@@ -1,107 +1,23 @@
-"""
-API routes for akshare interfaces.
+from app.api.akshare.interfaces import (
+    bootstrap_interfaces,
+    create_interface,
+    delete_interface,
+    get_akshare_interface_service,
+    get_interface,
+    list_interface_categories,
+    list_interfaces,
+    router,
+    update_interface,
+)
 
-Routes only handle request parsing and HTTP error mapping;
-all DB access lives in :class:`app.services.akshare_interface_service.AkshareInterfaceService`.
-"""
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.api.data_management_deps import require_data_admin_user
-from app.db.database import get_db
-from app.schemas.akshare_mgmt import DataInterfaceCreate, DataInterfaceUpdate
-from app.services.akshare_interface_loader import AkshareInterfaceLoader
-from app.services.akshare_interface_service import AkshareInterfaceService
-
-router = APIRouter()
-
-
-def get_akshare_interface_service(
-    db: AsyncSession = Depends(get_db),
-) -> AkshareInterfaceService:
-    """Per-request factory for :class:`AkshareInterfaceService`.
-
-    Bound to the request-scoped DB session, so we cannot ``@lru_cache`` here.
-    """
-    return AkshareInterfaceService(db)
-
-
-@router.get("/interfaces/categories")
-async def list_interface_categories(
-    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
-    current_user=Depends(require_data_admin_user),
-):
-    return await service.list_categories()
-
-
-@router.get("/interfaces")
-async def list_interfaces(
-    category_id: int | None = None,
-    search: str | None = None,
-    is_active: bool | None = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200),
-    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
-    current_user=Depends(require_data_admin_user),
-):
-    return await service.list_interfaces(
-        category_id=category_id,
-        search=search,
-        is_active=is_active,
-        page=page,
-        page_size=page_size,
-    )
-
-
-@router.get("/interfaces/{interface_id}")
-async def get_interface(
-    interface_id: int,
-    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
-    current_user=Depends(require_data_admin_user),
-):
-    interface = await service.get_interface(interface_id)
-    if interface is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interface not found")
-    return interface
-
-
-@router.post("/interfaces", status_code=status.HTTP_201_CREATED)
-async def create_interface(
-    payload: DataInterfaceCreate,
-    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
-    current_user=Depends(require_data_admin_user),
-):
-    return await service.create_interface(payload)
-
-
-@router.put("/interfaces/{interface_id}")
-async def update_interface(
-    interface_id: int,
-    payload: DataInterfaceUpdate,
-    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
-    current_user=Depends(require_data_admin_user),
-):
-    interface = await service.update_interface(interface_id, payload)
-    if interface is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interface not found")
-    return interface
-
-
-@router.delete("/interfaces/{interface_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_interface(
-    interface_id: int,
-    service: AkshareInterfaceService = Depends(get_akshare_interface_service),
-    current_user=Depends(require_data_admin_user),
-):
-    if not await service.delete_interface(interface_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interface not found")
-
-
-@router.post("/interfaces/bootstrap")
-async def bootstrap_interfaces(
-    refresh: bool = False,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_data_admin_user),
-):
-    return await AkshareInterfaceLoader(db).bootstrap(refresh=refresh)
+__all__ = [
+    "router",
+    "get_akshare_interface_service",
+    "list_interface_categories",
+    "list_interfaces",
+    "get_interface",
+    "create_interface",
+    "update_interface",
+    "delete_interface",
+    "bootstrap_interfaces",
+]
