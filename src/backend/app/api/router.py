@@ -37,8 +37,6 @@ from app.api.scanners import router as scanners_router
 from app.api.simulation import router as simulation_router
 from app.api.status import router as status_router
 from app.api.strategy import router as strategy_router
-from app.api.strategy_explainer import router as strategy_explainer_router
-from app.api.strategy_score import router as strategy_score_router
 from app.api.workspace_api import router as workspace_router
 
 logger = logging.getLogger(__name__)
@@ -113,9 +111,7 @@ api_router.include_router(
     tags=["Enhanced Backtest"],
 )
 api_router.include_router(strategy_router, prefix="/strategy", tags=["Strategy"])
-api_router.include_router(strategy_score_router, prefix="/strategy", tags=["Strategy Score"])
 api_router.include_router(overfitting_router, prefix="/strategy", tags=["Overfitting"])
-api_router.include_router(strategy_explainer_router, prefix="/strategy", tags=["Strategy Explainer"])
 api_router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
 api_router.include_router(live_trading_router, prefix="/live-trading", tags=["Live Trading"])
 api_router.include_router(portfolio_router)
