@@ -17,8 +17,8 @@ from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.backtest_enhanced import router as backtest_enhanced_router
 from app.api.brokers import router as brokers_router
-from app.api.data_governance import router as data_governance_router
-from app.api.data_topics import router as data_topics_router
+from app.api.data.governance import router as data_governance_router
+from app.api.data.topics import router as data_topics_router
 from app.api.docs import router as docs_router
 from app.api.equity_research import router as equity_research_router
 from app.api.factor_lib import router as factor_lib_router
