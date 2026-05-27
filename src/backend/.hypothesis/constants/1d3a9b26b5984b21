@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/containers/markprices/mark_price.py
-# hypothesis_version: 6.148.5
-
-['MarkPriceEvent', 'asset_type', 'exchange_name', 'index_price', 'local_update_time', 'mark_price', 'server_time', 'settlement_price', 'symbol_name']

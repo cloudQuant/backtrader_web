@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/trading.py
-# hypothesis_version: 6.148.5
-
-[0.0, '09:00', '15:00', 'all', 'idle', 'ignore', 'paper']

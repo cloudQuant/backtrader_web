@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/paper_trading.py
-# hypothesis_version: 6.148.5
-
-[0.001, 0.01, 100000.0, 100, 10000000, 'Account ID', 'Account name', 'Average cost price', 'Average fill price', 'Commission', 'Commission rate', 'Creation time', 'Current cash', 'Entry price', 'Entry time', 'Fill time', 'Filled size', 'Initial cash', 'Limit order price', 'Order ID', 'Order side', 'Order size', 'Order type', 'Position ID', 'Profit/loss', 'Rejection reason', 'Slippage', 'Slippage rate', 'Stock code', 'Stop price', 'Take profit price', 'Total count', 'Trade ID', 'Trade price', 'Trade size', 'Trade time', 'Update time', 'User ID', 'Whether active', '^\\d{6}\\.(SH|SZ)$']

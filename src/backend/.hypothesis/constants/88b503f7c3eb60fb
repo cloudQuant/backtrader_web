@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_qsjy_em.py
-# hypothesis_version: 6.148.5
-
-['-', '-1', '1', '20200430', '20200731', '500', 'DEFAULT@SECLEVEL=1', 'END_DATE', 'RPT_PERFORMANCE', 'WEB', '__main__', 'client', 'columns', 'data', 'filter', 'https://', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'ssl_context', '代码', '净资产-净资产', '净资产-同比增长', '当年累计净利润-同比增长', '当年累计净利润-累计净利润', '当年累计营业收入-同比增长', '当年累计营业收入-累计营业收入', '当月净利润-净利润', '当月净利润-同比增长', '当月净利润-环比增长', '当月营业收入-同比增长', '当月营业收入-环比增长', '当月营业收入-营业收入', '简称']

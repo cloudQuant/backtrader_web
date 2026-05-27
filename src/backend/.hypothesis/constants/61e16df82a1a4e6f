@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/gateway/health.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'connected', 'connecting', 'disconnected', 'error', 'heartbeat_age_sec', 'is_healthy', 'last_heartbeat', 'last_order_time', 'last_tick_time', 'market_connection', 'message', 'order_count', 'recent_errors', 'reconnecting', 'running', 'source', 'starting', 'state', 'stopped', 'stopping', 'strategy_count', 'symbol_count', 'tick_count', 'timestamp', 'trade_connection', 'uptime_sec']

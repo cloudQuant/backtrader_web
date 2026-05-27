@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/containers/ctp/__init__.py
-# hypothesis_version: 6.148.5
-
-['CTP_DIRECTION_MAP', 'CTP_ORDER_STATUS_MAP', 'CtpAccountData', 'CtpBarData', 'CtpOrderData', 'CtpPositionData', 'CtpTickerData', 'CtpTradeData']

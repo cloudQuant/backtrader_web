@@ -29,12 +29,12 @@
 #   - Nginx + Vue 3 Frontend (Web 界面)
 #
 # 部署后管理:
-#   查看状态:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml ps
-#   查看日志:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml logs -f
-#   重启应用:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml restart backend frontend
-#   停止应用:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml stop backend frontend
-#   停止服务:  cd /opt/backtrader_web && docker compose -f docker-compose.prod.yml down
-#   更新部署:  cd /opt/backtrader_web && git pull && docker compose -f docker-compose.prod.yml build backend frontend && docker compose -f docker-compose.prod.yml up -d backend frontend
+#   查看状态:  cd /opt/backtrader_web && docker compose -f docker-compose.yml -f docker/compose/prod.yml ps
+#   查看日志:  cd /opt/backtrader_web && docker compose -f docker-compose.yml -f docker/compose/prod.yml logs -f
+#   重启应用:  cd /opt/backtrader_web && docker compose -f docker-compose.yml -f docker/compose/prod.yml restart backend frontend
+#   停止应用:  cd /opt/backtrader_web && docker compose -f docker-compose.yml -f docker/compose/prod.yml stop backend frontend
+#   停止服务:  cd /opt/backtrader_web && docker compose -f docker-compose.yml -f docker/compose/prod.yml down
+#   更新部署:  cd /opt/backtrader_web && git pull && docker compose -f docker-compose.yml -f docker/compose/prod.yml build backend frontend && docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d backend frontend
 ###############################################################################
 set -euo pipefail
 
@@ -67,7 +67,8 @@ MYSQL_DATA_DIR="${MYSQL_DATA_DIR:-./runtime/mysql}"
 REDIS_DATA_DIR="${REDIS_DATA_DIR:-./runtime/redis}"
 BACKEND_LOGS_DIR="${BACKEND_LOGS_DIR:-./runtime/backend/logs}"
 BACKEND_APP_DATA_DIR="${BACKEND_APP_DATA_DIR:-./runtime/backend/data}"
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
+COMPOSE_BASE_FILE="${COMPOSE_BASE_FILE:-docker-compose.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker/compose/prod.yml}"
 NO_CACHE_BUILD="${NO_CACHE_BUILD:-false}"
 
 # 域名 (用于 CORS, 默认自动检测服务器 IP)
@@ -318,19 +319,27 @@ log_info ".env 配置已生成"
 log_step "4/5 构建并启动 Docker 服务"
 
 cd "${INSTALL_DIR}"
+case "${COMPOSE_FILE}" in
+    docker-compose.dev.yml) COMPOSE_FILE="docker/compose/dev.yml" ;;
+    docker-compose.prod.yml) COMPOSE_FILE="docker/compose/prod.yml" ;;
+    docker-compose.ci.yml) COMPOSE_FILE="docker/compose/ci.yml" ;;
+    docker-compose.airflow.yml) COMPOSE_FILE="docker/compose/airflow.yml" ;;
+    docker-compose.local.yml) COMPOSE_FILE="docker/compose/local.yml" ;;
+esac
+COMPOSE_ARGS=(--env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_BASE_FILE}" -f "${COMPOSE_FILE}")
 
 log_info "启动基础服务 (MySQL/Redis)..."
-docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" up -d mysql redis
+docker compose "${COMPOSE_ARGS[@]}" up -d mysql redis
 
 log_info "构建应用镜像..."
 if [[ "${NO_CACHE_BUILD}" == "true" ]]; then
-    docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" build --no-cache backend frontend
+    docker compose "${COMPOSE_ARGS[@]}" build --no-cache backend frontend
 else
-    docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" build backend frontend
+    docker compose "${COMPOSE_ARGS[@]}" build backend frontend
 fi
 
 log_info "启动应用服务..."
-docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" up -d --remove-orphans backend frontend
+docker compose "${COMPOSE_ARGS[@]}" up -d --remove-orphans backend frontend
 
 log_info "服务已启动"
 
@@ -348,14 +357,14 @@ for i in $(seq 1 $MAX_WAIT); do
     fi
     if [[ $i -eq $MAX_WAIT ]]; then
         log_warn "等待超时, 服务可能仍在启动中"
-        log_warn "请手动检查: docker compose -f ${COMPOSE_FILE} logs -f"
+        log_warn "请手动检查: docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} logs -f"
     fi
     sleep 1
 done
 
 # 显示容器状态
 echo ""
-docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_FILE}" ps
+docker compose "${COMPOSE_ARGS[@]}" ps
 
 ###############################################################################
 # 保存凭据
@@ -396,15 +405,15 @@ echo -e "  ${YELLOW}所有凭据已保存到: ${CREDENTIALS_FILE}${NC}"
 echo ""
 echo -e "  常用命令:"
 echo -e "    cd ${INSTALL_DIR}"
-echo -e "    查看状态:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} ps"
-echo -e "    查看日志:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} logs -f"
-echo -e "    查看后端日志:  docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} logs -f backend"
-echo -e "    重启服务:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} restart backend frontend"
-echo -e "    停止应用:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} stop backend frontend"
-echo -e "    停止全部:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} down"
+echo -e "    查看状态:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} ps"
+echo -e "    查看日志:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} logs -f"
+echo -e "    查看后端日志:  docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} logs -f backend"
+echo -e "    重启服务:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} restart backend frontend"
+echo -e "    停止应用:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} stop backend frontend"
+echo -e "    停止全部:      docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} down"
 echo ""
 echo -e "  更新部署:"
 echo -e "    cd ${INSTALL_DIR}"
 echo -e "    git pull origin ${GIT_BRANCH}"
-echo -e "    docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} build backend frontend && docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_FILE} up -d backend frontend"
+echo -e "    docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} build backend frontend && docker compose --env-file ${ENV_FILE_RELATIVE_PATH} -f ${COMPOSE_BASE_FILE} -f ${COMPOSE_FILE} up -d backend frontend"
 echo ""

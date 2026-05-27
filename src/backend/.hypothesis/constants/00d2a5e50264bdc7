@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/data_management_deps.py
-# hypothesis_version: 6.148.5
-
-['Bearer', 'Not authenticated', 'User not found', 'WWW-Authenticate', 'sub']

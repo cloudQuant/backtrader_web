@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/ctp/_ctp_base.py
-# hypothesis_version: 6.148.5
-
-['.', 'Api', 'GetApiVersion', 'THOST_', '_', '_CreateFtdcMdApi', '_CreateFtdcTraderApi', '_GetApiVersion', '_SwigNonDynamicMeta', '__spec__', '_ctp', '_ctp_fallback', '_fallback_values', '_get', '_set', '_swig_add_metaclass', '_swig_repr', '_swiginit', '_swigregister', 'delete_', 'disown', 'disown_', 'fallback-ctp', 'get_ctp_import_error', 'is_ctp_native_loaded', 'new_', 'parent', 'print_exception', 'stderr', 'this', 'thisown', 'weakref']

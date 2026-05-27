@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/alerts.py
-# hypothesis_version: 6.148.5
-
-[200, 'Account', 'Alert', 'AlertNotification', 'BacktestTask', 'Order', 'Position', 'Strategy', 'User', 'account', 'acknowledged', 'active', 'alert', 'alert_notifications', 'alert_rules', 'alert_rules.id', 'alerts', 'alerts.id', 'backtest_tasks.id', 'critical', 'error', 'ignored', 'info', 'notifications', 'order', 'performance', 'position', 'resolved', 'risk', 'rule', 'strategies.id', 'strategy', 'system', 'users.id', 'warning']

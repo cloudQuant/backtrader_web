@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_margin_sse.py
-# hypothesis_version: 6.148.5
-
-[50000, '-', '00', '1', '20010106', '20210401', '20230922', '20231013', '21', '5', '50', '5000', 'AYLCH5', 'LRSP', 'Referer', 'User-Agent', '_', '__main__', 'appChannel', 'appName', 'bdzq', 'beginDate', 'channel', 'coerce', 'currentPage', 'data', 'detailsDate', 'endDate', 'fiMarginRatio', 'isPagination', 'list', 'market', 'mxtype', 'pa18', 'pageHelp.beginPage', 'pageHelp.cacheSize', 'pageHelp.endPage', 'pageHelp.pageCount', 'pageHelp.pageNo', 'pageHelp.pageSize', 'pageSize', 'requestId', 'result', 'secuCode', 'secuName', 'setdate', 'slMarginRatio', 'stockCode', 'stockMes', 'tabType', 'tokenId', 'true', 'type', '信用交易日期', '标的证券代码', '标的证券简称', '融券余量', '融券余量金额', '融券偿还量', '融券卖出量', '融券比例', '融资买入额', '融资余额', '融资偿还额', '融资比例', '融资融券余额', '证券代码', '证券简称']

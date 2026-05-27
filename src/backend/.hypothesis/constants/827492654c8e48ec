@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/grid_trading_mixin.py
-# hypothesis_version: 6.148.5
-
-['1', 'ALL', 'after', 'algoAlgoType', 'algoId', 'algoOrdsType', 'amt', 'asset_type', 'attachAlgoClOrd', 'baseSz', 'before', 'ccy', 'exchange_name', 'fastCallbackSpeed', 'gridNum', 'grid_add_investment', 'grid_close_position', 'grid_get_ai_param', 'grid_margin_balance', 'grid_order_algo', 'grid_positions', 'grid_stop_order_algo', 'grid_sub_orders', 'grid_withdraw_income', 'instId', 'instType', 'limit', 'margin', 'maxPx', 'minPx', 'normalize_function', 'ordId', 'request_type', 'runType', 'slPx', 'slTriggerPx', 'state', 'symbol_name', 'sz', 'tdMode', 'timeType', 'tpPx', 'tpTriggerPx', 'triggerPx', 'triggerTime', 'type']

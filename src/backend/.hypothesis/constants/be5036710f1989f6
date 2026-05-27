@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_hk_valuation_baidu.py
-# hypothesis_version: 6.148.5
-
-['06969', '1', '51171', 'DisplayData', 'GET', 'Result', '__main__', 'app', 'body', 'chartInfo', 'chart_select', 'client', 'code', 'date', 'dspName', 'finClientType', 'gushitong.baidu.com', 'hk', 'industry_select', 'iphone', 'market', 'openapi', 'pc', 'query', 'resource_id', 'result', 'resultData', 'skip_industry', 'tag', 'tangram', 'tn', 'tplData', 'value', 'word', '总市值', '近一年', '近三年']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/middleware/logging.py
-# hypothesis_version: 6.148.5
-
-[b'x-forwarded-for', b'x-real-ip', 5.0, 200, 401, 500, 1000, '***REDACTED***', ',', '/docs', '/health', '/metrics', '/openapi.json', '/redoc', '?', 'X-Process-Time', 'X-Request-ID', 'access_token', 'api_key', 'apikey', 'auth', 'authorization', 'client', 'headers', 'http', 'http.response.start', 'key', 'log_body', 'log_headers', 'method', 'passwd', 'password', 'path', 'performance', 'query_string', 'refresh_token', 'secret', 'skip_paths', 'state', 'status', 'token', 'type', 'unknown', 'user_id']

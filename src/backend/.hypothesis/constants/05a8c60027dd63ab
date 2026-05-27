@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_rank_forecast.py
-# hypothesis_version: 6.148.5
-
-['*/*', '-', '0', '20230817', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Content-Length', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'getResCode1', 'gzip, deflate', 'keep-alive', 'no-cache', 'records', 'tdate', 'utf-8', 'webapi.cninfo.com.cn', '前一次投资评级', '发布日期', '投资评级', '是否首次评级', '目标价格-上限', '目标价格-下限', '研究员名称', '研究机构简称', '证券代码', '证券简称', '评级变化']

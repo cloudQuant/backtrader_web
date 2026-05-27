@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/request_base.py
-# hypothesis_version: 6.148.5
-
-[',', '/api/v5/account/*', '/api/v5/market/*', '/api/v5/trade/order', '0', ':', 'Content-Type', 'OK-ACCESS-KEY', 'OK-ACCESS-PASSPHRASE', 'OK-ACCESS-SIGN', 'OK-ACCESS-TIMESTAMP', 'OKX___SWAP', 'SWAP', 'api_key', 'api_secret', 'application/json', 'asset_type', 'code', 'exchange_name', 'logger_name', 'okx_account', 'okx_general', 'okx_swap_feed', 'okx_swap_feed.log', 'okx_trade', 'passphrase', 'private_key', 'public_key', 'rate_limiter', 'sCode', 'secret_key', 'sha256', 'topics', 'utf-8', 'utf8', 'x-simulated-trading']

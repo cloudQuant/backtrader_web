@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/gateway/runtime.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.05, 1.0, 2.0, 5.0, 100, 1000, '/tmp/bt_ticks', '<empty>', 'CTP', 'M1', 'accepted', 'account_id', 'adapter_connect', 'asset_type', 'base_dir', 'cancel_order', 'client_order_id', 'command', 'command_result', 'count', 'data', 'default', 'error', 'exchange', 'flush_count', 'flush_interval_sec', 'get_balance', 'get_bars', 'get_open_orders', 'get_positions', 'get_symbol_info', 'health', 'kind', 'newly_subscribed', 'ok', 'payload', 'ping', 'place_order', 'ready', 'register_strategy', 'request_id', 'runtime_loop', 'runtime_start', 'runtime_stop', 'skipped', 'skipped_symbols', 'state_dir', 'status', 'strategy_id', 'subscribe', 'subscribed', 'symbol', 'symbols', 'tick_writer', 'timeframe', 'to_dict', 'unregister_strategy', 'unsubscribed']

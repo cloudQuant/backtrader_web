@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/index/index_yw.py
-# hypothesis_version: 6.148.5
-
-['__main__', 'benifitindex', 'coerce', 'confidentindex', 'data', 'indextimeno', 'month', 'netdealpriceindex', 'orderdealpriceindex', 'outdealpriceindex', 'piweek', 'scopeindex', 'stockdealpriceindex', 'totalindex', 'totalpriceindex', '价格指数', '出口价格指数', '周价格指数', '场内价格指数', '市场信心指数', '效益指数', '景气指数', '月价格指数', '月景气指数', '期数', '网上价格指数', '规模指数', '订单价格指数']

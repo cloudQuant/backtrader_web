@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/orderbooks/okx_orderbook.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'OKX', 'arg', 'ask_price_list', 'ask_trade_nums', 'ask_volume_list', 'asks', 'asset_type', 'bid_price_list', 'bid_trade_nums', 'bid_volume_list', 'bids', 'data', 'exchange_name', 'instId', 'local_update_time', 'server_time', 'symbol_name', 'ts']

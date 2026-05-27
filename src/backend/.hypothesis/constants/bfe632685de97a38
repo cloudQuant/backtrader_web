@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_risk_analysis_em.py
-# hypothesis_version: 6.148.5
-
-['%Y%m%d', '-', '1', '100', '2', 'Delta', 'Gamma', 'Rho', 'Theta', 'Vega', '__main__', 'coerce', 'f12', 'fid', 'fields', 'fltt', 'fs', 'invt', 'm:10', 'np', 'pn', 'po', 'pz', 'ut', '到期日', '实际杠杆比率', '最新价', '期权代码', '期权名称', '杠杆比率', '涨跌幅']

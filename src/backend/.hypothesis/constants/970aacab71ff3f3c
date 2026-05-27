@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_fhps_em.py
-# hypothesis_version: 6.148.5
-
-['-', '-1', '000005', '1', '20231231', '300073', '500', 'ALL', 'PLAN_NOTICE_DATE', 'REPORT_DATE', 'RPT_SHAREBONUS_DET', 'WEB', '_', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'ignore', 'js', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '业绩披露日期', '代码', '净利润同比增长', '名称', '总股本', '报告期', '方案进度', '最新公告日期', '每股公积金', '每股净资产', '每股收益', '每股未分配利润', '现金分红-现金分红比例', '现金分红-现金分红比例描述', '现金分红-股息率', '股权登记日', '送转股份-转股比例', '送转股份-送股比例', '送转股份-送转总比例', '送转股份-送转比例', '除权除息日', '预案公告日']

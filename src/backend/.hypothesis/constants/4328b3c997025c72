@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/db/__init__.py
-# hypothesis_version: 6.148.5
-
-['BaseRepository', 'get_akshare_data_db', 'get_cache', 'get_db', 'get_repository', 'init_db']

@@ -1,18 +1,19 @@
 """Migrate source files from MongoDB to local disk and update KB documents."""
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import sqlite3
 import pymongo
 
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(BACKEND_ROOT))
 
-SOURCE_FILE_DIR = Path('/Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/data/reqdocs_source_files')
+SOURCE_FILE_DIR = BACKEND_ROOT / 'data' / 'reqdocs_source_files'
 SOURCE_FILE_DIR.mkdir(parents=True, exist_ok=True)
 
-DB_PATH = '/Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/backtrader.db'
+DB_PATH = REPO_ROOT / 'data' / 'dev' / 'backtrader.db'
 MONGODB_URL = 'mongodb://localhost:27017/'
 MONGODB_DB = 'document_management'
 

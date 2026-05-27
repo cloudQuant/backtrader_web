@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/movie/movie_yien.py
-# hypothesis_version: 6.148.5
-
-[1128, '%Y%m%d', '%Y-%m-%d', '1', '100', '20201018', '20201019', '20240218', '20240219', 'Data', 'MethodName', 'Table', 'Table1', '_', '__main__', 'coerce', 'date', 'dateID', 'edate', 'jm.js', 'movie', 'rowNum1', 'rowNum2', 'sdate', 'showDate', 'startTime', 'tdate', 'utf8', 'webInstace.shell', 'year', '上座率', '上映天数', '上映日期', '单周票房', '单日单厅场次', '单日单厅票房', '单日场次', '单日票房', '单月票房', '单银幕票房', '占总票房比重', '口碑指数', '国家及地区', '场均人次', '场均票价', '实时票房', '平均票价', '当周票房', '影片名称', '影院名称', '总票房', '排名变化', '排序', '月内天数', '月度占比', '环比变化', '票房占比', '类型', '累计票房', '首周天数', '首周票房']

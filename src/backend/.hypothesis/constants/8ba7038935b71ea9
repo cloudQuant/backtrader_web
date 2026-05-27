@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_board_industry_ths.py
-# hypothesis_version: 6.148.5
-
-[100, '%', ',', '/', '20200101', '20240101', '20240108', '20240724', ';', 'Cookie', 'DEFAULT@SECLEVEL=1', 'Host', 'Referer', 'User-Agent', '_', '__main__', 'a', 'board-infos', 'cate_inner', 'class', 'code', 'coerce', 'd.10jqka.com.cn', 'data', 'dd', 'div', 'dt', 'hexin-v', 'href', 'https://', 'index', 'lxml', 'name', 'page_info', 'span', 'ssl_context', 'ths.js', 'utf-8', 'v', '{', '上市日期', '上涨家数', '下跌家数', '值', '元件', '净流入', '半导体', '参股家数', '参股对象', '发行价', '发行价(元)', '均价', '市值', '序号', '开盘价', '总成交量', '总成交额', '成交量', '成交额', '投资占市值比', '投资总额', '收盘价', '日期', '最低价', '最新价', '最高价', '板块', '橡胶制品', '消费电子', '涨跌幅', '股票代码', '股票简称', '项目', '领涨股', '领涨股-最新价', '领涨股-涨跌幅', '首日开盘价', '首日收盘价', '首日最低价', '首日最高价', '首日涨跌幅']

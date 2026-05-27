@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/client.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.1, 1.0, 2.0, 10.0, 1000.0, 1000000000000.0, 'BINANCE', 'FUT', 'FUTURE', 'SPOT', 'SWAP', 'account', 'api_key', 'ask_price', 'ask_volume', 'asset_type', 'bid_price', 'bid_volume', 'binance_account_data', 'binance_market_data', 'book_ticker', 'buy', 'client_order_id', 'data_name', 'error', 'event', 'exchange', 'exchange_data', 'exchange_name', 'external_order_id', 'filled', 'gateway', 'get_all_data', 'get_data', 'high_price', 'kind', 'last_price', 'limit', 'local_time', 'low_price', 'market', 'offset', 'open', 'open_price', 'order', 'order_id', 'order_type', 'prev_close', 'price', 'private_key', 'public_key', 'raw', 'secret_key', 'side', 'size', 'status', 'symbol', 'symbols', 'ticker', 'timestamp', 'topic', 'topics', 'trade', 'trade_id', 'turnover', 'type', 'volume', 'wss_name', 'wss_url']

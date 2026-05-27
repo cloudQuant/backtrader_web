@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/exchange_data/okx_exchange_data.py
-# hypothesis_version: 6.148.5
-
-[0.001, 100, 1000, 1000000, '-', '-SWAP', '/', '<currency>', '<period>', '<symbol>', 'BCH-USDT', 'BNB-USDT', 'BTC-USDT', 'DOGE-USDT', 'ETH-USDT', 'FUTURES', 'OP-USDT', 'OkxSwap', 'USDT', 'account', 'args', 'bidAsk', 'books', 'business', 'default', 'depth', 'futures', 'https://www.okx.com', 'instType', 'mark_price', 'okx.yaml', 'okx_exchange_data', 'op', 'orders', 'period', 'positions', 'private', 'public', 'spot', 'subscribe', 'swap', 'symbol', 'tick', 'topic']

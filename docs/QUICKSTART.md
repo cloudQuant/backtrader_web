@@ -191,4 +191,4 @@ DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
 | 模拟交易 | [API 文档 - 模拟交易](API_OVERVIEW.md#9-paper-trading模拟交易) |
 | AI 策略助手 | [AI 策略 Copilot](AI_STRATEGY_COPILOT.md) |
 | 本地开发环境 | [开发指南](DEVELOPMENT.md) |
-| Docker 部署 | 项目根目录 `docker-compose.prod.yml` |
+| Docker 部署 | `docker/compose/prod.yml` 配合根目录 `docker-compose.yml` base |

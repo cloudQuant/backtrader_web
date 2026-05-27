@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures_derivative/futures_contract_info_gfex.py
-# hypothesis_version: 6.148.5
-
-[200, '%Y%m%d', '-', '0', 'Accept', 'Origin', 'Referer', 'User-Agent', '__main__', 'coerce', 'contractId', 'data', 'endDeliveryDate0', 'endTradeDate', 'startTradeDate', 'tick', 'tradeType', 'trade_type', 'unit', 'variety', 'varietyOrder', '交易单位', '合约代码', '品种', '开始交易日', '最后交割日', '最后交易日', '最小变动单位']

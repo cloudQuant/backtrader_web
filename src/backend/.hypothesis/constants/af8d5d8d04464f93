@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_hk_fhpx_ths.py
-# hypothesis_version: 6.148.5
-
-['%Y-%m-%d', '0700', 'User-Agent', '__main__', 'coerce', 'utf-8', '以股代息', '公告日期', '方案', '派息日', '类型', '过户日期起止日-截止', '过户日期起止日-起始', '进度', '除净日']

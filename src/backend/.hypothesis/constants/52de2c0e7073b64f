@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/funding_mixin.py
-# hypothesis_version: 6.148.5
-
-['ALL', 'after', 'amount', 'amt', 'areaCode', 'asset_type', 'baseCcy', 'before', 'buy', 'buy_sell_trade', 'cancel_withdrawal', 'ccy', 'chain', 'clientBillId', 'clientChainId', 'convert_trade', 'depId', 'dest', 'exchange_name', 'fee', 'from', 'fromCcy', 'get_asset_balances', 'get_asset_bills', 'get_asset_valuation', 'get_buy_sell_history', 'get_buy_sell_quote', 'get_convert_history', 'get_currencies', 'get_deposit_address', 'get_deposit_history', 'get_exchange_list', 'get_transfer_state', 'limit', 'month', 'normalize_function', 'pwd', 'quoteCcy', 'quoteId', 'request_type', 'side', 'symbol_name', 'to', 'toAddr', 'toCcy', 'transId', 'transfer', 'type', 'wdId', 'withdrawal']

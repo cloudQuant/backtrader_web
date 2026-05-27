@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_fundamental/stock_profit_forecast_em.py
-# hypothesis_version: 6.148.5
-
-['-', '-1', '1', '500', 'RATING_ORG_NUM', 'RPT_WEB_RESPREDICT', 'WEB_RESPREDICT', 'YEAR1', 'YEAR2', 'YEAR3', 'YEAR4', '_', '__main__', 'coerce', 'columns', 'data', 'filter', 'index', 'p', 'pageNo', 'pageNum', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', '代码', '名称', '序号', '机构投资评级(近六个月)-中性', '机构投资评级(近六个月)-买入', '机构投资评级(近六个月)-减持', '机构投资评级(近六个月)-卖出', '机构投资评级(近六个月)-增持', '研报数', '航运港口']

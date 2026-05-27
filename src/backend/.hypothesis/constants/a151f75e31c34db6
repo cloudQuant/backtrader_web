@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_fundamental/stock_restricted_em.py
-# hypothesis_version: 6.148.5
-
-[10000, '-', '-1', '0', '000001', '000300', '000688', '1', '1,1', '20200904', '20221101', '20221108', '20221202', '20221204', '20221209', '20241202', '399001', '500', '600000', '999999', 'ADD_LISTING_SHARES', 'ALL', 'FREE_DATE', 'RPT_LIFTDAY_STA', 'RPT_LIFT_GD', 'RPT_LIFT_STAGE', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'index', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'quoteType', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '京市A股', '全部股票', '创业板', '剩余未解禁数量', '占总市值比例', '占流通市值比例', '占解禁前流通市值比例', '实际解禁市值', '实际解禁数量', '实际解禁数量市值', '序号', '当日解禁股票家数', '未解禁数量', '沪市A股', '沪深300指数', '沪深300指数涨跌幅', '深市A股', '科创板', '股东名称', '股票代码', '股票简称', '解禁前20日涨跌幅', '解禁前一交易日收盘价', '解禁后20日涨跌幅', '解禁市值', '解禁数量', '解禁时间', '解禁股东数', '进度', '锁定期', '限售股类型']

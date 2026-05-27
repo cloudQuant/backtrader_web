@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/sync.py
-# hypothesis_version: 6.148.5
-
-[3306, '/opt/backtrader_web', '0 B', '127.0.0.1', 'akshare_data', 'backtrader_mysql', 'backtrader_web', 'completed', 'data_only', 'direct_mysql', 'done', 'download', 'dumping', 'failed', 'full', 'importing', 'pending', 'queued', 'root', 'running', 'schema_only', 'ssh_docker', 'transferring', 'upload', 'validating', 'verifying', '~/.ssh/id_rsa']

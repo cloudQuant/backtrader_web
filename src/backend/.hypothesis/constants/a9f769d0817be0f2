@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/qhkc_web/qhkc_index.py
-# hypothesis_version: 6.148.5
-
-['20250410', '__main__', 'broker', 'data', 'date', 'date1', 'date2', 'grade', 'id', 'index', 'indexes', 'limit', 'line', 'long_short_ratio', 'margin', 'money', 'name', 'open_interest', 'open_order', 'openint', 'order_money', 'page', 'price', 'profit', 'total_value', 'trans_date', 'value', 'variety', 'volume', '奇货商品', '奇货谷物', '奇货贵金属', '数据获取成功']

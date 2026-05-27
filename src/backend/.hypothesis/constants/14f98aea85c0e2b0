@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_a_pe_and_pb.py
-# hypothesis_version: 6.148.5
-
-['000009.SH', '000010.SH', '000015.SH', '000016.SH', '000300.SH', '000852.SH', '000903.SH', '000905.SH', '000906.SH', '1', '2', '399324.SZ', '399330.SZ', '399673.SZ', '4', '7', 'Asia/Shanghai', '__main__', 'addLyrPe', 'addPb', 'addTtmPe', 'close', 'data', 'date', 'hex', 'indexCode', 'lyrPe', 'marketId', 'middleLyrPe', 'middlePb', 'middleTtmPe', 'ms', 'pb', 'pe', 'token', 'ttmPe', '上证', '上证180', '上证380', '上证50', '上证红利', '中证100', '中证1000', '中证500', '中证800', '创业板', '创业板50', '市净率', '市净率中位数', '市盈率', '平均市盈率', '总市值', '指数', '日期', '沪深300', '深证', '深证100', '深证红利', '滚动市盈率', '滚动市盈率中位数', '科创版', '等权市净率', '等权滚动市盈率', '等权静态市盈率', '静态市盈率', '静态市盈率中位数']

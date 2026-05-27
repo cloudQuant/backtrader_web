@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/algo.py
-# hypothesis_version: 6.148.5
-
-['ALGO', 'asset_type', 'binance_algo_feed', 'logger_name']

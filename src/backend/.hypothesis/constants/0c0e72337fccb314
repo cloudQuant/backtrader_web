@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/workspace.py
-# hypothesis_version: 6.148.5
-
-[100, 200, 252, 500, '1d', 'Classification tag', 'Description', 'Group name', 'K-line timeframe', 'Settings JSON', 'Strategy template ID', 'Symbol display name', 'Timeframe multiplier', 'Trading symbol code', 'Workspace name', 'custom', 'equal', 'float', 'grid', 'idle', 'paper', 'research', 'simple']

@@ -1,12 +1,4 @@
 #!/bin/bash
-
-###############################################################################
-# Backtrader Web - 启动脚本 (根目录快捷方式)
-# 此脚本用于快速启动前端和后端服务
-###############################################################################
-
-# 获取脚本所在目录
+# Deprecated root shim; use ./scripts/app.sh start instead.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# 调用 scripts 目录下的启动脚本
-bash "$SCRIPT_DIR/scripts/start_app.sh" "$@"
+exec bash "$SCRIPT_DIR/scripts/app.sh" start "$@"

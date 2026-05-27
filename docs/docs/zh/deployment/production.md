@@ -118,8 +118,8 @@ mysqldump -h prod-db -u user -p backtrader > backup.sql
 git pull origin main
 
 # 重新构建
-docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.yml -f docker/compose/prod.yml build
 
 # 重启
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 ```

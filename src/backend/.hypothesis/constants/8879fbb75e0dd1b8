@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/containers/trades/binance_trade.py
-# hypothesis_version: 6.148.5
-
-['AggTradeUpdate', 'BINANCE', 'E', 'L', 'N', 'T', 'a', 'c', 'commission', 'commissionAsset', 'f', 'first_trade_id', 'i', 'id', 'l', 'last_trade_id', 'local_update_time', 'm', 'maker', 'n', 'o', 'orderId', 'p', 'price', 'ps', 'q', 'qty', 's', 'server_time', 'side', 'symbol', 'symbol_name', 't', 'taker', 'time', 'trade_id', 'trade_price', 'trade_symbol_name', 'trade_time', 'trade_type', 'trade_volume', 'z']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/monitoring.py
-# hypothesis_version: 6.148.5
-
-[200, 'Additional details.', 'Alert id.', 'Alert message.', 'Alert severity.', 'Alert status.', 'Alert title.', 'Alert type.', 'Created at.', 'HTTP method.', 'Items.', 'Last triggered time.', 'Optional headers.', 'Owner user id.', 'POST', 'Rule description.', 'Rule id.', 'Rule name.', 'Symbol.', 'Threshold value.', 'Total count.', 'Trigger count.', 'Trigger type.', 'Updated at.', 'Webhook URL.', 'Whether to send SMS.', 'account', 'acknowledged', 'active', 'cash', 'critical', 'cross', 'error', 'ignored', 'info', 'lt', 'manual', 'order', 'performance', 'position', 'rate', 'resolved', 'risk', 'sharpe_ratio', 'strategy', 'system', 'threshold', 'unrealized_pnl', 'warning']

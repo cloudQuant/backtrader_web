@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/status.py
-# hypothesis_version: 6.148.5
-
-[5.0, 503, '/health', '/status/cache', '/status/routers', '2.0.0', 'Cache statistics', 'Health check', 'SELECT 1', 'cache', 'database', 'get_stats', 'healthy', 'optional_routers', 'stats_unavailable', 'status', 'type', 'unhealthy', 'unknown', 'uptime', 'version']

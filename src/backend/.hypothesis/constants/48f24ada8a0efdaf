@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/index/index_stock_hk.py
-# hypothesis_version: 6.148.5
-
-['"', ',', '-', '1', '100', '10000', '101', '2', '2023_5_01', '20500000', ';', '=', 'CES100', 'HSAHP', 'HSTECF2L', 'HSTECH', 'Referer', '\\d+', '_', '__main__', 'close', 'coerce', 'd', 'data', 'date', 'end', 'f12', 'f13', 'f14', 'f15', 'f16', 'f17', 'f18', 'f2', 'f3', 'f4', 'f5', 'f6', 'fid', 'fields', 'fields1', 'fields2', 'fltt', 'forcect', 'fqt', 'fs', 'high', 'index', 'invt', 'iscca', 'klines', 'klt', 'latest', 'lmt', 'low', 'm:124,m:125,m:305', 'np', 'open', 'pn', 'po', 'pz', 'secid', 'ut', 'volume', 'wbp2u', '|0|0|0|web', '今开', '代码', '内部编号', '名称', '序号', '成交量', '成交额', '昨收', '最低', '最新价', '最高', '涨跌幅', '涨跌额']

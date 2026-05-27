@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_ipo_summary_cninfo.py
-# hypothesis_version: 6.148.5
-
-['*/*', '0', '600030', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Content-Length', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'getResCode1', 'gzip, deflate', 'index', 'keep-alive', 'no-cache', 'records', 'scode', 'utf8', 'webapi.cninfo.com.cn', '上市日期', '上网发行中签率', '上网发行日期', '中签率公告日', '主承销商', '募集资金净额', '发行价格', '发行前每股净资产', '发行后每股净资产', '发行费用总额', '总发行数量', '招股公告日期', '摊薄发行市盈率', '每股面值', '股票代码']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/exceptions.py
-# hypothesis_version: 6.148.5
-
-['AuthenticationError', 'BtApiError', 'Configuration error', 'ConfigurationError', 'Data parse error', 'DataParseError', 'DataQueue', 'Insufficient balance', 'InvalidOrderError', 'InvalidSymbolError', 'NetworkError', 'OrderError', 'OrderNotFoundError', 'RateLimitError', 'Request failed', 'RequestError', 'RequestFailedError', 'RequestTimeoutError', 'SubscribeError', 'WebSocketError', '__slots__', 'available', 'container_class', 'currency', 'detail', 'exchange_name', 'is_auth_error', 'is_network_error', 'is_order_error', 'is_rate_limit_error', 'is_user_recoverable', 'order_id', 'queue_name', 'required', 'retry_after', 'status_code', 'symbol', 'timeout', 'unknown', 'url', 'venue']

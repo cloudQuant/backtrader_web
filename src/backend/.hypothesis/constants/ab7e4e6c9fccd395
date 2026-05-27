@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/optimization_task_gateway.py
-# hypothesis_version: 6.148.5
-
-['DB cancel failed: %s', 'completed', 'failed', 'results', 'status']

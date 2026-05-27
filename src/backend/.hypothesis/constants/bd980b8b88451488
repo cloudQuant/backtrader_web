@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/knowledge_base.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.08, 0.1, 0.2, 0.35, 1.0, 255, 500, 1000, 'after', 'before', 'draft', 'exploration', 'general', 'hybrid', 'implementation', 'keyword', 'markdown', 'metadata_json', 'not_indexed', 'precision', 'quant_research', 'settings', 'strategy_research', 'strategy_review']

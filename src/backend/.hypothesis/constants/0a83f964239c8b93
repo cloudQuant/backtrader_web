@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/gateway/order_ref_allocator.py
-# hypothesis_version: 6.148.5
-
-['.tmp', 'account_id', 'last_order_ref', 'state_file', 'utf-8', 'w']

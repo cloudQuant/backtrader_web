@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_rule.py
-# hypothesis_version: 6.148.5
-
-['%', '20231205', '20250328', '__main__', 'coerce', 'date', '交易保证金比例', '合约乘数', '最小变动价位', '涨跌停板幅度', '限价单每笔最大下单手数']

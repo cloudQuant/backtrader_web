@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_daily_stats_sse_szse.py
-# hypothesis_version: 6.148.5
-
-['*/*', ',', '-', '0.0652692406565949', '20240626', 'Accept', 'Accept-Encoding', 'Accept-Language', 'CALL_VOLUME', 'CATALOGID', 'CONTRACT_VOLUME', 'CP_RATE', 'Cache-Control', 'Connection', 'Host', 'JSON', 'LEAVES_CALL_QTY', 'LEAVES_PUT_QTY', 'LEAVES_QTY', 'PUT_VOLUME', 'Pragma', 'Referer', 'SECURITY_ABBR', 'SECURITY_CODE', 'SHOWTYPE', 'TABKEY', 'TOTAL_MONEY', 'TOTAL_VOLUME', 'TRADE_DATE', 'User-Agent', '__main__', 'bddm', 'bdmc', 'cjl', 'coerce', 'data', 'false', 'gzip, deflate', 'isPagination', 'keep-alive', 'no-cache', 'query.sse.com.cn', 'random', 'rccjl', 'rcrpccb', 'result', 'rpcjl', 'sqlId', 'tab1', 'tradeDate', 'txtQueryDate', 'wpchyzs', 'wpcrchys', 'wpcrphys', 'ysprdzb', '交易日', '合约数量', '合约标的代码', '合约标的名称', '总成交量', '总成交额', '成交量', '未平仓合约总数', '未平仓认沽合约数', '未平仓认购合约数', '认沽/认购', '认沽/认购持仓比', '认沽成交量', '认购成交量']

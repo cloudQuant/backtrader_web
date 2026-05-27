@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/fund/fund_etf_ths.py
-# hypothesis_version: 6.148.5
-
-['-', '20240620', '__main__', 'code', 'coerce', 'data', 'index', 'name', 'net', 'net1', 'newdate', 'newnet', 'newtotalnet', 'ranges', 'rate', 'sgstat', 'shstat', 'totalnet', 'totalnet1', 'typename', '前一日-单位净值', '前一日-累计净值', '基金代码', '基金名称', '基金类型', '增长值', '增长率', '序号', '当前-单位净值', '当前-累计净值', '最新-交易日', '最新-单位净值', '最新-累计净值', '查询日期', '申购状态', '赎回状态']

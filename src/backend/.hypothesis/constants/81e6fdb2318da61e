@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/spot.py
-# hypothesis_version: 6.148.5
-
-['0', 'SPOT', 'asset_type', 'code', 'data', 'exchange_name', 'get_index_price', 'idxPx', 'instId', 'logger_name', 'normalize_function', 'okx_spot_feed', 'okx_spot_feed.log', 'request_type', 'symbol_name', 'ts']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/sub_account.py
-# hypothesis_version: 6.148.5
-
-['ALL', 'API_KEY', 'IP_RESTRICTION', 'SUB_ACCOUNT', 'amount', 'asset', 'asset_type', 'binance_sub_account', 'canTrade', 'create_sub_api_key', 'delete_sub_api_key', 'email', 'endTime', 'exchange_data', 'exchange_name', 'fromEmail', 'fromType', 'futuresType', 'get_sub_account_list', 'get_sub_api_key', 'isFreeze', 'limit', 'logger_name', 'main_transfer_to_sub', 'marginTrade', 'normalize_function', 'publicKey', 'request_type', 'startTime', 'sub_transfer_to_main', 'sub_transfer_to_sub', 'symbol_name', 'toEmail', 'toType']

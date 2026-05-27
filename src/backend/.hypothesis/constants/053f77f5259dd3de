@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/index/index_eri.py
-# hypothesis_version: 6.148.5
-
-['1', '5000', 'MONTH', 'QUARTER', 'User-Agent', '__main__', 'coerce', 'cycle', 'data', 'indexId', 'indexValue', 'orderBy', 'pageSize', 'publishTime', 'regionId', 'stage', 'stage.publishTime', 'structId', 'totalCost', 'totalQuantity', '交易指数', '季度', '成交量', '成交额', '日期', '月度']

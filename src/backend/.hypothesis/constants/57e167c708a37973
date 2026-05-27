@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/comparison.py
-# hypothesis_version: 6.148.5
-
-[200, 'BacktestTask', 'Comparison', 'ComparisonShare', 'User', 'backtest_comparisons', 'backtest_task_id', 'backtest_tasks.id', 'comparison', 'comparison_id', 'comparison_shares', 'comparisons', 'drawdown', 'equity', 'metrics', 'shares', 'trades', 'users.id']

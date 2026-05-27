@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/pymt5/pymt5/_market_data.py
-# hypothesis_version: 6.148.5
-
-[0.0, '<I', '_T', '_subscribed_ids', 'basis', 'digits', 'limit_per_symbol', 'pymt5.client', 'sector', 'symbol', 'symbol_description', 'symbol_id', 'symbol_path', 'symbols_tracked', 'tick_time_ms', 'total_ticks', 'trade_calc_mode', 'trade_symbol']

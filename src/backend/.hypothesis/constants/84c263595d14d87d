@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/user.py
-# hypothesis_version: 6.148.5
-
-[100, 128, 'Account', 'Alert', 'AlertRule', 'BacktestTask', 'Comparison', 'OptimizationTask', 'RefreshToken', 'Strategy', 'User', 'Workspace', 'all, delete-orphan', 'refresh_tokens', 'user', 'users', 'users.id']

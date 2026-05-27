@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/index/index_stock_zh_csindex.py
-# hypothesis_version: 6.148.5
-
-['%Y%m%d', '000928', '20100101', '20180526', '20240604', 'H30374', '__main__', 'coerce', 'data', 'endDate', 'indexCode', 'startDate', '市盈率1', '市盈率2', '开盘', '成交量', '成交金额', '指数中文全称', '指数中文简称', '指数代码', '指数英文全称', '指数英文简称', '收盘', '日期', '最低', '最高', '样本数量', '涨跌', '涨跌幅', '滚动市盈率', '股息率1', '股息率2']

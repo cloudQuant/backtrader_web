@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/utils/exceptions.py
-# hypothesis_version: 6.148.5
-
-[500, 'AUTHENTICATION_ERROR', 'An error occurred', 'BACKTEST_ERROR', 'Backtest not found', 'CONFIGURATION_ERROR', 'Configuration error', 'DATA_ERROR', 'DataNotFoundError', 'DataProviderError', 'Invalid date range', 'InvalidConfigError', 'InvalidInputError', 'InvalidTokenError', 'MissingConfigError', 'MissingFieldError', 'PasswordTooWeakError', 'STRATEGY_ERROR', 'Strategy not found', 'Token has expired', 'User already exists', 'User not found', 'UserInactiveError', 'UserNotFoundError', 'VALIDATION_ERROR', 'Validation failed', 'details', 'email', 'end_date', 'error', 'field', 'line', 'logs', 'message', 'provided_value_type', 'reason', 'required_permission', 'requirements', 'resource', 'service', 'setting', 'start_date', 'strategy_id', 'symbol', 'task_id', 'user_id', 'username', 'value_type']

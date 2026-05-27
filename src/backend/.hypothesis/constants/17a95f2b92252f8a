@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/status_mixin.py
-# hypothesis_version: 6.148.5
-
-['0', 'SYSTEM', 'announcementType', 'asset_type', 'code', 'data', 'details', 'exchange_name', 'get_announcements', 'get_system_status', 'limit', 'normalize_function', 'page', 'request_type', 'state', 'symbol_name']

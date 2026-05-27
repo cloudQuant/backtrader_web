@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_zh_b_sina.py
-# hypothesis_version: 6.148.5
-
-[10000, '"', ');', '-', '09:31:00', '1', '15:00:00', '1970', '19900101', '19900103', '20071103', '20101103', '20201103', '20201116', '20210510', '20240722', '20240916', '21000118', '5', '80', ';', '=', '=(', 'DEFAULT@SECLEVEL=1', '[', '\\d+', ']', '_', '__main__', '_s_r_a', 'amount', 'asc', 'close', 'close_x', 'close_y', 'coerce', 'd', 'data', 'datalen', 'date', 'day', 'float', 'hfq', 'hfq-factor', 'hfq_factor', 'high', 'hs_b', 'https://', 'last', 'low', 'node', 'num', 'open', 'outer', 'outstanding_share', 'page', 'prevclose', 'qfq', 'qfq-factor', 'qfq_factor', 'scale', 'sh900901', 'sort', 'ssl_context', 'symbol', 'time', 'turnover', 'volume', '买入', '今开', '代码', '卖出', '名称', '成交量', '成交额', '昨收', '最低', '最新价', '最高', '涨跌幅', '涨跌额']

@@ -17,7 +17,7 @@ cp src/backend/.env.example src/backend/.env
 # Edit .env with your configuration
 
 # Start services
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 ```
 
 ## Services
@@ -75,7 +75,7 @@ BACKEND_LOGS_DIR=./runtime/backend/logs
 ./scripts/certbot-init.sh
 
 # Start with certificate
-docker compose -f docker-compose.prod.yml up -d certbot
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d certbot
 ```
 
 ### Custom Certificate
@@ -108,7 +108,7 @@ volumes:
 curl http://localhost/health
 
 # View container status
-docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.yml -f docker/compose/prod.yml ps
 ```
 
 ## Troubleshooting
@@ -119,7 +119,7 @@ docker compose -f docker-compose.prod.yml ps
 # Check what's using port 80
 lsof -i :80
 
-# Change port in docker-compose.prod.yml
+# Change port in docker/compose/prod.yml
 ports:
   - "8080:80"
 ```

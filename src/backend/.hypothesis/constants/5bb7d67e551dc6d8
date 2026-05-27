@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_value_em.py
-# hypothesis_version: 6.148.5
-
-['-1', '1', '300766', '5000', 'ALL', 'CHANGE_RATE', 'CLOSE_PRICE', 'FREE_SHARES_A', 'PB_MRQ', 'PCF_OCF_TTM', 'PE(TTM)', 'PE(静)', 'PEG_CAR', 'PEG值', 'PE_LAR', 'PE_TTM', 'PS_TTM', 'TOTAL_MARKET_CAP', 'TOTAL_SHARES', 'TRADE_DATE', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'pageNumber', 'pageSize', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '市净率', '市现率', '市销率', '当日收盘价', '当日涨跌幅', '总市值', '总股本', '数据日期', '流通市值', '流通股本']

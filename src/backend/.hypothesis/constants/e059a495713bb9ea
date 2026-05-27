@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_mt5/src/bt_api_mt5/plugin.py
-# hypothesis_version: 6.148.5
-
-['>=0.15,<1.0', 'FX', 'MT5', 'MT5___FX', 'MT5___STK', 'STK', 'bt_api_mt5']

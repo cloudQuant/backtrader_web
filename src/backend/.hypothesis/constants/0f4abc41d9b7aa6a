@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/risk_control.py
-# hypothesis_version: 6.148.5
-
-[0.1, 5.0, 20.0, 30.0, 80.0, 100000.0, 100, 500, 1000, '/alerts', '/config', '/reset-daily', '/risk-control', 'Clear risk alerts', 'Get risk alerts', 'Reset daily counters', 'Risk Control', 'cleared', 'message', 'success', '单品种最大仓位比例(%)', '单笔最大金额', '启用仓位限制', '启用止损', '启用止盈', '总仓位上限(%)', '日亏损上限(%)', '最大回撤限制(%)', '止损比例(%)', '止盈比例(%)', '每日最大交易次数']

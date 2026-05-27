@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/swap.py
-# hypothesis_version: 6.148.5
-
-['SWAP', 'asset_type', 'binance_swap_feed', 'logger_name']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/registry_registration.py
-# hypothesis_version: 6.148.5
-
-['OKX___SPOT', 'OKX___SPOT_account', 'OKX___SWAP', 'OKX___SWAP_account', 'account', 'exchange_data', 'okx_market_data', 'orders', 'positions', 'subscribe', 'topic', 'topics', 'wss_name', 'wss_url']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/optimization_thread_runner.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'artifact_path', 'artifact_root', 'best_result', 'completed', 'error', 'exit_code', 'failed', 'failed_trials', 'manifest.json', 'metrics', 'params', 'running', 'status', 'success', 'success_rate', 'successful_trials', 'summary.json', 'task_id', 'total_trials', 'trial_artifacts', 'trial_index', 'updated_at', 'utf-8', 'w', 'worker exception']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/data.py
-# hypothesis_version: 6.148.5
-
-[404, 500, '-', '.', '/kline', 'End date YYYY-MM-DD', 'Query K-line data', 'change', 'change_pct', 'close', 'count', 'daily', 'date', 'dates', 'high', 'kline', 'low', 'ohlc', 'open', 'qfq', 'records', 'symbol', 'volume', 'volumes', '开盘', '成交量', '收盘', '日期', '最低', '最高', '涨跌幅']

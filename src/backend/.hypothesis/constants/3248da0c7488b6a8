@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/strategy.py
-# hypothesis_version: 6.148.5
-
-[100, 400, 404, '/', '/copilot/draft', '/templates', '/{strategy_id}', 'Create strategy', 'Delete strategy', 'Deleted successfully', 'Filter by category', 'Get strategy detail', 'List strategies', 'README not found', 'Strategy not found', 'Update strategy', 'backtest', 'config.yaml', 'content', 'data', 'message', 'params', 'strategy', 'strategy_id', 'template_id', 'templates', 'total', 'utf-8']

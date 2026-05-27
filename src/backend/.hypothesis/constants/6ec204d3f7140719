@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/mining.py
-# hypothesis_version: 6.148.5
-
-['ALL', 'MINING', 'algo', 'asset_type', 'binance_mining', 'binance_mining_feed', 'exchange_data', 'exchange_name', 'get_mining_algo_list', 'logger_name', 'normalize_function', 'request_type', 'symbol_name', 'userName']

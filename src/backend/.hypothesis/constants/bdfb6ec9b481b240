@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/akshare_scripts.py
-# hypothesis_version: 6.148.5
-
-[200, '/scripts', '/scripts/categories', '/scripts/scan', '/scripts/stats', '/scripts/{script_id}', 'Script not found', 'execution_id', 'items', 'page', 'page_size', 'status', 'total']

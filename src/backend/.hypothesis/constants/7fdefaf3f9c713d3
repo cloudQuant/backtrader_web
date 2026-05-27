@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/containers/ctp/ctp_account.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'AccountID', 'Available', 'Balance', 'BrokerID', 'CNY', 'CTP', 'CloseProfit', 'Commission', 'CurrMargin', 'Deposit', 'FUTURE', 'FrozenMargin', 'PositionProfit', 'PreBalance', 'Withdraw', 'account_id', 'asset_type', 'available', 'balance', 'close_profit', 'commission', 'curr_margin', 'exchange_name', 'frozen_margin', 'position_profit', 'pre_balance', 'risk_degree']

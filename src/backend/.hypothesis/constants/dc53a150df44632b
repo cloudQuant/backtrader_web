@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/live_trading_instance.py
-# hypothesis_version: 6.148.5
-
-['0000000000000000', '123456', '9999', 'AAPL', 'CTP', 'Creation time', 'DU123456', 'Error message', 'Field label', 'Gateway field key', 'IB_WEB', 'Last start time', 'Last stop time', 'Latest log directory', 'Preset ID', 'Preset description', 'Preset name', 'Process PID', 'Runtime parameters', 'STK', 'Status message', 'Strategy name', 'Unique gateway key', 'Unique instance ID', 'account_id', 'app_id', 'asset_type', 'auth_code', 'base_url', 'broker_id', 'credentials', 'enabled', 'example', 'exchange_type', 'gateway', 'md_front', 'params', 'password', 'provider', 'secret', 'simnow_client_test', 'stopped', 'strategy_id', 'symbol', 'td_front', 'user_id', 'verify_ssl']

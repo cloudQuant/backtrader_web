@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/rate_limiter.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.05, 1.0, 'FixedWindowLimiter', 'RateLimitRule', 'RateLimitScope', 'RateLimitType', 'RateLimiter', 'SlidingWindowLimiter', 'current', 'endpoint', 'fixed_window', 'global', 'interval', 'ip', 'limit', 'release', 'sliding_window', 'token_bucket', 'type']

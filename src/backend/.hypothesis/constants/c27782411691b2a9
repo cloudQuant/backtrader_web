@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/akshare_interface_loader.py
-# hypothesis_version: 6.148.5
-
-['DataFrame', '_', 'akshare', 'bond', 'bool', 'created', 'default', 'economic', 'float', 'forex', 'fund', 'futures', 'index', 'int', 'kwargs', 'macro', 'required', 'self', 'stock', 'updated', '债券数据', '基金数据', '外汇数据', '宏观数据', '指数数据', '期货数据', '经济数据', '股票数据']

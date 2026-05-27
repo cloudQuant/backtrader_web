@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_zh_a_special.py
-# hypothesis_version: 6.148.5
-
-['1', '100', '2', '80', '_', '__main__', '_s_r_a', 'amount', 'asc', 'code', 'coerce', 'f26', 'f3', 'fid', 'fields', 'fltt', 'fs', 'gb2312', 'high', 'invt', 'low', 'm:0 f:4,m:1 f:4', 'm:0 f:8,m:1 f:8', 'm:0 s:3', 'mktcap', 'name', 'new_stock', 'node', 'np', 'num', 'open', 'page', 'pn', 'po', 'pz', 'sort', 'symbol', 'turnoverratio', 'ut', 'volume', '今开', '代码', '名称', '市净率', '市盈率-动态', '序号', '成交量', '成交额', '振幅', '换手率', '昨收', '最低', '最新价', '最高', '涨跌幅', '涨跌额', '量比']

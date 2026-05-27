@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/assets/okx_asset.py
-# hypothesis_version: 6.148.5
-
-['1', 'ANY', 'OKX', 'SWAP', 'addr', 'address', 'amount', 'amt', 'asset_type', 'availBal', 'available_balance', 'bal', 'balance', 'btcEq', 'btc_valuation', 'canDep', 'canInternal', 'canWd', 'can_deposit', 'can_internal', 'can_withdraw', 'ccy', 'chain', 'currency', 'depId', 'deposit_id', 'exchange_name', 'fee', 'from', 'from_account', 'frozenBal', 'frozen_balance', 'local_update_time', 'minWd', 'min_withdrawal_amt', 'name', 'state', 'status', 'symbol_name', 'timestamp', 'to', 'to_account', 'to_address', 'totalEq', 'total_valuation', 'transId', 'transfer_id', 'ts', 'txId', 'tx_id', 'valuation_currency', 'wdFee', 'wdId', 'withdrawal_fee', 'withdrawal_id']

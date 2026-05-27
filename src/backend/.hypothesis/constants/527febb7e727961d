@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/pymt5/pymt5/_account.py
-# hypothesis_version: 6.148.5
-
-[0.0, 128, 256, 260, 320, 500, 512, 520, 5687, '15 Mar 2026', '_T', 'balance', 'build', 'commission', 'commondata_path', 'company', 'connected', 'credit', 'currency', 'data_path', 'equity', 'is_read_only', 'leverage', 'little', 'margin', 'margin_free', 'margin_level', 'name', 'orders', 'path', 'positions', 'profit', 'pymt5.client', 'server', 'server_build', 'server_name', 'server_offset_time', 'storage', 'timezone_shift', 'trade_allowed', 'tradeapi_disabled']

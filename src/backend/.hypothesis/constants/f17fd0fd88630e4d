@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/bank/cons.py
-# hypothesis_version: 6.148.5
-
-['*/*', '1', 'Accept', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Connection', 'Host', 'Pragma', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', 'gzip, deflate', 'keep-alive', 'no-cache', 'www.nfra.gov.cn']

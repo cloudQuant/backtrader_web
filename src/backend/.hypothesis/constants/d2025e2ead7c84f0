@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_cyq_em.py
-# hypothesis_version: 6.148.5
-
-['%Y%m%d', ',', '0', '000001', '1', '101', '2', '210', '6', '70', '70成本-低', '70成本-高', '70集中度', '90', '90成本-低', '90成本-高', '90集中度', 'CYQCalculator', '__main__', 'avgCost', 'benefitPart', 'close', 'coerce', 'concentration', 'data', 'date', 'end', 'f1,f2,f3,f4,f5,f6', 'fields1', 'fields2', 'fqt', 'hfq', 'high', 'hsl', 'index', 'klines', 'klt', 'lmt', 'low', 'open', 'percentChips', 'priceRange', 'qfq', 'records', 'secid', 'volume', 'volume_money', 'zde', 'zdf', 'zf', '平均成本', '日期', '获利比例']

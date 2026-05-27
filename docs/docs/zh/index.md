@@ -74,7 +74,7 @@ cd src/frontend && npm run dev
 
 **Docker 部署：**
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 ```
 
 ### 访问地址

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/ctp_env_selector.py
-# hypothesis_version: 6.148.5
-
-['1', 'CTP_ENV', 'CTP_MD_FRONT', 'CTP_SET1_GROUP', 'CTP_SET2_MD_FRONT', 'CTP_SET2_TD_FRONT', 'CTP_TD_FRONT', 'auto', 'set1', 'set2', 'set2_7x24']

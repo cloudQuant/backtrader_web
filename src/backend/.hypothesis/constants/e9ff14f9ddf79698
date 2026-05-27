@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_hold_control_cninfo.py
-# hypothesis_version: 6.148.5
-
-['*/*', '/', '0', '012001', '012002', '012015', '012029', '012046', '069001', '069002', '069003', '069004', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'B', 'Cache-Control', 'Content-Length', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'S', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'ctype', 'edate', 'getResCode1', 'gzip, deflate', 'keep-alive', 'market', 'no-cache', 'records', 'sdate', 'utf-8', 'varytype', 'webapi.cninfo.com.cn', '一致行动人', '交易市场', '全部', '公告日期', '减持', '创业板', '北交所', '单独控制', '变动人与董监高关系', '变动原因', '变动数量', '变动日期', '变动比例', '增持', '实际控制人', '实际控制人名称', '家族控制', '已流通比例', '已流通股份', '总股本', '成交均价', '截止日期', '持股变动原因', '控制类型', '控股数量', '控股比例', '数据来源', '期初持股数量', '期末市值', '期末持股数量', '沪市', '流通受限股份', '深市主板', '直接控制人名称', '科创板', '董监高姓名', '董监高职务', '证券代码', '证券简称', '高管姓名']

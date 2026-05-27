@@ -5,7 +5,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_ROOT = REPO_ROOT / "src" / "backend"
-os.environ.setdefault("DATABASE_URL", f"sqlite+aiosqlite:///{(BACKEND_ROOT / 'backtrader.db').resolve()}")
+os.environ.setdefault(
+    "DATABASE_URL", f"sqlite+aiosqlite:///{(REPO_ROOT / 'data' / 'dev' / 'backtrader.db').resolve()}"
+)
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 

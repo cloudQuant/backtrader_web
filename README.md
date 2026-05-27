@@ -111,7 +111,7 @@ cd src/frontend && npm run dev
 **Docker 部署：**
 ```bash
 # 生产环境
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 ```
 
 ### 访问地址
@@ -189,7 +189,7 @@ backtrader_web/
 ```bash
 # 数据库 (默认SQLite)
 DATABASE_TYPE=sqlite
-DATABASE_URL=sqlite+aiosqlite:///./backtrader.db
+DATABASE_URL=sqlite+aiosqlite:///../../data/dev/backtrader.db
 
 # 可选: 使用 PostgreSQL
 # DATABASE_TYPE=postgresql

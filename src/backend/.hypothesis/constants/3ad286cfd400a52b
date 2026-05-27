@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/portfolio.py
-# hypothesis_version: 6.148.5
-
-['ALL', 'PORTFOLIO', 'amount', 'asset', 'assetType', 'asset_type', 'binance_portfolio', 'exchange_data', 'exchange_name', 'logger_name', 'normalize_function', 'portfolio_transfer', 'request_type', 'symbol_name', 'type']

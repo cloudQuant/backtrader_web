@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/kb_chat_service.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'AI对话', 'answer', 'assistant', 'assistant_mode', 'backtrader_strategy', 'citations', 'content', 'context_chunks_used', 'conversation_id', 'created_at', 'default_top_k', 'diagnostic_message', 'diagnostics', 'id', 'knowledge_qa', 'min_similarity', 'model_id', 'reason_code', 'reasoning', 'role', 'settings', 'strategy_draft', 'strategy_idea', 'strategy_review', 'title', 'tokens_used', 'user', 'user_id', '新对话', '未找到助手回复记录。', '用户问题', '知识问答', '策略审查', '策略构思', '策略生成']

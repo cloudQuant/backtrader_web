@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_yjyg_em.py
-# hypothesis_version: 6.148.5
-
-['-1,-1', '1', '1,1', '20200331', '20211231', '20250331', '500', 'ALL', 'RPT_FCI_PERFORMANCEE', 'RPT_PUBLIC_BS_APPOIN', 'ST板', '_', '__main__', 'coerce', 'columns', 'data', 'filter', 'index', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', '一次变更日期', '三次变更日期', '上年同期值', '业绩变动', '业绩变动原因', '业绩变动幅度', '二次变更日期', '京市A股', '公告日期', '净利润-净利润', '净利润-去年同期', '净利润-同比增长', '净利润-季度环比增长', '净资产收益率', '创业板', '实际披露时间', '市场板块', '序号', '所处行业', '报告日期', '每股净资产', '每股收益', '沪市A股', '沪深A股', '深市A股', '科创板', '股票代码', '股票简称', '营业收入-去年同期', '营业收入-同比增长', '营业收入-季度环比增长', '营业收入-营业收入', '证券类型', '预告类型', '预测指标', '预测数值', '首次预约时间']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_ask_bid_em.py
-# hypothesis_version: 6.148.5
-
-[100, '000001', '2', '6', '__main__', 'buy_1', 'buy_1_vol', 'buy_2', 'buy_2_vol', 'buy_3', 'buy_3_vol', 'buy_4', 'buy_4_vol', 'buy_5', 'buy_5_vol', 'data', 'f11', 'f12', 'f13', 'f14', 'f15', 'f16', 'f161', 'f168', 'f169', 'f17', 'f170', 'f18', 'f19', 'f20', 'f31', 'f32', 'f33', 'f34', 'f35', 'f36', 'f37', 'f38', 'f39', 'f40', 'f43', 'f44', 'f45', 'f46', 'f47', 'f48', 'f49', 'f50', 'f51', 'f52', 'f60', 'f71', 'fields', 'fltt', 'index', 'invt', 'item', 'secid', 'sell_1', 'sell_1_vol', 'sell_2', 'sell_2_vol', 'sell_3', 'sell_3_vol', 'sell_4', 'sell_4_vol', 'sell_5', 'sell_5_vol', 'value', '今开', '内盘', '均价', '外盘', '总手', '换手', '昨收', '最低', '最新', '最高', '涨停', '涨幅', '涨跌', '跌停', '量比', '金额']

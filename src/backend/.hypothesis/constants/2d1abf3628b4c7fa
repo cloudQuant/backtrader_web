@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/param_optimization_service.py
-# hypothesis_version: 6.148.5
-
-[0.0, 600, '-inf', '_run_async', 'annual_return', 'bayesian', 'categorical', 'choices', 'completed', 'created_at', 'error', 'failed', 'float', 'grid', 'inf', 'int', 'max', 'max_drawdown', 'metrics', 'min', 'minimize', 'n_workers', 'param_names', 'param_ranges', 'params', 'persist_to_db', 'request', 'results', 'sharpe_ratio', 'status', 'strategy_id', 'task_id', 'total', 'total_return', 'type', 'user_id', 'win_rate']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/akshare_script_service.py
-# hypothesis_version: 6.148.5
-
-['*.py', '.', '.py', 'DESCRIPTION', 'ENTRYPOINT', 'SCRIPT_NAME', 'Script is not active', 'Script not found', 'TARGET_TABLE', '_', '__', '__self__', 'active_scripts', 'akshare', 'app', 'categories', 'category', 'columns', 'custom_scripts', 'data', 'description', 'errors', 'fetch_data', 'frequency', 'function_name', 'main', 'misc', 'module_path', 'records', 'registered', 'row_count', 'run', 'save_data', 'script_id', 'script_name', 'source', 'sub_category', 'table_name', 'target_table', 'total_scripts', 'updated']

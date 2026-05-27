@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_jgdy_em.py
-# hypothesis_version: 6.148.5
-
-['-1,-1,-1,1', '-1,-1,1,-1', '0', '1', '20180928', '20210915', '20220101', '20241211', '50', '500', 'ALL', 'DEFAULT@SECLEVEL=1', 'RPT_ORG_SURVEY', 'RPT_ORG_SURVEYNEW', 'WEB', '_', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'https://', 'index', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'quoteType', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'ssl_context', '代码', '公告日期', '名称', '序号', '接待人员', '接待地点', '接待方式', '接待日期', '接待机构数量', '最新价', '机构类型', '涨跌幅', '调研人员', '调研日期', '调研机构']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_fund_flow.py
-# hypothesis_version: 6.148.5
-
-['%', '/', '10日排行', '20日排行', '3日排行', '5日排行', 'Accept', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Connection', 'Host', 'Pragma', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'class', 'coerce', 'data.10jqka.com.cn', 'gzip, deflate', 'hexin-v', 'index', 'keep-alive', 'lxml', 'no-cache', 'page_info', 'span', 'ths.js', 'utf-8', 'v', '公司家数', '净额', '即时', '大单性质', '序号', '当前价', '成交价格', '成交时间', '成交量', '成交额', '换手率', '最新价', '流入资金', '流出资金', '涨跌幅', '涨跌额', '股票代码', '股票简称', '行业', '行业-涨跌幅', '行业指数', '详细', '资金流入净额', '连续换手率', '阶段涨跌幅', '领涨股', '领涨股-涨跌幅']

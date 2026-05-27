@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures_derivative/futures_contract_info_dce.py
-# hypothesis_version: 6.148.5
-
-[200, '%Y%m%d', '1', 'Accept', 'Content-Type', 'Origin', 'Referer', 'User-Agent', '__main__', 'all', 'application/json', 'coerce', 'contractId', 'data', 'endDeliveryDate', 'endTradeDate', 'lang', 'startTradeDate', 'tick', 'tradeType', 'unit', 'variety', 'varietyId', 'varietyOrder', 'zh', '交易单位', '合约', '品种代码', '品种名称', '开始交易日', '最后交割日', '最后交易日', '最小变动价位']

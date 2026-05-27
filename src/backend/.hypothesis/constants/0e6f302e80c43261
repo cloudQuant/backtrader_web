@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/utils/response_cache.py
-# hypothesis_version: 6.148.5
-
-[100, 200, 10000, 86400, 'GET', 'HIT', 'MISS', 'X-Cache', 'api', 'body', 'expires_at', 'json', 'request', 'status_code', 'value']

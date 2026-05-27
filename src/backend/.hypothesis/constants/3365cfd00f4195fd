@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/portfolio_api.py
-# hypothesis_version: 6.148.5
-
-[0.0, 100, 200, '/allocation', '/equity', '/overview', '/positions', '/simulation/equity', '/simulation/overview', '/simulation/trades', '/trades', '_last', 'cash', 'cash_curve', 'data_name', 'date_map', 'dates', 'direction', 'dtclose', 'equity', 'equity_curve', 'flat', 'id', 'initial', 'initial_capital', 'instance_id', 'items', 'long', 'market_value', 'pnl', 'pnl_pct', 'pnlcomm', 'positions', 'price', 'running', 'running_count', 'short', 'size', 'status', 'strategies', 'strategy_count', 'strategy_id', 'strategy_name', 'total', 'total_assets', 'total_cash', 'total_drawdown', 'total_equity', 'total_pnl', 'total_pnl_pct', 'total_position_value', 'total_trades', 'trades', 'value', 'values', 'weight', 'win_rate']

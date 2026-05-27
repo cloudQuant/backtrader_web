@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_index_ccidx.py
-# hypothesis_version: 6.148.5
-
-['000001.CCI', '100001.CCI', '__main__', 'closingPrice', 'coerce', 'data', 'dateLineJson', 'indexId', 'settlePrice', 'tradeDate', '中证商品期货价格指数', '中证商品期货指数', '指数代码', '收盘点位', '日期', '涨跌', '涨跌幅', '结算点位']

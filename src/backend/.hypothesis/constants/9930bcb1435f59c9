@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/live_instance_service.py
-# hypothesis_version: 6.148.5
-
-['%Y-%m-%d %H:%M:%S', 'created_at', 'error', 'gateway', 'id', 'log_dir', 'params', 'pid', 'run.py', 'running', 'runtime_dir', 'started_at', 'status', 'stopped', 'stopped_at', 'strategy_id', 'strategy_name', 'user_id']

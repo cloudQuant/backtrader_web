@@ -22,13 +22,13 @@ npm run dev
 
 ```bash
 # 构建并启动
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 
 # 查看日志
-docker compose -f docker-compose.prod.yml logs -f
+docker compose -f docker-compose.yml -f docker/compose/prod.yml logs -f
 
 # 停止
-docker compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.yml -f docker/compose/prod.yml down
 ```
 
 ## 部署指南

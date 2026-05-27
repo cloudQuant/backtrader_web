@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/margin.py
-# hypothesis_version: 6.148.5
-
-['ALL', 'BNB', 'MARGIN', 'TRADE', 'asset', 'assetNames', 'asset_type', 'balanceUpdate', 'binance_margin_feed', 'e', 'endTime', 'exchange_name', 'executionReport', 'get_bnb_burn', 'get_capital_flow', 'limit', 'logger_name', 'manual_liquidation', 'maxLeverage', 'normalize_function', 'request_type', 's', 'set_max_leverage', 'startTime', 'symbol', 'symbol_name', 'symbols', 'toggle_bnb_burn', 'x']

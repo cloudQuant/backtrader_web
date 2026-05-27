@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/backtest_manager.py
-# hypothesis_version: 6.148.5
-
-['annual_return', 'created_at', 'json', 'losing_trades', 'manual', 'max_drawdown', 'profitable_trades', 'sharpe_ratio', 'total_return', 'total_trades', 'win_rate']

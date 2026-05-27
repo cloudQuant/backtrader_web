@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_gsrl_em.py
-# hypothesis_version: 6.148.5
-
-['-', '1', '20230808', '5000', 'EVENT_CONTENT', 'EVENT_TYPE', 'RPT_ORGOP_ALL', 'SECUCODE', 'SECURITY_CODE', 'SECURITY_NAME_ABBR', 'TRADE_DATE', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'index', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '事件类型', '交易日', '代码', '具体事项', '序号', '简称']

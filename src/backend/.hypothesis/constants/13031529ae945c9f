@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/feeds/my_websocket_app.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.1, 0.5, 1.0, 60.0, 1000, 5000, 8000, 1000000, '*', 'ALL_PROXY', 'HTTPS_PROXY', 'HTTP_PROXY', 'SOCKS_PROXY', '__main__', 'all_proxy', 'cert_reqs', 'default_name', 'event_bus', 'exchange_data', 'http', 'http_no_proxy', 'http_proxy', 'http_proxy_host', 'http_proxy_port', 'https', 'https_proxy', 'log_file_name', 'my_websocket_app', 'my_websocket_app.log', 'ping_interval', 'ping_timeout', 'proxy_type', 'reconnect_base_delay', 'reconnect_max_delay', 'restart_gap', 'socks_proxy', 'sslopt', 'unknown', 'ws.connected', 'ws.disconnected', 'ws.error', 'ws.max_reconnect', 'ws.reconnecting', 'wss_name', 'wss_url']

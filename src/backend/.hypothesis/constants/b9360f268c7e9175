@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_py/bt_api_py/utils/hyperliquid_types.py
-# hypothesis_version: 6.148.5
-
-['CANCELED', 'CLOSED', 'EXPIRED', 'FILLED', 'Gtc', 'Ioc', 'NEW', 'OPEN', 'PENDING_CANCEL', 'PostOnly', 'REJECTED', 'limit', 'market', 'sl', 'tp', 'trigger']

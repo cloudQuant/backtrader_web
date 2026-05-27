@@ -100,7 +100,7 @@ npm run dev
 
 ```bash
 # 生产环境
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 ```
 
 ## 访问地址

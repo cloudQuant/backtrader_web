@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/markprices/okx_mark_price.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'OKX', 'arg', 'asset_type', 'data', 'exchange_name', 'idxPx', 'instId', 'local_update_time', 'markPx', 'mark_price', 'server_time', 'symbol_name', 'ts']

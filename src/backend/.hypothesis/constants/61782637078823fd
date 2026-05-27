@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/market_data_mixin.py
-# hypothesis_version: 6.148.5
-
-[100, '0', '100', '1m', 'ALL', 'OPTION', 'SPOT', 'SWAP', 'SYSTEM', 'after', 'amount', 'asset_type', 'bar', 'before', 'ccy', 'code', 'data', 'discountLevel', 'exchange_name', 'expTime', 'get_depth', 'get_depth_full', 'get_discount_rate', 'get_estimated_price', 'get_exchange_rate', 'get_funding_rate', 'get_index_components', 'get_instruments', 'get_insurance_fund', 'get_interest_rate', 'get_kline', 'get_kline_his', 'get_mark_price', 'get_open_interest', 'get_opt_summary', 'get_premium_history', 'get_price_limit', 'get_system_time', 'get_tick', 'get_tickers', 'get_trades', 'get_trades_history', 'get_underlying', 'index', 'instFamily', 'instId', 'instType', 'limit', 'mgnMode', 'normalize_function', 'request_type', 'symbol_name', 'sz', 'tier', 'uly', 'ulyMulti', 'unit']

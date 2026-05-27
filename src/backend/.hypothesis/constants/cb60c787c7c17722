@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/containers/orderbooks/binance_orderbook.py
-# hypothesis_version: 6.148.5
-
-['BINANCE', 'E', 'a', 'ask_price_list', 'ask_volume_list', 'asks', 'asset_type', 'b', 'bid_price_list', 'bid_volume_list', 'bids', 'exchange_name', 'local_update_time', 's', 'server_time', 'symbol_name']

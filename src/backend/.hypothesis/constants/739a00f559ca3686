@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_hist_em.py
-# hypothesis_version: 6.148.5
-
-[',', '-', '.', '1', '10000', '101', '102', '103', '19900101', '20500000', '20500101', 'DEFAULT@SECLEVEL=1', 'User-Agent', '[一-龥a-zA-Z]+', '\\d+', '^[一-龥]+$', '_', '__main__', 'code', 'coerce', 'daily', 'data', 'end', 'fields1', 'fields2', 'forcect', 'fqt', 'gnweb', 'http://', 'https://', 'iscca', 'klines', 'klt', 'lmt', 'mktid', 'mktname', 'monthly', 'msgid', 'name', 'secid', 'ssl_context', 'ut', 'vcode', 'vname', 'weekly', '合约中文代码', '合约代码', '市场简称', '开盘', '成交量', '成交额', '持仓量', '收盘', '时间', '最低', '最高', '涨跌', '涨跌幅', '热卷主连', '焦煤2506']

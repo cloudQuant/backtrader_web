@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_margin.py
-# hypothesis_version: 6.148.5
-
-['__main__', 'a', 'coerce', 'href', 'lxml', 'qiquan', 'small', 'symbol', 'url', '买方权利金', '交易乘数', '卖方保证金', '原油期权', '平今手续费', '平昨手续费', '开仓手续费', '手续费(开+平今)', '更新时间', '最近更新：', '结算价']

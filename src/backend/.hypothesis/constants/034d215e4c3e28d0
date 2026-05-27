@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/ai_trading_service.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.5, 24.0, '; ', 'action', 'action_message', 'active', 'ai_reasoning', 'assistant', 'buy', 'cancelled', 'condition', 'confidence', 'content', 'created_at', 'dry_run', 'error', 'executed_at', 'expired', 'expires_at', 'filled', 'gateway_id', 'id', 'intent', 'message', 'price', 'quantity', 'reflection', 'rejected', 'request', 'risk_assessment', 'risk_level', 'role', 'sell', 'status', 'success', 'symbol', 'trade_id', 'triggered_at', 'type', 'user', 'user_id', 'user_input', 'warnings', 'would_execute', 'ℹ️ 交易被用户取消。', '⚠️ 交易被风控拦截。', '✅ 交易已成功执行。', '买入', '交易不存在或已过期', '交易已取消', '交易已记录。', '交易记录不存在', '卖出', '对话上下文:\n', '平仓', '建议: 考虑设置止损以控制下行风险。', '建议更明确地描述交易品种和数量', '建议设置止损价格以控制风险', "您可以说'买入1手螺纹钢'来执行交易", '无权操作此交易', '无额外市场上下文', '查询', '模式: 模拟交易']

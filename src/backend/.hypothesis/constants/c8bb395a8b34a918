@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/middleware/security_headers.py
-# hypothesis_version: 6.148.5
-
-['/api/v1/auth/login', '/api/v1/auth/refresh', '0', 'Backtrader Web', 'Cache-Control', 'DENY', 'Expires', 'Permissions-Policy', 'Pragma', 'Referrer-Policy', 'X-Frame-Options', 'X-Powered-By', 'X-XSS-Protection', 'http', 'http.response.start', 'https', 'no-cache', 'nosniff', 'path', 'scheme', "script-src 'self'; ", 'type']

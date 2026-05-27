@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/index/index_research_fund_sw.py
-# hypothesis_version: 6.148.5
-
-['807200', 'DAY', 'MONTH', 'WEEK', '__main__', 'bargaindate', 'closeindex', 'coerce', 'data', 'day', 'indexType', 'indexTypeName', 'lastCloseIndex', 'lastMarkup', 'list', 'markup', 'maxindex', 'minindex', 'month', 'openindex', 'pageNo', 'pageSize', 'rule', 'sortField', 'swIndexCode', 'swIndexName', 'swindexcode', 'type', 'week', 'yearMarkup', '基础一级', '基础三级', '基础二级', '年涨跌幅', '开盘指数', '指数代码', '指数名称', '收盘指数', '日期', '日涨跌幅', '昨收盘', '最低指数', '最高指数', '涨跌幅', '特色指数']

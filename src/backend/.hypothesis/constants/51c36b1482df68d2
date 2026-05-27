@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/paper_trading_service.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.001, 10.0, 10.5, 10.8, 100000.0, 100, '000001', '600000', 'Insufficient funds', 'account_id', 'avg_fill_price', 'avg_price', 'commission', 'created_at', 'current_cash', 'data', 'desc', 'filled_at', 'filled_size', 'is_active', 'market_value', 'order_id', 'pnl', 'pnl_pct', 'position_id', 'price', 'profit_loss', 'profit_loss_pct', 'rejected_reason', 'side', 'size', 'status', 'symbol', 'total_equity', 'type', 'unrealized_pnl', 'unrealized_pnl_pct', 'updated_at', 'user_id']

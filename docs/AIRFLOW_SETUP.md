@@ -40,7 +40,7 @@ curl http://localhost:8080/api/v1/health
 ## 方式二：Docker Compose（推荐生产部署）
 
 ```bash
-docker compose -f docker-compose.airflow.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/airflow.yml up -d
 # 等待约 60 秒后访问 http://localhost:8080
 # 用户名: admin  密码: admin
 ```
@@ -78,5 +78,5 @@ cat $AIRFLOW_HOME/airflow-webserver.pid | xargs kill
 cat $AIRFLOW_HOME/airflow-scheduler.pid | xargs kill
 
 # Docker 方式
-docker compose -f docker-compose.airflow.yml down
+docker compose -f docker-compose.yml -f docker/compose/airflow.yml down
 ```

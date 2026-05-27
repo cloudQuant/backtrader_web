@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/docs.py
-# hypothesis_version: 6.148.5
-
-['/', '/postman', '1.0.0', 'API Collection', 'Accept', 'Content-Type', 'application/json', 'body', 'content', 'default', 'delete', 'description', 'example', 'examples', 'get', 'head', 'header', 'host', 'info', 'item', 'json', 'key', 'language', 'method', 'mode', 'name', 'operationId', 'options', 'patch', 'path', 'paths', 'post', 'properties', 'put', 'raw', 'request', 'requestBody', 'response', 'responses', 'schema', 'servers', 'status', 'summary', 'title', 'url', 'value', 'version']

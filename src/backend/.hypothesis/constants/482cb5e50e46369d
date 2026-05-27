@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/index/index_csindex.py
-# hypothesis_version: 6.148.5
-
-['%Y-%m-%d', '1', 'Content-Type', '__main__', 'coerce', 'currency', 'hotSpot', 'ifCustomized', 'ifTracked', 'ifWeightCapped', 'ignore', 'indexClassify', 'indexCompliance', 'indexFilter', 'indexSeries', 'null', 'pageNum', 'pageSize', 'pager', 'region', 'sortField', 'sortOrder', 'sorter', 'undefined', '发布时间', '基日', '指数代码']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/backtest.py
-# hypothesis_version: 6.148.5
-
-['BacktestResultModel', 'BacktestTask', 'StrategyVersion', 'User', 'backtest_results', 'backtest_tasks', 'backtest_tasks.id', 'manual', 'pending', 'result', 'strategy_versions.id', 'task', 'users.id']

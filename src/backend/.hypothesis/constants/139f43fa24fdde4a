@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_zh_a_tick_tx.py
-# hypothesis_version: 6.148.5
-
-['/', 'B', 'M', 'S', '[', '__main__', 'action', 'appn', 'c', 'data', 'detail', 'p', 'sz000001', '|', '中性盘', '买盘', '价格变动', '卖盘', '性质', '成交价格', '成交时间', '成交量', '成交金额', '正在下载数据，请稍等']

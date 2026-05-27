@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/bond/bond_nafmii.py
-# hypothesis_version: 6.148.5
-
-['1', '__main__', 'coerce', 'endTime', 'entityName', 'firstIssueAmount', 'isReg', 'itemType', 'leadManager', 'page', 'projPhase', 'regFileName', 'regNoticeNo', 'regPrdtType', 'releaseTime', 'rows', 'startTime', '债券名称', '品种', '更新日期', '注册或备案', '注册通知书文号', '金额', '项目状态']

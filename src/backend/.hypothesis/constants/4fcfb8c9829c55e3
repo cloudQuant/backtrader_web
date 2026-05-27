@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_zdhtmx_em.py
-# hypothesis_version: 6.148.5
-
-['-', '-1', '1', '20200819', '20220819', '20230819', '500', 'ALL', 'AMOUNTS', 'CONTENTS', 'CONTRACTNAME', 'CONTRACTTYPE', 'CONTRACTTYPENAME', 'COUNTERPARTY', 'COUNTERPARTYREL', 'COUNTERPARTYRELNAME', 'DIM_RDATE', 'DIM_SCODE', 'ISABOLISHED', 'OPERATEREVE', 'RCHANGE1DC', 'RCHANGE20DC', 'REMARK', 'RPTA_WEB_ZDHT_LIST', 'SECURITYCODE', 'SECURITYSHORTNAME', 'SIGNATORY', 'SIGNATORYREL', 'SIGNATORYRELNAME', 'SIGNDATE', 'SIGNEFFECT', 'SNDYYSR', 'UPDATEDATE', 'YEAR', 'ZSNDYYSRBL', '__main__', 'coerce', 'columns', 'data', 'filter', 'ignore', 'index', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', 'token', '上年度营业收入', '与上市公司关系', '公告日期', '其他签署方', '其他签署方-与上市公司关系', '占上年度营业收入比例', '合同名称', '合同类型', '合同金额', '序号', '最新财务报表的营业收入', '签署主体', '签署主体-与上市公司关系', '签署日期', '股票代码', '股票简称']

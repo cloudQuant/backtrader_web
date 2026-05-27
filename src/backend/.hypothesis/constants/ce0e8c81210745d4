@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/comparison.py
-# hypothesis_version: 6.148.5
-
-[100, '/', '/{comparison_id}', 'Comparison not found', 'comparison_id', 'drawdown_comparison', 'equity_comparison', 'is_favorite', 'message', 'metrics_comparison', 'trades_comparison']

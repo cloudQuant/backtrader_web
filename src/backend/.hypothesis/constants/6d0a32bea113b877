@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/feeds/connection_mixin.py
-# hypothesis_version: 6.148.5
-
-['_conn_lock', '_conn_state', 'authenticated', 'connected', 'connecting', 'disconnected', 'error']

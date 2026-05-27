@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/simulation_analytics.py
-# hypothesis_version: 6.148.5
-
-[0.0, 1.0, 400, 404, 100000, '-', '/{instance_id}/kline', 'Instance not found', 'annual_return', 'barlen', 'benchmark', 'buy', 'cash', 'cash_curve', 'close', 'commission', 'created_at', 'cumulative_pnl', 'data_name', 'date', 'dates', 'datetime', 'direction', 'drawdown', 'dtclose', 'dtopen', 'equity_curve', 'equity_dates', 'final_value', 'high', 'holding_days', 'id', 'indicators', 'initial_cash', 'long', 'low', 'max_drawdown', 'month', 'ohlc', 'open', 'peak', 'pnl', 'pnlcomm', 'position_value', 'price', 'reason', 'return_pct', 'sell', 'sharpe_ratio', 'size', 'strategy_id', 'strategy_name', 'symbol', 'total_assets', 'total_return', 'total_trades', 'trades', 'trough', 'type', 'value', 'volume', 'volumes', 'win_rate', 'year']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/comparison.py
-# hypothesis_version: 6.148.5
-
-[-0.1, -0.08, -0.06, -0.05, -0.02, -0.01, 0.15, 0.18, 1.5, 1.6, 200, 100000, 100300, 100500, 100800, 101000, '2023-01-01', '2023-01-02', '2023-01-03', 'Best metrics', 'Comparison ID', 'Comparison list', 'Comparison name', 'Comparison results', 'Comparison type', 'Creation time', 'Date list', 'Drawdown comparison', 'Metrics comparison', 'Total count', 'Trades comparison', 'Update time', 'User ID', 'Whether favorited', 'Whether public', 'backtest_task_ids', 'best_metrics', 'curves', 'dates', 'description', 'drawdown_curves', 'equity_comparison', 'example', 'max_drawdown', 'max_drawdowns', 'metrics', 'metrics_comparison', 'name', 'sharpe_ratio', 'task_001', 'task_002', 'task_id', 'total_return', 'type', 'value']

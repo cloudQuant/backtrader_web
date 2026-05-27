@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/containers/ctp/ctp_bar.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'CTP', 'FUTURE', 'amount', 'asset_type', 'bar_status', 'close', 'close_time', 'exchange_name', 'high', 'low', 'open', 'open_interest', 'open_time', 'settlement_price', 'symbol_name', 'volume']

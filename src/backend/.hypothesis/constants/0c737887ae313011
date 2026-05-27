@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/exchange_data/__init__.py
-# hypothesis_version: 6.148.5
-
-['OkxExchangeData', 'OkxExchangeDataSpot', 'OkxExchangeDataSwap']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/auth.py
-# hypothesis_version: 6.148.5
-
-[3600, '2025-01-15T08:30:00Z', 'Access token', 'Creation time', 'Current password', 'Email', 'Email address', 'Expiration timestamp', 'MyP@ssw0rd', 'New access token', 'New password', 'New refresh token', 'Password', 'Refresh token', 'Str0ng!Pass', 'Token type', 'User ID', 'Username', 'Whether active', 'access', 'access_token', 'bearer', 'created_at', 'email', 'examples', 'expires_in', 'id', 'is_active', 'is_admin', 'lisi@quant.cn', 'password', 'quant_trader_01', 'token_type', 'username', 'usr_a1b2c3d4e5f6', 'zhangsan@example.com', '策略研究员']

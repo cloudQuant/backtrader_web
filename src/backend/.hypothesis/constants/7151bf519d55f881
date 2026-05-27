@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_gpzy_em.py
-# hypothesis_version: 6.148.5
-
-[100, 500, '(PFORG_TYPE="证券")', '(PFORG_TYPE="银行")', '-', '-1', '1', '20240906', '20241220', '500', 'ALL', 'AVERAGE_PLEDGE_RATIO', 'A股质押总比例', 'NOTICE_DATE', 'ORG_NUM', 'PLEDGE_RATIO', 'RPT_CSDC_LIST', 'RPT_CSDC_STATISTICS', 'RPT_GDZY_ZYJG_SUM', 'TRADE_DATE', 'WEB', '_', '__main__', 'client', 'coerce', 'columns', 'count', 'data', 'filter', 'index', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '交易日期', '公司家数', '公告日期', '占总股本比例', '占所持股份比例', '平均质押比例', '序号', '所属行业', '所属行业代码', '无限售股质押数', '最新价', '最新质押市值', '未达预警线比例', '沪深300指数', '涨跌幅', '统计时间', '股东名称', '股票代码', '股票简称', '行业', '质押公司数量', '质押市值', '质押开始日期', '质押总市值', '质押总笔数', '质押总股数', '质押总股本', '质押数量', '质押日收盘价', '质押机构', '质押比例', '质押笔数', '质押股份数量', '质押股数', '达到平仓线比例', '达到预警线未达平仓线比例', '近一年涨跌幅', '限售股质押数', '预估平仓线']

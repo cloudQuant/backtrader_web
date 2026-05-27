@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/air/air_hebei.py
-# hypothesis_version: 6.148.5
-
-['AQI', 'CO_IAQI', 'CO_Value', 'City', 'DateTime', 'Latitude', 'Level', 'Longitude', 'MaxPoll', 'NO2_IAQI', 'NO2_Value', 'O3-1H_IAQI', 'O3-1H_Value', 'O3-8H_IAQI', 'O3-8H_Value', 'PM10_IAQI', 'PM10_Value', 'PM10_浓度', 'PM2.5_IAQI', 'PM2.5_Value', 'PM2.5_浓度', 'Pointer', 'Poll', 'Region', 'SO2_IAQI', 'SO2_Value', 'Station', '_IAQI', '_Value', '__main__', 'coerce', 'xml', '一氧化碳_IAQI', '一氧化碳_浓度', '二氧化氮_IAQI', '二氧化氮_浓度', '二氧化硫_IAQI', '二氧化硫_浓度', '区域', '城市', '时间', '监测点', '空气质量等级', '纬度', '经度', '臭氧1小时_IAQI', '臭氧1小时_浓度', '臭氧8小时_IAQI', '臭氧8小时_浓度', '首要污染物']

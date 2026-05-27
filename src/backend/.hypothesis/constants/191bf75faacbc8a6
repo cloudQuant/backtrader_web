@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/positions/okx_position.py
-# hypothesis_version: 6.148.5
-
-['OKX', 'asset_type', 'avgPx', 'avg_price', 'data', 'exchange_nae', 'fee', 'fundingFee', 'imr', 'initial_margin', 'instId', 'is_isolated', 'isolated', 'lever', 'leverage', 'local_update_time', 'maintain_margin', 'margin_type', 'markPx', 'mark_price', 'mgnMode', 'mmr', 'pos', 'posSide', 'position_fee', 'position_side', 'position_symbol_name', 'position_volume', 'realizedPnl', 'server_time', 'symbol_name', 'uTime', 'upl']

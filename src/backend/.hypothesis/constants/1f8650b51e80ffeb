@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ib_web/src/bt_api_ib_web/runtime/stream.py
-# hypothesis_version: 6.148.5
-
-['/v1/api', '127.0.0.1', '31', '84', '85', '86', '88', 'IB_WEB', 'Reconnect failed: %s', 'WS send failed: %s', '[', 'account', 'accountId', 'account_id', 'account_system', 'account_update', 'base_url', 'cert_reqs', 'check_hostname', 'conid', 'conidEx', 'data', 'exchange', 'fields', 'http://', 'http_no_proxy', 'https://', 'localhost', 'market_data', 'order', 'order_update', 'pnl', 'pnl_update', 'replace', 'sacct', 'smd', 'sor', 'spl', 'sslopt', 'str', 'system', 'tic', 'topic', 'topics', 'trade', 'trade_update', 'type', 'utf-8', 'verify_ssl', 'ws://', 'wss://', '{']

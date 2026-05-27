@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/alert_evaluation.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'abs', 'account_id', 'alert_type', 'backtest_task_id', 'cash', 'condition', 'cross', 'current_value', 'direction', 'down', 'eq', 'equity', 'gt', 'id', 'inf', 'live_task_id', 'lt', 'manual', 'market_value', 'max_drawdown', 'metric', 'mode', 'pct', 'positions', 'price', 'rate', 'sharpe_ratio', 'size', 'symbol', 'threshold', 'total_return', 'unrealized_pnl', 'unrealized_pnl_pct', 'up', 'value', 'value1', 'value2', 'win_rate']

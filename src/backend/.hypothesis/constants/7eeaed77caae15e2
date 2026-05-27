@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/containers/__init__.py
-# hypothesis_version: 6.148.5
-
-['AccountData', 'AssetType', 'BalanceData', 'BarData', 'ExchangeData', 'FundingRateData', 'GreeksData', 'IncomeData', 'Instrument', 'InstrumentFactory', 'LiquidationData', 'MarkPriceData', 'OrderBookData', 'OrderData', 'PositionData', 'RequestData', 'SymbolData', 'TickerData', 'TimerData', 'TradeData']

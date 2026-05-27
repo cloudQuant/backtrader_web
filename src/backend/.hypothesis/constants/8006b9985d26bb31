@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_comex_em.py
-# hypothesis_version: 6.148.5
-
-['-', '-1', '1', '500', 'ALL', 'EMI00069026', 'EMI00069027', 'INDICATOR_ID1', 'INDICATOR_ID2', 'INDICATOR_ID3', 'INDICATOR_NAME', 'NETPOSITION_DOLLAR', 'NETPOSITION_OUNCE', 'NETPOSITION_TON', 'OPENPOSI_STOCK', 'OPENPOSI_STOCK_SUM', 'OPENPOSTOCK_WECHANGE', 'REPORT_DATE', 'RPT_FUTUOPT_GOLDSIL', 'STORAGE_OUNCE', 'STORAGE_TON', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'filter', 'index', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '序号', '日期', '白银', '黄金']

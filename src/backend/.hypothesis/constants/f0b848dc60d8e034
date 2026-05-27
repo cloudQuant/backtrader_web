@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ib_web/src/bt_api_ib_web/exchange_data.py
-# hypothesis_version: 6.148.5
-
-[',', 'IB_WEB', 'IbWebExchangeData', '_get_ib_config', '_get_ib_raw_config', '_get_ib_yaml_path', 'cash', 'configs', 'default', 'fut', 'ib.yaml', 'market_data_fields', 'opt', 'order_type_map', 'sec_type_map', 'stk', 'tif_map', 'utf-8']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/quote.py
-# hypothesis_version: 6.148.5
-
-[200, 1000, ',', '/chart', '/sources', '/symbols', '/symbols/add', '/symbols/remove', '/symbols/search', '/ticks', 'Add custom symbols', 'Instrument symbol', 'M1', 'Number of bars', 'Search keyword', 'keyword', 'results', 'source', 'sources', 'symbols']

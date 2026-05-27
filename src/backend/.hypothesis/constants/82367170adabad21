@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/fx/fx_quote_baidu.py
-# hypothesis_version: 6.148.5
-
-[100, '%', '20', 'GET', 'Result', '__main__', 'dollar', 'finClientType', 'icon1', 'icon2', 'list', 'market', 'pc', 'pn', 'rmb', 'rn', 'status', 'type', 'utf-8', '人民币', '代码', '名称', '最新价', '涨跌幅', '涨跌额', '美元']

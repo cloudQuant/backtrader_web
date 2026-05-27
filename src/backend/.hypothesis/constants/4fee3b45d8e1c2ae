@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/ai_trading.py
-# hypothesis_version: 6.148.5
-
-[24.0, '/conditional-orders', '/config', '/confirm', '/execute', '/history', '/reflect/{trade_id}', 'items', 'message', 'paper', 'success', 'total']

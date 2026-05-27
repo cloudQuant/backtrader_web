@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/tickers/okx_ticker.py
-# hypothesis_version: 6.148.5
-
-['OKX', 'askPx', 'askSz', 'ask_price', 'ask_volume', 'asset_type', 'bidPx', 'bidSz', 'bid_price', 'bid_volume', 'exchange_name', 'high24h', 'high_24h', 'instId', 'last', 'lastSz', 'last_price', 'last_volume', 'local_update_time', 'low24h', 'low_24h', 'open24h', 'open_24h', 'server_time', 'symbol_name', 'ticker_symbol_name', 'ts', 'vol24h', 'volCcy24h', 'vol_24h', 'vol_ccy_24h']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/containers/ctp/ctp_order.py
-# hypothesis_version: 6.148.5
-
-[0.0, '0', '1', '2', '3', '4', '5', '6', 'CTP', 'CombOffsetFlag', 'Direction', 'ExchangeID', 'FUTURE', 'FrontID', 'GFD', 'InsertTime', 'InstrumentID', 'LimitPrice', 'OrderRef', 'OrderStatus', 'OrderSysID', 'SessionID', 'StatusMsg', 'UpdateTime', 'VolumeTotal', 'VolumeTotalOriginal', 'VolumeTraded', 'a', 'b', 'buy', 'c', 'close', 'close_today', 'close_yesterday', 'force_close', 'limit', 'local_force_close', 'open', 'sell']

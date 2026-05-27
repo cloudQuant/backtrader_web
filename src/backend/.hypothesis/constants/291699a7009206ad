@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_buffett_index_lg.py
-# hypothesis_version: 6.148.5
-
-['GDP', '__main__', 'close', 'coerce', 'data', 'date', 'gdp', 'marketCap', 'ms', 'quantileInAllHistory', 'token', '总历史分位数', '总市值', '收盘价', '日期', '近十年分位数']

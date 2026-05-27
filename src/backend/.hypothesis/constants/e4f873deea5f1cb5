@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/bond/bond_zh_sina.py
-# hypothesis_version: 6.148.5
-
-['"', '%Y_%m_%d', '-', '1', '10', '5', ';', '=', '\\d+', '__main__', 'close', 'coerce', 'd', 'date', 'high', 'hs_z', 'low', 'node', 'open', 'page', 'sh010107', '买入', '今开', '代码', '卖出', '名称', '成交量', '成交额', '昨收', '最低', '最新价', '最高', '涨跌幅', '涨跌额']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/trades/okx_market_trade.py
-# hypothesis_version: 6.148.5
-
-['OKX', 'asset_type', 'client_order_id', 'exchange_name', 'instId', 'local_update_time', 'order_id', 'px', 'server_time', 'side', 'symbol_name', 'sz', 'tradeId', 'trade_id', 'trade_price', 'trade_side', 'trade_symbol_name', 'trade_time', 'trade_type', 'trade_volume', 'ts']

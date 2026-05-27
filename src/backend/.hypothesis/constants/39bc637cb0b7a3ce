@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/gateway/config.py
-# hypothesis_version: 6.148.5
-
-[5.0, 10.0, 30.0, 100, 10000, 32000, '-', '127.0.0.1', 'CTP', 'FUTURE', 'PYTEST_XDIST_WORKER', 'account_id', 'asset_type', 'base_dir', 'btgw', 'command_endpoint', 'command_timeout_sec', 'default', 'event_endpoint', 'exchange_type', 'gateway_base_dir', 'gateway_runtime_name', 'investor_id', 'ipc', 'market_endpoint', 'poll_timeout_ms', 'provider_exchange', 'runtime_name', 'startup_timeout_sec', 'tcp', 'transport', 'user_id', 'utf-8', 'win', 'zmq_transport']

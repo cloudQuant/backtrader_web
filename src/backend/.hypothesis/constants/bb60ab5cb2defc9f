@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/db/akshare_data_database.py
-# hypothesis_version: 6.148.5
-
-['mysql', 'pool_pre_ping', 'poolclass']

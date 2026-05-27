@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_contract_info_ctp.py
-# hypothesis_version: 6.148.5
-
-['CloseRatioByMoney', 'CloseRatioByVolume', 'DeliveryDate', 'DeliveryMonth', 'DeliveryYear', 'ExchangeID', 'ExpireDate', 'InstLifePhase', 'InstrumentID', 'InstrumentName', 'OpenDate', 'OpenRatioByMoney', 'OpenRatioByVolume', 'OptionsType', 'PriceTick', 'ProductClass', 'ProductID', 'StrikePrice', 'UnderlyingInstrID', 'UnderlyingMultiple', 'VolumeMultiple', '__main__', 'data', '上市日期', '交割年份', '交割日', '交割月份', '交易所ID', '做多保证金/手', '做多保证金率', '做空保证金/手', '做空保证金率', '合约ID', '合约乘数', '合约名称', '合约状态', '品种ID', '商品类别', '平今手续费/手', '平今手续费率', '平仓手续费/手', '平仓手续费率', '开仓手续费/手', '开仓手续费率', '最后交易日', '最小变动价位', '期权类型', '标的合约ID', '标的合约乘数', '行权价']

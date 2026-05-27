@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_inventory_em.py
-# hypothesis_version: 6.148.5
-
-['(IS_MAINCODE="1")', '-', '-1', '1', '500', 'A', 'RPT_FUTU_STOCKDATA', 'TRADE_CODE', 'TRADE_DATE', 'TRADE_TYPE', 'WEB', '__main__', 'a', 'client', 'coerce', 'columns', 'data', 'filter', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '增减', '库存', '日期']

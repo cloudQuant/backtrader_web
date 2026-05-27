@@ -28,7 +28,7 @@ echo -e "${BLUE}[1/3]${NC} 停止服务..."
 echo ""
 
 # 先停止服务
-bash "$SCRIPT_DIR/stop_app.sh"
+bash "$SCRIPT_DIR/stop_app.sh" "$@"
 
 echo ""
 echo -e "${BLUE}[2/3]${NC} 等待端口释放..."
@@ -39,4 +39,4 @@ echo -e "${BLUE}[3/3]${NC} 启动服务..."
 echo ""
 
 # 启动服务
-bash "$SCRIPT_DIR/start_app.sh"
+bash "$SCRIPT_DIR/start_app.sh" "$@"

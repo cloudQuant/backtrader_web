@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_fundamental/stock_register_em.py
-# hypothesis_version: 6.148.5
-
-['(ORG_TYPE_CODE="03")', '-1,-1', '1', '500', 'ACCEPT_DATE', 'ACCOUNT_FIRM', 'CSRC_INDUSTRY', 'DECLARE_ORG', 'INFO_CODE', 'KCB_LB', 'LAW_FIRM', 'ORG_NAME', 'RECOMMEND_ORG', 'REG_ADDRESS', 'RPT_IPO_INFOALLNEW', 'RPT_KCB_IPO', 'STATE', 'UPDATE_DATE', 'UPDATE_DATE,ORG_CODE', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'display.max_columns', 'filter', 'index', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '企业名称', '会计师事务所', '保荐机构', '受理日期', '序号', '律师事务所', '招股说明书', '拟上市地点', '更新日期', '最新状态', '注册地', '行业']

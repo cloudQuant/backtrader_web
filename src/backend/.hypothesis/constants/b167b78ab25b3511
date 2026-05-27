@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_board_concept_em.py
-# hypothesis_version: 6.148.5
-
-[0.01, 100.0, ',', '0', '1', '100', '1000', '10000', '1000000', '101', '102', '103', '2', '20220101', '20221128', '20250227', '20500101', '5', 'BK0655', '^BK\\d+', '_', '__main__', 'beg', 'coerce', 'daily', 'data', 'end', 'f1,f2,f3,f4,f5,f6', 'f12', 'f168', 'f169', 'f170', 'f171', 'f43', 'f44', 'f45', 'f46', 'f47', 'f48', 'fid', 'fields', 'fields1', 'fields2', 'fltt', 'fqt', 'fs', 'hfq', 'index', 'invt', 'iscr', 'item', 'klines', 'klt', 'lmt', 'm:90 t:3 f:!50', 'monthly', 'ndays', 'np', 'pn', 'po', 'pz', 'qfq', 'secid', 'smplmt', 'trends', 'ut', 'value', 'weekly', '上涨家数', '下跌家数', '今开', '代码', '可燃冰', '名称', '市净率', '市盈率-动态', '序号', '开盘', '总市值', '成交量', '成交额', '振幅', '换手率', '排名', '收盘', '日期', '日期时间', '昨收', '最低', '最新', '最新价', '最高', '板块代码', '板块名称', '板块名称 == @symbol', '涨跌幅', '涨跌额', '绿色电力', '融资融券', '长寿药', '领涨股票', '领涨股票-涨跌幅']

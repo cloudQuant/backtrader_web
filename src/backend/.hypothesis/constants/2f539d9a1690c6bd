@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/containers/fundingrates/okx_funding_rate.py
-# hypothesis_version: 6.148.5
-
-['OKX', 'current_funding_rate', 'current_funding_time', 'data', 'exchange_name', 'fundingRate', 'fundingTime', 'local_update_time', 'maxFundingRate', 'max_funding_rate', 'method', 'minFundingRate', 'min_funding_rate', 'nextFundingRate', 'nextFundingTime', 'next_funding_rate', 'next_funding_time', 'server_time', 'settFundingRate', 'settState', 'settlement_status', 'symbol_name', 'ts']

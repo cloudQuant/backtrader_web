@@ -19,6 +19,10 @@ _DEFAULT_SECRETS = frozenset(
 )
 
 _DEFAULT_PASSWORDS = frozenset({"admin123", "password", "12345678"})
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_SQLITE_DATABASE_URL = (
+    f"sqlite+aiosqlite:///{(_REPO_ROOT / 'data' / 'dev' / 'backtrader.db').as_posix()}"
+)
 
 
 def _coerce_bool(value: object) -> bool | None:
@@ -87,7 +91,7 @@ class Settings(BaseSettings):
         default="sqlite", description="Database type: postgresql, mysql, mongodb, sqlite"
     )
     DATABASE_URL: str = Field(
-        default="sqlite+aiosqlite:///./backtrader.db", description="Database connection URL"
+        default=_DEFAULT_SQLITE_DATABASE_URL, description="Database connection URL"
     )
     AKSHARE_DATA_DATABASE_URL: str = Field(
         default="", description="Akshare data warehouse database connection URL"

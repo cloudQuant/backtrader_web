@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/pymt5/pymt5/client.py
-# hypothesis_version: 6.148.5
-
-[0.0, 3.0, 30.0, 60.0, 1000.0, 5000.0, 128, 160, 256, 500, 5687, 10000, '\x00', '0x0', '1', '15 Mar 2026', 'MT5WebClient', '_T', 'auto_heartbeat', 'cid', 'connected to %s', 'connection closed', 'en-US', 'heartbeat ping ok', 'lead_affiliate_site', 'lead_cookie_id', 'logged out', 'login', 'otp', 'password', 'pymt5.client', 'session', 'transport not ready', 'url', 'utm_campaign', 'utm_source', 'version']

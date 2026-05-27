@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/statistics_mixin.py
-# hypothesis_version: 6.148.5
-
-['0', 'ALL', 'after', 'asset_type', 'autoSz', 'before', 'begin', 'ccy', 'code', 'currency', 'data', 'end', 'exchange_name', 'get_long_short_ratio', 'get_option_oi_volume', 'get_put_call_ratio', 'get_support_coin', 'get_taker_volume', 'instId', 'instType', 'limit', 'maxSz', 'mgnMode', 'normalize_function', 'period', 'posSide', 'position_builder', 'request_type', 'symbol_name', 'uly']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_hot_xq.py
-# hypothesis_version: 6.148.5
-
-[200, '"Windows"', '*/*', '0', '1', '10000', '200', '?0', 'Accept', 'Accept-Encoding', 'Accept-Language', 'CN', 'Cache-Control', 'Connection', 'Host', 'Pragma', 'Referer', 'Sec-Fetch-Dest', 'Sec-Fetch-Mode', 'Sec-Fetch-Site', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'category', 'coerce', 'cors', 'count', 'current', 'data', 'deal', 'deal7d', 'desc', 'empty', 'follow', 'follow7d', 'gzip, deflate, br', 'keep-alive', 'list', 'name', 'no-cache', 'only_count', 'order', 'order_by', 'page', 'same-origin', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'size', 'symbol', 'tweet', 'tweet7d', 'xueqiu.com', '关注', '最新价', '最热门', '本周新增', '股票代码', '股票简称']

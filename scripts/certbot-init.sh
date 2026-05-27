@@ -19,6 +19,9 @@ EMAIL="${CERTBOT_EMAIL:-admin@aifortrader.cn}"
 CERT_DIR="./runtime/certbot"
 CONF_DIR="${CERT_DIR}/conf"
 WWW_DIR="${CERT_DIR}/www"
+ENV_FILE_RELATIVE_PATH="${ENV_FILE_RELATIVE_PATH:-src/backend/.env}"
+COMPOSE_BASE_FILE="${COMPOSE_BASE_FILE:-docker-compose.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker/compose/prod.yml}"
 
 echo "=== Let's Encrypt Certificate Initialization for ${DOMAIN} ==="
 
@@ -32,7 +35,7 @@ if [ -f "${CONF_DIR}/live/${DOMAIN}/fullchain.pem" ]; then
 fi
 
 echo "Stopping nginx to allow certbot to bind port 80..."
-docker compose -f docker-compose.prod.yml stop frontend
+docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_BASE_FILE}" -f "${COMPOSE_FILE}" stop frontend
 
 echo "Obtaining certificate from Let's Encrypt..."
 docker run --rm \
@@ -51,7 +54,7 @@ docker run --rm \
     || true
 
 echo "Restarting nginx..."
-docker compose -f docker-compose.prod.yml start frontend
+docker compose --env-file "${ENV_FILE_RELATIVE_PATH}" -f "${COMPOSE_BASE_FILE}" -f "${COMPOSE_FILE}" start frontend
 
 if [ -f "${CONF_DIR}/live/${DOMAIN}/fullchain.pem" ]; then
     echo "=== Certificate obtained successfully! ==="

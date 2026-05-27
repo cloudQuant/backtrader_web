@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/strategy_version_service.py
-# hypothesis_version: 6.148.5
-
-['Version not found', 'branch', 'branch_id', 'branch_name', 'changelog', 'code', 'created_at', 'created_by', 'data', 'desc', 'description', 'forbidden', 'id', 'is_active', 'is_current', 'is_default', 'last_version_id', 'main', 'params', 'parent_branch', 'parent_version_id', 'rollback', 'status', 'strategy_id', 'tags', 'type', 'updated_at', 'updated_by', 'user_id', 'version_count', 'version_id', 'version_name', 'version_number', 'version_updated']

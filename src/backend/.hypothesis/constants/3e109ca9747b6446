@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/account_mixin.py
-# hypothesis_version: 6.148.5
-
-['0', 'ALL', 'add', 'after', 'amt', 'asset_type', 'before', 'ccy', 'code', 'cross', 'data', 'exchange_name', 'get_account', 'get_balance_assert', 'get_config', 'get_fee', 'get_max_avail_size', 'get_max_size', 'get_position', 'instId', 'instType', 'lever', 'limit', 'long_short_mode', 'mgnMode', 'net', 'normalize_function', 'posId', 'posMode', 'posSide', 'px', 'qty', 'request_type', 'set_lever', 'set_margin_balance', 'set_mode', 'subAcct', 'sub_account', 'symbol_name', 'tdMode', 'type', 'uly', 'xxx']

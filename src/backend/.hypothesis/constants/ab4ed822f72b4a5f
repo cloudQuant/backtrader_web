@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/option/option_commodity_sina.py
-# hypothesis_version: 6.148.5
-
-['/', '[', '__main__', 'a', 'active', 'au2012C392', 'au2204', 'cf2301', 'cf2301P21600', 'class', 'close', 'coerce', 'data', 'date', 'down', 'exchange', 'futures', 'high', 'href', 'id', 'index', 'li', 'low', 'lxml', 'open', 'option_suffix', 'option_symbol', 'pinzhong', 'product', 'result', 'selected', 'symbol', 'type', 'up', 'volume', '合约', '序号', '棉花期权', '玉米期权', '看涨合约-买价', '看涨合约-买量', '看涨合约-卖价', '看涨合约-卖量', '看涨合约-持仓量', '看涨合约-最新价', '看涨合约-涨跌', '看涨合约-看涨期权合约', '看跌合约-买价', '看跌合约-买量', '看跌合约-卖价', '看跌合约-卖量', '看跌合约-持仓量', '看跌合约-最新价', '看跌合约-涨跌', '看跌合约-看跌期权合约', '行权价', '黄金期权']

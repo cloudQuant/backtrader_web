@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/strategy_version.py
-# hypothesis_version: 6.148.5
-
-[100, '/branches', '/versions', '/versions/compare', '/versions/rollback', 'Branch name', 'Version status', 'code_diff', 'comparison_id', 'created_at', 'created_by', 'from_version_id', 'message', 'params_diff', 'performance_diff', 'strategy_id', 'to_version_id', 'type', 'version_id']

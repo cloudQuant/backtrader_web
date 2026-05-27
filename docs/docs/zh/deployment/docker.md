@@ -17,7 +17,7 @@ cp src/backend/.env.example src/backend/.env
 # 编辑 .env 配置
 
 # 启动服务
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 ```
 
 ## 服务
@@ -75,7 +75,7 @@ BACKEND_LOGS_DIR=./runtime/backend/logs
 ./scripts/certbot-init.sh
 
 # 启动证书服务
-docker compose -f docker-compose.prod.yml up -d certbot
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d certbot
 ```
 
 ### 自定义证书
@@ -108,7 +108,7 @@ volumes:
 curl http://localhost/health
 
 # 查看容器状态
-docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.yml -f docker/compose/prod.yml ps
 ```
 
 ## 故障排查
@@ -119,7 +119,7 @@ docker compose -f docker-compose.prod.yml ps
 # 检查端口 80 占用情况
 lsof -i :80
 
-# 在 docker-compose.prod.yml 中修改端口
+# 在 docker/compose/prod.yml 中修改端口
 ports:
   - "8080:80"
 ```

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/containers/ctp/ctp_position.py
-# hypothesis_version: 6.148.5
-
-[0.0, '1', '2', '3', 'CTP', 'CloseProfit', 'ExchangeID', 'FUTURE', 'InstrumentID', 'OpenCost', 'PosiDirection', 'Position', 'PositionCost', 'PositionProfit', 'SettlementPrice', 'TodayPosition', 'UseMargin', 'YdPosition', 'asset_type', 'close_profit', 'exchange_id', 'exchange_name', 'instrument_id', 'long', 'net', 'open_cost', 'position_cost', 'position_direction', 'position_profit', 'position_volume', 'settlement_price', 'short', 'symbol_name', 'today_position', 'use_margin', 'yd_position']

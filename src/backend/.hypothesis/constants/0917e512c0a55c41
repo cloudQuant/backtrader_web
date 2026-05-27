@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_profile_cninfo.py
-# hypothesis_version: 6.148.5
-
-['*/*', '0', '600030', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'A股代码', 'A股简称', 'B股代码', 'B股简称', 'Cache-Control', 'Content-Length', 'Host', 'H股代码', 'H股简称', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'count', 'getResCode1', 'gzip, deflate', 'keep-alive', 'no-cache', 'records', 'scode', 'utf-8', 'webapi.cninfo.com.cn', '上市日期', '主营业务', '传真', '入选指数', '公司名称', '办公地址', '官方网站', '成立日期', '所属市场', '所属行业', '数据错误！', '曾用简称', '机构简介', '法人代表', '注册地址', '注册资金', '电子邮箱', '经营范围', '联系电话', '英文名称', '邮政编码']

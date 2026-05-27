@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_industry_pe_cninfo.py
-# hypothesis_version: 6.148.5
-
-['*/*', '-', '0', '008001', '008200', '20210910', '20240617', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Content-Length', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'getResCode1', 'gzip, deflate', 'keep-alive', 'no-cache', 'records', 'sortcode', 'tdate', 'utf-8', 'webapi.cninfo.com.cn', '公司数量', '净利润-静态', '变动日期', '国证行业分类', '总市值-静态', '纳入计算公司数量', '行业分类', '行业名称', '行业层级', '行业编码', '证监会行业分类', '静态市盈率-中位数', '静态市盈率-加权平均', '静态市盈率-算术平均']

@@ -63,6 +63,9 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+.ruff_cache/
+.benchmarks/
+.hypothesis/
 .pytest_cache/
 coverage.xml
 nosetests.xml

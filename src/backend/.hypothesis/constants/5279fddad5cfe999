@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_analyst_em.py
-# hypothesis_version: 6.148.5
-
-['-', '-1', '1', '1000', '11000200926', '12个月收益率', '2024', '3个月收益率', '500', '6个月收益率', 'ALL', 'ANALYST_CODE', 'CHANGE_DATE', 'INDEX_HVALUE', 'TRADE_DATE', 'WEB', 'YEAR_YIELD', '_', '__main__', 'client', 'coerce', 'columns', 'data', 'date', 'distinct', 'filter', 'index', 'limit', 'pageNumber', 'pageSize', 'pages', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', 'top100', 'value', '分析师ID', '分析师单位', '分析师名称', '历史指数', '历史跟踪成分股', '年度', '年度指数', '序号', '当前评级名称', '成交价格(前复权)', '成分股个数', '更新日期', '最新价格', '最新评级日期', '最新跟踪成分股', '累计涨跌幅', '股票代码', '股票名称', '行业', '行业代码', '调入日期', '调入时评级名称', '调出原因', '调出日期', '阶段涨跌幅']

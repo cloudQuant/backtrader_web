@@ -126,7 +126,7 @@ AI observability, multi-model routing, VaR/CVaR, factor analytics, performance a
 ### Docker (Alternative)
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 # Frontend: http://localhost | API: http://localhost:8000/docs
 ```
 
@@ -196,7 +196,7 @@ Copy `.env.example` to `.env` and customize:
 ```bash
 # Database (default: SQLite, zero-config)
 DATABASE_TYPE=sqlite
-DATABASE_URL=sqlite+aiosqlite:///./backtrader.db
+DATABASE_URL=sqlite+aiosqlite:///../../data/dev/backtrader.db
 
 # PostgreSQL alternative
 # DATABASE_TYPE=postgresql

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/akshare_execution_service.py
-# hypothesis_version: 6.148.5
-
-[100, 'Execution not found', 'avg_duration', 'failed_count', 'running_count', 'success_count', 'success_rate', 'total_count']

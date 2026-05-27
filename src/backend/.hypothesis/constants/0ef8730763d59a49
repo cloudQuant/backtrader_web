@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/akshare_scheduler.py
-# hypothesis_version: 6.148.5
-
-[3600, ':', 'Task not found', 'coalesce', 'd', 'default', 'h', 'm', 'max_instances', 'misfire_grace_time', 'next_run_time', 'task_id']

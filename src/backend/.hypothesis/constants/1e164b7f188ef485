@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/containers/instrument.py
-# hypothesis_version: 6.148.5
-
-['-', '.', '/', 'AUD', 'BNB', 'BRL', 'BTC', 'BUSD', 'ETH', 'EUR', 'FDUSD', 'GBP', 'TRY', 'TUSD', 'USD', 'USDC', 'USDT', '_', 'active', 'bond', 'fund', 'future', 'fx', 'index', 'option', 'spot', 'stk', 'swap']

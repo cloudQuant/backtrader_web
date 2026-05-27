@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/analytics.py
-# hypothesis_version: 6.148.5
-
-[0.3, 0.5, 0.99, 0.998, 1.01, 10.0, 400, 404, 500000, '%Y-%m-%d', '/{task_id}/detail', '/{task_id}/export', '/{task_id}/kline', 'Content-Disposition', 'T', 'Unknown', 'application/json', 'barlen', 'buy', 'cash', 'cash_curve', 'close', 'close_price', 'commission', 'created_at', 'csv', 'date', 'dates', 'datetime', 'direction', 'drawdown', 'drawdown_curve', 'dtclose', 'dtopen', 'end_date', 'equity_curve', 'high', 'id', 'indicators', 'json', 'klines', 'log_dir', 'log_indicators', 'low', 'model_dump', 'monthly_returns', 'ohlc', 'open', 'peak', 'pnl', 'pnlcomm', 'position_value', 'price', 'sell', 'signals', 'size', 'start_date', 'strategy_name', 'symbol', 'task_id', 'text/csv', 'total_assets', 'trades', 'trough', 'type', 'value', 'volume', 'volumes']

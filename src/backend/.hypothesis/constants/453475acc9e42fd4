@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/quote.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'Bar datetime string', 'Best ask', 'Best bid', 'Display label', 'Exchange or category', 'Highest price', 'Instrument category', 'Instrument code', 'Instrument name', 'Latest price', 'Lowest price', 'M1', 'Open interest', 'Opening price', 'Previous close', 'Price change amount', 'Price change percent', 'Quote field key', 'Search keyword', 'Turnover / amount', 'Volume', 'normal', 'polling']

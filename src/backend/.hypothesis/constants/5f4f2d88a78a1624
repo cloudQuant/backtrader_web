@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/metrics.py
-# hypothesis_version: 6.148.5
-
-[200, 500, 503, '/metrics', '/metrics/status', 'api_request_total', 'available', 'backend', 'backtest_total', 'content', 'db_query_total', 'description', 'error_total', 'example', 'metrics', 'prometheus_client', 'text/plain']

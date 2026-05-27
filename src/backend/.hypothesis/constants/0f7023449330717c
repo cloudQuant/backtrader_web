@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/containers/fundingrates/funding_rate.py
-# hypothesis_version: 6.148.5
-
-['FundingEvent', 'asset_type', 'current_funding_rate', 'current_funding_time', 'exchange_name', 'local_update_time', 'max_funding_rate', 'method', 'min_funding_rate', 'next_funding_rate', 'next_funding_time', 'pre_funding_rate', 'pre_funding_time', 'server_time', 'settlement_status', 'symbol_name']

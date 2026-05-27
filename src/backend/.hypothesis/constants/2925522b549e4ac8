@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_basis.py
-# hypothesis_version: 6.148.5
-
-[500, 1000, 2011, '%', '%Y%m%d', '180日内主力基差平均', '180日内主力基差最低', '180日内主力基差最高', '20210201', '20210208', '20240430', '20250620', '20250708', '20250709', 'BZ', 'FG', 'JD', 'LH', 'RB', '[0-9]', '[\\u4e00-\\u9fa5]', '[^0-9]*(\\d*)$', '\\g<1>', '__main__', 'czce', 'date', 'dce', 'dom_basis', 'dom_basis_rate', 'dominant_contract', 'dominant_month', 'float', 'int', 'near_basis', 'near_basis_rate', 'near_contract', 'near_contract_price', 'near_month', 'object', 'shfe', 'spot_price', 'str', 'symbol', '上海期货交易所', '主力合约代码', '主力合约价格', '主力合约变动百分比', '主力合约基差', '主力合约基差(%)', '价格', '商品', '大连商品交易所', '广州期货交易所', '暂无数据', '现货价格', '郑州商品交易所']

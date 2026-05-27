@@ -187,4 +187,4 @@ DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/backtrader
 | Paper trading | [API Reference - Paper Trading](API_REFERENCE_EN.md#paper-trading) |
 | AI Strategy Copilot | [AI Strategy Copilot](AI_STRATEGY_COPILOT.md) |
 | Local development | [Development Guide](DEVELOPMENT.md) |
-| Production deployment | `docker-compose.prod.yml` in project root |
+| Production deployment | `docker/compose/prod.yml` with root `docker-compose.yml` base |

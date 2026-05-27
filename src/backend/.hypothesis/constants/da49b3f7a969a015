@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_fundamental/stock_zygc.py
-# hypothesis_version: 6.148.5
-
-['-', '2', '3', 'GROSS_RPOFIT_RATIO', 'ITEM_NAME', 'MAINOP_TYPE', 'MAIN_BUSINESS_COST', 'MAIN_BUSINESS_INCOME', 'MAIN_BUSINESS_RPOFIT', 'MBC_RATIO', 'MBI_RATIO', 'MBR_RATIO', 'RANK', 'REPORT_DATE', 'SECUCODE', 'SECURITY_CODE', 'SH688041', '__main__', 'code', 'coerce', 'zygcfx', '主营利润', '主营成本', '主营收入', '主营构成', '分类类型', '利润比例', '成本比例', '报告日期', '按产品分类', '按地区分类', '收入比例', '毛利率', '股票代码']

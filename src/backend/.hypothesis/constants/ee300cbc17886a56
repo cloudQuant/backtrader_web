@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/monitoring.py
-# hypothesis_version: 6.148.5
-
-[100, '/', '/rules', '/rules/{rule_id}', '/statistics/by-type', '/statistics/summary', '/ws/alerts', '/{alert_id}', '/{alert_id}/read', '/{alert_id}/resolve', 'Acknowledge alert', 'Active status filter', 'Alert not found', 'Alert rule not found', 'Alert status filter', 'Alert type filter', 'Create alert rule', 'Delete alert rule', 'End date', 'Get alert details', 'List alert rules', 'List alerts', 'Mark alert as read', 'Read status filter', 'Resolve alert', 'Start date', 'Update alert rule', 'alerts:global', 'end_date', 'message', 'start_date', 'type']

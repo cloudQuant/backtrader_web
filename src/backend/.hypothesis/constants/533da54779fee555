@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/containers/incomes/income.py
-# hypothesis_version: 6.148.5
-
-['IncomeEvent', 'asset_type', 'exchange_name', 'income_asset', 'income_type', 'income_value', 'local_update_time', 'server_time', 'symbol_name']

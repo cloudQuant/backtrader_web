@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/wallet.py
-# hypothesis_version: 6.148.5
-
-[',', 'ALL', 'DUST', 'WALLET', 'address', 'addressTag', 'amount', 'asset', 'asset_transfer', 'asset_type', 'binance_wallet', 'binance_wallet_feed', 'coin', 'dust_transfer', 'email', 'endTime', 'exchange_data', 'exchange_name', 'fromSymbol', 'get_asset_detail', 'get_asset_dividend', 'get_asset_ledger', 'get_asset_transfer', 'get_deposit_address', 'get_deposit_history', 'get_dust', 'get_wallet_balance', 'get_withdraw_address', 'get_withdraw_history', 'limit', 'logger_name', 'name', 'network', 'normalize_function', 'offset', 'request_type', 'startTime', 'symbol', 'symbol_name', 'toSymbol', 'transfer_to_um', 'type', 'withdraw']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/trading_intent_parser.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.5, 1.0, 200, '```', 'action', 'answer', 'buy', 'cancel', 'close', 'confidence', 'content', 'critical', 'exchange', 'high', 'knowledge_qa', 'limit', 'low', 'market', 'medium', 'modify', 'order_type', 'price', 'quantity', 'query', 'reason', 'risk_level', 'role', 'sell', 'stop', 'stop_limit', 'stop_loss', 'symbol', 'system', 'take_profit', 'user', '{', '{market_context}', '}', '无法解析 AI 响应为有效 JSON', '无额外市场上下文']

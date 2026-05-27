@@ -121,7 +121,7 @@ class BacktestService:
 ```bash
 # SQLite (默认)
 DATABASE_TYPE=sqlite
-DATABASE_URL=sqlite+aiosqlite:///./backtrader.db
+DATABASE_URL=sqlite+aiosqlite:///../../data/dev/backtrader.db
 
 # PostgreSQL
 DATABASE_TYPE=postgresql

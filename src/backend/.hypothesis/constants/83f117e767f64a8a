@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/paper_trading.py
-# hypothesis_version: 6.148.5
-
-[0.0, 0.001, 100000.0, 100, 255, 'Account', 'Order', 'PaperTrade', 'Position', 'User', 'account', 'all, delete-orphan', 'buy', 'cancelled', 'filled', 'limit', 'market', 'orders', 'paper_trades', 'paper_trading_orders', 'partial_filled', 'pending', 'positions', 'rejected', 'sell', 'stop', 'stop_limit', 'trades', 'users.id']

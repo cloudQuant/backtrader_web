@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_ctp/src/bt_api_ctp/plugin.py
-# hypothesis_version: 6.148.5
-
-['>=0.15,<1.0', 'CTP', 'CTP___FUTURE', 'CTP___FUTURE_account', 'FUTURE', 'account', 'bt_api_ctp', 'ctp_market_stream', 'ctp_trade_stream', 'depth', 'market', 'stream_name', 'subscribe', 'tick', 'ticker', 'topic', 'topics']

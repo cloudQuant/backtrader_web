@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_hk_hot_rank_em.py
-# hypothesis_version: 6.148.5
-
-[100, ',', '000003', '00700', '116.', '2', '__main__', 'appId', 'appId01', 'coerce', 'data', 'diff', 'f14,f3,f12,f2', 'fields', 'fltt', 'globalId', 'index', 'invt', 'item', 'mark', 'marketType', 'pageNo', 'pageSize', 'rk', 'sc', 'secids', 'srcSecurityCode', 'ut', 'value', '|', '代码', '当前排名', '排名', '时间', '最新价', '涨跌幅', '股票名称', '证券代码']

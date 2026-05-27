@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/models/permission.py
-# hypothesis_version: 6.148.5
-
-['admin', 'admin:roles', 'admin:users', 'backtest:delete', 'backtest:export', 'backtest:read', 'backtest:run', 'data:delete', 'data:read', 'data:upload', 'guest', 'premium', 'role', 'strategy:create', 'strategy:delete', 'strategy:read', 'strategy:share', 'strategy:update', 'user', 'user_id', 'user_roles', 'users.id']

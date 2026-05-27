@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/services/live_trading_manager.py
-# hypothesis_version: 6.148.5
-
-[0.0, 500, '-c', 'GATEWAY', 'MT5', 'account_id', 'asset_type', 'command_endpoint', 'config', 'connected', 'credentials', 'error', 'exchange', 'exchange_type', 'gateway', 'gateway_key', 'heartbeat_age_sec', 'instances', 'ipc', 'is_healthy', 'last_heartbeat', 'last_order_time', 'last_tick_time', 'manual', 'manual:MT5:', 'manual_gateways.json', 'market_connection', 'message', 'ok', 'order_count', 'pid', 'process', 'process_mode', 'recent_errors', 'ref_count', 'running', 'runtime', 'source', 'spdlog', 'state', 'status', 'stderr_path', 'stopped', 'strategy_count', 'subprocess', 'symbol_count', 'tcp', 'tick_count', 'trade_connection', 'unknown error', 'uptime_sec', 'utf-8', 'win32', '网关已连接']

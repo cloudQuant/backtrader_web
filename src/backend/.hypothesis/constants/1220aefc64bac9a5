@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_zf_pg.py
-# hypothesis_version: 6.148.5
-
-['-', '-1', '0', '1', '10配', '2', '500', '50000', 'ALL', 'CORRECODE', 'EQUITY_RECORD_DATE', 'ISSUE_DATE', 'ISSUE_LISTING_DATE', 'ISSUE_NUM', 'ISSUE_PRICE', 'LOCKIN_PERIOD', 'NEW_PRICE', 'ONLINE_ISSUE_NUM', 'RPT_IPO_ALLOTMENT', 'RPT_SEO_DETAIL', 'SECURITY_CODE', 'SECURITY_NAME_ABBR', 'SEO_TYPE', 'WEB', '_', '__main__', 'client', 'coerce', 'columns', 'data', 'ignore', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'quoteType', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '上市日', '公开增发', '发行价格', '发行总数', '发行方式', '发行日期', '增发上市日期', '增发代码', '定向增发', '最新价', '缴款截止日期', '缴款起始日期', '网上发行', '股权登记日', '股票代码', '股票简称', '配售代码', '配股价', '配股前总股本', '配股后总股本', '配股数量', '配股比例', '锁定期']

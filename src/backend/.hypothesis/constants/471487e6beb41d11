@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_okx/src/bt_api_okx/feeds/live_okx/mixins/sub_account_mixin.py
-# hypothesis_version: 6.148.5
-
-['1', 'ALL', 'after', 'allow', 'amt', 'apiKey', 'asset_type', 'before', 'ccy', 'create_sub_account', 'exchange_name', 'false', 'fromAccType', 'fromAcct', 'get_sub_account_list', 'ip', 'label', 'limit', 'normalize_function', 'perm', 'request_type', 'subAcct', 'sub_account_transfer', 'symbol_name', 'tag', 'toAccType', 'toAcct', 'true', 'type']

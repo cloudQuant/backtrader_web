@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/feeds/vip_loan.py
-# hypothesis_version: 6.148.5
-
-['ALL', 'VIP_LOAN', 'asset_type', 'binance_vip_loan', 'collateralAmount', 'collateralCoin', 'current', 'endTime', 'exchange_data', 'exchange_name', 'get_vip_loan_history', 'loanAmount', 'loanCoin', 'logger_name', 'normalize_function', 'repayAmount', 'request_type', 'size', 'startTime', 'symbol_name', 'vip_loan_borrow', 'vip_loan_repay']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures_derivative/futures_contract_info_ine.py
-# hypothesis_version: 6.148.5
-
-['0.8312696798757147', '20241129', 'BASISPRICE', 'ContractBaseInfo', 'ENDDELIVDATE', 'EXPIREDATE', 'INSTRUMENTID', 'OPENDATE', 'STARTDELIVDATE', 'TRADINGDAY', 'User-Agent', '__main__', 'coerce', 'rnd', '上市日', '交易日', '到期日', '合约代码', '开始交割日', '挂牌基准价', '最后交割日']

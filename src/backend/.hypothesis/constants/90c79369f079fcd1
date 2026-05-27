@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/fincore/fincore/__init__.py
-# hypothesis_version: 6.148.5
-
-['0.3.0', 'Empyrical', 'Pyfolio', 'aggregate_returns', 'alpha', 'alpha_beta', 'analyze', 'annual_return', 'annual_volatility', 'beta', 'calmar_ratio', 'capture', 'cum_returns', 'cum_returns_final', 'downside_risk', 'fincore.metrics.risk', 'information_ratio', 'max_drawdown', 'omega_ratio', 'sharpe_ratio', 'simple_returns', 'sortino_ratio', 'tail_ratio', 'value_at_risk']

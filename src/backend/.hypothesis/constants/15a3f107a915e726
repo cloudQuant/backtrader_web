@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/futures/futures_inventory_em_varieties.py
-# hypothesis_version: 6.148.5
-
-[200, 60000, '(IS_MAINCODE="1")', '-', '1', '500', 'ALL', 'DELIVERY_MONTH', 'DERIVE_SECURITY_CODE', 'EXCHANGE_TRADECODE', 'SECURITY_CODE', 'TRADE_CODE', 'TRADE_CODE_UPPER', 'TRADE_MARKET_CODE', 'TRADE_TYPE', 'TRADE_TYPE_NAME', 'WEB', '__main__', 'client', 'columns', 'data', 'filter', 'networkidle', 'pageNumber', 'pageSize', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '主力合约代码', '交割月', '交易所', '交易所合约代码', '交易所编码', '品种中文', '品种代码', '品种代码大写', '品种简称', '派生合约代码']

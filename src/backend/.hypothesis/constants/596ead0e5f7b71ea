@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/cons.py
-# hypothesis_version: 6.148.5
-
-['*/*', '-1000', '0', '1', '2', '20', '2018-12-31', '20191026213000', '3000', '5', '8', '80', 'A_H', 'Accept', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Connection', 'Cookie', 'Host', 'NASDAQNTES', 'Pragma', 'Referer', 'User-Agent', '_s_r_a', '_var', 'asc', 'auto', 'board', 'callback', 'code', 'count', 'date', 'decs', 'gzip, deflate', 'hs_a', 'id', 'kcb', 'keep-alive', 'kline_dayhfq{}', 'list_data', 'market', 'metric', 'no-cache', 'node', 'null', 'num', 'number', 'order', 'page', 'pageSize', 'param', 'pname', 'price', 'qbgg_hk', 'r', 'reqPage', 'sort', 'start', 'symbol', 'titType', 'type', 'var_name']

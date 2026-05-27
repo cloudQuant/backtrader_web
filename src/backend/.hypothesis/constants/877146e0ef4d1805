@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/live_trading.py
-# hypothesis_version: 6.148.5
-
-[0.0, 100, '/api/v1/live-trading', '/live/submit', '/live/tasks', '/ws/live/{task_id}', 'cash', 'live-trading-crypto', 'message', 'orders', 'positions', 'status', 'stopped', 'submitted', 'task_id', 'tasks', 'total', 'type', 'value']

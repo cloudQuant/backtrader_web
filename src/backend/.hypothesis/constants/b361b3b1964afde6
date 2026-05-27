@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/gateway/__init__.py
-# hypothesis_version: 6.148.5
-
-['BaseGatewayAdapter', 'CHANNEL_EVENT', 'CHANNEL_MARKET', 'ChannelEvent', 'ChannelMarket', 'ConnectionState', 'GatewayConfig', 'GatewayHealth', 'GatewayRuntime', 'GatewayState', 'GatewayTick', 'OrderIdentityMap', 'OrderRefAllocator', 'PluginGatewayAdapter', 'SubscriptionManager', 'TickWriter', 'dumps_message']

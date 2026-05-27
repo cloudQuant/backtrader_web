@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/optimization_api.py
-# hypothesis_version: 6.148.5
-
-[400, 404, '/cancel/{task_id}', '/progress/{task_id}', '/results/{task_id}', '/submit', '/submit/backtest', 'bayesian', 'default', 'description', 'end', 'float', 'grid', 'message', 'name', 'params', 'start', 'step', 'strategy_id', 'strategy_name', 'task_id', 'type']

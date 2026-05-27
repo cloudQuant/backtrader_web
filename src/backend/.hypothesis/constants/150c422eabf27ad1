@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/bond/bond_cbond.py
-# hypothesis_version: 6.148.5
-
-['0-3个月', '0-6个月', '00', '01', '02', '03', '04', '05', '06', '07', '08', '09', '1', '1-3年', '10', '10年以上', '11', '12', '1年以下', '3-5年', '3-6个月', '5-7年', '6-12个月', '6-9个月', '7-10年', '9-12个月', 'Asia/Shanghai', 'CFZS', 'CFZSZDF', 'JJZS', 'JJZSZDF', 'PJDCQ', 'PJDQSYL', 'PJJDJZ', 'PJPXL', 'PJSZFDQSYL', 'PJSZFJQ', 'PJSZFTX', 'PJXJLFJQ', 'PJXJLFTX', 'QJZS', 'QJZSZDF', 'XQJSL', 'ZSZSZ', '__main__', 'coerce', 'date', 'index', 'indexid', 'locale', 'ltcslx', 'lx', 'ms', 'qxlxt', 'value', 'zslxt', '全价', '全价指数涨跌幅', '净价', '净价指数涨跌幅', '平均基点价值', '平均市值法久期', '平均市值法凸性', '平均市值法到期收益率', '平均待偿期', '平均派息率', '平均现金流法久期', '平均现金流法凸性', '平均现金流法到期收益率', '总值', '指数上日总市值', '现券结算量', '财富', '财富指数涨跌幅']

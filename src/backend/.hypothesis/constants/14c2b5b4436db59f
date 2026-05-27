@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_a_high_low.py
-# hypothesis_version: 6.148.5
-
-['__main__', 'all', 'close', 'coerce', 'date', 'high120', 'high20', 'high60', 'hs300', 'indexCode', 'low120', 'low20', 'low60', 'ms', 'sz50', 'zz500']

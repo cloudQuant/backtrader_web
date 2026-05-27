@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/utils/security.py
-# hypothesis_version: 6.148.5
-
-[128, '12345678', 'abc123', 'access', 'admin', 'exp', 'letmein', 'password', 'password123', 'qwerty', 'refresh', 'token_type', 'utf-8', 'welcome']

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/containers/accounts/account.py
-# hypothesis_version: 6.148.5
-
-['AccountEvent', 'account_id', 'account_type', 'asset_type', 'balances', 'can_deposit', 'can_trade', 'can_withdraw', 'exchange_name', 'fee_tier', 'local_update_time', 'max_withdraw_amount', 'positions', 'server_time', 'symbol_name', 'total_margin', 'total_used_margin', 'total_wallet_balance']

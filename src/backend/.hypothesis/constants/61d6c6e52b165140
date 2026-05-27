@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_binance/src/bt_api_binance/containers/accounts/binance_account.py
-# hypothesis_version: 6.148.5
-
-[0.0, 'B', 'BINANCE', 'E', 'P', 'a', 'accountType', 'account_type', 'asset', 'asset_type', 'assets', 'availableBalance', 'balances', 'canDeposit', 'canTrade', 'canWithdraw', 'can_deposit', 'can_trade', 'can_withdraw', 'exchange_name', 'feeTier', 'fee_tier', 'local_update_time', 'maxWithdrawAmount', 'max_withdraw_amount', 'multiAssetsMargin', 'positions', 'server_time', 'symbol', 'symbol_name', 'totalCrossUnPnl', 'totalMaintMargin', 'totalMarginBalance', 'totalWalletBalance', 'total_margin', 'total_wallet_balance', 'updateTime']

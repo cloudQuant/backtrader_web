@@ -1,0 +1,113 @@
+# Docker Compose for local development environment
+# Usage: docker compose -f docker-compose.yml -f docker/compose/dev.yml up
+#
+# Configurable ports via environment variables:
+#   LOCAL_BACKEND_PORT  (default: 8000)
+#   LOCAL_FRONTEND_PORT (default: 3000)
+#   LOCAL_DB_PORT       (default: 5432)
+#
+# Environment variables for initialization:
+#   DB_AUTO_CREATE_SCHEMA=true       - Auto-create database tables on first start
+#   DB_AUTO_CREATE_DEFAULT_ADMIN=true - Create default admin user
+#   SEED_DATA=true                   - Populate development sample data
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: backtrader_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-backtrader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-backtrader_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-backtrader_web}
+    ports:
+      - "${LOCAL_DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-backtrader} -d ${POSTGRES_DB:-backtrader_web}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - backtrader_dev
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.dev.Dockerfile
+    container_name: backtrader_backend_dev
+    restart: unless-stopped
+    environment:
+      APP_NAME: backtrader_web
+      DEBUG: "true"
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-key-change-in-production}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: "10080"
+      DATABASE_TYPE: postgresql
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-backtrader}:${POSTGRES_PASSWORD:-backtrader_dev}@postgres:5432/${POSTGRES_DB:-backtrader_web}
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      CORS_ORIGINS: "http://localhost:${LOCAL_FRONTEND_PORT:-3000},http://127.0.0.1:${LOCAL_FRONTEND_PORT:-3000}"
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      DB_AUTO_CREATE_SCHEMA: ${DB_AUTO_CREATE_SCHEMA:-true}
+      DB_AUTO_CREATE_DEFAULT_ADMIN: ${DB_AUTO_CREATE_DEFAULT_ADMIN:-true}
+      SEED_DATA: ${SEED_DATA:-false}
+      BACKTEST_TIMEOUT: "300"
+      TZ: Asia/Shanghai
+      LOG_FORMAT: ${LOG_FORMAT:-text}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+    ports:
+      - "${LOCAL_BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./src/backend:/opt/workspace/backtrader_web/src/backend
+      - ./strategies:/opt/workspace/backtrader_web/strategies
+      - ./datas:/opt/workspace/backtrader_web/datas
+      - ./scripts:/opt/workspace/backtrader_web/scripts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - backtrader_dev
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.dev.Dockerfile
+    container_name: backtrader_frontend_dev
+    restart: unless-stopped
+    environment:
+      VITE_API_BASE_URL: http://localhost:${LOCAL_BACKEND_PORT:-8000}
+    ports:
+      - "${LOCAL_FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./src/frontend:/app
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - backtrader_dev
+
+volumes:
+  postgres_dev_data:
+
+networks:
+  backtrader_dev:
+    driver: bridge

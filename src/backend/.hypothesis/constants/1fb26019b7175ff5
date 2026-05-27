@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock_feature/stock_gdhs.py
-# hypothesis_version: 6.148.5
-
-['-', '-1', '-1,-1', '000001', '002631', '1', '20230930', '500', 'END_DATE', 'RPT_HOLDERNUMLATEST', 'RPT_HOLDERNUM_DET', 'WEB', '__main__', 'client', 'coerce', 'columns', 'data', 'f2,f3', 'filter', 'pageNumber', 'pageSize', 'pages', 'quoteColumns', 'reportName', 'result', 'sortColumns', 'sortTypes', 'source', '代码', '公告日期', '区间涨跌幅', '名称', '总市值', '总股本', '户均持股市值', '户均持股数量', '最新', '最新价', '涨跌幅', '股东户数-上次', '股东户数-增减', '股东户数-增减比例', '股东户数-本次', '股东户数公告日期', '股东户数统计截止日', '股东户数统计截止日-上次', '股东户数统计截止日-本次', '股本变动', '股本变动原因']

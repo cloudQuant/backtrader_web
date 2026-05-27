@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/schemas/backtest.py
-# hypothesis_version: 6.148.5
-
-[0.001, 100000.0, 100000, '000001.SZ', '1d', '2023-01-01T00:00:00', '2024-01-01T00:00:00', 'Commission rate', 'Date sequence', 'Drawdown curve', 'End date', 'Equity curve', 'Initial cash', 'Losing trades', 'Maximum drawdown (%)', 'Profitable trades', 'Sharpe ratio', 'Start date', 'Status message', 'Stock symbol', 'Strategy ID', 'Strategy parameters', 'Task ID', 'Task status', 'Timeframe multiplier', 'Total return (%)', 'Total trades', 'Trade records', 'Win rate (%)', 'cancelled', 'commission', 'completed', 'end_date', 'example', 'failed', 'fast_period', 'initial_cash', 'ma_cross', 'manual', 'params', 'pending', 'running', 'slow_period', 'start_date', 'strategy_id', 'symbol']

@@ -118,8 +118,8 @@ Set up cron job for daily backups:
 git pull origin main
 
 # Rebuild
-docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.yml -f docker/compose/prod.yml build
 
 # Restart
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
 ```

@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/backtrader_web/src/backend/app/api/backtest_enhanced.py
-# hypothesis_version: 6.148.5
-
-[1.0, 100, 500, '/', '/run', '/{task_id}', '/{task_id}/cancel', '/{task_id}/status', '/{task_id}/trades', 'Cancel backtest task', 'Content-Disposition', 'Current offset', 'Deleted successfully', 'Export Excel report', 'Export HTML report', 'Export PDF report', 'Get backtest result', 'Get paginated trades', 'Items per page', 'Offset', 'Run backtest', 'Task cancelled', 'Task not found', 'Trade records', 'Unknown error', 'application/pdf', 'asc', 'backtest', 'backtests', 'config.yaml', 'created_at', 'desc', 'description', 'message', 'name', 'ping', 'pong', 'python', 'strategy', 'task_id', 'text/html', 'type', 'utf-8', 'value']

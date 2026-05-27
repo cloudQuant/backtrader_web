@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/source_code/akshare_web/akshare/stock/stock_new_cninfo.py
-# hypothesis_version: 6.148.5
-
-['*/*', '0', '36', 'ALL', 'Accept', 'Accept-Enckey', 'Accept-Encoding', 'Accept-Language', 'Cache-Control', 'Content-Length', 'Host', 'Origin', 'Pragma', 'Proxy-Connection', 'Referer', 'User-Agent', 'X-Requested-With', 'XMLHttpRequest', '__main__', 'cninfo.js', 'coerce', 'getResCode1', 'gzip, deflate', 'keep-alive', 'market', 'no-cache', 'records', 'timetype', 'utf-8', 'webapi.cninfo.com.cn', '上会日期', '上市日期', '上网发行中签率', '上网发行数量', '中签公告日', '中签缴款日', '公司名称', '发行价', '发行市盈率', '审核公告日', '审核类型', '审核结果', '审议内容', '总发行数量', '摇号结果公告日', '申购日期', '网上申购上限', '证券简称', '证劵代码']

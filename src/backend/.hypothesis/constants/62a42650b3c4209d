@@ -1,4 +1,0 @@
-# file: /Users/yunjinqi/Documents/new_projects/bt_api/bt_api_base/src/bt_api_base/registry.py
-# hypothesis_version: 6.148.5
-
-['ExchangeRegistry', '_clear', '_cls_clear', '_cls_create_feed', '_cls_get_feed_class', '_cls_has_exchange', '_cls_list_exchanges', '_cls_register_feed', '_cls_register_stream', '_cls_unregister_feed', '_create_feed', '_get_balance_handler', '_get_feed_class', '_get_feed_classes', '_get_stream_class', '_get_stream_classes', '_has_exchange', '_list_exchanges', '_register_feed', '_register_stream', '_unregister_feed']
