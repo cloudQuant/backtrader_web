@@ -22,7 +22,7 @@ from app.api.data_topics import router as data_topics_router
 from app.api.docs import router as docs_router
 from app.api.equity_research import router as equity_research_router
 from app.api.factor_lib import router as factor_lib_router
-from app.api.live_trading_api import router as live_trading_router
+from app.api.live_trading import router as live_trading_router
 from app.api.metrics import router as metrics_router
 from app.api.news_intelligence import router as news_intelligence_router
 from app.api.optimization_api import router as optimization_router
