@@ -42,10 +42,10 @@ export default defineConfig({
           'src/composables/useKeyboardShortcuts.ts',
         ],
       thresholds: {
-        lines: 25,
-        statements: 25,
-        functions: 30,  // V8 reports 0% for Vue SFC <script setup> functions; real coverage is higher
-        branches: 40,
+        lines: 45,
+        statements: 45,
+        functions: 50,  // V8 reports 0% for Vue SFC <script setup> functions; real coverage is higher
+        branches: 55,
       },
     },
   },

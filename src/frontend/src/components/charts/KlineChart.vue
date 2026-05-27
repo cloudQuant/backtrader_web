@@ -10,6 +10,7 @@ import { watch } from 'vue'
 import type * as echarts from 'echarts'
 import type { KlineData } from '@/types'
 import { useChartResize } from '@/composables/useChartResize'
+import { CANDLE_ITEM_STYLE, KLINE_VOLUME_COLOR } from '@/constants/chartColors'
 
 interface Props {
   data: KlineData
@@ -105,12 +106,7 @@ function initChart() {
         name: 'K线',
         type: 'candlestick',
         data: props.data.ohlc,
-        itemStyle: {
-          color: '#ec0000',
-          color0: '#00da3c',
-          borderColor: '#ec0000',
-          borderColor0: '#00da3c',
-        },
+        itemStyle: CANDLE_ITEM_STYLE,
       },
       ...props.indicators.map((ind) => {
         const period = parseInt(ind.replace('MA', ''))
@@ -128,7 +124,7 @@ function initChart() {
         xAxisIndex: 1,
         yAxisIndex: 1,
         data: props.data.volumes,
-        itemStyle: { color: '#7fbe23' },
+        itemStyle: { color: KLINE_VOLUME_COLOR },
       },
     ],
   }

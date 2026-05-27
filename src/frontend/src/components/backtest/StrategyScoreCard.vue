@@ -45,7 +45,7 @@
             :key="level"
             :points="buildRadarPolygon(level)"
             fill="none"
-            stroke="#bfdbfe"
+            stroke="var(--info-border-color)"
             stroke-width="1"
           />
           <line
@@ -55,13 +55,13 @@
             y1="120"
             :x2="point.x"
             :y2="point.y"
-            stroke="#dbeafe"
+            stroke="var(--color-primary-100)"
             stroke-width="1"
           />
           <polygon
             :points="scorePolygon"
             fill="rgba(37, 99, 235, 0.22)"
-            stroke="#2563eb"
+            stroke="var(--primary-color-dark)"
             stroke-width="2"
           />
           <circle
@@ -70,7 +70,7 @@
             :cx="point.x"
             :cy="point.y"
             r="3"
-            fill="#2563eb"
+            fill="var(--primary-color-dark)"
           />
           <text
             v-for="point in radarAxisPoints"

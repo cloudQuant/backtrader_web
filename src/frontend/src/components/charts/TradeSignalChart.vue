@@ -36,6 +36,7 @@ import type * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
 import type { KlineData, TradeSignal } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR, TRADE_SIGNAL_MA_COLORS, TRADE_SIGNAL_SUB_COLORS } from '@/constants/chartColors'
 
 const props = withDefaults(defineProps<{
   klines: KlineData[]
@@ -211,19 +212,19 @@ function renderChart() {
   const series: echarts.SeriesOption[] = []
   const legendData: string[] = ['日K']
   const legendSelected: Record<string, boolean> = {}
-  const maColors = ['#f5a623', '#7b68ee', '#20b2aa', '#ff6347', '#9370db', '#e6550d']
+  const maColors = [...TRADE_SIGNAL_MA_COLORS]
 
   // 买卖点标记
   const buyPoints = props.signals
     .filter(s => s.type === 'buy')
-    .map(s => ({ coord: [s.date, s.price * 0.98], value: s.price, itemStyle: { color: '#ec0000' }, symbol: 'triangle', symbolSize: 15 }))
+    .map(s => ({ coord: [s.date, s.price * 0.98], value: s.price, itemStyle: { color: CANDLE_UP_COLOR }, symbol: 'triangle', symbolSize: 15 }))
   const sellPoints = props.signals
     .filter(s => s.type === 'sell')
-    .map(s => ({ coord: [s.date, s.price * 1.02], value: s.price, itemStyle: { color: '#00da3c' }, symbol: 'triangle', symbolSize: 15, symbolRotate: 180 }))
+    .map(s => ({ coord: [s.date, s.price * 1.02], value: s.price, itemStyle: { color: CANDLE_DOWN_COLOR }, symbol: 'triangle', symbolSize: 15, symbolRotate: 180 }))
 
   series.push({
     name: '日K', type: 'candlestick', data: ohlc,
-    itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
+    itemStyle: CANDLE_ITEM_STYLE,
     markPoint: { data: [...buyPoints, ...sellPoints], label: { show: false } },
   } as unknown as echarts.SeriesOption)
 
@@ -239,11 +240,11 @@ function renderChart() {
   const volSeriesIdx = series.length
   series.push({
     name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
-    itemStyle: { color: (_params: unknown) => ((_params as { data?: unknown[] }).data?.[2] === 1 ? '#ec0000' : '#00da3c') },
+    itemStyle: { color: (_params: unknown) => ((_params as { data?: unknown[] }).data?.[2] === 1 ? CANDLE_UP_COLOR : CANDLE_DOWN_COLOR) },
   } as unknown as echarts.SeriesOption)
 
   // 副图指标
-  const subColors = ['#1890ff', '#722ed1', '#13c2c2', '#eb2f96', '#fa8c16', '#52c41a']
+  const subColors = [...TRADE_SIGNAL_SUB_COLORS]
   for (let i = 0; i < numSub; i++) {
     const gi = 2 + i
     const { name, values } = subGroups[i]
@@ -274,7 +275,7 @@ function renderChart() {
       backgroundColor: 'rgba(255, 255, 255, 0.9)', borderWidth: 1, borderColor: '#ccc', padding: 10, textStyle: { color: '#333' },
     },
     axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#777' } },
-    visualMap: { show: false, seriesIndex: volSeriesIdx, dimension: 2, pieces: [{ value: 1, color: '#ec0000' }, { value: -1, color: '#00da3c' }] },
+    visualMap: { show: false, seriesIndex: volSeriesIdx, dimension: 2, pieces: [{ value: 1, color: CANDLE_UP_COLOR }, { value: -1, color: CANDLE_DOWN_COLOR }] },
     grid: grids,
     xAxis: xAxes,
     yAxis: yAxes,

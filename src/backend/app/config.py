@@ -8,7 +8,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _DEFAULT_SECRETS = frozenset(
@@ -21,9 +21,30 @@ _DEFAULT_SECRETS = frozenset(
 _DEFAULT_PASSWORDS = frozenset({"admin123", "password", "12345678"})
 
 
-def _is_production() -> bool:
-    """Check if the application is running in production mode."""
-    return os.environ.get("DEBUG", "true").lower() in ("false", "0", "no")
+def _coerce_bool(value: object) -> bool | None:
+    """Coerce common boolean-like values from settings inputs or env vars."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    return None
+
+
+def _is_production(debug: object | None = None, *, debug_was_explicit: bool = False) -> bool:
+    """Check if the application should apply production-only safeguards."""
+    normalized_debug = _coerce_bool(debug)
+    if debug_was_explicit and normalized_debug is not None:
+        return not normalized_debug
+    env_debug = _coerce_bool(os.environ.get("DEBUG"))
+    if env_debug is not None:
+        return not env_debug
+    return False
 
 
 class Settings(BaseSettings):
@@ -394,16 +415,26 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    @field_validator("SECRET_KEY", "JWT_SECRET_KEY")
-    @classmethod
-    def validate_secrets_not_default(cls, v: str, info) -> str:
-        """Validate that secret keys are not default values in production."""
-        if _is_production() and v in _DEFAULT_SECRETS:
-            raise ValueError(
-                f"Default secret key detected (ENV: {info.field_name}). "
-                "Please set a secure random key via environment variable in production."
+    @model_validator(mode="after")
+    def validate_runtime_security_guards(self) -> "Settings":
+        """Validate production-only secret and admin-password guards."""
+        if _is_production(self.DEBUG, debug_was_explicit="DEBUG" in self.model_fields_set):
+            for field_name in ("SECRET_KEY", "JWT_SECRET_KEY"):
+                if getattr(self, field_name) in _DEFAULT_SECRETS:
+                    raise ValueError(
+                        f"Default secret key detected (ENV: {field_name}). "
+                        "Please set a secure random key via environment variable in production."
+                    )
+            if self.ADMIN_PASSWORD.lower() in _DEFAULT_PASSWORDS:
+                raise ValueError(
+                    "Default admin password detected. Set ADMIN_PASSWORD to a secure password in production."
+                )
+        elif self.ADMIN_PASSWORD.lower() in _DEFAULT_PASSWORDS:
+            warnings.warn(
+                "Insecure default admin password detected. Change ADMIN_PASSWORD before shared or production use.",
+                stacklevel=2,
             )
-        return v
+        return self
 
     @field_validator("SECRET_KEY", "JWT_SECRET_KEY")
     @classmethod
@@ -414,21 +445,6 @@ class Settings(BaseSettings):
             raise ValueError(
                 f"{info.field_name} must be at least {min_length} characters long "
                 f"for security. Current length: {len(v)}"
-            )
-        return v
-
-    @field_validator("ADMIN_PASSWORD")
-    @classmethod
-    def validate_admin_password_not_default(cls, v: str) -> str:
-        """Validate that admin password is not the default."""
-        if v.lower() in _DEFAULT_PASSWORDS:
-            if _is_production():
-                raise ValueError(
-                    "Default admin password detected. Set ADMIN_PASSWORD to a secure password in production."
-                )
-            warnings.warn(
-                "Insecure default admin password detected. Change ADMIN_PASSWORD before shared or production use.",
-                stacklevel=2,
             )
         return v
 

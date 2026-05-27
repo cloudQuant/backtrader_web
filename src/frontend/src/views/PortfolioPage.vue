@@ -385,6 +385,7 @@ import type {
   AllocationItem,
 } from '@/api/portfolio'
 import { usePortfolioUiStore } from '@/stores/portfolioUi'
+import { PORTFOLIO_DRAWDOWN_AREA_COLOR, PORTFOLIO_DRAWDOWN_COLOR, PORTFOLIO_EQUITY_COLOR } from '@/constants/chartColors'
 
 const portfolioUiStore = usePortfolioUiStore()
 
@@ -497,8 +498,8 @@ function renderEquityChart() {
     type: 'line',
     data: data.total_equity,
     symbol: 'none',
-    lineStyle: { width: 2, color: '#1a56db' },
-    itemStyle: { color: '#1a56db' },
+    lineStyle: { width: 2, color: PORTFOLIO_EQUITY_COLOR },
+    itemStyle: { color: PORTFOLIO_EQUITY_COLOR },
     z: 10,
   })
 
@@ -531,9 +532,9 @@ function renderDrawdownChart() {
     series: [{
       type: 'line',
       data: data.total_drawdown,
-      areaStyle: { color: 'rgba(220,38,38,0.15)' },
-      lineStyle: { color: '#dc2626', width: 1 },
-      itemStyle: { color: '#dc2626' },
+      areaStyle: { color: PORTFOLIO_DRAWDOWN_AREA_COLOR },
+      lineStyle: { color: PORTFOLIO_DRAWDOWN_COLOR, width: 1 },
+      itemStyle: { color: PORTFOLIO_DRAWDOWN_COLOR },
       symbol: 'none',
     }],
   }, true)

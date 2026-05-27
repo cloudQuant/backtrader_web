@@ -364,7 +364,7 @@ onMounted(() => {
 }
 
 .stat-title {
-  color: #64748b;
+  color: var(--text-color-secondary);
   font-size: 13px;
 }
 
@@ -372,12 +372,12 @@ onMounted(() => {
   margin-top: 8px;
   font-size: 28px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
-.stat-value.success { color: #15803d; }
-.stat-value.danger { color: #b91c1c; }
-.stat-value.primary { color: #1d4ed8; }
+.stat-value.success { color: var(--success-text-color); }
+.stat-value.danger { color: var(--danger-text-color); }
+.stat-value.primary { color: var(--color-primary-700); }
 
 .header-row,
 .toolbar {
@@ -395,7 +395,7 @@ onMounted(() => {
 
 .page-subtitle {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .toolbar {
@@ -425,8 +425,8 @@ onMounted(() => {
 pre {
   margin: 0;
   padding: 14px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--code-bg-color);
+  color: var(--code-text-color);
   border-radius: 12px;
   overflow: auto;
 }

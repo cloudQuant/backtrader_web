@@ -258,8 +258,8 @@ function numberClass(value: number | null | undefined) {
 
 <style scoped>
 .position-table :deep(.el-table__header th) {
-  background: #f8fafc;
-  color: #475569;
+  background: var(--bg-color-page);
+  color: var(--text-color-regular);
   font-weight: 600;
 }
 </style>

@@ -15,6 +15,17 @@ import { watch, computed } from 'vue'
 import * as echarts from 'echarts'
 import type { EquityPoint } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import {
+  EQUITY_BUY_SIGNAL_COLOR,
+  EQUITY_CASH_COLOR,
+  EQUITY_CURVE_AREA_END,
+  EQUITY_CURVE_AREA_START,
+  EQUITY_CURVE_COLOR,
+  EQUITY_DRAWDOWN_AREA_COLOR,
+  EQUITY_DRAWDOWN_COLOR,
+  EQUITY_POSITION_COLOR,
+  EQUITY_SELL_SIGNAL_COLOR,
+} from '@/constants/chartColors'
 
 interface TradeSignal {
   date: string
@@ -116,12 +127,12 @@ function renderChart() {
     {
       name: '总资产', type: 'line', data: chartEquity.value,
       smooth: true, showSymbol: false,
-      lineStyle: { width: 2, color: '#3b82f6' },
+      lineStyle: { width: 2, color: EQUITY_CURVE_COLOR },
       areaStyle: {
         opacity: 0.15,
         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-          { offset: 0, color: 'rgba(59, 130, 246, 0.4)' },
-          { offset: 1, color: 'rgba(59, 130, 246, 0.02)' },
+          { offset: 0, color: EQUITY_CURVE_AREA_START },
+          { offset: 1, color: EQUITY_CURVE_AREA_END },
         ]),
       },
     },
@@ -133,13 +144,13 @@ function renderChart() {
         name: '现金', type: 'line',
         data: props.data.map(d => d.cash),
         smooth: true, showSymbol: false,
-        lineStyle: { width: 1.5, type: 'dashed', color: '#10b981' },
+        lineStyle: { width: 1.5, type: 'dashed', color: EQUITY_CASH_COLOR },
       },
       {
         name: '持仓市值', type: 'line',
         data: props.data.map(d => d.position_value),
         smooth: true, showSymbol: false,
-        lineStyle: { width: 1.5, type: 'dotted', color: '#f59e0b' },
+        lineStyle: { width: 1.5, type: 'dotted', color: EQUITY_POSITION_COLOR },
       },
     )
   }
@@ -150,10 +161,10 @@ function renderChart() {
       xAxisIndex: 1, yAxisIndex: 1,
       data: chartDrawdown.value,
       smooth: true, showSymbol: false,
-      lineStyle: { width: 1, color: '#ef4444' },
+      lineStyle: { width: 1, color: EQUITY_DRAWDOWN_COLOR },
       areaStyle: {
         opacity: 0.3,
-        color: 'rgba(239, 68, 68, 0.3)',
+        color: EQUITY_DRAWDOWN_AREA_COLOR,
       },
     })
   }
@@ -179,7 +190,7 @@ function renderChart() {
     if (buyData.length) {
       series.push({
         name: '买入', type: 'scatter', data: buyData,
-        itemStyle: { color: '#ef4444' },
+        itemStyle: { color: EQUITY_BUY_SIGNAL_COLOR },
         z: 10,
       })
       legendData.push('买入')
@@ -187,7 +198,7 @@ function renderChart() {
     if (sellData.length) {
       series.push({
         name: '卖出', type: 'scatter', data: sellData,
-        itemStyle: { color: '#10b981' },
+        itemStyle: { color: EQUITY_SELL_SIGNAL_COLOR },
         z: 10,
       })
       legendData.push('卖出')

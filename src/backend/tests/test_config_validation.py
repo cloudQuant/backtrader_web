@@ -234,6 +234,18 @@ class TestSettingsSecurityDefaults:
         settings = Settings()
         assert settings.DEBUG is False
 
+    def test_debug_mode_explicit_true_overrides_env(self, monkeypatch):
+        """Test that explicit DEBUG=True wins over a production-like env default."""
+        monkeypatch.setenv("DEBUG", "false")
+        settings = Settings(DEBUG=True, ADMIN_PASSWORD="SecurePass@123!")
+        assert settings.DEBUG is True
+        assert settings.SECRET_KEY == "your-secret-key-change-in-production"
+
+    def test_host_default_is_loopback(self):
+        """Test that host defaults to loopback instead of all interfaces."""
+        settings = Settings(DEBUG=True, ADMIN_PASSWORD="SecurePass@123!")
+        assert settings.HOST == "127.0.0.1"
+
     def test_sql_echo_disabled_by_default(self):
         """Test that SQL echo is disabled by default."""
         settings = Settings()

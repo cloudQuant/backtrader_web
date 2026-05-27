@@ -417,11 +417,11 @@ function handleCommand(command: string) {
 }
 
 .app-header {
-  background-color: var(--bg-color, #ffffff);
-  border-color: var(--border-color, #e4e7ed);
+  background-color: var(--bg-color);
+  border-color: var(--border-color);
 }
 
 .sidebar-title {
-  color: var(--sidebar-text-color, #303133);
+  color: var(--sidebar-text-color);
 }
 </style>

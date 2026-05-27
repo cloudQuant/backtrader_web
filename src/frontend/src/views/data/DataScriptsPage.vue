@@ -574,14 +574,14 @@ onMounted(() => {
 
 .stat-title {
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .stat-value {
   margin-top: 8px;
   font-size: 30px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .header-row,
@@ -597,12 +597,12 @@ onMounted(() => {
 .page-title {
   font-size: 20px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .page-subtitle {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .toolbar {

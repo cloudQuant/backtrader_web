@@ -62,6 +62,7 @@ docs/
 | `CODING_STANDARDS.md` | Coding standards |
 | `TESTING.md` | Testing strategy |
 | `DEVELOPMENT.md` | Developer setup |
+| `DESIGN_SYSTEM.md` | Frontend design token and theming contract |
 | `AGILE_DEVELOPMENT.md` | Process notes |
 | `CONTRIBUTING.md` | Contribution workflow |
 | `CHANGELOG.md` | Release log |

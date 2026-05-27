@@ -295,12 +295,12 @@ defineExpose({
 
 <style scoped>
 .trading-units-table :deep(.el-table__header th) {
-  background: #f8fafc;
-  color: #475569;
+  background: var(--bg-color-page);
+  color: var(--text-color-regular);
   font-weight: 600;
 }
 
 .trading-units-table :deep(.el-table__row:hover > td) {
-  background: #f8fbff !important;
+  background: var(--info-surface) !important;
 }
 </style>

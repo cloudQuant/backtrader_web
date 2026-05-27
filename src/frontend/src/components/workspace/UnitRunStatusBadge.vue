@@ -51,7 +51,7 @@ defineProps<{
 
 .status-text {
   font-weight: 500;
-  color: #334155;
+  color: var(--text-color-regular);
 }
 
 .status-dot {
@@ -59,26 +59,26 @@ defineProps<{
   height: 8px;
   border-radius: 999px;
   flex: 0 0 auto;
-  background: #94a3b8;
+  background: var(--text-color-placeholder);
 }
 
 .status-dot.is-running {
-  background: #22c55e;
+  background: var(--success-color);
   box-shadow: 0 0 0 3px rgb(34 197 94 / 0.14);
 }
 
 .status-dot.is-queued {
-  background: #f59e0b;
+  background: var(--warning-color);
   box-shadow: 0 0 0 3px rgb(245 158 11 / 0.14);
 }
 
 .status-dot.is-error {
-  background: #ef4444;
+  background: var(--danger-color);
   box-shadow: 0 0 0 3px rgb(239 68 68 / 0.14);
 }
 
 .status-dot.is-idle {
-  background: #94a3b8;
+  background: var(--text-color-placeholder);
 }
 
 .status-cell__meta {
@@ -97,7 +97,7 @@ defineProps<{
   height: 20px;
   border-radius: 999px;
   font-size: 11px;
-  color: #92400e;
-  background: #fef3c7;
+  color: var(--warning-text-color);
+  background: var(--warning-surface);
 }
 </style>

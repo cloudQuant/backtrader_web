@@ -49,9 +49,9 @@ const emit = defineEmits<{
 <style scoped lang="scss">
 .citation-box {
   margin-top: 12px;
-  border: 1px solid var(--border-color, #e5e7eb);
+  border: 1px solid var(--border-color);
   border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card, #fff);
+  background: var(--bg-color-card);
   padding: 12px;
 }
 
@@ -61,7 +61,7 @@ const emit = defineEmits<{
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
-  color: var(--text-color-regular, #4b5563);
+  color: var(--text-color-regular);
   font-size: 12px;
   font-weight: 700;
 }
@@ -72,9 +72,9 @@ const emit = defineEmits<{
   gap: 10px;
   width: 100%;
   align-items: start;
-  border: 1px solid var(--border-color, #e5e7eb);
+  border: 1px solid var(--border-color);
   border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-hover, #f3f4f6);
+  background: var(--bg-color-hover);
   padding: 10px;
   text-align: left;
   cursor: pointer;
@@ -91,8 +91,8 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   border-radius: 9999px;
-  background: var(--el-color-primary-light-9, #ecf5ff);
-  color: var(--primary-color, #3b82f6);
+  background: var(--info-surface);
+  color: var(--primary-color);
   font-size: 12px;
   font-weight: 700;
 }
@@ -105,13 +105,13 @@ const emit = defineEmits<{
 }
 
 .citation-content strong {
-  color: var(--text-color-primary, #1f2937);
+  color: var(--text-color-primary);
   font-size: 13px;
 }
 
 .citation-content small,
 .citation-content span {
-  color: var(--text-color-secondary, #6b7280);
+  color: var(--text-color-secondary);
   font-size: 12px;
 }
 </style>

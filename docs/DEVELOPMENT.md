@@ -6,42 +6,43 @@
 
 ```bash
 ./scripts/verify-dev-env.sh --preinstall
-cd src/backend
-python -m venv venv
-source venv/bin/activate
-pip install -e ".[dev,backtrader]"
-cd ../..
+python -m venv src/backend/venv
+source src/backend/venv/bin/activate
+pip install -e "src/backend[dev,backtrader]"
+cp .env.example src/backend/.env
 ./scripts/verify-dev-env.sh --postinstall
 ```
+
+Set `DEBUG=true` in `src/backend/.env` for local development. Keep `HOST=127.0.0.1` for localhost-only work; only switch to `HOST=0.0.0.0` when you need Docker/LAN access.
 
 ### Run
 
 ```bash
-cd src/backend
-uvicorn app.main:app --reload --port 8000
+source src/backend/venv/bin/activate
+uvicorn app.main:app --app-dir src/backend --reload --port 8000
 ```
 
 ### Test
 
 ```bash
-cd src/backend
-python -m pytest
+source src/backend/venv/bin/activate
+pytest -n 8
 ```
 
 ### Lint
 
 ```bash
-cd src/backend
-python -m ruff check .
+source src/backend/venv/bin/activate
+ruff check src/backend
 ```
 
 ### Coverage
 
 ```bash
-cd src/backend
-python -m coverage run -m pytest
-python -m coverage report -m
-python -m coverage html
+source src/backend/venv/bin/activate
+coverage run -m pytest -n 8
+coverage report -m
+coverage html
 ```
 
 The HTML report is generated under `src/backend/htmlcov/`.
@@ -49,7 +50,6 @@ The HTML report is generated under `src/backend/htmlcov/`.
 ## Frontend
 
 ```bash
-cd src/frontend
-npm ci
-npm run dev
+npm --prefix src/frontend ci
+npm --prefix src/frontend run dev
 ```

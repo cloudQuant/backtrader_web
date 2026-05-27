@@ -89,7 +89,7 @@ function handleTabChange(path: string | number) {
   border: none;
   background:
     radial-gradient(circle at top left, rgba(13, 148, 136, 0.12), transparent 34%),
-    linear-gradient(135deg, #f7fbfb 0%, #ffffff 55%, #f5f7fa 100%);
+    linear-gradient(135deg, var(--info-surface) 0%, var(--bg-color-card) 55%, var(--bg-color-page) 100%);
 }
 
 .hero {
@@ -104,13 +104,13 @@ function handleTabChange(path: string | number) {
   margin: 6px 0 8px;
   font-size: 28px;
   line-height: 1.1;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .hero p {
   margin: 0;
   max-width: 720px;
-  color: #475569;
+  color: var(--text-color-regular);
 }
 
 .eyebrow {
@@ -118,7 +118,7 @@ function handleTabChange(path: string | number) {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #0f766e;
+  color: var(--accent-color);
 }
 
 .hero-tags {

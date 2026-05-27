@@ -22,23 +22,10 @@ describe('NewsIntelligencePage', () => {
     apiMocks.createNewsSource.mockResolvedValue({ id: 'source-1' })
     apiMocks.pullNewsSource.mockResolvedValue({ source: 'terminal-rss', status: 'ok', fetched_count: 2, inserted_count: 2, total: 2 })
     apiMocks.ingestArticles.mockResolvedValue({ inserted_count: 1, total: 1 })
-    apiMocks.listArticles
-      .mockResolvedValueOnce({
-        items: [{ headline: 'RB2510 surges after bullish demand shock', sentiment: 'BULLISH', impact: 'HIGH', cluster_id: 'cluster-1', source: 'terminal-rss' }],
-        total: 1,
-      })
-      .mockResolvedValueOnce({
-        items: [{ headline: 'RB2510 surges after bullish demand shock', sentiment: 'BULLISH', impact: 'HIGH', cluster_id: 'cluster-1', source: 'terminal-rss' }],
-        total: 1,
-      })
-      .mockResolvedValueOnce({
-        items: [{ headline: 'RB2510 surges after bullish demand shock', sentiment: 'BULLISH', impact: 'HIGH', cluster_id: 'cluster-1', source: 'terminal-rss' }],
-        total: 1,
-      })
-      .mockResolvedValueOnce({
-        items: [{ headline: 'RB2510 surges after bullish demand shock', sentiment: 'BULLISH', impact: 'HIGH', cluster_id: 'cluster-1', source: 'terminal-rss' }],
-        total: 1,
-      })
+    apiMocks.listArticles.mockResolvedValue({
+      items: [{ headline: 'RB2510 surges after bullish demand shock', sentiment: 'BULLISH', impact: 'HIGH', cluster_id: 'cluster-1', source: 'terminal-rss' }],
+      total: 1,
+    })
     apiMocks.analyzeHeadline.mockResolvedValue({ sentiment: 'NEUTRAL', impact: 'MEDIUM', status: 'degraded' })
   })
 

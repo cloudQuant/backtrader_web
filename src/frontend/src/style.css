@@ -11,30 +11,62 @@
    ============================================================================= */
 :root {
   /* Brand / Primary */
-  --primary-color: #3b82f6;
-  --primary-color-light: #60a5fa;
-  --primary-color-dark: #2563eb;
+  --primary-color: var(--color-primary-500);
+  --primary-color-light: var(--color-primary-400);
+  --primary-color-dark: var(--color-primary-600);
+  --accent-color: var(--primary-color);
 
   /* Semantic */
-  --success-color: #10b981;
-  --danger-color: #ef4444;
-  --warning-color: #f59e0b;
+  --success-color: var(--color-success-500);
+  --danger-color: var(--color-danger-500);
+  --warning-color: var(--color-warning-500);
+  --info-surface: var(--color-primary-50);
+  --info-border-color: var(--color-primary-200);
+  --info-text-color: var(--color-primary-900);
+  --success-surface: var(--color-success-50);
+  --success-border-color: var(--color-success-200);
+  --success-text-color: var(--color-success-700);
+  --success-text-strong: var(--color-success-800);
+  --warning-surface: var(--color-warning-50);
+  --warning-border-color: var(--color-warning-200);
+  --warning-text-color: var(--color-warning-800);
+  --warning-text-strong: var(--color-warning-700);
+  --danger-surface: var(--color-danger-50);
+  --danger-border-color: var(--color-danger-200);
+  --danger-text-color: var(--color-danger-800);
 
   /* Text */
-  --text-color-primary: #1f2937;
-  --text-color-regular: #4b5563;
-  --text-color-secondary: #6b7280;
-  --text-color-placeholder: #9ca3af;
+  --text-color-primary: var(--color-text-primary);
+  --text-color-regular: var(--color-text-regular);
+  --text-color-secondary: var(--color-text-secondary);
+  --text-color-placeholder: var(--color-text-placeholder);
 
   /* Background */
-  --bg-color-page: #f9fafb;
-  --bg-color-card: #ffffff;
-  --bg-color-hover: #f3f4f6;
+  --bg-color-page: var(--color-bg-page);
+  --bg-color-card: var(--color-bg-card);
+  --bg-color-hover: var(--color-bg-hover);
+  --bg-color: var(--bg-color-card);
+  --bg-color-overlay: var(--bg-color-card);
+  --bg-color-sidebar: var(--bg-color-card);
+  --fill-color: var(--bg-color-hover);
+  --fill-color-light: var(--bg-color-hover);
+  --fill-color-lighter: var(--bg-color-page);
 
   /* Border */
-  --border-color: #e5e7eb;
-  --border-color-light: #f3f4f6;
+  --border-color: var(--color-border);
+  --border-color-light: var(--color-border-light);
+  --border-color-lighter: var(--color-bg-page);
+  --sidebar-text-color: var(--text-color-primary);
+  --sidebar-text-color-muted: var(--text-color-secondary);
+  --sidebar-active-color: var(--primary-color);
+  --sidebar-active-bg: var(--color-primary-50);
+  --sidebar-hover-bg: var(--color-bg-hover);
+  --sidebar-border-color: var(--border-color);
+  --shadow-color: var(--color-shadow-base);
+  --code-bg-color: var(--color-code-bg);
+  --code-text-color: var(--color-code-text);
 }
+
 
 body {
   margin: 0;
@@ -154,8 +186,8 @@ html.dark .text-gray-800 {
    ============================================================================= */
 .el-aside,
 aside.el-aside {
-  background-color: var(--bg-color-sidebar, #ffffff) !important;
-  border-right: 1px solid var(--sidebar-border-color, #e4e7ed);
+  background-color: var(--bg-color-sidebar) !important;
+  border-right: 1px solid var(--sidebar-border-color);
 }
 
 /* Sidebar menu items — global override to ensure theme colors apply */
@@ -165,20 +197,20 @@ aside.el-aside {
 }
 
 .el-aside .el-menu-item {
-  color: var(--sidebar-text-color-muted, #606266) !important;
+  color: var(--sidebar-text-color-muted) !important;
   margin: 4px 8px;
   border-radius: 8px;
 }
 
 .el-aside .el-menu-item:hover,
 .el-aside .el-menu-item:focus {
-  background-color: var(--sidebar-hover-bg, rgba(0, 0, 0, 0.04)) !important;
-  color: var(--sidebar-text-color, #303133) !important;
+  background-color: var(--sidebar-hover-bg) !important;
+  color: var(--sidebar-text-color) !important;
 }
 
 .el-aside .el-menu-item.is-active {
-  color: var(--sidebar-active-color, #409eff) !important;
-  background-color: var(--sidebar-active-bg, rgba(64, 158, 255, 0.1)) !important;
+  color: var(--sidebar-active-color) !important;
+  background-color: var(--sidebar-active-bg) !important;
 }
 
 .el-aside .el-menu-item .el-icon {
@@ -187,26 +219,26 @@ aside.el-aside {
 
 /* Mobile sidebar drawer background */
 .mobile-sidebar-drawer .el-drawer__body {
-  background-color: var(--bg-color-sidebar, #ffffff) !important;
+  background-color: var(--bg-color-sidebar) !important;
 }
 
 .mobile-sidebar-drawer .el-drawer__header {
-  background-color: var(--bg-color-sidebar, #ffffff) !important;
-  border-bottom: 1px solid var(--sidebar-border-color, #e4e7ed) !important;
+  background-color: var(--bg-color-sidebar) !important;
+  border-bottom: 1px solid var(--sidebar-border-color) !important;
 }
 
 .mobile-sidebar-drawer .el-menu-item {
-  color: var(--sidebar-text-color-muted, #606266) !important;
+  color: var(--sidebar-text-color-muted) !important;
   margin: 4px 8px;
   border-radius: 8px;
 }
 
 .mobile-sidebar-drawer .el-menu-item:hover {
-  background-color: var(--sidebar-hover-bg, rgba(0, 0, 0, 0.04)) !important;
-  color: var(--sidebar-text-color, #303133) !important;
+  background-color: var(--sidebar-hover-bg) !important;
+  color: var(--sidebar-text-color) !important;
 }
 
 .mobile-sidebar-drawer .el-menu-item.is-active {
-  color: var(--sidebar-active-color, #409eff) !important;
-  background-color: var(--sidebar-active-bg, rgba(64, 158, 255, 0.1)) !important;
+  color: var(--sidebar-active-color) !important;
+  background-color: var(--sidebar-active-bg) !important;
 }

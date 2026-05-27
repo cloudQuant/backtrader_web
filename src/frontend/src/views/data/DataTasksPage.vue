@@ -518,7 +518,7 @@ onMounted(() => {
 
 .page-subtitle,
 .table-subtext {
-  color: #64748b;
+  color: var(--text-color-secondary);
   font-size: 12px;
 }
 

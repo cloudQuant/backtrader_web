@@ -611,6 +611,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
+import { CHART_BORDER_DARK, CHART_EMPHASIS_BORDER, OPTIMIZATION_BOXPLOT_COLOR, OPTIMIZATION_HEATMAP_COLORS } from '@/constants/chartColors'
 
 const props = defineProps<{
   workspaceId: string
@@ -1282,7 +1283,7 @@ function renderBoxplotChart() {
     series: [{
       type: 'boxplot',
       data: boxData,
-      itemStyle: { color: '#5470c6', borderColor: '#1f2937' },
+      itemStyle: { color: OPTIMIZATION_BOXPLOT_COLOR, borderColor: CHART_BORDER_DARK },
     }],
   }, true)
 }
@@ -1400,7 +1401,7 @@ function renderHeatmapChart() {
       orient: 'vertical',
       right: 10,
       top: 'center',
-      inRange: { color: ['#313695', '#4575b4', '#74add1', '#fee090', '#f46d43', '#d73027', '#a50026'] },
+      inRange: { color: [...OPTIMIZATION_HEATMAP_COLORS] },
     },
     series: [{
       type: 'heatmap',
@@ -1454,7 +1455,7 @@ function renderScatter3dChart() {
       orient: 'vertical',
       right: 10,
       top: 'center',
-      inRange: { color: ['#313695', '#4575b4', '#74add1', '#fee090', '#f46d43', '#d73027', '#a50026'] },
+      inRange: { color: [...OPTIMIZATION_HEATMAP_COLORS] },
     },
     xAxis3D: { type: 'category', data: xCategories, name: xKey },
     yAxis3D: { type: 'category', data: yCategories, name: yKey },
@@ -1468,7 +1469,7 @@ function renderScatter3dChart() {
       data,
       symbolSize: 10,
       itemStyle: { opacity: 0.85 },
-      emphasis: { itemStyle: { borderColor: '#111827', borderWidth: 1 } },
+      emphasis: { itemStyle: { borderColor: CHART_EMPHASIS_BORDER, borderWidth: 1 } },
     }],
   }, true)
 }

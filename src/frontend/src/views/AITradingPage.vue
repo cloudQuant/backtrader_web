@@ -136,14 +136,14 @@ async function loadHistory() {
 
 function getStatusColor(status: string): string {
   const colors: Record<string, string> = {
-    filled: '#67c23a',
-    confirmed: '#409eff',
-    pending_confirmation: '#e6a23c',
-    rejected: '#f56c6c',
-    cancelled: '#909399',
-    failed: '#f56c6c',
+    filled: 'var(--success-color)',
+    confirmed: 'var(--primary-color)',
+    pending_confirmation: 'var(--warning-color)',
+    rejected: 'var(--danger-color)',
+    cancelled: 'var(--text-color-secondary)',
+    failed: 'var(--danger-color)',
   }
-  return colors[status] || '#909399'
+  return colors[status] || 'var(--text-color-secondary)'
 }
 
 function getStatusLabel(status: string): string {
@@ -161,12 +161,12 @@ function getStatusLabel(status: string): string {
 
 function getRiskColor(level: string): string {
   const colors: Record<string, string> = {
-    low: '#67c23a',
-    medium: '#e6a23c',
-    high: '#f56c6c',
-    critical: '#f56c6c',
+    low: 'var(--success-color)',
+    medium: 'var(--warning-color)',
+    high: 'var(--danger-color)',
+    critical: 'var(--danger-color)',
   }
-  return colors[level] || '#909399'
+  return colors[level] || 'var(--text-color-secondary)'
 }
 
 function getActionLabel(action: string): string {
@@ -335,7 +335,7 @@ onMounted(async () => {
             <div class="intent-meta">
               <span
                 class="confidence-badge"
-                :style="{ color: currentResponse.intent.confidence > 0.7 ? '#67c23a' : '#e6a23c' }"
+                :style="{ color: currentResponse.intent.confidence > 0.7 ? 'var(--success-color)' : 'var(--warning-color)' }"
               >
                 置信度: {{ (currentResponse.intent.confidence * 100).toFixed(0) }}%
               </span>
@@ -691,14 +691,14 @@ onMounted(async () => {
   margin-bottom: 12px;
   padding: 10px 12px;
   border-radius: 4px;
-  background: #fdf6ec;
-  color: #c45656;
+  background: var(--warning-surface);
+  color: var(--warning-text-color);
   font-size: 13px;
 }
 
 .warnings-box {
   padding: 8px 12px;
-  background: #fdf6ec;
+  background: var(--warning-surface);
   border-radius: 4px;
   margin-bottom: 8px;
 }
@@ -708,7 +708,7 @@ onMounted(async () => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #e6a23c;
+  color: var(--warning-color);
   margin-bottom: 4px;
 }
 

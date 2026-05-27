@@ -717,6 +717,7 @@ import {
 import { useQuoteStore } from '@/stores/quote'
 import type { DataSourceInfo, QuoteTick } from '@/api/quote'
 import { formatQuoteChange, formatQuotePrice } from '@/utils/quoteFormat'
+import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constants/chartColors'
 
 const store = useQuoteStore()
 
@@ -962,7 +963,7 @@ function buildChartOption() {
   const ohlc = bars.map((b) => [b.open, b.close, b.low, b.high])
   const volumes = bars.map((b) => b.volume)
   // volume bar color: up=red, down=green
-  const volColors = bars.map((b) => (b.close >= b.open ? '#ec0000' : '#00da3c'))
+  const volColors = bars.map((b) => (b.close >= b.open ? CANDLE_UP_COLOR : CANDLE_DOWN_COLOR))
 
   return {
     animation: false,
@@ -1012,7 +1013,7 @@ function buildChartOption() {
         name: 'K线',
         type: 'candlestick',
         data: ohlc,
-        itemStyle: { color: '#ec0000', color0: '#00da3c', borderColor: '#ec0000', borderColor0: '#00da3c' },
+        itemStyle: CANDLE_ITEM_STYLE,
       },
       {
         name: '成交量',

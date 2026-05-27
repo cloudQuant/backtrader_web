@@ -14,38 +14,6 @@ first slice.
 
 ## P0 — Policy decisions (need product / ops sign-off)
 
-### 1. `DEBUG=True` default in `app/config.py`
-
-- **Where**: `src/backend/app/config.py`, `Settings.DEBUG = Field(default=True, ...)`
-- **Symptom**: production gating in `_is_production()` flips entirely on this
-  flag. Both `src/backend/.env.example` and `.env.example` already set
-  `DEBUG=false`. The Python default is therefore inconsistent with the
-  documented expected env, and a forgotten `.env` ships dev-grade CSP and
-  permissive CORS to anything bound to `HOST=0.0.0.0`.
-- **Why deferred**: `tests/test_config_validation.py::test_debug_default_true`
-  asserts the current "dev-friendly" behaviour deliberately. Flipping the
-  default is a documented policy change, not a hygiene fix.
-- **Recommended fix (small, deliberate)**:
-  1. Change default to `False`.
-  2. Update the failing test to assert the new default and add a sibling test
-     showing `DEBUG=true` is honoured when set explicitly.
-  3. Update `docs/DEVELOPMENT.md` "first-run" section to point developers at
-     `cp .env.example src/backend/.env` and edit `DEBUG=true` for local work.
-  4. Update the dev startup script(s) to set `DEBUG=true` when not provided.
-- **Effort**: S (half-day with verification).
-
-### 2. `HOST=0.0.0.0` default
-
-- **Where**: `src/backend/app/config.py`, `Settings.HOST`
-- **Symptom**: dev convenience default exposes the API on every interface. In
-  combination with item 1, a misconfigured machine ships a permissive surface.
-- **Why deferred**: this is genuinely useful for Docker/WSL/LAN dev flows.
-  Flipping it without a smooth fallback annoys everyone.
-- **Recommended fix**: default to `127.0.0.1`; have docker compose entries set
-  `HOST=0.0.0.0` explicitly (compose files already control the bound interface
-  anyway). Document in `docs/DEVELOPMENT.md`.
-- **Effort**: S.
-
 ### 3. Local `.env` files contain real third-party credentials
 
 - **Where**: developer-local `.env` and `strategies/simulate/*/.env`
@@ -159,14 +127,6 @@ remaining slices follow the same recipe.
 - **Recommended fix**: add a manual workflow_dispatch matrix that exercises a
   paper-trading round-trip against the postgres service container.
 - **Effort**: S–M.
-
-### 10. Frontend coverage is opt-in
-
-- **Where**: `src/frontend/package.json`, `npm run test -- --run --coverage`
-- **Symptom**: coverage runs, but no minimum threshold is enforced.
-- **Recommended fix**: pick a sane floor (e.g. 60% lines) and add
-  `--coverage.thresholds.lines=60` (or vitest config equivalent). Bump as we go.
-- **Effort**: S.
 
 ### 11. `feature_flags` cache is computed at first request, then never refreshed
 

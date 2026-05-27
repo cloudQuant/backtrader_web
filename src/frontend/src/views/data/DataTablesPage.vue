@@ -197,7 +197,7 @@ onMounted(() => {
 
 .page-subtitle {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .toolbar {

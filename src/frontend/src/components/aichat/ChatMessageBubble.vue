@@ -172,8 +172,8 @@ const emit = defineEmits<{
 .message-card.user .message-avatar {
   grid-column: 2;
   grid-row: 1;
-  background: var(--bg-color-hover, #f3f4f6);
-  color: var(--text-color-regular, #4b5563);
+  background: var(--bg-color-hover);
+  color: var(--text-color-regular);
 }
 
 .message-card.user .message-body {
@@ -186,7 +186,7 @@ const emit = defineEmits<{
 }
 
 .message-card.user .message-content {
-  background: var(--bg-color-hover, #f3f4f6);
+  background: var(--bg-color-hover);
 }
 
 .message-avatar {
@@ -196,8 +196,8 @@ const emit = defineEmits<{
   align-items: center;
   justify-content: center;
   border-radius: var(--el-border-radius-base);
-  background: var(--el-color-primary-light-9, #ecf5ff);
-  color: var(--primary-color, #3b82f6);
+  background: var(--info-surface);
+  color: var(--primary-color);
 }
 
 .message-body {
@@ -214,35 +214,35 @@ const emit = defineEmits<{
 .message-author {
   font-size: 13px;
   font-weight: 700;
-  color: var(--text-color-primary, #1f2937);
+  color: var(--text-color-primary);
 }
 
 .message-badge {
   margin-left: 8px;
   border-radius: 9999px;
-  background: var(--el-color-primary-light-9, #ecf5ff);
+  background: var(--info-surface);
   padding: 3px 8px;
-  color: var(--primary-color, #3b82f6);
+  color: var(--primary-color);
   font-size: 12px;
 }
 
 .message-badge.success {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--success-surface);
+  color: var(--success-text-color);
 }
 
 .message-badge.warning {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warning-surface);
+  color: var(--warning-text-color);
 }
 
 .message-content {
   margin-top: 8px;
-  border: 1px solid var(--border-color, #e5e7eb);
+  border: 1px solid var(--border-color);
   border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card, #fff);
+  background: var(--bg-color-card);
   padding: 13px 14px;
-  color: var(--text-color-primary, #1f2937);
+  color: var(--text-color-primary);
   font-size: 15px;
   line-height: 1.8;
   white-space: pre-wrap;
@@ -253,42 +253,42 @@ const emit = defineEmits<{
 .retrieval-box,
 .reasoning-box {
   margin-top: 12px;
-  border: 1px solid var(--border-color, #e5e7eb);
+  border: 1px solid var(--border-color);
   border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card, #fff);
+  background: var(--bg-color-card);
   padding: 12px;
 }
 
 .section-kicker {
   font-size: 12px;
   font-weight: 700;
-  color: var(--primary-color, #3b82f6);
+  color: var(--primary-color);
   text-transform: uppercase;
 }
 
 .reasoning-box {
-  background: #fffbeb;
-  color: #92400e;
+  background: var(--warning-surface);
+  color: var(--warning-text-color);
 }
 
 .diagnostic-box {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #92400e;
+  border-color: var(--warning-border-color);
+  background: var(--warning-surface);
+  color: var(--warning-text-color);
   font-size: 13px;
   line-height: 1.7;
 }
 
 .diagnostic-box.ai_provider_failed {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
+  border-color: var(--danger-border-color);
+  background: var(--danger-surface);
+  color: var(--danger-text-color);
 }
 
 .retrieval-box {
-  border-color: var(--el-color-primary-light-7, #bfdbfe);
-  background: #f8fbff;
-  color: #1e3a8a;
+  border-color: var(--info-border-color);
+  background: var(--info-surface);
+  color: var(--info-text-color);
 }
 
 .retrieval-meta {
@@ -300,9 +300,9 @@ const emit = defineEmits<{
 
 .retrieval-meta span {
   border-radius: 9999px;
-  background: var(--el-color-primary-light-9, rgba(219, 234, 254, 0.8));
+  background: var(--color-primary-100);
   padding: 3px 8px;
-  color: var(--primary-color, #3b82f6);
+  color: var(--primary-color);
   font-size: 12px;
 }
 

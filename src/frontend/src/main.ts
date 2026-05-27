@@ -14,6 +14,7 @@ import i18n from './i18n'
 import 'element-plus/dist/index.css'
 
 import './style.css'
+import './styles/design-system.scss'
 
 function installPerformanceMeasureGuard(): void {
   if (typeof window === 'undefined' || typeof Performance === 'undefined') {

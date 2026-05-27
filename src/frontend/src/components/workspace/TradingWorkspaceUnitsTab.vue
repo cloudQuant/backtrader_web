@@ -742,40 +742,40 @@ function handleOpenRuntimeDialog(unit: StrategyUnit) {
   flex-direction: column;
   gap: 4px;
   padding: 14px 16px;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--info-border-color);
   border-radius: 12px;
-  background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--info-surface) 100%);
 }
 
 .overview-card.is-success {
-  border-color: #bbf7d0;
-  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: var(--success-border-color);
+  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--success-surface) 100%);
 }
 
 .overview-card.is-warning {
-  border-color: #fde68a;
-  background: linear-gradient(135deg, #ffffff 0%, #fffbeb 100%);
+  border-color: var(--warning-border-color);
+  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--warning-surface) 100%);
 }
 
 .overview-card.is-danger {
-  border-color: #fecaca;
-  background: linear-gradient(135deg, #ffffff 0%, #fef2f2 100%);
+  border-color: var(--danger-border-color);
+  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--danger-surface) 100%);
 }
 
 .overview-card__label {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .overview-card__value {
   font-size: 24px;
   line-height: 1.1;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .overview-card__meta {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-color-placeholder);
 }
 
 .trading-schedule-bar {
@@ -784,9 +784,9 @@ function handleOpenRuntimeDialog(unit: StrategyUnit) {
   gap: 12px;
   margin-bottom: 12px;
   padding: 12px 14px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   border-radius: 12px;
-  background: #fff;
+  background: var(--bg-color-card);
 }
 
 .trading-schedule-bar__item {
@@ -798,20 +798,20 @@ function handleOpenRuntimeDialog(unit: StrategyUnit) {
 
 .trading-schedule-bar__item .label {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-color-placeholder);
 }
 
 .trading-schedule-bar__item .value {
   font-size: 13px;
-  color: #334155;
+  color: var(--text-color-regular);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .detail-positions-table :deep(.el-table__header th) {
-  background: #f8fafc;
-  color: #475569;
+  background: var(--bg-color-page);
+  color: var(--text-color-regular);
   font-weight: 600;
 }
 

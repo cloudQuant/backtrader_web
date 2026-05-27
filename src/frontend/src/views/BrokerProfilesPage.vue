@@ -347,8 +347,8 @@ onMounted(() => {
   margin: 0;
   padding: 12px;
   border-radius: 12px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--code-bg-color);
+  color: var(--code-text-color);
   overflow: auto;
   min-height: 60px;
 }

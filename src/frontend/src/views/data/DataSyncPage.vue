@@ -751,7 +751,7 @@ onBeforeUnmount(() => {
 .task-subtitle,
 .connection-detail,
 .task-db {
-  color: #64748b;
+  color: var(--text-color-secondary);
   font-size: 12px;
 }
 
@@ -788,10 +788,10 @@ onBeforeUnmount(() => {
 .connection-item,
 .task-item,
 .tip-card {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color-light);
   border-radius: 12px;
   padding: 14px;
-  background: #f8fafc;
+  background: var(--bg-color-page);
 }
 
 .connection-item {
@@ -803,18 +803,18 @@ onBeforeUnmount(() => {
 .connection-title,
 .task-title {
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .config-section-title,
 .tip-title {
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-color-primary);
   margin: 4px 0 12px;
 }
 
 .tip-text {
-  color: #475569;
+  color: var(--text-color-regular);
   font-size: 13px;
   line-height: 1.6;
 }

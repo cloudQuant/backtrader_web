@@ -1031,15 +1031,15 @@ function returnColor(v: number | null | undefined): string {
   flex-wrap: wrap;
   padding: 16px 18px;
   margin-bottom: 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   border-radius: 16px;
-  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--bg-color-page) 100%);
 }
 
 .report-overview-panel__title {
   font-size: 16px;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .report-overview-panel__meta {
@@ -1049,7 +1049,7 @@ function returnColor(v: number | null | undefined): string {
   flex-wrap: wrap;
   margin-top: 6px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .report-overview-panel__tags {
@@ -1075,9 +1075,9 @@ function returnColor(v: number | null | undefined): string {
 
 .summary-card {
   padding: 16px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color-light);
   border-radius: 14px;
-  background: #fff;
+  background: var(--bg-color-card);
   text-align: center;
 }
 
@@ -1085,13 +1085,13 @@ function returnColor(v: number | null | undefined): string {
   font-size: 24px;
   line-height: 1.1;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--text-color-primary);
 }
 
 .summary-card__label {
   margin-top: 6px;
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--text-color-placeholder);
 }
 
 .report-highlight-grid {
@@ -1102,24 +1102,24 @@ function returnColor(v: number | null | undefined): string {
 
 .highlight-card {
   padding: 16px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-color-light);
   border-radius: 14px;
-  background: #fff;
+  background: var(--bg-color-card);
 }
 
 .highlight-card.is-success {
-  border-color: #bbf7d0;
-  background: linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%);
+  border-color: var(--success-border-color);
+  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--success-surface) 100%);
 }
 
 .highlight-card.is-danger {
-  border-color: #fecaca;
-  background: linear-gradient(135deg, #ffffff 0%, #fef2f2 100%);
+  border-color: var(--danger-border-color);
+  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--danger-surface) 100%);
 }
 
 .highlight-card__label {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .highlight-card__main {
@@ -1129,17 +1129,17 @@ function returnColor(v: number | null | undefined): string {
   gap: 16px;
   margin-top: 10px;
   font-size: 14px;
-  color: #334155;
+  color: var(--text-color-regular);
 }
 
 .report-table :deep(.el-table__header th) {
-  background: #f8fafc;
-  color: #475569;
+  background: var(--bg-color-page);
+  color: var(--text-color-regular);
   font-weight: 600;
 }
 
 .report-table :deep(.el-table__row:hover > td) {
-  background: #f8fbff !important;
+  background: var(--info-surface) !important;
 }
 
 @media (max-width: 1200px) {

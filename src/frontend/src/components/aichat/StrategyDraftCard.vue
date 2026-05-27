@@ -219,15 +219,15 @@ const draftIssue = computed(() => getStrategyDraftIssue(props.draft))
 .strategy-draft,
 .execution-box {
   margin-top: 12px;
-  border: 1px solid var(--border-color, #e5e7eb);
+  border: 1px solid var(--border-color);
   border-radius: var(--el-border-radius-base);
-  background: var(--bg-color-card, #fff);
+  background: var(--bg-color-card);
   padding: 12px;
 }
 
 .strategy-draft {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+  border-color: var(--success-border-color);
+  background: var(--success-surface);
 }
 
 .draft-head {
@@ -239,7 +239,7 @@ const draftIssue = computed(() => getStrategyDraftIssue(props.draft))
 
 .draft-title {
   font-weight: 700;
-  color: #14532d;
+  color: var(--success-text-strong);
 }
 
 .draft-meta,
@@ -247,7 +247,7 @@ const draftIssue = computed(() => getStrategyDraftIssue(props.draft))
 .draft-list,
 .execution-box {
   margin-top: 6px;
-  color: #166534;
+  color: var(--success-text-color);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -268,34 +268,34 @@ const draftIssue = computed(() => getStrategyDraftIssue(props.draft))
 }
 
 .draft-stats span {
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--success-border-color);
   border-radius: var(--el-border-radius-base);
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--bg-color-card);
   padding: 8px;
-  color: #14532d;
+  color: var(--success-text-strong);
   font-size: 12px;
 }
 
 .draft-list {
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--success-border-color);
   border-radius: var(--el-border-radius-base);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--bg-color-card);
   padding: 9px;
 }
 
 .draft-list.warning {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #92400e;
+  border-color: var(--warning-border-color);
+  background: var(--warning-surface);
+  color: var(--warning-text-color);
 }
 
 .draft-warning {
   margin-top: 8px;
-  border: 1px solid #fde68a;
+  border: 1px solid var(--warning-border-color);
   border-radius: var(--el-border-radius-base);
-  background: #fffbeb;
+  background: var(--warning-surface);
   padding: 8px 10px;
-  color: #92400e;
+  color: var(--warning-text-color);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -312,10 +312,10 @@ const draftIssue = computed(() => getStrategyDraftIssue(props.draft))
 .report-box,
 .analysis-box {
   margin-top: 10px;
-  border: 1px solid var(--el-color-primary-light-7, #bfdbfe);
+  border: 1px solid var(--info-border-color);
   border-radius: var(--el-border-radius-base);
-  background: var(--el-color-primary-light-9, #eff6ff);
+  background: var(--info-surface);
   padding: 10px;
-  color: #1e3a8a;
+  color: var(--info-text-color);
 }
 </style>

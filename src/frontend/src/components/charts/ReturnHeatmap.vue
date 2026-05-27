@@ -15,6 +15,7 @@ import { watch } from 'vue'
 import type * as echarts from 'echarts'
 import type { MonthlyReturn } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import { RETURN_HEATMAP_COLORS } from '@/constants/chartColors'
 
 const props = withDefaults(defineProps<{
   returns: MonthlyReturn[]
@@ -86,7 +87,7 @@ function renderChart() {
       left: 'center',
       bottom: '5%',
       inRange: {
-        color: ['#c0392b', '#e74c3c', '#f1948a', '#fadbd8', '#fdfefe', '#d5f5e3', '#82e0aa', '#27ae60', '#1e8449'],
+        color: [...RETURN_HEATMAP_COLORS],
       },
     },
     series: [

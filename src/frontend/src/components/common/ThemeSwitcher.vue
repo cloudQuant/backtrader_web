@@ -76,15 +76,15 @@ function handleThemeChange(theme: ThemeMode) {
 
 .theme-option-desc {
   font-size: 12px;
-  color: var(--text-color-secondary, #909399);
+  color: var(--text-color-secondary);
 }
 
 .theme-check {
-  color: var(--accent-color, #409eff);
+  color: var(--accent-color);
   margin-left: auto;
 }
 
 :deep(.is-active) {
-  background-color: var(--fill-color-light, #f5f7fa);
+  background-color: var(--fill-color-light);
 }
 </style>

@@ -674,7 +674,7 @@ onMounted(async () => {
   overflow: hidden;
 }
 .readme-content h1, .readme-content h2, .readme-content h3 {
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid var(--border-color-light);
   padding-bottom: 4px;
 }
 </style>

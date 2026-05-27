@@ -126,8 +126,10 @@ if [ ! -f ".env" ]; then
 fi
 
 # 启动后端（使用系统Python）
-echo -e "  ${GREEN}启动 FastAPI 服务 (端口 8000)...${NC}"
-nohup python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$BACKEND_LOG" 2>&1 &
+BACKEND_HOST="${HOST:-0.0.0.0}"
+BACKEND_DEBUG="${DEBUG:-true}"
+echo -e "  ${GREEN}启动 FastAPI 服务 (端口 8000, 地址 ${BACKEND_HOST})...${NC}"
+nohup env DEBUG="$BACKEND_DEBUG" HOST="$BACKEND_HOST" python -m uvicorn app.main:app --host "$BACKEND_HOST" --port 8000 > "$BACKEND_LOG" 2>&1 &
 BACKEND_PID=$!
 echo $BACKEND_PID > "$BACKEND_PID_FILE"
 

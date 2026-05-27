@@ -15,6 +15,7 @@ import { watch } from 'vue'
 import * as echarts from 'echarts'
 import type { DrawdownPoint } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
+import { DRAWDOWN_AREA_END, DRAWDOWN_AREA_START, DRAWDOWN_COLOR } from '@/constants/chartColors'
 
 const props = withDefaults(defineProps<{
   data: DrawdownPoint[]
@@ -85,11 +86,11 @@ function renderChart() {
         data: drawdowns,
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(255, 77, 79, 0.8)' },
-            { offset: 1, color: 'rgba(255, 77, 79, 0.1)' },
+            { offset: 0, color: DRAWDOWN_AREA_START },
+            { offset: 1, color: DRAWDOWN_AREA_END },
           ]),
         },
-        lineStyle: { color: '#ff4d4f', width: 1 },
+        lineStyle: { color: DRAWDOWN_COLOR, width: 1 },
         showSymbol: false,
         markPoint: {
           data: [
@@ -97,7 +98,7 @@ function renderChart() {
               name: '最大回撤',
               coord: [dates[maxDdIndex], drawdowns[maxDdIndex]],
               value: `${drawdowns[maxDdIndex]}%`,
-              itemStyle: { color: '#ff4d4f' },
+              itemStyle: { color: DRAWDOWN_COLOR },
             },
           ],
           label: {

@@ -199,7 +199,7 @@ onMounted(() => {
 
 .detail-subtitle {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--text-color-secondary);
 }
 
 .run-panel,
@@ -221,8 +221,8 @@ onMounted(() => {
 pre {
   margin: 0;
   padding: 16px;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--code-bg-color);
+  color: var(--code-text-color);
   border-radius: 12px;
   overflow: auto;
 }
