@@ -22,8 +22,17 @@ vi.mock('@/views/data/DataTasksPage.vue', () => ({ default: { template: '<div>Da
 vi.mock('@/views/data/DataExecutionsPage.vue', () => ({ default: { template: '<div>Data Executions</div>' } }))
 vi.mock('@/views/data/DataTablesPage.vue', () => ({ default: { template: '<div>Data Tables</div>' } }))
 vi.mock('@/views/data/DataTableDetailPage.vue', () => ({ default: { template: '<div>Data Table Detail</div>' } }))
+vi.mock('@/views/data/DataTopicsPage.vue', () => ({ default: { template: '<div>Data Topics</div>' } }))
 vi.mock('@/views/data/DataInterfacesPage.vue', () => ({ default: { template: '<div>Data Interfaces</div>' } }))
+vi.mock('@/views/data/DataGovernancePage.vue', () => ({ default: { template: '<div>Data Governance</div>' } }))
 vi.mock('@/views/PortfolioPage.vue', () => ({ default: { template: '<div>Portfolio</div>' } }))
+vi.mock('@/views/BrokerProfilesPage.vue', () => ({ default: { template: '<div>Broker Profiles</div>' } }))
+vi.mock('@/views/PortfolioLedgerPage.vue', () => ({ default: { template: '<div>Portfolio Ledger</div>' } }))
+vi.mock('@/views/EquityResearchPage.vue', () => ({ default: { template: '<div>Equity Research</div>' } }))
+vi.mock('@/views/NewsIntelligencePage.vue', () => ({ default: { template: '<div>News Intelligence</div>' } }))
+vi.mock('@/views/OptionsChainPage.vue', () => ({ default: { template: '<div>Options Chain</div>' } }))
+vi.mock('@/views/ScannerPage.vue', () => ({ default: { template: '<div>Scanner</div>' } }))
+vi.mock('@/views/QuantToolsPage.vue', () => ({ default: { template: '<div>Quant Tools</div>' } }))
 vi.mock('@/views/SettingsPage.vue', () => ({ default: { template: '<div>Settings</div>' } }))
 vi.mock('@/views/AIChatPage.vue', () => ({ default: { template: '<div>AI Chat</div>' } }))
 vi.mock('@/views/AIObservabilityPage.vue', () => ({ default: { template: '<div>AI Observability</div>' } }))
@@ -62,9 +71,18 @@ describe('router', () => {
     expect(names).toContain('Strategy')
     expect(names).toContain('Settings')
     expect(names).toContain('Portfolio')
+    expect(names).toContain('BrokerProfiles')
+    expect(names).toContain('PortfolioLedger')
+    expect(names).toContain('EquityResearch')
+    expect(names).toContain('NewsIntelligence')
+    expect(names).toContain('OptionsChain')
+    expect(names).toContain('Scanners')
+    expect(names).toContain('QuantTools')
     expect(names).toContain('TradingWorkspaceList')
     expect(names).toContain('TradingWorkspaceDetail')
     expect(names).toContain('Data')
+    expect(names).toContain('DataTopics')
+    expect(names).toContain('DataGovernance')
     expect(names).toContain('AIChat')
     expect(names).toContain('AIObservability')
     expect(names).toContain('PromptTemplates')
@@ -121,6 +139,13 @@ describe('router', () => {
     expect(router.currentRoute.value.name).toBe('Settings')
   })
 
+  it('guard allows authenticated user on /brokers', async () => {
+    mockAuthStore(true)
+    await router.push('/brokers')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('BrokerProfiles')
+  })
+
   it('guard allows authenticated user on /ai-chat', async () => {
     mockAuthStore(true)
     await router.push('/ai-chat')
@@ -155,6 +180,27 @@ describe('router', () => {
     await router.push('/data/interfaces')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('DataInterfaces')
+  })
+
+  it('guard redirects non-admin user away from /data/governance', async () => {
+    mockAuthStore(true, false)
+    await router.push('/data/governance')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataMarket')
+  })
+
+  it('guard allows admin user to access /data/governance', async () => {
+    mockAuthStore(true, true)
+    await router.push('/data/governance')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataGovernance')
+  })
+
+  it('guard allows authenticated user to access /data/topics', async () => {
+    mockAuthStore(true, false)
+    await router.push('/data/topics')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataTopics')
   })
 
   it('guard redirects non-admin user away from /admin/ai-observability', async () => {

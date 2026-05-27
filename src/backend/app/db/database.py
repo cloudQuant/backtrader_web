@@ -329,6 +329,60 @@ def _ensure_prompt_template_schema_compatibility_sync(bind) -> None:
     )
 
 
+def _ensure_broker_profiles_schema_compatibility_sync(bind) -> None:
+    if _has_table(bind, "broker_connection_profiles"):
+        _add_column_if_missing(
+            bind,
+            "broker_connection_profiles",
+            "runtime_gateway_key",
+            "runtime_gateway_key VARCHAR(120)",
+        )
+        _add_column_if_missing(
+            bind,
+            "broker_connection_profiles",
+            "runtime_account_id",
+            "runtime_account_id VARCHAR(100)",
+        )
+        _ensure_index_if_missing(
+            bind,
+            "broker_connection_profiles",
+            "ix_broker_connection_profiles_runtime_gateway_key",
+            "runtime_gateway_key",
+        )
+
+
+def _ensure_portfolio_ledger_schema_compatibility_sync(bind) -> None:
+    from app.models.portfolio_ledger import (
+        PortfolioLedgerImportModel,
+        PortfolioLedgerModel,
+        PortfolioLedgerSnapshotModel,
+        PortfolioLedgerTransactionModel,
+    )
+
+    for table in (
+        PortfolioLedgerModel.__table__,
+        PortfolioLedgerImportModel.__table__,
+        PortfolioLedgerTransactionModel.__table__,
+        PortfolioLedgerSnapshotModel.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+
+def _ensure_news_intelligence_schema_compatibility_sync(bind) -> None:
+    from app.models.news_intelligence import (
+        NewsAnalysisModel,
+        NewsArticleModel,
+        NewsSourceModel,
+    )
+
+    for table in (
+        NewsSourceModel.__table__,
+        NewsArticleModel.__table__,
+        NewsAnalysisModel.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+
 async def ensure_schema_compatibility() -> None:
     """Patch legacy databases with columns required by the current ORM schema."""
     async with engine.begin() as conn:
@@ -337,6 +391,9 @@ async def ensure_schema_compatibility() -> None:
         await conn.run_sync(_ensure_airflow_schema_compatibility_sync)
         await conn.run_sync(_ensure_ai_budget_schema_compatibility_sync)
         await conn.run_sync(_ensure_prompt_template_schema_compatibility_sync)
+        await conn.run_sync(_ensure_broker_profiles_schema_compatibility_sync)
+        await conn.run_sync(_ensure_portfolio_ledger_schema_compatibility_sync)
+        await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
 
 
 async def create_tables() -> None:
@@ -350,6 +407,9 @@ async def create_tables() -> None:
         await conn.run_sync(_ensure_airflow_schema_compatibility_sync)
         await conn.run_sync(_ensure_ai_budget_schema_compatibility_sync)
         await conn.run_sync(_ensure_prompt_template_schema_compatibility_sync)
+        await conn.run_sync(_ensure_broker_profiles_schema_compatibility_sync)
+        await conn.run_sync(_ensure_portfolio_ledger_schema_compatibility_sync)
+        await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
 
 
 async def init_db():

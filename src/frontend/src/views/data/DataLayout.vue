@@ -53,6 +53,7 @@ const isAdmin = computed(() => authStore.user?.is_admin ?? false)
 const tabs = computed<DataTab[]>(() => {
   const items: DataTab[] = [
     { label: '市场数据', path: '/data/market' },
+    { label: '主题中心', path: '/data/topics' },
     { label: '数据接口', path: '/data/scripts' },
     { label: '定时任务', path: '/data/tasks' },
     { label: '执行记录', path: '/data/executions' },
@@ -62,6 +63,7 @@ const tabs = computed<DataTab[]>(() => {
   if (isAdmin.value) {
     items.push({ label: '数据同步', path: '/data/sync' })
     items.push({ label: '接口管理', path: '/data/interfaces' })
+    items.push({ label: '连接治理', path: '/data/governance' })
   }
 
   return items

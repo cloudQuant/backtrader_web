@@ -1950,6 +1950,29 @@ def query_gateway_positions(
         return []
 
 
+def query_gateway_orders(
+    gateways: dict[str, dict[str, Any]], gateway_key: str
+) -> list[dict[str, Any]]:
+    state = gateways.get(gateway_key)
+    if state is None:
+        return []
+    runtime = state.get("runtime")
+    if runtime is None:
+        return []
+    try:
+        orders = getattr(runtime, "orders", None)
+        if orders is not None and callable(orders):
+            return list(orders())
+        order_dict = getattr(runtime, "_orders", None)
+        if isinstance(order_dict, dict):
+            return list(order_dict.values())
+        if isinstance(order_dict, list):
+            return list(order_dict)
+        return []
+    except (AttributeError, KeyError, TypeError):
+        return []
+
+
 def list_connected_gateways(gateways: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for key, state in gateways.items():

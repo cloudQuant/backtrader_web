@@ -399,6 +399,10 @@ class LiveTradingManager:
         with self._gateway_lock:
             return manual_gateway_service.query_gateway_positions(self._gateways, gateway_key)
 
+    def query_gateway_orders(self, gateway_key: str) -> list[dict[str, Any]]:
+        with self._gateway_lock:
+            return manual_gateway_service.query_gateway_orders(self._gateways, gateway_key)
+
     def list_connected_gateways(self) -> list[GatewayData]:
         with self._gateway_lock:
             return manual_gateway_service.list_connected_gateways(self._gateways)

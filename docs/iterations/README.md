@@ -27,6 +27,9 @@
 | 迭代167 | AI 能力工程化（调用日志+多模型+成本控制+Prompt 治理） | 已完成 |
 | 迭代168 | 量化研究专业度（VaR/CVaR+因子库+绩效归因+市场状态） | 已完成 |
 | 迭代169 | 工程债务接续与基础设施收尾（切片+棘轮+性能基线+v0.2.0 RC） | 已完成 |
+| 迭代170 | FinceptTerminal 能力迁移与数据治理 / 实盘接口升级（含 clean-room 协议、170A/B/C 子迭代拆分、SLO 验收） | 已完成（MVP 收口；核心底座、关键验收与 broker coverage 守门完成，剩余产品化迁移转入 171） |
+| 迭代171 | FinceptTerminal 迁移深化与产品化收口 | 进行中（承接 170 中仍停留在 MVP / placeholder / in-memory / hard-coded 层的迁移项；broker 能力继续沉淀在 `bt_api_py / bt_api_xx` 生态，web 侧不再扩 broker 平台） |
+| 迭代172 | `bt_api_xx` 首批 14 个券商扩展包落地 | 已完成（14 个独立扩展包已按 old plugin mode 落地，完成本地验证、GitHub push 与 CI success；`backtrader_web` 保持 consumer-only 边界） |
 
 > **路线总览**: 迭代 166-169 隶属同一跃迁路线
 > 「世界一流 AI+量化投研平台跃迁」，

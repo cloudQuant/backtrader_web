@@ -141,6 +141,7 @@ describe('AppLayout', () => {
         { path: '/data', component: { template: '<div>Data</div>' } },
         { path: '/trading', component: { template: '<div>Trading</div>' } },
         { path: '/portfolio', component: { template: '<div>Portfolio</div>' } },
+        { path: '/brokers', component: { template: '<div>Brokers</div>' } },
         { path: '/ai-chat', component: { template: '<div>AIChat</div>' } },
         { path: '/admin/ai-observability', component: { template: '<div>AIObservability</div>' } },
         { path: '/admin/prompt-templates', component: { template: '<div>PromptTemplates</div>' } },
@@ -227,6 +228,7 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('AI成本')
       expect(wrapper.text()).toContain('Prompt治理')
       expect(wrapper.text()).toContain('知识库')
+      expect(wrapper.text()).toContain('Broker配置')
       expect(wrapper.text()).toContain('策略研究')
       expect(wrapper.text()).toContain('策略管理')
     })

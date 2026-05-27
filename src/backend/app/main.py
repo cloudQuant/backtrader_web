@@ -14,6 +14,8 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api.backtest_enhanced import websocket_endpoint as stream_backtest_progress
+from app.api.data_topics import websocket_pattern_endpoint as stream_data_topic_pattern
+from app.api.data_topics import websocket_topic_endpoint as stream_data_topic
 from app.api.overfitting import websocket_endpoint as stream_overfitting_progress
 from app.api.router import api_router, optional_router_status
 from app.config import _DEFAULT_PASSWORDS, _DEFAULT_SECRETS, get_settings
@@ -404,6 +406,18 @@ async def websocket_backtest_progress(websocket: WebSocket, task_id: str):
 async def websocket_overfitting_progress(websocket: WebSocket, task_id: str):
     """Stream overfitting progress updates over WebSocket."""
     await stream_overfitting_progress(websocket, task_id)
+
+
+@app.websocket("/ws/data-topics")
+async def websocket_data_topics_pattern(websocket: WebSocket):
+    """Stream data-topic updates for a glob pattern over WebSocket."""
+    await stream_data_topic_pattern(websocket)
+
+
+@app.websocket("/ws/data-topics/{topic:path}")
+async def websocket_data_topics_topic(websocket: WebSocket, topic: str):
+    """Stream a single data-topic over WebSocket."""
+    await stream_data_topic(websocket, topic)
 
 
 if __name__ == "__main__":  # pragma: no cover

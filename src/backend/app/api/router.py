@@ -16,16 +16,25 @@ from app.api.analytics import router as analytics_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.backtest_enhanced import router as backtest_enhanced_router
+from app.api.brokers import router as brokers_router
+from app.api.data_governance import router as data_governance_router
+from app.api.data_topics import router as data_topics_router
 from app.api.docs import router as docs_router
+from app.api.equity_research import router as equity_research_router
 from app.api.factor_lib import router as factor_lib_router
 from app.api.live_trading_api import router as live_trading_router
 from app.api.metrics import router as metrics_router
+from app.api.news_intelligence import router as news_intelligence_router
 from app.api.optimization_api import router as optimization_router
+from app.api.options_chain import router as options_chain_router
 from app.api.overfitting import router as overfitting_router
 from app.api.perf_attribution import router as perf_attribution_router
 from app.api.portfolio_api import router as portfolio_router
+from app.api.portfolio_ledger import router as portfolio_ledger_router
 from app.api.prompt_templates import router as prompt_templates_router
+from app.api.quant_tools import router as quant_tools_router
 from app.api.risk_analytics import router as risk_analytics_router
+from app.api.scanners import router as scanners_router
 from app.api.simulation import router as simulation_router
 from app.api.status import router as status_router
 from app.api.strategy import router as strategy_router
@@ -90,6 +99,15 @@ api_router.include_router(prompt_templates_router, tags=["Prompt Templates"])
 api_router.include_router(risk_analytics_router)
 api_router.include_router(factor_lib_router)
 api_router.include_router(perf_attribution_router)
+api_router.include_router(brokers_router)
+api_router.include_router(data_governance_router)
+api_router.include_router(data_topics_router)
+api_router.include_router(portfolio_ledger_router)
+api_router.include_router(equity_research_router)
+api_router.include_router(news_intelligence_router)
+api_router.include_router(options_chain_router)
+api_router.include_router(scanners_router)
+api_router.include_router(quant_tools_router)
 api_router.include_router(metrics_router, tags=["Metrics"])
 api_router.include_router(
     backtest_enhanced_router,

@@ -17,7 +17,16 @@ from app.models.akshare_mgmt import (
 from app.models.alerts import Alert, AlertNotification, AlertRule
 from app.models.audit_record import AuditRecord
 from app.models.backtest import BacktestResultModel, BacktestTask
+from app.models.broker_profile import BrokerConnectionProfile
 from app.models.comparison import Comparison, ComparisonShare
+from app.models.data_governance import (
+    DgEndpoint,
+    DgEndpointParam,
+    DgIngestJob,
+    DgProvider,
+    DgQualityRule,
+)
+from app.models.news_intelligence import NewsAnalysisModel, NewsArticleModel, NewsSourceModel
 from app.models.knowledge_base import (
     ChatConversation,
     ChatMessage,
@@ -31,6 +40,12 @@ from app.models.optimization import OptimizationTask
 from app.models.overfitting_result import OverfittingResultModel
 from app.models.paper_trading import Account, Order, PaperTrade, Position
 from app.models.permission import Permission, Role, user_roles
+from app.models.portfolio_ledger import (
+    PortfolioLedgerImportModel,
+    PortfolioLedgerModel,
+    PortfolioLedgerSnapshotModel,
+    PortfolioLedgerTransactionModel,
+)
 from app.models.prompt_template import PromptTemplate
 from app.models.strategy import Strategy
 from app.models.strategy_explanation import StrategyExplanationModel
@@ -53,9 +68,15 @@ __all__ = [
     "AuditRecord",
     "BacktestResultModel",
     "BacktestTask",
+    "BrokerConnectionProfile",
     "Comparison",
     "ComparisonShare",
     "DataInterface",
+    "DgEndpoint",
+    "DgEndpointParam",
+    "DgIngestJob",
+    "DgProvider",
+    "DgQualityRule",
     "DataScript",
     "DataTable",
     "InterfaceCategory",
@@ -67,12 +88,19 @@ __all__ = [
     "ChatMessage",
     "ModelConfig",
     "ModelUsageLog",
+    "NewsAnalysisModel",
+    "NewsArticleModel",
+    "NewsSourceModel",
     "Order",
     "OptimizationTask",
     "OverfittingResultModel",
     "PaperTrade",
     "Permission",
     "Position",
+    "PortfolioLedgerImportModel",
+    "PortfolioLedgerModel",
+    "PortfolioLedgerSnapshotModel",
+    "PortfolioLedgerTransactionModel",
     "RefreshToken",
     "Role",
     "PromptTemplate",

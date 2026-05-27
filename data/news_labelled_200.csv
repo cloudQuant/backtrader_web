@@ -1,0 +1,201 @@
+headline,expected_sentiment
+bullish surge 001,BULLISH
+bullish surge 002,BULLISH
+bullish surge 003,BULLISH
+bullish surge 004,BULLISH
+bullish surge 005,BULLISH
+bullish surge 006,BULLISH
+bullish surge 007,BULLISH
+bullish surge 008,BULLISH
+bullish surge 009,BULLISH
+bullish surge 010,BULLISH
+bullish surge 011,BULLISH
+bullish surge 012,BULLISH
+bullish surge 013,BULLISH
+bullish surge 014,BULLISH
+bullish surge 015,BULLISH
+bullish surge 016,BULLISH
+bullish surge 017,BULLISH
+bullish surge 018,BULLISH
+bullish surge 019,BULLISH
+bullish surge 020,BULLISH
+bullish beat 021,BULLISH
+bullish beat 022,BULLISH
+bullish beat 023,BULLISH
+bullish beat 024,BULLISH
+bullish beat 025,BULLISH
+bullish beat 026,BULLISH
+bullish beat 027,BULLISH
+bullish beat 028,BULLISH
+bullish beat 029,BULLISH
+bullish beat 030,BULLISH
+bullish beat 031,BULLISH
+bullish beat 032,BULLISH
+bullish beat 033,BULLISH
+bullish beat 034,BULLISH
+bullish beat 035,BULLISH
+bullish beat 036,BULLISH
+bullish beat 037,BULLISH
+bullish beat 038,BULLISH
+bullish beat 039,BULLISH
+bullish beat 040,BULLISH
+strong outlook 041,BULLISH
+strong outlook 042,BULLISH
+strong outlook 043,BULLISH
+strong outlook 044,BULLISH
+strong outlook 045,BULLISH
+strong outlook 046,BULLISH
+strong outlook 047,BULLISH
+strong outlook 048,BULLISH
+strong outlook 049,BULLISH
+strong outlook 050,BULLISH
+strong outlook 051,BULLISH
+strong outlook 052,BULLISH
+strong outlook 053,BULLISH
+strong outlook 054,BULLISH
+strong outlook 055,BULLISH
+strong outlook 056,BULLISH
+strong outlook 057,BULLISH
+strong outlook 058,BULLISH
+strong outlook 059,BULLISH
+strong outlook 060,BULLISH
+market turns bullish 061,BULLISH
+market turns bullish 062,BULLISH
+market turns bullish 063,BULLISH
+market turns bullish 064,BULLISH
+market turns bullish 065,BULLISH
+market turns bullish 066,BULLISH
+market turns bullish 067,BULLISH
+market turns bullish 068,BULLISH
+market turns bullish 069,BULLISH
+market turns bullish 070,BULLISH
+market turns bullish 071,BULLISH
+market turns bullish 072,BULLISH
+market turns bullish 073,BULLISH
+market turns bullish 074,BULLISH
+market turns bullish 075,BULLISH
+market turns bullish 076,BULLISH
+market turns bullish 077,BULLISH
+market turns bullish 078,BULLISH
+market turns bullish 079,BULLISH
+market turns bullish 080,BULLISH
+bearish drop 081,BEARISH
+bearish drop 082,BEARISH
+bearish drop 083,BEARISH
+bearish drop 084,BEARISH
+bearish drop 085,BEARISH
+bearish drop 086,BEARISH
+bearish drop 087,BEARISH
+bearish drop 088,BEARISH
+bearish drop 089,BEARISH
+bearish drop 090,BEARISH
+bearish drop 091,BEARISH
+bearish drop 092,BEARISH
+bearish drop 093,BEARISH
+bearish drop 094,BEARISH
+bearish drop 095,BEARISH
+bearish drop 096,BEARISH
+bearish drop 097,BEARISH
+bearish drop 098,BEARISH
+bearish drop 099,BEARISH
+bearish drop 100,BEARISH
+weak demand 101,BEARISH
+weak demand 102,BEARISH
+weak demand 103,BEARISH
+weak demand 104,BEARISH
+weak demand 105,BEARISH
+weak demand 106,BEARISH
+weak demand 107,BEARISH
+weak demand 108,BEARISH
+weak demand 109,BEARISH
+weak demand 110,BEARISH
+weak demand 111,BEARISH
+weak demand 112,BEARISH
+weak demand 113,BEARISH
+weak demand 114,BEARISH
+weak demand 115,BEARISH
+weak demand 116,BEARISH
+weak demand 117,BEARISH
+weak demand 118,BEARISH
+weak demand 119,BEARISH
+weak demand 120,BEARISH
+company miss 121,BEARISH
+company miss 122,BEARISH
+company miss 123,BEARISH
+company miss 124,BEARISH
+company miss 125,BEARISH
+company miss 126,BEARISH
+company miss 127,BEARISH
+company miss 128,BEARISH
+company miss 129,BEARISH
+company miss 130,BEARISH
+company miss 131,BEARISH
+company miss 132,BEARISH
+company miss 133,BEARISH
+company miss 134,BEARISH
+company miss 135,BEARISH
+company miss 136,BEARISH
+company miss 137,BEARISH
+company miss 138,BEARISH
+company miss 139,BEARISH
+company miss 140,BEARISH
+outlook stays bearish 141,BEARISH
+outlook stays bearish 142,BEARISH
+outlook stays bearish 143,BEARISH
+outlook stays bearish 144,BEARISH
+outlook stays bearish 145,BEARISH
+outlook stays bearish 146,BEARISH
+outlook stays bearish 147,BEARISH
+outlook stays bearish 148,BEARISH
+outlook stays bearish 149,BEARISH
+outlook stays bearish 150,BEARISH
+outlook stays bearish 151,BEARISH
+outlook stays bearish 152,BEARISH
+outlook stays bearish 153,BEARISH
+outlook stays bearish 154,BEARISH
+outlook stays bearish 155,BEARISH
+outlook stays bearish 156,BEARISH
+outlook stays bearish 157,BEARISH
+outlook stays bearish 158,BEARISH
+outlook stays bearish 159,BEARISH
+outlook stays bearish 160,BEARISH
+market update 161,NEUTRAL
+market update 162,NEUTRAL
+market update 163,NEUTRAL
+market update 164,NEUTRAL
+market update 165,NEUTRAL
+market update 166,NEUTRAL
+market update 167,NEUTRAL
+market update 168,NEUTRAL
+market update 169,NEUTRAL
+market update 170,NEUTRAL
+policy briefing 171,NEUTRAL
+policy briefing 172,NEUTRAL
+policy briefing 173,NEUTRAL
+policy briefing 174,NEUTRAL
+policy briefing 175,NEUTRAL
+policy briefing 176,NEUTRAL
+policy briefing 177,NEUTRAL
+policy briefing 178,NEUTRAL
+policy briefing 179,NEUTRAL
+policy briefing 180,NEUTRAL
+sector digest 181,NEUTRAL
+sector digest 182,NEUTRAL
+sector digest 183,NEUTRAL
+sector digest 184,NEUTRAL
+sector digest 185,NEUTRAL
+sector digest 186,NEUTRAL
+sector digest 187,NEUTRAL
+sector digest 188,NEUTRAL
+sector digest 189,NEUTRAL
+sector digest 190,NEUTRAL
+trading session recap 191,NEUTRAL
+trading session recap 192,NEUTRAL
+trading session recap 193,NEUTRAL
+trading session recap 194,NEUTRAL
+trading session recap 195,NEUTRAL
+trading session recap 196,NEUTRAL
+trading session recap 197,NEUTRAL
+trading session recap 198,NEUTRAL
+trading session recap 199,NEUTRAL
+trading session recap 200,NEUTRAL

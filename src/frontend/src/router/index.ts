@@ -124,6 +124,11 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/data/DataTableDetailPage.vue'),
           },
           {
+            path: 'topics',
+            name: 'DataTopics',
+            component: () => import('@/views/data/DataTopicsPage.vue'),
+          },
+          {
             path: 'sync',
             name: 'DataSync',
             component: () => import('@/views/data/DataSyncPage.vue'),
@@ -133,6 +138,12 @@ const routes: RouteRecordRaw[] = [
             path: 'interfaces',
             name: 'DataInterfaces',
             component: () => import('@/views/data/DataInterfacesPage.vue'),
+            meta: { requiresAdmin: true },
+          },
+          {
+            path: 'governance',
+            name: 'DataGovernance',
+            component: () => import('@/views/data/DataGovernancePage.vue'),
             meta: { requiresAdmin: true },
           },
           {
@@ -197,6 +208,41 @@ const routes: RouteRecordRaw[] = [
         path: 'portfolio',
         name: 'Portfolio',
         component: () => import('@/views/PortfolioPage.vue'),
+      },
+      {
+        path: 'brokers',
+        name: 'BrokerProfiles',
+        component: () => import('@/views/BrokerProfilesPage.vue'),
+      },
+      {
+        path: 'portfolio-ledger',
+        name: 'PortfolioLedger',
+        component: () => import('@/views/PortfolioLedgerPage.vue'),
+      },
+      {
+        path: 'equity-research',
+        name: 'EquityResearch',
+        component: () => import('@/views/EquityResearchPage.vue'),
+      },
+      {
+        path: 'news-intelligence',
+        name: 'NewsIntelligence',
+        component: () => import('@/views/NewsIntelligencePage.vue'),
+      },
+      {
+        path: 'options-chain',
+        name: 'OptionsChain',
+        component: () => import('@/views/OptionsChainPage.vue'),
+      },
+      {
+        path: 'scanners',
+        name: 'Scanners',
+        component: () => import('@/views/ScannerPage.vue'),
+      },
+      {
+        path: 'quant-tools',
+        name: 'QuantTools',
+        component: () => import('@/views/QuantToolsPage.vue'),
       },
       {
         path: 'knowledge-base',

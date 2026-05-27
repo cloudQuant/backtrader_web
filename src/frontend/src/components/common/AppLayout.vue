@@ -63,6 +63,34 @@
           <el-icon><TrendCharts /></el-icon>
           <span>组合管理</span>
         </el-menu-item>
+        <el-menu-item index="/brokers">
+          <el-icon><Monitor /></el-icon>
+          <span>Broker配置</span>
+        </el-menu-item>
+        <el-menu-item index="/portfolio-ledger">
+          <el-icon><TrendCharts /></el-icon>
+          <span>组合账本</span>
+        </el-menu-item>
+        <el-menu-item index="/equity-research">
+          <el-icon><Document /></el-icon>
+          <span>权益研究</span>
+        </el-menu-item>
+        <el-menu-item index="/news-intelligence">
+          <el-icon><Document /></el-icon>
+          <span>新闻情报</span>
+        </el-menu-item>
+        <el-menu-item index="/options-chain">
+          <el-icon><Document /></el-icon>
+          <span>期权链</span>
+        </el-menu-item>
+        <el-menu-item index="/scanners">
+          <el-icon><Aim /></el-icon>
+          <span>条件扫描</span>
+        </el-menu-item>
+        <el-menu-item index="/quant-tools">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>量化工具</span>
+        </el-menu-item>
         <el-menu-item index="/gateways">
           <el-icon><Monitor /></el-icon>
           <span>账户管理</span>
@@ -151,6 +179,34 @@
         <el-menu-item index="/portfolio">
           <el-icon><TrendCharts /></el-icon>
           <span>组合管理</span>
+        </el-menu-item>
+        <el-menu-item index="/brokers">
+          <el-icon><Monitor /></el-icon>
+          <span>Broker配置</span>
+        </el-menu-item>
+        <el-menu-item index="/portfolio-ledger">
+          <el-icon><TrendCharts /></el-icon>
+          <span>组合账本</span>
+        </el-menu-item>
+        <el-menu-item index="/equity-research">
+          <el-icon><Document /></el-icon>
+          <span>权益研究</span>
+        </el-menu-item>
+        <el-menu-item index="/news-intelligence">
+          <el-icon><Document /></el-icon>
+          <span>新闻情报</span>
+        </el-menu-item>
+        <el-menu-item index="/options-chain">
+          <el-icon><Document /></el-icon>
+          <span>期权链</span>
+        </el-menu-item>
+        <el-menu-item index="/scanners">
+          <el-icon><Aim /></el-icon>
+          <span>条件扫描</span>
+        </el-menu-item>
+        <el-menu-item index="/quant-tools">
+          <el-icon><ChatDotRound /></el-icon>
+          <span>量化工具</span>
         </el-menu-item>
         <el-menu-item index="/gateways">
           <el-icon><Monitor /></el-icon>
@@ -311,7 +367,7 @@ const currentRoute = computed(() => {
     return '/workspace'
   }
   // Match top-level menu items for nested routes
-  const prefixes = ['/ai-chat', '/admin/ai-observability', '/admin/prompt-templates', '/workspace', '/trading', '/strategy', '/data', '/gateways', '/knowledge-base', '/quote', '/portfolio', '/settings']
+  const prefixes = ['/ai-chat', '/admin/ai-observability', '/admin/prompt-templates', '/workspace', '/trading', '/strategy', '/data', '/gateways', '/knowledge-base', '/quote', '/portfolio', '/portfolio-ledger', '/equity-research', '/news-intelligence', '/options-chain', '/scanners', '/quant-tools', '/settings']
   for (const prefix of prefixes) {
     if (p.startsWith(prefix + '/') || p === prefix) return prefix
   }
@@ -333,6 +389,12 @@ const pageTitle = computed(() => {
     '/workspace': '策略研究',
     '/trading': '策略交易',
     '/portfolio': '组合管理',
+    '/portfolio-ledger': '组合账本',
+    '/equity-research': '权益研究',
+    '/news-intelligence': '新闻情报',
+    '/options-chain': '期权链',
+    '/scanners': '条件扫描',
+    '/quant-tools': '量化工具',
     '/settings': '系统设置',
   }
   // Use prefix matching for nested routes (Bug-11 fix)
