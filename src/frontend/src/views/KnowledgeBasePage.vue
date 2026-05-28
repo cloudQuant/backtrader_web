@@ -23,6 +23,7 @@
               v-model="knowledgeBaseSearch"
               class="w-full rounded border px-3 py-2 text-sm"
               placeholder="搜索知识库..."
+              aria-label="搜索知识库"
             >
           </div>
         </template>

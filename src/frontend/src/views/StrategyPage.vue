@@ -4,9 +4,13 @@
     <div class="flex justify-end items-center">
       <el-button
         type="primary"
+        :aria-label="'创建策略'"
         @click="showCreateDialog"
       >
-        <el-icon class="mr-1">
+        <el-icon
+          class="mr-1"
+          aria-hidden="true"
+        >
           <Plus />
         </el-icon>
         创建策略
@@ -28,6 +32,7 @@
           <el-input
             v-model="searchKeyword"
             placeholder="搜索策略名称或描述..."
+            aria-label="搜索策略"
             clearable
             class="w-64"
             prefix-icon="Search"
@@ -35,6 +40,7 @@
           <el-radio-group
             v-model="categoryFilter"
             size="default"
+            aria-label="按策略类别过滤"
           >
             <el-radio-button label="">
               全部
@@ -73,7 +79,12 @@
             :key="t.id"
             shadow="hover"
             class="strategy-card cursor-pointer"
+            role="button"
+            tabindex="0"
+            :aria-label="`策略 ${t.name}`"
             @click="openTemplateDetail(t)"
+            @keydown.enter="openTemplateDetail(t)"
+            @keydown.space.prevent="openTemplateDetail(t)"
           >
             <div class="flex flex-col h-full">
               <div class="flex justify-between items-start mb-2">
@@ -666,6 +677,10 @@ onMounted(async () => {
 }
 .strategy-card:hover {
   transform: translateY(-2px);
+}
+.strategy-card:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
 }
 .line-clamp-2 {
   display: -webkit-box;

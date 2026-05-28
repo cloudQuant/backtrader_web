@@ -99,12 +99,49 @@ any of `role="presentation"`, `aria-hidden="true"`, or empty `alt=""`.
 - 主对话输入区 `<el-input type="textarea">` 补 `:aria-label="inputPlaceholder"`
 - 模型选择 `<el-select>` 补 `aria-label="选择 AI 模型"`
 
-### `src/views/DashboardPage.vue` (首页)
+### `src/views/DashboardPage.vue` (页 #2 of 7)
 
 - 4 张统计卡的装饰性 `<el-icon>` 补 `aria-hidden="true"`
 - 3 张 Quick Start 卡片：`<div @click>` → `<div role="button" tabindex="0">` + 键盘事件（Enter / Space），并补 `:aria-label` 与 `:focus-visible` 样式
 
-> 上述修复后，仍需在首次 `frontend-a11y` CI red line 后由团队继续清理 `BacktestPage` / `BacktestResultPage` / `KnowledgeBasePage` / `StrategyPage` / `BacktestList` 等页面的具体违规。175 验收基线为「框架就绪 + 公共组件清理」，剩余页面侧的修复登记在 `docs/explanation/REFACTORING_BACKLOG.md` 「176 候选 § D」。
+### `src/views/workspace/WorkspaceListPage.vue` (页 #4 of 7 — `/backtest`)
+
+- toolbar 按钮补 `:aria-label` 与 icon `aria-hidden="true"`
+- 视图切换 radio-group 补 `:aria-label`，每个 radio-button 补 `:aria-label`（区分 card / table）
+- 全量国际化（30+ zh-CN literals → `workspace.*` 命名空间）
+
+### `src/views/BacktestResultPage.vue` (页 #5 of 7 — `/backtest/result/:id`)
+
+- 加载状态补 `role="status"` + `aria-label`
+- 错误状态补 `role="alert"`
+- 操作按钮补 `:aria-label`，icon 补 `aria-hidden="true"`
+- 关键 selector：补 `data-test="backtest-detail"` 与 `data-test="backtest-status"`（smoke test 依赖）+ `data-test="equity-curve"`（同）
+- 状态文本通过 `<span class="sr-only">` 注入，对屏幕阅读器可见但视觉不显示
+
+### `src/views/StrategyPage.vue` (页 #7 of 7 — `/strategy`)
+
+- 创建策略按钮补 `:aria-label`，icon `aria-hidden="true"`
+- 搜索框补 `aria-label="搜索策略"`
+- 类别 radio-group 补 `aria-label="按策略类别过滤"`
+- 策略卡 `<el-card>`：补 `role="button" tabindex="0"` + `@keydown.enter` / `@keydown.space.prevent` + `:aria-label="\`策略 ${t.name}\`"`
+- 新增 `.strategy-card:focus-visible` 样式
+
+### `src/components/aichat/CitationList.vue` (覆盖 KB Chat / AI Chat)
+
+- 文档列表 `<section>` 补 `:aria-label="'参考文档'"`
+- 每个 citation `<button>` 补 `data-test="citation-chip"`（smoke test 依赖）+ `:aria-label`（含序号与标题）
+- icon 补 `aria-hidden="true"`
+
+### `src/views/KnowledgeBasePage.vue` (页 #6 of 7 — `/knowledge-base`)
+
+- 知识库搜索 `<input>` 补 `aria-label`
+- 其余 `<button>` 已是真实按钮元素，文本可见，a11y 基线达标
+
+### `src/styles/design-system.scss`
+
+- 新增 `.sr-only` 全局工具类：标准实现（position absolute / clip rect / 1px / -1px margin），用于「屏幕阅读器可见、视觉不显示」的内容
+
+> 上述修复后，仍需在首次 `frontend-a11y` CI red line 后由团队继续清理 `BacktestPage` / 剩余 KnowledgeBasePage 子组件的具体违规。175 验收基线为「框架就绪 + 7 页核心结构清理」。
 
 ## Re-running the baseline locally
 

@@ -4,18 +4,27 @@
     <div
       v-if="loading"
       class="flex justify-center items-center h-64"
+      role="status"
+      :aria-label="t('common.loading')"
     >
-      <el-icon class="is-loading text-4xl text-blue-500">
+      <el-icon
+        class="is-loading text-4xl text-blue-500"
+        aria-hidden="true"
+      >
         <Loading />
       </el-icon>
     </div>
-    
+
     <!-- 错误状态 -->
     <div
       v-else-if="error"
       class="text-center py-12"
+      role="alert"
     >
-      <el-icon class="text-5xl text-red-400 mb-4">
+      <el-icon
+        class="text-5xl text-red-400 mb-4"
+        aria-hidden="true"
+      >
         <CircleCloseFilled />
       </el-icon>
       <p class="text-gray-500">
@@ -23,6 +32,7 @@
       </p>
       <el-button
         class="mt-4"
+        :aria-label="'重试'"
         @click="loadData"
       >
         重试
@@ -32,40 +42,59 @@
     <!-- 内容 -->
     <template v-else-if="detail">
       <!-- 顶部标题和操作 -->
-      <div class="flex justify-between items-center mb-6">
+      <div
+        class="flex justify-between items-center mb-6"
+        data-test="backtest-detail"
+      >
         <div>
           <h2 class="text-2xl font-bold">
-            回测结果详情
+            {{ t('backtest.results') }}
           </h2>
           <p class="text-gray-500 mt-1">
-            {{ detail.strategy_name }} | {{ detail.symbol }} | 
+            {{ detail.strategy_name }} | {{ detail.symbol }} |
             {{ detail.start_date }} - {{ detail.end_date }}
           </p>
+          <span
+            data-test="backtest-status"
+            class="sr-only"
+          >{{ detail.artifact_status || 'completed' }}</span>
         </div>
         <div class="flex gap-2">
           <el-button
             v-if="isOptimizationArtifactMode"
+            :aria-label="t('common.action') + ': open artifact dir'"
             @click="handleOpenArtifactDir"
           >
-            <el-icon><FolderOpened /></el-icon>打开 artifact 目录
+            <el-icon aria-hidden="true">
+              <FolderOpened />
+            </el-icon>{{ t('common.action') }} artifact
           </el-button>
           <el-button
             v-if="isOptimizationArtifactMode"
+            :aria-label="t('common.action') + ': download'"
             @click="handleDownloadArtifact"
           >
-            <el-icon><Download /></el-icon>下载结果
+            <el-icon aria-hidden="true">
+              <Download />
+            </el-icon>{{ '下载结果' }}
           </el-button>
           <el-button
             v-if="!isOptimizationArtifactMode"
+            :aria-label="t('common.action') + ': export CSV'"
             @click="handleExport('csv')"
           >
-            <el-icon><Download /></el-icon>导出CSV
+            <el-icon aria-hidden="true">
+              <Download />
+            </el-icon>导出CSV
           </el-button>
           <el-button
             type="primary"
+            :aria-label="t('common.back')"
             @click="handleBack"
           >
-            <el-icon><Back /></el-icon>返回
+            <el-icon aria-hidden="true">
+              <Back />
+            </el-icon>{{ t('common.back') }}
           </el-button>
         </div>
       </div>
@@ -121,6 +150,7 @@
         >
           <el-card v-if="activeTab === 'equity'">
             <EquityCurve
+              data-test="equity-curve"
               :data="detail.equity_curve"
               :height="350"
             />
@@ -190,6 +220,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Loading, CircleCloseFilled, Download, Back, FolderOpened } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api'
 import { analyticsApi } from '@/api/analytics'
 import { strategyApi } from '@/api/strategy'
@@ -216,6 +247,7 @@ import type {
   MonthlyReturnsResponse,
 } from '@/types/analytics'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 

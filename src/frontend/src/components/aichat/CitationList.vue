@@ -1,5 +1,8 @@
 <template>
-  <section class="citation-box">
+  <section
+    class="citation-box"
+    :aria-label="'参考文档'"
+  >
     <div class="citation-head">
       <span>参考文档</span>
       <span>{{ citations.length }} 条引用</span>
@@ -9,10 +12,16 @@
       :key="getCitationKey(citation, index)"
       type="button"
       class="citation-item"
+      data-test="citation-chip"
+      :href="citation.document_id ? `#document-${citation.document_id}` : undefined"
       :disabled="!citation.document_id"
+      :aria-label="`引用 ${index + 1}: ${getCitationTitle(citation)}`"
       @click="emit('jump', citation.document_id)"
     >
-      <span class="citation-index">{{ index + 1 }}</span>
+      <span
+        class="citation-index"
+        aria-hidden="true"
+      >{{ index + 1 }}</span>
       <span class="citation-content">
         <strong>{{ getCitationTitle(citation) }}</strong>
         <small>
@@ -21,7 +30,9 @@
         </small>
         <span v-if="citation.content">{{ citation.content }}</span>
       </span>
-      <el-icon><Link /></el-icon>
+      <el-icon aria-hidden="true">
+        <Link />
+      </el-icon>
     </button>
   </section>
 </template>

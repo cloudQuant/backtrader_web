@@ -216,3 +216,22 @@
   --theme-verdant-success-color: #00B856;
   --theme-verdant-danger-color: #D32F2F;
 }
+
+
+/* Iteration 175 §3 — accessibility utility: visually-hidden text that
+ * remains available to screen readers and other assistive technologies.
+ * Used to label sections / inject context that is otherwise conveyed by
+ * visual styling only. Standard implementation, see:
+ *   https://www.tpgi.com/the-anatomy-of-visually-hidden/
+ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
