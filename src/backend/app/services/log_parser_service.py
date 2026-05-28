@@ -12,17 +12,54 @@ Supported log files:
 - run_info.json: run metadata
 - current_position.json: final positions
 - current_position.yaml: final positions
+
+Iteration 174 (C7) extracted the readers / normalisation / computation helpers
+into the ``app.services.log_parser`` subpackage. This module now hosts only
+the format-specific ``parse_*`` entry points and the ``parse_log_dir`` /
+``parse_all_logs`` orchestration. The previously private ``_parse_*`` /
+``_safe_float`` / ``_synthesize_value_curve`` names are re-exported (with
+their leading underscore) so existing tests and downstream callers using
+``from app.services.log_parser_service import _parse_tsv`` keep working.
 """
 
 import json
 import logging
-import math
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from app.services import strategy_runtime_support
+from app.services.log_parser.computations import (
+    synthesize_value_curve as _synthesize_value_curve,
+)
+from app.services.log_parser.normalize import (
+    extract_indicator_values as _extract_indicator_values,
+)
+from app.services.log_parser.normalize import (
+    is_truthy as _is_truthy,
+)
+from app.services.log_parser.normalize import (
+    normalize_date_text as _normalize_date_text,
+)
+from app.services.log_parser.normalize import (
+    normalize_dt_text as _normalize_dt_text,
+)
+from app.services.log_parser.normalize import (
+    safe_float as _safe_float,
+)
+from app.services.log_parser.readers import (
+    parse_json_lines as _parse_json_lines,
+)
+from app.services.log_parser.readers import (
+    parse_pipe_key_value_lines as _parse_pipe_key_value_lines,
+)
+from app.services.log_parser.readers import (
+    parse_pipe_lines as _parse_pipe_lines,
+)
+from app.services.log_parser.readers import (
+    parse_tsv as _parse_tsv,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,294 +80,6 @@ def find_latest_log_dir(strategy_dir: Path) -> Path | None:
     """
     latest_log_dir = strategy_runtime_support.find_latest_log_dir(strategy_dir)
     return Path(latest_log_dir) if latest_log_dir is not None else None
-
-
-def _parse_tsv(filepath: Path) -> list[dict[str, str]]:
-    """Parse a tab-separated log file and return a list of dictionaries.
-
-    Args:
-        filepath: Path to the TSV file.
-
-    Returns:
-        A list of dictionaries where each dictionary represents a row
-        with column headers as keys.
-    """
-    if not filepath.is_file():
-        return []
-
-    rows = []
-    with open(filepath, encoding="utf-8") as f:
-        header_line = f.readline().strip()
-        if not header_line:
-            return []
-        if header_line.startswith("{") or header_line.startswith("["):
-            return []
-        if "\t" not in header_line:
-            return []
-        headers = header_line.split("\t")
-
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            values = line.split("\t")
-            row = {}
-            for i, h in enumerate(headers):
-                row[h] = values[i] if i < len(values) else ""
-            rows.append(row)
-
-    return rows
-
-
-def _parse_json_lines(filepath: Path) -> list[dict[str, Any]]:
-    if not filepath.is_file():
-        return []
-
-    rows: list[dict[str, Any]] = []
-    with open(filepath, encoding="utf-8") as f:
-        for line in f:
-            text = line.strip()
-            if not text:
-                continue
-            try:
-                payload = json.loads(text)
-            except json.JSONDecodeError:
-                return []
-            if isinstance(payload, dict):
-                rows.append(payload)
-    return rows
-
-
-def _parse_pipe_lines(filepath: Path) -> list[dict[str, str]]:
-    if not filepath.is_file():
-        return []
-
-    rows: list[dict[str, str]] = []
-    with open(filepath, encoding="utf-8") as f:
-        for line in f:
-            text = line.strip()
-            if not text or "|" not in text:
-                continue
-            parts = [part.strip() for part in text.split("|")]
-            if len(parts) < 2:
-                continue
-            row: dict[str, str] = {"datetime": parts[0], "event": parts[1]}
-            for part in parts[2:]:
-                if not part or "=" not in part:
-                    continue
-                key, value = part.split("=", 1)
-                row[key.strip().lower()] = value.strip()
-            rows.append(row)
-    return rows
-
-
-def _parse_pipe_key_value_lines(filepath: Path) -> list[dict[str, str]]:
-    if not filepath.is_file():
-        return []
-
-    rows: list[dict[str, str]] = []
-    with open(filepath, encoding="utf-8") as f:
-        for line in f:
-            text = line.strip()
-            if not text or "|" not in text:
-                continue
-            parts = [part.strip() for part in text.split("|")]
-            if len(parts) < 2:
-                continue
-            row: dict[str, str] = {"log_time": parts[0]}
-            unlabeled: list[str] = []
-            for part in parts[1:]:
-                if not part:
-                    continue
-                if "=" in part:
-                    key, value = part.split("=", 1)
-                    row[key.strip()] = value.strip()
-                    continue
-                unlabeled.append(part)
-            if unlabeled:
-                row["event"] = unlabeled[0]
-            rows.append(row)
-    return rows
-
-
-def _normalize_dt_text(value: Any) -> str:
-    text = str(value or "").strip()
-    return text
-
-
-def _normalize_date_text(value: Any) -> str:
-    text = _normalize_dt_text(value)
-    if " " in text:
-        return text.split(" ")[0]
-    if "T" in text:
-        return text.split("T")[0]
-    return text
-
-
-def _is_truthy(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    return str(value or "").strip().lower() in {"1", "true", "yes", "y"}
-
-
-def _extract_indicator_values(row: dict[str, Any]) -> dict[str, float]:
-    ignored = {
-        "log_time",
-        "datetime",
-        "strategy_name",
-        "data_name",
-        "event_type",
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "openinterest",
-    }
-    ignored_suffixes = (
-        "_open",
-        "_high",
-        "_low",
-        "_close",
-        "_volume",
-        "_openinterest",
-        "_datetime",
-    )
-    values: dict[str, float] = {}
-    for key, value in row.items():
-        if key in ignored:
-            continue
-        if key.endswith(ignored_suffixes):
-            continue
-        if isinstance(value, (int, float, str)):
-            numeric_value = _safe_float(value, default=math.nan)
-            if not math.isnan(numeric_value):
-                values[key] = numeric_value
-    return values
-
-
-def _load_strategy_config(strategy_dir: Path) -> dict[str, Any]:
-    config_path = strategy_dir / "config.yaml"
-    if not config_path.is_file():
-        return {}
-    try:
-        import yaml
-
-        with open(config_path, encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
-    except (OSError, yaml.YAMLError) as e:
-        logger.warning("Failed to load strategy config from %s: %s", config_path, e)
-        return {}
-
-
-def _initial_cash_for_strategy(strategy_dir: Path, run_info: dict[str, Any] | None = None) -> float:
-    run_info = run_info or {}
-    for key in ("initial_cash", "starting_cash", "initial_capital"):
-        value = run_info.get(key)
-        if value is not None:
-            cash = _safe_float(value, 0.0)
-            if cash > 0:
-                return cash
-
-    config = _load_strategy_config(strategy_dir)
-    for section in ("simulate", "backtest"):
-        value = (config.get(section) or {}).get("initial_cash")
-        cash = _safe_float(value, 0.0)
-        if cash > 0:
-            return cash
-    return 100000.0
-
-
-def _synthesize_value_curve(
-    strategy_dir: Path,
-    kline_data: dict[str, Any],
-    position_rows: list[dict[str, Any]],
-    trades: list[dict[str, Any]],
-    run_info: dict[str, Any],
-) -> dict[str, Any]:
-    initial_cash = _initial_cash_for_strategy(strategy_dir, run_info)
-    realized_by_date: dict[str, float] = {}
-    for trade in trades:
-        close_dt = _normalize_dt_text(trade.get("dtclose") or trade.get("datetime"))
-        if not close_dt:
-            continue
-        realized_by_date[close_dt] = realized_by_date.get(close_dt, 0.0) + _safe_float(
-            trade.get("pnlcomm", trade.get("pnl", 0.0)),
-            0.0,
-        )
-
-    position_by_date: dict[str, dict[str, Any]] = {}
-    for row in position_rows:
-        dt = _normalize_dt_text(row.get("datetime") or row.get("dt"))
-        if dt:
-            position_by_date[dt] = row
-
-    ordered_dates: list[str] = []
-    seen_dates: set[str] = set()
-    for dt in kline_data.get("dates", []):
-        if dt and dt not in seen_dates:
-            ordered_dates.append(dt)
-            seen_dates.add(dt)
-    for dt in sorted(position_by_date):
-        if dt not in seen_dates:
-            ordered_dates.append(dt)
-            seen_dates.add(dt)
-    for dt in sorted(realized_by_date):
-        if dt not in seen_dates:
-            ordered_dates.append(dt)
-            seen_dates.add(dt)
-
-    if not ordered_dates:
-        return {"dates": [], "equity_curve": [], "cash_curve": [], "drawdown_curve": []}
-
-    realized = 0.0
-    equity: list[float] = []
-    cash_curve: list[float] = []
-    peak = initial_cash
-    drawdown_curve: list[float] = []
-    for dt in ordered_dates:
-        realized += realized_by_date.get(dt, 0.0)
-        pos = position_by_date.get(dt, {})
-        size = _safe_float(pos.get("size", 0.0), 0.0)
-        avg_price = _safe_float(pos.get("price", 0.0), 0.0)
-        market_value = _safe_float(pos.get("value", pos.get("market_value", 0.0)), 0.0)
-        cost_basis = size * avg_price
-        unrealized = market_value - cost_basis
-        total_assets = initial_cash + realized + unrealized
-        cash_value = total_assets - market_value
-        equity.append(round(total_assets, 4))
-        cash_curve.append(round(cash_value, 4))
-        if total_assets > peak:
-            peak = total_assets
-        dd = ((peak - total_assets) / peak * 100) if peak > 0 else 0.0
-        drawdown_curve.append(round(dd, 4))
-
-    return {
-        "dates": ordered_dates,
-        "equity_curve": equity,
-        "cash_curve": cash_curve,
-        "drawdown_curve": drawdown_curve,
-    }
-
-
-def _safe_float(val: str, default: float = 0.0) -> float:
-    """Safely convert a string to a float.
-
-    Args:
-        val: The string value to convert.
-        default: The default value to return if conversion fails.
-
-    Returns:
-        The converted float value, or the default if conversion fails
-        or the value is NaN/Infinity.
-    """
-    try:
-        v = float(val)
-        if math.isnan(v) or math.isinf(v):
-            return default
-        return v
-    except (ValueError, TypeError):
-        return default
 
 
 def parse_value_log(log_dir: Path) -> dict[str, Any]:
