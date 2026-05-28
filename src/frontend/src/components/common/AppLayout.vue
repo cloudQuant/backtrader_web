@@ -5,7 +5,7 @@
       width="220px"
       class="app-sidebar-desktop"
       role="navigation"
-      aria-label="主导航"
+      :aria-label="t('nav.primary')"
     >
       <div class="p-4">
         <h1 class="text-xl font-bold sidebar-title flex items-center gap-2">
@@ -23,89 +23,89 @@
       >
         <el-menu-item index="/">
           <el-icon><HomeFilled /></el-icon>
-          <span>首页</span>
+          <span>{{ t('nav.home') }}</span>
         </el-menu-item>
         <el-menu-item index="/ai-chat">
           <el-icon><ChatDotRound /></el-icon>
-          <span>AI助手</span>
+          <span>{{ t('nav.aiChat') }}</span>
         </el-menu-item>
         <el-menu-item
           v-if="user?.is_admin"
           index="/admin/ai-observability"
         >
           <el-icon><ChatDotRound /></el-icon>
-          <span>AI成本</span>
+          <span>{{ t('nav.aiCost') }}</span>
         </el-menu-item>
         <el-menu-item
           v-if="user?.is_admin"
           index="/admin/prompt-templates"
         >
           <el-icon><Document /></el-icon>
-          <span>Prompt治理</span>
+          <span>{{ t('nav.promptGovernance') }}</span>
         </el-menu-item>
         <el-menu-item index="/data">
           <el-icon><Grid /></el-icon>
-          <span>数据管理</span>
+          <span>{{ t('nav.data') }}</span>
         </el-menu-item>
         <el-menu-item index="/quote">
           <el-icon><Stopwatch /></el-icon>
-          <span>行情报价</span>
+          <span>{{ t('nav.quote') }}</span>
         </el-menu-item>
         <el-menu-item index="/workspace">
           <el-icon><Aim /></el-icon>
-          <span>策略研究</span>
+          <span>{{ t('nav.workspace') }}</span>
         </el-menu-item>
         <el-menu-item index="/trading">
           <el-icon><TrendCharts /></el-icon>
-          <span>策略交易</span>
+          <span>{{ t('nav.trading') }}</span>
         </el-menu-item>
         <el-menu-item index="/strategy">
           <el-icon><Document /></el-icon>
-          <span>策略管理</span>
+          <span>{{ t('nav.strategy') }}</span>
         </el-menu-item>
         <el-menu-item index="/portfolio">
           <el-icon><TrendCharts /></el-icon>
-          <span>组合管理</span>
+          <span>{{ t('nav.portfolio') }}</span>
         </el-menu-item>
         <el-menu-item index="/brokers">
           <el-icon><Monitor /></el-icon>
-          <span>Broker配置</span>
+          <span>{{ t('nav.brokers') }}</span>
         </el-menu-item>
         <el-menu-item index="/portfolio-ledger">
           <el-icon><TrendCharts /></el-icon>
-          <span>组合账本</span>
+          <span>{{ t('nav.portfolioLedger') }}</span>
         </el-menu-item>
         <el-menu-item index="/equity-research">
           <el-icon><Document /></el-icon>
-          <span>权益研究</span>
+          <span>{{ t('nav.equityResearch') }}</span>
         </el-menu-item>
         <el-menu-item index="/news-intelligence">
           <el-icon><Document /></el-icon>
-          <span>新闻情报</span>
+          <span>{{ t('nav.newsIntelligence') }}</span>
         </el-menu-item>
         <el-menu-item index="/options-chain">
           <el-icon><Document /></el-icon>
-          <span>期权链</span>
+          <span>{{ t('nav.optionsChain') }}</span>
         </el-menu-item>
         <el-menu-item index="/scanners">
           <el-icon><Aim /></el-icon>
-          <span>条件扫描</span>
+          <span>{{ t('nav.scanners') }}</span>
         </el-menu-item>
         <el-menu-item index="/quant-tools">
           <el-icon><ChatDotRound /></el-icon>
-          <span>量化工具</span>
+          <span>{{ t('nav.quantTools') }}</span>
         </el-menu-item>
         <el-menu-item index="/gateways">
           <el-icon><Monitor /></el-icon>
-          <span>账户管理</span>
+          <span>{{ t('nav.gateways') }}</span>
         </el-menu-item>
         <el-menu-item index="/knowledge-base">
           <el-icon><Collection /></el-icon>
-          <span>知识库</span>
+          <span>{{ t('nav.knowledgeBase') }}</span>
         </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
-          <span>系统设置</span>
+          <span>{{ t('nav.settings') }}</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -120,7 +120,7 @@
       class="mobile-sidebar-drawer"
       :z-index="2000"
       role="dialog"
-      aria-label="主导航菜单"
+      :aria-label="t('nav.primary')"
       aria-modal="true"
     >
       <template #header>
@@ -134,7 +134,7 @@
           <button
             type="button"
             class="sidebar-title cursor-pointer text-xl drawer-close-btn"
-            :aria-label="'关闭导航菜单'"
+            :aria-label="t('nav.closeMenu')"
             @click="mobileMenuOpen = false"
           >
             <el-icon aria-hidden="true">
@@ -150,89 +150,89 @@
       >
         <el-menu-item index="/">
           <el-icon><HomeFilled /></el-icon>
-          <span>首页</span>
+          <span>{{ t('nav.home') }}</span>
         </el-menu-item>
         <el-menu-item index="/ai-chat">
           <el-icon><ChatDotRound /></el-icon>
-          <span>AI助手</span>
+          <span>{{ t('nav.aiChat') }}</span>
         </el-menu-item>
         <el-menu-item
           v-if="user?.is_admin"
           index="/admin/ai-observability"
         >
           <el-icon><ChatDotRound /></el-icon>
-          <span>AI成本</span>
+          <span>{{ t('nav.aiCost') }}</span>
         </el-menu-item>
         <el-menu-item
           v-if="user?.is_admin"
           index="/admin/prompt-templates"
         >
           <el-icon><Document /></el-icon>
-          <span>Prompt治理</span>
+          <span>{{ t('nav.promptGovernance') }}</span>
         </el-menu-item>
         <el-menu-item index="/data">
           <el-icon><Grid /></el-icon>
-          <span>数据管理</span>
+          <span>{{ t('nav.data') }}</span>
         </el-menu-item>
         <el-menu-item index="/quote">
           <el-icon><Stopwatch /></el-icon>
-          <span>行情报价</span>
+          <span>{{ t('nav.quote') }}</span>
         </el-menu-item>
         <el-menu-item index="/workspace">
           <el-icon><Aim /></el-icon>
-          <span>策略研究</span>
+          <span>{{ t('nav.workspace') }}</span>
         </el-menu-item>
         <el-menu-item index="/trading">
           <el-icon><TrendCharts /></el-icon>
-          <span>策略交易</span>
+          <span>{{ t('nav.trading') }}</span>
         </el-menu-item>
         <el-menu-item index="/strategy">
           <el-icon><Document /></el-icon>
-          <span>策略管理</span>
+          <span>{{ t('nav.strategy') }}</span>
         </el-menu-item>
         <el-menu-item index="/portfolio">
           <el-icon><TrendCharts /></el-icon>
-          <span>组合管理</span>
+          <span>{{ t('nav.portfolio') }}</span>
         </el-menu-item>
         <el-menu-item index="/brokers">
           <el-icon><Monitor /></el-icon>
-          <span>Broker配置</span>
+          <span>{{ t('nav.brokers') }}</span>
         </el-menu-item>
         <el-menu-item index="/portfolio-ledger">
           <el-icon><TrendCharts /></el-icon>
-          <span>组合账本</span>
+          <span>{{ t('nav.portfolioLedger') }}</span>
         </el-menu-item>
         <el-menu-item index="/equity-research">
           <el-icon><Document /></el-icon>
-          <span>权益研究</span>
+          <span>{{ t('nav.equityResearch') }}</span>
         </el-menu-item>
         <el-menu-item index="/news-intelligence">
           <el-icon><Document /></el-icon>
-          <span>新闻情报</span>
+          <span>{{ t('nav.newsIntelligence') }}</span>
         </el-menu-item>
         <el-menu-item index="/options-chain">
           <el-icon><Document /></el-icon>
-          <span>期权链</span>
+          <span>{{ t('nav.optionsChain') }}</span>
         </el-menu-item>
         <el-menu-item index="/scanners">
           <el-icon><Aim /></el-icon>
-          <span>条件扫描</span>
+          <span>{{ t('nav.scanners') }}</span>
         </el-menu-item>
         <el-menu-item index="/quant-tools">
           <el-icon><ChatDotRound /></el-icon>
-          <span>量化工具</span>
+          <span>{{ t('nav.quantTools') }}</span>
         </el-menu-item>
         <el-menu-item index="/gateways">
           <el-icon><Monitor /></el-icon>
-          <span>账户管理</span>
+          <span>{{ t('nav.gateways') }}</span>
         </el-menu-item>
         <el-menu-item index="/knowledge-base">
           <el-icon><Collection /></el-icon>
-          <span>知识库</span>
+          <span>{{ t('nav.knowledgeBase') }}</span>
         </el-menu-item>
         <el-menu-item index="/settings">
           <el-icon><Setting /></el-icon>
-          <span>系统设置</span>
+          <span>{{ t('nav.settings') }}</span>
         </el-menu-item>
       </el-menu>
     </el-drawer>
@@ -246,7 +246,7 @@
           <button
             type="button"
             class="hamburger-btn"
-            :aria-label="'打开导航菜单'"
+            :aria-label="t('nav.openMenu')"
             aria-controls="mobile-sidebar-drawer"
             :aria-expanded="mobileMenuOpen"
             @click="mobileMenuOpen = true"
@@ -280,10 +280,10 @@
               size="large"
             >
               <el-radio-button value="simulate">
-                模拟交易
+                {{ t('nav.paperTrading') }}
               </el-radio-button>
               <el-radio-button value="live">
-                实盘交易
+                {{ t('nav.liveTrading') }}
               </el-radio-button>
             </el-radio-group>
           </div>
@@ -295,7 +295,7 @@
             <button
               type="button"
               class="user-dropdown-trigger flex items-center gap-2 cursor-pointer"
-              :aria-label="user?.username ? `用户菜单 (${user.username})` : '用户菜单'"
+              :aria-label="user?.username ? `${t('nav.userMenu')} (${user.username})` : t('nav.userMenu')"
             >
               <el-avatar
                 :size="32"
@@ -311,13 +311,13 @@
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="profile">
-                  个人设置
+                  {{ t('nav.profile') }}
                 </el-dropdown-item>
                 <el-dropdown-item
                   command="logout"
                   divided
                 >
-                  退出登录
+                  {{ t('auth.logout') }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -339,6 +339,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import { useThemeStore } from '@/stores/theme'
@@ -359,6 +360,7 @@ import {
   Stopwatch,
 } from '@element-plus/icons-vue'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -410,25 +412,25 @@ const user = computed(() => authStore.user)
 
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
-    '/': '仪表盘',
-    '/ai-chat': 'AI助手',
-    '/admin/ai-observability': 'AI成本看板',
-    '/admin/prompt-templates': 'Prompt模板治理',
-    '/strategy': '策略管理',
-    '/data': '数据管理',
-    '/gateways': '账户管理',
-    '/knowledge-base': '知识库',
-    '/quote': '行情报价',
-    '/workspace': '策略研究',
-    '/trading': '策略交易',
-    '/portfolio': '组合管理',
-    '/portfolio-ledger': '组合账本',
-    '/equity-research': '权益研究',
-    '/news-intelligence': '新闻情报',
-    '/options-chain': '期权链',
-    '/scanners': '条件扫描',
-    '/quant-tools': '量化工具',
-    '/settings': '系统设置',
+    '/': t('nav.dashboard'),
+    '/ai-chat': t('nav.aiChat'),
+    '/admin/ai-observability': t('nav.aiCost'),
+    '/admin/prompt-templates': t('nav.promptGovernance'),
+    '/strategy': t('nav.strategy'),
+    '/data': t('nav.data'),
+    '/gateways': t('nav.gateways'),
+    '/knowledge-base': t('nav.knowledgeBase'),
+    '/quote': t('nav.quote'),
+    '/workspace': t('nav.workspace'),
+    '/trading': t('nav.trading'),
+    '/portfolio': t('nav.portfolio'),
+    '/portfolio-ledger': t('nav.portfolioLedger'),
+    '/equity-research': t('nav.equityResearch'),
+    '/news-intelligence': t('nav.newsIntelligence'),
+    '/options-chain': t('nav.optionsChain'),
+    '/scanners': t('nav.scanners'),
+    '/quant-tools': t('nav.quantTools'),
+    '/settings': t('nav.settings'),
   }
   // Use prefix matching for nested routes (Bug-11 fix)
   return titles[route.path] || titles[currentRoute.value] || 'Backtrader Web'
