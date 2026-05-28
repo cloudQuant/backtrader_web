@@ -20,9 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import threading
-import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -51,10 +49,19 @@ from app.services.quote.registry import (
     SOURCE_TO_LABEL as _SOURCE_TO_LABEL,
 )
 from app.services.quote.registry import (
-    first_present as _first_present,
-)
-from app.services.quote.registry import (
     resolve_quote_fields as _resolve_quote_fields,
+)
+from app.services.quote.snapshots import (
+    fetch_gateway_snapshot_tick as _fetch_gateway_snapshot_tick,
+)
+from app.services.quote.snapshots import (
+    fetch_ib_web_snapshot_tick as _fetch_ib_web_snapshot_tick,
+)
+from app.services.quote.snapshots import (
+    fetch_standard_snapshot_tick as _fetch_standard_snapshot_tick,
+)
+from app.services.quote.tick import (
+    build_tick as _build_tick,
 )
 from app.services.quote.zmq_receiver import ZmqTickReceiver
 
@@ -638,9 +645,7 @@ class QuoteService:
 
     @staticmethod
     def _fetch_gateway_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[str, Any] | None:
-        if source == "IB_WEB":
-            return QuoteService._fetch_ib_web_snapshot_tick(feed, symbol)
-        return QuoteService._fetch_standard_snapshot_tick(source, feed, symbol)
+        return _fetch_gateway_snapshot_tick(source, feed, symbol)
 
     def _get_gateway_runtime(self, manager: Any, source: str) -> Any | None:
         state = self._find_gateway_state(manager, source)
@@ -650,140 +655,11 @@ class QuoteService:
 
     @staticmethod
     def _fetch_ib_web_snapshot_tick(feed: Any, symbol: str) -> dict[str, Any] | None:
-        try:
-            snapshot = feed.get_tick(symbol)
-        except Exception as exc:
-            logger.warning(
-                "Failed to fetch IB_WEB snapshot for %s: %s: %s",
-                symbol,
-                type(exc).__name__,
-                exc,
-            )
-            return None
-        if not isinstance(snapshot, dict) or not snapshot:
-            return None
-
-        price = _opt_float(snapshot.get("31") or snapshot.get("last") or snapshot.get("lastPrice"))
-        bid_price = _opt_float(
-            snapshot.get("84") or snapshot.get("bid") or snapshot.get("bidPrice")
-        )
-        ask_price = _opt_float(
-            snapshot.get("86") or snapshot.get("ask") or snapshot.get("askPrice")
-        )
-        volume = _opt_float(
-            snapshot.get("87") or snapshot.get("volume") or snapshot.get("lastSize")
-        )
-        if price is None and bid_price is None and ask_price is None and volume is None:
-            return None
-
-        raw: dict[str, Any] = {
-            "timestamp": time.time(),
-            "symbol": symbol,
-            "exchange": "IB_WEB",
-            "instrument_id": str(snapshot.get("conid") or snapshot.get("conidEx") or ""),
-            "exchange_id": str(snapshot.get("listingExchange") or snapshot.get("exchange") or ""),
-        }
-        if price is not None:
-            raw["price"] = price
-        if bid_price is not None:
-            raw["bid_price"] = bid_price
-        if ask_price is not None:
-            raw["ask_price"] = ask_price
-        if volume is not None:
-            raw["volume"] = volume
-        return raw
+        return _fetch_ib_web_snapshot_tick(feed, symbol)
 
     @staticmethod
     def _fetch_standard_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[str, Any] | None:
-        try:
-            snapshot = feed.get_tick(symbol)
-        except Exception as exc:
-            logger.warning(
-                "Failed to fetch %s snapshot for %s: %s: %s",
-                source,
-                symbol,
-                type(exc).__name__,
-                exc,
-            )
-            return None
-
-        data = snapshot.get_data() if hasattr(snapshot, "get_data") else snapshot
-        if isinstance(data, list):
-            item = data[0] if data else None
-        elif isinstance(data, dict):
-            item = data
-        else:
-            item = None
-        if item is None:
-            return None
-
-        payload = item.get_all_data() if hasattr(item, "get_all_data") else item
-        if not isinstance(payload, dict) or not payload:
-            return None
-
-        bid_price = _opt_float(_first_present(payload, "bid_price"))
-        ask_price = _opt_float(_first_present(payload, "ask_price"))
-        price = _opt_float(_first_present(payload, "last_price", "price"))
-        if price is None and bid_price is not None and ask_price is not None:
-            price = (bid_price + ask_price) / 2.0
-        volume = _opt_float(_first_present(payload, "volume_24h", "vol_24h", "volume"))
-        turnover = _opt_float(_first_present(payload, "turnover_24h", "vol_ccy_24h", "turnover"))
-        high_price = _opt_float(_first_present(payload, "high_price", "high_24h"))
-        low_price = _opt_float(_first_present(payload, "low_price", "low_24h"))
-        open_price = _opt_float(_first_present(payload, "open_price", "open_24h"))
-        prev_close = _opt_float(_first_present(payload, "prev_close"))
-        bid_volume = _opt_float(_first_present(payload, "bid_volume"))
-        ask_volume = _opt_float(_first_present(payload, "ask_volume"))
-        if all(
-            value is None
-            for value in (
-                price,
-                bid_price,
-                ask_price,
-                volume,
-                turnover,
-                high_price,
-                low_price,
-                open_price,
-                prev_close,
-            )
-        ):
-            return None
-
-        server_time = _opt_float(_first_present(payload, "server_time"))
-        if server_time is None:
-            timestamp = time.time()
-        else:
-            timestamp = server_time / 1000.0 if server_time > 1e12 else server_time
-
-        raw: dict[str, Any] = {
-            "timestamp": timestamp,
-            "symbol": str(_first_present(payload, "ticker_symbol_name", "symbol_name") or symbol),
-            "exchange": source,
-        }
-        if price is not None:
-            raw["price"] = price
-        if bid_price is not None:
-            raw["bid_price"] = bid_price
-        if ask_price is not None:
-            raw["ask_price"] = ask_price
-        if bid_volume is not None:
-            raw["bid_volume"] = bid_volume
-        if ask_volume is not None:
-            raw["ask_volume"] = ask_volume
-        if volume is not None:
-            raw["volume"] = volume
-        if turnover is not None:
-            raw["turnover"] = turnover
-        if high_price is not None:
-            raw["high_price"] = high_price
-        if low_price is not None:
-            raw["low_price"] = low_price
-        if open_price is not None:
-            raw["open_price"] = open_price
-        if prev_close is not None:
-            raw["prev_close"] = prev_close
-        return raw
+        return _fetch_standard_snapshot_tick(source, feed, symbol)
 
     @staticmethod
     def _send_gateway_command(
@@ -840,92 +716,8 @@ class QuoteService:
         raw: dict[str, Any] | None,
         now: str,
     ) -> dict[str, Any]:
-        """Build a QuoteTick dict.
-
-        *raw* is a cached GatewayTick payload (dict) from the ZMQ receiver,
-        or None if no data has been received yet.
-
-        GatewayTick fields (from bt_api_py/gateway/models.py):
-            timestamp, symbol, exchange, price, volume, bid_price, ask_price,
-            bid_volume, ask_volume, openinterest, turnover, update_time, ...
-        """
-        tick: dict[str, Any] = {
-            "source": source,
-            "source_label": label,
-            "symbol": symbol,
-            "name": meta.get("name", ""),
-            "exchange": meta.get("exchange", ""),
-            "category": meta.get("category", ""),
-            "last_price": None,
-            "change": None,
-            "change_pct": None,
-            "bid_price": None,
-            "ask_price": None,
-            "high_price": None,
-            "low_price": None,
-            "open_price": None,
-            "prev_close": None,
-            "volume": None,
-            "turnover": None,
-            "open_interest": None,
-            "update_time": None,
-            "status": "normal",
-            "error_message": None,
-        }
-
-        if raw is None:
-            tick["status"] = "missing"
-            return tick
-
-        # Map GatewayTick fields → QuoteTick fields
-        price = raw.get("price")
-        bid_price = _opt_float(raw.get("bid_price"))
-        ask_price = _opt_float(raw.get("ask_price"))
-        if price is not None and price != 0:
-            tick["last_price"] = float(price)
-        elif bid_price is not None and ask_price is not None:
-            tick["last_price"] = (bid_price + ask_price) / 2.0
-        elif bid_price is not None:
-            tick["last_price"] = bid_price
-        elif ask_price is not None:
-            tick["last_price"] = ask_price
-        tick["bid_price"] = bid_price
-        tick["ask_price"] = ask_price
-        tick["volume"] = _opt_float(raw.get("volume"))
-        tick["turnover"] = _opt_float(raw.get("turnover"))
-        tick["open_interest"] = _opt_float(raw.get("openinterest"))
-
-        # OHLC fields from enriched GatewayTick (24h ticker data)
-        tick["high_price"] = _opt_float(raw.get("high_price"))
-        tick["low_price"] = _opt_float(raw.get("low_price"))
-        tick["open_price"] = _opt_float(raw.get("open_price"))
-        tick["prev_close"] = _opt_float(raw.get("prev_close"))
-
-        # Compute change / change_pct from last_price and open_price or prev_close
-        last = tick["last_price"]
-        if last is not None:
-            ref = tick["prev_close"] or tick["open_price"]
-            if ref is not None and ref != 0:
-                tick["change"] = last - ref
-                tick["change_pct"] = (last - ref) / ref * 100.0
-
-        # Exchange from tick overrides metadata if present
-        if raw.get("exchange"):
-            tick["exchange"] = raw["exchange"]
-
-        if raw.get("update_time"):
-            tick["update_time"] = _normalize_tick_update_time(raw.get("update_time"), raw, now)
-        elif raw.get("datetime"):
-            tick["update_time"] = _normalize_tick_update_time(raw.get("datetime"), raw, now)
-        elif raw.get("timestamp"):
-            try:
-                tick["update_time"] = datetime.fromtimestamp(
-                    float(raw["timestamp"]), tz=timezone.utc
-                ).isoformat()
-            except (ValueError, TypeError, OSError):
-                tick["update_time"] = now
-
-        return tick
+        """Build a QuoteTick dict from a raw GatewayTick payload."""
+        return _build_tick(source, label, symbol, meta, raw, now)
 
     def shutdown(self) -> None:
         """Stop all ZMQ receivers (called on app shutdown)."""
@@ -935,53 +727,6 @@ class QuoteService:
             except Exception:
                 logger.exception("Error stopping receiver for %s", source)
         self._receivers.clear()
-
-
-def _normalize_tick_date_part(value: Any) -> str | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    if len(text) == 8 and text.isdigit():
-        return f"{text[:4]}-{text[4:6]}-{text[6:8]}"
-    if len(text) == 10 and text[4] == "-" and text[7] == "-":
-        return text
-    return None
-
-
-def _normalize_tick_update_time(value: Any, raw: dict[str, Any], now: str) -> str | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        return parsed.isoformat()
-    except ValueError:
-        pass
-
-    time_part = text
-    if text.count(":") >= 2:
-        date_part = (
-            _normalize_tick_date_part(raw.get("trading_day"))
-            or _normalize_tick_date_part(raw.get("action_day"))
-            or _normalize_tick_date_part(raw.get("date"))
-            or now.split("T", 1)[0]
-        )
-        return f"{date_part}T{time_part}"
-
-    return text
-
-
-def _opt_float(v: Any) -> float | None:
-    """Convert a value to float, returning None only for missing values."""
-    if v is None:
-        return None
-    try:
-        number = float(v)
-    except (ValueError, TypeError):
-        return None
-    if not math.isfinite(number) or abs(number) >= 1e308:
-        return None
-    return number
 
 
 def get_quote_service() -> QuoteService:
