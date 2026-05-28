@@ -14,7 +14,7 @@ def _get_logger(app: FastAPI):
 async def register(app: FastAPI, settings: Any) -> None:
     startup_logger = _get_logger(app)
     try:
-        from app.services.backtest_manager import BacktestExecutionManager
+        from app.services.backtest.manager import BacktestExecutionManager
         from app.services.workspace_service import WorkspaceService
 
         workspace_service = WorkspaceService()
@@ -35,7 +35,7 @@ async def register(app: FastAPI, settings: Any) -> None:
 async def shutdown(app: FastAPI, settings: Any) -> None:
     startup_logger = _get_logger(app)
     try:
-        from app.services.backtest_manager import BacktestExecutionManager
+        from app.services.backtest.manager import BacktestExecutionManager
 
         mgr = BacktestExecutionManager()
         interrupted = await mgr.interrupt_active_tasks()

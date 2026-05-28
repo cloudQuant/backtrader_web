@@ -13,7 +13,7 @@ from app.schemas.analytics import (
     TradeRecord,
     TradeSignal,
 )
-from app.services.backtest_analyzers import FincoreAdapter
+from app.services.backtest.analyzers import FincoreAdapter
 
 
 class AnalyticsService:
