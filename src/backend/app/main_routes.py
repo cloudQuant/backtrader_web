@@ -5,8 +5,8 @@ from typing import Any
 from fastapi import FastAPI, WebSocket
 
 from app.api.backtest_enhanced import websocket_endpoint as stream_backtest_progress
-from app.api.data_topics import websocket_pattern_endpoint as stream_data_topic_pattern
-from app.api.data_topics import websocket_topic_endpoint as stream_data_topic
+from app.api.data.topics import websocket_pattern_endpoint as stream_data_topic_pattern
+from app.api.data.topics import websocket_topic_endpoint as stream_data_topic
 from app.api.overfitting import websocket_endpoint as stream_overfitting_progress
 
 
