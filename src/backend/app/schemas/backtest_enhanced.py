@@ -477,7 +477,10 @@ def get_strategy_params(strategy_id: str) -> dict[str, Any]:
         A dictionary of parameter definitions.
     """
     # Get parameter definitions from strategy templates
-    from app.services.strategy_service import get_all_strategy_templates
+    # Iteration 175 — strategy_service is now a sys.modules-aliased shim into
+    # app.services.strategy.core; mypy doesn't follow the sys.modules trick,
+    # so we import from the canonical path here.
+    from app.services.strategy.core import get_all_strategy_templates
 
     for template in get_all_strategy_templates():
         if template.id == strategy_id:

@@ -29,7 +29,6 @@ from typing import Any
 
 import numpy as np
 
-from app.services import strategy_runtime_support
 from app.services.log_parser.computations import (
     synthesize_value_curve as _synthesize_value_curve,
 )
@@ -60,6 +59,7 @@ from app.services.log_parser.readers import (
 from app.services.log_parser.readers import (
     parse_tsv as _parse_tsv,
 )
+from app.services.strategy import runtime_support as strategy_runtime_support
 
 logger = logging.getLogger(__name__)
 

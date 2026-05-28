@@ -127,7 +127,7 @@ _OPTIONAL_ROUTERS = [
     ("auto_trading", "app.api.auto_trading", "/auto-trading", ["Auto Trading"]),
     ("paper_trading", "app.api.paper_trading", "/paper-trading", ["Paper Trading"]),
     ("comparison", "app.api.comparison", "/comparisons", ["Comparison"]),
-    ("strategy_version", "app.api.strategy_version", "/strategy-versions", ["Strategy Version"]),
+    ("strategy_version", "app.api.strategy.version", "/strategy-versions", ["Strategy Version"]),
     ("realtime_data", "app.api.realtime_data", "/realtime", ["Realtime Data"]),
     ("monitoring", "app.api.monitoring", "/monitoring", ["Monitoring"]),
     ("data", "app.api.data", "/data", ["Market Data"]),

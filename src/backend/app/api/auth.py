@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.deps import get_current_user
+from app.api._dependencies import get_current_user
 from app.rate_limit import limiter
 from app.schemas.auth import (
     ChangePassword,

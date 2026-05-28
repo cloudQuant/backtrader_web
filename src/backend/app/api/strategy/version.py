@@ -22,7 +22,7 @@ from app.schemas.strategy_version import (
     VersionRollbackRequest,
     VersionUpdate,
 )
-from app.services.strategy_version_service import VersionControlService
+from app.services.strategy.version import VersionControlService
 from app.websocket_manager import MessageType
 from app.websocket_manager import manager as ws_manager
 
