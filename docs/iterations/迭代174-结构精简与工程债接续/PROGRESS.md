@@ -25,7 +25,7 @@
 | A4 | 运行时目录隔离 | ⚪ | 顺延：`runtime/`、`logs/`、`workspace_units/`、`strategies/`、`datas/`、`dags/` 涉及外部数据，需 RFC |
 | A5 | scripts 64 个分层 | ⚪ | 见下方专题，需要联动改 14 处 CI 与 ~30 处 docs |
 | A6 | src 多包澄清 | ⚪ | 需要 `src/README.md` + 决定 `src/clientportal.gw/` 与 `src/dags/` 归属 |
-| A7 | 缓存目录治理 | ✅ | 删除 `.ruff_cache/{0.8.6,0.12.5,0.14.6}` 旧版本；`scripts/diag_*.txt` 加入 `.gitignore` 并清理 |
+| A7 | 缓存目录治理 | ✅ | 删除 `.ruff_cache/{0.8.6,0.12.5,0.14.6}` 旧版本；`scripts/diag_*.txt` 加入 `.gitignore` 并清理；`src/strategies/` 也加入 `.gitignore`（`8bf8d8d2`） |
 | A8 | 锁文件治理文档 | ✅ | `CONTRIBUTING.md` 已包含「Dependency Management」节，明确 SSOT 与生成命令 |
 
 ### A5 scripts 分层 — 联动清单
@@ -74,13 +74,13 @@ scripts 直接被以下处所引用（迁移时必须同步更新）：
 
 | ID | 文件 | 173 后行数 | 174 目标 | 当前行数 | 状态 | 备注 |
 |---|---|---|---|---|---|---|
-| C1 | `services/sync_service.py` | 2300 | ≤ 900 | 2852 | 🟡 | 切片 2 进行中：抽 `sync/transport.py`（mysqldump/mysql/ssh/scp/compose/run_exec 全套），尚未提交。剩余切片：`sync/schema_diff.py`、`sync/scheduler.py` |
+| C1 | `services/sync_service.py` | 2300 | ≤ 900 | 2852 | 🟡 | 切片 2 已合 (`26dfb670`)：抽 `sync/transport.py`（mysqldump/mysql/ssh/scp/compose/run_exec 全套，407 行）。剩余切片 3：`sync/schema_diff.py`、切片 4：`sync/scheduler.py`，需要把 SyncService 类内的 `_apply_schema_delta_*` / `_run_task` 等方法搬走 |
 | C2 | `services/gateway/manual.py` | 1500 | ≤ 600 | 2037 | ⚪ | 173 已抽 `manual_gateway/` 子包；下一步按 family 拆 `ib_clientportal/ctp/ccxt/mt5` + `subprocess(["lsof"])` → `psutil` |
 | C3 | `services/workspace_service.py` | 1000 | ≤ 500 | 1376 | ⚪ | 173 已建 `workspace/{lifecycle,reconciliation,reports,units,optimization}.py`，需进一步把 service 主体切走 |
 | C4 | `services/quote_service.py` | 950 | ≤ 500 | 1260 | ⚪ | 173 已抽 `quote/cache.py`；门面收薄到 ≤200 待办 |
-| C5 | `services/strategy/core.py` | — | ≤ 500 | 1012 | ⚪ | 抽 `strategy/{crud,query,validation}.py` |
+| C5 | `services/strategy/core.py` | — | ≤ 500 | 546 | ✅ | `56697864` 已合：抽 `strategy/{inference,ai_draft,templates}.py`；core.py 仅保留 StrategyService + 向后兼容 shim。56 个 strategy/misc/service 测试全绿 |
 | C6 | `api/live_trading/api.py` | — | 待定 | 998 | ⚪ | B2 已建子包；继续按 endpoint 类别拆分 |
-| C7 | `services/log_parser_service.py` | — | ≤ 500 | 956 | ⚪ | 抽 `log_parser/{patterns,extractors,formatter}.py` |
+| C7 | `services/log_parser_service.py` | — | ≤ 500 | 956 | ⚪ | 抽 `log_parser/{patterns,extractors,formatter}.py`，注意测试已用私有函数 `_parse_tsv` / `_safe_float`，需保留 re-export |
 | C8 | `services/backtest/service.py` | — | ≤ 500 | 926 | ⚪ | 与 B12 协同，`backtest/{validate,prepare,run,collect}.py` |
 | C9 | `services/ai_trading_service.py` | — | ≤ 500 | 881 | ⚪ | 抽 `ai_trading/{intent,planner,executor}.py` |
 | C10 | `api/workspace_api.py` | — | 待定 | 862 | ⚪ | 拆 `app/api/workspace/{crud,units,reports}.py` |
@@ -140,7 +140,7 @@ scripts 直接被以下处所引用（迁移时必须同步更新）：
 | scripts/ 平铺 .py/.sh | = 0 | 64 | -64 |
 | `app/api/` 平铺 .py | ≤ 25 | 待测 | — |
 | `app/services/` 平铺 .py | ≤ 50 | 待测 | — |
-| 后端 ≥ 800 行 .py | ≤ 2 | 10 | -8 |
+| 后端 ≥ 800 行 .py | ≤ 2 | 9 | -7 |
 | 前端 ≥ 500 行 .vue | ≤ 4 | 18 | -14 |
 | docs/ 根级文件 | ≤ 5 | 51 | -46 |
 | `src/frontend/src/test/` 文件数 | = 0 | 待测 | — |
