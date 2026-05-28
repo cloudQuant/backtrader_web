@@ -77,12 +77,12 @@ scripts 直接被以下处所引用（迁移时必须同步更新）：
 | C1 | `services/sync_service.py` | 2300 | ≤ 900 | 2852 | 🟡 | 切片 2 已合 (`26dfb670`)：抽 `sync/transport.py`（mysqldump/mysql/ssh/scp/compose/run_exec 全套，407 行）。剩余切片 3：`sync/schema_diff.py`、切片 4：`sync/scheduler.py`，需要把 SyncService 类内的 `_apply_schema_delta_*` / `_run_task` 等方法搬走 |
 | C2 | `services/gateway/manual.py` | 1500 | ≤ 600 | 2037 | ⚪ | 173 已抽 `manual_gateway/` 子包；下一步按 family 拆 `ib_clientportal/ctp/ccxt/mt5` + `subprocess(["lsof"])` → `psutil` |
 | C3 | `services/workspace_service.py` | 1000 | ≤ 500 | 1376 | ⚪ | 173 已建 `workspace/{lifecycle,reconciliation,reports,units,optimization}.py`，需进一步把 service 主体切走 |
-| C4 | `services/quote_service.py` | 950 | ≤ 500 | 1260 | ⚪ | 173 已抽 `quote/cache.py`；门面收薄到 ≤200 待办 |
+| C4 | `services/quote_service.py` | 950 | ≤ 500 | 1087 | 🟡 | 173 已抽 `quote/cache.py`；174 又抽 `quote/registry.py`（registry/symbols/fields 配置 227 行，`2289a809`）。下一步抽 snapshot fetcher 与 tick builder |
 | C5 | `services/strategy/core.py` | — | ≤ 500 | 546 | ✅ | `56697864` 已合：抽 `strategy/{inference,ai_draft,templates}.py`；core.py 仅保留 StrategyService + 向后兼容 shim。56 个 strategy/misc/service 测试全绿 |
 | C6 | `api/live_trading/api.py` | — | 待定 | 998 | ⚪ | B2 已建子包；继续按 endpoint 类别拆分 |
-| C7 | `services/log_parser_service.py` | — | ≤ 500 | 956 | ⚪ | 抽 `log_parser/{patterns,extractors,formatter}.py`，注意测试已用私有函数 `_parse_tsv` / `_safe_float`，需保留 re-export |
+| C7 | `services/log_parser_service.py` | — | ≤ 500 | 705 | ✅ | `e327278c` 已合：抽 `log_parser/{readers,normalize,computations}.py`，service.py 保留 parse_* 编排 + re-export。48 测试全绿 |
 | C8 | `services/backtest/service.py` | — | ≤ 500 | 926 | ⚪ | 与 B12 协同，`backtest/{validate,prepare,run,collect}.py` |
-| C9 | `services/ai_trading_service.py` | — | ≤ 500 | 881 | ⚪ | 抽 `ai_trading/{intent,planner,executor}.py` |
+| C9 | `services/ai_trading_service.py` | — | ≤ 500 | 772 | 🟡 | `39e66400` 抽 `ai_trading/{messages,conditional_orders}.py`；service.py 已下到 800 以下。49 ai_trading 测试全绿。继续可抽 context resolver |
 | C10 | `api/workspace_api.py` | — | 待定 | 862 | ⚪ | 拆 `app/api/workspace/{crud,units,reports}.py` |
 | C11 | `services/live_trading/manager.py` | — | 待定 | 792 | ⚪ | 与 B13 协同 |
 | C12 | `services/monitoring_service.py` | — | ≤ 500 | 789 | ⚪ | 抽 `monitoring/{collector,evaluator,reporter}.py` |
@@ -140,7 +140,7 @@ scripts 直接被以下处所引用（迁移时必须同步更新）：
 | scripts/ 平铺 .py/.sh | = 0 | 64 | -64 |
 | `app/api/` 平铺 .py | ≤ 25 | 待测 | — |
 | `app/services/` 平铺 .py | ≤ 50 | 待测 | — |
-| 后端 ≥ 800 行 .py | ≤ 2 | 9 | -7 |
+| 后端 ≥ 800 行 .py | ≤ 2 | 7 | -5 |
 | 前端 ≥ 500 行 .vue | ≤ 4 | 18 | -14 |
 | docs/ 根级文件 | ≤ 5 | 51 | -46 |
 | `src/frontend/src/test/` 文件数 | = 0 | 待测 | — |
