@@ -751,7 +751,7 @@
       <div class="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
           <div class="text-lg font-semibold text-slate-900">
-            {{ createDialog.isFolder ? '新建文件夹' : '新建文档' }}
+            {{ createDialog.isFolder ? t('kb.createFolder') : t('kb.createDoc') }}
           </div>
           <button
             type="button"
@@ -765,17 +765,17 @@
           <input
             v-model="createDialog.title"
             class="w-full rounded border px-3 py-2 text-sm"
-            :placeholder="createDialog.isFolder ? '文件夹名称' : '文档标题'"
+            :placeholder="createDialog.isFolder ? t('kb.folderName') : t('kb.docTitle')"
           >
           <textarea
             v-if="!createDialog.isFolder"
             v-model="createDialog.content"
             rows="8"
             class="w-full rounded border px-3 py-2 text-sm"
-            placeholder="输入文档正文..."
+            :placeholder="t('kb.docContentPlaceholder')"
           />
           <div class="text-xs text-slate-400">
-            {{ createDialog.parentId ? '将创建在当前选中文件夹下。' : '将创建在当前知识库根目录。' }}
+            {{ createDialog.parentId ? t('kb.childOfFolder') : t('kb.childOfRoot') }}
           </div>
         </div>
         <div class="mt-4 flex justify-end gap-2">
@@ -784,14 +784,14 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
             @click="closeCreateDialog"
           >
-            取消
+            {{ t('kb.cancel') }}
           </button>
           <button
             type="button"
             class="rounded bg-blue-600 px-3 py-2 text-sm text-white"
             @click="submitCreateDialog"
           >
-            确定
+            {{ t('kb.confirm') }}
           </button>
         </div>
       </div>
@@ -817,7 +817,7 @@
         <input
           v-model="renameDialog.title"
           class="mt-4 w-full rounded border px-3 py-2 text-sm"
-          placeholder="输入新的名称"
+          :placeholder="t('kb.newNamePlaceholder')"
         >
         <div class="mt-4 flex justify-end gap-2">
           <button
@@ -825,14 +825,14 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
             @click="closeRenameDialog"
           >
-            取消
+            {{ t('kb.cancel') }}
           </button>
           <button
             type="button"
             class="rounded bg-blue-600 px-3 py-2 text-sm text-white"
             @click="submitRenameDialog"
           >
-            确定
+            {{ t('kb.confirm') }}
           </button>
         </div>
       </div>
@@ -859,13 +859,13 @@
           <input
             v-model="importDialog.title"
             class="w-full rounded border px-3 py-2 text-sm"
-            placeholder="导入文档标题"
+            :placeholder="t('kb.importTitlePlaceholder')"
           >
           <textarea
             v-model="importDialog.content"
             rows="12"
             class="w-full rounded border px-3 py-2 text-sm"
-            placeholder="粘贴需要导入的文档正文..."
+            :placeholder="t('kb.importBodyPlaceholder')"
           />
         </div>
         <div class="mt-4 flex justify-end gap-2">
@@ -874,14 +874,14 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
             @click="closeImportDialog"
           >
-            取消
+            {{ t('kb.cancel') }}
           </button>
           <button
             type="button"
             class="rounded bg-blue-600 px-3 py-2 text-sm text-white"
             @click="submitImportDialog"
           >
-            导入
+            {{ t('kb.import') }}
           </button>
         </div>
       </div>
@@ -894,7 +894,7 @@
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
           <div class="text-lg font-semibold text-slate-900">
-            批量操作
+            {{ t('kb.bulkOperations') }}
           </div>
           <button
             type="button"
@@ -913,7 +913,7 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
             @click="closeBulkDialog"
           >
-            取消
+            {{ t('kb.cancel') }}
           </button>
           <button
             type="button"
@@ -921,7 +921,7 @@
             :class="bulkDialog.mode === 'delete' ? 'bg-rose-600' : 'bg-blue-600'"
             @click="submitBulkDialog"
           >
-            确定
+            {{ t('kb.confirm') }}
           </button>
         </div>
       </div>
@@ -934,7 +934,7 @@
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
           <div class="text-lg font-semibold text-slate-900">
-            删除确认
+            {{ t('kb.deleteConfirmTitle') }}
           </div>
           <button
             type="button"
@@ -945,7 +945,7 @@
           </button>
         </div>
         <div class="mt-4 text-sm text-slate-600">
-          确认删除「{{ deleteDialog.target.title }}」吗？
+          {{ t('kb.deleteConfirmText', { title: deleteDialog.target.title }) }}
         </div>
         <div class="mt-4 flex justify-end gap-2">
           <button
@@ -953,7 +953,7 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
             @click="closeDeleteDialog"
           >
-            取消
+            {{ t('kb.cancel') }}
           </button>
           <button
             type="button"
@@ -973,7 +973,7 @@
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
           <div class="text-lg font-semibold text-slate-900">
-            重命名知识库
+            {{ t('kb.renameKb') }}
           </div>
           <button
             type="button"
@@ -986,7 +986,7 @@
         <input
           v-model="knowledgeBaseRenameDialog.name"
           class="mt-4 w-full rounded border px-3 py-2 text-sm"
-          placeholder="输入新的知识库名称"
+          :placeholder="t('kb.newKbNamePlaceholder')"
         >
         <div class="mt-4 flex justify-end gap-2">
           <button
@@ -994,14 +994,14 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
             @click="closeKnowledgeBaseRenameDialog"
           >
-            取消
+            {{ t('kb.cancel') }}
           </button>
           <button
             type="button"
             class="rounded bg-blue-600 px-3 py-2 text-sm text-white"
             @click="submitKnowledgeBaseRenameDialog"
           >
-            确定
+            {{ t('kb.confirm') }}
           </button>
         </div>
       </div>
@@ -1014,7 +1014,7 @@
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
           <div class="text-lg font-semibold text-slate-900">
-            删除知识库
+            {{ t('kb.deleteKb') }}
           </div>
           <button
             type="button"
@@ -1025,7 +1025,7 @@
           </button>
         </div>
         <div class="mt-4 text-sm text-slate-600">
-          确认删除知识库「{{ knowledgeBaseDeleteDialog.target.name }}」吗？
+          {{ t('kb.deleteKbConfirmText', { name: knowledgeBaseDeleteDialog.target.name }) }}
         </div>
         <div class="mt-4 flex justify-end gap-2">
           <button
@@ -1033,7 +1033,7 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
             @click="closeKnowledgeBaseDeleteDialog"
           >
-            取消
+            {{ t('kb.cancel') }}
           </button>
           <button
             type="button"
@@ -1057,7 +1057,7 @@
               {{ t('kb.retrievalConfig') }}
             </div>
             <div class="mt-1 text-sm text-slate-500">
-              为当前知识库配置 AI 检索和会话记忆策略
+              {{ t('kb.settingsHint') }}
             </div>
           </div>
           <button
@@ -1070,28 +1070,28 @@
         </div>
         <div class="mt-4 grid gap-4 md:grid-cols-2">
           <label class="text-sm text-slate-600">
-            <div class="mb-1">检索画像</div>
+            <div class="mb-1">{{ t('kb.profileLabel') }}</div>
             <select
               v-model="knowledgeBaseSettingsDialog.form.retrieval_profile"
               class="w-full rounded border px-3 py-2 text-sm"
             >
-              <option value="quant_research">量化研究平衡</option>
-              <option value="precision">高精度引用</option>
-              <option value="exploration">探索式阅读</option>
+              <option value="quant_research">{{ t('kb.profileQuantBalance') }}</option>
+              <option value="precision">{{ t('kb.profilePrecision') }}</option>
+              <option value="exploration">{{ t('kb.profileExploration') }}</option>
             </select>
           </label>
           <label class="text-sm text-slate-600">
-            <div class="mb-1">搜索模式</div>
+            <div class="mb-1">{{ t('kb.searchMode') }}</div>
             <select
               v-model="knowledgeBaseSettingsDialog.form.search_mode"
               class="w-full rounded border px-3 py-2 text-sm"
             >
-              <option value="hybrid">混合检索</option>
-              <option value="keyword">关键词优先</option>
+              <option value="hybrid">{{ t('kb.searchModeHybrid') }}</option>
+              <option value="keyword">{{ t('kb.searchModeKeyword') }}</option>
             </select>
           </label>
           <label class="text-sm text-slate-600">
-            <div class="mb-1">默认 top_k</div>
+            <div class="mb-1">{{ t('kb.defaultTopK') }}</div>
             <input
               v-model.number="knowledgeBaseSettingsDialog.form.default_top_k"
               type="number"
@@ -1101,7 +1101,7 @@
             >
           </label>
           <label class="text-sm text-slate-600">
-            <div class="mb-1">最低相似度</div>
+            <div class="mb-1">{{ t('kb.minSimilarity') }}</div>
             <input
               v-model.number="knowledgeBaseSettingsDialog.form.min_similarity"
               type="number"
@@ -1112,7 +1112,7 @@
             >
           </label>
           <label class="text-sm text-slate-600">
-            <div class="mb-1">最大上下文块数</div>
+            <div class="mb-1">{{ t('kb.maxChunks') }}</div>
             <input
               v-model.number="knowledgeBaseSettingsDialog.form.max_context_chunks"
               type="number"
@@ -1122,15 +1122,15 @@
             >
           </label>
           <label class="text-sm text-slate-600">
-            <div class="mb-1">量化重点</div>
+            <div class="mb-1">{{ t('kb.quantFocus') }}</div>
             <select
               v-model="knowledgeBaseSettingsDialog.form.quant_focus"
               class="w-full rounded border px-3 py-2 text-sm"
             >
-              <option value="strategy_research">策略研究</option>
-              <option value="strategy_review">策略审查</option>
-              <option value="implementation">实现落地</option>
-              <option value="general">通用问答</option>
+              <option value="strategy_research">{{ t('kb.quantStrategyResearch') }}</option>
+              <option value="strategy_review">{{ t('kb.quantStrategyReview') }}</option>
+              <option value="implementation">{{ t('kb.quantImplementation') }}</option>
+              <option value="general">{{ t('kb.quantGeneral') }}</option>
             </select>
           </label>
         </div>
@@ -1140,10 +1140,10 @@
               v-model="knowledgeBaseSettingsDialog.form.use_conversation_memory"
               type="checkbox"
             >
-            <span>启用会话记忆检索</span>
+            <span>{{ t('kb.enableConvMemory') }}</span>
           </label>
           <label class="text-sm text-slate-600">
-            <div class="mb-1">会话回看条数</div>
+            <div class="mb-1">{{ t('kb.convMemoryWindow') }}</div>
             <input
               v-model.number="knowledgeBaseSettingsDialog.form.conversation_lookback_messages"
               type="number"
@@ -1155,17 +1155,17 @@
         </div>
         <div class="mt-4">
           <label class="text-sm text-slate-600">
-            <div class="mb-1">系统补充提示</div>
+            <div class="mb-1">{{ t('kb.systemPrompt') }}</div>
             <textarea
               v-model="knowledgeBaseSettingsDialog.form.system_prompt_suffix"
               rows="4"
               class="w-full rounded border px-3 py-2 text-sm"
-              placeholder="例如：优先按 A 股日线策略研究口径回答。"
+              :placeholder="t('kb.systemPromptExample')"
             />
           </label>
         </div>
         <div class="mt-4 rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          当前配置会影响 AI 助手的检索查询改写、文档排序、上下文拼装和量化场景提示词。
+          {{ t('kb.settingsImpact') }}
         </div>
         <div class="mt-4 flex justify-end gap-2">
           <button
@@ -1173,14 +1173,14 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
             @click="closeKnowledgeBaseSettingsDialog"
           >
-            取消
+            {{ t('kb.cancel') }}
           </button>
           <button
             type="button"
             class="rounded bg-blue-600 px-3 py-2 text-sm text-white"
             @click="submitKnowledgeBaseSettingsDialog"
           >
-            保存配置
+            {{ t('kb.saveConfig') }}
           </button>
         </div>
       </div>
