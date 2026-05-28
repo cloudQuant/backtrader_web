@@ -25,7 +25,6 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
@@ -36,205 +35,33 @@ from app.services.quote.cache import (
     save_custom_symbols,
     wait_for_initial_ticks,
 )
+from app.services.quote.registry import (
+    DEFAULT_ASSET_TYPES as _DEFAULT_ASSET_TYPES,
+)
+from app.services.quote.registry import (
+    DEFAULT_SYMBOLS as _DEFAULT_SYMBOLS,
+)
+from app.services.quote.registry import (
+    DEFAULT_SYMBOLS_BY_ASSET as _DEFAULT_SYMBOLS_BY_ASSET,
+)
+from app.services.quote.registry import (
+    SOURCE_REGISTRY as _SOURCE_REGISTRY,
+)
+from app.services.quote.registry import (
+    SOURCE_TO_LABEL as _SOURCE_TO_LABEL,
+)
+from app.services.quote.registry import (
+    first_present as _first_present,
+)
+from app.services.quote.registry import (
+    resolve_quote_fields as _resolve_quote_fields,
+)
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Persistent storage for custom symbols
 # ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Data-source registry:  source_id -> { label, capabilities }
-# ---------------------------------------------------------------------------
-
-_SOURCE_REGISTRY: list[dict[str, Any]] = [
-    {
-        "source": "CTP",
-        "source_label": "CTP",
-        "capabilities": ["quote", "search", "chart"],
-    },
-    {
-        "source": "IB_WEB",
-        "source_label": "IB",
-        "capabilities": ["quote", "search", "chart"],
-    },
-    {
-        "source": "MT5",
-        "source_label": "MT5",
-        "capabilities": ["quote", "search", "chart"],
-    },
-    {
-        "source": "BINANCE",
-        "source_label": "Binance",
-        "capabilities": ["quote", "search"],
-    },
-    {
-        "source": "OKX",
-        "source_label": "OKX",
-        "capabilities": ["quote", "search"],
-    },
-]
-
-_SOURCE_TO_LABEL: dict[str, str] = {s["source"]: s["source_label"] for s in _SOURCE_REGISTRY}
-
-# ---------------------------------------------------------------------------
-# Default symbols per data source — loaded from config/default_symbols.yaml
-# ---------------------------------------------------------------------------
-
-_SYMBOLS_CONFIG_FILE = Path(__file__).resolve().parents[2] / "config" / "default_symbols.yaml"
-
-
-def _load_symbols_config() -> dict[str, Any]:
-    """Load default symbols config from YAML file. Returns empty dict on error."""
-    if not _SYMBOLS_CONFIG_FILE.is_file():
-        logger.warning("Default symbols config not found: %s", _SYMBOLS_CONFIG_FILE)
-        return {}
-    try:
-        import yaml
-
-        with _SYMBOLS_CONFIG_FILE.open(encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-        return data if isinstance(data, dict) else {}
-    except Exception as exc:
-        logger.warning("Failed to load %s: %s", _SYMBOLS_CONFIG_FILE, exc)
-        return {}
-
-
-def _build_symbols_from_config() -> tuple[
-    dict[str, list[dict[str, str]]],
-    dict[str, str],
-    dict[tuple[str, str], list[dict[str, str]]],
-]:
-    cfg = _load_symbols_config()
-    symbols: dict[str, list[dict[str, str]]] = cfg.get("symbols", {})
-    asset_types: dict[str, str] = cfg.get("default_asset_types", {})
-    symbols_by_asset: dict[tuple[str, str], list[dict[str, str]]] = {}
-
-    # Build symbols_by_asset from the nested structure in YAML
-    for source, asset_map in cfg.get("symbols_by_asset", {}).items():
-        if isinstance(asset_map, dict):
-            for asset_type, sym_list in asset_map.items():
-                if isinstance(sym_list, list):
-                    symbols_by_asset[(source, asset_type)] = sym_list
-
-    # Auto-populate symbols_by_asset with default asset type mappings
-    for source, default_at in asset_types.items():
-        key = (source, default_at)
-        if key not in symbols_by_asset and source in symbols:
-            symbols_by_asset[key] = symbols[source]
-
-    # Also map BINANCE SPOT → BINANCE symbols, OKX SPOT → OKX symbols (if not overridden)
-    for source in symbols:
-        if (source, "SPOT") not in symbols_by_asset:
-            symbols_by_asset[(source, "SPOT")] = symbols[source]
-
-    return symbols, asset_types, symbols_by_asset
-
-
-_DEFAULT_SYMBOLS, _DEFAULT_ASSET_TYPES, _DEFAULT_SYMBOLS_BY_ASSET = _build_symbols_from_config()
-
-_QUOTE_FIELDS_CONFIG_FILE = Path(__file__).resolve().parents[2] / "config" / "quote_fields.yaml"
-
-_GENERIC_QUOTE_FIELDS: list[dict[str, Any]] = [
-    {"prop": "symbol", "label": "代码", "visible": True, "always_show": True},
-    {"prop": "name", "label": "名称", "visible": True, "always_show": False},
-    {"prop": "category", "label": "分类", "visible": True, "always_show": False},
-    {"prop": "last_price", "label": "最新价", "visible": True, "always_show": False},
-    {"prop": "change", "label": "涨跌", "visible": True, "always_show": False},
-    {"prop": "change_pct", "label": "涨跌幅", "visible": True, "always_show": False},
-    {"prop": "bid_price", "label": "买价", "visible": True, "always_show": False},
-    {"prop": "ask_price", "label": "卖价", "visible": True, "always_show": False},
-    {"prop": "high_price", "label": "最高", "visible": True, "always_show": False},
-    {"prop": "low_price", "label": "最低", "visible": True, "always_show": False},
-    {"prop": "open_price", "label": "开盘", "visible": True, "always_show": False},
-    {"prop": "prev_close", "label": "昨收", "visible": True, "always_show": False},
-    {"prop": "volume", "label": "成交量", "visible": True, "always_show": False},
-    {"prop": "turnover", "label": "成交额", "visible": True, "always_show": False},
-    {"prop": "open_interest", "label": "持仓量", "visible": True, "always_show": False},
-    {"prop": "update_time", "label": "更新时间", "visible": True, "always_show": False},
-]
-
-
-def _normalize_quote_fields_config(fields: Any) -> list[dict[str, Any]]:
-    normalized: list[dict[str, Any]] = []
-    if not isinstance(fields, list):
-        return normalized
-    for item in fields:
-        if not isinstance(item, dict):
-            continue
-        prop = str(item.get("prop") or "").strip()
-        if not prop:
-            continue
-        normalized.append(
-            {
-                "prop": prop,
-                "label": str(item.get("label") or prop),
-                "visible": bool(item.get("visible", True)),
-                "always_show": bool(item.get("always_show", False)),
-            }
-        )
-    return normalized
-
-
-def _load_quote_fields_by_source() -> dict[str, list[dict[str, Any]]]:
-    if not _QUOTE_FIELDS_CONFIG_FILE.is_file():
-        logger.warning("Quote fields config not found: %s", _QUOTE_FIELDS_CONFIG_FILE)
-        return {}
-    try:
-        import yaml
-
-        with _QUOTE_FIELDS_CONFIG_FILE.open(encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-    except Exception as exc:
-        logger.warning("Failed to load %s: %s", _QUOTE_FIELDS_CONFIG_FILE, exc)
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    raw_sources = data.get("sources", {})
-    if not isinstance(raw_sources, dict):
-        return {}
-    normalized_sources: dict[str, list[dict[str, Any]]] = {}
-    for source, fields in raw_sources.items():
-        normalized_fields = _normalize_quote_fields_config(fields)
-        if normalized_fields:
-            normalized_sources[str(source).strip().upper()] = normalized_fields
-    return normalized_sources
-
-
-def _has_quote_field_value(value: Any) -> bool:
-    if value is None:
-        return False
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, (int, float)):
-        return math.isfinite(float(value))
-    return True
-
-
-def _first_present(mapping: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        value = mapping.get(key)
-        if value not in (None, ""):
-            return value
-    return None
-
-
-def _resolve_quote_fields(source: str, ticks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    configured_fields = _QUOTE_FIELDS_BY_SOURCE.get(source, _GENERIC_QUOTE_FIELDS)
-    resolved: list[dict[str, Any]] = []
-    for field in configured_fields:
-        prop = str(field.get("prop") or "").strip()
-        if not prop:
-            continue
-        if field.get("always_show") or any(
-            _has_quote_field_value(tick.get(prop)) for tick in ticks
-        ):
-            resolved.append(dict(field))
-    return resolved
-
-
-_QUOTE_FIELDS_BY_SOURCE = _load_quote_fields_by_source()
 
 
 # ===================================================================
