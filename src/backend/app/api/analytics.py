@@ -25,7 +25,7 @@ from app.schemas.analytics import (
 from app.services.analytics_service import AnalyticsService
 from app.services.backtest_service import BacktestService
 from app.services.log_parser_service import find_latest_log_dir, parse_data_log, parse_value_log
-from app.services.strategy_runtime_support import has_log_artifacts, latest_meaningful_log_subdir
+from app.services.strategy.runtime_support import has_log_artifacts, latest_meaningful_log_subdir
 from app.services.strategy_service import get_strategy_dir
 
 logger = logging.getLogger(__name__)

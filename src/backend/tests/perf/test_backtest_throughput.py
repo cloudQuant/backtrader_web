@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.api import backtest_enhanced
 from app.main import app
 from app.schemas.backtest import BacktestResponse, TaskStatus
-from app.services.backtest_manager import BacktestExecutionManager
+from app.services.backtest.manager import BacktestExecutionManager
 from app.services.backtest_service import BacktestService
 
 pytest.importorskip("pytest_benchmark")

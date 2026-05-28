@@ -15,15 +15,15 @@ import pytest
 
 from app.services import (
     auto_trading_scheduler,
-    gateway_health_service,
-    gateway_launch_builder,
-    gateway_runtime_service,
-    live_execution_service,
-    live_instance_service,
     manual_gateway_service,
-    strategy_runtime_support,
 )
-from app.services.gateway_preset_service import get_gateway_presets
+from app.services.gateway import health as gateway_health_service
+from app.services.gateway import launch_builder as gateway_launch_builder
+from app.services.gateway import runtime as gateway_runtime_service
+from app.services.live_trading import execution as live_execution_service
+from app.services.live_trading import instance as live_instance_service
+from app.services.strategy import runtime_support as strategy_runtime_support
+from app.services.gateway.preset import get_gateway_presets
 from app.services.instance_store import InstanceStore
 from app.services.process_supervisor import is_pid_alive, kill_pid, scan_running_strategy_pids
 
@@ -2213,11 +2213,11 @@ class TestLiveExecutionService:
         wait_process_callback = AsyncMock()
 
         with patch(
-            "app.services.live_execution_service.asyncio.create_subprocess_exec",
+            "app.services.live_trading.execution.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=proc),
         ):
             with patch(
-                "app.services.live_execution_service.asyncio.create_task"
+                "app.services.live_trading.execution.asyncio.create_task"
             ) as mock_create_task:
 
                 def _create_task(coro):
@@ -2257,11 +2257,11 @@ class TestLiveExecutionService:
         stopping_instances = {"inst1"}
 
         with patch(
-            "app.services.live_execution_service.asyncio.create_subprocess_exec",
+            "app.services.live_trading.execution.asyncio.create_subprocess_exec",
             new=AsyncMock(return_value=proc),
         ):
             with patch(
-                "app.services.live_execution_service.asyncio.create_task"
+                "app.services.live_trading.execution.asyncio.create_task"
             ) as mock_create_task:
 
                 def _create_task(coro):

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from app.services.gateway_health_service import get_gateway_health
+from app.services.gateway.health import get_gateway_health
 
 
 def _make_health_snap(**overrides):
@@ -111,7 +111,7 @@ class TestGetGatewayHealth:
             }
         }
 
-        with patch("app.services.gateway_health_service.time.time", return_value=100.0):
+        with patch("app.services.gateway.health.time.time", return_value=100.0):
             results = get_gateway_health(
                 gateways=gateways,
                 load_instances=lambda: {},

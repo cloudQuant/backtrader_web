@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.api.data_management_deps import require_data_admin_user
+from app.api.data.deps import require_data_admin_user
 from app.schemas.sync import SyncConfig, SyncRequest
 from app.services.sync_service import get_sync_service
 

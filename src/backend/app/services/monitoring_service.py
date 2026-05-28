@@ -31,7 +31,7 @@ from app.services.alert_evaluation import (
     get_current_metric_value,
 )
 from app.services.backtest_service import BacktestService
-from app.services.live_trading_service import LiveTradingService
+from app.services.live_trading.service import LiveTradingService
 from app.services.paper_trading_service import PaperTradingService
 from app.websocket_manager import manager as ws_manager
 

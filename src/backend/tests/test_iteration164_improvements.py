@@ -176,7 +176,7 @@ class TestGracefulShutdown:
 
     async def test_interrupt_active_tasks_returns_zero_when_no_tasks(self):
         """interrupt_active_tasks should return 0 when no active tasks exist."""
-        from app.services.backtest_manager import BacktestExecutionManager
+        from app.services.backtest.manager import BacktestExecutionManager
 
         mgr = BacktestExecutionManager()
         count = await mgr.interrupt_active_tasks()
@@ -184,7 +184,7 @@ class TestGracefulShutdown:
 
     async def test_interrupt_active_tasks_method_exists(self):
         """BacktestExecutionManager should have interrupt_active_tasks method."""
-        from app.services.backtest_manager import BacktestExecutionManager
+        from app.services.backtest.manager import BacktestExecutionManager
 
         mgr = BacktestExecutionManager()
         assert hasattr(mgr, "interrupt_active_tasks")
@@ -192,7 +192,7 @@ class TestGracefulShutdown:
 
     async def test_reconcile_orphaned_tasks_returns_zero_when_no_tasks(self):
         """reconcile_orphaned_tasks should return 0 when no orphaned tasks."""
-        from app.services.backtest_manager import BacktestExecutionManager
+        from app.services.backtest.manager import BacktestExecutionManager
 
         mgr = BacktestExecutionManager()
         count = await mgr.reconcile_orphaned_tasks()

@@ -284,12 +284,12 @@ class TestPermissionUtils:
 
     def test_has_permission_import(self):
         """has_permission should be importable."""
-        from app.api.deps_permissions import has_permission
+        from app.api._dependencies import has_permission
         assert callable(has_permission)
 
     def test_has_permission_with_admin_role(self):
         """Admin role should have all permissions."""
-        from app.api.deps_permissions import has_permission
+        from app.api._dependencies import has_permission
         from app.models.permission import Permission, Role, ROLE_PERMISSIONS
 
         # Create a mock user with admin role
@@ -304,7 +304,7 @@ class TestPermissionUtils:
 
     def test_has_permission_without_role(self):
         """User with no roles should have no permissions."""
-        from app.api.deps_permissions import has_permission
+        from app.api._dependencies import has_permission
         from app.models.permission import Permission
 
         user = MagicMock()
@@ -315,7 +315,7 @@ class TestPermissionUtils:
 
     def test_require_permission_creates_dependency(self):
         """require_permission should return a callable."""
-        from app.api.deps_permissions import require_permission
+        from app.api._dependencies import require_permission
         from app.models.permission import Permission
 
         dep = require_permission(Permission.RUN_BACKTEST)
@@ -323,7 +323,7 @@ class TestPermissionUtils:
 
     def test_require_any_permission_creates_dependency(self):
         """require_any_permission should return a callable."""
-        from app.api.deps_permissions import require_any_permission
+        from app.api._dependencies import require_any_permission
         from app.models.permission import Permission
 
         dep = require_any_permission(Permission.CREATE_STRATEGY, Permission.RUN_BACKTEST)

@@ -44,7 +44,7 @@ db_module.async_session_maker = _test_session_maker
 for module_name in [
     "app.db.session_provider",
     "app.db.sql_repository",
-    "app.services.backtest_manager",
+    "app.services.backtest.manager",
 ]:
     importlib.import_module(module_name).async_session_maker = _test_session_maker
 

@@ -1,7 +1,7 @@
 """Tests for fincore_metrics_helper - financial metric calculations."""
 
 
-from app.services.backtest_analyzers import FincoreAdapter
+from app.services.backtest.analyzers import FincoreAdapter
 from app.services.fincore_metrics_helper import (
     MetricsSource,
     _calculate_annual_return,

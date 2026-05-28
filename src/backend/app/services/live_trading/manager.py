@@ -16,15 +16,15 @@ from pathlib import Path
 from typing import Any
 
 from app.services import (
-    gateway_health_service,
-    gateway_launch_builder,
-    gateway_runtime_service,
-    live_execution_service,
-    live_instance_service,
     manual_gateway_service,
-    strategy_runtime_support,
 )
-from app.services.gateway_preset_service import get_gateway_presets as _get_gateway_presets
+from app.services.gateway import health as gateway_health_service
+from app.services.gateway import launch_builder as gateway_launch_builder
+from app.services.gateway import runtime as gateway_runtime_service
+from app.services.live_trading import execution as live_execution_service
+from app.services.live_trading import instance as live_instance_service
+from app.services.strategy import runtime_support as strategy_runtime_support
+from app.services.gateway.preset import get_gateway_presets as _get_gateway_presets
 from app.services.instance_store import InstanceStore
 from app.services.process_supervisor import (
     is_pid_alive as _is_pid_alive_impl,

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from starlette.requests import Request as StarletteRequest
 
-from app.api.data_management_deps import get_current_db_user, require_data_admin_user
+from app.api.data.deps import get_current_db_user, require_data_admin_user
 from app.db.database import async_session_maker, create_tables
 from app.models.permission import Role, user_roles
 from app.models.user import User
@@ -38,7 +38,7 @@ async def test_get_current_db_user_returns_database_user(monkeypatch):
         await session.refresh(user)
 
         monkeypatch.setattr(
-            "app.api.data_management_deps.decode_access_token",
+            "app.api.data.deps.decode_access_token",
             lambda _: {"sub": user.id, "username": user.username},
             raising=True,
         )
@@ -73,7 +73,7 @@ async def test_require_data_admin_user_accepts_admin_role(monkeypatch):
         await session.refresh(user)
 
         monkeypatch.setattr(
-            "app.api.data_management_deps.decode_access_token",
+            "app.api.data.deps.decode_access_token",
             lambda _: {"sub": user.id, "username": user.username},
             raising=True,
         )
@@ -105,7 +105,7 @@ async def test_require_data_admin_user_rejects_non_admin(monkeypatch):
         await session.refresh(user)
 
         monkeypatch.setattr(
-            "app.api.data_management_deps.decode_access_token",
+            "app.api.data.deps.decode_access_token",
             lambda _: {"sub": user.id, "username": user.username},
             raising=True,
         )

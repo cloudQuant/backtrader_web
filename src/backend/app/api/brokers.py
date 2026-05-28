@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.data_management_deps import (
+from app.api.data.deps import (
     get_current_db_user,
     require_data_admin_user,
     user_has_admin_access,

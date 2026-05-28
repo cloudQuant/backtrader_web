@@ -35,7 +35,7 @@ from app.schemas.workspace import (
 )
 from app.services import workspace_unit_runtime
 from app.services.fincore_metrics_helper import calculate_extended_metrics
-from app.services.optimization_execution_manager import get_optimization_execution_manager
+from app.services.optimization.execution_manager import get_optimization_execution_manager
 from app.services.param_optimization_service import (
     get_optimization_progress,
     submit_optimization,

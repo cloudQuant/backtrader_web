@@ -225,7 +225,7 @@ def test_param_optimization_service_worker_and_log_parser_branches(tmp_path, mon
 @pytest.mark.asyncio
 async def test_backtest_service_task_limits_and_cancel_cleanup_excepts(monkeypatch):
     from app.schemas.backtest_enhanced import BacktestRequest, TaskStatus
-    from app.services.backtest_runner import BacktestExecutionRunner
+    from app.services.backtest.runner import BacktestExecutionRunner
     from app.services.backtest_service import BacktestService
 
     svc = BacktestService()

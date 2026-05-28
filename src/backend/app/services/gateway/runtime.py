@@ -3,7 +3,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from app.services.gateway_launch_builder import build_gateway_session_key_from_runtime_kwargs
+from app.services.gateway.launch_builder import build_gateway_session_key_from_runtime_kwargs
 
 
 def _resolve_gateway_state_session_key(state: dict[str, Any]) -> str:

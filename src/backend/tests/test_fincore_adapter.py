@@ -7,7 +7,7 @@ for financial metric calculations with fallback to manual calculations.
 
 import pytest
 
-from app.services.backtest_analyzers import FincoreAdapter
+from app.services.backtest.analyzers import FincoreAdapter
 
 
 class TestFincoreAdapterInitialization:
@@ -274,7 +274,7 @@ class TestBackwardCompatibility:
 
     def test_get_all_analyzers_includes_adapter(self):
         """Test that get_all_analyzers still works with adapter."""
-        from app.services.backtest_analyzers import get_all_analyzers
+        from app.services.backtest.analyzers import get_all_analyzers
 
         analyzers = get_all_analyzers()
 
@@ -291,7 +291,7 @@ class TestBackwardCompatibility:
 
     def test_adapter_does_not_break_existing_analyzers(self):
         """Test that adding adapter doesn't break existing analyzer imports."""
-        from app.services.backtest_analyzers import (
+        from app.services.backtest.analyzers import (
             DetailedTradeAnalyzer,
             DrawdownAnalyzer,
             EquityCurveAnalyzer,

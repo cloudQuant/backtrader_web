@@ -12,7 +12,7 @@ Covers:
 
 import pytest
 
-from app.services.backtest_analyzers import FincoreAdapter
+from app.services.backtest.analyzers import FincoreAdapter
 
 
 # ============================================================

@@ -22,7 +22,7 @@ from app.models.backtest import BacktestTask
 from app.models.optimization import OptimizationTask
 from app.models.workspace import StrategyUnit
 from app.schemas.backtest import TaskStatus
-from app.services.optimization_task_state import estimate_remaining_seconds
+from app.services.optimization.task_state import estimate_remaining_seconds
 
 # Re-use module-level constants from workspace_service (imported lazily to
 # avoid circular imports at module load time).

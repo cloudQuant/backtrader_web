@@ -14,7 +14,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.services.backtest_analyzers import (
+from app.services.backtest.analyzers import (
     DetailedTradeAnalyzer,
     DrawdownAnalyzer,
     EquityCurveAnalyzer,

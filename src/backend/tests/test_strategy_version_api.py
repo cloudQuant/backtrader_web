@@ -560,7 +560,7 @@ class TestStrategyVersionWebSocket:
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from app.api.strategy_version import strategy_version_websocket
+        from app.api.strategy.version import strategy_version_websocket
 
         # Create mock WebSocket object
         mock_ws = MagicMock()
@@ -603,7 +603,7 @@ class TestStrategyVersionWebSocket:
         import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from app.api.strategy_version import strategy_version_websocket
+        from app.api.strategy.version import strategy_version_websocket
 
         # Create mock WebSocket object
         mock_ws = MagicMock()
@@ -642,7 +642,7 @@ class TestServiceDependency:
 
     def test_get_version_control_service(self):
         """Test get version control service."""
-        from app.api.strategy_version import get_version_control_service
+        from app.api.strategy.version import get_version_control_service
 
         svc1 = get_version_control_service()
         svc2 = get_version_control_service()

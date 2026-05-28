@@ -3,7 +3,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, status
 
-from app.api.data_management_deps import require_data_admin_user
+from app.api.data.deps import require_data_admin_user
 from app.api.deps import get_current_user, get_websocket_current_user
 from app.services.data_topic_hub import TopicPolicy, get_shared_data_topic_hub
 from app.services.ws_gateway import get_shared_ws_gateway

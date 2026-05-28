@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from app.services.gateway_launch_builder import (
+from app.services.gateway.launch_builder import (
     build_gateway_session_key,
     build_gateway_session_key_from_runtime_kwargs,
     normalize_gateway_asset_type,

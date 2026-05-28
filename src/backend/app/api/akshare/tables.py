@@ -5,7 +5,7 @@ API routes for akshare data tables.
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.data_management_deps import get_current_db_user
+from app.api.data.deps import get_current_db_user
 from app.db.database import get_db
 from app.services.akshare_data_service import AkshareDataService
 

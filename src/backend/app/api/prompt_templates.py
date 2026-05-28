@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.data_management_deps import require_data_admin_user
+from app.api.data.deps import require_data_admin_user
 from app.db.database import get_db
 from app.models.prompt_template import PromptTemplate
 from app.models.user import User

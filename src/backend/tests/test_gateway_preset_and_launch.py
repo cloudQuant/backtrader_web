@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.gateway_launch_builder import (
+from app.services.gateway.launch_builder import (
     build_binance_gateway_runtime_kwargs,
     build_ctp_gateway_runtime_kwargs,
     build_gateway_launch,
@@ -20,7 +20,7 @@ from app.services.gateway_launch_builder import (
     normalize_gateway_exchange_type,
     parse_json_dict,
 )
-from app.services.gateway_preset_service import get_gateway_presets
+from app.services.gateway.preset import get_gateway_presets
 
 # ---- gateway_preset_service tests ----
 

@@ -97,7 +97,7 @@ async def submit_optimization_task_internal(
     n_workers: int,
     user_id: str,
 ) -> OptimizationSubmitResponse:
-    from app.services.optimization_execution_manager import (
+    from app.services.optimization.execution_manager import (
         get_optimization_execution_manager,
     )
     from app.services.param_optimization_service import generate_param_grid
@@ -149,7 +149,7 @@ async def submit_backtest_optimization_task_internal(
     request: OptimizationRequest,
     user_id: str,
 ) -> OptimizationSubmitResponse:
-    from app.services.optimization_execution_manager import (
+    from app.services.optimization.execution_manager import (
         get_optimization_execution_manager,
     )
 

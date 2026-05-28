@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from app.services.log_parser_service import parse_log_dir
-from app.services.strategy_runtime_support import has_log_artifacts, latest_meaningful_log_subdir
+from app.services.strategy.runtime_support import has_log_artifacts, latest_meaningful_log_subdir
 
 log = logging.getLogger(__name__)
 

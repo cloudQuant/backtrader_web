@@ -8,7 +8,7 @@ all DB access lives in :class:`app.services.akshare_interface_service.AkshareInt
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.data_management_deps import require_data_admin_user
+from app.api.data.deps import require_data_admin_user
 from app.db.database import get_db
 from app.schemas.akshare_mgmt import DataInterfaceCreate, DataInterfaceUpdate
 from app.services.akshare_interface_loader import AkshareInterfaceLoader

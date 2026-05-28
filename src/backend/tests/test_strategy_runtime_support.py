@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from app.services import workspace_unit_runtime
-from app.services.strategy_runtime_support import (
+from app.services.strategy.runtime_support import (
     _FLAT_LOG_FILENAMES,
     find_latest_log_dir,
     infer_gateway_params,

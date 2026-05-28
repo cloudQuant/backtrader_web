@@ -17,8 +17,8 @@ from typing import Any, cast
 from app.db.database import async_session_maker
 from app.models.workspace import StrategyUnit
 from app.schemas.workspace import ApplyBestParamsRequest
-from app.services.optimization_execution_manager import get_optimization_execution_manager
-from app.services.optimization_task_state import build_results_response
+from app.services.optimization.execution_manager import get_optimization_execution_manager
+from app.services.optimization.task_state import build_results_response
 from app.services.param_optimization_service import (
     get_optimization_progress,
     get_optimization_results,

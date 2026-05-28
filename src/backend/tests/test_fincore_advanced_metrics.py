@@ -11,7 +11,7 @@ Tests for advanced analytics metrics using FincoreAdapter including:
 
 import pytest
 
-from app.services.backtest_analyzers import FincoreAdapter
+from app.services.backtest.analyzers import FincoreAdapter
 
 
 class TestProfitFactor:

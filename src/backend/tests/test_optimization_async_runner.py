@@ -3,7 +3,7 @@
 import asyncio
 import threading
 
-from app.services.optimization_async_runner import (
+from app.services.optimization.async_runner import (
     _ensure_async_runner_loop,
     _run_async,
 )

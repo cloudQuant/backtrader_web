@@ -3,11 +3,11 @@ from collections.abc import Callable
 from typing import Any
 
 from app.schemas.backtest import TaskStatus
-from app.services.optimization_async_runner import _run_async
-from app.services.optimization_execution_manager import (
+from app.services.optimization.async_runner import _run_async
+from app.services.optimization.execution_manager import (
     get_optimization_execution_manager,
 )
-from app.services.optimization_task_state import (
+from app.services.optimization.task_state import (
     build_runtime_task_from_db_task,
     get_runtime_task,
     update_runtime_task,

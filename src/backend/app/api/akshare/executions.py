@@ -7,7 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.data_management_deps import get_current_db_user, require_data_admin_user
+from app.api.data.deps import get_current_db_user, require_data_admin_user
 from app.db.database import get_db
 from app.services.akshare_execution_service import AkshareExecutionService
 

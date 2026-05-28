@@ -122,7 +122,7 @@ class TestOptimizationSubmit:
                 return_value=[{"fast": 5}, {"fast": 10}, {"fast": 15}],
             ):
                 with patch(
-                    "app.services.optimization_execution_manager.get_optimization_execution_manager"
+                    "app.services.optimization.execution_manager.get_optimization_execution_manager"
                 ) as mock_get_mgr:
                     mock_mgr = AsyncMock()
                     mock_mgr.create_task = AsyncMock(return_value=mock_db_task)
@@ -292,7 +292,7 @@ class TestOptimizationSubmit:
             "app.api.optimization_api.get_template_by_id", return_value=mock_strategy_template
         ):
             with patch(
-                "app.services.optimization_execution_manager.get_optimization_execution_manager"
+                "app.services.optimization.execution_manager.get_optimization_execution_manager"
             ) as mock_get_mgr:
                 mock_mgr = AsyncMock()
                 mock_mgr.create_task = AsyncMock(return_value=mock_db_task)

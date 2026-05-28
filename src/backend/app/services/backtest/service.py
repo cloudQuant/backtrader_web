@@ -67,9 +67,9 @@ from app.services.backtest.workspace_setup import (
 from app.services.backtest.workspace_setup import (
     write_temp_config as _write_temp_config,
 )
-from app.services.backtest_manager import BacktestExecutionManager
-from app.services.backtest_runner import BacktestExecutionRunner
-from app.services.strategy_runtime_support import has_log_artifacts
+from app.services.backtest.manager import BacktestExecutionManager
+from app.services.backtest.runner import BacktestExecutionRunner
+from app.services.strategy.runtime_support import has_log_artifacts
 from app.utils.response_cache import invalidate_cache
 from app.websocket_manager import manager as ws_manager
 

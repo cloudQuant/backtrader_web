@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services.backtest_runner import BacktestExecutionRunner
+from app.services.backtest.runner import BacktestExecutionRunner
 
 
 @pytest.mark.asyncio

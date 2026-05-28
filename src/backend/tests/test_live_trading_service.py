@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.live_trading_service import LiveTradingService
+from app.services.live_trading.service import LiveTradingService
 
 
 class TestLiveTradingServiceInitialization:

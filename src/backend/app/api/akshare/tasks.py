@@ -5,7 +5,7 @@ API routes for akshare scheduled tasks.
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.data_management_deps import get_current_db_user, require_data_admin_user
+from app.api.data.deps import get_current_db_user, require_data_admin_user
 from app.db.database import get_db
 from app.schemas.akshare_mgmt import ScheduledTaskCreate, ScheduledTaskUpdate
 from app.services.akshare_scheduler_service import get_akshare_scheduler_service

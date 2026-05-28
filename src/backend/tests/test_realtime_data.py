@@ -200,7 +200,7 @@ class TestRealtimeServiceSingleton:
 
     async def test_realtime_service_singleton(self):
         """Test RealTimeDataService singleton."""
-        from app.api.realtime_data import get_realtime_data_service
+        from app.api.data.realtime import get_realtime_data_service
 
         get_realtime_data_service()
         get_realtime_data_service()
