@@ -13,12 +13,12 @@ import { test, expect } from '@playwright/test'
  */
 
 const PAGES_AUTHENTICATED = [
-  '/dashboard',
+  '/',
   '/ai-chat',
-  '/backtests',
-  '/backtests/1',
+  '/backtest',
+  '/backtest/result/1',
   '/knowledge-base',
-  '/strategies',
+  '/strategy',
 ] as const
 
 test.describe('en-US locale should never render Chinese characters', () => {

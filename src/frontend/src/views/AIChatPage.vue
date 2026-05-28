@@ -69,15 +69,19 @@
             circle
             size="small"
             title="新建会话"
+            aria-label="新建会话"
             @click="handleNewConversation"
           >
-            <el-icon><Plus /></el-icon>
+            <el-icon aria-hidden="true">
+              <Plus />
+            </el-icon>
           </el-button>
         </div>
 
         <el-input
           v-model="conversationSearch"
           placeholder="搜索会话标题"
+          aria-label="搜索会话标题"
           :prefix-icon="Search"
           clearable
           class="conversation-search"
@@ -215,6 +219,7 @@
               :maxlength="500"
               :disabled="!selectedKnowledgeBaseId || chatStore.loading"
               :placeholder="inputPlaceholder"
+              :aria-label="inputPlaceholder"
               :rows="3"
               resize="vertical"
               @keydown.enter.exact.prevent="handleAsk"
@@ -223,6 +228,7 @@
               v-model="selectedSessionModelKey"
               class="session-model-select"
               placeholder="默认模型"
+              aria-label="选择 AI 模型"
             >
               <el-option
                 label="默认模型"

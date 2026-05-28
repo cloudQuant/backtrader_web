@@ -4,10 +4,14 @@
     <el-aside
       width="220px"
       class="app-sidebar-desktop"
+      role="navigation"
+      aria-label="主导航"
     >
       <div class="p-4">
         <h1 class="text-xl font-bold sidebar-title flex items-center gap-2">
-          <el-icon><TrendCharts /></el-icon>
+          <el-icon aria-hidden="true">
+            <TrendCharts />
+          </el-icon>
           Backtrader Web
         </h1>
       </div>
@@ -108,25 +112,35 @@
 
     <!-- 移动端侧边栏抽屉 -->
     <el-drawer
+      id="mobile-sidebar-drawer"
       v-model="mobileMenuOpen"
       direction="ltr"
       :size="280"
       :show-close="false"
       class="mobile-sidebar-drawer"
       :z-index="2000"
+      role="dialog"
+      aria-label="主导航菜单"
+      aria-modal="true"
     >
       <template #header>
         <div class="flex items-center justify-between w-full">
           <h1 class="text-lg font-bold sidebar-title flex items-center gap-2">
-            <el-icon><TrendCharts /></el-icon>
+            <el-icon aria-hidden="true">
+              <TrendCharts />
+            </el-icon>
             Backtrader Web
           </h1>
-          <el-icon
-            class="sidebar-title cursor-pointer text-xl"
+          <button
+            type="button"
+            class="sidebar-title cursor-pointer text-xl drawer-close-btn"
+            :aria-label="'关闭导航菜单'"
             @click="mobileMenuOpen = false"
           >
-            <Close />
-          </el-icon>
+            <el-icon aria-hidden="true">
+              <Close />
+            </el-icon>
+          </button>
         </div>
       </template>
       <el-menu
@@ -229,14 +243,21 @@
       <el-header class="app-header flex items-center justify-between border-b px-6">
         <div class="app-header-left flex items-center gap-4 flex-1 min-w-0 flex-wrap">
           <!-- 移动端汉堡按钮 -->
-          <div
+          <button
+            type="button"
             class="hamburger-btn"
+            :aria-label="'打开导航菜单'"
+            aria-controls="mobile-sidebar-drawer"
+            :aria-expanded="mobileMenuOpen"
             @click="mobileMenuOpen = true"
           >
-            <el-icon :size="22">
+            <el-icon
+              :size="22"
+              aria-hidden="true"
+            >
               <Fold />
             </el-icon>
-          </div>
+          </button>
           <div class="flex items-center gap-3 min-w-0 flex-wrap">
             <div class="text-lg font-medium shrink-0">
               {{ pageTitle }}
@@ -271,13 +292,22 @@
         <div class="flex items-center gap-4 shrink-0">
           <ThemeSwitcher />
           <el-dropdown @command="handleCommand">
-            <span class="flex items-center gap-2 cursor-pointer">
-              <el-avatar :size="32">
+            <button
+              type="button"
+              class="user-dropdown-trigger flex items-center gap-2 cursor-pointer"
+              :aria-label="user?.username ? `用户菜单 (${user.username})` : '用户菜单'"
+            >
+              <el-avatar
+                :size="32"
+                :alt="user?.username || ''"
+              >
                 {{ user?.username?.charAt(0).toUpperCase() }}
               </el-avatar>
               <span class="app-header-user-name">{{ user?.username }}</span>
-              <el-icon><ArrowDown /></el-icon>
-            </span>
+              <el-icon aria-hidden="true">
+                <ArrowDown />
+              </el-icon>
+            </button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="profile">
@@ -296,7 +326,10 @@
       </el-header>
       
       <!-- 页面内容 -->
-      <el-main class="app-main-content bg-gray-50 p-6">
+      <el-main
+        class="app-main-content bg-gray-50 p-6"
+        role="main"
+      >
         <router-view />
       </el-main>
     </el-container>
@@ -423,5 +456,34 @@ function handleCommand(command: string) {
 
 .sidebar-title {
   color: var(--sidebar-text-color);
+}
+
+/* Iteration 175 §3 — a11y: keep button visual presentation matching prior
+ * <span>/<div> elements while gaining keyboard focus / role semantics. */
+.hamburger-btn {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.drawer-close-btn {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.drawer-close-btn:focus-visible,
+.hamburger-btn:focus-visible,
+.user-dropdown-trigger:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
+}
+
+.user-dropdown-trigger {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
 }
 </style>

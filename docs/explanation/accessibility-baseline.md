@@ -68,6 +68,44 @@ any of `role="presentation"`, `aria-hidden="true"`, or empty `alt=""`.
 | _none_ | — | — | At 175 entry, no exemption registered. New entries require an
 > RFC and CODEOWNERS approval. | — | — |
 
+## 175 已落地的 a11y 修复（基线工作）
+
+175 推进过程中已在以下组件应用了 a11y 修复，作为 `frontend-a11y` job 首次跑前的预清理：
+
+### `src/components/common/AppLayout.vue` (覆盖 6 个登录后页面的公共 layout)
+
+- 侧边栏 `<el-aside>` 添加 `role="navigation"` 与 `aria-label="主导航"`
+- 移动端汉堡按钮：`<div @click>` → `<button type="button">`，附 `aria-label`、`aria-controls`、`aria-expanded`
+- 移动端抽屉关闭图标：`<el-icon @click>` → `<button type="button">` 附 `aria-label`
+- 移动端抽屉本体：补 `role="dialog"`、`aria-modal="true"`、`aria-label`、`id`（与 `aria-controls` 对应）
+- 用户下拉触发器：`<span>` → `<button type="button">` 附 `aria-label`
+- 主内容 `<el-main>` 添加 `role="main"`
+- 装饰性图标（侧边栏品牌图标、菜单图标、下拉箭头、avatar 占位、`<TrendCharts />` 等）补 `aria-hidden="true"`
+- 新增 `:focus-visible` 样式，确保键盘焦点可见（`outline: 2px solid var(--el-color-primary)`）
+- `<el-avatar>` 补 `:alt="user?.username || ''"`
+
+### `src/views/LoginPage.vue` (登录页)
+
+- 表单 `<el-form>` 补 `:aria-label="t('auth.login')"` 与 `@submit.prevent="handleLogin"`（支持回车提交）
+- 用户名 / 密码 `<el-input>` 补 `:aria-label`（屏幕阅读器需要 — placeholder 不替代 label）
+- 输入框补 `autocomplete="username"` / `autocomplete="current-password"`（密码管理器 + a11y 双赢）
+- 登录按钮补 `native-type="submit"` + `:aria-label`
+- 注册链接补 `:aria-label`
+
+### `src/views/AIChatPage.vue` (AI 对话页)
+
+- 新建会话圆形按钮（icon-only）补 `aria-label="新建会话"`，icon 标 `aria-hidden="true"`
+- 会话搜索框补 `aria-label="搜索会话标题"`
+- 主对话输入区 `<el-input type="textarea">` 补 `:aria-label="inputPlaceholder"`
+- 模型选择 `<el-select>` 补 `aria-label="选择 AI 模型"`
+
+### `src/views/DashboardPage.vue` (首页)
+
+- 4 张统计卡的装饰性 `<el-icon>` 补 `aria-hidden="true"`
+- 3 张 Quick Start 卡片：`<div @click>` → `<div role="button" tabindex="0">` + 键盘事件（Enter / Space），并补 `:aria-label` 与 `:focus-visible` 样式
+
+> 上述修复后，仍需在首次 `frontend-a11y` CI red line 后由团队继续清理 `BacktestPage` / `BacktestResultPage` / `KnowledgeBasePage` / `StrategyPage` / `BacktestList` 等页面的具体违规。175 验收基线为「框架就绪 + 公共组件清理」，剩余页面侧的修复登记在 `docs/explanation/REFACTORING_BACKLOG.md` 「176 候选 § D」。
+
 ## Re-running the baseline locally
 
 ```bash

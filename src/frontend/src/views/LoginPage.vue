@@ -11,11 +11,13 @@
           </p>
         </div>
       </template>
-      
+
       <el-form
         ref="formRef"
         :model="form"
         :rules="rules"
+        :aria-label="t('auth.login')"
+        @submit.prevent="handleLogin"
       >
         <el-form-item prop="username">
           <el-input
@@ -23,23 +25,27 @@
             v-model="form.username"
             data-testid="login-username"
             :placeholder="t('auth.username')"
+            :aria-label="t('auth.username')"
             prefix-icon="User"
             size="large"
+            autocomplete="username"
           />
         </el-form-item>
-        
+
         <el-form-item prop="password">
           <el-input
             v-model="form.password"
             data-testid="login-password"
             type="password"
             :placeholder="t('auth.password')"
+            :aria-label="t('auth.password')"
             prefix-icon="Lock"
             size="large"
             show-password
+            autocomplete="current-password"
           />
         </el-form-item>
-        
+
         <el-form-item>
           <el-button
             data-testid="login-submit"
@@ -47,18 +53,21 @@
             size="large"
             class="w-full"
             :loading="loading"
+            native-type="submit"
+            :aria-label="t('auth.login')"
             @click="handleLogin"
           >
             {{ t('auth.login') }}
           </el-button>
         </el-form-item>
       </el-form>
-      
+
       <div class="text-center text-gray-500">
         {{ t('auth.noAccount') }}
         <router-link
           to="/register"
           class="text-blue-500 hover:underline"
+          :aria-label="t('auth.registerNow')"
         >
           {{ t('auth.registerNow') }}
         </router-link>

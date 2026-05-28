@@ -16,7 +16,10 @@
             </div>
           </div>
           <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-            <el-icon class="text-blue-500 text-2xl">
+            <el-icon
+              class="text-blue-500 text-2xl"
+              aria-hidden="true"
+            >
               <DataLine />
             </el-icon>
           </div>
@@ -37,7 +40,10 @@
             </div>
           </div>
           <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-            <el-icon class="text-green-500 text-2xl">
+            <el-icon
+              class="text-green-500 text-2xl"
+              aria-hidden="true"
+            >
               <Document />
             </el-icon>
           </div>
@@ -61,7 +67,10 @@
             </div>
           </div>
           <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
-            <el-icon class="text-purple-500 text-2xl">
+            <el-icon
+              class="text-purple-500 text-2xl"
+              aria-hidden="true"
+            >
               <TrendCharts />
             </el-icon>
           </div>
@@ -82,7 +91,10 @@
             </div>
           </div>
           <div class="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
-            <el-icon class="text-orange-500 text-2xl">
+            <el-icon
+              class="text-orange-500 text-2xl"
+              aria-hidden="true"
+            >
               <Trophy />
             </el-icon>
           </div>
@@ -98,10 +110,18 @@
       
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
-          class="p-6 border rounded-lg hover:border-blue-500 hover:shadow-md transition-all cursor-pointer"
+          role="button"
+          tabindex="0"
+          class="p-6 border rounded-lg hover:border-blue-500 hover:shadow-md transition-all cursor-pointer dashboard-quick-card"
+          :aria-label="t('dashboard.runBacktest')"
           @click="$router.push('/workspace')"
+          @keydown.enter="$router.push('/workspace')"
+          @keydown.space.prevent="$router.push('/workspace')"
         >
-          <el-icon class="text-4xl text-blue-500 mb-4">
+          <el-icon
+            class="text-4xl text-blue-500 mb-4"
+            aria-hidden="true"
+          >
             <DataLine />
           </el-icon>
           <h3 class="font-bold text-lg mb-2">
@@ -111,12 +131,20 @@
             {{ t('dashboard.runBacktestDesc') }}
           </p>
         </div>
-        
+
         <div
-          class="p-6 border rounded-lg hover:border-green-500 hover:shadow-md transition-all cursor-pointer"
+          role="button"
+          tabindex="0"
+          class="p-6 border rounded-lg hover:border-green-500 hover:shadow-md transition-all cursor-pointer dashboard-quick-card"
+          :aria-label="t('dashboard.createStrategy')"
           @click="$router.push('/strategy')"
+          @keydown.enter="$router.push('/strategy')"
+          @keydown.space.prevent="$router.push('/strategy')"
         >
-          <el-icon class="text-4xl text-green-500 mb-4">
+          <el-icon
+            class="text-4xl text-green-500 mb-4"
+            aria-hidden="true"
+          >
             <Document />
           </el-icon>
           <h3 class="font-bold text-lg mb-2">
@@ -126,12 +154,20 @@
             {{ t('dashboard.createStrategyDesc') }}
           </p>
         </div>
-        
+
         <div
-          class="p-6 border rounded-lg hover:border-purple-500 hover:shadow-md transition-all cursor-pointer"
+          role="button"
+          tabindex="0"
+          class="p-6 border rounded-lg hover:border-purple-500 hover:shadow-md transition-all cursor-pointer dashboard-quick-card"
+          :aria-label="t('dashboard.queryData')"
           @click="$router.push('/data')"
+          @keydown.enter="$router.push('/data')"
+          @keydown.space.prevent="$router.push('/data')"
         >
-          <el-icon class="text-4xl text-purple-500 mb-4">
+          <el-icon
+            class="text-4xl text-purple-500 mb-4"
+            aria-hidden="true"
+          >
             <Grid />
           </el-icon>
           <h3 class="font-bold text-lg mb-2">
@@ -320,5 +356,11 @@ onMounted(async () => {
   @include respond-to('sm') {
     padding: 12px;
   }
+}
+
+/* Iteration 175 §3 — focus-visible for the keyboard-accessible quick cards. */
+.dashboard-quick-card:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
 }
 </style>
