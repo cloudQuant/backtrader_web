@@ -861,93 +861,14 @@ class WorkspaceService:
     async def submit_unit_optimization(
         self, workspace_id: str, user_id: str, req: UnitOptimizationRequest
     ) -> dict[str, Any] | None:
-        """Submit optimization for a strategy unit. Delegates to existing optimization service."""
-        from app.services.param_optimization_service import generate_param_grid
+        """Submit optimization for a strategy unit."""
+        from app.services.workspace.optimization import submit_unit_optimization as _impl
 
-        async with async_session_maker() as session:
-            ws = await self._load_workspace(session, workspace_id, user_id, load_units=False)
-            if ws is None:
-                return None
-            unit = await self._get_unit(session, workspace_id, req.unit_id)
-            if unit is None:
-                return None
-
-            # Build param_ranges dict
-            param_ranges = {}
-            for name, spec in req.param_ranges.items():
-                param_ranges[name] = {
-                    "start": spec.start,
-                    "end": spec.end,
-                    "step": spec.step,
-                    "type": spec.type,
-                }
-
-            grid = generate_param_grid(param_ranges)
-            if not grid:
-                return {"error": "Parameter grid is empty"}
-
-            strategy_id = unit.strategy_id or ""
-
-            # Sync unit runtime dir so optimization uses unit's symbol/data config
-            workspace_settings = cast(dict[str, Any], _workspace_settings_dict(ws))
-            unit_runtime_dir = workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
-
-            # Create persisted task in DB
-            mgr = get_optimization_execution_manager()
-            db_task = await mgr.create_task(
-                user_id=user_id,
-                strategy_id=strategy_id,
-                total=len(grid),
-                param_ranges=param_ranges,
-                n_workers=req.n_workers,
-            )
-            task_id = db_task.id
-            artifact_root = unit_runtime_dir / "optimization_runs" / task_id
-            artifact_root.mkdir(parents=True, exist_ok=True)
-            _write_json_file(
-                artifact_root / "manifest.json",
-                {
-                    "task_id": task_id,
-                    "workspace_id": workspace_id,
-                    "unit_id": unit.id,
-                    "strategy_id": strategy_id,
-                    "param_names": list(param_ranges.keys()),
-                    "param_ranges": param_ranges,
-                    "n_workers": req.n_workers,
-                    "created_at": db_task.created_at.isoformat() if db_task.created_at else "",
-                },
-            )
-
-            submit_optimization(
-                strategy_id=strategy_id,
-                param_ranges=param_ranges,
-                n_workers=req.n_workers,
-                task_id=task_id,
-                persist_to_db=True,
-                strategy_dir=str(unit_runtime_dir),
-                artifact_root=str(artifact_root),
-            )
-
-            # Update unit with optimization task id — merge into existing config
-            unit.last_optimization_task_id = task_id
-            existing_oc = dict(unit.optimization_config or {})
-            existing_oc.update(
-                {
-                    "param_ranges": param_ranges,
-                    "n_workers": req.n_workers,
-                    "artifact_root": str(artifact_root),
-                    "submitted_at": datetime.now(timezone.utc).isoformat(),
-                }
-            )
-            unit.optimization_config = existing_oc
-            await session.commit()
-
-            return {
-                "task_id": task_id,
-                "unit_id": req.unit_id,
-                "total_combinations": len(grid),
-                "n_workers": req.n_workers,
-            }
+        return await _impl(
+            workspace_id, user_id, req,
+            load_workspace=self._load_workspace,
+            get_unit=self._get_unit,
+        )
 
     async def get_unit_optimization_progress(
         self, workspace_id: str, user_id: str, unit_id: str
