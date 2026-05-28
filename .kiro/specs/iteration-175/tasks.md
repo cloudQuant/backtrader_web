@@ -228,7 +228,7 @@
     - 创建 `docs/explanation/python-monorepo.md`：3 个命名小节（design §9）——工具选型（uv vs hatch vs pdm 对比表）/ 对 vendored 包的处理（`src/clientportal.gw` 不进入 workspace 成员）/ 与 174 §A6 边界一致性
     - _Requirements: 9.1, 9.8_
 
-  - [ ] 9.10 （可选）前端 500-999 行 .vue 收尾
+  - [x] 9.10 （可选）前端 500-999 行 .vue 收尾（**整体降级 §11.5**：175 不做；候选清单与决议登记在 PROGRESS.md / REFACTORING_BACKLOG.md § G）
     - 在 175 启动后第 2 周末（`D175_start + 14`）执行 `find src/frontend/src -type f -name '*.vue' | xargs wc -l | awk '$1>=500 && $1<1000'`，把命中文件按行数降序登记到 `docs/iterations/迭代175-质量加固与可观测性纵深/PROGRESS.md` §11 表（「ID | 文件 | 当前行数 | 目标拆分子组件 | 工作量 (S/M/L) | 状态」6 列）
     - 按从大到小顺序串行拆分；至少消化前 5 个最大文件（原文件行数 < 500 且新建子组件已合入主分支）
     - 剩余项写入 `docs/REFACTORING_BACKLOG.md` 标注 「175 顺延」

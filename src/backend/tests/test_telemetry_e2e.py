@@ -27,7 +27,10 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from app.utils.tracing import business_span
+# `business_span` is imported lazily inside each test (via per-test
+# ``from app.utils.tracing import business_span as bs``) so the module-level
+# import would be unused. Suppress F401 explicitly.
+from app.utils.tracing import business_span  # noqa: F401
 
 
 def _install_in_memory_provider() -> InMemorySpanExporter:
@@ -207,7 +210,7 @@ class CollectorUnreachableTests(unittest.TestCase):
         # the SDK never actually attempts a network call. The point is to
         # show that *if* the SDK encountered an export error, the user code
         # would still proceed without an exception escaping business_span.
-        with self.assertLogs(level=logging.WARNING) as captured:
+        with self.assertLogs(level=logging.WARNING):  # noqa: F841 — explicitly only captures
             try:
                 with bs("backtrader.backtest.create", user_id=1):
                     pass

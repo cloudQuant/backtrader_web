@@ -51,9 +51,10 @@ class Diff:
 
 def _run_alembic_upgrade(db_path: Path) -> None:
     env = os.environ.copy()
-    env["DATABASE_URL"] = f"sqlite:///{db_path}"
-    # Some projects read DB url from settings.database_url instead — set both
-    # to maximise compatibility.
+    # The project's alembic env.py uses ``async_engine_from_config`` which
+    # requires an async driver. Default both URLs to ``sqlite+aiosqlite``
+    # (the project's default async SQLite driver).
+    env["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path}"
     env.setdefault("ASYNC_DATABASE_URL", f"sqlite+aiosqlite:///{db_path}")
     res = subprocess.run(
         ["alembic", "upgrade", "head"],
@@ -163,7 +164,7 @@ def main() -> int:
         try:
             from sqlalchemy import MetaData, create_engine
 
-            from app.db.base import Base  # type: ignore
+            from app.db.database import Base  # type: ignore
         except Exception as exc:
             print(
                 "ERROR: failed to import SQLAlchemy / app.db.base — cannot perform drift check:\n"

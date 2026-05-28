@@ -62,7 +62,23 @@ first slice.
 ### G. 500-999 行 .vue 收尾（来源：175 §11.5 整体降级）
 
 - 174 主线 C 收尾后由 176 决定
-- 命中文件清单需要在 176 启动时重新扫描
+- 命中文件清单（175-close 扫描，2026-05-28）：
+
+| 行数 | 文件 | 拟拆分子组件方向 | 工作量 |
+|---:|---|---|:---:|
+| 860 | `views/AITradingPage.vue` | confirm dialog / history table / context panel | M |
+| 851 | `views/data/DataSyncPage.vue` | sync table / config panel / progress card | M |
+| 831 | `components/workspace/TradingWorkspaceUnitsTab.vue` | unit row / param dialog / status bar | L |
+| 715 | `views/KnowledgeBaseDocumentPage.vue` | citation panel / outline tree / chunk list | M |
+| 680 | `views/StrategyPage.vue` | template gallery / form / ai draft section | M |
+| 642 | `views/data/DataScriptsPage.vue` | script list / editor pane / upload dialog | M |
+| 604 | `views/data/DataInterfacesPage.vue` | tree / form / preview pane | M |
+| 599 | `views/PortfolioPage.vue` | summary card / position table / trade history | S |
+| 564 | `components/workspace/CreateUnitDialog.vue` | params section / data source section | S |
+| 541 | `views/data/DataTasksPage.vue` | task table / filter bar / detail drawer | S |
+
+- 176 启动时需重新扫描（数字可能已被零散变化）
+- 至少消化前 5 个最大文件即可视为本主题完成（§11.3）
 
 ### H. 监控升级（来源：175 §「175 与 176 的接续」展望）
 

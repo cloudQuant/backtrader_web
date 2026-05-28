@@ -207,7 +207,38 @@ app.services.ai_trading:
 
 ### Task 9.10 · （可选）500-999 行 .vue 收尾
 
-⏭️ **本轮不做**。175 主线集中在 a11y / i18n / OTel / e2e / DB 守护几条独立基线，前端 .vue 切片留给 174 主线 C 收尾后再决定。
+⏭️ **本轮不做**（§11.5 整体降级）。
+
+#### 175-close 时的扫描结果（2026-05-28）
+
+按 `find src/frontend/src -type f -name '*.vue' | xargs wc -l | awk '$1>=500 && $1<1000'` 得到的 10 个候选文件（行数降序）：
+
+| 行数 | 文件 | 拟拆分子组件方向（建议） | 工作量 (S/M/L) |
+|---:|---|---|:---:|
+| 860 | `views/AITradingPage.vue` | confirm dialog / history table / context panel | M |
+| 851 | `views/data/DataSyncPage.vue` | sync table / config panel / progress card | M |
+| 831 | `components/workspace/TradingWorkspaceUnitsTab.vue` | unit row / param dialog / status bar | L |
+| 715 | `views/KnowledgeBaseDocumentPage.vue` | citation panel / outline tree / chunk list | M |
+| 680 | `views/StrategyPage.vue` | template gallery / form / ai draft section | M |
+| 642 | `views/data/DataScriptsPage.vue` | script list / editor pane / upload dialog | M |
+| 604 | `views/data/DataInterfacesPage.vue` | tree / form / preview pane | M |
+| 599 | `views/PortfolioPage.vue` | summary card / position table / trade history | S |
+| 564 | `components/workspace/CreateUnitDialog.vue` | params section / data source section | S |
+| 541 | `views/data/DataTasksPage.vue` | task table / filter bar / detail drawer | S |
+
+#### 决议
+
+按 §11.5 的降级路径：
+
+> WHERE 启动评审一致认为容量不足，本任务可整体降级为「175 不做」，评审纪要中显式记录决议。
+
+**评审决议（@yunjinqi，2026-05-28）**：175 主线已饱和（mypy services / 覆盖率 60→75 / a11y / i18n / OTel 4 命名空间织入 / e2e smoke / bundle ratchet / DB 守护 / monorepo），无容量消化 ≥5 个 .vue 切片。本任务整体顺延 176，候选文件清单已写入 `docs/explanation/REFACTORING_BACKLOG.md` 「176 候选 § G」。
+
+#### 顺延依据
+
+1. 174 主线 C 把 ≥1000 行 .vue 全部清理后，500-999 区间是「第二批」工程债，与 175 的「质量加固」横切关注点正交。
+2. 每个 .vue 拆分都要重新走完整测试矩阵（vitest unit + e2e smoke + 视觉回归），单 PR 容量消耗大。
+3. 175 §11.5 显式标注本任务可整体降级为「175 不做」。
 
 ---
 
