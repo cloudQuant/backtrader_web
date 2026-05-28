@@ -1,6 +1,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 
 import { getErrorMessage } from '@/api'
 import { aiObservabilityApi, type AIModelOption } from '@/api/aiObservability'
@@ -22,6 +23,7 @@ import { useKBChatStore } from '@/stores/kbChat'
 import type { Workspace } from '@/types/workspace'
 
 export function useAIChatPage() {
+  const { t } = useI18n()
   const router = useRouter()
   const route = useRoute()
   const kbStore = useKnowledgeBaseStore()
@@ -146,16 +148,16 @@ export function useAIChatPage() {
 
   function copyMessage(content: string) {
     navigator.clipboard.writeText(content).then(() => {
-      ElMessage.success('已复制到剪贴板')
+      ElMessage.success(t('aiChat.msgCopiedToClipboard'))
     })
   }
 
   function copyConversation() {
     const text = chatStore.messages
-      .map(m => `${m.role === 'user' ? '你' : 'AI'}:\n${m.content}`)
+      .map(m => `${m.role === 'user' ? t('aiChat.rolePrefix') : 'AI'}:\n${m.content}`)
       .join('\n\n')
     navigator.clipboard.writeText(text).then(() => {
-      ElMessage.success('对话已复制')
+      ElMessage.success(t('aiChat.msgConversationCopied'))
     })
   }
 
@@ -194,9 +196,9 @@ export function useAIChatPage() {
         ...savedStrategyIds.value,
         [index]: created.id,
       }
-      ElMessage.success(`策略已保存：${created.name}`)
+      ElMessage.success(t('aiChat.msgStrategySaved', { name: created.name }))
     } catch {
-      ElMessage.error('保存策略失败，请稍后重试')
+      ElMessage.error(t('aiChat.msgStrategySaveFailed'))
     } finally {
       savingStrategyIndex.value = null
     }
@@ -219,18 +221,18 @@ export function useAIChatPage() {
       }
       showAddToWorkspaceDialog.value = true
     } catch {
-      ElMessage.error('加载工作区失败，请稍后重试')
+      ElMessage.error(t('aiChat.msgLoadWorkspaceFailed'))
     }
   }
 
   async function handleConfirmAddToWorkspace(runBacktest = false) {
     if (!pendingWorkspaceDraft.value || pendingWorkspaceDraftIndex.value === null) return
     if (!workspaceDraftForm.value.workspaceId) {
-      ElMessage.warning('请选择工作区')
+      ElMessage.warning(t('aiChat.selectWorkspacePrompt'))
       return
     }
     if (!workspaceDraftForm.value.symbol.trim()) {
-      ElMessage.warning('请输入标的代码')
+      ElMessage.warning(t('aiChat.msgEnterSymbol'))
       return
     }
 
@@ -277,7 +279,7 @@ export function useAIChatPage() {
           report: response.report ?? null,
         }, draft)
         resetWorkspaceDraftState()
-        ElMessage.success(`已添加并触发回测：${response.unit.strategy_name}`)
+        ElMessage.success(t('aiChat.msgAddedAndBacktest', { name: response.unit.strategy_name }))
         return
       }
 
@@ -299,10 +301,10 @@ export function useAIChatPage() {
         lastTaskId: response.unit.last_task_id,
       })
       resetWorkspaceDraftState()
-      ElMessage.success(`已添加到工作区：${response.unit.strategy_name}`)
+      ElMessage.success(t('aiChat.msgAddedToWorkspace', { name: response.unit.strategy_name }))
     } catch {
       addingToWorkspace.value = false
-      ElMessage.error('添加到工作区失败，请稍后重试')
+      ElMessage.error(t('aiChat.msgAddToWorkspaceFailed'))
     }
   }
 
@@ -335,7 +337,7 @@ export function useAIChatPage() {
         modelId: selectedSessionModelKey.value || undefined,
       })
     } catch (error) {
-      ElMessage.error(getErrorMessage(error, '发送失败，请检查知识库或 AI 模型配置'))
+      ElMessage.error(getErrorMessage(error, t('aiChat.msgSendFailedKbOrModel')))
     }
   }
 
@@ -355,11 +357,11 @@ export function useAIChatPage() {
 
   async function handleJumpToCitation(documentId?: string | null) {
     if (!documentId) {
-      ElMessage.warning('引用缺少文档信息，暂无法跳转')
+      ElMessage.warning(t('aiChat.msgCitationMissingDoc'))
       return
     }
     if (!currentKnowledgeBaseId.value) {
-      ElMessage.warning('请先选择知识库')
+      ElMessage.warning(t('aiChat.selectKnowledgeBaseFirst'))
       return
     }
     await router.push({
@@ -382,12 +384,12 @@ export function useAIChatPage() {
       try {
         await kbStore.selectKnowledgeBase(value)
       } catch (error) {
-        ElMessage.error(getErrorMessage(error, '加载知识库文档失败'))
+        ElMessage.error(getErrorMessage(error, t('aiChat.msgLoadKbDocsFailed')))
       }
       try {
         await chatStore.fetchConversations(value)
       } catch (error) {
-        ElMessage.error(getErrorMessage(error, '加载会话列表失败'))
+        ElMessage.error(getErrorMessage(error, t('aiChat.msgLoadConversationsFailed')))
       }
     }
   })

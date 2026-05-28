@@ -534,6 +534,21 @@ export default {
     aroundKnowledgeBase: '围绕知识库',
     draftAndStrategyReview: '草稿和策略审查组织对话',
     assistantMode: '助手',
+    // Composable messages
+    msgCopiedToClipboard: '已复制到剪贴板',
+    msgConversationCopied: '对话已复制',
+    msgStrategySaved: '策略已保存：{name}',
+    msgStrategySaveFailed: '保存策略失败，请稍后重试',
+    msgLoadWorkspaceFailed: '加载工作区失败，请稍后重试',
+    msgEnterSymbol: '请输入标的代码',
+    msgAddedAndBacktest: '已添加并触发回测：{name}',
+    msgAddedToWorkspace: '已添加到工作区：{name}',
+    msgAddToWorkspaceFailed: '添加到工作区失败，请稍后重试',
+    msgSendFailedKbOrModel: '发送失败，请检查知识库或 AI 模型配置',
+    msgCitationMissingDoc: '引用缺少文档信息，暂无法跳转',
+    msgLoadKbDocsFailed: '加载知识库文档失败',
+    msgLoadConversationsFailed: '加载会话列表失败',
+    rolePrefix: '你',
   },
 
   // 工作区列表（/backtest 路由）

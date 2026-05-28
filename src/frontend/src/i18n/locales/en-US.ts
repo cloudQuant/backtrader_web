@@ -534,6 +534,21 @@ export default {
     aroundKnowledgeBase: 'centered on the knowledge base',
     draftAndStrategyReview: 'organising drafts and strategy review',
     assistantMode: 'Assistant',
+    // Composable messages
+    msgCopiedToClipboard: 'Copied to clipboard',
+    msgConversationCopied: 'Conversation copied',
+    msgStrategySaved: 'Strategy saved: {name}',
+    msgStrategySaveFailed: 'Failed to save strategy, please retry',
+    msgLoadWorkspaceFailed: 'Failed to load workspaces, please retry',
+    msgEnterSymbol: 'Please enter a symbol code',
+    msgAddedAndBacktest: 'Added and triggered backtest: {name}',
+    msgAddedToWorkspace: 'Added to workspace: {name}',
+    msgAddToWorkspaceFailed: 'Failed to add to workspace, please retry',
+    msgSendFailedKbOrModel: 'Send failed; check knowledge base or AI model configuration',
+    msgCitationMissingDoc: 'Citation missing document info, jump unavailable',
+    msgLoadKbDocsFailed: 'Failed to load knowledge base documents',
+    msgLoadConversationsFailed: 'Failed to load conversation list',
+    rolePrefix: 'You',
   },
 
   // Workspace list (/backtest route)
