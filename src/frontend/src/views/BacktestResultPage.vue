@@ -32,10 +32,10 @@
       </p>
       <el-button
         class="mt-4"
-        :aria-label="'重试'"
+        :aria-label="t('backtest.retry')"
         @click="loadData"
       >
-        重试
+        {{ t('backtest.retry') }}
       </el-button>
     </div>
     
@@ -62,30 +62,30 @@
         <div class="flex gap-2">
           <el-button
             v-if="isOptimizationArtifactMode"
-            :aria-label="t('common.action') + ': open artifact dir'"
+            :aria-label="t('backtest.openArtifact')"
             @click="handleOpenArtifactDir"
           >
             <el-icon aria-hidden="true">
               <FolderOpened />
-            </el-icon>{{ t('common.action') }} artifact
+            </el-icon>{{ t('backtest.openArtifact') }}
           </el-button>
           <el-button
             v-if="isOptimizationArtifactMode"
-            :aria-label="t('common.action') + ': download'"
+            :aria-label="t('backtest.download')"
             @click="handleDownloadArtifact"
           >
             <el-icon aria-hidden="true">
               <Download />
-            </el-icon>{{ '下载结果' }}
+            </el-icon>{{ t('backtest.downloadResult') }}
           </el-button>
           <el-button
             v-if="!isOptimizationArtifactMode"
-            :aria-label="t('common.action') + ': export CSV'"
+            :aria-label="t('backtest.exportCSV')"
             @click="handleExport('csv')"
           >
             <el-icon aria-hidden="true">
               <Download />
-            </el-icon>导出CSV
+            </el-icon>{{ t('backtest.exportCSV') }}
           </el-button>
           <el-button
             type="primary"
@@ -131,7 +131,7 @@
         class="mb-6"
       >
         <el-tab-pane
-          label="K线图"
+          :label="t('backtest.chartKline')"
           name="kline"
         >
           <el-card>
@@ -145,7 +145,7 @@
         </el-tab-pane>
         
         <el-tab-pane
-          label="资金曲线"
+          :label="t('backtest.chartEquity')"
           name="equity"
         >
           <el-card v-if="activeTab === 'equity'">
@@ -163,7 +163,7 @@
         </el-tab-pane>
         
         <el-tab-pane
-          label="收益分析"
+          :label="t('backtest.chartAnalysis')"
           name="analysis"
         >
           <div
@@ -180,7 +180,7 @@
             <el-card>
               <div class="p-4">
                 <h4 class="text-md font-medium mb-3">
-                  年度收益汇总
+                  {{ t('backtest.annualSummary') }}
                 </h4>
                 <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2 max-h-48 overflow-y-auto">
                   <div 
@@ -203,7 +203,7 @@
         </el-tab-pane>
         
         <el-tab-pane
-          label="交易记录"
+          :label="t('backtest.chartTrades')"
           name="trades"
         >
           <el-card>
@@ -341,7 +341,7 @@ async function loadData() {
     }
     
   } catch (e: unknown) {
-    error.value = getErrorMessage(e, '加载失败')
+    error.value = getErrorMessage(e, t('backtest.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -385,7 +385,7 @@ async function handleOpenArtifactDir() {
     artifactPath = artifact.artifact_path
   }
   if (!artifactPath) {
-    ElMessage.warning('未找到本地 artifact 目录')
+    ElMessage.warning(t('backtest.artifactNotFound'))
     return
   }
   try {
@@ -396,7 +396,7 @@ async function handleOpenArtifactDir() {
     // Silently ignore clipboard errors
   }
   window.open(`file://${encodeURI(artifactPath.replace(/\\/g, '/'))}`, '_blank', 'noopener')
-  ElMessage.success('已尝试打开 artifact 目录，并复制路径到剪贴板')
+  ElMessage.success(t('backtest.artifactOpened'))
 }
 
 async function handleDownloadArtifact() {

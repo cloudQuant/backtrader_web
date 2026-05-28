@@ -296,6 +296,20 @@ export default {
     maxDrawdown: 'Max Drawdown',
     createdAt: 'Created At',
     cancelled: 'Cancelled',
+    // 175 §5.8 / 176 § C — BacktestResultPage extension
+    retry: 'Retry',
+    download: 'Download',
+    downloadResult: 'Download Result',
+    exportCSV: 'Export CSV',
+    chartKline: 'K-line',
+    chartEquity: 'Equity Curve',
+    chartAnalysis: 'Returns Analysis',
+    chartTrades: 'Trade Records',
+    annualSummary: 'Annual Returns Summary',
+    loadFailed: 'Failed to load',
+    artifactNotFound: 'Local artifact directory not found',
+    artifactOpened: 'Tried to open artifact directory and copied path to clipboard',
+    openArtifact: 'Open Artifact Directory',
   },
 
   // Errors

@@ -296,6 +296,20 @@ export default {
     maxDrawdown: '最大回撤',
     createdAt: '创建时间',
     cancelled: '已取消',
+    // 175 §5.8 / 176 § C — BacktestResultPage extension
+    retry: '重试',
+    download: '下载',
+    downloadResult: '下载结果',
+    exportCSV: '导出CSV',
+    chartKline: 'K线图',
+    chartEquity: '资金曲线',
+    chartAnalysis: '收益分析',
+    chartTrades: '交易记录',
+    annualSummary: '年度收益汇总',
+    loadFailed: '加载失败',
+    artifactNotFound: '未找到本地 artifact 目录',
+    artifactOpened: '已尝试打开 artifact 目录，并复制路径到剪贴板',
+    openArtifact: '打开 artifact 目录',
   },
 
   // 错误消息

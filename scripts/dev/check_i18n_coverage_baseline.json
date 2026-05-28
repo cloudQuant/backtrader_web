@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 175 §4 advisory baseline. The strict scan finds 15534 violations at the latest commit. Most are false positives (HTML element/attribute names, type literal strings detected as 'long English literals' by the conservative scanner). The CJK violation subset is ~1797 — these are the actual zh-CN literals that need extracting to i18n keys. The CI gate runs in advisory mode (warning only) until the count reaches 0. Set CHECK_I18N_STRICT_BLOCKING=true in the frontend-lint CI step to force-block. Once violations reach 0, this baseline file can be deleted.",
-  "baseline_violations": 15534,
-  "baseline_cjk_violations": 1797,
-  "baseline_commit": "175-close-pass-4",
+  "_comment": "Iteration 175 §4 advisory baseline. The strict scan finds 15523 violations at the latest commit. Most are false positives (HTML element/attribute names, type literal strings detected as 'long English literals' by the conservative scanner). The CJK violation subset is ~1786 — these are the actual zh-CN literals that need extracting to i18n keys. The CI gate runs in advisory mode (warning only) until the count reaches 0. Set CHECK_I18N_STRICT_BLOCKING=true in the frontend-lint CI step to force-block. Once violations reach 0, this baseline file can be deleted.",
+  "baseline_violations": 15523,
+  "baseline_cjk_violations": 1786,
+  "baseline_commit": "175-close-pass-5",
   "baseline_date": "2026-05-28",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -12,6 +12,7 @@
     {"commit": "03060f9e", "date": "2026-05-28-pm", "violations": 15593, "cjk": 1859, "note": "WorkspaceListPage zh literals extracted (~30 -> workspace.* i18n keys); aria-label additions slightly increased English literal count"},
     {"commit": "0ee91e07", "date": "2026-05-28-pm", "violations": 15593, "cjk": 1859, "note": "A11y fixes on remaining 4 critical pages (no zh extraction)"},
     {"commit": "cc445b0c", "date": "2026-05-28-pm", "violations": 15554, "cjk": 1820, "note": "StrategyPage zh literals extracted (~50 -> strategy.* i18n keys); main page-visible CJK now 0 (only HTML comments remain)"},
-    {"commit": "175-close-pass-4", "date": "2026-05-28-pm", "violations": 15534, "cjk": 1797, "note": "AIChatPage zh literals extracted (~50 -> aiChat.* i18n keys); 7/7 Critical_Page_Set now have 0 user-visible CJK"}
+    {"commit": "23df23dc", "date": "2026-05-28-pm", "violations": 15534, "cjk": 1797, "note": "AIChatPage zh literals extracted (~50 -> aiChat.* i18n keys); 7/7 Critical_Page_Set now have 0 user-visible CJK on main flow"},
+    {"commit": "175-close-pass-5", "date": "2026-05-28-pm", "violations": 15523, "cjk": 1786, "note": "BacktestResultPage zh literals extracted (~16 -> backtest.* extension); page now zh-clean except HTML comments"}
   ]
 }
