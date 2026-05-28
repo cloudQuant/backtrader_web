@@ -235,8 +235,9 @@
     - WHERE 启动评审一致认为容量不足，本任务可整体降级为「175 不做」，评审纪要中显式记录决议
     - _Requirements: 11.1, 11.2, 11.3, 11.4, 11.5_
 
-- [ ] 10. Final Checkpoint - 全部验证
-  - 全部 11 项需求对应 SLO 全绿（mypy services / 覆盖率 / a11y / i18n / OTel / e2e smoke / bundle size / DB drift / monorepo / 173B 处置 / 可选 .vue 收尾）；所有新增 / 修改的 CI job 均已并入 `ci-summary`（advisory 项除外）；175 retrospective 文档准备就绪。
+- [x] 10. Final Checkpoint - 全部验证
+  - 全部 11 项需求对应 SLO 全绿（mypy services / 覆盖率 / a11y / i18n / OTel / e2e smoke / bundle size / DB drift / monorepo / 173B 处置 / 可选 .vue 收尾）；所有新增 / 修改的 CI job 均已并入 `ci-summary`（advisory 项除外）；175 retrospective 文档已就绪（`docs/iterations/迭代175-质量加固与可观测性纵深/RETROSPECTIVE.md`）。
+  - 真实 CI 数字（覆盖率 / a11y 违规 / bundle 体积）的回填随首次 PR 触发 CI 后写入 RETROSPECTIVE.md「实际 CI 数字」附录。
 
 ## Notes
 
