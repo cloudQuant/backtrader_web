@@ -1,6 +1,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 
 import type {
   KBDocumentItem,
@@ -15,6 +16,7 @@ type BulkMode = 'publish' | 'draft' | 'move_root' | 'mark_not_indexed' | 'delete
 export type TreeRow = KBDocumentItem & { depth: number }
 
 export function useKnowledgeBasePage() {
+  const { t } = useI18n()
   const route = useRoute()
   const router = useRouter()
   const store = useKnowledgeBaseStore()
@@ -163,11 +165,11 @@ export function useKnowledgeBasePage() {
   const allVisibleSelected = computed(() => visibleRows.value.length > 0 && visibleRows.value.every(doc => selectedDocumentIds.value.has(doc.id)))
   const bulkDialogMessage = computed(() => {
     const count = selectedDocumentIds.value.size
-    if (bulkDialog.mode === 'publish') return `确认将 ${count} 项设为 published 吗？`
-    if (bulkDialog.mode === 'draft') return `确认将 ${count} 项设为 draft 吗？`
-    if (bulkDialog.mode === 'move_root') return `确认将 ${count} 项移动到根目录吗？`
-    if (bulkDialog.mode === 'mark_not_indexed') return `确认将 ${count} 项标记为 not_indexed 吗？`
-    return `确认删除 ${count} 项吗？`
+    if (bulkDialog.mode === 'publish') return t('kb.msgConfirmSetAs', { n: count }) + ' published'
+    if (bulkDialog.mode === 'draft') return t('kb.msgConfirmSetAs', { n: count }) + ' draft'
+    if (bulkDialog.mode === 'move_root') return t('kb.msgConfirmMoveToRoot', { n: count })
+    if (bulkDialog.mode === 'mark_not_indexed') return t('kb.msgConfirmMarkAs', { n: count }) + ' not_indexed'
+    return t('kb.msgConfirmDelete') + ` ${count}?`
   })
 
   function statusClass(status: string) {
@@ -183,30 +185,30 @@ export function useKnowledgeBasePage() {
   }
 
   function formatDate(value?: string | null) {
-    if (!value) return '未知时间'
+    if (!value) return t('kb.msgUnknownTime')
     return value.replace('T', ' ').slice(0, 16)
   }
 
   function retrievalProfileLabel(profile?: string | null) {
-    if (profile === 'precision') return '高精度引用'
-    if (profile === 'exploration') return '探索式阅读'
-    return '量化研究平衡'
+    if (profile === 'precision') return t('kb.profilePrecision')
+    if (profile === 'exploration') return t('kb.profileExploration')
+    return t('kb.profileQuantBalance')
   }
 
   function documentInsight(doc: KBDocumentItem) {
-    if (doc.is_folder) return '文件夹'
+    if (doc.is_folder) return t('kb.statFolders')
     const length = (doc.content ?? '').length
-    if (length > 4000) return '长文档'
-    if (length > 0) return '正文已迁移'
-    return '等待补充内容'
+    if (length > 4000) return t('kb.msgLongDoc')
+    if (length > 0) return t('kb.msgBodyMigrated')
+    return t('kb.msgPendingContent')
   }
 
   function insightChip(doc: KBDocumentItem) {
-    if (doc.is_folder) return '📁 结构'
-    if (doc.index_status === 'indexed') return '✨ 已索引'
-    if ((doc.content ?? '').length > 4000) return '📚 长文'
-    if ((doc.content ?? '').length > 0) return '📝 正文'
-    return '⏳ 待补充'
+    if (doc.is_folder) return '📁 ' + t('kb.msgStructure')
+    if (doc.index_status === 'indexed') return '✨ ' + t('kb.statIndexed')
+    if ((doc.content ?? '').length > 4000) return '📚 ' + t('kb.msgLongText')
+    if ((doc.content ?? '').length > 0) return '📝 ' + t('kb.msgBody')
+    return '⏳ ' + t('kb.msgPlaceholder')
   }
 
   function toggleFolder(folderId: string) {
@@ -268,7 +270,7 @@ export function useKnowledgeBasePage() {
     for (const [index, doc] of reordered.entries()) {
       await store.updateDocument(doc.id, { sort_order: index, parent_id: parentId })
     }
-    ElMessage.success('已更新树节点顺序')
+    ElMessage.success(t('kb.msgTreeOrderUpdated'))
   }
 
   function openCreateDialog(isFolder: boolean, parentId: string | null = null) {
@@ -285,11 +287,11 @@ export function useKnowledgeBasePage() {
 
   async function submitCreateDialog() {
     if (!store.currentKnowledgeBase) {
-      ElMessage.warning('请先选择知识库')
+      ElMessage.warning(t('kb.msgSelectKbFirst'))
       return
     }
     if (!createDialog.title.trim()) {
-      ElMessage.warning('请输入名称')
+      ElMessage.warning(t('kb.msgEnterName'))
       return
     }
     const created = await store.createDocument({
@@ -302,7 +304,7 @@ export function useKnowledgeBasePage() {
     if (created) {
       selectedDocumentId.value = created.id
       if (created.is_folder) expandedFolderIds.value = new Set([...expandedFolderIds.value, created.id])
-      ElMessage.success(created.is_folder ? '文件夹已创建' : '文档已创建')
+      ElMessage.success(created.is_folder ? t('kb.msgFolderCreated') : t('kb.msgDocCreated'))
       closeCreateDialog()
     }
   }
@@ -321,11 +323,11 @@ export function useKnowledgeBasePage() {
 
   async function submitRenameDialog() {
     if (!renameDialog.target || !renameDialog.title.trim()) {
-      ElMessage.warning('请输入新的名称')
+      ElMessage.warning(t('kb.msgEnterNewName'))
       return
     }
     await store.updateDocument(renameDialog.target.id, { title: renameDialog.title.trim() })
-    ElMessage.success('名称已更新')
+    ElMessage.success(t('kb.msgNameUpdated'))
     closeRenameDialog()
   }
 
@@ -341,11 +343,11 @@ export function useKnowledgeBasePage() {
 
   async function submitImportDialog() {
     if (!store.currentKnowledgeBase) {
-      ElMessage.warning('请先选择知识库')
+      ElMessage.warning(t('kb.msgSelectKbFirst'))
       return
     }
     if (!importDialog.title.trim()) {
-      ElMessage.warning('请输入导入文档标题')
+      ElMessage.warning(t('kb.msgEnterImportTitle'))
       return
     }
     const created = await store.createDocument({
@@ -357,14 +359,14 @@ export function useKnowledgeBasePage() {
     })
     if (created) {
       selectedDocumentId.value = created.id
-      ElMessage.success('文档已导入到当前知识库')
+      ElMessage.success(t('kb.msgImported'))
       closeImportDialog()
     }
   }
 
   function openBulkActionDialog(mode: BulkMode) {
     if (!selectedDocumentIds.value.size) {
-      ElMessage.warning('请先选择文档')
+      ElMessage.warning(t('kb.msgSelectDocFirst'))
       return
     }
     bulkDialog.open = true
@@ -378,35 +380,35 @@ export function useKnowledgeBasePage() {
   async function submitBulkDialog() {
     const ids = [...selectedDocumentIds.value]
     if (!ids.length) {
-      ElMessage.warning('请先选择文档')
+      ElMessage.warning(t('kb.msgSelectDocFirst'))
       return
     }
     if (bulkDialog.mode === 'publish') {
       for (const id of ids) {
         await store.updateDocument(id, { status: 'published' })
       }
-      ElMessage.success(`已发布 ${ids.length} 项`)
+      ElMessage.success(t('kb.msgPublishedN', { n: ids.length }))
     } else if (bulkDialog.mode === 'draft') {
       for (const id of ids) {
         await store.updateDocument(id, { status: 'draft' })
       }
-      ElMessage.success(`已设为草稿 ${ids.length} 项`)
+      ElMessage.success(t('kb.msgSetDraftN', { n: ids.length }))
     } else if (bulkDialog.mode === 'move_root') {
       for (const id of ids) {
         await store.updateDocument(id, { parent_id: null })
       }
-      ElMessage.success(`已移动 ${ids.length} 项到根目录`)
+      ElMessage.success(t('kb.msgMovedNToRoot', { n: ids.length }))
     } else if (bulkDialog.mode === 'mark_not_indexed') {
       for (const id of ids) {
         await store.updateDocument(id, { index_status: 'not_indexed' })
       }
-      ElMessage.success(`已标记 ${ids.length} 项为未索引`)
+      ElMessage.success(t('kb.msgMarkedN', { n: ids.length }))
     } else {
       for (const id of ids) {
         await store.deleteDocument(id)
       }
       clearSelection()
-      ElMessage.success(`已删除 ${ids.length} 项`)
+      ElMessage.success(t('kb.msgDeletedN', { n: ids.length }))
     }
     closeBulkDialog()
   }
@@ -426,20 +428,20 @@ export function useKnowledgeBasePage() {
     await store.deleteDocument(deleteDialog.target.id)
     selectedDocumentIds.value.delete(deleteDialog.target.id)
     if (selectedDocumentId.value === deleteDialog.target.id) selectedDocumentId.value = null
-    ElMessage.success('文档已删除')
+    ElMessage.success(t('kb.msgDocDeleted'))
     closeDeleteDialog()
   }
 
   async function handleBatchCopyTitles() {
     if (!sortedDocuments.value.length) {
-      ElMessage.warning('当前没有可复制的文档标题')
+      ElMessage.warning(t('kb.msgNoTitlesToCopy'))
       return
     }
     try {
       await navigator.clipboard.writeText(sortedDocuments.value.map(doc => doc.title).join('\n'))
-      ElMessage.success(`已复制 ${sortedDocuments.value.length} 条文档标题`)
+      ElMessage.success(t('kb.msgCopiedN', { n: sortedDocuments.value.length }))
     } catch {
-      ElMessage.warning('复制失败，请检查浏览器剪贴板权限')
+      ElMessage.warning(t('kb.msgCopyFailed'))
     }
   }
 
@@ -450,9 +452,9 @@ export function useKnowledgeBasePage() {
   async function handleCopyNodeTitle(row: KBDocumentItem) {
     try {
       await navigator.clipboard.writeText(row.title)
-      ElMessage.success('已复制文档标题')
+      ElMessage.success(t('kb.msgTitleCopied'))
     } catch {
-      ElMessage.warning('复制失败，请检查浏览器剪贴板权限')
+      ElMessage.warning(t('kb.msgCopyFailed'))
     }
   }
 
@@ -470,13 +472,13 @@ export function useKnowledgeBasePage() {
 
   async function submitKnowledgeBaseRenameDialog() {
     if (!knowledgeBaseRenameDialog.target || !knowledgeBaseRenameDialog.name.trim()) {
-      ElMessage.warning('请输入新的知识库名称')
+      ElMessage.warning(t('kb.msgEnterKbName'))
       return
     }
     await store.updateKnowledgeBase(knowledgeBaseRenameDialog.target.id, {
       name: knowledgeBaseRenameDialog.name.trim(),
     })
-    ElMessage.success('知识库名称已更新')
+    ElMessage.success(t('kb.msgKbNameUpdated'))
     closeKnowledgeBaseRenameDialog()
   }
 
@@ -500,7 +502,7 @@ export function useKnowledgeBasePage() {
 
   async function submitKnowledgeBaseSettingsDialog() {
     if (!store.currentKnowledgeBase) {
-      ElMessage.warning('请先选择知识库')
+      ElMessage.warning(t('kb.msgSelectKbFirst'))
       return
     }
     const settingsPayload = {
@@ -517,7 +519,7 @@ export function useKnowledgeBasePage() {
     await store.updateKnowledgeBase(store.currentKnowledgeBase.id, {
       settings: settingsPayload,
     })
-    ElMessage.success('检索配置已更新')
+    ElMessage.success(t('kb.msgRetrievalUpdated'))
     closeKnowledgeBaseSettingsDialog()
   }
 
@@ -532,7 +534,7 @@ export function useKnowledgeBasePage() {
     }
     const deletedId = knowledgeBaseDeleteDialog.target.id
     await store.deleteKnowledgeBase(deletedId)
-    ElMessage.success('知识库已删除')
+    ElMessage.success(t('kb.msgKbDeleted'))
     if (selectedDocumentId.value && !store.currentKnowledgeBase) {
       selectedDocumentId.value = null
     }
@@ -541,7 +543,7 @@ export function useKnowledgeBasePage() {
 
   async function handleMoveToRoot(row: KBDocumentItem) {
     await store.updateDocument(row.id, { parent_id: null })
-    ElMessage.success('已移动到根目录')
+    ElMessage.success(t('kb.msgMovedToRoot'))
   }
 
   async function handleSelectKnowledgeBase(id: string) {
