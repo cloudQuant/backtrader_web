@@ -15,12 +15,12 @@
     <div class="message-body">
       <div class="message-head">
         <div>
-          <span class="message-author">{{ message.role === 'assistant' ? 'AI 助手' : '你' }}</span>
+          <span class="message-author">{{ message.role === 'assistant' ? t('aiChat.aiAssistant') : t('aiChat.rolePrefix') }}</span>
           <span
             v-if="message.role === 'assistant' && message.citations?.length"
             class="message-badge"
           >
-            {{ message.citations.length }} 条引用
+            {{ t('aiChat.citationsCount', { n: message.citations.length }) }}
           </span>
           <span
             v-if="message.role === 'assistant' && message.strategyDraft"
@@ -30,13 +30,13 @@
               warning: Boolean(getStrategyDraftIssue(message.strategyDraft)),
             }"
           >
-            {{ getStrategyDraftIssue(message.strategyDraft) ? '草稿待补全' : '可保存为策略' }}
+            {{ getStrategyDraftIssue(message.strategyDraft) ? t('aiChat.draftPending') : t('aiChat.canSaveAsStrategy') }}
           </span>
         </div>
         <el-button
           circle
           size="small"
-          title="复制消息"
+          :title="t('aiChat.copyMessage')"
           @click="emit('copyMessage', message.content)"
         >
           <el-icon><CopyDocument /></el-icon>
@@ -63,24 +63,24 @@
         class="retrieval-box"
       >
         <div class="section-kicker">
-          检索诊断
+          {{ t('aiChat.retrievalDiagnostics') }}
         </div>
         <div class="retrieval-meta">
           <span>{{ retrievalProfileLabel(message.diagnostics.retrieval_profile) }}</span>
           <span>{{ message.diagnostics.search_mode }}</span>
           <span>top_k {{ message.diagnostics.applied_top_k }}</span>
-          <span>阈值 {{ message.diagnostics.applied_min_similarity }}</span>
+          <span>{{ t('aiChat.threshold') }} {{ message.diagnostics.applied_min_similarity }}</span>
         </div>
         <div class="retrieval-query">
-          <strong>实际检索查询：</strong>{{ message.diagnostics.search_query }}
+          <strong>{{ t('aiChat.actualQuery') }}:</strong>{{ message.diagnostics.search_query }}
         </div>
         <div class="retrieval-meta">
-          <span v-if="message.diagnostics.query_rewritten">已重写查询</span>
+          <span v-if="message.diagnostics.query_rewritten">{{ t('aiChat.queryRewritten') }}</span>
           <span>
-            索引覆盖
+            {{ t('aiChat.indexCoverage') }}
             {{ message.diagnostics.indexed_documents ?? 0 }}/{{ message.diagnostics.total_indexable_documents ?? 0 }}
           </span>
-          <span>历史消息 {{ message.diagnostics.history_messages_used ?? 0 }}</span>
+          <span>{{ t('aiChat.historyMsgs') }} {{ message.diagnostics.history_messages_used ?? 0 }}</span>
         </div>
       </section>
 
@@ -107,7 +107,7 @@
         class="reasoning-box"
       >
         <div class="section-kicker">
-          分析摘要
+          {{ t('aiChat.analysisSummary') }}
         </div>
         <div>{{ message.reasoning }}</div>
       </section>
@@ -123,6 +123,7 @@
 
 <script setup lang="ts">
 import { CopyDocument, Cpu, UserFilled } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 
 import type { DraftWorkspaceExecutionState } from '@/composables/useStrategyDraftWorkspaceExecution'
 import type { KBChatMessage } from '@/stores/kbChat'
@@ -133,6 +134,8 @@ import {
 } from '@/composables/useAIChatRendering'
 import CitationList from './CitationList.vue'
 import StrategyDraftCard from './StrategyDraftCard.vue'
+
+const { t } = useI18n()
 
 defineProps<{
   message: KBChatMessage

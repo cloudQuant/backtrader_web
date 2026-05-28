@@ -1,11 +1,11 @@
 <template>
   <section
     class="citation-box"
-    :aria-label="'参考文档'"
+    :aria-label="t('aiChat.referenceDocs')"
   >
     <div class="citation-head">
-      <span>参考文档</span>
-      <span>{{ citations.length }} 条引用</span>
+      <span>{{ t('aiChat.referenceDocs') }}</span>
+      <span>{{ t('aiChat.citationsCount', { n: citations.length }) }}</span>
     </div>
     <button
       v-for="(citation, index) in citations"
@@ -15,7 +15,7 @@
       data-test="citation-chip"
       :href="citation.document_id ? `#document-${citation.document_id}` : undefined"
       :disabled="!citation.document_id"
-      :aria-label="`引用 ${index + 1}: ${getCitationTitle(citation)}`"
+      :aria-label="t('aiChat.citationLabel', { index: index + 1, title: getCitationTitle(citation) })"
       @click="emit('jump', citation.document_id)"
     >
       <span
@@ -39,6 +39,7 @@
 
 <script setup lang="ts">
 import { Link } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 
 import type { KBCitation } from '@/api/kbChat'
 import {
@@ -47,6 +48,8 @@ import {
   getCitationSimilarity,
   getCitationTitle,
 } from '@/composables/useAIChatRendering'
+
+const { t } = useI18n()
 
 defineProps<{
   citations: KBCitation[]

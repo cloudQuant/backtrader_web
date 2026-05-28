@@ -6,8 +6,8 @@
           {{ draft.name }}
         </div>
         <div class="draft-meta">
-          {{ draft.category || '未分类' }}
-          / {{ getDraftParamCount(draft) }} 个参数
+          {{ draft.category || t('aiChat.uncategorized') }}
+          / {{ t('aiChat.paramCount', { n: getDraftParamCount(draft) }) }}
           <span v-if="draft.suggested_timeframe">
             / {{ draft.suggested_timeframe }}
           </span>
@@ -21,7 +21,7 @@
           @click="emit('save')"
         >
           <el-icon><Document /></el-icon>
-          {{ saved ? '已保存到策略中心' : saving ? '保存中...' : '保存为策略' }}
+          {{ saved ? t('aiChat.savedToCenter') : saving ? t('aiChat.saving') : t('aiChat.saveAsStrategy') }}
         </el-button>
         <el-button
           size="small"
@@ -29,7 +29,7 @@
           @click="emit('addToWorkspace')"
         >
           <el-icon><Aim /></el-icon>
-          {{ added ? '已添加到工作区' : '添加到工作区' }}
+          {{ added ? t('aiChat.addedToWorkspace') : t('aiChat.addToWorkspace') }}
         </el-button>
         <el-button
           v-if="execution"
@@ -38,7 +38,7 @@
           @click="emit('runBacktest')"
         >
           <el-icon><Promotion /></el-icon>
-          {{ runningBacktest ? '回测提交中...' : '一键回测' }}
+          {{ runningBacktest ? t('aiChat.backtestSubmitting') : t('aiChat.runOneClickBacktest') }}
         </el-button>
         <el-button
           v-if="execution"
@@ -47,7 +47,7 @@
           @click="emit('refreshExecution')"
         >
           <el-icon><Refresh /></el-icon>
-          {{ refreshingStatus ? '刷新中...' : '刷新状态' }}
+          {{ refreshingStatus ? t('aiChat.refreshing') : t('aiChat.refreshStatus') }}
         </el-button>
         <el-button
           v-if="execution"
@@ -56,14 +56,14 @@
           @click="emit('generateReport')"
         >
           <el-icon><DataAnalysis /></el-icon>
-          {{ generatingReport ? '生成中...' : '生成报告' }}
+          {{ generatingReport ? t('aiChat.generatingReport') : t('aiChat.generateReport') }}
         </el-button>
         <el-button
           size="small"
           @click="emit('copyCode')"
         >
           <el-icon><CopyDocument /></el-icon>
-          复制代码
+          {{ t('aiChat.copyCode') }}
         </el-button>
       </div>
     </div>
@@ -83,10 +83,10 @@
     </p>
 
     <div class="draft-stats">
-      <span>数据源 {{ getDraftDataSourceType(draft) }}</span>
-      <span>周期 {{ getDraftTimeframe(draft) }}</span>
-      <span>资金 {{ getDraftInitialCash(draft) }}</span>
-      <span>手续费 {{ getDraftCommission(draft) }}</span>
+      <span>{{ t('aiChat.dataSourcePrefix') }} {{ getDraftDataSourceType(draft) }}</span>
+      <span>{{ t('aiChat.timeframePrefix') }} {{ getDraftTimeframe(draft) }}</span>
+      <span>{{ t('aiChat.cashPrefix') }} {{ getDraftInitialCash(draft) }}</span>
+      <span>{{ t('aiChat.commissionPrefix') }} {{ getDraftCommission(draft) }}</span>
     </div>
 
     <div
@@ -95,7 +95,7 @@
     >
       <div class="draft-list-title">
         <el-icon><CircleCheck /></el-icon>
-        关键假设
+        {{ t('aiChat.keyAssumptions') }}
       </div>
       <div
         v-for="item in getDraftAssumptions(draft)"
@@ -111,7 +111,7 @@
     >
       <div class="draft-list-title">
         <el-icon><Warning /></el-icon>
-        风险提示
+        {{ t('aiChat.riskNotes') }}
       </div>
       <div
         v-for="item in getDraftRiskPoints(draft)"
@@ -126,36 +126,36 @@
       class="execution-box"
     >
       <div class="execution-title">
-        工作区执行状态
+        {{ t('aiChat.workspaceExecState') }}
       </div>
-      <div>工作区：{{ execution.workspaceName }}</div>
-      <div>单元ID：{{ execution.unitId }}</div>
-      <div>回测状态：{{ execution.runStatus || '未运行' }}</div>
+      <div>{{ t('aiChat.workspaceLabelInline') }}: {{ execution.workspaceName }}</div>
+      <div>{{ t('aiChat.unitIdLabel') }}: {{ execution.unitId }}</div>
+      <div>{{ t('aiChat.runStatusLabel') }}: {{ execution.runStatus || t('aiChat.notRunning') }}</div>
       <div v-if="execution.lastTaskId">
-        任务ID：{{ execution.lastTaskId }}
+        {{ t('aiChat.taskIdLabel') }}: {{ execution.lastTaskId }}
       </div>
       <div
         v-if="execution.report"
         class="report-box"
       >
         <div class="execution-title">
-          最新报告摘要
+          {{ t('aiChat.latestReportSummary') }}
         </div>
         <div>
-          完成单元：
+          {{ t('aiChat.completedUnits') }}:
           {{ execution.report?.summary.completed_units }}
           / {{ execution.report?.summary.total_units }}
         </div>
-        <div>平均收益：{{ execution.report?.summary.avg_total_return ?? '-' }}</div>
-        <div>平均夏普：{{ execution.report?.summary.avg_sharpe_ratio ?? '-' }}</div>
-        <div>平均回撤：{{ execution.report?.summary.avg_max_drawdown ?? '-' }}</div>
+        <div>{{ t('aiChat.avgReturn') }}: {{ execution.report?.summary.avg_total_return ?? '-' }}</div>
+        <div>{{ t('aiChat.avgSharpe') }}: {{ execution.report?.summary.avg_sharpe_ratio ?? '-' }}</div>
+        <div>{{ t('aiChat.avgDrawdown') }}: {{ execution.report?.summary.avg_max_drawdown ?? '-' }}</div>
       </div>
       <div
         v-if="execution.analysis"
         class="analysis-box"
       >
         <div class="execution-title">
-          AI复盘建议
+          {{ t('aiChat.aiReviewSuggestions') }}
         </div>
         <div>{{ execution.analysis?.summary }}</div>
         <div class="mt-2 font-medium">
@@ -178,6 +178,7 @@ import {
   Refresh,
   Warning,
 } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 
 import type { KBStrategyDraft } from '@/api/kbChat'
 import type { DraftWorkspaceExecutionState } from '@/composables/useStrategyDraftWorkspaceExecution'
@@ -191,6 +192,8 @@ import {
   getDraftTimeframe,
   getStrategyDraftIssue,
 } from '@/composables/useAIChatRendering'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   draft: KBStrategyDraft
