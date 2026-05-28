@@ -25,6 +25,7 @@ from app.schemas.sync import (
     SyncTaskCreateResponse,
     SyncTaskStatus,
 )
+from app.services.sync import transport as sync_transport
 from app.utils.backend_data_paths import get_backend_data_path
 
 settings = get_settings()
@@ -1974,37 +1975,7 @@ class SyncService:
         sync_mode: str,
         password: str,
     ) -> list[str]:
-        args = [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "-h",
-            config.local_mysql_host,
-            "-P",
-            str(config.local_mysql_port),
-            "-u",
-            config.local_mysql_user,
-            f"-p{password}",
-        ]
-        if sync_mode == "schema_only":
-            args.extend(
-                [
-                    "--no-data",
-                    "--skip-comments",
-                    "--skip-dump-date",
-                    "--skip-add-drop-table",
-                    "--skip-add-drop-trigger",
-                    "--skip-triggers",
-                ]
-            )
-        elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
-        else:
-            args.extend(["--routines", "--triggers", "--events"])
-        args.append(database)
-        return args
+        return sync_transport.build_local_mysqldump_args(config, database, sync_mode, password)
 
     def _build_local_table_dump_args(
         self,
@@ -2013,9 +1984,7 @@ class SyncService:
         table: str,
         password: str,
     ) -> list[str]:
-        args = self._build_local_mysqldump_args(config, database, "data_only", password)
-        args.append(table)
-        return args
+        return sync_transport.build_local_table_dump_args(config, database, table, password)
 
     def _build_local_incremental_table_dump_args(
         self,
@@ -2025,25 +1994,9 @@ class SyncService:
         password: str,
         where_sql: str,
     ) -> list[str]:
-        return [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "--no-create-info",
-            "--replace",
-            f"--where={where_sql}",
-            "-h",
-            config.local_mysql_host,
-            "-P",
-            str(config.local_mysql_port),
-            "-u",
-            config.local_mysql_user,
-            f"-p{password}",
-            database,
-            table,
-        ]
+        return sync_transport.build_local_incremental_table_dump_args(
+            config, database, table, password, where_sql
+        )
 
     def _build_local_mysql_query_args(
         self,
@@ -2051,20 +2004,7 @@ class SyncService:
         sql: str,
         password: str,
     ) -> list[str]:
-        return [
-            "mysql",
-            "-h",
-            config.local_mysql_host,
-            "-P",
-            str(config.local_mysql_port),
-            "-u",
-            config.local_mysql_user,
-            f"-p{password}",
-            "-N",
-            "-B",
-            "-e",
-            sql,
-        ]
+        return sync_transport.build_local_mysql_query_args(config, sql, password)
 
     async def _local_database_exists(
         self,
@@ -2140,20 +2080,7 @@ class SyncService:
         password: str,
         force: bool = False,
     ) -> list[str]:
-        args = [
-            "mysql",
-            "-h",
-            config.local_mysql_host,
-            "-P",
-            str(config.local_mysql_port),
-            "-u",
-            config.local_mysql_user,
-            f"-p{password}",
-        ]
-        if force:
-            args.append("--force")
-        args.append(database)
-        return args
+        return sync_transport.build_local_mysql_import_args(config, database, password, force)
 
     def _build_remote_mysqldump_command(
         self,
@@ -2162,36 +2089,7 @@ class SyncService:
         sync_mode: str,
         password: str,
     ) -> str:
-        args = [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-        ]
-        if sync_mode == "schema_only":
-            args.extend(
-                [
-                    "--no-data",
-                    "--skip-comments",
-                    "--skip-dump-date",
-                    "--skip-add-drop-table",
-                    "--skip-add-drop-trigger",
-                    "--skip-triggers",
-                ]
-            )
-        elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
-        else:
-            args.extend(["--routines", "--triggers", "--events"])
-        args.append(database)
-        return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
+        return sync_transport.build_remote_mysqldump_command(config, database, sync_mode, password)
 
     def _build_remote_mysqldump_args(
         self,
@@ -2200,37 +2098,7 @@ class SyncService:
         sync_mode: str,
         password: str,
     ) -> list[str]:
-        args = [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            f"-p{password}",
-        ]
-        if sync_mode == "schema_only":
-            args.extend(
-                [
-                    "--no-data",
-                    "--skip-comments",
-                    "--skip-dump-date",
-                    "--skip-add-drop-table",
-                    "--skip-add-drop-trigger",
-                    "--skip-triggers",
-                ]
-            )
-        elif sync_mode == "data_only":
-            args.extend(["--no-create-info", "--replace", "--skip-triggers"])
-        else:
-            args.extend(["--routines", "--triggers", "--events"])
-        args.append(database)
-        return args
+        return sync_transport.build_remote_mysqldump_args(config, database, sync_mode, password)
 
     def _build_remote_table_dump_args(
         self,
@@ -2239,9 +2107,7 @@ class SyncService:
         table: str,
         password: str,
     ) -> list[str]:
-        args = self._build_remote_mysqldump_args(config, database, "data_only", password)
-        args.append(table)
-        return args
+        return sync_transport.build_remote_table_dump_args(config, database, table, password)
 
     def _build_remote_incremental_table_dump_args(
         self,
@@ -2251,25 +2117,9 @@ class SyncService:
         password: str,
         where_sql: str,
     ) -> list[str]:
-        return [
-            "mysqldump",
-            "--single-transaction",
-            "--skip-lock-tables",
-            "--set-gtid-purged=OFF",
-            "--default-character-set=utf8mb4",
-            "--no-create-info",
-            "--replace",
-            f"--where={where_sql}",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            f"-p{password}",
-            database,
-            table,
-        ]
+        return sync_transport.build_remote_incremental_table_dump_args(
+            config, database, table, password, where_sql
+        )
 
     def _build_remote_mysql_query_args(
         self,
@@ -2277,20 +2127,7 @@ class SyncService:
         sql: str,
         password: str,
     ) -> list[str]:
-        return [
-            "mysql",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            f"-p{password}",
-            "-N",
-            "-B",
-            "-e",
-            sql,
-        ]
+        return sync_transport.build_remote_mysql_query_args(config, sql, password)
 
     async def _remote_database_exists(
         self,
@@ -2366,20 +2203,7 @@ class SyncService:
         password: str,
         force: bool = False,
     ) -> list[str]:
-        args = [
-            "mysql",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            f"-p{password}",
-        ]
-        if force:
-            args.append("--force")
-        args.append(database)
-        return args
+        return sync_transport.build_remote_mysql_import_args(config, database, password, force)
 
     def _build_remote_mysql_query_command(
         self,
@@ -2387,20 +2211,7 @@ class SyncService:
         sql: str,
         password: str,
     ) -> str:
-        args = [
-            "mysql",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            "-N",
-            "-B",
-            "-e",
-            sql,
-        ]
-        return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
+        return sync_transport.build_remote_mysql_query_command(config, sql, password)
 
     def _build_remote_mysql_import_command(
         self,
@@ -2408,23 +2219,10 @@ class SyncService:
         database: str,
         password: str,
     ) -> str:
-        args = [
-            "mysql",
-            "-h",
-            config.remote_mysql_host,
-            "-P",
-            str(config.remote_mysql_port),
-            "-u",
-            config.remote_mysql_user,
-            database,
-        ]
-        return f"MYSQL_PWD={shlex.quote(password)} {self._join_command(args)}"
+        return sync_transport.build_remote_mysql_import_command(config, database, password)
 
     def _compose_dump_command(self, dump_args: list[str], output_path: Path, compress: bool) -> str:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        if compress:
-            return f"set -o pipefail; {self._join_command(dump_args)} | gzip -c > {shlex.quote(str(output_path))}"
-        return f"set -o pipefail; {self._join_command(dump_args)} > {shlex.quote(str(output_path))}"
+        return sync_transport.compose_dump_command(dump_args, output_path, compress)
 
     def _compose_remote_dump_command(
         self,
@@ -2433,50 +2231,27 @@ class SyncService:
         output_path: str,
         compress: bool,
     ) -> str:
-        pipe_target = "gzip -c" if compress else "cat"
-        return (
-            "set -o pipefail; "
-            f"docker exec {shlex.quote(container)} sh -lc {shlex.quote(inner_dump_command)} "
-            f"| {pipe_target} > {shlex.quote(output_path)}"
+        return sync_transport.compose_remote_dump_command(
+            container, inner_dump_command, output_path, compress
         )
 
     def _compose_import_command(
         self, *, input_path: str, mysql_command: str, compressed: bool
     ) -> str:
-        cat_command = "gunzip -c" if compressed else "cat"
-        return f"set -o pipefail; {cat_command} {shlex.quote(input_path)} | {mysql_command}"
+        return sync_transport.compose_import_command(
+            input_path=input_path,
+            mysql_command=mysql_command,
+            compressed=compressed,
+        )
 
     def _compose_stream_command(self, dump_command: str, mysql_command: str) -> str:
-        return f"set -o pipefail; {dump_command} | {mysql_command}"
+        return sync_transport.compose_stream_command(dump_command, mysql_command)
 
     def _build_ssh_base_args(self, config: SyncConfig) -> list[str]:
-        key_path = str(Path(config.remote_ssh_key).expanduser())
-        return [
-            "ssh",
-            "-i",
-            key_path,
-            "-o",
-            f"ConnectTimeout={self._connect_timeout}",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-            f"{config.remote_user}@{config.remote_host}",
-        ]
+        return sync_transport.build_ssh_base_args(config, self._connect_timeout)
 
     def _build_scp_base_args(self, config: SyncConfig) -> list[str]:
-        key_path = str(Path(config.remote_ssh_key).expanduser())
-        return [
-            "scp",
-            "-i",
-            key_path,
-            "-o",
-            f"ConnectTimeout={self._connect_timeout}",
-            "-o",
-            "BatchMode=yes",
-            "-o",
-            "StrictHostKeyChecking=accept-new",
-        ]
+        return sync_transport.build_scp_base_args(config, self._connect_timeout)
 
     async def _run_ssh(self, config: SyncConfig, command: str, timeout: int) -> str:
         remote_command = self._join_command(["bash", "-lc", command])
@@ -2488,21 +2263,7 @@ class SyncService:
         return await self._run_exec(["bash", "-lc", command], timeout=timeout)
 
     async def _run_exec(self, args: list[str], timeout: int) -> str:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError as exc:
-            proc.kill()
-            await proc.communicate()
-            raise RuntimeError(f"命令执行超时（>{timeout}s）: {self._join_command(args)}") from exc
-        if proc.returncode != 0:
-            error = (stderr or stdout).decode("utf-8", errors="ignore").strip()
-            raise RuntimeError(error or f"命令执行失败: {self._join_command(args)}")
-        return stdout.decode("utf-8", errors="ignore").strip()
+        return await sync_transport.run_exec(args, timeout)
 
     def _parse_database_info(self, names: list[str], stdout: str) -> dict[str, DatabaseInfo]:
         result = {name: self._empty_database_info(name) for name in names}
@@ -2534,7 +2295,7 @@ class SyncService:
         )
 
     def _join_command(self, args: list[str]) -> str:
-        return " ".join(shlex.quote(arg) for arg in args)
+        return sync_transport.join_command(args)
 
     def _quote_sql_string(self, value: str) -> str:
         return "'" + value.replace("'", "''") + "'"
