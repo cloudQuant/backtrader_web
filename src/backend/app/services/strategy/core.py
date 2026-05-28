@@ -1,20 +1,20 @@
-"""Strategy service (CRUD + template/config loading)."""
+"""Strategy CRUD service plus AI copilot orchestration.
+
+The module-level helpers were moved to ``inference.py``, ``ai_draft.py`` and
+``templates.py`` in iteration 174 (C5) to keep this file focused on the service
+class. Public names are re-exported here so that legacy
+``from app.services.strategy_service import X`` imports continue to work.
+"""
+
+from __future__ import annotations
 
 import logging
-import re
 from datetime import datetime, timezone
-from functools import lru_cache
-from pathlib import Path
-
-import yaml
 
 from app.db.sql_repository import SQLRepository
 from app.models.strategy import Strategy
 from app.schemas.strategy import (
-    AIStrategyBacktestSpec,
-    AIStrategyDataSourceSpec,
     AIStrategyDraft,
-    AIStrategyExecutionPlan,
     ParamSpec,
     StrategyCopilotBacktestRequest,
     StrategyCopilotBacktestResponse,
@@ -30,573 +30,105 @@ from app.schemas.strategy import (
     StrategyType,
     StrategyUpdate,
 )
+from app.services.strategy import ai_draft as _ai_draft
+from app.services.strategy import inference as _inference
+from app.services.strategy import templates as _templates
+from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
+from app.services.strategy.templates import STRATEGIES_DIR
 from app.utils.response_cache import invalidate_cache
 
 logger = logging.getLogger(__name__)
 
-STRATEGIES_DIR = Path(__file__).resolve().parents[4] / "strategies"
+# ---------------------------------------------------------------------------
+# Backward-compatible aliases (legacy private names).
+# These keep external tests / callers that imported ``_xxx`` directly from
+# ``app.services.strategy_service`` (which is sys.modules-aliased to this
+# module) working without modification.
+#
+# The functions that consume ``STRATEGIES_DIR`` are wrapped (rather than
+# straight aliased) so that ``monkeypatch.setattr(ss, "STRATEGIES_DIR", ...)``
+# applied on the legacy module name keeps working: we forward the patched
+# value to the implementation module before delegating.
+# ---------------------------------------------------------------------------
+_infer_category = _inference.infer_category
+_strategy_name_from_prompt = _inference.strategy_name_from_prompt
+_class_name_from_prompt = _inference.class_name_from_prompt
+_infer_timeframe = _inference.infer_timeframe
+_infer_data_source_type = _inference.infer_data_source_type
+_build_ai_param_specs = _inference.build_ai_param_specs
+_render_param_default = _inference.render_param_default
+_strategy_param_defaults = _ai_draft.strategy_param_defaults
+_get_templates_for_type = _templates._get_templates_for_type
+_get_template_map = _templates._get_template_map
 
 
-def get_strategy_dir(strategy_id: str) -> Path:
-    """Resolve strategy directory path with path traversal protection.
+def _sync_strategies_dir() -> None:
+    """Mirror ``core.STRATEGIES_DIR`` into the templates module.
 
-    strategy_id must be in format \"type/name\" (e.g. simulate/cu_macd_atr) or
-    \"name\" for backtest-style ids. The resolved path is constrained to
-    STRATEGIES_DIR to prevent directory traversal.
-
-    Args:
-        strategy_id: Strategy identifier (e.g. backtest/002_dual_ma).
-
-    Returns:
-        Path to the strategy directory.
-
-    Raises:
-        ValueError: If strategy_id contains path traversal or invalid chars.
+    Some tests use ``monkeypatch.setattr(strategy_service, 'STRATEGIES_DIR', ...)``
+    to redirect template scanning at a temporary directory. After the move to
+    the strategy subpackage the templates module owns its own copy of
+    ``STRATEGIES_DIR``, so we re-sync it on every entry point that reads it.
     """
-    if ".." in strategy_id or strategy_id.startswith("/") or "\\" in strategy_id:
-        raise ValueError(f"Invalid strategy_id: {strategy_id}")
-    path = (STRATEGIES_DIR / strategy_id).resolve()
-    try:
-        path.relative_to(STRATEGIES_DIR.resolve())
-    except ValueError:
-        raise ValueError(f"Strategy path escapes base directory: {strategy_id}") from None
-    return path
-
-
-def _infer_category(name: str, description: str) -> str:
-    """Infer strategy category from name and description.
-
-    Args:
-        name: Strategy name.
-        description: Strategy description.
-
-    Returns:
-        Inferred category string (trend, mean_reversion, volatility, etc.).
-    """
-    text = (name + description).lower()
-    if any(
-        k in text
-        for k in ["ma", "trend", "supertrend", "turtle", "breakout", "momentum", "crossover"]
-    ):
-        return "trend"
-    if any(
-        k in text
-        for k in [
-            "rsi",
-            "mean_reversion",
-            "reversal",
-            "oscillator",
-            "overbought",
-            "oversold",
-            "kdj",
-            "stochastic",
-        ]
-    ):
-        return "mean_reversion"
-    if any(k in text for k in ["boll", "bollinger", "atr", "volatility", "vix", "chandelier"]):
-        return "volatility"
-    if any(k in text for k in ["arbitrage", "hedge", "long_short", "pair"]):
-        return "arbitrage"
-    if any(k in text for k in ["macd", "ema", "signal", "indicator"]):
-        return "indicator"
-    return "custom"
-
-
-def _strategy_name_from_prompt(prompt: str) -> str:
-    cleaned = re.sub(r"\s+", " ", str(prompt or "")).strip(" \n\t，。,.!?！？")
-    if not cleaned:
-        return "AI Generated Strategy"
-    return f"AI策略 - {cleaned[:24]}"
-
-
-def _class_name_from_prompt(prompt: str) -> str:
-    tokens = re.findall(r"[A-Za-z0-9]+", str(prompt or ""))
-    if not tokens:
-        return "AIGeneratedStrategy"
-    return "".join(token.capitalize() for token in tokens[:4]) + "Strategy"
-
-
-def _infer_timeframe(prompt: str) -> str | None:
-    text = str(prompt or "").lower()
-    if any(token in text for token in ["1m", "5m", "15m", "30m", "60m", "分钟"]):
-        return "15m"
-    if any(token in text for token in ["1h", "4h", "hour", "小时"]):
-        return "1h"
-    if any(token in text for token in ["日线", "daily", "1d"]):
-        return "1d"
-    if any(token in text for token in ["周线", "weekly", "1w"]):
-        return "1w"
-    return None
-
-
-def _infer_data_source_type(prompt: str) -> str:
-    text = str(prompt or "").lower()
-    if any(token in text for token in ["akshare", "a股", "沪深", "基金", "期货"]):
-        return "csv"
-    if any(token in text for token in ["yfinance", "yahoo", "美股", "us stock"]):
-        return "csv"
-    return "csv"
-
-
-def _build_ai_param_specs(prompt: str) -> dict[str, ParamSpec]:
-    text = str(prompt or "").lower()
-    params: dict[str, ParamSpec] = {}
-
-    def add_param(name: str, spec: ParamSpec) -> None:
-        if name not in params:
-            params[name] = spec
-
-    if any(token in text for token in ["ma", "均线", "crossover", "cross", "trend", "趋势"]):
-        add_param(
-            "fast_period",
-            ParamSpec(type="int", default=10, min=2, max=60, description="Fast moving average period"),
-        )
-        add_param(
-            "slow_period",
-            ParamSpec(type="int", default=30, min=10, max=240, description="Slow moving average period"),
-        )
-    if any(token in text for token in ["rsi", "超卖", "超买"]):
-        add_param(
-            "rsi_period",
-            ParamSpec(type="int", default=14, min=2, max=60, description="RSI lookback period"),
-        )
-        add_param(
-            "oversold",
-            ParamSpec(type="float", default=30, min=5, max=50, description="RSI oversold threshold"),
-        )
-        add_param(
-            "overbought",
-            ParamSpec(type="float", default=70, min=50, max=95, description="RSI overbought threshold"),
-        )
-    if any(token in text for token in ["atr", "止损", "volatility", "波动"]):
-        add_param(
-            "atr_period",
-            ParamSpec(type="int", default=14, min=5, max=60, description="ATR calculation period"),
-        )
-        add_param(
-            "atr_stop_multiplier",
-            ParamSpec(type="float", default=2.0, min=0.5, max=10.0, description="ATR stop multiplier"),
-        )
-    if any(token in text for token in ["breakout", "突破", "channel", "唐奇安"]):
-        add_param(
-            "breakout_period",
-            ParamSpec(type="int", default=20, min=5, max=120, description="Breakout lookback period"),
-        )
-    if not params:
-        add_param(
-            "lookback_period",
-            ParamSpec(type="int", default=20, min=2, max=200, description="Generic lookback period"),
-        )
-        add_param(
-            "signal_threshold",
-            ParamSpec(type="float", default=0.0, min=-10.0, max=10.0, description="Generic signal threshold"),
-        )
-
-    add_param(
-        "risk_pct",
-        ParamSpec(type="float", default=0.02, min=0.001, max=0.2, description="Risk budget per trade"),
-    )
-    add_param(
-        "stop_loss_pct",
-        ParamSpec(
-            type="float",
-            default=0.03,
-            min=0.001,
-            max=0.5,
-            description="Fallback stop-loss percentage when ATR is unavailable",
-        ),
-    )
-    add_param(
-        "take_profit_pct",
-        ParamSpec(
-            type="float",
-            default=0.08,
-            min=0.005,
-            max=1.0,
-            description="Take-profit percentage for the default template",
-        ),
-    )
-    return params
-
-
-def _render_param_default(value: object) -> str:
-    if isinstance(value, str):
-        return repr(value)
-    return str(value)
-
-
-def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) -> AIStrategyDraft:
-    """Build a deterministic fallback strategy draft from natural language input."""
-    name = _strategy_name_from_prompt(prompt)
-    category = _infer_category(name, prompt)
-    class_name = _class_name_from_prompt(prompt)
-    params = _build_ai_param_specs(prompt)
-    timeframe = _infer_timeframe(prompt)
-    prompt_comment = re.sub(r"\s+", " ", str(prompt or "")).strip()
-    prompt_comment = prompt_comment.replace('"""', "'''")
-    reference_note = ""
-    if references:
-        reference_note = "\n".join(f"- {title}" for title in references[:3])
-    param_lines = "\n".join(
-        f"        ('{key}', {_render_param_default(spec.default)}),"
-        for key, spec in params.items()
-    )
-    setup_lines = [
-        "        self.close = self.datas[0].close",
-        "        self.entry_price = None",
-        "        self.stop_price = None",
-        "        self.take_profit_price = None",
-    ]
-    if "fast_period" in params:
-        setup_lines.extend(
-            [
-                "        self.fast_ma = bt.indicators.SMA(self.data.close, period=self.p.fast_period)",
-                "        self.slow_ma = bt.indicators.SMA(self.data.close, period=self.p.slow_period)",
-                "        self.ma_crossover = bt.indicators.CrossOver(self.fast_ma, self.slow_ma)",
-            ]
-        )
-    if "rsi_period" in params:
-        setup_lines.append(
-            "        self.rsi = bt.indicators.RSI(self.data.close, period=self.p.rsi_period)"
-        )
-    if "atr_period" in params:
-        setup_lines.append(
-            "        self.atr = bt.indicators.ATR(self.data, period=self.p.atr_period)"
-        )
-    setup_block = "\n".join(setup_lines)
-
-    code = f'''import backtrader as bt
-
-
-class {class_name}(bt.Strategy):
-    """
-    Auto-generated draft from Backtrader Web AI Copilot.
-    Original prompt: {prompt_comment}
-    """
-
-    params = (
-{param_lines}
-    )
-
-    def __init__(self):
-{setup_block}
-
-    def _entry_signal(self):
-        if hasattr(self, 'ma_crossover'):
-            return self.ma_crossover[0] > 0
-        if hasattr(self, 'rsi'):
-            return self.rsi[0] < self.p.oversold
-        return len(self) == 1
-
-    def _exit_signal(self):
-        if hasattr(self, 'ma_crossover'):
-            return self.ma_crossover[0] < 0
-        if hasattr(self, 'rsi'):
-            return self.rsi[0] > self.p.overbought
-        return False
-
-    def next(self):
-        if not self.position:
-            if self._entry_signal():
-                entry_price = float(self.close[0])
-                risk_budget = max(float(self.broker.getvalue()) * self.p.risk_pct, 0.0)
-                size = 1
-                if hasattr(self, 'atr'):
-                    atr_stop = float(self.atr[0]) * self.p.atr_stop_multiplier
-                    if atr_stop > 0 and risk_budget > 0:
-                        size = max(int(risk_budget / atr_stop), 1)
-                    self.stop_price = entry_price - atr_stop
-                else:
-                    self.stop_price = entry_price * (1.0 - self.p.stop_loss_pct)
-                self.take_profit_price = entry_price * (1.0 + self.p.take_profit_pct)
-                self.entry_price = entry_price
-                self.buy(size=size)
-        else:
-            should_exit = self._exit_signal()
-            if self.stop_price is not None and self.close[0] <= self.stop_price:
-                should_exit = True
-            if self.take_profit_price is not None and self.close[0] >= self.take_profit_price:
-                should_exit = True
-            if should_exit:
-                self.close()
-                self.entry_price = None
-                self.stop_price = None
-                self.take_profit_price = None
-'''
-
-    rationale = (
-        f"该草案基于自然语言需求“{prompt_comment[:80]}”生成，已按 {category} 类策略补齐常见参数和 Backtrader 类骨架。"
-    )
-    if reference_note:
-        rationale += f"\n参考过的知识库文档：\n{reference_note}"
-
-    return AIStrategyDraft(
-        name=name,
-        description=f"AI Copilot 根据自然语言需求生成的 {category} 策略草案。",
-        code=code,
-        params=params,
-        category=category,
-        assumptions=[
-            "默认使用标准 OHLCV K 线数据，并按信号所在 bar 后续执行。",
-            "默认未加入滑点、停牌、涨跌停和撮合冲击等市场微观结构约束。",
-        ],
-        risk_points=[
-            "需要验证参数稳定性，避免仅在样本内表现良好。",
-            "需要结合交易成本与回撤约束评估真实可执行性。",
-        ],
-        data_source=AIStrategyDataSourceSpec(
-            type=_infer_data_source_type(prompt_comment),
-            symbol=None,
-            symbol_name=None,
-            timeframe=timeframe or "1d",
-            timeframe_n=1,
-            start_date=None,
-            end_date=None,
-            adjustment=None,
-        ),
-        backtest_defaults=AIStrategyBacktestSpec(
-            initial_cash=100000.0,
-            commission=0.001,
-            annual_days=252,
-            calc_method="simple",
-            weight_mode="equal",
-        ),
-        execution_plan=AIStrategyExecutionPlan(
-            workspace_type="research",
-            group_name=name,
-            run_parallel=False,
-        ),
-        rationale=rationale,
-        next_steps=[
-            "补充 entry / exit 条件与风险控制逻辑",
-            "根据目标市场调整默认参数与时间框架",
-            "在回测工作区中创建单元并验证收益/回撤/交易频率",
-        ],
-        suggested_symbol=None,
-        suggested_timeframe=timeframe,
-    )
-
-
-def render_ai_strategy_draft_answer(draft: AIStrategyDraft) -> str:
-    """Render a human-readable chat answer from a strategy draft."""
-    params_summary = ", ".join(
-        f"{name}={spec.default}" for name, spec in draft.params.items()
-    ) or "无"
-    next_steps = "\n".join(f"- {step}" for step in draft.next_steps) or "- 无"
-    timeframe = draft.suggested_timeframe or "待确认"
-    rationale = draft.rationale or "基于自然语言需求自动生成。"
-    data_source_type = draft.data_source.type if draft.data_source else "待确认"
-    initial_cash = (
-        draft.backtest_defaults.initial_cash if draft.backtest_defaults else 100000.0
-    )
-    commission = draft.backtest_defaults.commission if draft.backtest_defaults else 0.001
-    return (
-        f"已为你生成一个可继续完善的 Backtrader 策略草案。\n\n"
-        f"策略名称：{draft.name}\n"
-        f"策略分类：{draft.category}\n"
-        f"建议周期：{timeframe}\n"
-        f"建议数据源：{data_source_type}\n"
-        f"默认回测：初始资金 {initial_cash:.2f} / 手续费 {commission}\n"
-        f"关键参数：{params_summary}\n\n"
-        f"说明：{rationale}\n\n"
-        "代码骨架：\n"
-        f"```python\n{draft.code}\n```\n\n"
-        f"下一步建议：\n{next_steps}"
-    )
-
-
-def _strategy_param_defaults(params: dict[str, ParamSpec]) -> dict[str, object]:
-    return {name: spec.default for name, spec in params.items()}
-
-
-def _sync_user_strategy_runtime_files(strategy: StrategyResponse) -> None:
-    """Persist a user strategy into runtime-consumable files under strategies/."""
-    strategy_dir = get_strategy_dir(strategy.id)
-    strategy_dir.mkdir(parents=True, exist_ok=True)
-    config = {
-        "strategy": {
-            "name": strategy.name,
-            "description": strategy.description or "",
-        },
-        "params": _strategy_param_defaults(strategy.params),
-        "data": {
-            "data_type": strategy.category or "custom",
-            "category": strategy.category or "custom",
-            "symbol": "",
-            "symbol_name": "",
-            "timeframe": "1d",
-            "timeframe_n": 1,
-        },
-        "backtest": {
-            "initial_cash": 100000.0,
-            "commission": 0.001,
-        },
-    }
-    with (strategy_dir / "config.yaml").open("w", encoding="utf-8") as handle:
-        yaml.safe_dump(config, handle, allow_unicode=True, sort_keys=False)
-    (strategy_dir / "strategy_generated.py").write_text(strategy.code, encoding="utf-8")
+    _templates.STRATEGIES_DIR = STRATEGIES_DIR
 
 
 def _scan_strategies_folder(strategy_type: StrategyType) -> list[StrategyTemplate]:
-    """Scan strategies/ directory and auto-build strategy template list.
-
-    Args:
-        strategy_type: Type of strategy (backtest/simulate/live).
-
-    Returns:
-        List of StrategyTemplate objects parsed from strategy directories.
-    """
-    templates: list[StrategyTemplate] = []
-
-    target_dir = STRATEGIES_DIR / strategy_type.value
-    if not target_dir.is_dir():
-        logger.warning(f"Strategy directory does not exist: {target_dir}")
-        return templates
-
-    for config_path in sorted(target_dir.glob("*/config.yaml")):
-        strategy_dir = config_path.parent
-        dir_name = strategy_dir.name
-        try:
-            with open(config_path, encoding="utf-8") as f:
-                config = yaml.safe_load(f) or {}
-
-            strat_info = config.get("strategy", {})
-            name = strat_info.get("name", dir_name)
-            description = strat_info.get("description", "")
-            author = strat_info.get("author", "")
-
-            code_files = list(strategy_dir.glob("strategy_*.py"))
-            if not code_files:
-                continue
-            code = code_files[0].read_text(encoding="utf-8")
-
-            raw_params = config.get("params") or {}
-            params: dict[str, ParamSpec] = {}
-            for k, v in raw_params.items():
-                if isinstance(v, bool):
-                    ptype = "bool"
-                elif isinstance(v, int):
-                    ptype = "int"
-                elif isinstance(v, float):
-                    ptype = "float"
-                else:
-                    ptype = "string"
-                params[k] = ParamSpec(
-                    type=ptype,
-                    default=v,
-                    min=None,
-                    max=None,
-                    options=None,
-                    description=k,
-                )
-
-            category = _infer_category(name, description)
-
-            _bt_config = config.get("backtest", {})
-            data_config = config.get("data", {})
-
-            meta_parts = []
-            if author:
-                meta_parts.append(f"Author: {author}")
-            if data_config.get("symbol"):
-                meta_parts.append(f"Default Symbol: {data_config['symbol']}")
-            full_desc = description
-            if meta_parts:
-                full_desc += " | " + " | ".join(meta_parts)
-
-            templates.append(
-                StrategyTemplate(
-                    id=f"{strategy_type.value}/{dir_name}",
-                    name=name,
-                    description=full_desc,
-                    category=category,
-                    code=code,
-                    params=params,
-                )
-            )
-        except Exception as e:
-            logger.warning(f"Failed to scan strategy {dir_name}: {e}")
-            continue
-
-    logger.info(f"Loaded {len(templates)} strategy templates from {target_dir}")
-    return templates
+    _sync_strategies_dir()
+    return _templates.scan_strategies_folder(strategy_type)
 
 
-@lru_cache(maxsize=3)
-def _get_templates_for_type(
-    strategy_type: StrategyType,
-) -> tuple[tuple[StrategyTemplate, ...], dict[str, StrategyTemplate]]:
-    """Lazily load and cache strategy templates by type.
-
-    Returns:
-        Tuple of (templates list, id->template map).
-    """
-    templates = _scan_strategies_folder(strategy_type)
-    template_map = {t.id: t for t in templates}
-    return (tuple(templates), template_map)
+def _sync_user_strategy_runtime_files(strategy: StrategyResponse) -> None:
+    _sync_strategies_dir()
+    _templates.sync_user_strategy_runtime_files(strategy)
 
 
-def _get_template_map(strategy_type: StrategyType) -> dict[str, StrategyTemplate]:
-    """Get cached template map for a strategy type."""
-    return _get_templates_for_type(strategy_type)[1]
+def get_strategy_dir(strategy_id: str):  # type: ignore[override]
+    _sync_strategies_dir()
+    return _templates.get_strategy_dir(strategy_id)
 
 
-def get_all_strategy_templates() -> list[StrategyTemplate]:
-    """Get all strategy templates (backtest + simulate + live). Lazy-loaded."""
+def get_strategy_readme(template_id: str, strategy_type: StrategyType | None = None):
+    _sync_strategies_dir()
+    return _templates.get_strategy_readme(template_id, strategy_type)
+
+
+def get_template_by_id(template_id: str, strategy_type: StrategyType | None = None):
+    _sync_strategies_dir()
+    # Bypass the lru_cache so monkeypatched STRATEGIES_DIR is honored
+    # in unit tests; the production path calls this rarely enough that
+    # the extra scan is acceptable.
+    if strategy_type:
+        for tpl in _templates.scan_strategies_folder(strategy_type):
+            if tpl.id == template_id:
+                return tpl
+        return None
+    for st in (StrategyType.backtest, StrategyType.simulate, StrategyType.live):
+        for tpl in _templates.scan_strategies_folder(st):
+            if tpl.id == template_id:
+                return tpl
+    return None
+
+
+def get_all_strategy_templates():
+    _sync_strategies_dir()
     return (
-        list(_get_templates_for_type(StrategyType.backtest)[0])
-        + list(_get_templates_for_type(StrategyType.simulate)[0])
-        + list(_get_templates_for_type(StrategyType.live)[0])
+        list(_templates.scan_strategies_folder(StrategyType.backtest))
+        + list(_templates.scan_strategies_folder(StrategyType.simulate))
+        + list(_templates.scan_strategies_folder(StrategyType.live))
     )
 
 
-def get_template_by_id(
-    template_id: str, strategy_type: StrategyType | None = None
-) -> StrategyTemplate | None:
-    """Get strategy template by ID.
-
-
-    Args:
-        template_id: The strategy template identifier.
-        strategy_type: Optional strategy type filter.
-
-    Returns:
-        StrategyTemplate if found, None otherwise.
-    """
-    if strategy_type:
-        return _get_template_map(strategy_type).get(template_id)
-
-    for st in (StrategyType.backtest, StrategyType.simulate, StrategyType.live):
-        tpl = _get_template_map(st).get(template_id)
-        if tpl:
-            return tpl
-    return None
-
-
-def get_strategy_readme(template_id: str, strategy_type: StrategyType | None = None) -> str | None:
-    """Read the strategy's README.md content.
-
-    Args:
-        template_id: The strategy template identifier.
-        strategy_type: Optional strategy type filter.
-
-    Returns:
-        README content as string if found, None otherwise.
-    """
-    try:
-        parts = template_id.split("/", 1)
-        if len(parts) == 2:
-            readme_path = get_strategy_dir(template_id) / "README.md"
-        elif strategy_type:
-            readme_path = get_strategy_dir(f"{strategy_type.value}/{template_id}") / "README.md"
-        else:
-            return None
-    except ValueError:
-        return None
-
-    if readme_path.is_file():
-        return readme_path.read_text(encoding="utf-8")
-    return None
+__all__ = [
+    "STRATEGIES_DIR",
+    "StrategyService",
+    "build_ai_strategy_draft",
+    "get_all_strategy_templates",
+    "get_strategy_dir",
+    "get_strategy_readme",
+    "get_template_by_id",
+    "render_ai_strategy_draft_answer",
+]
 
 
 class StrategyService:
@@ -881,7 +413,7 @@ class StrategyService:
         if strategy is None:
             return None
 
-        update_data = {}
+        update_data: dict[str, object] = {}
         if strategy_update.name is not None:
             update_data["name"] = strategy_update.name
         if strategy_update.description is not None:
@@ -889,7 +421,9 @@ class StrategyService:
         if strategy_update.code is not None:
             update_data["code"] = strategy_update.code
         if strategy_update.params is not None:
-            update_data["params"] = {k: v.model_dump() for k, v in strategy_update.params.items()}
+            update_data["params"] = {
+                k: v.model_dump() for k, v in strategy_update.params.items()
+            }
         if strategy_update.category is not None:
             update_data["category"] = strategy_update.category
 
