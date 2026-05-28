@@ -133,7 +133,7 @@ installs:
 Do not hand-edit lock files. Regenerate them after changing `src/backend/pyproject.toml`:
 
 ```bash
-./scripts/generate_lockfiles.sh
+./scripts/ops/generate_lockfiles.sh
 ```
 
 Commit the updated `pyproject.toml` and root lock files together. The mirrored lock files under
@@ -181,7 +181,7 @@ npm run test -- --watch
 
 ```bash
 # Using the E2E runner script (recommended)
-./scripts/run-e2e.sh
+./scripts/dev/run-e2e.sh
 
 # Or manually
 cd src/frontend

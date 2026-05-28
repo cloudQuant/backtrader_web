@@ -78,7 +78,7 @@ git clone https://github.com/cloudQuant/backtrader_web.git
 cd backtrader_web
 
 # 步骤 1：安装前环境检查
-./scripts/verify-dev-env.sh --preinstall
+./scripts/dev/verify-dev-env.sh --preinstall
 
 # 步骤 2：安装项目依赖
 # 后端
@@ -90,7 +90,7 @@ cp .env.example .env
 
 # 安装后环境检查
 cd ../..
-./scripts/verify-dev-env.sh --postinstall
+./scripts/dev/verify-dev-env.sh --postinstall
 
 # 前端（新终端）
 cd src/frontend

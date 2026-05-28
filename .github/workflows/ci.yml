@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check for generated artifacts
-        run: ./scripts/check-generated-artifacts.sh
+        run: ./scripts/ci/check-generated-artifacts.sh
 
   check-doc-links:
     name: Check - Doc Links
@@ -44,7 +44,7 @@ jobs:
             requirements-dev.lock
 
       - name: Validate doc links
-        run: python scripts/check_doc_links.py
+        run: python scripts/ci/check_doc_links.py
 
   check-deps-sync:
     name: Check - Deps Sync
@@ -64,7 +64,7 @@ jobs:
             requirements-dev.lock
 
       - name: Validate deps sync
-        run: python scripts/check_deps_sync.py
+        run: python scripts/ci/check_deps_sync.py
 
   check-migrations:
     name: Check - Alembic Migrations
@@ -90,7 +90,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Verify migration chain
-        run: python scripts/check_alembic_heads.py
+        run: python scripts/ci/check_alembic_heads.py
 
       - name: Test migration on empty database
         working-directory: src/backend
@@ -128,7 +128,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Export OpenAPI schema
-        run: python scripts/export_openapi.py openapi.json
+        run: python scripts/ci/export_openapi.py openapi.json
 
       - name: Validate OpenAPI 3.1 schema
         run: python -c "from openapi_spec_validator import validate; import json; validate(json.load(open('openapi.json'))); print('✓ OpenAPI schema is valid')"
@@ -138,11 +138,11 @@ jobs:
         run: |
           # Fetch base branch schema for comparison
           git fetch origin ${{ github.base_ref }} --depth=1
-          git show origin/${{ github.base_ref }}:scripts/export_openapi.py > /tmp/export_base.py 2>/dev/null || true
+          git show origin/${{ github.base_ref }}:scripts/ci/export_openapi.py > /tmp/export_base.py 2>/dev/null || true
           if [ -f /tmp/export_base.py ]; then
             python /tmp/export_base.py openapi-base.json 2>/dev/null || true
             if [ -f openapi-base.json ]; then
-              python scripts/check_api_compat.py openapi.json openapi-base.json
+              python scripts/ci/check_api_compat.py openapi.json openapi-base.json
             else
               echo "⚠ Could not export base branch schema, skipping compatibility check"
             fi
@@ -151,7 +151,7 @@ jobs:
           fi
 
       - name: Check OpenAPI example values
-        run: python scripts/check_openapi_examples.py openapi.json
+        run: python scripts/ci/check_openapi_examples.py openapi.json
 
       - name: Archive OpenAPI schema
         uses: actions/upload-artifact@v4
@@ -365,7 +365,7 @@ jobs:
       - name: Check lockfile sync
         working-directory: .
         run: |
-          python scripts/check_lockfile_sync.py requirements-dev.lock
+          python scripts/ci/check_lockfile_sync.py requirements-dev.lock
 
       - name: Run tests with coverage
         run: |
@@ -423,7 +423,7 @@ jobs:
 
       - name: Run Bandit security linter
         run: |
-          bash ../../scripts/bandit_gate.sh app
+          bash ../../scripts/ci/bandit_gate.sh app
 
       - name: Check for security vulnerabilities
         run: |
@@ -544,7 +544,7 @@ jobs:
           NODE_ENV: production
 
       - name: Check bundle size
-        run: bash ../../scripts/check_bundle_size.sh dist
+        run: bash ../../scripts/ci/check_bundle_size.sh dist
 
       - name: Compare bundle size with target branch
         if: github.event_name == 'pull_request'
