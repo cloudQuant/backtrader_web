@@ -122,7 +122,7 @@ npm run dev
 Backend dependency declarations live in `src/backend/pyproject.toml`. Edit that file when adding,
 removing, or changing backend runtime, optional, or development dependencies.
 
-Root `requirements-dev.lock` and `requirements-prod.lock` are generated artifacts for reproducible
+Root `config/requirements-dev.lock` and `config/requirements-prod.lock` are generated artifacts for reproducible
 installs:
 
 - `requirements-dev.lock` pins the full development toolchain plus optional dependency groups used
@@ -204,7 +204,7 @@ npx playwright test auth.spec.ts
 
 ```bash
 # Start all services
-docker compose -f docker-compose.yml -f docker/compose/ci.yml up -d
+docker compose -f docker/docker-compose.yml -f docker/compose/ci.yml up -d
 
 # Run E2E tests
 cd src/frontend
@@ -212,7 +212,7 @@ export BASE_URL=http://localhost:3000
 npm run test:e2e
 
 # Stop services
-docker compose -f docker-compose.yml -f docker/compose/ci.yml down
+docker compose -f docker/docker-compose.yml -f docker/compose/ci.yml down
 ```
 
 ## Coding Standards
