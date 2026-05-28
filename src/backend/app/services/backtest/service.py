@@ -32,6 +32,24 @@ from app.schemas.backtest_enhanced import (
     BacktestFailedEvent,
     BacktestProgressEvent,
 )
+from app.services.backtest.sanitize import (
+    coerce_float as _coerce_float,
+)
+from app.services.backtest.sanitize import (
+    coerce_int as _coerce_int,
+)
+from app.services.backtest.sanitize import (
+    normalize_trade_date as _normalize_trade_date,
+)
+from app.services.backtest.sanitize import (
+    normalize_trade_type as _normalize_trade_type,
+)
+from app.services.backtest.sanitize import (
+    sanitize_cached_result_payload as _sanitize_cached_result_payload,
+)
+from app.services.backtest.sanitize import (
+    sanitize_trades as _sanitize_trades,
+)
 from app.services.backtest_manager import BacktestExecutionManager
 from app.services.backtest_runner import BacktestExecutionRunner
 from app.services.strategy_runtime_support import has_log_artifacts
@@ -96,139 +114,27 @@ class BacktestService:
 
     @staticmethod
     def _normalize_trade_date(value: Any) -> str | None:
-        if isinstance(value, datetime):
-            return value.isoformat()
-        if not isinstance(value, str):
-            return None
-        text = value.strip()
-        if not text:
-            return None
-        candidate = text.replace("Z", "+00:00")
-        try:
-            return datetime.fromisoformat(candidate).isoformat()
-        except ValueError:
-            pass
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d"):
-            try:
-                return datetime.strptime(text, fmt).isoformat()
-            except ValueError:
-                continue
-        return None
+        return _normalize_trade_date(value)
 
     @staticmethod
     def _normalize_trade_type(value: Any) -> str | None:
-        text = str(value or "").strip().lower()
-        if text in {"buy", "b", "long", "open", "open_long", "buy_long"}:
-            return "buy"
-        if text in {"sell", "s", "short", "close", "close_long", "sell_short"}:
-            return "sell"
-        return None
+        return _normalize_trade_type(value)
 
     @classmethod
     def _sanitize_trades(cls, trades: Any) -> list[dict[str, Any]]:
-        if not isinstance(trades, list):
-            return []
-        normalized: list[dict[str, Any]] = []
-        for trade in trades:
-            if not isinstance(trade, dict):
-                continue
-            date_value = cls._normalize_trade_date(
-                trade.get("date")
-                or trade.get("datetime")
-                or trade.get("dtopen")
-                or trade.get("dtclose")
-            )
-            trade_type = cls._normalize_trade_type(trade.get("type") or trade.get("direction"))
-            if not date_value or not trade_type:
-                continue
-            try:
-                price = float(trade.get("price") or 0)
-            except (TypeError, ValueError):
-                continue
-            if price <= 0:
-                continue
-            size_raw = trade.get("size")
-            if size_raw is None:
-                size_raw = trade.get("qty")
-            if size_raw is None:
-                size_raw = trade.get("volume")
-            try:
-                size = int(abs(float(size_raw or 0)))
-            except (TypeError, ValueError):
-                continue
-            if size <= 0:
-                continue
-            try:
-                value = (
-                    float(trade.get("value")) if trade.get("value") is not None else price * size
-                )
-            except (TypeError, ValueError):
-                value = price * size
-            if value <= 0:
-                value = price * size
-            if value <= 0:
-                continue
-            pnl_raw = trade.get("pnl")
-            try:
-                pnl = float(pnl_raw) if pnl_raw is not None else None
-            except (TypeError, ValueError):
-                pnl = None
-            pnlcomm_raw = trade.get("pnlcomm")
-            try:
-                pnlcomm = float(pnlcomm_raw) if pnlcomm_raw is not None else pnl
-            except (TypeError, ValueError):
-                pnlcomm = pnl
-            commission_raw = trade.get("commission")
-            try:
-                commission = float(commission_raw) if commission_raw is not None else 0.0
-            except (TypeError, ValueError):
-                commission = 0.0
-            normalized.append(
-                {
-                    "date": date_value,
-                    "datetime": cls._normalize_trade_date(trade.get("datetime")),
-                    "dtopen": cls._normalize_trade_date(trade.get("dtopen")),
-                    "dtclose": cls._normalize_trade_date(trade.get("dtclose")),
-                    "direction": trade.get("direction"),
-                    "type": trade_type,
-                    "price": price,
-                    "size": size,
-                    "value": value,
-                    "commission": commission,
-                    "pnl": pnl,
-                    "pnlcomm": pnlcomm,
-                    "barlen": cls._coerce_int(trade.get("barlen"), 0),
-                }
-            )
-        return normalized
+        return _sanitize_trades(trades)
 
     @staticmethod
     def _coerce_float(value: Any, default: float = 0.0) -> float:
-        try:
-            return float(value) if value is not None else default
-        except (TypeError, ValueError):
-            return default
+        return _coerce_float(value, default)
 
     @staticmethod
     def _coerce_int(value: Any, default: int = 0) -> int:
-        try:
-            return int(value) if value is not None else default
-        except (TypeError, ValueError):
-            return default
+        return _coerce_int(value, default)
 
     @classmethod
     def _sanitize_cached_result_payload(cls, payload: dict[str, Any]) -> dict[str, Any]:
-        normalized = dict(payload)
-        normalized["total_return"] = cls._coerce_float(normalized.get("total_return"), 0.0)
-        normalized["annual_return"] = cls._coerce_float(normalized.get("annual_return"), 0.0)
-        normalized["sharpe_ratio"] = cls._coerce_float(normalized.get("sharpe_ratio"), 0.0)
-        normalized["max_drawdown"] = cls._coerce_float(normalized.get("max_drawdown"), 0.0)
-        normalized["win_rate"] = cls._coerce_float(normalized.get("win_rate"), 0.0)
-        normalized["total_trades"] = cls._coerce_int(normalized.get("total_trades"), 0)
-        normalized["profitable_trades"] = cls._coerce_int(normalized.get("profitable_trades"), 0)
-        normalized["losing_trades"] = cls._coerce_int(normalized.get("losing_trades"), 0)
-        normalized["trades"] = cls._sanitize_trades(normalized.get("trades", []))
-        return normalized
+        return _sanitize_cached_result_payload(payload)
 
     @staticmethod
     def _build_backtest_result(
