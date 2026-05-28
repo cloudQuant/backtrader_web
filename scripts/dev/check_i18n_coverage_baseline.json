@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 175 §4 advisory baseline. The strict scan finds 15382 violations at the latest commit. Most are false positives (HTML element/attribute names, type literal strings detected as 'long English literals' by the conservative scanner). The CJK violation subset is ~1641 — these are the actual zh-CN literals that need extracting to i18n keys. The CI gate runs in advisory mode (warning only) until the count reaches 0. Set CHECK_I18N_STRICT_BLOCKING=true in the frontend-lint CI step to force-block. Once violations reach 0, this baseline file can be deleted.",
-  "baseline_violations": 15382,
-  "baseline_cjk_violations": 1641,
-  "baseline_commit": "175-close-pass-10",
+  "_comment": "Iteration 175 §4 advisory baseline. The strict scan finds 15375 violations at the latest commit. Most are false positives (HTML element/attribute names, type literal strings detected as 'long English literals' by the conservative scanner). The CJK violation subset is ~1632 — these are the actual zh-CN literals that need extracting to i18n keys. The CI gate runs in advisory mode (warning only) until the count reaches 0. Set CHECK_I18N_STRICT_BLOCKING=true in the frontend-lint CI step to force-block. Once violations reach 0, this baseline file can be deleted.",
+  "baseline_violations": 15375,
+  "baseline_cjk_violations": 1632,
+  "baseline_commit": "175-close-pass-11",
   "baseline_date": "2026-05-28",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -18,6 +18,7 @@
     {"commit": "515ab5a1", "date": "2026-05-28-pm", "violations": 15480, "cjk": 1743, "note": "KnowledgeBasePage 8 dialogs (~50 -> kb.* extension)"},
     {"commit": "b3b6d343", "date": "2026-05-28-pm", "violations": 15436, "cjk": 1697, "note": "useKnowledgeBasePage composable (~46 -> kb.msg*)"},
     {"commit": "7876d76f", "date": "2026-05-28-pm", "violations": 15422, "cjk": 1681, "note": "useAIChatPage composable (~16 -> aiChat.msg* + rolePrefix)"},
-    {"commit": "175-close-pass-10", "date": "2026-05-28-pm", "violations": 15382, "cjk": 1641, "note": "components/aichat/* (CitationList + ChatMessageBubble + StrategyDraftCard, ~49 -> aiChat.* extension)"}
+    {"commit": "f1ac07b8", "date": "2026-05-28-pm", "violations": 15382, "cjk": 1641, "note": "components/aichat/* (CitationList + ChatMessageBubble + StrategyDraftCard, ~49 -> aiChat.* extension)"},
+    {"commit": "175-close-pass-11", "date": "2026-05-28-pm", "violations": 15375, "cjk": 1632, "note": "WorkspaceCard + CreateWorkspaceDialog (~25 -> workspace.* extension)"}
   ]
 }

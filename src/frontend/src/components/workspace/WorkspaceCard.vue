@@ -15,7 +15,10 @@
             @change="$emit('toggle-select')"
             @click.stop
           />
-          <el-icon class="text-blue-500 flex-shrink-0">
+          <el-icon
+            class="text-blue-500 flex-shrink-0"
+            aria-hidden="true"
+          >
             <FolderOpened />
           </el-icon>
           <span class="font-medium truncate">{{ workspace.name }}</span>
@@ -34,15 +37,15 @@
       @click.stop="$emit('click')"
     >
       <p class="line-clamp-2 min-h-[2.5em]">
-        {{ workspace.description || '暂无描述' }}
+        {{ workspace.description || t('workspace.noDescription') }}
       </p>
       <div class="flex items-center justify-between">
-        <span>策略单元: {{ workspace.unit_count }}</span>
-        <span>已完成: {{ workspace.completed_count }}</span>
+        <span>{{ t('workspace.unitCountInline', { n: workspace.unit_count }) }}</span>
+        <span>{{ t('workspace.completedInline', { n: workspace.completed_count }) }}</span>
       </div>
       <div class="text-xs text-gray-400 space-y-0.5">
-        <div>创建: {{ formatTime(workspace.created_at) }}</div>
-        <div>更新: {{ formatTime(workspace.updated_at) }}</div>
+        <div>{{ t('workspace.createdInline') }}: {{ formatTime(workspace.created_at) }}</div>
+        <div>{{ t('workspace.updatedInline') }}: {{ formatTime(workspace.updated_at) }}</div>
       </div>
     </div>
 
@@ -51,7 +54,7 @@
         size="small"
         @click.stop="$emit('edit')"
       >
-        编辑
+        {{ t('workspace.edit') }}
       </el-button>
       <el-button
         size="small"
@@ -59,7 +62,7 @@
         plain
         @click.stop="$emit('delete')"
       >
-        删除
+        {{ t('workspace.delete') }}
       </el-button>
     </div>
   </el-card>
@@ -68,8 +71,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { FolderOpened } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import type { Workspace } from '@/types/workspace'
 import type { TagType } from '@/constants/strategy'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   workspace: Workspace
@@ -89,13 +95,19 @@ const statusTagType = computed<TagType>(() => {
 })
 
 const statusLabel = computed(() => {
-  const map: Record<string, string> = { idle: '空闲', running: '运行中', completed: '已完成', error: '异常' }
+  const map: Record<string, string> = {
+    idle: t('workspace.statusIdle'),
+    running: t('workspace.statusRunning'),
+    completed: t('workspace.statusCompleted'),
+    error: t('workspace.statusError'),
+  }
   return map[props.workspace.status] || props.workspace.status
 })
 
 function formatTime(iso: string) {
   if (!iso) return ''
-  return new Date(iso).toLocaleString('zh-CN')
+  // Use browser locale instead of hardcoded zh-CN so en-US users see English dates
+  return new Date(iso).toLocaleString()
 }
 </script>
 

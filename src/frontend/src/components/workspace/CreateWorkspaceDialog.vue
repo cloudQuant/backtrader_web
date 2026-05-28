@@ -13,24 +13,24 @@
       label-width="80px"
     >
       <el-form-item
-        label="名称"
+        :label="t('workspace.nameLabel')"
         prop="name"
       >
         <el-input
           v-model="form.name"
-          placeholder="请输入工作区名称"
+          :placeholder="t('workspace.namePlaceholder')"
           maxlength="200"
           show-word-limit
         />
       </el-form-item>
       <el-form-item
-        label="描述"
+        :label="t('workspace.descLabel')"
         prop="description"
       >
         <el-input
           v-model="form.description"
           type="textarea"
-          placeholder="请输入描述（可选）"
+          :placeholder="t('workspace.descPlaceholder')"
           maxlength="500"
           show-word-limit
           :rows="3"
@@ -39,14 +39,14 @@
     </el-form>
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('workspace.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="submitting"
         @click="handleSubmit"
       >
-        {{ isEdit ? '保存' : '创建' }}
+        {{ isEdit ? t('workspace.save') : t('workspace.create') }}
       </el-button>
     </template>
   </el-dialog>
@@ -55,6 +55,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import type { FormInstance, FormRules } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -71,6 +72,7 @@ const emit = defineEmits<{
   saved: []
 }>()
 
+const { t } = useI18n()
 const store = useWorkspaceStore()
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
@@ -85,14 +87,14 @@ const targetWorkspaceType = computed<WorkspaceType>(() =>
   props.workspace?.workspace_type ?? props.workspaceType ?? 'research'
 )
 const dialogTitle = computed(() => {
-  const label = targetWorkspaceType.value === 'trading' ? '交易工作区' : '工作区'
-  return isEdit.value ? `编辑${label}` : `新建${label}`
+  const label = targetWorkspaceType.value === 'trading' ? t('workspace.tradingWorkspaceLabel') : t('workspace.workspaceLabelType')
+  return isEdit.value ? `${t('workspace.editPrefix')}${label}` : `${t('workspace.newPrefix')}${label}`
 })
 
 const rules: FormRules = {
   name: [
-    { required: true, message: '请输入工作区名称', trigger: 'blur' },
-    { max: 200, message: '名称最多200个字符', trigger: 'blur' },
+    { required: true, message: t('workspace.nameRequired'), trigger: 'blur' },
+    { max: 200, message: t('workspace.nameTooLong'), trigger: 'blur' },
   ],
 }
 
@@ -119,18 +121,18 @@ async function handleSubmit() {
         name: form.value.name,
         description: form.value.description || undefined,
       })
-      ElMessage.success('工作区已更新')
+      ElMessage.success(t('workspace.saveSuccess'))
     } else {
       await store.createWorkspace({
         name: form.value.name,
         description: form.value.description || undefined,
         workspace_type: targetWorkspaceType.value,
       })
-      ElMessage.success('工作区已创建')
+      ElMessage.success(t('workspace.createSuccess'))
     }
     emit('saved')
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '操作失败'))
+    ElMessage.error(getErrorMessage(error, t('workspace.saveError')))
   } finally {
     submitting.value = false
   }
