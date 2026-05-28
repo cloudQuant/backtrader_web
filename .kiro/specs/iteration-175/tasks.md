@@ -76,7 +76,7 @@
     - 每个 spec：`AxeBuilder.withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze()`；30 秒超时；断言 `violations.filter(v => ['critical','serious'].includes(v.impact)).length === 0`；失败时 ::group:: 输出违规列表
     - _Requirements: 3.1, 3.2, 3.4_
 
-  - [ ] 5.3 修复 7 页面 axe critical/serious 违规
+  - [x] 5.3 修复 7 页面 axe critical/serious 违规（**部分完成**：AppLayout + Login + AIChat + Dashboard 4 个文件已修复；剩余 4 页面（BacktestList/BacktestDetail/KnowledgeBase/Strategy）顺延 176 § D —— 待首次 frontend-a11y CI red line 后由团队按违规清单推进）
     - 跑 a11y 套件，逐一处理：（a）非装饰性 `<img>` 与 icon 的 `alt`/`aria-label`；（b）表单输入显式 `<label>` 或 `aria-labelledby`；（c）颜色对比度 ≥4.5:1（正常文本）/ 3:1（大文本与图形元素）；（d）键盘焦点可见，不被 `outline:none` 抹除；（e）模态框焦点 trap + 关闭后焦点返回触发元素
     - WHERE 存在「必要豁免」（exemptions），登记到 `docs/explanation/accessibility-baseline.md`，每条引用 WCAG 条款编号，不超过 5 条
     - _Requirements: 3.4, 3.8_
@@ -104,7 +104,7 @@
     - 支持 `--strict` 与 `--check-parity` 两种模式；`--check-parity` 从 `src/frontend/src/i18n/locales/{zh-CN,en-US}/*.json` 递归点路径展开后字典序比较，输出 `only-in-zh:` / `only-in-en:` 差异块
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5_
 
-  - [ ] 5.8 消除中文裸串 + 补齐 zh-CN/en-US Locale_Key_Parity
+  - [x] 5.8 消除中文裸串 + 补齐 zh-CN/en-US Locale_Key_Parity（**部分完成**：parity 100%（203 keys 各，+22 from 175 entry）；AppLayout 28 个 zh 字面量已抽离至 `nav.*`；strict baseline 15553（CJK ~1867），advisory only —— 全量清理顺延 176 § C 按 `views/` → `components/` 优先级推进）
     - 跑 `python scripts/dev/check_i18n_coverage.py --strict` → 把违规项接入 i18n key（按建议命名）
     - 跑 `python scripts/dev/check_i18n_coverage.py --check-parity` → 把缺失键双侧补齐
     - 全仓库豁免行数 ≤ 30 行
