@@ -38,6 +38,7 @@ from app.api.simulation import router as simulation_router
 from app.api.status import router as status_router
 from app.api.strategy import router as strategy_router
 from app.api.workspace_api import router as workspace_router
+from app.api.workspace_optimization_api import router as workspace_optimization_router
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,7 @@ api_router.include_router(portfolio_router)
 api_router.include_router(optimization_router, prefix="/optimization", tags=["Optimization"])
 api_router.include_router(simulation_router, prefix="/simulation", tags=["Simulation"])
 api_router.include_router(workspace_router, prefix="/workspace", tags=["Workspace"])
+api_router.include_router(workspace_optimization_router, prefix="/workspace", tags=["Workspace"])
 api_router.include_router(docs_router, prefix="/docs", tags=["Documentation"])
 
 # ── Optional routers (graceful degradation) ──────────────────────────────────
