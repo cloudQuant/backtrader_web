@@ -181,6 +181,20 @@ exclude = [
 module = ["app.api.*", "app.schemas.*", "app.services.quote.*", "app.utils.*"]
 disallow_untyped_defs = true
 
+# Iteration 175 §1: services strict-scope expansion (wave 1).
+# Subpackages with zero or near-zero strict-mode errors are enrolled here.
+# Remaining 6 subpackages (strategy/backtest/gateway/akshare/live_trading/workspace)
+# are deferred to 176 — see docs/iterations/迭代175-质量加固与可观测性纵深/PROGRESS.md
+# §1 "已知尾巴" for the per-subpackage error baseline (recorded at 175 entry-commit).
+[[tool.mypy.overrides]]
+module = [
+    "app.services.optimization.*",
+    "app.services.log_parser.*",
+    "app.services.ai_trading.*",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
 [[tool.mypy.overrides]]
 # Third-party packages without type hints we don't want noise from.
 module = [

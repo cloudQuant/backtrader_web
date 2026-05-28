@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Iteration 175 (Quality Hardening & Observability Depth)
+
+- OpenTelemetry business-span coverage for four namespaces (`backtrader.backtest.*`, `backtrader.strategy.*`, `backtrader.ai.*`, `backtrader.live.*`) with 13 phase spans and `bt.*` business attributes; opt-in via `OTEL_ENABLED=true`, true-no-op cold path otherwise.
+- Jaeger all-in-one service in `docker/compose/dev.yml` under `--profile observability` (OTLP gRPC 4317, HTTP 4318, UI 16686).
+- Playwright `e2e/a11y/` suite for 7 Critical_Page_Set pages (axe-core WCAG 2.1 A/AA scan, blocks on critical/serious).
+- Playwright `e2e/i18n/en-us-no-chinese.spec.ts` and `e2e/smoke-175/journeys.spec.ts` (5 user journeys).
+- `scripts/dev/check_i18n_coverage.py` (strict + check-parity); `scripts/ci/check_orm_schema_drift.py` (blocking) and `scripts/ci/check_migration_safety.py` (advisory) for DB migration governance.
+- `scripts/dev/check_all.sh` and root `pyproject.toml` `[tool.uv.workspace]` for monorepo entry-point.
+- Five new CI jobs: `backend-mypy-services`, `frontend-a11y`, `frontend-i18n`, `frontend-e2e-smoke`, `monorepo-check` (advisory).
+- New documentation: `docs/explanation/accessibility-baseline.md`, `docs/explanation/python-monorepo.md`, `docs/how-to/database-migration-playbook.md`, `docs/reference/frontend-bundle-budget.md`.
+- `business_span()` helper in `app/utils/tracing.py` and 8 unit tests (`tests/test_telemetry_e2e.py` 8/8 green).
+
+### Changed — Iteration 175
+
+- Frontend coverage thresholds raised to lines/functions/branches/statements ≥ 75% (global) and ≥ 90% (8 High_Coverage_Core modules).
+- Lighthouse `categories:accessibility` threshold raised from 0.8 → 0.9 across 7 pages.
+- Vite `manualChunks` split into 5 vendor chunks (`element-plus`, `vue-router`, `pinia`, `echarts`, `monaco-editor`).
+- `scripts/ci/check_bundle_size.sh` enforces entry chunk gzip ≤ 300 KB and login-route non-vendor JS ≤ 4 (blocking).
+- `mypy` strict scope expanded to 3 services subpackages (`optimization`, `log_parser`, `ai_trading`).
+- `iterations/README.md` updated; 173B disposition formalised in `docs/iterations/迭代175-质量加固与可观测性纵深/173B_disposition.md` (T2/T7/T10 all deferred to 176).
+
+### Notes — Iteration 175 deferrals
+
+- Six remaining `app.services.*` subpackages and a11y/i18n content-side cleanups deferred to iteration 176 — see `docs/iterations/迭代175-质量加固与可观测性纵深/RETROSPECTIVE.md` and `docs/explanation/REFACTORING_BACKLOG.md` § "176 候选".
+
 ## [0.2.0-rc1] - 2026-05-24
 
 ### Added

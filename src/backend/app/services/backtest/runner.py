@@ -24,14 +24,16 @@ class BacktestExecutionRunner:
 
     def schedule(self, task_id: str, execution: Awaitable[None]) -> asyncio.Task:
         """Schedule one local execution coroutine and retain its handle."""
+        from app.utils.tracing import business_span
 
         async def _wrapped_execution() -> None:
-            try:
-                await execution
-            finally:
-                current_task = asyncio.current_task()
-                if self._tasks.get(task_id) is current_task:
-                    self._tasks.pop(task_id, None)
+            with business_span("backtrader.backtest.execute", backtest_id=task_id):
+                try:
+                    await execution
+                finally:
+                    current_task = asyncio.current_task()
+                    if self._tasks.get(task_id) is current_task:
+                        self._tasks.pop(task_id, None)
 
         task = asyncio.create_task(_wrapped_execution())
         self._tasks[task_id] = task

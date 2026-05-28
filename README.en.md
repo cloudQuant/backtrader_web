@@ -320,6 +320,10 @@ See [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md) for the full strategi
 | [Testing Guide](docs/TESTING.md) | Unit, integration, and E2E testing |
 | [Coding Standards](docs/CODING_STANDARDS.md) | Python and Vue code style |
 | [CI/CD](docs/CI_CD.md) | GitHub Actions pipeline |
+| [Accessibility Baseline](docs/explanation/accessibility-baseline.md) | WCAG 2.1 AA baseline, Critical_Page_Set scan results, exemptions (iter 175 §3) |
+| [Frontend Bundle Budget](docs/reference/frontend-bundle-budget.md) | Vendor and entry chunk gzip budgets (iter 175 §7) |
+| [Database Migration Playbook](docs/how-to/database-migration-playbook.md) | Long-lock / full-scan risks and downgrade strategy (iter 175 §8) |
+| [Python Monorepo Choice](docs/explanation/python-monorepo.md) | uv workspace rationale and vendored-package handling (iter 175 §9) |
 | [Changelog](CHANGELOG.md) | Version history |
 
 ## License

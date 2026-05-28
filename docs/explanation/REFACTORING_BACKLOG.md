@@ -12,6 +12,68 @@ first slice.
 
 ---
 
+## 176 候选（迭代 175 顺延）
+
+> 来源：`docs/iterations/迭代175-质量加固与可观测性纵深/RETROSPECTIVE.md` §「175 顺延 / 176 候选」。
+> 175 关闭日期：2026-05-28。
+
+### A. mypy services 剩余 6 子包扩盘（来源：175 §1.7 降级）
+
+| 子包 | 175 起点错误数 | 备注 |
+|---|---:|---|
+| `app.services.gateway` | 29 | 需补类型注解；中等工作量 |
+| `app.services.akshare` | 49 | 同上；建议 1 个独立 sprint |
+| `app.services.strategy` | 56 | SQLAlchemy `Column[T]` vs `T` 类型分歧 |
+| `app.services.backtest` | 57 | 同上 |
+| `app.services.live_trading` | 56 | 同上 |
+| `app.services.workspace` | 88 | 错误数最多；建议拿一个独立 sprint |
+
+### B. 173B 三项（来源：`迭代175-质量加固与可观测性纵深/173B_disposition.md`）
+
+| Item | 决议 | 责任人 | 目标日期 |
+|---|---|---|---|
+| T2 (WS Gateway Migration) | 顺延 176 | @yunjinqi | 2026-08-15 |
+| T7 (News Intelligence 产品化) | 顺延 176（**需独立产品 brief**） | @yunjinqi | 2026-09-01 |
+| T10 (Quant Tool Registry 产品化) | 顺延 176 | @yunjinqi | 2026-08-30 |
+
+### C. 前端 i18n 中文裸串清理（来源：175 §4.3 advisory baseline）
+
+- 15553 处违规作为 advisory baseline（`scripts/dev/check_i18n_coverage_baseline.json`）
+- 优先级建议：`views/` → `components/` → `composables/`
+- 每批清理后更新 `baseline_violations`；归零后移除 strict 步骤的 `continue-on-error`
+
+### D. 前端 a11y 违规修复（来源：175 §3.4 内容侧清理）
+
+- `frontend-a11y` job 已建（`e2e/a11y/` 7 spec）
+- Lighthouse a11y 阈值已升至 0.9
+- 修复 7 个核心页面 axe critical/serious 违规至 0
+- 必要豁免登记到 `docs/explanation/accessibility-baseline.md`
+
+### E. 前端覆盖率从 60 → 75 过渡（来源：175 §2 阈值已设到 75）
+
+- High_Coverage_Core 8 模块的 90% 阈值需要核心 store/composable 补单测
+- 全局 75% 阈值需要在过渡期内稳定补齐
+
+### F. OTel 性能基准对比（来源：175 §5.8 降级）
+
+- 175 因 `tests/perf/test_backtest_throughput.py` 等同基准缺失，本轮未做硬阈值
+- 建议 176 先建立 perf baseline 再做 OTel ON/OFF 对比
+
+### G. 500-999 行 .vue 收尾（来源：175 §11.5 整体降级）
+
+- 174 主线 C 收尾后由 176 决定
+- 命中文件清单需要在 176 启动时重新扫描
+
+### H. 监控升级（来源：175 §「175 与 176 的接续」展望）
+
+- OTel metrics（不仅 traces）+ logs correlation
+- E2E 全套用例上 PR-blocking gate（175 仅 smoke 阻塞）
+- Bundle size 阈值再下探（300KB → 250KB）
+- DB 迁移在 staging 真实数据集 dry-run
+- `monorepo-check` job 由 advisory 升级为 blocker
+
+---
+
 ## P0 — Policy decisions (need product / ops sign-off)
 
 ### 3. Local `.env` files contain real third-party credentials

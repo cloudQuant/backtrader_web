@@ -284,6 +284,10 @@ npm run test -- --run --coverage
 - [测试指南](docs/TESTING.md) - 单元测试、E2E 测试
 - [贡献指南](CONTRIBUTING.md) - 开发流程与 PR 规范
 - [CI/CD](docs/CI_CD.md) - GitHub Actions 流水线
+- [无障碍基线 (Accessibility Baseline)](docs/explanation/accessibility-baseline.md) - WCAG 2.1 AA 基线、Critical_Page_Set 扫描结果与必要豁免（迭代 175 §3）
+- [前端 Bundle 体积基线](docs/reference/frontend-bundle-budget.md) - vendor chunk 与 entry chunk gzip 体积基线（迭代 175 §7）
+- [数据库迁移 Playbook](docs/how-to/database-migration-playbook.md) - 长锁/全表扫描风险与降级策略（迭代 175 §8）
+- [Python Monorepo 选型说明](docs/explanation/python-monorepo.md) - uv workspace 选型与 vendored 包处理（迭代 175 §9）
 
 ## 版本计划
 

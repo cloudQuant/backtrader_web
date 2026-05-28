@@ -1,0 +1,8 @@
+{
+  "_comment": "Iteration 175 §4 baseline — recorded at 175 entry-commit 51efc51e. The strict scan finds 15553 violations on launch; until the project clears them in 175 phase 2.8 work, the CI gate runs in advisory mode (warning only). To upgrade to a blocking gate set CHECK_I18N_STRICT_BLOCKING=true in the frontend-lint CI step. Once the violation count reaches 0, this baseline file can be deleted.",
+  "baseline_violations": 15553,
+  "baseline_commit": "51efc51e",
+  "baseline_date": "2026-05-28",
+  "blocking_threshold": 0,
+  "advisory_until_blocking": true
+}

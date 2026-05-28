@@ -2,6 +2,20 @@ import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import path from 'path'
 
+// Iteration 175 §2 — High_Coverage_Core modules and their >= 90% per-path
+// thresholds. Listed inline so the source-of-truth lives next to the global
+// thresholds. Mirrored in src/__tests__/coverage_core.md for human review.
+const HIGH_COVERAGE_CORE_THRESHOLDS = {
+  'src/stores/auth.ts':                     { lines: 90, functions: 90, branches: 90, statements: 90 },
+  'src/stores/theme.ts':                    { lines: 90, functions: 90, branches: 90, statements: 90 },
+  'src/stores/backtest.ts':                 { lines: 90, functions: 90, branches: 90, statements: 90 },
+  'src/stores/strategy.ts':                 { lines: 90, functions: 90, branches: 90, statements: 90 },
+  'src/stores/knowledgeBase.ts':            { lines: 90, functions: 90, branches: 90, statements: 90 },
+  'src/api/index.ts':                       { lines: 90, functions: 90, branches: 90, statements: 90 },
+  'src/composables/useBacktestRuntime.ts':  { lines: 90, functions: 90, branches: 90, statements: 90 },
+  'src/utils/markdown-sanitizer.ts':        { lines: 90, functions: 90, branches: 90, statements: 90 },
+}
+
 export default defineConfig({
   plugins: [vue() as any],
   resolve: {
@@ -17,7 +31,7 @@ export default defineConfig({
     testTimeout: 10000,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'json-summary', 'html'],
       exclude: [
         'node_modules/',
         'src/__tests__/',
@@ -29,10 +43,13 @@ export default defineConfig({
         'src/composables/useKeyboardShortcuts.ts',
       ],
       thresholds: {
-        lines: 45,
-        functions: 50,
-        branches: 55,
-        statements: 45,
+        // Iteration 175 §2 — global ratchet 60 → 75
+        // (174 set the floor at 60; 175 raises to 75. See PROGRESS.md §2.)
+        lines: 75,
+        functions: 75,
+        branches: 75,
+        statements: 75,
+        ...HIGH_COVERAGE_CORE_THRESHOLDS,
       },
     },
   },

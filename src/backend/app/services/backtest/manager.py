@@ -117,26 +117,33 @@ class BacktestExecutionManager:
 
     async def create_task(self, user_id: str, request: BacktestRequest) -> BacktestTask:
         """Create a new persisted backtest task."""
-        if not await self.can_user_start_task(user_id):
-            raise ValueError(
-                f"Cannot create task: user {user_id} has reached the concurrent task limit"
-            )
+        from app.utils.tracing import business_span
 
-        task = BacktestTask(
+        with business_span(
+            "backtrader.backtest.create",
             user_id=user_id,
             strategy_id=request.strategy_id,
-            symbol=request.symbol,
-            request_data=request.model_dump(mode="json"),
-            status=TaskStatus.PENDING,
-        )
+        ):
+            if not await self.can_user_start_task(user_id):
+                raise ValueError(
+                    f"Cannot create task: user {user_id} has reached the concurrent task limit"
+                )
 
-        async with async_session_maker() as session:
-            session.add(task)
-            await session.commit()
-            await session.refresh(task)
+            task = BacktestTask(
+                user_id=user_id,
+                strategy_id=request.strategy_id,
+                symbol=request.symbol,
+                request_data=request.model_dump(mode="json"),
+                status=TaskStatus.PENDING,
+            )
 
-        logger.info("Created backtest task %s for user %s", task.id, user_id)
-        return task
+            async with async_session_maker() as session:
+                session.add(task)
+                await session.commit()
+                await session.refresh(task)
+
+            logger.info("Created backtest task %s for user %s", task.id, user_id)
+            return task
 
     async def get_task(self, task_id: str, user_id: str | None = None) -> BacktestTask | None:
         """Return one task, optionally enforcing ownership."""
@@ -154,20 +161,37 @@ class BacktestExecutionManager:
         log_dir: str | None = None,
     ) -> BacktestTask | None:
         """Update task status and optional error or log path."""
-        async with async_session_maker() as session:
-            task = await session.get(BacktestTask, task_id)
-            if not task:
-                return None
+        from app.utils.tracing import business_span
 
-            task.status = status
-            if error_message:
-                task.error_message = error_message
-            if log_dir:
-                task.log_dir = log_dir
+        # Map terminal statuses to OTel phase span names. The non-terminal
+        # transitions (e.g. PENDING → RUNNING) are wrapped under the
+        # `submit` phase so a complete trace shows
+        # create → submit → execute → collect → finalize.
+        phase = {
+            TaskStatus.RUNNING: "submit",
+            TaskStatus.COMPLETED: "finalize",
+            TaskStatus.FAILED: "finalize",
+            TaskStatus.CANCELLED: "finalize",
+        }.get(status, "submit")
 
-            await session.commit()
-            await session.refresh(task)
-            return task
+        with business_span(
+            f"backtrader.backtest.{phase}",
+            backtest_id=task_id,
+        ):
+            async with async_session_maker() as session:
+                task = await session.get(BacktestTask, task_id)
+                if not task:
+                    return None
+
+                task.status = status
+                if error_message:
+                    task.error_message = error_message
+                if log_dir:
+                    task.log_dir = log_dir
+
+                await session.commit()
+                await session.refresh(task)
+                return task
 
     async def create_result(
         self,
@@ -180,30 +204,33 @@ class BacktestExecutionManager:
         metrics_source: str = "manual",
     ) -> BacktestResultModel:
         """Create and persist one backtest result."""
-        result = BacktestResultModel(
-            task_id=task_id,
-            total_return=metrics.get("total_return", 0),
-            annual_return=metrics.get("annual_return", 0),
-            sharpe_ratio=metrics.get("sharpe_ratio", 0),
-            max_drawdown=metrics.get("max_drawdown", 0),
-            win_rate=metrics.get("win_rate", 0),
-            metrics_source=metrics_source,
-            total_trades=metrics.get("total_trades", 0),
-            profitable_trades=metrics.get("profitable_trades", 0),
-            losing_trades=metrics.get("losing_trades", 0),
-            equity_curve=equity_curve,
-            equity_dates=equity_dates,
-            drawdown_curve=drawdown_curve,
-            trades=trades,
-        )
+        from app.utils.tracing import business_span
 
-        async with async_session_maker() as session:
-            session.add(result)
-            await session.commit()
-            await session.refresh(result)
+        with business_span("backtrader.backtest.collect", backtest_id=task_id):
+            result = BacktestResultModel(
+                task_id=task_id,
+                total_return=metrics.get("total_return", 0),
+                annual_return=metrics.get("annual_return", 0),
+                sharpe_ratio=metrics.get("sharpe_ratio", 0),
+                max_drawdown=metrics.get("max_drawdown", 0),
+                win_rate=metrics.get("win_rate", 0),
+                metrics_source=metrics_source,
+                total_trades=metrics.get("total_trades", 0),
+                profitable_trades=metrics.get("profitable_trades", 0),
+                losing_trades=metrics.get("losing_trades", 0),
+                equity_curve=equity_curve,
+                equity_dates=equity_dates,
+                drawdown_curve=drawdown_curve,
+                trades=trades,
+            )
 
-        logger.info("Created backtest result for task %s", task_id)
-        return result
+            async with async_session_maker() as session:
+                session.add(result)
+                await session.commit()
+                await session.refresh(result)
+
+            logger.info("Created backtest result for task %s", task_id)
+            return result
 
     async def get_result(self, task_id: str) -> BacktestResultModel | None:
         """Return the stored result for one task."""

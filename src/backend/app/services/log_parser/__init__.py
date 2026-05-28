@@ -17,4 +17,10 @@ re-export facade so callers continue to use ``parse_value_log`` /
 ``parse_trade_log`` / etc. without changes.
 """
 
+# Iteration 175 §1.5 (Mypy strict scope) — known residual Any sources:
+# any-source: pandas-frames - pandas.DataFrame.iterrows / row[col] resolves to Any
+# any-source: heterogeneous-rows - parse_*_log returns list[dict[str, Any]] by contract
+# (Caps per Requirement 1.5: ≤5 categories per subpackage; mirrored in
+# docs/iterations/迭代175-质量加固与可观测性纵深/PROGRESS.md §1 "已知尾巴")
+
 __all__: list[str] = []
