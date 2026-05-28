@@ -76,7 +76,7 @@ scripts 直接被以下处所引用（迁移时必须同步更新）：
 |---|---|---|---|---|---|---|
 | C1 | `services/sync_service.py` | 2300 | ≤ 900 | 2852 | 🟡 | 切片 2 已合 (`26dfb670`)：抽 `sync/transport.py`（mysqldump/mysql/ssh/scp/compose/run_exec 全套，407 行）。剩余切片 3：`sync/schema_diff.py`、切片 4：`sync/scheduler.py`，需要把 SyncService 类内的 `_apply_schema_delta_*` / `_run_task` 等方法搬走 |
 | C2 | `services/gateway/manual.py` | 1500 | ≤ 600 | 2037 | ⚪ | 173 已抽 `manual_gateway/` 子包；下一步按 family 拆 `ib_clientportal/ctp/ccxt/mt5` + `subprocess(["lsof"])` → `psutil` |
-| C3 | `services/workspace_service.py` | 1000 | ≤ 500 | 1376 | ⚪ | 173 已建 `workspace/{lifecycle,reconciliation,reports,units,optimization}.py`，需进一步把 service 主体切走 |
+| C3 | `services/workspace_service.py` | 1000 | ≤ 500 | 1229 | 🟡 | 173 已建 `workspace/{lifecycle,reconciliation,reports,units,optimization}.py`；174 又抽 `workspace/config.py`（`9ac3aea1`）。剩余方法深度依赖 self，需要更深入的架构重构 |
 | C4 | `services/quote_service.py` | 950 | ≤ 500 | 734 | ✅ | 173 已抽 `quote/cache.py`；174 抽 `quote/{registry,zmq_receiver,snapshots,tick}.py`（`2289a809` + `bcfd07a3` + `be655fcc`）。已下到 800 以下 |
 | C5 | `services/strategy/core.py` | — | ≤ 500 | 546 | ✅ | `56697864` 已合：抽 `strategy/{inference,ai_draft,templates}.py`；core.py 仅保留 StrategyService + 向后兼容 shim。56 个 strategy/misc/service 测试全绿 |
 | C6 | `api/live_trading/api.py` | — | 待定 | 702 | ✅ | `5e198515` 抽 `live_trading/credentials.py`（290 行 credentials dict builder）。已下到 800 以下 |
