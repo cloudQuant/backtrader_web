@@ -11,7 +11,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -49,6 +48,24 @@ from app.services.backtest.sanitize import (
 )
 from app.services.backtest.sanitize import (
     sanitize_trades as _sanitize_trades,
+)
+from app.services.backtest.workspace_setup import (
+    copy_log_artifacts as _copy_log_artifacts,
+)
+from app.services.backtest.workspace_setup import (
+    has_custom_params as _has_custom_params,
+)
+from app.services.backtest.workspace_setup import (
+    normalize_trade_logger_params as _normalize_trade_logger_params,
+)
+from app.services.backtest.workspace_setup import (
+    setup_workspace as _setup_workspace,
+)
+from app.services.backtest.workspace_setup import (
+    strip_asserts as _strip_asserts,
+)
+from app.services.backtest.workspace_setup import (
+    write_temp_config as _write_temp_config,
 )
 from app.services.backtest_manager import BacktestExecutionManager
 from app.services.backtest_runner import BacktestExecutionRunner
@@ -310,50 +327,11 @@ class BacktestService:
         strategy_id: str,
         strategy_dir: Path,
     ) -> tuple[Path, Path]:
-        """Create an isolated temp workspace for a backtest run.
-
-        Returns:
-            (tmp_base, task_work_dir) – the root temp directory and the
-            strategy-specific working directory inside it.
-        """
-        from app.services.strategy_service import STRATEGIES_DIR
-
-        tmp_base = Path(tempfile.mkdtemp(prefix=f"bt_{task_id}_"))
-        task_work_dir = tmp_base / "strategies" / strategy_id
-        task_work_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(strategy_dir, task_work_dir, dirs_exist_ok=True)
-
-        # Symlink shared data directory
-        project_root = STRATEGIES_DIR.parent
-        datas_src = project_root / "datas"
-        datas_link = tmp_base / "strategies" / "datas"
-        if datas_src.is_dir() and not datas_link.exists():
-            datas_link.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                os.symlink(str(datas_src), str(datas_link))
-            except OSError as exc:
-                logger.warning("Failed to symlink datas dir for backtest workspace: %s", exc)
-                shutil.copytree(datas_src, datas_link, dirs_exist_ok=True)
-
-        # Clear temp directory logs to avoid stale output
-        tmp_logs = task_work_dir / "logs"
-        if tmp_logs.is_dir():
-            shutil.rmtree(tmp_logs)
-
-        return tmp_base, task_work_dir
+        return _setup_workspace(task_id, strategy_id, strategy_dir)
 
     @staticmethod
     def _copy_log_artifacts(source_dir: Path, target_dir: Path) -> None:
-        """Copy flat log artifacts into a task-specific directory safely."""
-        if not source_dir.is_dir():
-            return
-
-        target_dir.mkdir(parents=True, exist_ok=True)
-        for child in source_dir.iterdir():
-            if child == target_dir:
-                continue
-            if child.is_file():
-                shutil.copy2(child, target_dir / child.name)
+        _copy_log_artifacts(source_dir, target_dir)
 
     async def _persist_results(
         self,
@@ -422,113 +400,24 @@ class BacktestService:
         )
 
     def _has_custom_params(self, request: BacktestRequest) -> bool:
-        """Check if there are custom parameters to override config.yaml.
-
-        Args:
-            request: The backtest request to check.
-
-        Returns:
-            True if custom parameters exist, False otherwise.
-        """
-        return bool(request.params) or request.initial_cash != 100000 or request.commission != 0.001
+        """Check if there are custom parameters to override config.yaml."""
+        return _has_custom_params(request)
 
     def _write_temp_config(
         self, config_path: Path, request: BacktestRequest, original_text: str | None
     ) -> None:
-        """Write custom parameters from frontend to temporary config.yaml.
-
-        Args:
-            config_path: Path to the config.yaml file.
-            request: The backtest request containing custom parameters.
-            original_text: Original config file content if exists.
-        """
-        import yaml
-
-        config = {}
-        if original_text:
-            config = yaml.safe_load(original_text) or {}
-
-        # Override strategy parameters
-        if request.params:
-            if "params" not in config:
-                config["params"] = {}
-            config["params"].update(request.params)
-
-        # Override backtest configuration
-        if "backtest" not in config:
-            config["backtest"] = {}
-        config["backtest"]["initial_cash"] = request.initial_cash
-        config["backtest"]["commission"] = request.commission
-
-        # Override data configuration
-        if "data" not in config:
-            config["data"] = {}
-        if request.symbol:
-            config["data"]["symbol"] = request.symbol
-        # Write timeframe / timeframe_n / bar_count into data config so the
-        # strategy runner picks them up (Bug-2 v2 fix).
-        if request.timeframe:
-            config["data"]["timeframe"] = request.timeframe
-        if request.timeframe_n is not None:
-            config["data"]["timeframe_n"] = request.timeframe_n
-        if request.bar_count is not None:
-            config["data"]["bar_count"] = request.bar_count
-
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
+        """Write custom parameters from frontend to temporary config.yaml."""
+        _write_temp_config(config_path, request, original_text)
 
     @staticmethod
     def _strip_asserts(run_py: Path) -> None:
-        """Remove assert statements from run.py to prevent assertion failures.
-
-        [B005] This prevents assert failures when parameters change.
-
-        Args:
-            run_py: Path to the run.py file to process.
-        """
-        if not run_py.is_file():
-            return
-        code = run_py.read_text(encoding="utf-8")
-        lines = code.split("\n")
-        cleaned = []
-        for line in lines:
-            stripped = line.lstrip()
-            if stripped.startswith("assert ") or stripped.startswith("assert("):
-                cleaned.append(line.replace(stripped, "pass  # assert removed for web backtest"))
-            else:
-                cleaned.append(line)
-        run_py.write_text("\n".join(cleaned), encoding="utf-8")
+        """Remove assert statements from run.py to prevent assertion failures."""
+        _strip_asserts(run_py)
 
     @staticmethod
     def _normalize_trade_logger_params(run_py: Path) -> None:
-        """Rewrite legacy TradeLogger kwargs in run.py so the real observer works.
-
-        Maps ``log_data`` → ``log_bars``, ``log_file_enabled`` → removed,
-        ``file_format`` → ``log_format``.
-        Only touches the text of the file; safe to call on files that already
-        use the current param names (no-op in that case).
-        """
-        if not run_py.is_file():
-            return
-        code = run_py.read_text(encoding="utf-8")
-        original = code
-        # log_data=<val>  →  log_bars=<val>
-        code = code.replace("log_data=", "log_bars=")
-        # file_format='log'  →  log_format='text'
-        code = code.replace("file_format='log'", "log_format='text'")
-        code = code.replace('file_format="log"', 'log_format="text"')
-        code = code.replace("file_format='csv'", "log_format='text'")
-        code = code.replace('file_format="csv"', 'log_format="text"')
-        code = code.replace("file_format='json'", "log_format='json'")
-        code = code.replace('file_format="json"', 'log_format="json"')
-        code = code.replace("file_format='text'", "log_format='text'")
-        code = code.replace('file_format="text"', 'log_format="text"')
-        # Remove log_file_enabled lines entirely (not a valid TradeLogger param)
-        lines = code.split("\n")
-        cleaned = [ln for ln in lines if "log_file_enabled" not in ln]
-        code = "\n".join(cleaned)
-        if code != original:
-            run_py.write_text(code, encoding="utf-8")
+        """Rewrite legacy TradeLogger kwargs in run.py so the real observer works."""
+        _normalize_trade_logger_params(run_py)
 
     async def _run_strategy_subprocess(
         self,
