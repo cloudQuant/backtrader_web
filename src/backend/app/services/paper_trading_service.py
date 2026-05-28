@@ -18,6 +18,7 @@ from app.models.paper_trading import (
     PaperTrade,
     Position,
 )
+from app.utils.tracing import business_span
 from app.websocket_manager import MessageType
 from app.websocket_manager import manager as ws_manager
 
@@ -109,39 +110,44 @@ class PaperTradingService:
         Returns:
             The created order.
         """
-        # Get account
-        account = await self.account_repo.get_by_id(account_id)
-        if not account:
-            raise ValueError(f"Account not found: {account_id}")
-
-        # Calculate margin and commission
-        commission = size * price * account.commission_rate if price else 0
-
-        # Create order
-        order = Order(
-            account_id=account_id,
+        # Iteration 175 §5.4 — backtrader.live.place_order business span.
+        with business_span(
+            "backtrader.live.place_order",
             symbol=symbol,
-            order_type=order_type,
-            side=side,
-            size=size,
-            price=price,
-            stop_price=stop_price,
-            limit_price=limit_price,
-            status=OrderStatus.PENDING,
-            commission=commission,
-        )
+        ):
+            # Get account
+            account = await self.account_repo.get_by_id(account_id)
+            if not account:
+                raise ValueError(f"Account not found: {account_id}")
 
-        order = await self.order_repo.create(order)
+            # Calculate margin and commission
+            commission = size * price * account.commission_rate if price else 0
 
-        logger.info(f"Submitted paper order: {order.id} for account {account_id}")
+            # Create order
+            order = Order(
+                account_id=account_id,
+                symbol=symbol,
+                order_type=order_type,
+                side=side,
+                size=size,
+                price=price,
+                stop_price=stop_price,
+                limit_price=limit_price,
+                status=OrderStatus.PENDING,
+                commission=commission,
+            )
 
-        # Send order creation notification
-        await self._notify_order_update(account_id, order)
+            order = await self.order_repo.create(order)
 
-        # Process order fill asynchronously
-        asyncio.create_task(self._process_order(order.id, account_id, account))
+            logger.info(f"Submitted paper order: {order.id} for account {account_id}")
 
-        return order
+            # Send order creation notification
+            await self._notify_order_update(account_id, order)
+
+            # Process order fill asynchronously
+            asyncio.create_task(self._process_order(order.id, account_id, account))
+
+            return order
 
     async def _process_order(self, order_id: str, account_id: str, account: Account) -> None:
         """Process order execution (simulated).
@@ -205,39 +211,45 @@ class PaperTradingService:
             price: Fill price.
             commission: Commission amount.
         """
-        # Update order status
-        order.status = OrderStatus.FILLED
-        order.filled_size = order.size
-        order.avg_fill_price = price
-        order.commission = commission
-        order.filled_at = datetime.now(timezone.utc)
-
-        await self.order_repo.update(
-            order.id,
-            {
-                "status": order.status,
-                "filled_size": order.filled_size,
-                "avg_fill_price": order.avg_fill_price,
-                "commission": order.commission,
-                "filled_at": order.filled_at,
-            },
-        )
-
-        # Create trade record
-        trade = PaperTrade(
-            account_id=order.account_id,
-            order_id=order.id,
+        # Iteration 175 §5.4 — backtrader.live.on_fill business span.
+        with business_span(
+            "backtrader.live.on_fill",
             symbol=order.symbol,
-            side=order.side,
-            size=order.size,
-            price=price,
-            commission=commission,
-            slippage=0.0,  # Slippage already included in price
-            pnl=0.0,  # Will be calculated when updating position
-            pnl_pct=0.0,
-        )
+            order_id=order.id,
+        ):
+            # Update order status
+            order.status = OrderStatus.FILLED
+            order.filled_size = order.size
+            order.avg_fill_price = price
+            order.commission = commission
+            order.filled_at = datetime.now(timezone.utc)
 
-        await self.trade_repo.create(trade)
+            await self.order_repo.update(
+                order.id,
+                {
+                    "status": order.status,
+                    "filled_size": order.filled_size,
+                    "avg_fill_price": order.avg_fill_price,
+                    "commission": order.commission,
+                    "filled_at": order.filled_at,
+                },
+            )
+
+            # Create trade record
+            trade = PaperTrade(
+                account_id=order.account_id,
+                order_id=order.id,
+                symbol=order.symbol,
+                side=order.side,
+                size=order.size,
+                price=price,
+                commission=commission,
+                slippage=0.0,  # Slippage already included in price
+                pnl=0.0,  # Will be calculated when updating position
+                pnl_pct=0.0,
+            )
+
+            await self.trade_repo.create(trade)
 
     async def _reject_order(self, order: Order, reason: str) -> None:
         """Reject an order.
@@ -617,26 +629,32 @@ class PaperTradingService:
         Returns:
             True if cancelled successfully, False otherwise.
         """
-        order = await self.order_repo.get_by_id(order_id)
-        if not order:
-            return False
+        # Iteration 175 §5.4 — backtrader.live.cancel_order business span.
+        with business_span(
+            "backtrader.live.cancel_order",
+            user_id=user_id,
+            order_id=order_id,
+        ):
+            order = await self.order_repo.get_by_id(order_id)
+            if not order:
+                return False
 
-        # Check permission
-        account = await self.account_repo.get_by_id(order.account_id)
-        if not account or account.user_id != user_id:
-            return False
+            # Check permission
+            account = await self.account_repo.get_by_id(order.account_id)
+            if not account or account.user_id != user_id:
+                return False
 
-        # Only pending orders can be cancelled
-        if order.status != OrderStatus.PENDING:
-            return False
+            # Only pending orders can be cancelled
+            if order.status != OrderStatus.PENDING:
+                return False
 
-        # Mark as cancelled
-        await self.order_repo.update(order_id, {"status": OrderStatus.CANCELLED})
+            # Mark as cancelled
+            await self.order_repo.update(order_id, {"status": OrderStatus.CANCELLED})
 
-        # Send update
-        await self._notify_order_update(order.account_id, order)
+            # Send update
+            await self._notify_order_update(order.account_id, order)
 
-        return True
+            return True
 
     async def get_position(self, position_id: str) -> Position | None:
         """Get position by ID.

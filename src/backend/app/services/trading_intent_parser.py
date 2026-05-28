@@ -17,6 +17,7 @@ from app.schemas.ai_trading import (
     TradingIntent,
 )
 from app.services.ai_chat_service import AIChatService
+from app.utils.tracing import business_span
 
 logger = logging.getLogger(__name__)
 
@@ -27,22 +28,26 @@ async def _call_llm(question: str, system_prompt: str) -> str:
     Uses the same AI chat infrastructure as the KB Copilot.
     Builds messages directly and calls the provider.
     """
-    service = AIChatService()
-    if not service.is_enabled():
-        raise RuntimeError("AI chat is not enabled (AI_CHAT_ENABLED=false)")
+    # Iteration 175 §5.3 — backtrader.ai.llm_call business span. Wraps the
+    # provider invocation so latency / error rate can be observed independently
+    # of the surrounding intent_parse span.
+    with business_span("backtrader.ai.llm_call"):
+        service = AIChatService()
+        if not service.is_enabled():
+            raise RuntimeError("AI chat is not enabled (AI_CHAT_ENABLED=false)")
 
-    try:
-        result = await service.generate_answer(
-            question=f"{system_prompt}\n\n用户指令：{question}",
-            citations=[],
-            assistant_mode="trading_execution",
-            thinking_mode=False,
-        )
-        if not result or not result.get("answer"):
-            raise RuntimeError("AI provider returned empty intent response")
-        return str(result.get("answer") or "")
-    except Exception as e:
-        raise RuntimeError(f"AI provider call failed: {e}") from e
+        try:
+            result = await service.generate_answer(
+                question=f"{system_prompt}\n\n用户指令：{question}",
+                citations=[],
+                assistant_mode="trading_execution",
+                thinking_mode=False,
+            )
+            if not result or not result.get("answer"):
+                raise RuntimeError("AI provider returned empty intent response")
+            return str(result.get("answer") or "")
+        except Exception as e:
+            raise RuntimeError(f"AI provider call failed: {e}") from e
 
 _INTENT_PARSE_PROMPT = """你是一个交易指令解析器。将用户的自然语言交易指令解析为结构化 JSON。
 
@@ -100,34 +105,37 @@ async def parse_trading_intent(
     Returns:
         A TradingIntent object with parsed fields.
     """
-    system_prompt = _INTENT_PARSE_PROMPT.replace("{market_context}", market_context)
+    # Iteration 175 §5.3 — backtrader.ai.intent_parse business span.
+    with business_span("backtrader.ai.intent_parse"):
+        system_prompt = _INTENT_PARSE_PROMPT.replace("{market_context}", market_context)
 
-    try:
-        response_text = await _call_llm(
-            question=user_input,
-            system_prompt=system_prompt,
-        )
-    except Exception as e:
-        logger.warning("AI intent parsing failed, returning low-confidence intent: %s", e)
-        return TradingIntent(
-            action=TradeAction.QUERY,
-            reason=f"AI 解析失败: {e}",
-            confidence=0.0,
-            risk_level=RiskLevel.HIGH,
-            raw_input=user_input,
-        )
+        try:
+            response_text = await _call_llm(
+                question=user_input,
+                system_prompt=system_prompt,
+            )
+        except Exception as e:
+            logger.warning("AI intent parsing failed, returning low-confidence intent: %s", e)
+            return TradingIntent(
+                action=TradeAction.QUERY,
+                reason=f"AI 解析失败: {e}",
+                confidence=0.0,
+                risk_level=RiskLevel.HIGH,
+                raw_input=user_input,
+            )
 
-    # Parse JSON response
-    intent_data = _extract_json(response_text)
-    if intent_data is None:
-        logger.warning("Failed to parse JSON from AI response: %s", response_text[:200])
-        return TradingIntent(
-            action=TradeAction.QUERY,
-            reason="无法解析 AI 响应为有效 JSON",
-            confidence=0.0,
-            risk_level=RiskLevel.HIGH,
-            raw_input=user_input,
-        )
+        # Parse JSON response (Iteration 175 §5.3 — response_format span).
+        with business_span("backtrader.ai.response_format"):
+            intent_data = _extract_json(response_text)
+        if intent_data is None:
+            logger.warning("Failed to parse JSON from AI response: %s", response_text[:200])
+            return TradingIntent(
+                action=TradeAction.QUERY,
+                reason="无法解析 AI 响应为有效 JSON",
+                confidence=0.0,
+                risk_level=RiskLevel.HIGH,
+                raw_input=user_input,
+            )
 
     # Build TradingIntent from parsed data
     try:

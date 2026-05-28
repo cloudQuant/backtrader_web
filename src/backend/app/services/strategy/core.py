@@ -36,6 +36,7 @@ from app.services.strategy import templates as _templates
 from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
 from app.services.strategy.templates import STRATEGIES_DIR
 from app.utils.response_cache import invalidate_cache
+from app.utils.tracing import business_span
 
 logger = logging.getLogger(__name__)
 
@@ -154,20 +155,24 @@ class StrategyService:
         Returns:
             StrategyResponse: The created strategy.
         """
-        strategy = Strategy(
-            user_id=user_id,
-            name=strategy_create.name,
-            description=strategy_create.description,
-            code=strategy_create.code,
-            params={k: v.model_dump() for k, v in strategy_create.params.items()},
-            category=strategy_create.category,
-        )
+        # Iteration 175 §5.2 — backtrader.strategy.submit business span.
+        # ``submit`` here is the user-initiated act of registering a strategy
+        # (the term aligns with design §5 phase set ``{submit, version_create}``).
+        with business_span("backtrader.strategy.submit", user_id=user_id):
+            strategy = Strategy(
+                user_id=user_id,
+                name=strategy_create.name,
+                description=strategy_create.description,
+                code=strategy_create.code,
+                params={k: v.model_dump() for k, v in strategy_create.params.items()},
+                category=strategy_create.category,
+            )
 
-        strategy = await self.strategy_repo.create(strategy)
-        response = self._to_response(strategy)
-        _sync_user_strategy_runtime_files(response)
-        await invalidate_cache("strategies")
-        return response
+            strategy = await self.strategy_repo.create(strategy)
+            response = self._to_response(strategy)
+            _sync_user_strategy_runtime_files(response)
+            await invalidate_cache("strategies")
+            return response
 
     async def generate_copilot_draft(
         self, user_id: str, request: StrategyCopilotDraftRequest

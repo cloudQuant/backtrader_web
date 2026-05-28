@@ -25,6 +25,7 @@ from app.services.version_diff_service import (
     generate_params_diff,
     generate_performance_diff,
 )
+from app.utils.tracing import business_span
 from app.websocket_manager import manager as ws_manager
 
 logger = logging.getLogger(__name__)
@@ -101,49 +102,55 @@ class VersionControlService:
             ValueError: If strategy does not exist or user lacks permission.
             PermissionError: If user does not own the strategy.
         """
-        # Enforce strategy ownership.
-        await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
-
-        # Get or create branch
-        version_branch = await self._get_or_create_branch(strategy_id, user_id, branch)
-
-        # Calculate version number
-        version_number = await self._get_next_version_number(strategy_id, branch)
-
-        # If default version, unset other default versions
-        if is_default:
-            await self._unset_default_versions(strategy_id, branch)
-
-        # Create version
-        version = StrategyVersion(
+        # Iteration 175 §5.2 — backtrader.strategy.version_create business span.
+        with business_span(
+            "backtrader.strategy.version_create",
+            user_id=user_id,
             strategy_id=strategy_id,
-            version_number=version_number,
-            version_name=version_name,
-            branch=branch,
-            status=VersionStatus.DRAFT,
-            tags=tags or [],
-            code=code,
-            params=params or {},
-            description=changelog,
-            is_active=True,
-            is_default=is_default,
-            is_current=True,  # New version is always current
-            created_by=user_id,
-        )
+        ):
+            # Enforce strategy ownership.
+            await self._require_strategy_owner(strategy_id=strategy_id, user_id=user_id)
 
-        # Set parent version (latest version in branch)
-        last_version = await self._get_latest_version(strategy_id, branch)
-        if last_version:
-            version.parent_version_id = last_version.id
+            # Get or create branch
+            version_branch = await self._get_or_create_branch(strategy_id, user_id, branch)
 
-        version = await self.version_repo.create(version)
+            # Calculate version number
+            version_number = await self._get_next_version_number(strategy_id, branch)
 
-        # Update branch
-        await self._update_branch(version_branch, version)
+            # If default version, unset other default versions
+            if is_default:
+                await self._unset_default_versions(strategy_id, branch)
 
-        logger.info(f"Created version {version.id} for strategy {strategy_id}")
+            # Create version
+            version = StrategyVersion(
+                strategy_id=strategy_id,
+                version_number=version_number,
+                version_name=version_name,
+                branch=branch,
+                status=VersionStatus.DRAFT,
+                tags=tags or [],
+                code=code,
+                params=params or {},
+                description=changelog,
+                is_active=True,
+                is_default=is_default,
+                is_current=True,  # New version is always current
+                created_by=user_id,
+            )
 
-        return version
+            # Set parent version (latest version in branch)
+            last_version = await self._get_latest_version(strategy_id, branch)
+            if last_version:
+                version.parent_version_id = last_version.id
+
+            version = await self.version_repo.create(version)
+
+            # Update branch
+            await self._update_branch(version_branch, version)
+
+            logger.info(f"Created version {version.id} for strategy {strategy_id}")
+
+            return version
 
     async def get_version(self, version_id: str) -> StrategyVersion | None:
         """Get a strategy version by ID.
