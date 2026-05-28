@@ -12,15 +12,15 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'happy-dom',
-    setupFiles: ['./src/test/setup.ts'],
-    include: ['src/test/**/*.test.{ts,js}'],
+    setupFiles: ['./src/__tests__/setup.ts'],
+    include: ['src/**/*.test.{ts,js}', 'src/**/__tests__/**/*.test.{ts,js}'],
     testTimeout: 10000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/',
-        'src/test/',
+        'src/__tests__/',
         'e2e/**',
         '**/*.d.ts',
         '**/*.config.*',
