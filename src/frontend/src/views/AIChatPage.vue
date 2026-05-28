@@ -5,18 +5,18 @@
         <div class="eyebrow">
           AI Copilot
         </div>
-        <h2>AI助手</h2>
+        <h2>{{ t('nav.aiChat') }}</h2>
         <p>
-          围绕知识库、策略想法、Backtrader 草稿和策略审查组织对话，引用与执行动作集中在同一条回答内完成。
+          {{ t('aiChat.aroundKnowledgeBase') }}, Backtrader {{ t('aiChat.draftAndStrategyReview') }}. {{ t('aiChat.citationActionHint') }}
         </p>
       </div>
 
       <div class="hero-controls">
         <div class="control-label">
-          <span>知识库</span>
+          <span>{{ t('aiChat.knowledgeBase') }}</span>
           <el-select
             v-model="selectedKnowledgeBaseId"
-            placeholder="请选择知识库"
+            :placeholder="t('aiChat.selectKnowledgeBasePrompt')"
             style="min-width: 240px"
           >
             <el-option
@@ -27,9 +27,14 @@
             />
           </el-select>
         </div>
-        <el-button @click="handleNewConversation">
-          <el-icon><Plus /></el-icon>
-          新会话
+        <el-button
+          :aria-label="t('aiChat.newConversationShort')"
+          @click="handleNewConversation"
+        >
+          <el-icon aria-hidden="true">
+            <Plus />
+          </el-icon>
+          {{ t('aiChat.newConversationShort') }}
         </el-button>
       </div>
     </section>
@@ -50,7 +55,7 @@
           v-model="thinkingMode"
           size="small"
         />
-        <span>深度模式</span>
+        <span>{{ t('aiChat.deepMode') }}</span>
       </div>
     </section>
 
@@ -59,17 +64,17 @@
         <div class="panel-header">
           <div>
             <div class="panel-title">
-              会话
+              {{ t('aiChat.conversations') }}
             </div>
             <div class="panel-subtitle">
-              {{ chatStore.conversations.length }} 条记录
+              {{ chatStore.conversations.length }} {{ t('aiChat.counter') }}
             </div>
           </div>
           <el-button
             circle
             size="small"
-            title="新建会话"
-            aria-label="新建会话"
+            :title="t('aiChat.newConversation')"
+            :aria-label="t('aiChat.newConversation')"
             @click="handleNewConversation"
           >
             <el-icon aria-hidden="true">
@@ -80,8 +85,8 @@
 
         <el-input
           v-model="conversationSearch"
-          placeholder="搜索会话标题"
-          aria-label="搜索会话标题"
+          :placeholder="t('aiChat.searchConversations')"
+          :aria-label="t('aiChat.searchConversations')"
           :prefix-icon="Search"
           clearable
           class="conversation-search"
@@ -92,7 +97,7 @@
           class="empty-rail"
         >
           <el-icon><ChatDotRound /></el-icon>
-          <span>暂无会话</span>
+          <span>{{ t('aiChat.noConversations') }}</span>
         </div>
 
         <div
@@ -119,13 +124,13 @@
             <span class="context-icon"><el-icon><Collection /></el-icon></span>
             <div class="min-w-0">
               <div class="context-title">
-                {{ currentKnowledgeBaseName || '未选择知识库' }}
+                {{ currentKnowledgeBaseName || t('aiChat.noKnowledgeBaseSelected') }}
               </div>
               <div class="context-meta">
                 {{ currentModeMeta.label }}
-                <span v-if="thinkingMode">/ 深度模式</span>
+                <span v-if="thinkingMode">/ {{ t('aiChat.deepMode') }}</span>
                 <span v-if="currentKnowledgeBaseId">/ {{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</span>
-                <span v-if="chatStore.currentConversationId">/ 会话进行中</span>
+                <span v-if="chatStore.currentConversationId">/ {{ t('aiChat.sessionInProgress') }}</span>
               </div>
             </div>
           </div>
@@ -137,7 +142,7 @@
               @click="copyConversation"
             >
               <el-icon><CopyDocument /></el-icon>
-              复制
+              {{ t('aiChat.copyConversation') }}
             </el-button>
             <el-button
               v-if="chatStore.messages.length > 0"
@@ -146,7 +151,7 @@
               @click="handleNewConversation"
             >
               <el-icon><Delete /></el-icon>
-              清空
+              {{ t('aiChat.clearConversation') }}
             </el-button>
           </div>
         </div>
@@ -202,14 +207,14 @@
               <span />
               <span />
               <span />
-              AI 正在生成回答
+              {{ t('aiChat.aiThinking') }}
             </div>
           </template>
         </div>
 
         <div class="composer">
           <div class="composer-meta">
-            <span>{{ selectedKnowledgeBaseId ? currentModeMeta.inputHint : '请先选择知识库' }}</span>
+            <span>{{ selectedKnowledgeBaseId ? currentModeMeta.inputHint : t('aiChat.selectKnowledgeBaseFirst') }}</span>
             <span>{{ question.length }}/500</span>
           </div>
           <div class="composer-row">
@@ -227,11 +232,11 @@
             <el-select
               v-model="selectedSessionModelKey"
               class="session-model-select"
-              placeholder="默认模型"
-              aria-label="选择 AI 模型"
+              :placeholder="t('aiChat.defaultModel')"
+              :aria-label="t('aiChat.modelLabel')"
             >
               <el-option
-                label="默认模型"
+                :label="t('aiChat.defaultModel')"
                 value=""
               />
               <el-option
@@ -248,7 +253,7 @@
               @click="handleAsk"
             >
               <el-icon><Promotion /></el-icon>
-              {{ chatStore.loading ? '发送中' : '发送' }}
+              {{ chatStore.loading ? t('aiChat.sending') : t('aiChat.sendButton') }}
             </el-button>
           </div>
         </div>
@@ -258,7 +263,7 @@
         <div class="panel-header">
           <div>
             <div class="panel-title">
-              上下文
+              {{ t('aiChat.contextPanel') }}
             </div>
             <div class="panel-subtitle">
               {{ currentModeMeta.label }}
@@ -272,22 +277,22 @@
 
         <div class="kb-card">
           <div class="kb-name">
-            {{ currentKnowledgeBaseName || '未选择知识库' }}
+            {{ currentKnowledgeBaseName || t('aiChat.noKnowledgeBaseSelected') }}
           </div>
           <div class="kb-desc">
-            {{ currentKnowledgeBase?.description || '选择知识库后开始问答' }}
+            {{ currentKnowledgeBase?.description || t('aiChat.startQAPrompt') }}
           </div>
           <div class="metric-grid">
             <div>
-              <span>文档</span>
+              <span>{{ t('aiChat.documentsLabel') }}</span>
               <strong>{{ currentKnowledgeBase?.document_count ?? 0 }}</strong>
             </div>
             <div>
-              <span>已加载</span>
+              <span>{{ t('aiChat.loaded') }}</span>
               <strong>{{ knowledgeBaseDocuments.length }}</strong>
             </div>
             <div>
-              <span>已索引</span>
+              <span>{{ t('aiChat.indexed') }}</span>
               <strong>{{ indexedDocumentCount }}</strong>
             </div>
           </div>
@@ -295,22 +300,22 @@
             <span>{{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</span>
             <span>{{ currentKnowledgeBaseSettings.search_mode }}</span>
             <span>top_k {{ currentKnowledgeBaseSettings.default_top_k }}</span>
-            <span v-if="currentKnowledgeBaseSettings.use_conversation_memory">会话记忆开</span>
+            <span v-if="currentKnowledgeBaseSettings.use_conversation_memory">{{ t('aiChat.sessionMemoryOn') }}</span>
           </div>
           <div
             v-if="hasUnindexedDocuments"
             class="kb-index-warning"
           >
             <div>
-              当前知识库有未索引文档，AI 检索结果可能不完整。
-              <span>{{ indexedDocumentCount }}/{{ knowledgeBaseDocuments.length }} 已索引</span>
+              {{ t('aiChat.indexIncomplete') }}{{ t('aiChat.indexResultIncomplete') }}
+              <span>{{ indexedDocumentCount }}/{{ knowledgeBaseDocuments.length }} {{ t('aiChat.indexed') }}</span>
             </div>
             <button
               type="button"
               class="inline-link"
               @click="goToReindex"
             >
-              前往重建索引
+              {{ t('aiChat.rebuildIndex') }}
             </button>
           </div>
           <el-button
@@ -318,14 +323,16 @@
             :disabled="!currentKnowledgeBaseId"
             @click="goToKnowledgeBase"
           >
-            <el-icon><Reading /></el-icon>
-            打开知识库
+            <el-icon aria-hidden="true">
+              <Reading />
+            </el-icon>
+            {{ t('aiChat.openKnowledgeBase') }}
           </el-button>
         </div>
 
         <div class="tool-section">
           <div class="section-kicker">
-            快捷工具
+            {{ t('aiChat.quickTools') }}
           </div>
           <button
             v-for="tool in quickTools"
@@ -346,14 +353,14 @@
 
     <el-dialog
       v-model="showAddToWorkspaceDialog"
-      title="添加策略草稿到工作区"
+      :title="t('aiChat.addStrategyDraftToWorkspace')"
       width="520px"
     >
       <div class="dialog-form">
-        <el-form-item label="研究工作区">
+        <el-form-item :label="t('aiChat.workspaceLabel')">
           <el-select
             v-model="workspaceDraftForm.workspaceId"
-            placeholder="请选择工作区"
+            :placeholder="t('aiChat.selectWorkspacePrompt')"
             class="w-full"
           >
             <el-option
@@ -366,22 +373,22 @@
         </el-form-item>
 
         <div class="dialog-grid">
-          <el-form-item label="标的代码">
+          <el-form-item :label="t('aiChat.symbolCode')">
             <el-input
               v-model="workspaceDraftForm.symbol"
-              placeholder="例如 600519.SH"
+              :placeholder="t('aiChat.examplePlaceholder') + ' 600519.SH'"
             />
           </el-form-item>
-          <el-form-item label="标的名称">
+          <el-form-item :label="t('aiChat.symbolName')">
             <el-input
               v-model="workspaceDraftForm.symbolName"
-              placeholder="例如 贵州茅台"
+              :placeholder="t('aiChat.examplePlaceholder') + ' ' + t('aiChat.sampleSymbolName')"
             />
           </el-form-item>
         </div>
 
         <div class="dialog-grid">
-          <el-form-item label="周期">
+          <el-form-item :label="t('aiChat.timeframe')">
             <el-select
               v-model="workspaceDraftForm.timeframe"
               class="w-full"
@@ -416,10 +423,10 @@
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="分组名">
+          <el-form-item :label="t('aiChat.groupName')">
             <el-input
               v-model="workspaceDraftForm.groupName"
-              placeholder="例如 AI策略草稿"
+              :placeholder="t('aiChat.examplePlaceholder') + ' ' + t('aiChat.strategyDraftCard')"
             />
           </el-form-item>
         </div>
@@ -428,7 +435,7 @@
           v-if="researchWorkspaces.length === 0"
           class="dialog-warning"
         >
-          当前没有可用的研究工作区，请先创建一个研究工作区。
+          {{ t('aiChat.noWorkspaceAvailable') }} {{ t('aiChat.createWorkspaceFirst') }}
         </div>
       </div>
 
@@ -438,24 +445,24 @@
             v-if="researchWorkspaces.length === 0"
             @click="router.push({ name: 'WorkspaceList' })"
           >
-            前往创建工作区
+            {{ t('aiChat.goCreateWorkspace') }}
           </el-button>
           <el-button @click="resetWorkspaceDraftState">
-            取消
+            {{ t('aiChat.cancel') }}
           </el-button>
           <el-button
             type="primary"
             :loading="addingToWorkspace"
             @click="handleConfirmAddToWorkspace()"
           >
-            确认添加
+            {{ t('aiChat.confirmAdd') }}
           </el-button>
           <el-button
             type="primary"
             :loading="addingToWorkspace"
             @click="handleConfirmAddToWorkspace(true)"
           >
-            添加并回测
+            {{ t('aiChat.addAndBacktest') }}
           </el-button>
         </div>
       </template>
@@ -464,6 +471,7 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import {
   ChatDotRound,
   Collection,
@@ -478,6 +486,8 @@ import {
 } from '@element-plus/icons-vue'
 import ChatMessageBubble from '@/components/aichat/ChatMessageBubble.vue'
 import { useAIChatPage } from '@/composables/useAIChatPage'
+
+const { t } = useI18n()
 
 const {
   kbStore,
