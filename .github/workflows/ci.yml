@@ -103,6 +103,21 @@ jobs:
         run: |
           alembic check || echo "::error::ORM models have changes not covered by migrations" && exit 1
 
+      # Iteration 175 §8 — fully-fledged drift detection beyond `alembic check`.
+      # Compares ORM Base.metadata against the schema produced by upgrading a
+      # fresh SQLite DB to head. Blocking gate.
+      - name: ORM ↔ migration drift check (175 §8)
+        run: python scripts/ci/check_orm_schema_drift.py
+
+      # Iteration 175 §8.6 — advisory: flag risky migration operations on
+      # files added/modified in this PR. Always exits 0; output is captured
+      # in job summary.
+      - name: Migration safety lint (175 §8.6, advisory)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: python scripts/ci/check_migration_safety.py
+
   check-openapi:
     name: Check - OpenAPI Schema
     runs-on: ubuntu-latest
@@ -315,10 +330,45 @@ jobs:
         run: |
           mypy app/api/status.py app/api/metrics.py app/api/docs.py app/api/auth.py
 
+  backend-mypy-services:
+    name: Backend - Mypy Ratchet (services subset, 175 §1)
+    runs-on: ubuntu-latest
+    needs: check-generated-artifacts
+    defaults:
+      run:
+        working-directory: src/backend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            config/requirements-dev.lock
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Iteration 175 §1 — strict-mode mypy expanded to services subpackages.
+      # Wave 1 (175): optimization / log_parser / ai_trading (all currently green).
+      # Wave 2 (176 candidates): strategy / backtest / gateway / akshare /
+      #   live_trading / workspace — see docs/iterations/迭代175-质量加固与可观测性纵深/PROGRESS.md
+      #   §1 for the per-subpackage error baselines.
+      - name: Run mypy services strict scope
+        run: |
+          mypy app/services/optimization app/services/log_parser app/services/ai_trading
+
   backend-test:
     name: Backend - Unit Tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset]
+    needs: [backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-mypy-services]
     strategy:
       fail-fast: false
       matrix:
@@ -476,6 +526,15 @@ jobs:
       - name: TypeScript type check
         run: npx vue-tsc --noEmit --skipLibCheck
 
+      - name: 'Iteration 175 §4.7 — PR template i18n manifest (advisory)'
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 ../../scripts/ci/check_pr_template.py || \
+            echo "::warning::PR description i18n change manifest incomplete (175 §4.7) — non-blocking until 176"
+
   frontend-test:
     name: Frontend - Unit Tests
     runs-on: ubuntu-latest
@@ -500,6 +559,10 @@ jobs:
 
       - name: Run unit tests with coverage
         run: npm run test -- --run --coverage
+
+      - name: 覆盖率核心阈值汇总 (175 §2.5)
+        if: always()
+        run: node ../../scripts/dev/coverage_core_summary.mjs
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -548,22 +611,16 @@ jobs:
 
       - name: Compare bundle size with target branch
         if: github.event_name == 'pull_request'
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          # Get current entry chunk size
-          ENTRY_FILE=$(find dist/assets -name "index-*.js" -type f 2>/dev/null | head -1)
-          if [ -z "$ENTRY_FILE" ]; then
-            echo "No entry chunk found, skipping comparison"
-            exit 0
-          fi
-          CURRENT_SIZE=$(stat -f%z "$ENTRY_FILE" 2>/dev/null || stat --format=%s "$ENTRY_FILE" 2>/dev/null)
-          CURRENT_KB=$((CURRENT_SIZE / 1024))
-          echo "Current entry chunk size: ${CURRENT_KB} KB ($(basename "$ENTRY_FILE"))"
+          # Iteration 175 §7.6 — > 10% growth blocks unless override label or
+          # `<!-- bundle-size-override: <reason> -->` HTML comment is present.
 
           # Try to get base branch entry chunk size from last successful build artifact
           echo "Fetching base branch build artifact..."
-          BASE_BRANCH="${{ github.base_ref }}"
 
-          # Use GitHub API to find the last successful workflow run on the base branch
           ARTIFACT_URL=$(curl -s -H "Authorization: token ${{ github.token }}" \
             "https://api.github.com/repos/${{ github.repository }}/actions/artifacts?name=frontend-dist&per_page=5" \
             | node -e "
@@ -574,41 +631,20 @@ jobs:
               }
             " 2>/dev/null || echo "")
 
-          if [ -z "$ARTIFACT_URL" ]; then
-            echo "No base branch artifact found, skipping comparison"
-            exit 0
-          fi
-
-          # Download and extract base branch artifact
-          mkdir -p /tmp/base-dist
-          curl -s -L -H "Authorization: token ${{ github.token }}" "$ARTIFACT_URL" -o /tmp/base-dist.zip
-          unzip -q -o /tmp/base-dist.zip -d /tmp/base-dist 2>/dev/null || {
-            echo "Failed to extract base branch artifact, skipping comparison"
-            exit 0
-          }
-
-          # Find base branch entry chunk
-          BASE_ENTRY=$(find /tmp/base-dist -name "index-*.js" -type f 2>/dev/null | head -1)
-          if [ -z "$BASE_ENTRY" ]; then
-            echo "No entry chunk in base branch artifact, skipping comparison"
-            exit 0
-          fi
-          BASE_SIZE=$(stat -f%z "$BASE_ENTRY" 2>/dev/null || stat --format=%s "$BASE_ENTRY" 2>/dev/null)
-          BASE_KB=$((BASE_SIZE / 1024))
-          echo "Base branch entry chunk size: ${BASE_KB} KB ($(basename "$BASE_ENTRY"))"
-
-          # Compare sizes
-          if [ "$BASE_SIZE" -gt 0 ]; then
-            GROWTH_PERCENT=$(( (CURRENT_SIZE - BASE_SIZE) * 100 / BASE_SIZE ))
-            echo "Size change: ${GROWTH_PERCENT}%"
-            if [ "$GROWTH_PERCENT" -gt 10 ]; then
-              echo "::warning::Entry chunk size grew by ${GROWTH_PERCENT}% (${BASE_KB}KB → ${CURRENT_KB}KB). Threshold: 10%"
-            elif [ "$GROWTH_PERCENT" -lt -10 ]; then
-              echo "Entry chunk size decreased by ${GROWTH_PERCENT#-}% - nice optimization!"
-            else
-              echo "Entry chunk size change within acceptable range (±10%)"
+          BASE_BYTES=""
+          if [ -n "$ARTIFACT_URL" ]; then
+            mkdir -p /tmp/base-dist
+            curl -s -L -H "Authorization: token ${{ github.token }}" "$ARTIFACT_URL" -o /tmp/base-dist.zip || true
+            unzip -q -o /tmp/base-dist.zip -d /tmp/base-dist 2>/dev/null || true
+            BASE_ENTRY=$(find /tmp/base-dist -name "index-*.js" -type f 2>/dev/null | head -1 || true)
+            if [ -n "$BASE_ENTRY" ]; then
+              BASE_BYTES=$(gzip -c -9 "$BASE_ENTRY" | wc -c | tr -d ' ')
             fi
           fi
+
+          # Delegate to compare_bundle_size.sh which handles override logic and
+          # GITHUB_STEP_SUMMARY emission. Empty BASE_BYTES → ratchet skipped.
+          bash ../../scripts/ci/compare_bundle_size.sh dist "${BASE_BYTES:-}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -668,8 +704,9 @@ jobs:
                     if (perfScore < 60) {
                       console.log('::warning::Lighthouse Performance score ' + perfScore + ' < 60 for ' + url);
                     }
-                    if (a11yScore < 80) {
-                      console.log('::error::Lighthouse Accessibility score ' + a11yScore + ' < 80 for ' + url);
+                    // Iteration 175 §3.5 — accessibility threshold ratcheted 80 -> 90.
+                    if (a11yScore < 90) {
+                      console.log('::error::Lighthouse Accessibility score ' + a11yScore + ' < 90 for ' + url);
                       accessibilityFailed = true;
                     }
                   }
@@ -688,6 +725,261 @@ jobs:
           name: lighthouse-reports
           path: ./lighthouse-reports/
           retention-days: 7
+
+  # ========================================
+  # Iteration 175 — A11y / i18n / E2E smoke / monorepo
+  # ========================================
+  frontend-a11y:
+    name: Frontend - A11y (175 §3)
+    runs-on: ubuntu-latest
+    needs: [frontend-build]
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/frontend
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend (preview will serve dist)
+        run: npm run build
+
+      - name: Start vite preview
+        run: |
+          nohup npx vite preview --port 4173 > /tmp/vite-preview.log 2>&1 &
+          for i in $(seq 1 24); do
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:4173/ | grep -qE "^(200|304)$"; then
+              echo "vite preview up"
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Run a11y suite
+        env:
+          BASE_URL: http://localhost:4173
+        run: npx playwright test e2e/a11y/ --reporter=list
+
+      - name: Upload a11y trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-traces
+          path: src/frontend/test-results/
+          retention-days: 7
+
+  frontend-i18n:
+    name: Frontend - i18n (175 §4)
+    runs-on: ubuntu-latest
+    needs: [frontend-lint]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Set up Python (for check_i18n_coverage.py)
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Locale parity check (blocking)
+        run: python scripts/dev/check_i18n_coverage.py --check-parity
+
+      # Iteration 175 §4 — strict bare-string scan starts in advisory mode.
+      # Baseline at 175 entry: 15553 violations. Promoting to a blocking gate
+      # is tracked under PROGRESS.md §4 ("尾巴清单"). Set the env var
+      # CHECK_I18N_STRICT_BLOCKING=true to flip the gate when the project
+      # reaches the desired threshold.
+      - name: Strict scan (advisory until baseline cleared)
+        continue-on-error: true
+        run: python scripts/dev/check_i18n_coverage.py --strict | tail -50
+
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend
+        working-directory: src/frontend
+        run: npm run build
+
+      - name: Start vite preview
+        working-directory: src/frontend
+        run: |
+          nohup npx vite preview --port 4173 > /tmp/vite-preview.log 2>&1 &
+          for i in $(seq 1 24); do
+            if curl -s -o /dev/null -w "%{http_code}" http://localhost:4173/ | grep -qE "^(200|304)$"; then break; fi
+            sleep 5
+          done
+
+      - name: Run en-US no-CJK suite
+        working-directory: src/frontend
+        env:
+          BASE_URL: http://localhost:4173
+        run: npx playwright test e2e/i18n/ --reporter=list || true
+        # Marked || true while the project still has Chinese leaks; flip to
+        # a blocking call once baseline is cleared.
+
+  frontend-e2e-smoke:
+    name: Frontend - E2E Smoke (175 §6)
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-build]
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd "pg_isready -U test_user -d test_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_db
+      SECRET_KEY: test-secret-key-for-ci-32-characters-minimum
+      JWT_SECRET_KEY: test-jwt-secret-key-for-ci-32-characters-minimum
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            config/requirements-dev.lock
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: src/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,postgres]"
+
+      - name: Install frontend dependencies
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: src/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run alembic migrations
+        working-directory: src/backend
+        run: alembic upgrade head
+
+      - name: Seed smoke dataset (175 §6.5)
+        run: python scripts/dev/seed_e2e_smoke.py
+
+      - name: Start backend (uvicorn)
+        working-directory: src/backend
+        run: |
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/uvicorn.log 2>&1 &
+
+      - name: Build & serve frontend
+        working-directory: src/frontend
+        run: |
+          npm run build
+          nohup npx vite preview --port 4173 > /tmp/vite.log 2>&1 &
+
+      - name: Wait for /api/v1/health (60s budget)
+        run: |
+          for i in $(seq 1 12); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/api/v1/health || echo 000)
+            if [ "$CODE" = "200" ]; then
+              echo "backend healthy"
+              break
+            fi
+            echo "waiting for backend ($i/12, code=$CODE)"
+            sleep 5
+          done
+          if [ "$CODE" != "200" ]; then
+            echo "::error::backend /api/v1/health did not return 200 within 60s"
+            echo "--- last 50 lines of uvicorn.log ---"
+            tail -50 /tmp/uvicorn.log || true
+            exit 1
+          fi
+
+      - name: Run smoke suite
+        working-directory: src/frontend
+        env:
+          BASE_URL: http://localhost:4173
+        run: npx playwright test e2e/smoke-175/ --reporter=list
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-smoke-traces
+          path: |
+            src/frontend/test-results/
+            src/frontend/e2e-results/
+          retention-days: 7
+
+  monorepo-check:
+    name: Monorepo - check_all.sh (175 §9, advisory)
+    runs-on: ubuntu-latest
+    needs: [check-generated-artifacts]
+    continue-on-error: true
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: |
+            src/backend/pyproject.toml
+            config/requirements-dev.lock
+
+      - name: Run check_all.sh (advisory)
+        run: bash scripts/dev/check_all.sh
+        continue-on-error: true
 
   # ========================================
   # Integration Tests
@@ -846,7 +1138,7 @@ jobs:
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, check-openapi, backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-test, backend-security, frontend-lint, frontend-test, frontend-build, lighthouse-ci, integration-test]
+    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, check-openapi, backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-mypy-services, backend-test, backend-security, frontend-lint, frontend-test, frontend-build, lighthouse-ci, frontend-a11y, frontend-i18n, frontend-e2e-smoke, monorepo-check, integration-test]
     if: always()
 
     steps:
@@ -919,12 +1211,21 @@ jobs:
           echo "| Backend Mypy Ratchet | ${{ needs.backend-mypy-ratchet.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Mypy Quote | ${{ needs.backend-mypy-quote.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Mypy API Subset | ${{ needs.backend-mypy-api-subset.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Backend Mypy Services (175) | ${{ needs.backend-mypy-services.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Test | ${{ needs.backend-test.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Security | ${{ needs.backend-security.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Lint | ${{ needs.frontend-lint.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Test | ${{ needs.frontend-test.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Build | ${{ needs.frontend-build.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Lighthouse CI | ${{ needs.lighthouse-ci.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend A11y (175) | ${{ needs.frontend-a11y.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend i18n (175) | ${{ needs.frontend-i18n.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend E2E Smoke (175) | ${{ needs.frontend-e2e-smoke.result }} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.monorepo-check.result }}" = "failure" ]; then
+            echo "| Monorepo Check (advisory) | ⚠️ ${{ needs.monorepo-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Monorepo Check (advisory) | ${{ needs.monorepo-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "| Integration Test | ${{ needs.integration-test.result }} |" >> $GITHUB_STEP_SUMMARY
 
       - name: Output cache and timing metrics
@@ -945,11 +1246,15 @@ jobs:
           needs.backend-mypy-ratchet.result == 'failure' ||
           needs.backend-mypy-quote.result == 'failure' ||
           needs.backend-mypy-api-subset.result == 'failure' ||
+          needs.backend-mypy-services.result == 'failure' ||
           needs.backend-test.result == 'failure' ||
           needs.backend-security.result == 'failure' ||
           needs.frontend-lint.result == 'failure' ||
           needs.frontend-test.result == 'failure' ||
           needs.frontend-build.result == 'failure' ||
           needs.lighthouse-ci.result == 'failure' ||
+          needs.frontend-a11y.result == 'failure' ||
+          needs.frontend-i18n.result == 'failure' ||
+          needs.frontend-e2e-smoke.result == 'failure' ||
           needs.integration-test.result == 'failure'
         run: exit 1
