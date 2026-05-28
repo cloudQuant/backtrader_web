@@ -5,21 +5,17 @@ Includes API routing, logging, rate limiting, security headers, and WebSocket
 streaming for backtest progress updates.
 """
 
-import time as _time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api.backtest_enhanced import websocket_endpoint as stream_backtest_progress
-from app.api.data_topics import websocket_pattern_endpoint as stream_data_topic_pattern
-from app.api.data_topics import websocket_topic_endpoint as stream_data_topic
-from app.api.overfitting import websocket_endpoint as stream_overfitting_progress
 from app.api.router import api_router, optional_router_status
-from app.config import _DEFAULT_PASSWORDS, _DEFAULT_SECRETS, get_settings
+from app.config import get_settings
 from app.db.database import ensure_database_ready
+from app.main_routes import register_runtime_routes
 from app.middleware.exception_handling import register_exception_handlers
 from app.middleware.logging import (
     AuditLoggingMiddleware,
@@ -29,6 +25,8 @@ from app.middleware.logging import (
 from app.middleware.rate_limit_headers import RateLimitHeadersMiddleware
 from app.middleware.security_headers import add_security_headers
 from app.rate_limit import limiter
+from app.shutdown import GracefulShutdownManager
+from app.startup import run_shutdown, run_startup
 from app.telemetry import setup_telemetry
 from app.utils.logger import setup_logger
 
@@ -62,138 +60,17 @@ monitoring.
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting Backtrader Web API...")
-    akshare_scheduler_service = None
-
-    # Database initialization with clear status logging
-    if settings.DB_AUTO_CREATE_SCHEMA:
-        logger.info("DB_AUTO_CREATE_SCHEMA=true: Creating database tables...")
-        await ensure_database_ready()
-        logger.info("Database tables created/verified successfully")
-    else:
-        logger.info("DB_AUTO_CREATE_SCHEMA=false: Verifying database connection...")
-        await ensure_database_ready()
-        logger.info("Database connection verified (schema auto-creation skipped)")
-
-    try:
-        from app.services.backtest_manager import BacktestExecutionManager
-        from app.services.workspace_service import WorkspaceService
-
-        workspace_service = WorkspaceService()
-        reconciled_tasks = await BacktestExecutionManager().reconcile_orphaned_tasks()
-        reconciled_units = await workspace_service.reconcile_orphaned_run_statuses()
-        reconciled_bar_counts = await workspace_service.reconcile_completed_bar_counts()
-        if reconciled_tasks or reconciled_units or reconciled_bar_counts:
-            logger.warning(
-                "Recovered stale runtime state on startup: backtest_tasks=%s, workspace_units=%s, unit_bar_counts=%s",
-                reconciled_tasks,
-                reconciled_units,
-                reconciled_bar_counts,
-            )
-    except Exception:
-        logger.exception("Failed to reconcile stale runtime state during startup")
-
-    # Cache initialization status
-    cache_type = "Redis" if settings.REDIS_URL else "Memory"
-    logger.info(f"Cache backend: {cache_type}")
-
-    try:
-        from app.api.audit import get_audit_service
-
-        await get_audit_service().start()
-    except Exception:
-        logger.exception("Failed to start audit async sink")
-
-    try:
-        from app.services.ai_observability.logger import get_ai_call_log_sink
-
-        await get_ai_call_log_sink().start()
-    except Exception:
-        logger.exception("Failed to start AI call log async sink")
-
-    # Security warnings
-    if settings.SECRET_KEY in _DEFAULT_SECRETS or settings.JWT_SECRET_KEY in _DEFAULT_SECRETS:
-        logger.warning("Using default security key. Set SECRET_KEY / JWT_SECRET_KEY in production.")
-    if settings.ADMIN_PASSWORD.lower() in _DEFAULT_PASSWORDS:
-        logger.warning("Default admin password detected. Change ADMIN_PASSWORD in production.")
-
-    if settings.AKSHARE_DATA_DATABASE_URL:
-        try:
-            from app.api.airflow_dags import set_orchestration_backend
-            from app.services.orchestration.detector import BackendDetector
-
-            detector = BackendDetector()
-            orchestration_backend = await detector.detect()
-            await orchestration_backend.start()
-            set_orchestration_backend(orchestration_backend)
-
-            backend_status = await orchestration_backend.get_backend_status()
-            logger.info(
-                f"Orchestration backend started: {backend_status.get('type', 'unknown')}"
-            )
-        except Exception:
-            logger.exception("Failed to start orchestration backend")
-            # Fallback: try legacy APScheduler directly
-            try:
-                from app.services.akshare_scheduler_service import get_akshare_scheduler_service
-
-                akshare_scheduler_service = get_akshare_scheduler_service()
-                await akshare_scheduler_service.start()
-                logger.info("Fallback: Akshare APScheduler started directly")
-            except Exception:
-                logger.exception("Failed to start fallback APScheduler")
-
+    app.state.startup_logger = logger
+    app.state.ensure_database_ready = ensure_database_ready
+    await run_startup(app, settings)
     logger.info("Application ready - accepting requests")
     yield
     logger.info("Shutting down Backtrader Web API...")
 
-    # Shutdown orchestration backend
-    try:
-        from app.api.airflow_dags import _orchestration_backend
-
-        if _orchestration_backend is not None:
-            await _orchestration_backend.shutdown()
-            logger.info("Orchestration backend shut down")
-    except Exception:
-        logger.exception("Failed to shutdown orchestration backend")
-
-    # Graceful shutdown: signal load balancers and drain connections
-    from app.shutdown import GracefulShutdownManager
-
     shutdown_mgr = GracefulShutdownManager()
     await shutdown_mgr.initiate(app)
+    await run_shutdown(app, settings)
 
-    # Graceful shutdown: mark active backtest tasks as interrupted
-    try:
-        from app.services.backtest_manager import BacktestExecutionManager
-
-        mgr = BacktestExecutionManager()
-        interrupted = await mgr.interrupt_active_tasks()
-        if interrupted:
-            logger.warning("Interrupted %d active backtest tasks during shutdown", interrupted)
-    except Exception:
-        logger.exception("Failed to interrupt active tasks during shutdown")
-
-    if akshare_scheduler_service is not None:
-        try:
-            await akshare_scheduler_service.shutdown()
-        except Exception:
-            logger.exception("Failed to shutdown akshare scheduler")
-
-    try:
-        from app.api.audit import get_audit_service
-
-        await get_audit_service().shutdown()
-    except Exception:
-        logger.exception("Failed to shutdown audit async sink")
-
-    try:
-        from app.services.ai_observability.logger import get_ai_call_log_sink
-
-        await get_ai_call_log_sink().shutdown()
-    except Exception:
-        logger.exception("Failed to shutdown AI call log async sink")
-
-    # Clean up ZMQ tick receivers
     try:
         from app.services.quote_service import get_quote_service
 
@@ -210,17 +87,14 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
-
 app.state.limiter = limiter
 
 # OpenTelemetry instrumentation (opt-in via OTEL_ENABLED=true)
 setup_telemetry(app)
-
 register_exception_handlers(app)
 add_security_headers(app)
 app.add_middleware(RateLimitHeadersMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()],
@@ -231,193 +105,10 @@ app.add_middleware(
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(AuditLoggingMiddleware)
 app.add_middleware(PerformanceLoggingMiddleware, slow_request_threshold=0.5)
-
 app.include_router(api_router, prefix="/api/v1")
 
-
-_feature_flags_cache: dict[str, bool] | None = None
-
-
-def _reset_feature_flags_cache() -> None:
-    """Reset the cached feature flags map.
-
-    Useful for tests that mutate the router topology (e.g. mounting or unmounting
-    optional routers) and want a fresh computation on the next access. Calling
-    this in production code is safe but unnecessary; the cache is rebuilt lazily.
-    """
-    global _feature_flags_cache
-    _feature_flags_cache = None
-
-
-def _get_feature_flags() -> dict[str, bool]:
-    global _feature_flags_cache
-    if _feature_flags_cache is not None:
-        return _feature_flags_cache
-
-    route_paths = {route.path for route in app.routes if hasattr(route, "path")}
-
-    def has_prefix(prefix: str) -> bool:
-        return any(path.startswith(prefix) for path in route_paths)
-
-    _feature_flags_cache = {
-        "sandbox_execution": True,
-        "rbac": True,
-        "rate_limiting": True,
-        "optimization": has_prefix("/api/v1/optimization"),
-        "report_export": any(
-            path.startswith("/api/v1/backtests/") and "/report/" in path for path in route_paths
-        ),
-        "websocket": "/ws/backtest/{task_id}" in route_paths
-        or "/api/v1/backtests/ws/backtest/{task_id}" in route_paths,
-        "paper_trading": has_prefix("/api/v1/paper-trading"),
-        "live_trading": has_prefix("/api/v1/live-trading"),
-        "version_control": has_prefix("/api/v1/strategy-versions"),
-        "comparison": has_prefix("/api/v1/comparisons"),
-        "realtime_data": has_prefix("/api/v1/realtime"),
-        "monitoring": has_prefix("/api/v1/monitoring"),
-    }
-    return _feature_flags_cache
-
-
-def _get_root_features() -> list[str]:
-    feature_flags = _get_feature_flags()
-    features = [
-        "Strategy Management",
-        "Backtesting Analysis",
-        "API Rate Limiting",
-        "Secure Sandbox Execution",
-    ]
-
-    optional_features = [
-        ("optimization", "Parameter Optimization"),
-        ("report_export", "Report Export"),
-        ("websocket", "WebSocket Real-time Push"),
-        ("paper_trading", "Paper Trading"),
-        ("live_trading", "Live Trading Integration"),
-        ("comparison", "Backtest Result Comparison"),
-        ("version_control", "Strategy Version Control"),
-        ("realtime_data", "Real-time Market Data"),
-        ("monitoring", "Monitoring and Alerts"),
-    ]
-    for key, label in optional_features:
-        if feature_flags.get(key):
-            features.append(label)
-    return features
-
-
-def _get_optional_router_status() -> dict[str, dict[str, str | bool | None]]:
-    return {
-        name: {"available": status["available"], "error": status["error"]}
-        for name, status in optional_router_status.items()
-    }
-
-
-@app.get("/", summary="Root route")
-async def root():
-    """Return service metadata."""
-    return {
-        "service": "Backtrader Web API",
-        "version": "2.0.0",
-        "status": "running",
-        "docs": "/docs",
-        "features": _get_root_features(),
-    }
-
-
-_health_cache: dict | None = None
-_health_cache_ts: float = 0
-_HEALTH_CACHE_TTL = 10  # seconds
-
-
-@app.get("/health", summary="Health check")
-async def health_check():
-    """Return service and database health (cached for 10 seconds)."""
-    global _health_cache, _health_cache_ts
-
-    now = _time.monotonic()
-    if _health_cache is not None and (now - _health_cache_ts) < _HEALTH_CACHE_TTL:
-        return _health_cache
-
-    from sqlalchemy import text
-
-    from app.db.database import _get_engine, async_session_maker
-
-    db_status = "disconnected"
-    pool_info = None
-    try:
-        async with async_session_maker() as session:
-            await session.execute(text("SELECT 1"))
-        db_status = "connected"
-
-        # Expose connection pool metrics (if pool is available)
-        real_engine = _get_engine()
-        pool = real_engine.pool
-        if hasattr(pool, "size"):
-            pool_info = {
-                "pool_size": pool.size(),
-                "checked_in": pool.checkedin(),
-                "checked_out": pool.checkedout(),
-                "overflow": pool.overflow(),
-                "invalid": pool.status(),
-            }
-    except Exception:
-        logger.exception("Health check database probe failed")
-
-    unavailable_optional_routers = sorted(
-        name for name, status in _get_optional_router_status().items() if not status["available"]
-    )
-
-    result = {
-        "status": "healthy" if db_status == "connected" else "degraded",
-        "service": settings.APP_NAME,
-        "database": db_status,
-        "database_pool": pool_info,
-        "backtrader": "available",
-        "optional_routers": {
-            "unavailable_count": len(unavailable_optional_routers),
-            "unavailable": unavailable_optional_routers,
-        },
-        "version": "2.0.0",
-    }
-
-    _health_cache = result
-    _health_cache_ts = now
-    return result
-
-
-@app.get("/info", summary="System information")
-async def system_info():
-    """Return high-level runtime information."""
-    return {
-        "version": "2.0.0",
-        "database_type": settings.DATABASE_TYPE,
-        "features": _get_feature_flags(),
-        "optional_routers": _get_optional_router_status(),
-    }
-
-
-@app.websocket("/ws/backtest/{task_id}")
-async def websocket_backtest_progress(websocket: WebSocket, task_id: str):
-    """Stream backtest progress updates over WebSocket."""
-    await stream_backtest_progress(websocket, task_id)
-
-
-@app.websocket("/ws/overfitting/{task_id}")
-async def websocket_overfitting_progress(websocket: WebSocket, task_id: str):
-    """Stream overfitting progress updates over WebSocket."""
-    await stream_overfitting_progress(websocket, task_id)
-
-
-@app.websocket("/ws/data-topics")
-async def websocket_data_topics_pattern(websocket: WebSocket):
-    """Stream data-topic updates for a glob pattern over WebSocket."""
-    await stream_data_topic_pattern(websocket)
-
-
-@app.websocket("/ws/data-topics/{topic:path}")
-async def websocket_data_topics_topic(websocket: WebSocket, topic: str):
-    """Stream a single data-topic over WebSocket."""
-    await stream_data_topic(websocket, topic)
+_route_handlers = register_runtime_routes(app, settings, logger, optional_router_status)
+globals().update(_route_handlers)
 
 
 if __name__ == "__main__":  # pragma: no cover
