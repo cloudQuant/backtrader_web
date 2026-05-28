@@ -4,7 +4,7 @@
     <div class="flex justify-end items-center">
       <el-button
         type="primary"
-        :aria-label="'创建策略'"
+        :aria-label="t('strategy.createStrategy')"
         @click="showCreateDialog"
       >
         <el-icon
@@ -13,7 +13,7 @@
         >
           <Plus />
         </el-icon>
-        创建策略
+        {{ t('strategy.createStrategy') }}
       </el-button>
     </div>
 
@@ -24,15 +24,15 @@
     >
       <!-- ========== 策略库 ========== -->
       <el-tab-pane
-        label="策略库"
+        :label="t('strategy.gallery')"
         name="gallery"
       >
         <!-- 搜索和筛选栏 -->
         <div class="flex flex-wrap gap-4 mb-6">
           <el-input
             v-model="searchKeyword"
-            placeholder="搜索策略名称或描述..."
-            aria-label="搜索策略"
+            :placeholder="t('strategy.searchPlaceholder')"
+            :aria-label="t('strategy.searchAriaLabel')"
             clearable
             class="w-64"
             prefix-icon="Search"
@@ -40,32 +40,32 @@
           <el-radio-group
             v-model="categoryFilter"
             size="default"
-            aria-label="按策略类别过滤"
+            :aria-label="t('strategy.filterAriaLabel')"
           >
             <el-radio-button label="">
-              全部
+              {{ t('strategy.categoryAll') }}
             </el-radio-button>
             <el-radio-button label="trend">
-              趋势
+              {{ t('strategy.categoryTrend') }}
             </el-radio-button>
             <el-radio-button label="mean_reversion">
-              均值回归
+              {{ t('strategy.categoryMeanReversion') }}
             </el-radio-button>
             <el-radio-button label="volatility">
-              波动率
+              {{ t('strategy.categoryVolatility') }}
             </el-radio-button>
             <el-radio-button label="indicator">
-              指标
+              {{ t('strategy.categoryIndicator') }}
             </el-radio-button>
             <el-radio-button label="arbitrage">
-              套利
+              {{ t('strategy.categoryArbitrage') }}
             </el-radio-button>
             <el-radio-button label="custom">
-              其他
+              {{ t('strategy.categoryOther') }}
             </el-radio-button>
           </el-radio-group>
           <span class="text-gray-400 text-sm self-center ml-auto">
-            共 {{ filteredTemplates.length }} 个策略
+            {{ t('strategy.customCount', { count: filteredTemplates.length }) }}
           </span>
         </div>
 
@@ -75,57 +75,57 @@
           class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
         >
           <el-card
-            v-for="t in paginatedTemplates"
-            :key="t.id"
+            v-for="tpl in paginatedTemplates"
+            :key="tpl.id"
             shadow="hover"
             class="strategy-card cursor-pointer"
             role="button"
             tabindex="0"
-            :aria-label="`策略 ${t.name}`"
-            @click="openTemplateDetail(t)"
-            @keydown.enter="openTemplateDetail(t)"
-            @keydown.space.prevent="openTemplateDetail(t)"
+            :aria-label="`${t('strategy.title')} ${tpl.name}`"
+            @click="openTemplateDetail(tpl)"
+            @keydown.enter="openTemplateDetail(tpl)"
+            @keydown.space.prevent="openTemplateDetail(tpl)"
           >
             <div class="flex flex-col h-full">
               <div class="flex justify-between items-start mb-2">
                 <h3 class="font-bold text-base leading-tight">
-                  {{ t.name }}
+                  {{ tpl.name }}
                 </h3>
                 <el-tag
                   size="small"
-                  :type="getCategoryType(t.category)"
+                  :type="getCategoryType(tpl.category)"
                   effect="light"
                 >
-                  {{ getCategoryLabel(t.category) }}
+                  {{ getCategoryLabel(tpl.category) }}
                 </el-tag>
               </div>
               <p class="text-gray-500 text-sm mb-3 line-clamp-2 flex-1">
-                {{ stripMeta(t.description) }}
+                {{ stripMeta(tpl.description) }}
               </p>
               <div class="flex items-center justify-between text-xs text-gray-400">
-                <span>{{ getParamCount(t) }} 个参数</span>
-                <span>{{ t.id }}</span>
+                <span>{{ t('strategy.parameterCount', { count: getParamCount(tpl) }) }}</span>
+                <span>{{ tpl.id }}</span>
               </div>
               <div class="flex gap-2 mt-3 pt-3 border-t">
                 <el-button
                   size="small"
                   type="primary"
-                  @click.stop="openTemplateDetail(t)"
+                  @click.stop="openTemplateDetail(tpl)"
                 >
-                  详情
+                  {{ t('strategy.detailLabel') }}
                 </el-button>
                 <el-button
                   size="small"
-                  @click.stop="useTemplate(t)"
+                  @click.stop="useTemplate(tpl)"
                 >
-                  复制为我的策略
+                  {{ t('strategy.actionCopy') }}
                 </el-button>
                 <el-button
                   size="small"
                   type="success"
-                  @click.stop="goBacktest(t)"
+                  @click.stop="goBacktest(tpl)"
                 >
-                  回测
+                  {{ t('strategy.typeBacktest') }}
                 </el-button>
               </div>
             </div>
@@ -133,7 +133,7 @@
         </div>
         <el-empty
           v-else
-          description="没有匹配的策略"
+          :description="t('strategy.noMatch')"
         />
 
         <!-- 分页 -->
@@ -152,28 +152,28 @@
 
       <!-- ========== 我的策略 ========== -->
       <el-tab-pane
-        label="我的策略"
+        :label="t('strategy.myStrategies')"
         name="my"
       >
         <el-table
           v-loading="loading"
           :data="strategies"
           stripe
-          empty-text="暂无自定义策略"
+          :empty-text="t('strategy.customEmpty')"
         >
           <el-table-column
             prop="name"
-            label="策略名称"
+            :label="t('strategy.strategyName')"
             width="200"
           />
           <el-table-column
             prop="description"
-            label="描述"
+            :label="t('strategy.paramDescription')"
             show-overflow-tooltip
           />
           <el-table-column
             prop="category"
-            label="分类"
+            :label="$t('common.action')"
             width="120"
           >
             <template #default="{ row }">
@@ -187,11 +187,11 @@
           </el-table-column>
           <el-table-column
             prop="created_at"
-            label="创建时间"
+            :label="t('strategy.createdAt')"
             width="180"
           />
           <el-table-column
-            label="操作"
+            :label="$t('common.action')"
             width="220"
             fixed="right"
           >
@@ -202,7 +202,7 @@
                 size="small"
                 @click="viewStrategy(row)"
               >
-                查看
+                {{ t('strategy.actionView') }}
               </el-button>
               <el-button
                 type="warning"
@@ -210,7 +210,7 @@
                 size="small"
                 @click="editStrategy(row)"
               >
-                编辑
+                {{ t('strategy.actionEdit') }}
               </el-button>
               <el-button
                 type="danger"
@@ -218,7 +218,7 @@
                 size="small"
                 @click="deleteStrategy(row.id)"
               >
-                删除
+                {{ t('strategy.actionDelete') }}
               </el-button>
             </template>
           </el-table-column>
@@ -250,7 +250,7 @@
         <!-- 参数表 -->
         <div v-if="Object.keys(detailTemplate.params).length">
           <h4 class="font-bold text-sm mb-2">
-            策略参数
+            {{ t('strategy.params') }}
           </h4>
           <el-table
             :data="paramTableData"
@@ -260,22 +260,22 @@
           >
             <el-table-column
               prop="name"
-              label="参数名"
+              :label="t('strategy.paramName')"
               width="180"
             />
             <el-table-column
               prop="default"
-              label="默认值"
+              :label="t('strategy.paramDefault')"
               width="120"
             />
             <el-table-column
               prop="type"
-              label="类型"
+              :label="t('strategy.paramType')"
               width="80"
             />
             <el-table-column
               prop="description"
-              label="说明"
+              :label="t('strategy.paramDescription')"
             />
           </el-table>
         </div>
@@ -283,7 +283,7 @@
         <!-- Tab: README / 代码 -->
         <el-tabs v-model="detailTab">
           <el-tab-pane
-            label="策略文档"
+            :label="t('strategy.docs')"
             name="readme"
           >
             <div
@@ -303,11 +303,11 @@
             <!-- eslint-enable vue/no-v-html -->
             <el-empty
               v-else
-              description="暂无文档"
+              :description="t('strategy.docsEmpty')"
             />
           </el-tab-pane>
           <el-tab-pane
-            label="策略代码"
+            :label="t('strategy.strategyCode')"
             name="code"
           >
             <MonacoEditor
@@ -322,16 +322,16 @@
       </div>
       <template #footer>
         <el-button @click="detailVisible = false">
-          关闭
+          {{ t('strategy.close') }}
         </el-button>
         <el-button @click="useTemplate(detailTemplate!)">
-          复制为我的策略
+          {{ t('strategy.actionCopy') }}
         </el-button>
         <el-button
           type="primary"
           @click="goBacktest(detailTemplate!)"
         >
-          去回测
+          {{ t('strategy.actionRunBacktest') }}
         </el-button>
       </template>
     </el-dialog>
@@ -339,7 +339,7 @@
     <!-- ========== 创建/编辑弹窗 ========== -->
     <el-dialog
       v-model="dialogVisible"
-      :title="isEdit ? '编辑策略' : '创建策略'"
+      :title="isEdit ? t('strategy.editStrategy') : t('strategy.createStrategy')"
       width="800px"
     >
       <el-form
@@ -347,55 +347,55 @@
         label-width="100px"
       >
         <el-form-item
-          label="策略名称"
+          :label="t('strategy.strategyName')"
           required
         >
           <el-input
             v-model="form.name"
-            placeholder="输入策略名称"
+            :placeholder="t('strategy.strategyName')"
           />
         </el-form-item>
-        <el-form-item label="策略描述">
+        <el-form-item :label="t('strategy.description')">
           <el-input
             v-model="form.description"
             type="textarea"
             :rows="2"
-            placeholder="策略描述"
+            :placeholder="t('strategy.description')"
           />
         </el-form-item>
-        <el-form-item label="策略分类">
+        <el-form-item :label="t('strategy.title')">
           <el-select
             v-model="form.category"
             class="w-full"
           >
             <el-option
-              label="趋势策略"
+              :label="t('strategy.categoryTrend')"
               value="trend"
             />
             <el-option
-              label="均值回归"
+              :label="t('strategy.categoryMeanReversion')"
               value="mean_reversion"
             />
             <el-option
-              label="波动率"
+              :label="t('strategy.categoryVolatility')"
               value="volatility"
             />
             <el-option
-              label="指标策略"
+              :label="t('strategy.indicatorStrategy')"
               value="indicator"
             />
             <el-option
-              label="套利策略"
+              :label="t('strategy.arbitrageStrategy')"
               value="arbitrage"
             />
             <el-option
-              label="自定义"
+              :label="t('strategy.categoryOther')"
               value="custom"
             />
           </el-select>
         </el-form-item>
         <el-form-item
-          label="策略代码"
+          :label="t('strategy.strategyCode')"
           required
         >
           <MonacoEditor
@@ -408,14 +408,14 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">
-          取消
+          {{ t('strategy.cancel') }}
         </el-button>
         <el-button
           type="primary"
           :loading="saving"
           @click="saveStrategy"
         >
-          {{ isEdit ? '保存' : '创建' }}
+          {{ isEdit ? t('strategy.save') : t('strategy.create') }}
         </el-button>
       </template>
     </el-dialog>
@@ -423,7 +423,7 @@
     <!-- ========== 查看我的策略弹窗 ========== -->
     <el-dialog
       v-model="viewDialogVisible"
-      title="策略详情"
+      :title="t('strategy.detailLabel')"
       width="800px"
     >
       <div
@@ -459,6 +459,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '@/stores/strategy'
 import { strategyApi } from '@/api/strategy'
 import { getCategoryType, getCategoryLabel } from '@/constants/strategy'
@@ -466,6 +467,7 @@ import MonacoEditor from '@/components/common/MonacoEditor.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
 import DOMPurify from 'dompurify'
 
+const { t } = useI18n()
 const router = useRouter()
 const strategyStore = useStrategyStore()
 
@@ -624,7 +626,7 @@ function useTemplate(template: StrategyTemplate) {
   isEdit.value = false
   editingId.value = ''
   Object.assign(form, {
-    name: template.name + ' (副本)',
+    name: template.name + ` (${t('strategy.typeCopy')})`,
     description: stripMeta(template.description),
     code: template.code,
     category: template.category,
@@ -635,17 +637,17 @@ function useTemplate(template: StrategyTemplate) {
 
 async function saveStrategy() {
   if (!form.name || !form.code) {
-    ElMessage.warning('请填写策略名称和代码')
+    ElMessage.warning(t('strategy.strategyName') + ' & ' + t('strategy.strategyCode'))
     return
   }
   saving.value = true
   try {
     if (isEdit.value) {
       await strategyStore.updateStrategy(editingId.value, form)
-      ElMessage.success('策略已更新')
+      ElMessage.success(t('strategy.updated'))
     } else {
       await strategyStore.createStrategy(form)
-      ElMessage.success('策略已创建')
+      ElMessage.success(t('strategy.created'))
     }
     dialogVisible.value = false
   } finally {
@@ -654,9 +656,9 @@ async function saveStrategy() {
 }
 
 async function deleteStrategy(id: string) {
-  await ElMessageBox.confirm('确定删除此策略？', '提示', { type: 'warning' })
+  await ElMessageBox.confirm(t('strategy.confirmDeleteText'), t('strategy.confirmDeleteTitle'), { type: 'warning' })
   await strategyStore.deleteStrategy(id)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('strategy.deleted'))
 }
 
 onMounted(async () => {
@@ -666,7 +668,7 @@ onMounted(async () => {
       strategyStore.fetchTemplates(),
     ])
   } catch {
-    ElMessage.error('加载策略数据失败，请刷新重试')
+    ElMessage.error(t('strategy.loadFailed'))
   }
 })
 </script>
