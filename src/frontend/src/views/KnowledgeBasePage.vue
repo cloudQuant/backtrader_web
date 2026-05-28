@@ -2,10 +2,10 @@
   <div class="space-y-4">
     <div>
       <h2 class="text-2xl font-semibold text-slate-900">
-        知识库
+        {{ t('kb.pageTitle') }}
       </h2>
       <p class="mt-1 text-sm text-slate-500">
-        按知识库、文档结构与索引状态浏览内容，并提供更接近 ReqDocs 的树形工作台、节点菜单、批量操作和表格管理。
+        {{ t('kb.pageSubtitle') }}
       </p>
     </div>
 
@@ -15,15 +15,15 @@
           <div class="space-y-3">
             <div class="flex items-center justify-between gap-3">
               <div class="font-medium">
-                知识库列表
+                {{ t('kb.kbList') }}
               </div>
-              <span class="text-xs text-slate-400">{{ filteredKnowledgeBases.length }} 个</span>
+              <span class="text-xs text-slate-400">{{ t('kb.kbCounter', { count: filteredKnowledgeBases.length }) }}</span>
             </div>
             <input
               v-model="knowledgeBaseSearch"
               class="w-full rounded border px-3 py-2 text-sm"
-              placeholder="搜索知识库..."
-              aria-label="搜索知识库"
+              :placeholder="t('kb.searchKbPlaceholder')"
+              :aria-label="t('kb.searchKb')"
             >
           </div>
         </template>
@@ -44,10 +44,10 @@
                 <div class="font-medium text-slate-900">
                   {{ kb.name }}
                 </div>
-                <span class="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{{ kb.document_count }} 篇</span>
+                <span class="rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{{ t('kb.kbCounterDocs', { count: kb.document_count }) }}</span>
               </div>
               <div class="mt-1 text-xs text-slate-500">
-                {{ kb.description || '暂无描述' }}
+                {{ kb.description || t('kb.noDescription') }}
               </div>
             </button>
 
@@ -56,18 +56,18 @@
               <button
                 type="button"
                 class="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
-                title="重命名知识库"
+                :title="t('kb.renameKb')"
                 @click.stop="openKnowledgeBaseRenameDialog(kb)"
               >
-                重命名
+                {{ t('kb.rename') }}
               </button>
               <button
                 type="button"
                 class="rounded px-2 py-1 text-xs text-rose-600 hover:bg-rose-50"
-                title="删除知识库"
+                :title="t('kb.deleteKb')"
                 @click.stop="openKnowledgeBaseDeleteDialog(kb)"
               >
-                删除
+                {{ t('kb.delete') }}
               </button>
             </div>
           </div>
@@ -76,7 +76,7 @@
             v-if="filteredKnowledgeBases.length === 0"
             class="text-sm text-slate-500"
           >
-            未找到匹配的知识库
+            {{ t('kb.noMatchKb') }}
           </div>
         </div>
       </el-card>
@@ -86,7 +86,7 @@
           <div class="space-y-3">
             <div class="flex items-center justify-between gap-3">
               <div class="font-medium">
-                {{ store.currentKnowledgeBase?.name || '文档工作台' }}
+                {{ store.currentKnowledgeBase?.name || t('kb.workbench') }}
               </div>
               <div class="flex items-center gap-2 text-xs">
                 <button
@@ -95,7 +95,7 @@
                   :class="viewMode === 'tree' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500'"
                   @click="viewMode = 'tree'"
                 >
-                  树视图
+                  {{ t('kb.treeView') }}
                 </button>
                 <button
                   type="button"
@@ -103,7 +103,7 @@
                   :class="viewMode === 'table' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-500'"
                   @click="viewMode = 'table'"
                 >
-                  表格视图
+                  {{ t('kb.tableView') }}
                 </button>
               </div>
             </div>
@@ -112,23 +112,23 @@
               <input
                 v-model="documentSearch"
                 class="w-full rounded border px-3 py-2 text-sm"
-                placeholder="搜索标题、正文或路径..."
+                :placeholder="t('kb.searchDocsPlaceholder')"
               >
               <select
                 v-model="sortKey"
                 class="rounded border px-3 py-2 text-sm text-slate-600"
               >
                 <option value="sort_order">
-                  按排序
+                  {{ t('kb.sortBy') }}
                 </option>
                 <option value="title">
-                  按标题
+                  {{ t('kb.sortByTitle') }}
                 </option>
                 <option value="updated_at">
-                  按更新时间
+                  {{ t('kb.sortByUpdated') }}
                 </option>
                 <option value="status">
-                  按状态
+                  {{ t('kb.sortByStatus') }}
                 </option>
               </select>
               <button
@@ -136,7 +136,7 @@
                 class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
                 @click="openImportDialog"
               >
-                导入文档
+                {{ t('kb.importDocs') }}
               </button>
               <button
                 type="button"
@@ -144,7 +144,7 @@
                 :disabled="!store.currentKnowledgeBase"
                 @click="openKnowledgeBaseSettingsDialog"
               >
-                检索配置
+                {{ t('kb.retrievalConfig') }}
               </button>
               <div class="flex gap-2">
                 <button
@@ -152,14 +152,14 @@
                   class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
                   @click="openCreateDialog(false)"
                 >
-                  新建文档
+                  {{ t('kb.createDoc') }}
                 </button>
                 <button
                   type="button"
                   class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
                   @click="openCreateDialog(true)"
                 >
-                  新建文件夹
+                  {{ t('kb.createFolder') }}
                 </button>
               </div>
             </div>
@@ -170,7 +170,7 @@
             >
               <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div class="text-xs text-slate-400">
-                  文档总数
+                  {{ t('kb.statTotal') }}
                 </div>
                 <div class="mt-1 text-sm font-medium text-slate-700">
                   {{ store.documents.length }}
@@ -178,7 +178,7 @@
               </div>
               <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div class="text-xs text-slate-400">
-                  已索引
+                  {{ t('kb.statIndexed') }}
                 </div>
                 <div class="mt-1 text-sm font-medium text-slate-700">
                   {{ indexedDocumentCount }}
@@ -186,7 +186,7 @@
               </div>
               <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div class="text-xs text-slate-400">
-                  文件夹
+                  {{ t('kb.statFolders') }}
                 </div>
                 <div class="mt-1 text-sm font-medium text-slate-700">
                   {{ folderCount }}
@@ -194,7 +194,7 @@
               </div>
               <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
                 <div class="text-xs text-slate-400">
-                  检索策略
+                  {{ t('kb.retrievalStrategy') }}
                 </div>
                 <div class="mt-1 text-sm font-medium text-slate-700">
                   {{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}
@@ -217,9 +217,9 @@
                       type="checkbox"
                       @change="toggleSelectAllVisible($event)"
                     >
-                    <span>全选当前视图</span>
+                    <span>{{ t('kb.selectAll') }}</span>
                   </label>
-                  <span class="text-xs text-slate-400">已选 {{ selectedDocumentIds.size }} 项</span>
+                  <span class="text-xs text-slate-400">{{ t('kb.selectedCount', { count: selectedDocumentIds.size }) }}</span>
                 </div>
                 <div class="flex flex-wrap gap-2 text-xs">
                   <button
@@ -227,49 +227,49 @@
                     class="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50"
                     @click="clearSelection"
                   >
-                    清空选择
+                    {{ t('kb.clearSelection') }}
                   </button>
                   <button
                     type="button"
                     class="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50"
                     @click="openBulkActionDialog('publish')"
                   >
-                    批量发布
+                    {{ t('kb.batchPublish') }}
                   </button>
                   <button
                     type="button"
                     class="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50"
                     @click="openBulkActionDialog('draft')"
                   >
-                    设为草稿
+                    {{ t('kb.setDraft') }}
                   </button>
                   <button
                     type="button"
                     class="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50"
                     @click="openBulkActionDialog('move_root')"
                   >
-                    移到根目录
+                    {{ t('kb.moveToRoot') }}
                   </button>
                   <button
                     type="button"
                     class="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50"
                     @click="handleBatchCopyTitles"
                   >
-                    批量复制标题
+                    {{ t('kb.batchCopyTitles') }}
                   </button>
                   <button
                     type="button"
                     class="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600 hover:bg-slate-50"
                     @click="openBulkActionDialog('mark_not_indexed')"
                   >
-                    标记未索引
+                    {{ t('kb.markUnindexed') }}
                   </button>
                   <button
                     type="button"
                     class="rounded border border-rose-200 bg-white px-2 py-1 text-rose-600 hover:bg-rose-50"
                     @click="openBulkActionDialog('delete')"
                   >
-                    批量删除
+                    {{ t('kb.batchDelete') }}
                   </button>
                 </div>
               </div>
@@ -281,7 +281,7 @@
           v-if="visibleRows.length === 0"
           class="text-sm text-slate-500"
         >
-          暂无文档
+          {{ t('kb.emptyDocs') }}
         </div>
 
         <div
@@ -367,7 +367,7 @@
                   type="button"
                   class="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-white"
                 >
-                  操作
+                  {{ t('kb.actions') }}
                 </button>
                 <template #dropdown>
                   <el-dropdown-menu>
@@ -377,7 +377,7 @@
                         class="w-full text-left"
                         @click="openDocument(row)"
                       >
-                        打开
+                        {{ t('kb.open') }}
                       </button>
                     </el-dropdown-item>
                     <el-dropdown-item>
@@ -386,7 +386,7 @@
                         class="w-full text-left"
                         @click="openRenameDialog(row)"
                       >
-                        重命名
+                        {{ t('kb.rename') }}
                       </button>
                     </el-dropdown-item>
                     <el-dropdown-item>
@@ -395,7 +395,7 @@
                         class="w-full text-left"
                         @click="openCreateChildDialog(row)"
                       >
-                        创建子项
+                        {{ t('kb.createChild') }}
                       </button>
                     </el-dropdown-item>
                     <el-dropdown-item>
@@ -404,7 +404,7 @@
                         class="w-full text-left"
                         @click="handleCopyNodeTitle(row)"
                       >
-                        复制标题
+                        {{ t('kb.copyTitle') }}
                       </button>
                     </el-dropdown-item>
                     <el-dropdown-item>
@@ -413,7 +413,7 @@
                         class="w-full text-left"
                         @click="handleMoveToRoot(row)"
                       >
-                        移到根目录
+                        {{ t('kb.moveToRoot') }}
                       </button>
                     </el-dropdown-item>
                     <el-dropdown-item>
@@ -422,7 +422,7 @@
                         class="w-full text-left text-rose-600"
                         @click="openDeleteDialog(row)"
                       >
-                        删除
+                        {{ t('kb.delete') }}
                       </button>
                     </el-dropdown-item>
                   </el-dropdown-menu>
@@ -442,28 +442,28 @@
                 <tr>
                   <th class="px-3 py-2" />
                   <th class="px-3 py-2">
-                    标题
+                    {{ t('kb.title') }}
                   </th>
                   <th class="px-3 py-2">
-                    类型
+                    {{ t('kb.type') }}
                   </th>
                   <th class="px-3 py-2">
-                    路径
+                    {{ t('kb.path') }}
                   </th>
                   <th class="px-3 py-2">
-                    更新时间
+                    {{ t('kb.updatedAt') }}
                   </th>
                   <th class="px-3 py-2">
-                    洞察
+                    {{ t('kb.insights') }}
                   </th>
                   <th class="px-3 py-2">
-                    状态
+                    {{ t('kb.status') }}
                   </th>
                   <th class="px-3 py-2">
-                    索引
+                    {{ t('kb.indexCol') }}
                   </th>
                   <th class="px-3 py-2">
-                    操作
+                    {{ t('kb.actions') }}
                   </th>
                 </tr>
               </thead>
@@ -533,7 +533,7 @@
                         type="button"
                         class="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
                       >
-                        操作
+                        {{ t('kb.actions') }}
                       </button>
                       <template #dropdown>
                         <el-dropdown-menu>
@@ -543,7 +543,7 @@
                               class="w-full text-left"
                               @click="openDocument(row)"
                             >
-                              打开
+                              {{ t('kb.open') }}
                             </button>
                           </el-dropdown-item>
                           <el-dropdown-item>
@@ -552,7 +552,7 @@
                               class="w-full text-left"
                               @click="openRenameDialog(row)"
                             >
-                              重命名
+                              {{ t('kb.rename') }}
                             </button>
                           </el-dropdown-item>
                           <el-dropdown-item>
@@ -561,7 +561,7 @@
                               class="w-full text-left"
                               @click="handleCopyNodeTitle(row)"
                             >
-                              复制标题
+                              {{ t('kb.copyTitle') }}
                             </button>
                           </el-dropdown-item>
                           <el-dropdown-item>
@@ -570,7 +570,7 @@
                               class="w-full text-left"
                               @click="handleMoveToRoot(row)"
                             >
-                              移到根目录
+                              {{ t('kb.moveToRoot') }}
                             </button>
                           </el-dropdown-item>
                           <el-dropdown-item>
@@ -579,7 +579,7 @@
                               class="w-full text-left text-rose-600"
                               @click="openDeleteDialog(row)"
                             >
-                              删除
+                              {{ t('kb.delete') }}
                             </button>
                           </el-dropdown-item>
                         </el-dropdown-menu>
@@ -592,20 +592,20 @@
           </div>
 
           <div class="flex items-center justify-between gap-3 text-sm text-slate-500">
-            <div>第 {{ currentPage }} / {{ totalPages }} 页</div>
+            <div>{{ t('kb.pageStatus', { current: currentPage, total: totalPages }) }}</div>
             <div class="flex items-center gap-2">
               <select
                 v-model.number="pageSize"
                 class="rounded border px-2 py-1 text-sm"
               >
                 <option :value="8">
-                  8 / 页
+                  {{ t('kb.perPage', { n: 8 }) }}
                 </option>
                 <option :value="12">
-                  12 / 页
+                  {{ t('kb.perPage', { n: 12 }) }}
                 </option>
                 <option :value="20">
-                  20 / 页
+                  {{ t('kb.perPage', { n: 20 }) }}
                 </option>
               </select>
               <button
@@ -614,7 +614,7 @@
                 :disabled="currentPage <= 1"
                 @click="currentPage -= 1"
               >
-                上一页
+                {{ t('kb.pagePrev') }}
               </button>
               <button
                 type="button"
@@ -622,7 +622,7 @@
                 :disabled="currentPage >= totalPages"
                 @click="currentPage += 1"
               >
-                下一页
+                {{ t('kb.pageNext') }}
               </button>
             </div>
           </div>
@@ -633,7 +633,7 @@
         <template #header>
           <div class="flex items-center justify-between gap-3">
             <div class="font-medium">
-              {{ selectedDocument?.title || '文档详情' }}
+              {{ selectedDocument?.title || t('kb.docDetail') }}
             </div>
             <div
               v-if="selectedDocument"
@@ -655,7 +655,7 @@
           v-if="!selectedDocument"
           class="text-sm text-slate-500"
         >
-          请选择左侧文档查看详情
+          {{ t('kb.selectDocPrompt') }}
         </div>
 
         <div
@@ -665,7 +665,7 @@
           <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
               <div class="text-xs text-slate-400">
-                状态
+                {{ t('kb.status') }}
               </div>
               <div class="mt-1 text-sm font-medium text-slate-700">
                 {{ selectedDocument.status }}
@@ -673,7 +673,7 @@
             </div>
             <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
               <div class="text-xs text-slate-400">
-                索引
+                {{ t('kb.indexCol') }}
               </div>
               <div class="mt-1 text-sm font-medium text-slate-700">
                 {{ selectedDocument.index_status }}
@@ -681,7 +681,7 @@
             </div>
             <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
               <div class="text-xs text-slate-400">
-                类型
+                {{ t('kb.type') }}
               </div>
               <div class="mt-1 text-sm font-medium text-slate-700">
                 {{ selectedDocument.is_folder ? 'folder' : selectedDocument.content_type }}
@@ -689,7 +689,7 @@
             </div>
             <div class="rounded border border-slate-200 bg-slate-50 px-3 py-2">
               <div class="text-xs text-slate-400">
-                洞察
+                {{ t('kb.insights') }}
               </div>
               <div class="mt-1 text-sm font-medium text-slate-700">
                 {{ documentInsight(selectedDocument) }}
@@ -698,15 +698,15 @@
           </div>
 
           <div class="flex flex-wrap gap-2 text-xs">
-            <span class="rounded bg-slate-100 px-2 py-1 text-slate-600">排序 {{ selectedDocument.sort_order }}</span>
+            <span class="rounded bg-slate-100 px-2 py-1 text-slate-600">{{ t('kb.sortOrder') }} {{ selectedDocument.sort_order }}</span>
             <span
               v-if="selectedDocument.parent_id"
               class="rounded bg-slate-100 px-2 py-1 text-slate-600"
-            >存在父节点</span>
+            >{{ t('kb.hasParent') }}</span>
             <span
               v-if="selectedDocument.indexed_at"
               class="rounded bg-slate-100 px-2 py-1 text-slate-600"
-            >最近索引 {{ formatDate(selectedDocument.indexed_at) }}</span>
+            >{{ t('kb.lastIndexed') }} {{ formatDate(selectedDocument.indexed_at) }}</span>
             <span class="rounded bg-slate-100 px-2 py-1 text-slate-600">{{ insightChip(selectedDocument) }}</span>
           </div>
 
@@ -715,7 +715,7 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
           >
             <div class="text-xs text-slate-400">
-              来源路径
+              {{ t('kb.sourcePath') }}
             </div>
             <div class="mt-1 break-all">
               {{ selectedDocument.file_path }}
@@ -727,17 +727,17 @@
             class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600"
           >
             <div class="text-xs text-slate-400">
-              元数据
+              {{ t('kb.metadata') }}
             </div>
             <pre class="mt-1 overflow-auto whitespace-pre-wrap break-all text-xs">{{ formattedMetadata }}</pre>
           </div>
 
           <div class="rounded border border-slate-200 px-4 py-3">
             <div class="mb-2 text-xs text-slate-400">
-              正文预览
+              {{ t('kb.contentPreview') }}
             </div>
             <div class="max-h-[640px] overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
-              {{ selectedDocument.content || '暂无内容' }}
+              {{ selectedDocument.content || t('kb.emptyContent') }}
             </div>
           </div>
         </div>
@@ -804,7 +804,7 @@
       <div class="w-full max-w-md rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
           <div class="text-lg font-semibold text-slate-900">
-            重命名
+            {{ t('kb.rename') }}
           </div>
           <button
             type="button"
@@ -845,7 +845,7 @@
       <div class="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl mx-auto">
         <div class="flex items-center justify-between gap-3">
           <div class="text-lg font-semibold text-slate-900">
-            导入文档
+            {{ t('kb.importDocs') }}
           </div>
           <button
             type="button"
@@ -960,7 +960,7 @@
             class="rounded bg-rose-600 px-3 py-2 text-sm text-white"
             @click="submitDeleteDialog"
           >
-            删除
+            {{ t('kb.delete') }}
           </button>
         </div>
       </div>
@@ -1040,7 +1040,7 @@
             class="rounded bg-rose-600 px-3 py-2 text-sm text-white"
             @click="submitKnowledgeBaseDeleteDialog"
           >
-            删除
+            {{ t('kb.delete') }}
           </button>
         </div>
       </div>
@@ -1054,7 +1054,7 @@
         <div class="flex items-center justify-between gap-3">
           <div>
             <div class="text-lg font-semibold text-slate-900">
-              检索配置
+              {{ t('kb.retrievalConfig') }}
             </div>
             <div class="mt-1 text-sm text-slate-500">
               为当前知识库配置 AI 检索和会话记忆策略
@@ -1189,8 +1189,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useKnowledgeBasePage } from '@/composables/useKnowledgeBasePage'
 
+const { t } = useI18n()
 const {
   store,
   knowledgeBaseSearch,
