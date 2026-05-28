@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from app.db.database import async_session_maker
@@ -18,11 +18,33 @@ from app.schemas.ai_trading import (
     AITradingResponse,
     RiskAssessment,
     RiskLevel,
-    TradeAction,
     TradeConfirmRequest,
     TradeConfirmResponse,
     TradeStatus,
     TradingIntent,
+)
+from app.services.ai_trading.conditional_orders import (
+    ConditionalOrderManager,
+    _conditional_orders,
+    get_conditional_order_manager,
+)
+from app.services.ai_trading.messages import (
+    build_confirmation_message as _build_confirmation_message,
+)
+from app.services.ai_trading.messages import (
+    build_dry_run_message as _build_dry_run_message,
+)
+from app.services.ai_trading.messages import (
+    build_execution_message as _build_execution_message,
+)
+from app.services.ai_trading.messages import (
+    build_market_context as _build_market_context,
+)
+from app.services.ai_trading.messages import (
+    build_rejection_message as _build_rejection_message,
+)
+from app.services.ai_trading.messages import (
+    build_suggestions as _build_suggestions,
 )
 from app.services.trading_intent_parser import parse_trading_intent
 from app.services.trading_risk_guard import TradingRiskConfig, TradingRiskGuard
@@ -531,78 +553,33 @@ class AITradingService:
 
     def _build_market_context(self, request: AITradingRequest) -> str:
         """Build market context string for intent parsing."""
-        parts = []
-        if request.gateway_id:
-            parts.append(f"网关: {request.gateway_id}")
-        if request.account_id:
-            parts.append(f"账户: {request.account_id}")
-        if request.dry_run:
-            parts.append("模式: 模拟交易")
-        return "; ".join(parts) if parts else "无额外市场上下文"
+        return _build_market_context(request)
 
     def _build_rejection_message(self, risk: RiskAssessment) -> str:
         """Build user-friendly rejection message."""
-        reasons = "; ".join(risk.blocked_reasons)
-        return f"⚠️ 交易被风控拦截: {reasons}"
+        return _build_rejection_message(risk)
 
     def _build_confirmation_message(
         self, intent: TradingIntent, risk: RiskAssessment
     ) -> str:
         """Build confirmation request message."""
-        action_desc = {
-            TradeAction.BUY: "买入",
-            TradeAction.SELL: "卖出",
-            TradeAction.CLOSE: "平仓",
-        }.get(intent.action, intent.action.value)
-
-        msg = f"请确认交易: {action_desc} {intent.quantity or '?'} {intent.symbol or '?'}"
-        if intent.price:
-            msg += f" @ {intent.price}"
-        if risk.warnings:
-            msg += f"\n⚠️ 注意: {'; '.join(risk.warnings)}"
-        return msg
+        return _build_confirmation_message(intent, risk)
 
     def _build_dry_run_message(self, intent: TradingIntent) -> str:
         """Build dry run result message."""
-        action_desc = {
-            TradeAction.BUY: "买入",
-            TradeAction.SELL: "卖出",
-            TradeAction.CLOSE: "平仓",
-            TradeAction.QUERY: "查询",
-        }.get(intent.action, intent.action.value)
-
-        return (
-            f"🔍 模拟模式: 将{action_desc} {intent.quantity or '?'} "
-            f"{intent.symbol or '?'} @ {intent.price or '市价'}"
-        )
+        return _build_dry_run_message(intent)
 
     def _build_execution_message(
         self, intent: TradingIntent, result: dict[str, Any]
     ) -> str:
         """Build execution result message."""
-        if result.get("success"):
-            return f"✅ 交易执行成功: {result.get('message', '')}"
-        return f"❌ 交易执行失败: {result.get('message', result.get('error', '未知错误'))}"
+        return _build_execution_message(intent, result)
 
     def _build_suggestions(
         self, intent: TradingIntent, risk: RiskAssessment
     ) -> list[str]:
         """Build actionable suggestions for the user."""
-        suggestions = []
-
-        if intent.confidence < 0.5:
-            suggestions.append("建议更明确地描述交易品种和数量")
-
-        if not intent.stop_loss and intent.action in (TradeAction.BUY, TradeAction.SELL):
-            suggestions.append("建议设置止损价格以控制风险")
-
-        if risk.risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
-            suggestions.append("当前交易风险较高，建议减小仓位或等待更好的入场时机")
-
-        if intent.action == TradeAction.QUERY:
-            suggestions.append("您可以说'买入1手螺纹钢'来执行交易")
-
-        return suggestions
+        return _build_suggestions(intent, risk)
 
     async def _notify_confirmation_needed(
         self,
@@ -780,102 +757,16 @@ class AITradingService:
         return ""
 
 
-# ─── Conditional Orders ──────────────────────────────────────────────────────
-
-# In-memory store for conditional orders (production should use DB)
-_conditional_orders: dict[str, dict[str, Any]] = {}
-
-
-class ConditionalOrderManager:
-    """Manages conditional (trigger) orders.
-
-    Conditional orders are stored and periodically checked against
-    market conditions. When the condition is met, the order is executed.
-
-    Example conditions:
-    - "如果BTC跌到60000就买入0.1个"
-    - "螺纹钢涨到4000就卖出"
-    - "如果持仓亏损超过5%就平仓"
-    """
-
-    def create_conditional_order(
-        self,
-        user_id: str,
-        condition: str,
-        action_message: str,
-        gateway_id: str | None = None,
-        dry_run: bool = True,
-        expiry_hours: float = 24.0,
-    ) -> dict[str, Any]:
-        """Create a new conditional order.
-
-        Args:
-            user_id: The user's ID.
-            condition: Natural language condition description.
-            action_message: The trade action to execute when triggered.
-            gateway_id: Optional gateway for execution.
-            dry_run: Whether to use paper trading.
-            expiry_hours: Hours until the order expires.
-
-        Returns:
-            The created conditional order details.
-        """
-        order_id = str(uuid.uuid4())[:12]
-        now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(hours=expiry_hours)
-
-        order_data = {
-            "id": order_id,
-            "user_id": user_id,
-            "condition": condition,
-            "action_message": action_message,
-            "gateway_id": gateway_id,
-            "dry_run": dry_run,
-            "status": "active",
-            "created_at": now.isoformat(),
-            "expires_at": expires_at.isoformat(),
-            "triggered_at": None,
-        }
-
-        _conditional_orders[order_id] = order_data
-        logger.info("Created conditional order %s: %s → %s", order_id, condition, action_message)
-
-        return order_data
-
-    def list_conditional_orders(self, user_id: str) -> list[dict[str, Any]]:
-        """List all conditional orders for a user."""
-        self._expire_old_orders()
-        return [
-            order
-            for order in _conditional_orders.values()
-            if order["user_id"] == user_id
-        ]
-
-    def cancel_conditional_order(self, order_id: str, user_id: str) -> bool:
-        """Cancel a conditional order."""
-        order = _conditional_orders.get(order_id)
-        if not order or order["user_id"] != user_id:
-            return False
-        order["status"] = "cancelled"
-        return True
-
-    def _expire_old_orders(self) -> None:
-        """Mark expired orders."""
-        now = datetime.now(timezone.utc)
-        for order in _conditional_orders.values():
-            if order["status"] == "active":
-                expires_at = datetime.fromisoformat(order["expires_at"])
-                if now > expires_at:
-                    order["status"] = "expired"
-
-
-# Global instance
-_conditional_order_manager: ConditionalOrderManager | None = None
-
-
-def get_conditional_order_manager() -> ConditionalOrderManager:
-    """Get or create the conditional order manager."""
-    global _conditional_order_manager
-    if _conditional_order_manager is None:
-        _conditional_order_manager = ConditionalOrderManager()
-    return _conditional_order_manager
+# ─── Backward-compatible re-exports ──────────────────────────────────────────
+# These names used to live in this module; iteration 174 (C9) moved them to
+# ``app.services.ai_trading.conditional_orders`` but tests still import them
+# from here, so we keep them visible.
+__all__ = [
+    "AITradingService",
+    "ConditionalOrderManager",
+    "MissingGatewayContextError",
+    "_conditional_orders",
+    "_pending_trades",
+    "get_conditional_order_manager",
+    "get_risk_guard",
+]
