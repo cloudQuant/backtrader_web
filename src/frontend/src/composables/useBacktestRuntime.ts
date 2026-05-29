@@ -1,10 +1,15 @@
 import { ref, type Ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import i18n from '@/i18n'
 import { getErrorMessage } from '@/api/index'
 import { backtestApi } from '@/api/backtest'
 import type { BacktestResult, BacktestRuntimeEvent } from '@/types'
 import { getAccessToken } from '@/utils/session'
+
+function tt(key: string, named?: Record<string, unknown>): string {
+  return named ? i18n.global.t(key, named) : i18n.global.t(key)
+}
 
 const WS_TOKEN_PROTOCOL = 'access-token'
 const POLL_BASE_DELAY_MS = 1000
@@ -87,28 +92,28 @@ export function useBacktestRuntime(options: UseBacktestRuntimeOptions) {
   async function finishWithResult(taskId: string) {
     const result = await options.fetchResult(taskId)
     if (!result) {
-      throw new Error('回测完成但未找到结果')
+      throw new Error(tt('backtestRt.msgNoResult'))
     }
     options.currentResult.value = result
     await options.refreshResults()
     loading.value = false
     currentTaskId.value = ''
     closeWebSocket()
-    ElMessage.success('回测完成')
+    ElMessage.success(tt('backtestRt.msgCompleted'))
   }
 
   function finishAsFailed(message: string) {
     loading.value = false
     currentTaskId.value = ''
     closeWebSocket()
-    ElMessage.error(`回测失败: ${message}`)
+    ElMessage.error(tt('backtestRt.msgFailedTpl', { message }))
   }
 
   function finishAsCancelled() {
     loading.value = false
     currentTaskId.value = ''
     closeWebSocket()
-    ElMessage.warning('回测已取消')
+    ElMessage.warning(tt('backtestRt.msgCancelled'))
   }
 
   function startPollingFallback(taskId: string): void {
@@ -140,21 +145,21 @@ export function useBacktestRuntime(options: UseBacktestRuntimeOptions) {
       if (data.type === 'task_created') {
         progressInfo.value = {
           progress: 0,
-          message: data.message || '回测任务已提交',
+          message: data.message || tt('backtestRt.msgTaskSubmitted'),
         }
         return
       }
       if (data.type === 'progress') {
         progressInfo.value = {
           progress: typeof data.progress === 'number' ? data.progress : progressInfo.value.progress,
-          message: typeof data.message === 'string' ? data.message : '回测运行中...',
+          message: typeof data.message === 'string' ? data.message : tt('backtestRt.msgRunning'),
         }
         return
       }
       if (data.type === 'completed') {
         progressInfo.value = {
           progress: typeof data.progress === 'number' ? data.progress : 100,
-          message: typeof data.message === 'string' ? data.message : '回测完成',
+          message: typeof data.message === 'string' ? data.message : tt('backtestRt.msgCompleted'),
         }
         await finishWithResult(taskId)
         return
@@ -164,7 +169,7 @@ export function useBacktestRuntime(options: UseBacktestRuntimeOptions) {
           ? data.error
           : typeof data.message === 'string'
             ? data.message
-            : '未知错误'
+            : tt('backtestRt.msgUnknownError')
         finishAsFailed(message)
         return
       }
@@ -201,7 +206,7 @@ export function useBacktestRuntime(options: UseBacktestRuntimeOptions) {
         }
         if (statusResp.status === 'failed') {
           const result = await options.fetchResult(taskId).catch(() => null)
-          finishAsFailed(result?.error_message || '未知错误')
+          finishAsFailed(result?.error_message || tt('backtestRt.msgUnknownError'))
           return
         }
         if (statusResp.status === 'cancelled') {
@@ -210,7 +215,7 @@ export function useBacktestRuntime(options: UseBacktestRuntimeOptions) {
         }
         progressInfo.value = {
           progress: Math.min(progressInfo.value.progress + 5, 95),
-          message: '正在获取回测进度...',
+          message: tt('backtestRt.msgFetchingProgress'),
         }
       } catch (e: unknown) {
         if (signal.aborted) return
@@ -218,7 +223,7 @@ export function useBacktestRuntime(options: UseBacktestRuntimeOptions) {
           loading.value = false
           currentTaskId.value = ''
           closeWebSocket()
-          ElMessage.error(getErrorMessage(e, '回测结果查询失败'))
+          ElMessage.error(getErrorMessage(e, tt('backtestRt.msgQueryFailed')))
           return
         }
       }
@@ -236,7 +241,7 @@ export function useBacktestRuntime(options: UseBacktestRuntimeOptions) {
       loading.value = false
       currentTaskId.value = ''
       closeWebSocket()
-      ElMessage.warning('回测超时，请稍后查看结果')
+      ElMessage.warning(tt('backtestRt.msgTimeout'))
     }
   }
 
@@ -249,16 +254,16 @@ export function useBacktestRuntime(options: UseBacktestRuntimeOptions) {
       loading.value = false
       currentTaskId.value = ''
       closeWebSocket()
-      ElMessage.success('已取消回测任务')
+      ElMessage.success(tt('backtestRt.msgCancelDone'))
     } catch (e: unknown) {
-      ElMessage.error(getErrorMessage(e, '取消失败'))
+      ElMessage.error(getErrorMessage(e, tt('backtestRt.msgCancelFailed')))
     }
   }
 
   function startRuntime(taskId: string) {
     loading.value = true
     currentTaskId.value = taskId
-    progressInfo.value = { progress: 0, message: '提交任务中...' }
+    progressInfo.value = { progress: 0, message: tt('backtestRt.msgSubmitting') }
     connectWebSocket(taskId)
   }
 

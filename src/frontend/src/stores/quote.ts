@@ -6,6 +6,7 @@
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import i18n from '@/i18n'
 import { quoteApi } from '@/api/quote'
 import type {
   DataSourceInfo,
@@ -14,6 +15,10 @@ import type {
   QuoteTick,
   SymbolItem,
 } from '@/api/quote'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 // ---------------------------------------------------------------------------
 // Local-storage keys & helpers
@@ -38,24 +43,28 @@ function lsSet(key: string, value: unknown): void {
 
 type ColumnDef = QuoteField
 
-const DEFAULT_COLUMNS: ColumnDef[] = [
-  { prop: 'symbol', label: '代码', visible: true, always_show: true },
-  { prop: 'name', label: '名称', visible: true },
-  { prop: 'category', label: '分类', visible: true },
-  { prop: 'last_price', label: '最新价', visible: true },
-  { prop: 'change', label: '涨跌', visible: true },
-  { prop: 'change_pct', label: '涨跌幅', visible: true },
-  { prop: 'bid_price', label: '买价', visible: true },
-  { prop: 'ask_price', label: '卖价', visible: true },
-  { prop: 'high_price', label: '最高', visible: true },
-  { prop: 'low_price', label: '最低', visible: true },
-  { prop: 'open_price', label: '开盘', visible: true },
-  { prop: 'prev_close', label: '昨收', visible: true },
-  { prop: 'volume', label: '成交量', visible: true },
-  { prop: 'turnover', label: '成交额', visible: true },
-  { prop: 'open_interest', label: '持仓量', visible: true },
-  { prop: 'update_time', label: '更新时间', visible: true },
-]
+// Default columns. Labels are computed lazily via tt() so locale switches
+// reflect immediately when the store rebuilds columnConfig from defaults.
+function buildDefaultColumns(): ColumnDef[] {
+  return [
+    { prop: 'symbol', label: tt('quote.colSymbol'), visible: true, always_show: true },
+    { prop: 'name', label: tt('quote.colName'), visible: true },
+    { prop: 'category', label: tt('quote.colCategory'), visible: true },
+    { prop: 'last_price', label: tt('quote.colLastPrice'), visible: true },
+    { prop: 'change', label: tt('quote.colChange'), visible: true },
+    { prop: 'change_pct', label: tt('quote.colChangePct'), visible: true },
+    { prop: 'bid_price', label: tt('quote.colBidPrice'), visible: true },
+    { prop: 'ask_price', label: tt('quote.colAskPrice'), visible: true },
+    { prop: 'high_price', label: tt('quote.colHighPrice'), visible: true },
+    { prop: 'low_price', label: tt('quote.colLowPrice'), visible: true },
+    { prop: 'open_price', label: tt('quote.colOpenPrice'), visible: true },
+    { prop: 'prev_close', label: tt('quote.colPrevClose'), visible: true },
+    { prop: 'volume', label: tt('quote.colVolume'), visible: true },
+    { prop: 'turnover', label: tt('quote.colTurnover'), visible: true },
+    { prop: 'open_interest', label: tt('quote.colOpenInterest'), visible: true },
+    { prop: 'update_time', label: tt('quote.colUpdateTime'), visible: true },
+  ]
+}
 
 function cloneColumns(columns: ColumnDef[]): ColumnDef[] {
   return columns.map((column) => ({ ...column }))
@@ -143,8 +152,8 @@ export const useQuoteStore = defineStore('quote', () => {
   const chartError = ref<string | null>(null)
 
   // ---- column config (P1) ----
-  const quoteFields = ref<ColumnDef[]>(cloneColumns(DEFAULT_COLUMNS))
-  const columnConfig = ref<ColumnDef[]>(cloneColumns(DEFAULT_COLUMNS))
+  const quoteFields = ref<ColumnDef[]>(cloneColumns(buildDefaultColumns()))
+  const columnConfig = ref<ColumnDef[]>(cloneColumns(buildDefaultColumns()))
 
   // ---- advanced filter (P1) ----
   const filterChangePctMin = ref<number | null>(null)
@@ -310,7 +319,7 @@ export const useQuoteStore = defineStore('quote', () => {
         res = await quoteApi.getQuotes(activeSource.value)
       }
       const responseFields = Array.isArray(res.fields) ? res.fields : []
-      quoteFields.value = cloneColumns(responseFields.length ? responseFields : DEFAULT_COLUMNS)
+      quoteFields.value = cloneColumns(responseFields.length ? responseFields : buildDefaultColumns())
       columnConfig.value = mergeColumnConfig(
         quoteFields.value,
         lsGet(getColumnStorageKey(activeSource.value), [] as ColumnDef[]),
@@ -321,7 +330,7 @@ export const useQuoteStore = defineStore('quote', () => {
       customSymbols.value = [] // will be set by fetchSymbols
       await fetchSymbolsMeta()
     } catch (e: unknown) {
-      quotesError.value = e instanceof Error ? e.message : '行情加载失败'
+      quotesError.value = e instanceof Error ? e.message : tt('quote.errorQuotesFailed')
     } finally {
       quotesLoading.value = false
       fetchInProgress = false
@@ -438,7 +447,7 @@ export const useQuoteStore = defineStore('quote', () => {
       )
       chartBars.value = res.bars
     } catch (e: unknown) {
-      chartError.value = e instanceof Error ? e.message : '图表数据加载失败'
+      chartError.value = e instanceof Error ? e.message : tt('quote.errorChartFailed')
       chartBars.value = []
     } finally {
       chartLoading.value = false

@@ -39,7 +39,7 @@
             {{ formatTime(store.updateTime) }}
             <el-tooltip
               v-if="isDataStale"
-              content="数据可能已过期，建议刷新"
+              :content="t('quote.dataStaleTip')"
               placement="top"
             >
               <el-icon class="ml-1 text-orange-500"><WarningFilled /></el-icon>
@@ -49,7 +49,7 @@
             v-if="store.quotesLoading"
             class="text-blue-500 flex items-center gap-1"
           >
-            <el-icon class="is-loading"><Loading /></el-icon> 刷新中
+            <el-icon class="is-loading"><Loading /></el-icon> {{ t('quote.refreshing') }}
           </span>
         </div>
       </div>
@@ -64,7 +64,7 @@
             type="primary"
             @click="$router.push('/gateways')"
           >
-            前往连接 Gateway
+            {{ t('quote.btnGoConnectGateway') }}
           </el-button>
         </el-empty>
       </el-card>
@@ -82,7 +82,7 @@
             <!-- Search -->
             <el-input
               v-model="store.searchKeyword"
-              placeholder="搜索代码 / 名称"
+              :placeholder="t('quote.searchPh')"
               :prefix-icon="Search"
               clearable
               style="width: 200px"
@@ -91,7 +91,7 @@
             <!-- Category filter -->
             <el-select
               v-model="store.filterCategory"
-              placeholder="全部分类"
+              :placeholder="t('quote.filterAllCategory')"
               clearable
               size="default"
               style="width: 130px"
@@ -106,28 +106,28 @@
             <!-- Trend filter -->
             <el-select
               v-model="store.filterTrend"
-              placeholder="涨跌筛选"
+              :placeholder="t('quote.filterTrendPh')"
               clearable
               size="default"
               style="width: 120px"
             >
               <el-option
-                label="上涨"
+                :label="t('quote.filterTrendUp')"
                 value="up"
               />
               <el-option
-                label="下跌"
+                :label="t('quote.filterTrendDown')"
                 value="down"
               />
               <el-option
-                label="平盘"
+                :label="t('quote.filterTrendFlat')"
                 value="flat"
               />
             </el-select>
             <!-- Custom only -->
             <el-checkbox
               v-model="store.filterCustomOnly"
-              label="仅自选"
+              :label="t('quote.filterCustomOnly')"
             />
             <!-- Advanced filter (P1) -->
             <el-popover
@@ -140,7 +140,7 @@
                   size="default"
                   :type="store.hasAdvancedFilters ? 'primary' : ''"
                 >
-                  <el-icon><Filter /></el-icon> 高级筛选
+                  <el-icon><Filter /></el-icon> {{ t('quote.advancedFilter') }}
                   <el-badge
                     v-if="store.hasAdvancedFilters"
                     is-dot
@@ -150,12 +150,12 @@
               </template>
               <div class="space-y-3 text-sm">
                 <div>
-                  <span class="text-gray-600">涨跌幅区间 (%)</span>
+                  <span class="text-gray-600">{{ t('quote.rangeChangePct') }}</span>
                   <div class="flex items-center gap-2 mt-1">
                     <el-input-number
                       v-model="store.filterChangePctMin"
                       :controls="false"
-                      placeholder="最小"
+                      :placeholder="t('quote.rangeMin')"
                       size="small"
                       style="width: 100px"
                     />
@@ -163,19 +163,19 @@
                     <el-input-number
                       v-model="store.filterChangePctMax"
                       :controls="false"
-                      placeholder="最大"
+                      :placeholder="t('quote.rangeMax')"
                       size="small"
                       style="width: 100px"
                     />
                   </div>
                 </div>
                 <div>
-                  <span class="text-gray-600">成交量区间</span>
+                  <span class="text-gray-600">{{ t('quote.rangeVolume') }}</span>
                   <div class="flex items-center gap-2 mt-1">
                     <el-input-number
                       v-model="store.filterVolumeMin"
                       :controls="false"
-                      placeholder="最小"
+                      :placeholder="t('quote.rangeMin')"
                       size="small"
                       style="width: 100px"
                     />
@@ -183,7 +183,7 @@
                     <el-input-number
                       v-model="store.filterVolumeMax"
                       :controls="false"
-                      placeholder="最大"
+                      :placeholder="t('quote.rangeMax')"
                       size="small"
                       style="width: 100px"
                     />
@@ -192,7 +192,7 @@
                 <div>
                   <el-checkbox
                     v-model="store.filterHasOpenInterest"
-                    label="仅有持仓量"
+                    :label="t('quote.filterHasOI')"
                   />
                 </div>
                 <div class="flex justify-end">
@@ -200,7 +200,7 @@
                     size="small"
                     @click="store.clearAdvancedFilters()"
                   >
-                    重置
+                    {{ t('quote.btnReset') }}
                   </el-button>
                 </div>
               </div>
@@ -209,7 +209,7 @@
 
           <div class="flex items-center gap-2">
             <!-- Auto refresh toggle -->
-            <el-tooltip content="自动刷新">
+            <el-tooltip :content="t('quote.autoRefreshTooltip')">
               <el-switch
                 v-model="autoRefreshLocal"
                 active-text=""
@@ -255,7 +255,7 @@
               <el-icon><Refresh /></el-icon>
             </el-button>
             <!-- Column config (P1) -->
-            <el-tooltip content="列设置">
+            <el-tooltip :content="t('quote.columnSettingsTooltip')">
               <el-button
                 size="default"
                 @click="showColumnDialog = true"
@@ -269,7 +269,7 @@
               size="default"
               @click="showAddDialog = true"
             >
-              <el-icon><Plus /></el-icon> 添加品种
+              <el-icon><Plus /></el-icon> {{ t('quote.btnAddSymbol') }}
             </el-button>
           </div>
         </div>
@@ -287,7 +287,7 @@
 
       <!-- Error state -->
       <el-card v-else-if="store.quotesError">
-        <el-empty description="行情数据加载失败">
+        <el-empty :description="t('quote.errorEmptyDesc')">
           <template #description>
             <p class="text-red-500">
               {{ store.quotesError }}
@@ -297,19 +297,19 @@
             type="primary"
             @click="store.fetchQuotes()"
           >
-            重试
+            {{ t('quote.btnRetry') }}
           </el-button>
         </el-empty>
       </el-card>
 
       <!-- Empty state -->
       <el-card v-else-if="store.filteredTicks.length === 0 && store.ticks.length === 0">
-        <el-empty description="暂无行情数据">
+        <el-empty :description="t('quote.emptyQuotes')">
           <el-button
             type="primary"
             @click="showAddDialog = true"
           >
-            添加品种
+            {{ t('quote.btnAddSymbol') }}
           </el-button>
         </el-empty>
       </el-card>
@@ -447,7 +447,7 @@
           </template>
           <!-- Actions column -->
           <el-table-column
-            label="操作"
+            :label="t('quote.colActions')"
             width="100"
             fixed="right"
             align="center"
@@ -463,7 +463,7 @@
               </el-button>
               <el-popconfirm
                 v-if="isCustomSymbol(row.symbol)"
-                title="确定移除此品种？"
+                :title="t('quote.confirmRemoveSymbol')"
                 @confirm="store.removeSymbol(row.symbol)"
               >
                 <template #reference>
@@ -483,20 +483,20 @@
         <!-- Table footer -->
         <div class="flex items-center justify-between px-3 py-2 text-xs text-gray-500 border-t">
           <span>
-            共 {{ store.filteredTicks.length }} / {{ store.ticks.length }} 条
+            {{ t('quote.countDisplay', { filtered: store.filteredTicks.length, total: store.ticks.length }) }}
             <template v-if="store.hasAdvancedFilters">
               <el-tag
                 size="small"
                 type="warning"
                 effect="plain"
                 class="ml-2"
-              >高级筛选已启用</el-tag>
+              >{{ t('quote.advancedFilterEnabled') }}</el-tag>
             </template>
           </span>
           <span
             v-if="store.quotesLoading"
             class="text-blue-500"
-          >刷新中...</span>
+          >{{ t('quote.refreshingDot') }}</span>
         </div>
       </el-card>
     </template>
@@ -504,13 +504,13 @@
     <!-- Add Symbol Dialog -->
     <el-dialog
       v-model="showAddDialog"
-      title="添加品种"
+      :title="t('quote.addDialogTitle')"
       width="480px"
       destroy-on-close
     >
       <el-input
         v-model="addKeyword"
-        placeholder="输入品种代码或名称搜索"
+        :placeholder="t('quote.addInputPh')"
         clearable
         @input="handleAddSearch"
       />
@@ -520,7 +520,7 @@
       >
         <el-icon class="is-loading">
           <Loading />
-        </el-icon> 搜索中...
+        </el-icon> {{ t('quote.searching') }}
       </div>
       <div
         v-else-if="store.symbolSearchResults.length > 0"
@@ -549,13 +549,13 @@
         v-else-if="addKeyword && !store.symbolSearchLoading"
         class="py-4 text-center text-gray-400"
       >
-        未找到匹配品种
+        {{ t('quote.notFound') }}
       </div>
       <el-divider />
       <div class="flex items-center gap-2">
         <el-input
           v-model="addSymbolDirect"
-          placeholder="精确输入品种代码"
+          :placeholder="t('quote.addDirectPh')"
           @keyup.enter="handleDirectAdd"
         />
         <el-button
@@ -563,7 +563,7 @@
           :disabled="!addSymbolDirect"
           @click="handleDirectAdd"
         >
-          添加
+          {{ t('quote.btnAdd') }}
         </el-button>
       </div>
     </el-dialog>
@@ -571,12 +571,12 @@
     <!-- Column Config Dialog (P1) -->
     <el-dialog
       v-model="showColumnDialog"
-      title="列设置"
+      :title="t('quote.columnDialogTitle')"
       width="420px"
       destroy-on-close
     >
       <div class="text-xs text-gray-400 mb-3">
-        勾选要显示的列，拖拽调整顺序
+        {{ t('quote.columnDialogHint') }}
       </div>
       <div class="space-y-1 max-h-80 overflow-auto">
         <div
@@ -599,13 +599,13 @@
       </div>
       <template #footer>
         <el-button @click="handleResetColumns">
-          恢复默认
+          {{ t('quote.btnRestoreDefault') }}
         </el-button>
         <el-button
           type="primary"
           @click="handleSaveColumns"
         >
-          保存
+          {{ t('quote.btnSave') }}
         </el-button>
       </template>
     </el-dialog>
@@ -613,7 +613,7 @@
     <!-- Chart Drawer (P1) -->
     <el-drawer
       v-model="store.chartDrawerVisible"
-      :title="`${store.chartSymbol} 图表详情`"
+      :title="t('quote.chartDrawerTitleTpl', { symbol: store.chartSymbol })"
       direction="btt"
       size="50%"
       :destroy-on-close="true"
@@ -621,32 +621,32 @@
     >
       <!-- Timeframe selector -->
       <div class="flex items-center gap-2 mb-3">
-        <span class="text-sm text-gray-500">周期:</span>
+        <span class="text-sm text-gray-500">{{ t('quote.timeframeLabel') }}</span>
         <el-radio-group
           :model-value="store.chartTimeframe"
           size="small"
           @change="v => store.setChartTimeframe(String(v))"
         >
           <el-radio-button label="M1">
-            1分
+            {{ t('quote.tf1m') }}
           </el-radio-button>
           <el-radio-button label="M5">
-            5分
+            {{ t('quote.tf5m') }}
           </el-radio-button>
           <el-radio-button label="M15">
-            15分
+            {{ t('quote.tf15m') }}
           </el-radio-button>
           <el-radio-button label="M30">
-            30分
+            {{ t('quote.tf30m') }}
           </el-radio-button>
           <el-radio-button label="H1">
-            1时
+            {{ t('quote.tf1h') }}
           </el-radio-button>
           <el-radio-button label="H4">
-            4时
+            {{ t('quote.tf4h') }}
           </el-radio-button>
           <el-radio-button label="D1">
-            日线
+            {{ t('quote.tfDay') }}
           </el-radio-button>
         </el-radio-group>
         <el-button
@@ -678,14 +678,14 @@
           size="small"
           @click="store.fetchChartData()"
         >
-          重试
+          {{ t('quote.btnRetry') }}
         </el-button>
       </div>
       <div
         v-else-if="store.chartBars.length === 0"
         class="flex items-center justify-center h-64"
       >
-        <el-empty description="暂无图表数据" />
+        <el-empty :description="t('quote.chartEmpty')" />
       </div>
       <div
         v-else
@@ -699,6 +699,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import type { Sort } from 'element-plus'
 import * as echarts from 'echarts'
@@ -719,6 +720,7 @@ import type { DataSourceInfo, QuoteTick } from '@/api/quote'
 import { formatQuoteChange, formatQuotePrice } from '@/utils/quoteFormat'
 import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR } from '@/constants/chartColors'
 
+const { t } = useI18n()
 const store = useQuoteStore()
 
 // ---- local refs synced with store ----
@@ -741,7 +743,7 @@ function handleAddSearch() {
 async function handleAddSymbol(symbol: string) {
   try {
     await store.addSymbol(symbol)
-    ElMessage.success(`已添加 ${symbol}`)
+    ElMessage.success(t('quote.msgAdded', { symbol }))
   } catch {
     // axios interceptor handles
   }
@@ -756,7 +758,7 @@ async function handleDirectAdd() {
 // ---- source click ----
 function handleSourceClick(src: DataSourceInfo) {
   if (src.status === 'unavailable' || src.status === 'not_configured') {
-    ElMessage.warning(src.status_message || '该数据源暂不可用')
+    ElMessage.warning(src.status_message || t('quote.sourceUnavailableShort'))
     return
   }
   store.switchSource(src.source)
@@ -768,11 +770,11 @@ const sourceStatusText = computed(() => {
   if (!info) return ''
   switch (info.status) {
     case 'not_connected':
-      return info.status_message || '网关未连接，请前往 Gateway 状态页连接'
+      return info.status_message || t('quote.sourceNotConnected')
     case 'not_configured':
-      return '数据源未配置，请先完成相关配置'
+      return t('quote.sourceNotConfigured')
     case 'unavailable':
-      return info.status_message || '该数据源接入中，暂不可用'
+      return info.status_message || t('quote.sourceUnavailable')
     default:
       return ''
   }
@@ -789,9 +791,9 @@ const refreshModeTag = computed(() => {
 
 const refreshModeText = computed(() => {
   switch (store.refreshMode) {
-    case 'push': return '实时推送'
-    case 'polling': return store.autoRefresh ? `轮询 ${store.refreshInterval}s` : '手动刷新'
-    default: return '手动刷新'
+    case 'push': return t('quote.refreshModePush')
+    case 'polling': return store.autoRefresh ? t('quote.refreshModePolling', { seconds: store.refreshInterval }) : t('quote.refreshModeManual')
+    default: return t('quote.refreshModeManual')
   }
 })
 
@@ -921,8 +923,8 @@ function fmtPct(v: number | null): string {
 
 function fmtVol(v: number | null): string {
   if (v == null) return '--'
-  if (v >= 1e8) return (v / 1e8).toFixed(2) + '亿'
-  if (v >= 1e4) return (v / 1e4).toFixed(2) + '万'
+  if (v >= 1e8) return (v / 1e8).toFixed(2) + t('quote.unitYi')
+  if (v >= 1e4) return (v / 1e4).toFixed(2) + t('quote.unitWan')
   return String(Math.round(v))
 }
 
@@ -1010,13 +1012,13 @@ function buildChartOption() {
     ],
     series: [
       {
-        name: 'K线',
+        name: t('charts.klineSeries'),
         type: 'candlestick',
         data: ohlc,
         itemStyle: CANDLE_ITEM_STYLE,
       },
       {
-        name: '成交量',
+        name: t('charts.klineVolume'),
         type: 'bar',
         xAxisIndex: 1,
         yAxisIndex: 1,
