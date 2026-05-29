@@ -11,12 +11,12 @@
     </div>
 
     <template v-else>
-      <!-- 组合概览卡片 -->
+      <!-- Overview cards -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
         <el-card shadow="hover">
           <div class="text-center">
             <div class="text-gray-500 text-sm mb-1">
-              组合总资产
+              {{ t('portfolio.cardTotalAssets') }}
             </div>
             <div class="text-3xl font-bold">
               {{ formatMoney(overview.total_assets) }}
@@ -26,7 +26,7 @@
         <el-card shadow="hover">
           <div class="text-center">
             <div class="text-gray-500 text-sm mb-1">
-              总盈亏
+              {{ t('portfolio.cardTotalPnl') }}
             </div>
             <div
               class="text-3xl font-bold"
@@ -40,7 +40,7 @@
         <el-card shadow="hover">
           <div class="text-center">
             <div class="text-gray-500 text-sm mb-1">
-              持仓市值
+              {{ t('portfolio.cardPositionValue') }}
             </div>
             <div class="text-2xl font-bold text-blue-600">
               {{ formatMoney(overview.total_position_value) }}
@@ -50,7 +50,7 @@
         <el-card shadow="hover">
           <div class="text-center">
             <div class="text-gray-500 text-sm mb-1">
-              策略 / 运行中
+              {{ t('portfolio.cardStrategyRunning') }}
             </div>
             <div class="text-3xl font-bold">
               <span class="text-gray-700">{{ overview.strategy_count }}</span>
@@ -61,11 +61,11 @@
         </el-card>
       </div>
 
-      <!-- 主内容区 -->
+      <!-- Main content -->
       <el-tabs v-model="activeTab">
-        <!-- 策略概览 Tab -->
+        <!-- Strategies tab -->
         <el-tab-pane
-          label="策略概览"
+          :label="t('portfolio.tabStrategies')"
           name="strategies"
         >
           <el-card>
@@ -77,7 +77,7 @@
             >
               <el-table-column
                 prop="strategy_name"
-                label="策略名称"
+                :label="t('portfolio.colStrategyName')"
                 min-width="140"
               >
                 <template #default="{ row }">
@@ -90,7 +90,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="状态"
+                :label="t('portfolio.colStatus')"
                 width="80"
                 align="center"
               >
@@ -99,12 +99,12 @@
                     :type="row.status === 'running' ? 'success' : row.status === 'error' ? 'danger' : 'info'"
                     size="small"
                   >
-                    {{ row.status === 'running' ? '运行' : row.status === 'error' ? '异常' : '停止' }}
+                    {{ row.status === 'running' ? t('portfolio.statusRunning') : row.status === 'error' ? t('portfolio.statusError') : t('portfolio.statusStopped') }}
                   </el-tag>
                 </template>
               </el-table-column>
               <el-table-column
-                label="当前资产"
+                :label="t('portfolio.colCurrentAssets')"
                 width="130"
                 align="right"
               >
@@ -113,7 +113,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="初始资金"
+                :label="t('portfolio.colInitialCapital')"
                 width="130"
                 align="right"
               >
@@ -122,7 +122,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="盈亏"
+                :label="t('portfolio.colPnl')"
                 width="130"
                 align="right"
               >
@@ -133,7 +133,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="收益率"
+                :label="t('portfolio.colPnlPct')"
                 width="90"
                 align="right"
               >
@@ -144,13 +144,13 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="交易次数"
+                :label="t('portfolio.colTradeCount')"
                 prop="total_trades"
                 width="80"
                 align="center"
               />
               <el-table-column
-                label="胜率"
+                :label="t('portfolio.colWinRate')"
                 width="70"
                 align="center"
               >
@@ -162,9 +162,9 @@
           </el-card>
         </el-tab-pane>
 
-        <!-- 持仓 Tab -->
+        <!-- Positions tab -->
         <el-tab-pane
-          label="当前持仓"
+          :label="t('portfolio.tabPositions')"
           name="positions"
         >
           <el-card>
@@ -172,7 +172,7 @@
               v-if="positions.length === 0"
               class="text-center text-gray-400 py-8"
             >
-              暂无持仓数据
+              {{ t('portfolio.emptyPositions') }}
             </div>
             <el-table
               v-else
@@ -183,16 +183,16 @@
             >
               <el-table-column
                 prop="strategy_name"
-                label="策略"
+                :label="t('portfolio.colStrategy')"
                 min-width="120"
               />
               <el-table-column
                 prop="data_name"
-                label="标的代码"
+                :label="t('portfolio.colSymbol')"
                 width="120"
               />
               <el-table-column
-                label="方向"
+                :label="t('portfolio.colDirection')"
                 width="70"
                 align="center"
               >
@@ -206,7 +206,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="持仓量"
+                :label="t('portfolio.colSize')"
                 width="100"
                 align="right"
               >
@@ -215,7 +215,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="成本价"
+                :label="t('portfolio.colCostPrice')"
                 width="100"
                 align="right"
               >
@@ -224,7 +224,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="市值"
+                :label="t('portfolio.colMarketValue')"
                 width="130"
                 align="right"
               >
@@ -236,9 +236,9 @@
           </el-card>
         </el-tab-pane>
 
-        <!-- 交易记录 Tab -->
+        <!-- Trades tab -->
         <el-tab-pane
-          label="交易记录"
+          :label="t('portfolio.tabTrades')"
           name="trades"
         >
           <el-card>
@@ -246,7 +246,7 @@
               v-if="trades.length === 0"
               class="text-center text-gray-400 py-8"
             >
-              暂无交易记录
+              {{ t('portfolio.emptyTrades') }}
             </div>
             <el-table
               v-else
@@ -258,37 +258,37 @@
             >
               <el-table-column
                 prop="strategy_name"
-                label="策略"
+                :label="t('portfolio.colStrategy')"
                 min-width="100"
               />
               <el-table-column
                 prop="data_name"
-                label="标的"
+                :label="t('portfolio.colSymbolShort')"
                 width="90"
               />
               <el-table-column
-                label="方向"
+                :label="t('portfolio.colDirection')"
                 width="60"
                 align="center"
               >
                 <template #default="{ row }">
                   <span :class="row.direction === 'long' ? 'text-red-600' : 'text-green-600'">
-                    {{ row.direction === 'long' ? '多' : '空' }}
+                    {{ row.direction === 'long' ? t('portfolio.directionLong') : t('portfolio.directionShort') }}
                   </span>
                 </template>
               </el-table-column>
               <el-table-column
                 prop="dtopen"
-                label="开仓日期"
+                :label="t('portfolio.colOpenDate')"
                 width="100"
               />
               <el-table-column
                 prop="dtclose"
-                label="平仓日期"
+                :label="t('portfolio.colCloseDate')"
                 width="100"
               />
               <el-table-column
-                label="价格"
+                :label="t('portfolio.colPrice')"
                 width="90"
                 align="right"
               >
@@ -297,7 +297,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="数量"
+                :label="t('portfolio.colSizeShort')"
                 width="70"
                 align="right"
               >
@@ -306,7 +306,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="手续费"
+                :label="t('portfolio.colCommission')"
                 width="80"
                 align="right"
               >
@@ -315,7 +315,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="净盈亏"
+                :label="t('portfolio.colNetPnl')"
                 width="100"
                 align="right"
                 sortable
@@ -327,7 +327,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="持仓天数"
+                :label="t('portfolio.colHoldingDays')"
                 prop="barlen"
                 width="80"
                 align="center"
@@ -336,9 +336,9 @@
           </el-card>
         </el-tab-pane>
 
-        <!-- 资金曲线 Tab -->
+        <!-- Equity curve tab -->
         <el-tab-pane
-          label="资金曲线"
+          :label="t('portfolio.tabEquity')"
           name="equity"
         >
           <el-card v-if="activeTab === 'equity'">
@@ -353,9 +353,9 @@
           </el-card>
         </el-tab-pane>
 
-        <!-- 资产配置 Tab -->
+        <!-- Allocation tab -->
         <el-tab-pane
-          label="资产配置"
+          :label="t('portfolio.tabAllocation')"
           name="allocation"
         >
           <el-card v-if="activeTab === 'allocation'">
@@ -372,6 +372,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch, nextTick, onBeforeUnmount, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Loading } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
@@ -387,6 +388,7 @@ import type {
 import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import { PORTFOLIO_DRAWDOWN_AREA_COLOR, PORTFOLIO_DRAWDOWN_COLOR, PORTFOLIO_EQUITY_COLOR } from '@/constants/chartColors'
 
+const { t } = useI18n()
 const portfolioUiStore = usePortfolioUiStore()
 
 const loading = ref(true)
@@ -412,8 +414,8 @@ let drawdownChart: echarts.ECharts | null = null
 let allocationChart: echarts.ECharts | null = null
 
 function formatMoney(v: number) {
-  if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + '亿'
-  if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(2) + '万'
+  if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + t('portfolio.unitYi')
+  if (Math.abs(v) >= 1e4) return (v / 1e4).toFixed(2) + t('portfolio.unitWan')
   return v.toFixed(2)
 }
 
@@ -429,7 +431,7 @@ async function loadData() {
       overview.value = await portfolioApi.getSimulationOverview()
     }
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '加载组合数据失败'))
+    ElMessage.error(getErrorMessage(e, t('portfolio.msgLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -465,7 +467,7 @@ async function loadTabData(tab: string) {
     }
     loadedTabs.value.add(tab)
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '加载数据失败'))
+    ElMessage.error(getErrorMessage(e, t('portfolio.msgLoadTabFailed')))
   }
 }
 
@@ -494,7 +496,7 @@ function renderEquityChart() {
 
   // 组合总资产
   series.push({
-    name: '组合总资产',
+    name: t('portfolio.seriesTotalEquity'),
     type: 'line',
     data: data.total_equity,
     symbol: 'none',
@@ -523,7 +525,7 @@ function renderDrawdownChart() {
       trigger: 'axis',
       formatter: (params: { axisValue?: string; value?: number } | { axisValue?: string; value?: number }[]) => {
         const p = Array.isArray(params) ? params[0] : params
-        return `${p?.axisValue ?? ''}<br/>回撤: ${((p?.value ?? 0) * 100).toFixed(2)}%`
+        return `${p?.axisValue ?? ''}<br/>${t('portfolio.drawdownTooltip', { value: ((p?.value ?? 0) * 100).toFixed(2) })}`
       },
     },
     grid: { left: 80, right: 20, top: 10, bottom: 30 },

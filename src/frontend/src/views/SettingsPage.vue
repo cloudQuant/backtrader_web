@@ -1,28 +1,28 @@
 <template>
   <div class="space-y-6 max-w-3xl">
-    <!-- 用户信息 -->
+    <!-- Profile -->
     <el-card>
       <template #header>
-        <span class="font-bold">个人信息</span>
+        <span class="font-bold">{{ t('userSettings.cardProfile') }}</span>
       </template>
       
       <el-form
         :model="userForm"
         label-width="100px"
       >
-        <el-form-item label="用户名">
+        <el-form-item :label="t('userSettings.formUsername')">
           <el-input
             v-model="userForm.username"
             disabled
           />
         </el-form-item>
-        <el-form-item label="邮箱">
+        <el-form-item :label="t('userSettings.formEmail')">
           <el-input
             v-model="userForm.email"
             disabled
           />
         </el-form-item>
-        <el-form-item label="注册时间">
+        <el-form-item :label="t('userSettings.formCreatedAt')">
           <el-input
             v-model="userForm.createdAt"
             disabled
@@ -31,31 +31,31 @@
       </el-form>
     </el-card>
     
-    <!-- 修改密码 -->
+    <!-- Change password -->
     <el-card>
       <template #header>
-        <span class="font-bold">修改密码</span>
+        <span class="font-bold">{{ t('userSettings.cardChangePwd') }}</span>
       </template>
       
       <el-form
         :model="passwordForm"
         label-width="100px"
       >
-        <el-form-item label="当前密码">
+        <el-form-item :label="t('userSettings.formOldPassword')">
           <el-input
             v-model="passwordForm.oldPassword"
             type="password"
             show-password
           />
         </el-form-item>
-        <el-form-item label="新密码">
+        <el-form-item :label="t('userSettings.formNewPassword')">
           <el-input
             v-model="passwordForm.newPassword"
             type="password"
             show-password
           />
         </el-form-item>
-        <el-form-item label="确认新密码">
+        <el-form-item :label="t('userSettings.formConfirmPassword')">
           <el-input
             v-model="passwordForm.confirmPassword"
             type="password"
@@ -67,7 +67,7 @@
             type="primary"
             @click="changePassword"
           >
-            修改密码
+            {{ t('userSettings.btnChangePwd') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -75,13 +75,13 @@
     
     <el-card>
       <template #header>
-        <span class="font-bold">我的 AI 用量</span>
+        <span class="font-bold">{{ t('userSettings.cardAiUsage') }}</span>
       </template>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <div class="text-sm text-gray-500">
-            调用次数
+            {{ t('userSettings.formAiCallCount') }}
           </div>
           <div class="text-xl font-bold mt-1">
             {{ aiUsageSummary.total_calls }}
@@ -89,7 +89,7 @@
         </div>
         <div>
           <div class="text-sm text-gray-500">
-            Token
+            {{ t('userSettings.formAiTokens') }}
           </div>
           <div class="text-xl font-bold mt-1">
             {{ aiUsageSummary.total_tokens }}
@@ -97,7 +97,7 @@
         </div>
         <div>
           <div class="text-sm text-gray-500">
-            估算成本
+            {{ t('userSettings.formAiCost') }}
           </div>
           <div class="text-xl font-bold mt-1">
             {{ formatUsd(aiUsageSummary.estimated_cost_usd) }}
@@ -108,18 +108,18 @@
     
     <el-card>
       <template #header>
-        <span class="font-bold">AI 模型偏好</span>
+        <span class="font-bold">{{ t('userSettings.cardAiModelPref') }}</span>
       </template>
 
       <el-form label-width="100px">
-        <el-form-item label="默认模型">
+        <el-form-item :label="t('userSettings.formDefaultModel')">
           <el-select
             v-model="aiModelPreference.selectedModelKey"
-            placeholder="使用系统默认模型"
+            :placeholder="t('userSettings.selectSystemDefault')"
             style="width: 100%"
           >
             <el-option
-              label="使用系统默认模型"
+              :label="t('userSettings.selectSystemDefault')"
               value=""
             />
             <el-option
@@ -133,36 +133,36 @@
         <el-form-item>
           <div class="space-y-2">
             <div class="text-sm text-gray-500">
-              当前选择：{{ selectedAIModelLabel }}
+              {{ t('userSettings.currentSelected', { label: selectedAIModelLabel }) }}
             </div>
             <el-button
               type="primary"
               :loading="aiModelPreference.saving"
               @click="saveAIModelPreference"
             >
-              保存 AI 模型偏好
+              {{ t('userSettings.btnSavePref') }}
             </el-button>
             <el-button
               :loading="aiModelPreference.testing"
               @click="testAIModelPreference"
             >
-              测试连通性
+              {{ t('userSettings.btnTestConnect') }}
             </el-button>
           </div>
         </el-form-item>
       </el-form>
     </el-card>
     
-    <!-- 关于 -->
+    <!-- About -->
     <el-card>
       <template #header>
-        <span class="font-bold">关于</span>
+        <span class="font-bold">{{ t('userSettings.cardAbout') }}</span>
       </template>
       
       <div class="space-y-2 text-gray-600">
         <p><strong>Backtrader Web</strong> v1.0.0</p>
-        <p>基于 Backtrader 的量化交易回测平台</p>
-        <p>技术栈: Vue 3 + FastAPI + Backtrader</p>
+        <p>{{ t('userSettings.aboutDesc') }}</p>
+        <p>{{ t('userSettings.aboutTechStack') }}</p>
       </div>
     </el-card>
   </div>
@@ -170,11 +170,13 @@
 
 <script setup lang="ts">
 import { reactive, computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
 import api from '@/api/index'
 import { aiObservabilityApi, type AIModelOption } from '@/api/aiObservability'
 
+const { t } = useI18n()
 const authStore = useAuthStore()
 const changingPassword = ref(false)
 
@@ -205,7 +207,7 @@ const aiModelPreference = reactive({
 
 const user = computed(() => authStore.user)
 const selectedAIModelLabel = computed(() => {
-  if (!aiModelPreference.selectedModelKey) return '系统默认模型'
+  if (!aiModelPreference.selectedModelKey) return t('userSettings.systemDefaultModel')
   const selected = aiModelPreference.models.find(
     model => `${model.provider}::${model.model}` === aiModelPreference.selectedModelKey
   )
@@ -251,7 +253,7 @@ async function saveAIModelPreference() {
       provider: provider || null,
       model: model || null,
     })
-    ElMessage.success('AI 模型偏好已保存')
+    ElMessage.success(t('userSettings.msgPrefSaved'))
   } finally {
     aiModelPreference.saving = false
   }
@@ -259,7 +261,7 @@ async function saveAIModelPreference() {
 
 async function testAIModelPreference() {
   if (!aiModelPreference.selectedModelKey) {
-    ElMessage.warning('请先选择要测试的 AI 模型')
+    ElMessage.warning(t('userSettings.msgPickModelFirst'))
     return
   }
   const [provider, ...modelParts] = aiModelPreference.selectedModelKey.split('::')
@@ -271,9 +273,9 @@ async function testAIModelPreference() {
       model: model || null,
     })
     if (result.available) {
-      ElMessage.success('AI 模型连通性正常')
+      ElMessage.success(t('userSettings.msgTestOk'))
     } else {
-      ElMessage.error(result.error || 'AI 模型当前不可用')
+      ElMessage.error(result.error || t('userSettings.msgTestFail'))
     }
   } finally {
     aiModelPreference.testing = false
@@ -282,15 +284,15 @@ async function testAIModelPreference() {
 
 async function changePassword() {
   if (!passwordForm.oldPassword || !passwordForm.newPassword) {
-    ElMessage.warning('请填写密码')
+    ElMessage.warning(t('userSettings.msgFillPassword'))
     return
   }
   if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-    ElMessage.error('两次输入的新密码不一致')
+    ElMessage.error(t('userSettings.msgPwdMismatch'))
     return
   }
   if (passwordForm.newPassword.length < 8) {
-    ElMessage.error('密码至少8位')
+    ElMessage.error(t('userSettings.msgPwdTooShort'))
     return
   }
   
@@ -300,7 +302,7 @@ async function changePassword() {
       old_password: passwordForm.oldPassword,
       new_password: passwordForm.newPassword,
     })
-    ElMessage.success('密码修改成功')
+    ElMessage.success(t('userSettings.msgPwdChanged'))
     passwordForm.oldPassword = ''
     passwordForm.newPassword = ''
     passwordForm.confirmPassword = ''

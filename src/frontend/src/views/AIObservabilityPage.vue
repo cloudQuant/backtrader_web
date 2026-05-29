@@ -3,10 +3,10 @@
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div>
         <h2 class="text-2xl font-bold text-gray-900">
-          AI 成本看板
+          {{ t('aiObs.title') }}
         </h2>
         <p class="text-sm text-gray-500 mt-1">
-          跟踪 AI 调用用量、失败诊断与慢调用排查。
+          {{ t('aiObs.desc') }}
         </p>
       </div>
       <el-button
@@ -14,14 +14,14 @@
         :loading="loading"
         @click="loadDashboard"
       >
-        刷新
+        {{ t('aiObs.btnRefresh') }}
       </el-button>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <el-card>
         <div class="text-sm text-gray-500">
-          总调用数
+          {{ t('aiObs.sumTotalCalls') }}
         </div>
         <div class="text-2xl font-bold mt-2">
           {{ usage?.summary.total_calls ?? 0 }}
@@ -29,7 +29,7 @@
       </el-card>
       <el-card>
         <div class="text-sm text-gray-500">
-          总 Token
+          {{ t('aiObs.sumTotalTokens') }}
         </div>
         <div class="text-2xl font-bold mt-2">
           {{ formatInteger(usage?.summary.total_tokens) }}
@@ -37,7 +37,7 @@
       </el-card>
       <el-card>
         <div class="text-sm text-gray-500">
-          估算成本
+          {{ t('aiObs.sumEstCost') }}
         </div>
         <div class="text-2xl font-bold mt-2">
           {{ formatUsd(usage?.summary.estimated_cost_usd) }}
@@ -45,7 +45,7 @@
       </el-card>
       <el-card>
         <div class="text-sm text-gray-500">
-          失败调用
+          {{ t('aiObs.sumFailedCalls') }}
         </div>
         <div class="text-2xl font-bold mt-2">
           {{ usage?.summary.failed_calls ?? 0 }}
@@ -55,28 +55,28 @@
 
     <el-tabs v-model="activeTab">
       <el-tab-pane
-        label="用量趋势"
+        :label="t('aiObs.tabUsage')"
         name="usage"
       >
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <el-card>
             <template #header>
-              <span class="font-bold">按服务统计</span>
+              <span class="font-bold">{{ t('aiObs.cardByService') }}</span>
             </template>
             <el-table :data="usage?.by_service ?? []">
               <el-table-column
                 prop="service_name"
-                label="服务"
+                :label="t('aiObs.colService')"
               />
               <el-table-column
                 prop="total_calls"
-                label="调用数"
+                :label="t('aiObs.colCallCount')"
               />
               <el-table-column
                 prop="total_tokens"
-                label="Token"
+                :label="t('aiObs.colTokens')"
               />
-              <el-table-column label="成本">
+              <el-table-column :label="t('aiObs.colCost')">
                 <template #default="scope">
                   {{ formatUsd(scope.row.estimated_cost_usd) }}
                 </template>
@@ -85,20 +85,20 @@
           </el-card>
           <el-card>
             <template #header>
-              <span class="font-bold">模型分布</span>
+              <span class="font-bold">{{ t('aiObs.cardByModel') }}</span>
             </template>
             <el-table :data="usage?.by_model ?? []">
               <el-table-column
                 prop="model_name"
-                label="模型"
+                :label="t('aiObs.colModel')"
               />
               <el-table-column
                 prop="total_calls"
-                label="调用数"
+                :label="t('aiObs.colCallCount')"
               />
               <el-table-column
                 prop="total_tokens"
-                label="Token"
+                :label="t('aiObs.colTokens')"
               />
             </el-table>
           </el-card>
@@ -106,13 +106,13 @@
       </el-tab-pane>
 
       <el-tab-pane
-        label="失败诊断"
+        :label="t('aiObs.tabFailures')"
         name="failures"
       >
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <el-card>
             <template #header>
-              <span class="font-bold">错误码分布</span>
+              <span class="font-bold">{{ t('aiObs.cardErrorCodes') }}</span>
             </template>
             <div class="flex flex-wrap gap-2 mb-3">
               <el-tag
@@ -126,30 +126,30 @@
             <el-table :data="failures?.by_error_code ?? []">
               <el-table-column
                 prop="error_code"
-                label="错误码"
+                :label="t('aiObs.colErrorCode')"
               />
               <el-table-column
                 prop="failed_calls"
-                label="失败次数"
+                :label="t('aiObs.colFailedCount')"
               />
             </el-table>
           </el-card>
           <el-card>
             <template #header>
-              <span class="font-bold">最近失败记录</span>
+              <span class="font-bold">{{ t('aiObs.cardRecentFailures') }}</span>
             </template>
             <el-table :data="failures?.recent_failures ?? []">
               <el-table-column
                 prop="service_name"
-                label="服务"
+                :label="t('aiObs.colService')"
               />
               <el-table-column
                 prop="error_code"
-                label="错误码"
+                :label="t('aiObs.colErrorCode')"
               />
               <el-table-column
                 prop="created_at"
-                label="时间"
+                :label="t('aiObs.colTime')"
               />
             </el-table>
           </el-card>
@@ -157,13 +157,13 @@
       </el-tab-pane>
 
       <el-tab-pane
-        label="慢调用排查"
+        :label="t('aiObs.tabSlow')"
         name="slow"
       >
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <el-card>
             <div class="text-sm text-gray-500">
-              P95 延迟
+              {{ t('aiObs.statP95') }}
             </div>
             <div class="text-2xl font-bold mt-2">
               {{ slowCalls?.summary.p95_latency_ms ?? 0 }} ms
@@ -171,7 +171,7 @@
           </el-card>
           <el-card>
             <div class="text-sm text-gray-500">
-              P99 延迟
+              {{ t('aiObs.statP99') }}
             </div>
             <div class="text-2xl font-bold mt-2">
               {{ slowCalls?.summary.p99_latency_ms ?? 0 }} ms
@@ -179,7 +179,7 @@
           </el-card>
           <el-card>
             <div class="text-sm text-gray-500">
-              平均延迟
+              {{ t('aiObs.statAvg') }}
             </div>
             <div class="text-2xl font-bold mt-2">
               {{ slowCalls?.summary.avg_latency_ms ?? 0 }} ms
@@ -188,24 +188,24 @@
         </div>
         <el-card>
           <template #header>
-            <span class="font-bold">Top 慢调用样本</span>
+            <span class="font-bold">{{ t('aiObs.cardTopSlow') }}</span>
           </template>
           <el-table :data="slowCalls?.top_calls ?? []">
             <el-table-column
               prop="service_name"
-              label="服务"
+              :label="t('aiObs.colService')"
             />
             <el-table-column
               prop="model_name"
-              label="模型"
+              :label="t('aiObs.colModel')"
             />
             <el-table-column
               prop="latency_ms"
-              label="延迟(ms)"
+              :label="t('aiObs.colLatencyMs')"
             />
             <el-table-column
               prop="created_at"
-              label="时间"
+              :label="t('aiObs.colTime')"
             />
           </el-table>
         </el-card>
@@ -216,10 +216,13 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 
 import { aiObservabilityApi } from '@/api/aiObservability'
 import type { AIFailureStats, AISlowCallStats, AIUsageStats } from '@/api/aiObservability'
+
+const { t } = useI18n()
 
 const activeTab = ref('usage')
 const loading = ref(false)
@@ -247,7 +250,7 @@ async function loadDashboard() {
     failures.value = failureData
     slowCalls.value = slowData
   } catch {
-    ElMessage.error('AI 成本看板加载失败')
+    ElMessage.error(t('aiObs.msgLoadFailed'))
   } finally {
     loading.value = false
   }
