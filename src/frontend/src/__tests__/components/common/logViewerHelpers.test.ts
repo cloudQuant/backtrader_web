@@ -78,6 +78,92 @@ describe('logViewerHelpers', () => {
       expect(r.text).toContain('[1]: col2')
       expect(r.text).toContain('[2]: col3')
     })
+
+    it('parses generic system event log with INFO level', () => {
+      const line = JSON.stringify({
+        event_type: 'gateway_connect',
+        level: 'INFO',
+        status: 'connected',
+        provider: 'CTP',
+        account_id_masked: '****1234',
+        log_time: '2024-05-29T03:30:15.000',
+      })
+      const r = formatLogLine(line)
+      expect(r.badge).toBe('INFO')
+      expect(r.text).toContain('gateway_connect')
+      expect(r.text).toContain('[connected]')
+      expect(r.text).toContain('CTP')
+      expect(r.levelClass).toContain('blue')
+    })
+
+    it('parses ERROR-level system event with error_code/error_msg', () => {
+      const line = JSON.stringify({
+        event_type: 'order_send',
+        level: 'ERROR',
+        error_code: 'E1001',
+        error_msg: 'connection refused',
+        details: { stack: 'trace...' },
+      })
+      const r = formatLogLine(line)
+      expect(r.badge).toBe('ERROR')
+      expect(r.text).toContain('E1001')
+      expect(r.text).toContain('connection refused')
+      expect(r.levelClass).toContain('red')
+    })
+
+    it('parses WARNING-level event', () => {
+      const line = JSON.stringify({ event_type: 'risk_warning', level: 'WARNING' })
+      const r = formatLogLine(line)
+      expect(r.badge).toBe('WARNING')
+      expect(r.levelClass).toContain('amber')
+    })
+
+    it('parses DEBUG-level event', () => {
+      const line = JSON.stringify({ event_type: 'cache_hit', level: 'DEBUG' })
+      const r = formatLogLine(line)
+      expect(r.badge).toBe('DEBUG')
+    })
+
+    it('parses position log entry', () => {
+      const line = JSON.stringify({
+        data_name: 'IF2510',
+        size: 5,
+        price: 4250.5,
+        value: 21252.5,
+      })
+      const r = formatLogLine(line)
+      expect(r.text).toBeTruthy()
+      expect(r.levelClass).toContain('emerald')
+    })
+
+    it('parses indicator log with BtApiFeed_* keys', () => {
+      const line = JSON.stringify({
+        data_BtApiFeed_open: 100,
+        data_BtApiFeed_high: 105,
+        data_BtApiFeed_low: 99,
+        data_BtApiFeed_close: 102,
+        data_BtApiFeed_volume: 1000,
+        data_BtApiFeed_openinterest: 50000,
+        strategy_name: 'sample',
+      })
+      const r = formatLogLine(line)
+      expect(r.text).toContain('O:100.0')
+      expect(r.text).toContain('C:102.0')
+      expect(r.text).toContain('V:1000')
+      expect(r.text).toContain('OI:50000')
+      expect(r.text).toContain('sample')
+    })
+
+    it('falls through to pretty-print for unrecognized JSON', () => {
+      const line = JSON.stringify({
+        log_time: '2024-05-29T03:30:15.000',
+        custom_field: 'value',
+        another: 42,
+      })
+      const r = formatLogLine(line)
+      // Should pretty-print key fields
+      expect(r.text).toBeTruthy()
+    })
   })
 
   describe('formatLogTime', () => {
