@@ -598,8 +598,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import type * as echarts from 'echarts'
+import { ref, computed, watch, onMounted } from 'vue'
 import 'echarts-gl'
 import { useRouter } from 'vue-router'
 import {
@@ -612,7 +611,6 @@ import { useI18n } from 'vue-i18n'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
-import { renderAnalysisChart, disposeAnalysisChart, renderBoxplotChart, renderHeatmapChart, renderScatter3dChart } from './optimizationChartHelpers'
 
 const { t } = useI18n()
 
@@ -650,7 +648,6 @@ const annualDays = ref(252)
 const selectedAnalysisParams = ref<string[]>([])
 const analysisMetric = ref('sharpe_ratio')
 const analysisChartRef = ref<HTMLElement | null>(null)
-const analysisChart: echarts.ECharts | null = null
 
 interface ColDef {
   key: string; label: string; width?: number; align?: string;
@@ -777,7 +774,6 @@ onMounted(async () => {
   if (!store.units.length) {
     await store.fetchUnits(props.workspaceId)
   }
-  window.addEventListener('resize', handleResize)
   // Auto-select initial unit if provided
   if (props.initialUnitId) {
     selectedUnitId.value = props.initialUnitId
@@ -1126,18 +1122,6 @@ function fmtMoney(val: unknown) {
     : String(val)
 }
 
-function formatMetricValue(metricKey: string, value: number | null) {
-  if (value == null || !Number.isFinite(value)) return '-'
-  const col = allColumnDefs.find(item => item.key === metricKey)
-  if (col?.money) {
-    return value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
-  }
-  if (col?.int) {
-    return String(Math.round(value))
-  }
-  return value.toFixed(4)
-}
-
 const metricOptions = computed(() =>
   allColumnDefs
     .filter(col => displayRows.value.some(row => toNumber(row[col.key]) !== null))
@@ -1204,29 +1188,6 @@ function toNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed
   }
   return null
-}
-
-function compareAxisValues(a: unknown, b: unknown) {
-  const numA = toNumber(a)
-  const numB = toNumber(b)
-  if (numA !== null && numB !== null) return numA - numB
-  return String(a).localeCompare(String(b), 'zh-CN', { numeric: true })
-}
-
-function getAxisCategories(key: string): string[] {
-  return [...new Set(displayRows.value.map(row => row[key]).filter(value => value != null))]
-    .sort(compareAxisValues)
-    .map(value => String(value))
-}
-
-function quantile(sortedValues: number[], ratio: number): number {
-  if (!sortedValues.length) return 0
-  const position = (sortedValues.length - 1) * ratio
-  const base = Math.floor(position)
-  const rest = position - base
-  const next = sortedValues[base + 1]
-  if (next == null) return sortedValues[base]
-  return sortedValues[base] + rest * (next - sortedValues[base])
 }
 
 </script>

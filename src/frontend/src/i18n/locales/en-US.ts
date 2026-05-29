@@ -3175,12 +3175,6 @@ export default {
     badgeLockRun: 'RunLock',
   },
 
-  // Optimization chart helpers (components/workspace/optimizationChartHelpers.ts)
-  optChart: {
-    objectiveValue: 'Objective',
-    sampleCount: 'Samples',
-  },
-
   // Knowledge-base chat store (stores/kbChat.ts)
   kbChatStore: {
     msgEmptyAnswer: 'AI returned no displayable content.',

@@ -3194,12 +3194,6 @@ export default {
     badgeLockRun: '锁运',
   },
 
-  // 优化图表 helper（components/workspace/optimizationChartHelpers.ts）
-  optChart: {
-    objectiveValue: '目标值',
-    sampleCount: '样本数',
-  },
-
   // 知识库 chat store（stores/kbChat.ts）
   kbChatStore: {
     msgEmptyAnswer: 'AI 未返回可展示内容。',
