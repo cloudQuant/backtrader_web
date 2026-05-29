@@ -5,10 +5,10 @@
         <div class="header-row">
           <div>
             <div class="page-title">
-              定时任务
+              {{ t('dataPages.tasksPageTitle') }}
             </div>
             <div class="page-subtitle">
-              把脚本绑定成可重复执行的调度任务。
+              {{ t('dataPages.tasksPageDesc') }}
             </div>
           </div>
           <el-button
@@ -16,7 +16,7 @@
             type="primary"
             @click="openCreateDialog"
           >
-            新建任务
+            {{ t('dataPages.tasksNewTask') }}
           </el-button>
         </div>
       </template>
@@ -28,15 +28,15 @@
           @change="reloadFirstPage"
         >
           <el-option
-            label="全部状态"
+            :label="t('dataPages.tasksFilterAll')"
             value="all"
           />
           <el-option
-            label="仅启用"
+            :label="t('dataPages.tasksFilterActive')"
             value="active"
           />
           <el-option
-            label="仅停用"
+            :label="t('dataPages.tasksFilterInactive')"
             value="inactive"
           />
         </el-select>
@@ -49,11 +49,11 @@
       >
         <el-table-column
           prop="name"
-          label="任务名"
+          :label="t('dataPages.tasksColName')"
           min-width="180"
         />
         <el-table-column
-          label="脚本"
+          :label="t('dataPages.tasksColScript')"
           min-width="200"
         >
           <template #default="{ row }">
@@ -65,27 +65,27 @@
         </el-table-column>
         <el-table-column
           prop="schedule_type"
-          label="调度类型"
+          :label="t('dataPages.tasksColScheduleType')"
           width="120"
         />
         <el-table-column
           prop="schedule_expression"
-          label="调度表达式"
+          :label="t('dataPages.tasksColScheduleExpr')"
           min-width="180"
         />
         <el-table-column
-          label="状态"
+          :label="t('dataPages.tasksColStatus')"
           width="100"
         >
           <template #default="{ row }">
             <el-tag :type="row.is_active ? 'success' : 'warning'">
-              {{ row.is_active ? '启用' : '停用' }}
+              {{ row.is_active ? t('dataPages.tasksStatusActive') : t('dataPages.tasksStatusInactive') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="next_execution_at"
-          label="下次执行"
+          :label="t('dataPages.tasksColNextRun')"
           width="180"
         >
           <template #default="{ row }">
@@ -94,7 +94,7 @@
         </el-table-column>
         <el-table-column
           prop="last_execution_at"
-          label="最近执行"
+          :label="t('dataPages.tasksColLastRun')"
           width="180"
         >
           <template #default="{ row }">
@@ -102,7 +102,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="t('dataPages.tasksColActions')"
           fixed="right"
           min-width="280"
         >
@@ -112,7 +112,7 @@
               type="primary"
               @click="viewExecutions(row.id)"
             >
-              执行记录
+              {{ t('dataPages.tasksActionExecutions') }}
             </el-button>
             <el-button
               v-if="isAdmin"
@@ -120,21 +120,21 @@
               type="success"
               @click="runTask(row.id)"
             >
-              立即执行
+              {{ t('dataPages.tasksActionRunNow') }}
             </el-button>
             <el-button
               v-if="isAdmin"
               link
               @click="toggleTask(row.id)"
             >
-              {{ row.is_active ? '停用' : '启用' }}
+              {{ row.is_active ? t('dataPages.tasksActionDisable') : t('dataPages.tasksActionEnable') }}
             </el-button>
             <el-button
               v-if="isAdmin"
               link
               @click="openEditDialog(row)"
             >
-              编辑
+              {{ t('dataPages.tasksActionEdit') }}
             </el-button>
             <el-button
               v-if="isAdmin"
@@ -142,7 +142,7 @@
               type="danger"
               @click="deleteTask(row.id)"
             >
-              删除
+              {{ t('dataPages.tasksActionDelete') }}
             </el-button>
           </template>
         </el-table-column>
@@ -163,17 +163,17 @@
 
     <el-dialog
       v-model="dialogVisible"
-      :title="dialogMode === 'create' ? '新建任务' : '编辑任务'"
+      :title="dialogMode === 'create' ? t('dataPages.tasksDialogCreate') : t('dataPages.tasksDialogEdit')"
       width="760px"
     >
       <el-form
         :model="form"
         label-width="120px"
       >
-        <el-form-item label="任务名称">
+        <el-form-item :label="t('dataPages.tasksFormName')">
           <el-input v-model="form.name" />
         </el-form-item>
-        <el-form-item label="绑定脚本">
+        <el-form-item :label="t('dataPages.tasksFormScript')">
           <el-select
             v-model="form.script_id"
             class="full-width"
@@ -187,12 +187,12 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="快捷模板">
+        <el-form-item :label="t('dataPages.tasksFormTemplate')">
           <el-select
             v-model="selectedTemplate"
             class="full-width"
             clearable
-            placeholder="选择后自动填充 cron"
+            :placeholder="t('dataPages.tasksTemplatePh')"
             @change="handleTemplateChange"
           >
             <el-option
@@ -203,7 +203,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="调度类型">
+        <el-form-item :label="t('dataPages.tasksFormScheduleType')">
           <el-select
             v-model="form.schedule_type"
             class="full-width"
@@ -216,58 +216,58 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="调度表达式">
+        <el-form-item :label="t('dataPages.tasksFormScheduleExpr')">
           <el-input
             v-model="form.schedule_expression"
-            placeholder="cron 如 0 8 * * 1-5，interval 如 10m"
+            :placeholder="t('dataPages.tasksScheduleExprPh')"
           />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('dataPages.tasksFormDesc')">
           <el-input
             v-model="form.description"
             type="textarea"
             :rows="3"
           />
         </el-form-item>
-        <el-form-item label="执行参数">
+        <el-form-item :label="t('dataPages.tasksFormParams')">
           <el-input
             v-model="paramsText"
             type="textarea"
             :rows="8"
           />
         </el-form-item>
-        <el-form-item label="最大重试">
+        <el-form-item :label="t('dataPages.tasksFormMaxRetries')">
           <el-input-number
             v-model="form.max_retries"
             :min="0"
             :max="10"
           />
         </el-form-item>
-        <el-form-item label="超时秒数">
+        <el-form-item :label="t('dataPages.tasksFormTimeout')">
           <el-input-number
             v-model="form.timeout"
             :min="0"
             :step="30"
           />
         </el-form-item>
-        <el-form-item label="失败重试">
+        <el-form-item :label="t('dataPages.tasksFormRetryOnFailure')">
           <el-switch v-model="form.retry_on_failure" />
         </el-form-item>
-        <el-form-item label="启用任务">
+        <el-form-item :label="t('dataPages.tasksFormIsActive')">
           <el-switch v-model="form.is_active" />
         </el-form-item>
       </el-form>
 
       <template #footer>
         <el-button @click="dialogVisible = false">
-          取消
+          {{ t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           :loading="saving"
           @click="submitForm"
         >
-          保存
+          {{ t('common.save') }}
         </el-button>
       </template>
     </el-dialog>
@@ -276,6 +276,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { akshareScriptsApi, akshareTasksApi } from '@/api/akshare'
@@ -289,6 +290,7 @@ import type {
 } from '@/types'
 import { formatDateTime, parseJsonText, toJsonText } from '@/views/data/utils'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -366,7 +368,7 @@ async function loadTasks() {
     tasks.value = response.items
     total.value = response.total
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载任务失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.tasksLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -388,7 +390,7 @@ function openCreateDialog() {
   const scriptId = String(route.query.script_id ?? '')
   if (scriptId) {
     form.script_id = scriptId
-    form.name = `执行 ${scriptId}`
+    form.name = t('dataPages.tasksDefaultName', { scriptId })
   }
   dialogVisible.value = true
 }
@@ -421,7 +423,7 @@ function handleTemplateChange(value: string | null | undefined) {
 
 async function submitForm() {
   if (!form.name.trim() || !form.script_id) {
-    ElMessage.warning('请填写任务名称并选择脚本')
+    ElMessage.warning(t('dataPages.tasksValidationFill'))
     return
   }
 
@@ -435,15 +437,15 @@ async function submitForm() {
     }
     if (dialogMode.value === 'create') {
       await akshareTasksApi.create(payload)
-      ElMessage.success('任务已创建')
+      ElMessage.success(t('dataPages.tasksCreated'))
     } else if (editingTaskId.value !== null) {
       await akshareTasksApi.update(editingTaskId.value, payload)
-      ElMessage.success('任务已更新')
+      ElMessage.success(t('dataPages.tasksUpdated'))
     }
     dialogVisible.value = false
     await loadTasks()
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '保存任务失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.tasksSaveFailed')))
   } finally {
     saving.value = false
   }
@@ -452,32 +454,36 @@ async function submitForm() {
 async function runTask(taskId: number) {
   try {
     const result = await akshareTasksApi.run(taskId)
-    ElMessage.success(`任务已触发：${result.execution_id}`)
+    ElMessage.success(t('dataPages.tasksRunTriggered', { id: result.execution_id }))
     void router.push({ name: 'DataExecutions', query: { task_id: String(taskId) } })
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '执行任务失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.tasksRunFailed')))
   }
 }
 
 async function toggleTask(taskId: number) {
   try {
     await akshareTasksApi.toggle(taskId)
-    ElMessage.success('任务状态已更新')
+    ElMessage.success(t('dataPages.tasksToggled'))
     await loadTasks()
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '更新任务状态失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.tasksToggleFailed')))
   }
 }
 
 async function deleteTask(taskId: number) {
   try {
-    await ElMessageBox.confirm('确认删除该定时任务？', '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(
+      t('dataPages.tasksDeleteConfirmMsg'),
+      t('dataPages.tasksDeleteConfirmTitle'),
+      { type: 'warning' }
+    )
     await akshareTasksApi.delete(taskId)
-    ElMessage.success('任务已删除')
+    ElMessage.success(t('dataPages.tasksDeleted'))
     await loadTasks()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(getErrorMessage(error, '删除任务失败'))
+      ElMessage.error(getErrorMessage(error, t('dataPages.tasksDeleteFailed')))
     }
   }
 }

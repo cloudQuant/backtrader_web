@@ -3,7 +3,7 @@
     <section class="stats-grid">
       <el-card>
         <div class="stat-title">
-          总执行
+          {{ t('dataPages.execStatTotal') }}
         </div>
         <div class="stat-value">
           {{ stats.total_count }}
@@ -11,7 +11,7 @@
       </el-card>
       <el-card>
         <div class="stat-title">
-          成功
+          {{ t('dataPages.execStatSuccess') }}
         </div>
         <div class="stat-value success">
           {{ stats.success_count }}
@@ -19,7 +19,7 @@
       </el-card>
       <el-card>
         <div class="stat-title">
-          失败
+          {{ t('dataPages.execStatFailed') }}
         </div>
         <div class="stat-value danger">
           {{ stats.failed_count }}
@@ -27,7 +27,7 @@
       </el-card>
       <el-card>
         <div class="stat-title">
-          运行中
+          {{ t('dataPages.execStatRunning') }}
         </div>
         <div class="stat-value primary">
           {{ stats.running_count }}
@@ -40,14 +40,14 @@
         <div class="header-row">
           <div>
             <div class="page-title">
-              执行记录
+              {{ t('dataPages.execPageTitle') }}
             </div>
             <div class="page-subtitle">
-              按任务、脚本和状态排查 akshare 采集执行情况。
+              {{ t('dataPages.execPageDesc') }}
             </div>
           </div>
           <el-button @click="loadExecutions">
-            刷新
+            {{ t('dataPages.execRefresh') }}
           </el-button>
         </div>
       </template>
@@ -56,7 +56,7 @@
         <el-input
           v-model="filters.script_id"
           clearable
-          placeholder="脚本 ID"
+          :placeholder="t('dataPages.execScriptIdPh')"
           class="toolbar-item"
         />
         <el-input-number
@@ -64,13 +64,13 @@
           :min="1"
           :controls="false"
           class="toolbar-item"
-          placeholder="任务 ID"
+          :placeholder="t('dataPages.execTaskIdPh')"
         />
         <el-select
           v-model="filters.status"
           clearable
           class="toolbar-item"
-          placeholder="执行状态"
+          :placeholder="t('dataPages.execStatusPh')"
         >
           <el-option
             v-for="status in statuses"
@@ -83,7 +83,7 @@
           type="primary"
           @click="reloadFirstPage"
         >
-          查询
+          {{ t('dataPages.execQuery') }}
         </el-button>
       </div>
 
@@ -94,21 +94,21 @@
       >
         <el-table-column
           prop="execution_id"
-          label="执行 ID"
+          :label="t('dataPages.execColExecId')"
           min-width="180"
         />
         <el-table-column
           prop="script_id"
-          label="脚本"
+          :label="t('dataPages.execColScript')"
           min-width="140"
         />
         <el-table-column
           prop="task_id"
-          label="任务"
+          :label="t('dataPages.execColTask')"
           width="90"
         />
         <el-table-column
-          label="状态"
+          :label="t('dataPages.execColStatus')"
           width="110"
         >
           <template #default="{ row }">
@@ -119,12 +119,12 @@
         </el-table-column>
         <el-table-column
           prop="triggered_by"
-          label="触发方式"
+          :label="t('dataPages.execColTriggeredBy')"
           width="110"
         />
         <el-table-column
           prop="start_time"
-          label="开始时间"
+          :label="t('dataPages.execColStartTime')"
           width="180"
         >
           <template #default="{ row }">
@@ -133,7 +133,7 @@
         </el-table-column>
         <el-table-column
           prop="duration"
-          label="耗时"
+          :label="t('dataPages.execColDuration')"
           width="100"
         >
           <template #default="{ row }">
@@ -141,7 +141,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="数据量"
+          :label="t('dataPages.execColRowsDelta')"
           width="140"
         >
           <template #default="{ row }">
@@ -150,12 +150,12 @@
         </el-table-column>
         <el-table-column
           prop="error_message"
-          label="错误信息"
+          :label="t('dataPages.execColErrorMessage')"
           min-width="220"
           show-overflow-tooltip
         />
         <el-table-column
-          label="操作"
+          :label="t('dataPages.execColActions')"
           fixed="right"
           min-width="180"
         >
@@ -165,7 +165,7 @@
               type="primary"
               @click="openDetail(row.execution_id)"
             >
-              详情
+              {{ t('dataPages.execActionDetail') }}
             </el-button>
             <el-button
               v-if="isAdmin && row.status === 'failed'"
@@ -173,7 +173,7 @@
               type="danger"
               @click="retryExecution(row.execution_id)"
             >
-              重试
+              {{ t('dataPages.execActionRetry') }}
             </el-button>
           </template>
         </el-table-column>
@@ -194,7 +194,7 @@
 
     <el-drawer
       v-model="detailVisible"
-      title="执行详情"
+      :title="t('dataPages.execDetailTitle')"
       size="55%"
     >
       <div v-if="currentExecution">
@@ -202,45 +202,45 @@
           :column="2"
           border
         >
-          <el-descriptions-item label="执行 ID">
+          <el-descriptions-item :label="t('dataPages.execDetailExecId')">
             {{ currentExecution.execution_id }}
           </el-descriptions-item>
-          <el-descriptions-item label="脚本 ID">
+          <el-descriptions-item :label="t('dataPages.execDetailScriptId')">
             {{ currentExecution.script_id }}
           </el-descriptions-item>
-          <el-descriptions-item label="任务 ID">
+          <el-descriptions-item :label="t('dataPages.execDetailTaskId')">
             {{ currentExecution.task_id ?? '-' }}
           </el-descriptions-item>
-          <el-descriptions-item label="状态">
+          <el-descriptions-item :label="t('dataPages.execDetailStatus')">
             {{ currentExecution.status }}
           </el-descriptions-item>
-          <el-descriptions-item label="开始时间">
+          <el-descriptions-item :label="t('dataPages.execDetailStartTime')">
             {{ formatDateTime(currentExecution.start_time) }}
           </el-descriptions-item>
-          <el-descriptions-item label="结束时间">
+          <el-descriptions-item :label="t('dataPages.execDetailEndTime')">
             {{ formatDateTime(currentExecution.end_time) }}
           </el-descriptions-item>
         </el-descriptions>
 
         <div class="drawer-section">
           <div class="section-title">
-            执行参数
+            {{ t('dataPages.execDetailParams') }}
           </div>
           <pre>{{ toJsonText(currentExecution.params || {}) }}</pre>
         </div>
 
         <div class="drawer-section">
           <div class="section-title">
-            执行结果
+            {{ t('dataPages.execDetailResult') }}
           </div>
           <pre>{{ toJsonText(currentExecution.result || {}) }}</pre>
         </div>
 
         <div class="drawer-section">
           <div class="section-title">
-            错误堆栈
+            {{ t('dataPages.execDetailErrorTrace') }}
           </div>
-          <pre>{{ currentExecution.error_trace || currentExecution.error_message || '无' }}</pre>
+          <pre>{{ currentExecution.error_trace || currentExecution.error_message || t('dataPages.execDetailNoError') }}</pre>
         </div>
       </div>
     </el-drawer>
@@ -249,6 +249,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { akshareExecutionsApi } from '@/api/akshare'
@@ -257,6 +258,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { ExecutionStatsResponse, TaskExecution } from '@/types'
 import { formatDateTime, toJsonText } from '@/views/data/utils'
 
+const { t } = useI18n()
 const route = useRoute()
 const authStore = useAuthStore()
 
@@ -283,14 +285,14 @@ const filters = reactive({
 
 const isAdmin = computed(() => authStore.user?.is_admin ?? false)
 const statuses = ['pending', 'running', 'completed', 'failed', 'timeout', 'cancelled'] as const
-const statusMap: Record<string, { label: string; type: 'info' | 'primary' | 'success' | 'warning' | 'danger' }> = {
-  pending: { label: '等待中', type: 'info' },
-  running: { label: '执行中', type: 'primary' },
-  completed: { label: '已完成', type: 'success' },
-  failed: { label: '失败', type: 'danger' },
-  timeout: { label: '超时', type: 'warning' },
-  cancelled: { label: '已取消', type: 'info' },
-}
+const statusMap = computed<Record<string, { label: string; type: 'info' | 'primary' | 'success' | 'warning' | 'danger' }>>(() => ({
+  pending: { label: t('dataPages.execStatusPending'), type: 'info' },
+  running: { label: t('dataPages.execStatusRunning'), type: 'primary' },
+  completed: { label: t('dataPages.execStatusCompleted'), type: 'success' },
+  failed: { label: t('dataPages.execStatusFailed'), type: 'danger' },
+  timeout: { label: t('dataPages.execStatusTimeout'), type: 'warning' },
+  cancelled: { label: t('dataPages.execStatusCancelled'), type: 'info' },
+}))
 
 async function loadStats() {
   Object.assign(stats, await akshareExecutionsApi.getStats())
@@ -309,7 +311,7 @@ async function loadExecutions() {
     executions.value = response.items
     total.value = response.total
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载执行记录失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.execLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -330,17 +332,17 @@ async function openDetail(executionId: string) {
     currentExecution.value = await akshareExecutionsApi.getDetail(executionId)
     detailVisible.value = true
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载执行详情失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.execLoadDetailFailed')))
   }
 }
 
 async function retryExecution(executionId: string) {
   try {
     const result = await akshareExecutionsApi.retry(executionId)
-    ElMessage.success(`已重试：${result.execution_id}`)
+    ElMessage.success(t('dataPages.execRetried', { id: result.execution_id }))
     await Promise.all([loadStats(), loadExecutions()])
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '重试执行失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.execRetryFailed')))
   }
 }
 
