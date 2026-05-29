@@ -203,4 +203,103 @@ describe('API module', () => {
       expect(module.default).toBeDefined()
     })
   })
+
+  describe('getErrorMessage helper', () => {
+    it('returns fallback for unknown shape', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      expect(getErrorMessage('plain string', 'fallback')).toBe('fallback')
+      expect(getErrorMessage(null, 'fallback')).toBe('fallback')
+      expect(getErrorMessage(undefined, 'fallback')).toBe('fallback')
+    })
+
+    it('returns Error.message when given an Error instance', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      expect(getErrorMessage(new Error('boom'), 'fallback')).toBe('boom')
+    })
+
+    it('falls back when Error has empty message', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const err = new Error('')
+      expect(getErrorMessage(err, 'fallback')).toBe('fallback')
+    })
+
+    it('returns axios response message when available', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { message: 'server says hi' } } }
+      expect(getErrorMessage(e, 'fallback')).toBe('server says hi')
+    })
+
+    it('appends request_id when present', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { message: 'failed', request_id: 'req-123' } } }
+      expect(getErrorMessage(e, 'fallback')).toBe('failed (request_id: req-123)')
+    })
+
+    it('extracts FastAPI 422 array detail', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { detail: [{ loc: ['body', 'foo'], msg: 'is required', type: 'value_error.missing' }] } } }
+      expect(getErrorMessage(e, 'fallback')).toBe('is required')
+    })
+
+    it('handles object detail with message', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { detail: { message: 'nested object' } } } }
+      expect(getErrorMessage(e, 'fallback')).toBe('nested object')
+    })
+
+    it('handles string detail directly', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { detail: 'string detail' } } }
+      expect(getErrorMessage(e, 'fallback')).toBe('string detail')
+    })
+
+    it('extracts field-level error from details.fields', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { details: { fields: [{ field: 'username', message: 'too short' }] } } } }
+      expect(getErrorMessage(e, 'fallback')).toBe('username: too short')
+    })
+
+    it('uses field-fallback when message missing in field error', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { details: { fields: [{ field: 'email' }] } } } }
+      expect(getErrorMessage(e, 'fallback')).toBe('email: 参数错误')
+    })
+
+    it('uses field message alone when field name missing', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { details: { fields: [{ message: 'invalid' }] } } } }
+      expect(getErrorMessage(e, 'fallback')).toBe('invalid')
+    })
+
+    it('falls back to user-provided message when extracted text equals generic 请求失败', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: {} } } // would extract '请求失败'
+      // generic message should NOT be returned; fallback used instead
+      expect(getErrorMessage(e, 'my fallback')).toBe('my fallback')
+    })
+
+    it('returns extracted msg when not generic', async () => {
+      const { getErrorMessage } = await import('@/api/index')
+      const e = { response: { data: { message: 'specific' } } }
+      expect(getErrorMessage(e, 'my fallback')).toBe('specific')
+    })
+  })
+
+  describe('Retry behavior on response interceptor', () => {
+    it('should not duplicate ElMessage on retried failures (skip generic)', async () => {
+      const { ElMessage } = await import('element-plus')
+      const api = (await import('@/api/index')).default
+      const handler = (api.interceptors.response as any).handlers[0]
+
+      // Configure error to look like an in-progress retry where final retry exhausted
+      const error = {
+        config: { __isRetrying: true, __retryCount: 5 },
+        response: { status: 500, data: {} },
+      }
+      // Since __retryCount (5) >= maxRetries (3), the early-skip branch fires
+      // and ElMessage.error is called.
+      await expect(handler.rejected(error)).rejects.toBe(error)
+      expect(ElMessage.error).toHaveBeenCalled()
+    })
+  })
 })
