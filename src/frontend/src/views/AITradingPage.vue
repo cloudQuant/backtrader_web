@@ -6,6 +6,7 @@
  * intents, confirm or reject trades, and view execution history.
  */
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Promotion,
@@ -19,6 +20,8 @@ import {
   getTradingHistory,
 } from '@/api/aiTrading'
 import type { AITradingResponse, AITradingConfig, TradeHistoryItem } from '@/api/aiTrading'
+
+const { t } = useI18n()
 
 // Reactive state
 const message = ref('')
@@ -34,7 +37,7 @@ const selectedGatewayId = ref('')
 
 // Computed
 const canSend = computed(() => message.value.trim().length > 0 && !loading.value)
-const modeLabel = computed(() => dryRun.value ? '模拟模式' : '实盘模式')
+const modeLabel = computed(() => dryRun.value ? t('aiTrading.modePaper') : t('aiTrading.modeLive'))
 const modeClass = computed(() => dryRun.value ? 'mode-paper' : 'mode-live')
 const availableAccounts = computed(() => config.value?.available_accounts ?? [])
 const availableGateways = computed(() => config.value?.available_gateways ?? [])
@@ -44,11 +47,11 @@ async function handleSend() {
   if (!canSend.value) return
 
   if (dryRun.value && !selectedAccountId.value) {
-    ElMessage.warning('请先选择一个模拟交易账户')
+    ElMessage.warning(t('aiTrading.msgPickPaperAccount'))
     return
   }
   if (!dryRun.value && !selectedGatewayId.value) {
-    ElMessage.warning('请先选择一个已连接的实盘网关')
+    ElMessage.warning(t('aiTrading.msgPickLiveGateway'))
     return
   }
 
@@ -72,8 +75,8 @@ async function handleSend() {
       await handleConfirmDialog(result)
     }
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : '请求失败'
-    ElMessage.error(`交易请求失败: ${msg}`)
+    const msg = error instanceof Error ? error.message : t('aiTrading.msgRequestFailed')
+    ElMessage.error(`${t('aiTrading.msgTradeRequestFailed')}: ${msg}`)
   } finally {
     loading.value = false
   }
@@ -83,10 +86,10 @@ async function handleConfirmDialog(response: AITradingResponse) {
   try {
     await ElMessageBox.confirm(
       response.message,
-      '确认交易',
+      t('aiTrading.confirmTitle'),
       {
-        confirmButtonText: '确认执行',
-        cancelButtonText: '取消',
+        confirmButtonText: t('aiTrading.confirmExecute'),
+        cancelButtonText: t('aiTrading.btnCancel'),
         type: 'warning',
         dangerouslyUseHTMLString: false,
       }
@@ -104,7 +107,7 @@ async function handleConfirmDialog(response: AITradingResponse) {
       trade_id: response.trade_id,
       confirmed: false,
     })
-    ElMessage.info('交易已取消')
+    ElMessage.info(t('aiTrading.msgTradeCancelled'))
   }
 }
 
@@ -148,13 +151,13 @@ function getStatusColor(status: string): string {
 
 function getStatusLabel(status: string): string {
   const labels: Record<string, string> = {
-    filled: '已成交',
-    confirmed: '已确认',
-    pending_confirmation: '待确认',
-    rejected: '已拒绝',
-    cancelled: '已取消',
-    failed: '失败',
-    executing: '执行中',
+    filled: t('aiTrading.statusFilled'),
+    confirmed: t('aiTrading.statusConfirmed'),
+    pending_confirmation: t('aiTrading.statusPendingConfirm'),
+    rejected: t('aiTrading.statusRejected'),
+    cancelled: t('aiTrading.statusCancelled'),
+    failed: t('aiTrading.statusFailed'),
+    executing: t('aiTrading.statusExecuting'),
   }
   return labels[status] || status
 }
@@ -171,12 +174,12 @@ function getRiskColor(level: string): string {
 
 function getActionLabel(action: string): string {
   const labels: Record<string, string> = {
-    buy: '买入',
-    sell: '卖出',
-    close: '平仓',
-    cancel: '撤单',
-    query: '查询',
-    modify: '修改',
+    buy: t('aiTrading.actionBuy'),
+    sell: t('aiTrading.actionSell'),
+    close: t('aiTrading.actionClose'),
+    cancel: t('aiTrading.actionCancel'),
+    query: t('aiTrading.actionQuery'),
+    modify: t('aiTrading.actionModify'),
   }
   return labels[action] || action
 }
@@ -193,10 +196,10 @@ onMounted(async () => {
     <section class="trading-hero">
       <div>
         <div class="eyebrow">
-          AI Trading
+          {{ t('aiTrading.eyebrow') }}
         </div>
-        <h2>自然语言交易</h2>
-        <p>用自然语言描述交易意图，AI 自动解析并执行。支持多交易所、多品种。</p>
+        <h2>{{ t('aiTrading.title') }}</h2>
+        <p>{{ t('aiTrading.desc') }}</p>
       </div>
       <div class="hero-controls">
         <label
@@ -214,7 +217,7 @@ onMounted(async () => {
             v-model="autoConfirm"
             type="checkbox"
           >
-          <span>自动确认</span>
+          <span>{{ t('aiTrading.autoConfirm') }}</span>
         </label>
       </div>
     </section>
@@ -226,27 +229,27 @@ onMounted(async () => {
         <!-- Input area -->
         <div class="input-section">
           <div class="input-hints">
-            <span>示例: "买入1手螺纹钢主力合约" | "以3500限价卖出2手铁矿石" | "帮我在币安买入0.1个BTC"</span>
+            <span>{{ t('aiTrading.inputHints') }}</span>
           </div>
           <div class="context-row">
             <label
               v-if="dryRun"
               class="context-field"
             >
-              <span>模拟账户</span>
+              <span>{{ t('aiTrading.fieldPaperAccount') }}</span>
               <select
                 v-model="selectedAccountId"
                 :disabled="loading || availableAccounts.length === 0"
               >
                 <option value="">
-                  请选择模拟账户
+                  {{ t('aiTrading.pickPaperAccount') }}
                 </option>
                 <option
                   v-for="account in availableAccounts"
                   :key="account.account_id"
                   :value="account.account_id"
                 >
-                  {{ account.name }} · 总资产 {{ account.total_equity.toFixed(2) }}
+                  {{ account.name }} · {{ t('aiTrading.accountTotalEquity') }} {{ account.total_equity.toFixed(2) }}
                 </option>
               </select>
             </label>
@@ -254,37 +257,37 @@ onMounted(async () => {
               v-else
               class="context-field"
             >
-              <span>实盘网关</span>
+              <span>{{ t('aiTrading.fieldLiveGateway') }}</span>
               <select
                 v-model="selectedGatewayId"
                 :disabled="loading || availableGateways.length === 0"
               >
                 <option value="">
-                  请选择实盘网关
+                  {{ t('aiTrading.pickLiveGateway') }}
                 </option>
                 <option
                   v-for="gateway in availableGateways"
                   :key="gateway.gateway_id"
                   :value="gateway.gateway_id"
                 >
-                  {{ gateway.exchange_type }} · {{ gateway.account_id || gateway.gateway_id }}{{ gateway.connected ? '' : '（未连接）' }}
+                  {{ gateway.exchange_type }} · {{ gateway.account_id || gateway.gateway_id }}{{ gateway.connected ? '' : t('aiTrading.notConnectedSuffix') }}
                 </option>
               </select>
             </label>
             <span
               v-if="dryRun && availableAccounts.length === 0"
               class="context-hint"
-            >暂无可用模拟账户，请先在模拟交易页面创建账户。</span>
+            >{{ t('aiTrading.hintNoPaperAccount') }}</span>
             <span
               v-else-if="!dryRun && availableGateways.length === 0"
               class="context-hint"
-            >暂无可用网关，请先在实盘交易页面连接网关。</span>
+            >{{ t('aiTrading.hintNoLiveGateway') }}</span>
           </div>
           <div class="input-row">
             <textarea
               v-model="message"
               :disabled="loading"
-              placeholder="输入交易指令..."
+              :placeholder="t('aiTrading.inputPlaceholder')"
               :maxlength="500"
               @keydown.enter.exact.prevent="handleSend"
             />
@@ -294,7 +297,7 @@ onMounted(async () => {
               @click="handleSend"
             >
               <el-icon><Promotion /></el-icon>
-              {{ loading ? '解析中...' : '发送' }}
+              {{ loading ? t('aiTrading.btnSending') : t('aiTrading.btnSend') }}
             </button>
           </div>
         </div>
@@ -330,20 +333,20 @@ onMounted(async () => {
               <span
                 v-else
                 class="market-tag"
-              >市价</span>
+              >{{ t('aiTrading.marketTag') }}</span>
             </div>
             <div class="intent-meta">
               <span
                 class="confidence-badge"
                 :style="{ color: currentResponse.intent.confidence > 0.7 ? 'var(--success-color)' : 'var(--warning-color)' }"
               >
-                置信度: {{ (currentResponse.intent.confidence * 100).toFixed(0) }}%
+                {{ t('aiTrading.confidenceLabel') }}: {{ (currentResponse.intent.confidence * 100).toFixed(0) }}%
               </span>
               <span
                 class="risk-badge"
                 :style="{ color: getRiskColor(currentResponse.risk_assessment.risk_level) }"
               >
-                风险: {{ currentResponse.risk_assessment.risk_level }}
+                {{ t('aiTrading.riskLabel') }}: {{ currentResponse.risk_assessment.risk_level }}
               </span>
             </div>
           </div>
@@ -354,7 +357,7 @@ onMounted(async () => {
             class="diagnostic-box"
           >
             <el-icon><Warning /></el-icon>
-            <span>{{ currentResponse.diagnostic_message || '当前请求处于降级模式，系统未执行自动交易。' }}</span>
+            <span>{{ currentResponse.diagnostic_message || t('aiTrading.diagnosticDefault') }}</span>
           </div>
           <div class="response-message">
             {{ currentResponse.message }}
@@ -381,7 +384,7 @@ onMounted(async () => {
             class="suggestions-box"
           >
             <div class="suggestions-title">
-              💡 建议
+              {{ t('aiTrading.suggestionsTitle') }}
             </div>
             <ul>
               <li
@@ -399,7 +402,7 @@ onMounted(async () => {
             class="reasoning-box"
           >
             <div class="reasoning-title">
-              AI 分析
+              {{ t('aiTrading.aiAnalysis') }}
             </div>
             <p>{{ currentResponse.ai_reasoning }}</p>
           </div>
@@ -410,7 +413,7 @@ onMounted(async () => {
           v-if="responses.length > 1"
           class="response-history"
         >
-          <h4>历史指令</h4>
+          <h4>{{ t('aiTrading.historyHeading') }}</h4>
           <div
             v-for="resp in responses.slice(1, 6)"
             :key="resp.trade_id"
@@ -430,15 +433,15 @@ onMounted(async () => {
       <!-- Right: History panel -->
       <aside class="history-panel">
         <div class="panel-header">
-          <h3>交易记录</h3>
-          <span class="record-count">{{ history.length }} 条</span>
+          <h3>{{ t('aiTrading.panelHeading') }}</h3>
+          <span class="record-count">{{ history.length }} {{ t('aiTrading.recordCountSuffix') }}</span>
         </div>
         <div
           v-if="history.length === 0"
           class="empty-state"
         >
           <el-icon><Document /></el-icon>
-          <p>暂无交易记录</p>
+          <p>{{ t('aiTrading.emptyState') }}</p>
         </div>
         <div
           v-else
@@ -466,11 +469,11 @@ onMounted(async () => {
               {{ item.user_input }}
             </div>
             <div class="history-card-meta">
-              <span v-if="item.quantity">数量: {{ item.quantity }}</span>
+              <span v-if="item.quantity">{{ t('aiTrading.quantityLabel') }}: {{ item.quantity }}</span>
               <span
                 v-if="item.dry_run"
                 class="paper-tag"
-              >模拟</span>
+              >{{ t('aiTrading.paperTag') }}</span>
               <span class="history-card-time">{{ item.created_at?.slice(0, 16) }}</span>
             </div>
           </div>

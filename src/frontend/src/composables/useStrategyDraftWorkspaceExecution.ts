@@ -1,9 +1,14 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 
+import i18n from '@/i18n'
 import { workspaceApi } from '@/api/workspace'
 import type { KBStrategyDraft } from '@/api/kbChat'
 import type { WorkspaceReportCreateRequest, WorkspaceReportResponse } from '@/types/workspace'
+
+function t(key: string, named?: Record<string, unknown>): string {
+  return named ? i18n.global.t(key, named) : i18n.global.t(key)
+}
 
 export interface DraftReportAnalysis {
   summary: string
@@ -119,35 +124,35 @@ export function useStrategyDraftWorkspaceExecution(
     const suggestions: string[] = []
 
     if (avgReturn != null && avgReturn > 0) {
-      strengths.push(`组合平均收益为 ${avgReturn}，策略具备继续研究价值。`)
+      strengths.push(t('draftExec.analysisHasReturn', { value: avgReturn }))
     } else {
-      risks.push('当前组合平均收益未体现明显正向优势，需要先确认核心信号是否有效。')
+      risks.push(t('draftExec.analysisNoReturn'))
     }
 
     if (sharpe != null && sharpe >= 1) {
-      strengths.push(`平均夏普为 ${sharpe}，风险调整后收益具备一定可用性。`)
+      strengths.push(t('draftExec.analysisHasSharpe', { value: sharpe }))
     } else {
-      risks.push('平均夏普偏低，说明收益质量仍需提升。')
+      risks.push(t('draftExec.analysisNoSharpe'))
     }
 
     if (maxDrawdown != null && maxDrawdown <= -0.15) {
-      risks.push(`平均最大回撤为 ${maxDrawdown}，资金回撤压力偏大。`)
+      risks.push(t('draftExec.analysisHighDrawdown', { value: maxDrawdown }))
     } else if (maxDrawdown != null) {
-      strengths.push(`平均最大回撤为 ${maxDrawdown}，回撤控制相对可接受。`)
+      strengths.push(t('draftExec.analysisOkDrawdown', { value: maxDrawdown }))
     }
 
     if (winRate != null && winRate >= 0.55) {
-      strengths.push(`平均胜率为 ${winRate}，信号命中率尚可。`)
+      strengths.push(t('draftExec.analysisHighWinRate', { value: winRate }))
     } else if (winRate != null) {
-      risks.push(`平均胜率为 ${winRate}，需要优化入场与退出质量。`)
+      risks.push(t('draftExec.analysisLowWinRate', { value: winRate }))
     }
 
     if (totalTrades != null && totalTrades < 5) {
-      risks.push('交易次数偏少，当前样本不足以支撑稳定结论。')
+      risks.push(t('draftExec.analysisFewTrades'))
     }
 
-    suggestions.push('优先检查收益主要来自哪一类市场环境，避免只在单一行情下成立。')
-    suggestions.push('围绕止损、仓位和退出规则做一轮参数敏感性分析。')
+    suggestions.push(t('draftExec.suggestionMarketRegime'))
+    suggestions.push(t('draftExec.suggestionParamSensitivity'))
     suggestions.push(...(Array.isArray(draft.next_steps) ? draft.next_steps.slice(0, 2) : []))
 
     const verdict =
@@ -156,11 +161,19 @@ export function useStrategyDraftWorkspaceExecution(
       sharpe != null &&
       sharpe >= 1 &&
       (maxDrawdown ?? 0) > -0.2
-        ? '这版策略已经具备继续优化并扩大样本验证的价值。'
-        : '这版策略更适合作为研究草案，需要先修正收益质量或回撤问题。'
+        ? t('draftExec.verdictWorthOptimizing')
+        : t('draftExec.verdictNeedsFix')
 
+    const dash = t('draftExec.placeholderDash')
     return {
-      summary: `策略 ${draft.name} 已完成工作区回测汇总。完成单元 ${summary.completed_units}/${summary.total_units}，当前重点指标为平均收益 ${avgReturn ?? '-'}、平均夏普 ${sharpe ?? '-'}、平均回撤 ${maxDrawdown ?? '-'}。`,
+      summary: t('draftExec.summaryTpl', {
+        name: draft.name,
+        completed: summary.completed_units,
+        total: summary.total_units,
+        avgReturn: avgReturn ?? dash,
+        sharpe: sharpe ?? dash,
+        maxDrawdown: maxDrawdown ?? dash,
+      }),
       verdict,
       strengths,
       risks: [...(Array.isArray(draft.risk_points) ? draft.risk_points.slice(0, 2) : []), ...risks],
@@ -238,7 +251,7 @@ export function useStrategyDraftWorkspaceExecution(
           analysis: buildReportAnalysis(report, draft),
         })
         clearExecutionPolling(index)
-        notifier.success('回测完成，报告已自动生成')
+        notifier.success(t('draftExec.msgRunCompleted'))
         return
       }
 
@@ -257,7 +270,7 @@ export function useStrategyDraftWorkspaceExecution(
 
       clearExecutionPolling(index)
       if (!silent && status.run_status === 'failed') {
-        notifier.warning('回测任务执行失败，未自动生成报告')
+        notifier.warning(t('draftExec.msgRunFailed'))
       }
     } catch {
       clearExecutionPolling(index)
@@ -271,9 +284,9 @@ export function useStrategyDraftWorkspaceExecution(
         })
       }
       if (silent) {
-        notifier.warning('自动刷新回测状态失败，可稍后手动刷新')
+        notifier.warning(t('draftExec.msgRefreshFailedSilent'))
       } else {
-        notifier.error('自动刷新回测状态失败，请稍后手动刷新')
+        notifier.error(t('draftExec.msgRefreshFailedActive'))
       }
     }
   }
@@ -281,7 +294,7 @@ export function useStrategyDraftWorkspaceExecution(
   async function runExecution(index: number, draft: KBStrategyDraft) {
     const execution = workspaceExecutions.value[index]
     if (!execution) {
-      notifier.warning('请先把策略添加到工作区')
+      notifier.warning(t('draftExec.msgAddToWorkspaceFirst'))
       return
     }
     runningBacktestIndex.value = index
@@ -298,9 +311,9 @@ export function useStrategyDraftWorkspaceExecution(
         },
         draft,
       )
-      notifier.success('回测任务已提交')
+      notifier.success(t('draftExec.msgRunSubmitted'))
     } catch {
-      notifier.error('回测提交失败，请稍后重试')
+      notifier.error(t('draftExec.msgRunSubmitFailed'))
     } finally {
       runningBacktestIndex.value = null
     }
@@ -318,7 +331,7 @@ export function useStrategyDraftWorkspaceExecution(
   async function generateReport(index: number, draft: KBStrategyDraft) {
     const execution = workspaceExecutions.value[index]
     if (!execution) {
-      notifier.warning('请先把策略添加到工作区')
+      notifier.warning(t('draftExec.msgAddToWorkspaceFirst'))
       return
     }
     generatingReportIndex.value = index
@@ -333,7 +346,7 @@ export function useStrategyDraftWorkspaceExecution(
           report: execution.report,
           analysis: execution.analysis,
         })
-        notifier.warning('回测尚未完成，请先刷新状态或稍后再试')
+        notifier.warning(t('draftExec.msgRunNotComplete'))
         return
       }
       const report = await api.createReport(
@@ -347,9 +360,9 @@ export function useStrategyDraftWorkspaceExecution(
         report,
         analysis: buildReportAnalysis(report, draft),
       })
-      notifier.success('工作区报告已生成')
+      notifier.success(t('draftExec.msgReportGenerated'))
     } catch {
-      notifier.error('生成报告失败，请稍后重试')
+      notifier.error(t('draftExec.msgReportFailed'))
     } finally {
       generatingReportIndex.value = null
     }
