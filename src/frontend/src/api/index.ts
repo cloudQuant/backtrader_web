@@ -7,6 +7,11 @@ import {
   dispatchAuthExpired,
   getAccessToken,
 } from '@/utils/session'
+import i18n from '@/i18n'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 type ErrorField = {
   field?: string
@@ -128,11 +133,11 @@ function extractApiErrorMessage(payload: unknown): string {
   if (Array.isArray(fields) && fields.length > 0) {
     const first = fields[0]
     const field = typeof first.field === 'string' ? first.field : undefined
-    const fieldMsg = typeof first.message === 'string' ? first.message : '参数错误'
+    const fieldMsg = typeof first.message === 'string' ? first.message : tt('apiClient.errFieldFallback')
     return field ? `${field}: ${fieldMsg}` : fieldMsg
   }
 
-  return '请求失败'
+  return tt('apiClient.errGenericFailure')
 }
 
 /** Extract user-friendly error message from caught unknown. Use in catch blocks instead of (e: any). */
@@ -141,7 +146,7 @@ export function getErrorMessage(e: unknown, fallback: string): string {
     const ax = e as { response?: { data?: unknown } }
     if (ax.response?.data) {
       const msg = extractApiErrorMessage(ax.response.data)
-      if (msg !== '请求失败') return msg
+      if (msg !== tt('apiClient.errGenericFailure')) return msg
     }
   }
   if (e instanceof Error) return e.message || fallback
@@ -216,18 +221,19 @@ api.interceptors.response.use(
     const status = error.response?.status
     const data = error.response?.data
     const msg = extractApiErrorMessage(data)
-    const isGenericMsg = msg === '请求失败'
+    const genericMsg = tt('apiClient.errGenericFailure')
+    const isGenericMsg = msg === genericMsg
 
     if (status === 401) {
       clearAccessToken()
       dispatchAuthExpired()
-      ElMessage.error(isGenericMsg ? '登录已过期，请重新登录' : msg)
+      ElMessage.error(isGenericMsg ? tt('apiClient.errAuthExpired') : msg)
     } else if (status === 403) {
-      ElMessage.error(isGenericMsg ? '没有权限访问' : msg)
+      ElMessage.error(isGenericMsg ? tt('apiClient.errForbidden') : msg)
     } else if (status === 404) {
-      ElMessage.error(isGenericMsg ? '资源不存在' : msg)
+      ElMessage.error(isGenericMsg ? tt('apiClient.errNotFound') : msg)
     } else if (status === 500) {
-      ElMessage.error(isGenericMsg ? '服务器错误' : msg)
+      ElMessage.error(isGenericMsg ? tt('apiClient.errServerError') : msg)
     } else {
       ElMessage.error(msg)
     }

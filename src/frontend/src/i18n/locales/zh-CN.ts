@@ -2959,6 +2959,26 @@ export default {
     unitWan: '万',
   },
 
+  // API 客户端拦截器消息（api/index.ts）
+  apiClient: {
+    errFieldFallback: '参数错误',
+    errGenericFailure: '请求失败',
+    errAuthExpired: '登录已过期，请重新登录',
+    errForbidden: '没有权限访问',
+    errNotFound: '资源不存在',
+    errServerError: '服务器错误',
+  },
+
+  // 过拟合检测运行时（composables/useOverfittingRuntime.ts）
+  overfittingRt: {
+    msgTaskSubmitted: '过拟合检测任务已提交',
+    msgRunning: '过拟合检测运行中...',
+    msgCompleted: '过拟合检测完成',
+    msgFailed: '过拟合检测失败',
+    msgFetchingProgress: '正在获取过拟合检测进度...',
+    msgTimeout: '过拟合检测超时，请稍后刷新结果',
+  },
+
   // 工作区列表（/backtest 路由）
   workspace: {
     createNew: '新建工作区',

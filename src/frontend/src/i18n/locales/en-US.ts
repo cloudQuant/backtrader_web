@@ -2940,6 +2940,26 @@ export default {
     unitWan: 'K',
   },
 
+  // API client interceptor messages (api/index.ts)
+  apiClient: {
+    errFieldFallback: 'Field error',
+    errGenericFailure: 'Request failed',
+    errAuthExpired: 'Login expired, please sign in again',
+    errForbidden: 'No permission to access',
+    errNotFound: 'Resource not found',
+    errServerError: 'Server error',
+  },
+
+  // Overfitting detection runtime (composables/useOverfittingRuntime.ts)
+  overfittingRt: {
+    msgTaskSubmitted: 'Overfitting detection task submitted',
+    msgRunning: 'Overfitting detection running...',
+    msgCompleted: 'Overfitting detection completed',
+    msgFailed: 'Overfitting detection failed',
+    msgFetchingProgress: 'Fetching overfitting detection progress...',
+    msgTimeout: 'Overfitting detection timed out; refresh later for the result',
+  },
+
   // Workspace list (/backtest route)
   workspace: {
     createNew: 'New Workspace',

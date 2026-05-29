@@ -26,6 +26,26 @@ vi.mock('element-plus', () => ({
   },
 }))
 
+// Mock i18n: return Chinese fallback strings used by api/index.ts so existing
+// assertions stay locale-stable across iteration 176 §C i18n refactor.
+vi.mock('@/i18n', () => ({
+  default: {
+    global: {
+      t: (key: string) => {
+        const map: Record<string, string> = {
+          'apiClient.errFieldFallback': '参数错误',
+          'apiClient.errGenericFailure': '请求失败',
+          'apiClient.errAuthExpired': '登录已过期，请重新登录',
+          'apiClient.errForbidden': '没有权限访问',
+          'apiClient.errNotFound': '资源不存在',
+          'apiClient.errServerError': '服务器错误',
+        }
+        return map[key] ?? key
+      },
+    },
+  },
+}))
+
 describe('API module', () => {
   beforeEach(() => {
     vi.clearAllMocks()

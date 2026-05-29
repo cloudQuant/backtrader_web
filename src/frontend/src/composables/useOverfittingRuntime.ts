@@ -2,6 +2,11 @@ import { ref, type Ref } from 'vue'
 
 import { strategyApi, type StrategyOverfittingTaskResult } from '@/api/strategy'
 import { getAccessToken } from '@/utils/session'
+import i18n from '@/i18n'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 const WS_TOKEN_PROTOCOL = 'access-token'
 const POLL_BASE_DELAY_MS = 1000
@@ -139,21 +144,21 @@ export function useOverfittingRuntime(options: UseOverfittingRuntimeOptions) {
       if (data.type === 'task_created') {
         progressInfo.value = {
           progress: 0,
-          message: typeof data.message === 'string' ? data.message : '过拟合检测任务已提交',
+          message: typeof data.message === 'string' ? data.message : tt('overfittingRt.msgTaskSubmitted'),
         }
         return
       }
       if (data.type === 'progress') {
         progressInfo.value = {
           progress: typeof data.progress === 'number' ? data.progress : progressInfo.value.progress,
-          message: typeof data.message === 'string' ? data.message : '过拟合检测运行中...',
+          message: typeof data.message === 'string' ? data.message : tt('overfittingRt.msgRunning'),
         }
         return
       }
       if (data.type === 'completed') {
         progressInfo.value = {
           progress: typeof data.progress === 'number' ? data.progress : 100,
-          message: typeof data.message === 'string' ? data.message : '过拟合检测完成',
+          message: typeof data.message === 'string' ? data.message : tt('overfittingRt.msgCompleted'),
         }
         if (data.result) {
           finishWithResult(data.result)
@@ -164,7 +169,7 @@ export function useOverfittingRuntime(options: UseOverfittingRuntimeOptions) {
         return
       }
       if (data.type === 'failed') {
-        finishAsFailed(typeof data.error === 'string' ? data.error : (data.message || '过拟合检测失败'))
+        finishAsFailed(typeof data.error === 'string' ? data.error : (data.message || tt('overfittingRt.msgFailed')))
       }
     }
 
@@ -197,13 +202,13 @@ export function useOverfittingRuntime(options: UseOverfittingRuntimeOptions) {
           return
         }
         if (result.status === 'failed' || result.status === 'cancelled') {
-          finishAsFailed(result.error_message || result.summary || '过拟合检测失败')
+          finishAsFailed(result.error_message || result.summary || tt('overfittingRt.msgFailed'))
           return
         }
         options.currentResult.value = result
         progressInfo.value = {
           progress: Math.min(progressInfo.value.progress + 5, 95),
-          message: result.summary || '正在获取过拟合检测进度...',
+          message: result.summary || tt('overfittingRt.msgFetchingProgress'),
         }
       } catch {
         if (signal.aborted) {
@@ -220,14 +225,14 @@ export function useOverfittingRuntime(options: UseOverfittingRuntimeOptions) {
     }
 
     if (loading.value && !signal.aborted) {
-      finishAsFailed('过拟合检测超时，请稍后刷新结果')
+      finishAsFailed(tt('overfittingRt.msgTimeout'))
     }
   }
 
   function startRuntime(taskId: string) {
     loading.value = true
     currentTaskId.value = taskId
-    progressInfo.value = { progress: 0, message: '过拟合检测任务已提交' }
+    progressInfo.value = { progress: 0, message: tt('overfittingRt.msgTaskSubmitted') }
     const connected = connectWebSocket(taskId)
     if (!connected) {
       startPollingFallback(taskId)
