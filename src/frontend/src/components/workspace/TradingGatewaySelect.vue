@@ -6,7 +6,7 @@
       filterable
       clearable
       :loading="loading"
-      placeholder="选择网关预设"
+      :placeholder="t('workspaceComp.gatewaySelectPlaceholder')"
       @change="handlePresetChange"
     >
       <el-option
@@ -61,7 +61,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { liveTradingApi } from '@/api/liveTrading'
+
+const { t } = useI18n()
 import type { GatewayConfig } from '@/types/workspace'
 
 type TradingPreset = Awaited<ReturnType<typeof liveTradingApi.listPresets>>['presets'][number]

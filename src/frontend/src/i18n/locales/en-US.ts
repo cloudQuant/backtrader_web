@@ -3176,6 +3176,39 @@ export default {
     msgConfirmHint: 'Type confirmation phrase: {phrase}',
   },
 
+  // Workspace trading components (components/workspace/*)
+  workspaceComp: {
+    gatewaySelectPlaceholder: 'Select a gateway preset',
+    badgeLive: 'Live',
+    badgeSim: 'Sim',
+    badgeLockTrade: 'TradeLock',
+    badgeLockRun: 'RunLock',
+  },
+
+  // Optimization chart helpers (components/workspace/optimizationChartHelpers.ts)
+  optChart: {
+    objectiveValue: 'Objective',
+    sampleCount: 'Samples',
+  },
+
+  // Knowledge-base chat store (stores/kbChat.ts)
+  kbChatStore: {
+    msgEmptyAnswer: 'AI returned no displayable content.',
+    msgRequestFailed: 'AI request failed; check the knowledge-base index or AI model configuration and retry.',
+  },
+
+  // Portfolio ledger page (views/PortfolioLedgerPage.vue)
+  portfolioLedger: {
+    headerTitle: 'Portfolio ledger',
+    headerDesc: 'Ledger-style portfolio management independent of the legacy aggregator API.',
+    cardOverview: 'Ledger overview',
+  },
+
+  // Data page utilities (views/data/utils.ts)
+  dataUtils: {
+    errJsonParamsObject: 'JSON parameter must be an object',
+  },
+
   // Workspace list (/backtest route)
   workspace: {
     createNew: 'New Workspace',

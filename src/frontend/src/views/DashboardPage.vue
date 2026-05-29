@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <!-- 统计卡片 -->
+    <!-- Statistic cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       <el-card
         shadow="hover"
@@ -102,7 +102,7 @@
       </el-card>
     </div>
     
-    <!-- 快速操作 -->
+    <!-- Quick actions -->
     <el-card>
       <template #header>
         <span class="font-bold">{{ t('dashboard.quickStart') }}</span>

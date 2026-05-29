@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
 import { getErrorMessage } from '@/api'
+import i18n from '@/i18n'
 import {
   kbChatApi,
   type KBAssistantMode,
@@ -12,6 +13,10 @@ import {
   type KBReasonCode,
   type KBStrategyDraft,
 } from '@/api/kbChat'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 export interface KBChatMessage {
   role: 'user' | 'assistant'
@@ -88,7 +93,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
         role: 'assistant',
         content: typeof response.answer === 'string' && response.answer
           ? response.answer
-          : 'AI 未返回可展示内容。',
+          : tt('kbChatStore.msgEmptyAnswer'),
         citations: Array.isArray(response.citations) ? response.citations : undefined,
         assistantMode: response.assistant_mode ?? options?.assistantMode,
         strategyDraft: response.strategy_draft ?? null,
@@ -106,7 +111,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
     } catch (error) {
       messages.value.push({
         role: 'assistant',
-        content: getErrorMessage(error, '本次 AI 请求失败，请检查知识库索引或 AI 模型配置后重试。'),
+        content: getErrorMessage(error, tt('kbChatStore.msgRequestFailed')),
       })
       throw error
     } finally {

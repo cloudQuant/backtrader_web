@@ -1,4 +1,9 @@
 import dayjs from 'dayjs'
+import i18n from '@/i18n'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) {
@@ -33,7 +38,7 @@ export function parseJsonText(value: string, fallback: Record<string, unknown> =
 
   const parsed = JSON.parse(normalized)
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-    throw new Error('JSON 参数必须是对象')
+    throw new Error(tt('dataUtils.errJsonParamsObject'))
   }
   return parsed as Record<string, unknown>
 }

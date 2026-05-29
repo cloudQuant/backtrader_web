@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <!-- 加载状态 -->
+    <!-- Loading state -->
     <div
       v-if="loading"
       class="flex justify-center py-16"

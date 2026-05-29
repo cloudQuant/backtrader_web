@@ -3195,6 +3195,39 @@ export default {
     msgConfirmHint: '请输入确认短语: {phrase}',
   },
 
+  // 工作区交易组件（components/workspace/*）
+  workspaceComp: {
+    gatewaySelectPlaceholder: '选择网关预设',
+    badgeLive: '实盘',
+    badgeSim: '模拟',
+    badgeLockTrade: '锁交',
+    badgeLockRun: '锁运',
+  },
+
+  // 优化图表 helper（components/workspace/optimizationChartHelpers.ts）
+  optChart: {
+    objectiveValue: '目标值',
+    sampleCount: '样本数',
+  },
+
+  // 知识库 chat store（stores/kbChat.ts）
+  kbChatStore: {
+    msgEmptyAnswer: 'AI 未返回可展示内容。',
+    msgRequestFailed: '本次 AI 请求失败，请检查知识库索引或 AI 模型配置后重试。',
+  },
+
+  // 组合账本页（views/PortfolioLedgerPage.vue）
+  portfolioLedger: {
+    headerTitle: '组合账本',
+    headerDesc: '独立于旧组合聚合接口的账本式组合管理。',
+    cardOverview: '账本概览',
+  },
+
+  // 数据页工具（views/data/utils.ts）
+  dataUtils: {
+    errJsonParamsObject: 'JSON 参数必须是对象',
+  },
+
   // 工作区列表（/backtest 路由）
   workspace: {
     createNew: '新建工作区',

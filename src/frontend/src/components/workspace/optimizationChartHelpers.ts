@@ -6,6 +6,11 @@
 import * as echarts from "echarts"
 import "echarts-gl"
 import { CHART_BORDER_DARK, CHART_EMPHASIS_BORDER, OPTIMIZATION_BOXPLOT_COLOR, OPTIMIZATION_HEATMAP_COLORS } from "@/constants/chartColors"
+import i18n from "@/i18n"
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 export function renderAnalysisChart() {
   if (!analysisChartRef.value || !selectedAnalysisMode.value) return
@@ -162,13 +167,13 @@ export function renderHeatmapChart() {
         const lines = [
           `${xKey}: ${xCategories[xIndex]}`,
           `${yKey}: ${yCategories[yIndex]}`,
-          `目标值（${metricLabel}）: ${formatMetricValue(metricKey, point.metrics[metricKey] ?? point.value[2])}`,
+          `${tt('optChart.objectiveValue')}（${metricLabel}）: ${formatMetricValue(metricKey, point.metrics[metricKey] ?? point.value[2])}`,
         ]
         for (const summaryKey of tooltipMetricKeys) {
           if (summaryKey === metricKey) continue
           lines.push(`${getMetricLabel(summaryKey)}: ${formatMetricValue(summaryKey, point.metrics[summaryKey] ?? null)}`)
         }
-        lines.push(`样本数: ${point.sampleCount}`)
+        lines.push(`${tt('optChart.sampleCount')}: ${point.sampleCount}`)
         return lines.join('<br/>')
       },
     },

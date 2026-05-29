@@ -13,23 +13,26 @@
         effect="plain"
         :type="unit.trading_mode === 'live' ? 'danger' : 'info'"
       >
-        {{ unit.trading_mode === 'live' ? '实盘' : '模拟' }}
+        {{ unit.trading_mode === 'live' ? t('workspaceComp.badgeLive') : t('workspaceComp.badgeSim') }}
       </el-tag>
       <span
         v-if="unit.lock_trading"
         class="status-flag"
-      >锁交</span>
+      >{{ t('workspaceComp.badgeLockTrade') }}</span>
       <span
         v-if="unit.lock_running"
         class="status-flag"
-      >锁运</span>
+      >{{ t('workspaceComp.badgeLockRun') }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import type { StrategyUnit } from '@/types/workspace'
 import { statusDotClass, statusLabel } from '@/composables/useUnitTableRendering'
+
+const { t } = useI18n()
 
 defineProps<{
   unit: StrategyUnit

@@ -4,7 +4,7 @@
       {{ t('charts.perfTitle') }}
     </h3>
     
-    <!-- 主要指标 -->
+    <!-- Primary metrics -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       <MetricCard
         :title="t('charts.perfInitialCapital')"
@@ -33,7 +33,7 @@
       />
     </div>
     
-    <!-- 风险指标 -->
+    <!-- Risk metrics -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       <MetricCard
         :title="t('charts.perfMaxDrawdown')"
@@ -64,7 +64,7 @@
       />
     </div>
     
-    <!-- 交易统计 -->
+    <!-- Trade statistics -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
       <MetricCard
         :title="t('charts.perfTradeCount')"

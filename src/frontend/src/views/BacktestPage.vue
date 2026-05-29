@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <!-- 回测配置表单 -->
+    <!-- Backtest configuration form -->
     <el-card>
       <template #header>
         <span class="font-bold">{{ t('backtestPg.sectionTitle') }}</span>
