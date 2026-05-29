@@ -133,7 +133,7 @@
                   :placeholder="t('workspaceDialogs.paramStep')"
                 />
                 <span class="text-xs text-gray-400 ml-1">
-                  ({{ calcCount(row) }}{{ t('workspaceDialogs.nCombos') }})
+                  ({{ calcCount(row) }}{{ t('workspaceDialogs.nCombosShort') }})
                 </span>
               </template>
             </div>

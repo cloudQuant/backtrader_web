@@ -66,7 +66,7 @@
           <el-form-item :label="t('workspaceDialogs.runFreq')">
             <el-radio-group v-model="form.frequency">
               <el-radio value="daily">
-                {{ t('workspaceDialogs.daily') }}
+                {{ t('workspaceDialogs.freqDaily') }}
               </el-radio>
               <el-radio value="weekly">
                 {{ t('workspaceDialogs.weekly') }}
@@ -146,7 +146,7 @@ const emit = defineEmits<{
 
 const store = useWorkspaceStore()
 const loading = computed(() => store.loading)
-const frequencyLabel = computed(() => (form.frequency === 'weekly' ? t('workspaceDialogs.weekly') : t('workspaceDialogs.daily')))
+const frequencyLabel = computed(() => (form.frequency === 'weekly' ? t('workspaceDialogs.weekly') : t('workspaceDialogs.freqDaily')))
 const scopeLabel = computed(() => (form.unit_scope === 'selected' ? t('workspaceDialogs.selectedUnits') : t('workspaceDialogs.allTradingUnits')))
 const visible = computed({
   get: () => props.modelValue,
