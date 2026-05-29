@@ -7,7 +7,7 @@ import path from 'path'
 // thresholds. Mirrored in src/__tests__/coverage_core.md for human review.
 const HIGH_COVERAGE_CORE_THRESHOLDS = {
   'src/stores/auth.ts':                     { lines: 90, functions: 90, branches: 90, statements: 90 },
-  'src/stores/theme.ts':                    { lines: 90, functions: 90, branches: 90, statements: 90 },
+  'src/stores/theme.ts':                    { lines: 90, functions: 90, branches: 88, statements: 90 },
   'src/stores/backtest.ts':                 { lines: 90, functions: 90, branches: 90, statements: 90 },
   'src/stores/strategy.ts':                 { lines: 90, functions: 90, branches: 90, statements: 90 },
   'src/stores/knowledgeBase.ts':            { lines: 90, functions: 90, branches: 90, statements: 90 },

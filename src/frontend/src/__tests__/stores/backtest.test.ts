@@ -83,4 +83,20 @@ describe('useBacktestStore', () => {
     expect(store.results).toEqual([])
     expect(store.total).toBe(0)
   })
+
+  it('should delete a result and remove it from the list', async () => {
+    const { backtestApi } = await import('@/api/backtest')
+    const store = useBacktestStore()
+    // Seed local state
+    store.results = [
+      { task_id: 'task-A', total_return: 1 } as any,
+      { task_id: 'task-B', total_return: 2 } as any,
+      { task_id: 'task-C', total_return: 3 } as any,
+    ]
+
+    await store.deleteResult('task-B')
+
+    expect(backtestApi.delete).toHaveBeenCalledWith('task-B')
+    expect(store.results.map(r => r.task_id)).toEqual(['task-A', 'task-C'])
+  })
 })
