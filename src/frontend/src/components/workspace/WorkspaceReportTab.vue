@@ -12,7 +12,7 @@
           <!-- Group 1: Open / Delete / Clear / Save -->
           <el-button-group>
             <el-tooltip
-              content="打开"
+              :content="t('report.open')"
               placement="top"
             >
               <el-button
@@ -23,7 +23,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="删除"
+              :content="t('report.delete')"
               placement="top"
             >
               <el-button
@@ -35,7 +35,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="清空"
+              :content="t('report.clearConfig')"
               placement="top"
             >
               <el-button
@@ -47,7 +47,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="保存"
+              :content="t('report.save')"
               placement="top"
             >
               <el-button
@@ -63,7 +63,7 @@
           <!-- Group 2: Config -->
           <el-button-group>
             <el-tooltip
-              content="统计时间"
+              :content="t('report.timeRange')"
               placement="top"
             >
               <el-button
@@ -74,7 +74,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="组合最大投入资金"
+              :content="t('report.portfolioMaxInput')"
               placement="top"
             >
               <el-button
@@ -85,7 +85,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="计算方式"
+              :content="t('report.calcMethod')"
               placement="top"
             >
               <el-button
@@ -96,7 +96,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="报告权重"
+              :content="t('report.reportWeight')"
               placement="top"
             >
               <el-button
@@ -107,7 +107,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="自定义字段"
+              :content="t('report.customField')"
               placement="top"
             >
               <el-button
@@ -122,7 +122,7 @@
           <!-- Group 3: Actions -->
           <el-button-group>
             <el-tooltip
-              content="报告计算(按配置重算)"
+              :content="t('report.reportCalc') + '(' + t('report.recalcWithConfig') + ')'"
               placement="top"
             >
               <el-button
@@ -135,7 +135,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="设为默认"
+              :content="t('report.setDefault')"
               placement="top"
             >
               <el-button
@@ -153,7 +153,7 @@
     <!-- Stat Time Dialog -->
     <el-dialog
       v-model="showStatTimeDialog"
-      title="统计时间"
+      :title="t('report.timeRange')"
       width="560px"
       destroy-on-close
     >
@@ -161,18 +161,18 @@
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              起始时间
+              {{ t('report.timeStart') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
-              {{ formatRangeValue(reportStatRange[0]) || '未设置' }}
+              {{ formatRangeValue(reportStatRange[0]) || t('report.notSet') }}
             </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              结束时间
+              {{ t('report.timeEnd') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
-              {{ formatRangeValue(reportStatRange[1]) || '未设置' }}
+              {{ formatRangeValue(reportStatRange[1]) || t('report.notSet') }}
             </div>
           </div>
         </div>
@@ -181,19 +181,19 @@
             label-width="100px"
             size="small"
           >
-            <el-form-item label="起始时间">
+            <el-form-item :label="t('report.timeStart')">
               <el-date-picker
                 v-model="reportStatRange[0]"
                 type="date"
-                placeholder="选择起始日期"
+                :placeholder="t('report.selectStart')"
                 style="width: 100%"
               />
             </el-form-item>
-            <el-form-item label="结束时间">
+            <el-form-item :label="t('report.timeEnd')">
               <el-date-picker
                 v-model="reportStatRange[1]"
                 type="date"
-                placeholder="选择结束日期"
+                :placeholder="t('report.selectEnd')"
                 style="width: 100%"
               />
             </el-form-item>
@@ -202,13 +202,13 @@
       </div>
       <template #footer>
         <el-button @click="showStatTimeDialog = false">
-          取消
+          {{ t('report.cancel') }}
         </el-button>
         <el-button
           type="primary"
           @click="showStatTimeDialog = false; recalculateReport()"
         >
-          确定
+          {{ t('report.confirm') }}
         </el-button>
       </template>
     </el-dialog>
@@ -216,7 +216,7 @@
     <!-- Max Cash Dialog -->
     <el-dialog
       v-model="showMaxCashDialog"
-      title="组合最大投入资金"
+      :title="t('report.portfolioMaxInput')"
       width="560px"
       destroy-on-close
     >
@@ -224,7 +224,7 @@
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              当前最大投入
+              {{ t('report.currentMaxInput') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
               {{ fmtMoney(maxCash) }}
@@ -232,7 +232,7 @@
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              选中单元
+              {{ t('report.selectedUnits') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
               {{ selectedReportUnitIds.length || filteredSummary.total_units || 0 }}
@@ -244,7 +244,7 @@
             label-width="120px"
             size="small"
           >
-            <el-form-item label="最大投入资金">
+            <el-form-item :label="t('report.maxInputCash')">
               <el-input-number
                 v-model="maxCash"
                 :min="0"
@@ -257,13 +257,13 @@
       </div>
       <template #footer>
         <el-button @click="showMaxCashDialog = false">
-          取消
+          {{ t('report.cancel') }}
         </el-button>
         <el-button
           type="primary"
           @click="showMaxCashDialog = false; recalculateReport()"
         >
-          确定
+          {{ t('report.confirm') }}
         </el-button>
       </template>
     </el-dialog>
@@ -271,7 +271,7 @@
     <!-- Calc Method Dialog -->
     <el-dialog
       v-model="showCalcMethodDialog"
-      title="计算方式"
+      :title="t('report.calcMethod')"
       width="620px"
       destroy-on-close
     >
@@ -279,18 +279,18 @@
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              收益计算
+              {{ t('report.returnCalc') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
-              {{ reportCalcMethod === 'compound' ? '复合收益' : '简单收益' }}
+              {{ reportCalcMethod === 'compound' ? t('report.compoundReturn') : t('report.simpleReturn') }}
             </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              年化基准
+              {{ t('report.annualBenchmark') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
-              {{ reportAnnualDays }} 天
+              {{ reportAnnualDays }} {{ t('report.days') }}
             </div>
           </div>
         </div>
@@ -299,36 +299,36 @@
             label-width="100px"
             size="small"
           >
-            <el-form-item label="收益计算">
+            <el-form-item :label="t('report.returnCalc')">
               <el-radio-group v-model="reportCalcMethod">
                 <el-radio value="simple">
-                  简单收益
+                  {{ t('report.simpleReturn') }}
                 </el-radio>
                 <el-radio value="compound">
-                  复合收益
+                  {{ t('report.compoundReturn') }}
                 </el-radio>
               </el-radio-group>
             </el-form-item>
-            <el-form-item label="年化基准">
+            <el-form-item :label="t('report.annualBenchmark')">
               <el-input-number
                 v-model="reportAnnualDays"
                 :min="200"
                 :max="365"
               />
-              <span class="ml-2 text-xs text-gray-400">天</span>
+              <span class="ml-2 text-xs text-gray-400">{{ t('report.days') }}</span>
             </el-form-item>
           </el-form>
         </div>
       </div>
       <template #footer>
         <el-button @click="showCalcMethodDialog = false">
-          取消
+          {{ t('report.cancel') }}
         </el-button>
         <el-button
           type="primary"
           @click="showCalcMethodDialog = false; recalculateReport()"
         >
-          确定
+          {{ t('report.confirm') }}
         </el-button>
       </template>
     </el-dialog>
@@ -336,7 +336,7 @@
     <!-- Weight Dialog -->
     <el-dialog
       v-model="showWeightDialog"
-      title="报告权重"
+      :title="t('report.reportWeight')"
       width="620px"
       destroy-on-close
     >
@@ -344,7 +344,7 @@
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              权重模式
+              {{ t('report.weightMode') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
               {{ weightModeLabel }}
@@ -352,7 +352,7 @@
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              作用单元
+              {{ t('report.affectingUnits') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
               {{ selectedReportUnitIds.length || filteredSummary.total_units || 0 }}
@@ -364,22 +364,22 @@
             label-width="100px"
             size="small"
           >
-            <el-form-item label="权重模式">
+            <el-form-item :label="t('report.weightMode')">
               <el-radio-group v-model="weightMode">
                 <el-radio value="equal">
-                  等权
+                  {{ t('report.weightEqual') }}
                 </el-radio>
                 <el-radio value="custom">
-                  自定义
+                  {{ t('report.weightCustom') }}
                 </el-radio>
               </el-radio-group>
             </el-form-item>
             <el-form-item
               v-if="weightMode === 'custom'"
-              label="自定义权重"
+              :label="t('report.weightCustomShort')"
             >
               <div class="text-xs text-gray-400">
-                各单元权重由资金占比自动计算
+                {{ t('report.weightAuto') }}
               </div>
             </el-form-item>
           </el-form>
@@ -387,13 +387,13 @@
       </div>
       <template #footer>
         <el-button @click="showWeightDialog = false">
-          取消
+          {{ t('report.cancel') }}
         </el-button>
         <el-button
           type="primary"
           @click="showWeightDialog = false; recalculateReport()"
         >
-          确定
+          {{ t('report.confirm') }}
         </el-button>
       </template>
     </el-dialog>
@@ -401,7 +401,7 @@
     <!-- Custom Fields Dialog -->
     <el-dialog
       v-model="showCustomFieldsDialog"
-      title="自定义字段"
+      :title="t('report.customField')"
       width="720px"
       destroy-on-close
     >
@@ -409,7 +409,7 @@
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              字段总数
+              {{ t('report.fieldCount') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
               {{ reportAllFields.length }}
@@ -417,7 +417,7 @@
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              当前显示
+              {{ t('report.showing') }}
             </div>
             <div class="mt-1 text-sm font-semibold text-slate-700">
               {{ visibleFieldCount }}
@@ -440,13 +440,13 @@
       </div>
       <template #footer>
         <el-button @click="reportVisibleFields = reportAllFields.map(f => f.key)">
-          全选
+          {{ t('report.selectAll') }}
         </el-button>
         <el-button @click="reportVisibleFields = []">
-          清空
+          {{ t('report.clearConfig') }}
         </el-button>
         <el-button @click="showCustomFieldsDialog = false">
-          关闭
+          {{ t('report.close') }}
         </el-button>
       </template>
     </el-dialog>
@@ -463,14 +463,14 @@
         >
           <div class="report-overview-panel__main">
             <div class="report-overview-panel__title">
-              组合报告概览
+              {{ t('report.sectionTitle') }}
             </div>
             <div class="report-overview-panel__meta">
-              <span>统计范围 {{ statRangeLabel }}</span>
-              <span>选中单元 {{ selectedReportUnitIds.length || filteredSummary.total_units || 0 }}</span>
-              <span>计算方式 {{ reportCalcMethod === 'compound' ? '复合收益' : '简单收益' }}</span>
-              <span>年化基准 {{ reportAnnualDays }} 天</span>
-              <span>权重 {{ weightMode === 'custom' ? '自定义' : '等权' }}</span>
+              <span>{{ t('report.statRange') }} {{ statRangeLabel }}</span>
+              <span>{{ t('report.selectedUnits') }} {{ selectedReportUnitIds.length || filteredSummary.total_units || 0 }}</span>
+              <span>{{ t('report.calcMethod') }} {{ reportCalcMethod === 'compound' ? t('report.compoundReturn') : t('report.simpleReturn') }}</span>
+              <span>{{ t('report.annualBenchmark') }} {{ reportAnnualDays }} {{ t('report.days') }}</span>
+              <span>{{ t('report.weightLabel') }} {{ weightMode === 'custom' ? t('report.weightCustom') : t('report.weightEqual') }}</span>
             </div>
           </div>
           <div class="report-overview-panel__tags">
@@ -479,14 +479,14 @@
               effect="plain"
               type="info"
             >
-              最大投入 {{ fmtMoney(maxCash) }}
+              {{ t('report.maxInput') }} {{ fmtMoney(maxCash) }}
             </el-tag>
             <el-tag
               size="small"
               effect="plain"
               type="success"
             >
-              数据 {{ filteredUnits.length }} 行
+              {{ t('report.data') }} {{ filteredUnits.length }} {{ t('report.rowSuffix') }}
             </el-tag>
           </div>
         </div>
@@ -514,7 +514,7 @@
               {{ filteredSummary.total_units ?? 0 }}
             </div>
             <div class="summary-card__label">
-              总单元数
+              {{ t('report.totalUnits') }}
             </div>
           </div>
           <div class="summary-card">
@@ -522,7 +522,7 @@
               {{ filteredSummary.completed_units ?? 0 }}
             </div>
             <div class="summary-card__label">
-              已完成
+              {{ t('report.completed') }}
             </div>
           </div>
           <div class="summary-card">
@@ -533,7 +533,7 @@
               {{ fmtPct(filteredSummary.avg_total_return) }}
             </div>
             <div class="summary-card__label">
-              平均收益率
+              {{ t('report.avgReturnRate') }}
             </div>
           </div>
           <div class="summary-card">
@@ -544,7 +544,7 @@
               {{ fmtNum(filteredSummary.avg_sharpe_ratio) }}
             </div>
             <div class="summary-card__label">
-              平均夏普比
+              {{ t('report.avgSharpe') }}
             </div>
           </div>
           <div class="summary-card">
@@ -552,7 +552,7 @@
               {{ fmtPct(filteredSummary.avg_max_drawdown) }}
             </div>
             <div class="summary-card__label">
-              平均最大回撤
+              {{ t('report.avgMaxDrawdown') }}
             </div>
           </div>
           <div class="summary-card">
@@ -560,7 +560,7 @@
               {{ fmtPct(filteredSummary.avg_win_rate) }}
             </div>
             <div class="summary-card__label">
-              平均胜率
+              {{ t('report.avgWinRate') }}
             </div>
           </div>
           <div class="summary-card">
@@ -568,7 +568,7 @@
               {{ filteredSummary.total_trades ?? '-' }}
             </div>
             <div class="summary-card__label">
-              总交易次数
+              {{ t('report.totalTrades') }}
             </div>
           </div>
           <div class="summary-card">
@@ -579,7 +579,7 @@
               {{ fmtPct(filteredSummary.avg_annual_return) }}
             </div>
             <div class="summary-card__label">
-              平均年化收益
+              {{ t('report.avgAnnualReturn') }}
             </div>
           </div>
         </div>
@@ -593,7 +593,7 @@
             class="highlight-card is-success"
           >
             <div class="highlight-card__label">
-              最佳收益单元
+              {{ t('report.bestUnit') }}
             </div>
             <div class="highlight-card__main">
               <span>{{ filteredSummary.best_return_unit.strategy_name }} / {{ filteredSummary.best_return_unit.symbol }}</span>
@@ -605,7 +605,7 @@
             class="highlight-card is-danger"
           >
             <div class="highlight-card__label">
-              最大回撤单元
+              {{ t('report.worstUnit') }}
             </div>
             <div class="highlight-card__main">
               <span>{{ filteredSummary.worst_drawdown_unit.strategy_name }} / {{ filteredSummary.worst_drawdown_unit.symbol }}</span>
@@ -636,23 +636,23 @@
           </el-table-column>
           <el-table-column
             prop="strategy_name"
-            label="报告单元"
+            :label="t('report.reportUnits')"
             min-width="120"
             fixed
           />
           <el-table-column
             prop="group_name"
-            label="来源"
+            :label="t('report.sourceFromUnit')"
             width="100"
           />
           <el-table-column
             prop="data_source"
-            label="数据源"
+            :label="t('report.dataSource')"
             width="120"
           />
           <el-table-column
             prop="start_date"
-            label="起始时间"
+            :label="t('report.timeStart')"
             width="100"
           />
           <template
@@ -674,11 +674,11 @@
 
         <el-empty
           v-if="report && !filteredUnits.length"
-          description="当前选中范围暂无单元数据"
+          :description="t('report.noUnitData')"
         />
         <el-empty
           v-if="!report && !loading"
-          description="点击刷新加载报告"
+          :description="t('report.clickToRefresh')"
         />
       </template>
     </el-skeleton>
@@ -691,11 +691,14 @@ import {
   Refresh, FolderOpened, Delete, Close, Download,
   Timer, Wallet, Operation, Histogram, SetUp, Star,
 } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
 import type { WorkspaceReportConfig, WorkspaceReportResponse, WorkspaceReportUnitRow } from '@/types/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   workspaceId: string
@@ -739,43 +742,43 @@ interface RptColDef {
 }
 
 const reportColumnDefs: RptColDef[] = [
-  { key: 'initial_cash', label: '最大投入资金', width: 110, money: true },
-  { key: 'net_value', label: '净值', width: 80 },
-  { key: 'net_profit', label: '净利润', width: 100, money: true },
-  { key: 'annual_return', label: '年化收益率%', width: 100, sortable: true },
-  { key: 'max_leverage', label: '最大杠杆', width: 80 },
-  { key: 'max_market_value', label: '最大市值', width: 100, money: true },
-  { key: 'max_drawdown_value', label: '最大回撤值', width: 100, money: true },
-  { key: 'max_drawdown', label: '最大回撤%', width: 90, sortable: true },
-  { key: 'sharpe_ratio', label: '夏普比率', width: 85, sortable: true },
-  { key: 'adjusted_return_risk', label: '收益风险比', width: 90 },
-  { key: 'total_trades', label: '交易次数', width: 80, align: 'center', int: true },
-  { key: 'win_rate', label: '胜率%', width: 70, sortable: true },
-  { key: 'avg_profit', label: '平均利润', width: 90, money: true },
-  { key: 'avg_profit_rate', label: '平均利润率%', width: 100 },
-  { key: 'total_win_amount', label: '总盈利', width: 100, money: true },
-  { key: 'total_loss_amount', label: '总亏损', width: 100, money: true },
-  { key: 'profit_loss_ratio', label: '盈亏比', width: 80 },
-  { key: 'profit_factor', label: '盈利因子', width: 80, sortable: true },
-  { key: 'profit_rate_factor', label: '盈利率因子', width: 90 },
-  { key: 'profit_loss_rate_ratio', label: '盈亏率比', width: 80 },
-  { key: 'odds', label: '胜算率%', width: 80 },
-  { key: 'daily_avg_return', label: '日均收益%', width: 90 },
-  { key: 'daily_max_loss', label: '日最大亏损%', width: 100 },
-  { key: 'daily_max_profit', label: '日最大盈利%', width: 100 },
-  { key: 'weekly_avg_return', label: '周均收益%', width: 90 },
-  { key: 'weekly_max_loss', label: '周最大亏损%', width: 100 },
-  { key: 'weekly_max_profit', label: '周最大盈利%', width: 100 },
-  { key: 'monthly_avg_return', label: '月均收益%', width: 90 },
-  { key: 'monthly_max_loss', label: '月最大亏损%', width: 100 },
-  { key: 'monthly_max_profit', label: '月最大盈利%', width: 100 },
-  { key: 'trading_cost', label: '交易成本', width: 90, money: true },
-  { key: 'trading_days', label: '交易日数', width: 80, align: 'center', int: true },
+  { key: 'initial_cash', label: t('report.maxInputCash'), width: 110, money: true },
+  { key: 'net_value', label: t('report.netValue'), width: 80 },
+  { key: 'net_profit', label: t('report.netProfit'), width: 100, money: true },
+  { key: 'annual_return', label: t('report.annualizedReturn') + '%', width: 100, sortable: true },
+  { key: 'max_leverage', label: t('report.maxLeverage'), width: 80 },
+  { key: 'max_market_value', label: t('report.maxMarketValue'), width: 100, money: true },
+  { key: 'max_drawdown_value', label: t('report.maxDrawdownVal'), width: 100, money: true },
+  { key: 'max_drawdown', label: t('report.maxDrawdown') + '%', width: 90, sortable: true },
+  { key: 'sharpe_ratio', label: t('report.sharpe'), width: 85, sortable: true },
+  { key: 'adjusted_return_risk', label: t('report.riskReturnRatio'), width: 90 },
+  { key: 'total_trades', label: t('report.tradeCount'), width: 80, align: 'center', int: true },
+  { key: 'win_rate', label: t('report.winRate') + '%', width: 70, sortable: true },
+  { key: 'avg_profit', label: t('report.avgProfit'), width: 90, money: true },
+  { key: 'avg_profit_rate', label: t('report.avgProfitRate') + '%', width: 100 },
+  { key: 'total_win_amount', label: t('report.totalProfit'), width: 100, money: true },
+  { key: 'total_loss_amount', label: t('report.totalLoss'), width: 100, money: true },
+  { key: 'profit_loss_ratio', label: t('report.profitLossRatio'), width: 80 },
+  { key: 'profit_factor', label: t('report.profitFactor'), width: 80, sortable: true },
+  { key: 'profit_rate_factor', label: t('report.profitRateFactor'), width: 90 },
+  { key: 'profit_loss_rate_ratio', label: t('report.profitRateRatio'), width: 80 },
+  { key: 'odds', label: t('report.winChance') + '%', width: 80 },
+  { key: 'daily_avg_return', label: t('report.daily') + '%', width: 90 },
+  { key: 'daily_max_loss', label: t('report.dailyMaxLoss') + '%', width: 100 },
+  { key: 'daily_max_profit', label: t('report.dailyMaxProfit') + '%', width: 100 },
+  { key: 'weekly_avg_return', label: t('report.weekly') + '%', width: 90 },
+  { key: 'weekly_max_loss', label: t('report.weeklyMaxLoss') + '%', width: 100 },
+  { key: 'weekly_max_profit', label: t('report.weeklyMaxProfit') + '%', width: 100 },
+  { key: 'monthly_avg_return', label: t('report.monthly') + '%', width: 90 },
+  { key: 'monthly_max_loss', label: t('report.monthlyMaxLoss') + '%', width: 100 },
+  { key: 'monthly_max_profit', label: t('report.monthlyMaxProfit') + '%', width: 100 },
+  { key: 'trading_cost', label: t('report.tradeCost'), width: 90, money: true },
+  { key: 'trading_days', label: t('report.tradeDays'), width: 80, align: 'center', int: true },
 ]
 const reportAllFields = reportColumnDefs.map(c => ({ key: c.key, label: c.label }))
 const reportVisibleFields = ref(reportAllFields.map(f => f.key))
 const visibleFieldCount = computed(() => reportVisibleFields.value.length)
-const weightModeLabel = computed(() => (weightMode.value === 'custom' ? '自定义' : '等权'))
+const weightModeLabel = computed(() => (weightMode.value === 'custom' ? t('report.weightCustom') : t('report.weightEqual')))
 
 const reportActiveColumns = computed(() =>
   reportColumnDefs.filter(c => reportVisibleFields.value.includes(c.key))
@@ -800,9 +803,9 @@ function formatRangeValue(value: unknown) {
 }
 const statRangeLabel = computed(() => {
   if (reportStatRange.value[0] || reportStatRange.value[1]) {
-    return `${formatRangeValue(reportStatRange.value[0]) || '开始'} ~ ${formatRangeValue(reportStatRange.value[1]) || '结束'}`
+    return `${formatRangeValue(reportStatRange.value[0]) || t('report.start')} ~ ${formatRangeValue(reportStatRange.value[1]) || t('report.end')}`
   }
-  return '全部区间'
+  return t('report.fullRange')
 })
 
 const filteredUnits = computed(() => {
@@ -873,7 +876,7 @@ async function fetchReport() {
   try {
     report.value = await workspaceApi.getReport(props.workspaceId)
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '加载报告失败'))
+    ElMessage.error(getErrorMessage(e, t('report.loadFailed')))
   } finally {
     loading.value = false
   }
@@ -891,9 +894,9 @@ async function recalculateReport() {
     if (reportStatRange.value[0]) config.start_date = reportStatRange.value[0]
     if (reportStatRange.value[1]) config.end_date = reportStatRange.value[1]
     report.value = await workspaceApi.createReport(props.workspaceId, config)
-    ElMessage.success('报告已按配置重新计算')
+    ElMessage.success(t('report.recalculated'))
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '重新计算失败'))
+    ElMessage.error(getErrorMessage(e, t('report.recalculateFailed')))
   } finally {
     loading.value = false
   }
@@ -928,12 +931,12 @@ function handleOpenReport() {
       const data = JSON.parse(text)
       if (data.summary || data.units) {
         report.value = data
-        ElMessage.success('报告已加载')
+        ElMessage.success(t('report.loaded'))
       } else {
-        ElMessage.warning('文件格式不正确')
+        ElMessage.warning(t('report.fileFormatErr'))
       }
     } catch {
-      ElMessage.error('读取文件失败')
+      ElMessage.error(t('report.readFileFailed'))
     }
   }
   input.click()
@@ -942,7 +945,7 @@ function handleOpenReport() {
 // --- Delete report config (Bug-5 v2: safe semantics, only clears config not metrics) ---
 async function handleDeleteReport() {
   try {
-    await ElMessageBox.confirm('确认清除报告配置缓存？此操作不会影响单元运行指标数据。', '清除报告配置', { type: 'info' })
+    await ElMessageBox.confirm(t('report.confirmClearConfig') + '？' + t('report.clearConfigHint') + '。', t('report.clearConfig'), { type: 'info' })
     await workspaceApi.deleteReport(props.workspaceId)
     report.value = null
     // Reset local config to defaults
@@ -951,16 +954,16 @@ async function handleDeleteReport() {
     weightMode.value = 'equal'
     maxCash.value = 1000000
     reportStatRange.value = [null, null]
-    ElMessage.success('报告配置已清除')
+    ElMessage.success(t('report.cleardConfig'))
   } catch (e: unknown) {
-    if (e !== 'cancel') ElMessage.error(getErrorMessage(e, '清除失败'))
+    if (e !== 'cancel') ElMessage.error(getErrorMessage(e, t('report.clearFailed')))
   }
 }
 
 // --- Clear (local view reset) ---
 function handleClearReport() {
   report.value = null
-  ElMessage.info('本地视图已清空，可点击刷新重新加载')
+  ElMessage.info(t('report.cleared') + '，' + t('report.refreshHint'))
 }
 
 // --- Save ---
@@ -973,7 +976,7 @@ function handleSaveReport() {
   a.download = `report_${props.workspaceId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
-  ElMessage.success('报告已保存')
+  ElMessage.success(t('report.saved'))
 }
 
 // --- Set default (save config to workspace settings) ---
@@ -990,9 +993,9 @@ async function handleSetDefault() {
         },
       },
     })
-    ElMessage.success('已保存为默认报告配置')
+    ElMessage.success(t('report.savedAsDefault'))
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存默认配置失败'))
+    ElMessage.error(getErrorMessage(e, t('report.saveDefaultFailed')))
   }
 }
 
