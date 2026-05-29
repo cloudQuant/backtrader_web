@@ -13,7 +13,7 @@
       <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            策略单元
+            {{ t('workspaceDialogs.strategyUnit') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ unit.strategy_name || unit.strategy_id }}
@@ -21,7 +21,7 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            品种
+            {{ t('workspaceDialogs.symbol') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ unit.symbol }} {{ unit.symbol_name }}
@@ -29,7 +29,7 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            当前周期
+            {{ t('workspaceDialogs.currentTimeframe') }}
           </div>
           <div class="mt-1 text-sm font-semibold text-slate-700">
             {{ unit.timeframe }} / N={{ unit.timeframe_n }}
@@ -44,48 +44,48 @@
       >
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            基础数据设置
+            {{ t('workspaceDialogs.baseDataSettings') }}
           </div>
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="周期">
+              <el-form-item :label="t('workspaceDialogs.timeframeLabel')">
                 <el-select
                   v-model="form.timeframe"
                   style="width: 100%"
                 >
                   <el-option
-                    label="1分钟"
+                    label="1m"
                     value="1m"
                   />
                   <el-option
-                    label="5分钟"
+                    label="5m"
                     value="5m"
                   />
                   <el-option
-                    label="15分钟"
+                    label="15m"
                     value="15m"
                   />
                   <el-option
-                    label="30分钟"
+                    label="30m"
                     value="30m"
                   />
                   <el-option
-                    label="1小时"
+                    label="1h"
                     value="1h"
                   />
                   <el-option
-                    label="4小时"
+                    label="4h"
                     value="4h"
                   />
                   <el-option
-                    label="日线"
+                    :label="t('workspaceDialogs.daily')"
                     value="1d"
                   />
                 </el-select>
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="N值">
+              <el-form-item label="N">
                 <el-input-number
                   v-model="form.timeframe_n"
                   :min="1"
@@ -96,20 +96,20 @@
             </el-col>
           </el-row>
 
-          <el-form-item label="范围类型">
+          <el-form-item :label="t('workspaceDialogs.rangeType')">
             <el-radio-group v-model="form.range_type">
               <el-radio value="date">
-                日期
+                {{ t('workspaceDialogs.dateLabel') }}
               </el-radio>
               <el-radio value="sample">
-                样本数
+                {{ t('workspaceDialogs.sampleCount') }}
               </el-radio>
             </el-radio-group>
           </el-form-item>
 
           <el-form-item
             v-if="form.range_type === 'sample'"
-            label="样本数"
+            :label="t('workspaceDialogs.sampleCount')"
           >
             <el-input-number
               v-model="form.sample_count"
@@ -124,17 +124,17 @@
             :gutter="20"
           >
             <el-col :span="12">
-              <el-form-item label="起始日期">
+              <el-form-item :label="t('workspaceDialogs.rangeStartDate')">
                 <el-date-picker
                   v-model="form.start_date"
                   type="datetime"
-                  placeholder="选择起始日期"
+                  :placeholder="t('workspaceDialogs.selectStartDate')"
                   style="width: 100%"
                 />
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="结束日期">
+              <el-form-item :label="t('workspaceDialogs.rangeEndDate')">
                 <div class="flex w-full items-center gap-3">
                   <el-checkbox v-model="form.use_end_date" />
                   <el-date-picker
@@ -151,49 +151,49 @@
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            行情处理选项
+            {{ t('workspaceDialogs.adjustMode') }}
           </div>
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="复权方式">
+              <el-form-item :label="t('workspaceDialogs.adjustMode')">
                 <el-radio-group v-model="form.adjust_type">
                   <el-radio value="none">
-                    不复权
+                    {{ t('workspaceDialogs.adjustNone') }}
                   </el-radio>
                   <el-radio value="forward">
-                    后复权
+                    {{ t('workspaceDialogs.adjustPost') }}
                   </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="分割方式">
+              <el-form-item :label="t('workspaceDialogs.splitMode')">
                 <el-radio-group v-model="form.split_type">
                   <el-radio value="natural">
-                    自然
+                    {{ t('workspaceDialogs.natural') }}
                   </el-radio>
                   <el-radio value="trading">
-                    交易
+                    {{ t('workspaceDialogs.trading') }}
                   </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="数据范围">
+              <el-form-item :label="t('workspaceDialogs.dataRange')">
                 <el-select
                   v-model="form.data_range"
                   style="width: 100%"
                 >
                   <el-option
-                    label="全部"
+                    :label="t('workspaceDialogs.all')"
                     value="all"
                   />
                   <el-option
-                    label="主力"
+                    :label="t('workspaceDialogs.main')"
                     value="main"
                   />
                   <el-option
-                    label="夜盘"
+                    :label="t('workspaceDialogs.night')"
                     value="night"
                   />
                 </el-select>
@@ -206,14 +206,14 @@
 
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('workspaceDialogs.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="saving"
         @click="handleSave"
       >
-        确定
+        {{ t('workspaceDialogs.confirm') }}
       </el-button>
     </template>
   </el-dialog>
@@ -222,10 +222,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit, WorkspaceType } from '@/types/workspace'
 
+const { t } = useI18n()
 const props = defineProps<{
   modelValue: boolean
   workspaceId: string
@@ -241,7 +243,7 @@ const emit = defineEmits<{
 const store = useWorkspaceStore()
 const saving = ref(false)
 const dialogTitle = computed(() =>
-  `${props.workspaceType === 'trading' ? '策略交易' : '策略研究'}--数据源设置`
+  `${props.workspaceType === 'trading' ? t('workspaceDialogs.strategyTrading') : t('workspaceDialogs.strategyResearch')}--${t('workspaceDialogs.dataSourceTitle')}`
 )
 
 function defaultStartDate(): Date {
@@ -310,11 +312,11 @@ async function handleSave() {
         data_range: form.value.data_range,
       },
     })
-    ElMessage.success('数据源设置已保存')
+    ElMessage.success(t('workspaceDialogs.dataSourceSaved'))
     emit('update:modelValue', false)
     emit('saved')
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.dataSourceSaveFailed')))
   } finally {
     saving.value = false
   }

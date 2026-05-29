@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 175 §4 advisory baseline. Strict scan finds 15040 violations; CJK subset is ~1290 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
-  "baseline_violations": 15040,
-  "baseline_cjk_violations": 1290,
-  "baseline_commit": "175-close-pass-15",
+  "_comment": "Iteration 175 §4 advisory baseline. Strict scan finds 14945 violations; CJK subset is ~1188 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
+  "baseline_violations": 14945,
+  "baseline_cjk_violations": 1188,
+  "baseline_commit": "175-close-pass-16",
   "baseline_date": "2026-05-28",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -23,6 +23,7 @@
     {"commit": "d44156f6", "violations": 15291, "cjk": 1548, "note": "WorkspaceOptimizationTab"},
     {"commit": "35b9f135", "violations": 15197, "cjk": 1454, "note": "WorkspaceReportTab"},
     {"commit": "145fefe4", "violations": 15148, "cjk": 1405, "note": "WorkspaceUnitsTab"},
-    {"commit": "175-close-pass-15", "violations": 15040, "cjk": 1290, "note": "CreateUnitDialog (~87 zh) + TradingWorkspaceUnitsTab (~72 zh) -> unitDialog.* + tradingUnits.* namespaces (+116 keys)"}
+    {"commit": "299f15eb", "violations": 15040, "cjk": 1290, "note": "CreateUnitDialog + TradingWorkspaceUnitsTab"},
+    {"commit": "175-close-pass-16", "violations": 14945, "cjk": 1188, "note": "AutoTradingConfigDialog (52) + OptimizationConfigDialog (39) + DataSourceDialog (38) -> workspaceDialogs.* namespace (+64 keys)"}
   ]
 }
