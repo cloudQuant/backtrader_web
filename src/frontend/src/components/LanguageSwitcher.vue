@@ -31,6 +31,8 @@ import { setLocale, getLocaleLabel } from '@/i18n'
 const { locale } = useI18n()
 
 const locales = [
+  // i18n-ignore-next-line
+  // i18n-reason: native-script self-label by convention; switching to t() would defeat the purpose of a language picker.
   { value: 'zh-CN', label: '中文' },
   { value: 'en-US', label: 'English' },
 ]
