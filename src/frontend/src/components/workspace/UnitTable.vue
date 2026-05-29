@@ -7,7 +7,7 @@
     border
     size="small"
     class="trading-units-table"
-    empty-text="暂无策略单元，点击「新建策略单元」开始"
+    :empty-text="t('workspaceDialogs.emptyUnits') + ', ' + t('workspaceDialogs.clickPrefix') + ' \u300c' + t('workspaceDialogs.newUnit') + '\u300d ' + t('workspaceDialogs.rangeStart')"
     @selection-change="rows => emit('selection-change', rows)"
     @row-dblclick="(row, column, event) => emit('row-dblclick', row, column, event)"
   >
@@ -16,7 +16,7 @@
       width="42"
     />
     <el-table-column
-      label="序号"
+      :label="t('workspaceDialogs.indexNo')"
       width="60"
       align="center"
     >
@@ -25,7 +25,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="状态"
+      :label="t('workspaceDialogs.statusCol')"
       width="156"
       fixed="left"
     >
@@ -35,13 +35,13 @@
     </el-table-column>
     <el-table-column
       prop="group_name"
-      label="组名"
+      :label="t('workspaceDialogs.groupName')"
       min-width="120"
       show-overflow-tooltip
     />
     <el-table-column
       prop="strategy_name"
-      label="单元名"
+      :label="t('workspaceDialogs.unitName')"
       min-width="150"
       show-overflow-tooltip
     >
@@ -51,7 +51,7 @@
     </el-table-column>
     <el-table-column
       prop="strategy_id"
-      label="公式"
+      :label="t('workspaceDialogs.formula')"
       min-width="160"
       show-overflow-tooltip
     >
@@ -61,28 +61,28 @@
     </el-table-column>
     <el-table-column
       prop="symbol"
-      label="商品代码"
+      :label="t('workspaceDialogs.symbolCodeShort')"
       width="110"
     />
     <el-table-column
       prop="symbol_name"
-      label="商品简称"
+      :label="t('workspaceDialogs.symbolName')"
       width="120"
       show-overflow-tooltip
     />
     <el-table-column
       prop="timeframe"
-      label="周期"
+      :label="t('workspaceDialogs.timeframeCol')"
       width="90"
       align="center"
     />
     <el-table-column
       prop="category"
-      label="分类"
+      :label="t('workspaceDialogs.categoryCol')"
       width="90"
     />
     <el-table-column
-      label="起始日期"
+      :label="t('workspaceDialogs.rangeStartDate')"
       width="120"
     >
       <template #default="{ row }">
@@ -90,7 +90,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="结束日期"
+      :label="t('workspaceDialogs.rangeEndDate')"
       width="120"
     >
       <template #default="{ row }">
@@ -98,7 +98,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="更新时间"
+      :label="t('workspaceDialogs.updatedAt')"
       width="160"
     >
       <template #default="{ row }">
@@ -106,7 +106,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="bar数"
+      :label="'bar ' + t('workspaceDialogs.countSuffix')"
       width="80"
       align="right"
     >
@@ -115,7 +115,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="多仓"
+      :label="t('workspaceDialogs.longShare')"
       width="90"
       align="right"
     >
@@ -124,7 +124,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="空仓"
+      :label="t('workspaceDialogs.flat')"
       width="90"
       align="right"
     >
@@ -133,7 +133,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="当日盈亏"
+      :label="t('workspaceDialogs.todayPnL')"
       width="110"
       align="right"
     >
@@ -144,7 +144,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="持仓盈亏"
+      :label="t('workspaceDialogs.holdingPnL')"
       width="110"
       align="right"
     >
@@ -155,7 +155,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="最新价"
+      :label="t('workspaceDialogs.latestPrice')"
       width="100"
       align="right"
     >
@@ -164,7 +164,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="涨幅(%)"
+      :label="t('workspaceDialogs.changePct')"
       width="100"
       align="right"
     >
@@ -175,7 +175,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="多头市值"
+      :label="t('workspaceDialogs.longMarketValue')"
       width="110"
       align="right"
     >
@@ -184,7 +184,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="空头市值"
+      :label="t('workspaceDialogs.shortMarketValue')"
       width="110"
       align="right"
     >
@@ -193,7 +193,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="杠杆"
+      :label="t('workspaceDialogs.leverage')"
       width="90"
       align="right"
     >
@@ -202,7 +202,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="累计盈亏"
+      :label="t('workspaceDialogs.cumulativePnL')"
       width="110"
       align="right"
     >
@@ -213,7 +213,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="最大回撤率"
+      :label="t('workspaceDialogs.maxDrawdownPct')"
       width="110"
       align="right"
     >
@@ -222,7 +222,7 @@
       </template>
     </el-table-column>
     <el-table-column
-      label="详情"
+      :label="t('workspaceDialogs.detailCol')"
       width="90"
       fixed="right"
     >
@@ -233,12 +233,12 @@
           size="small"
           @click="emit('open-detail', row)"
         >
-          详情
+          {{ t('workspaceDialogs.detailCol') }}
         </el-button>
       </template>
     </el-table-column>
     <el-table-column
-      label="交易日"
+      :label="t('workspaceDialogs.tradingDay')"
       width="110"
       fixed="right"
     >
@@ -251,6 +251,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 import type { StrategyUnit } from '@/types/workspace'
 import {
@@ -263,6 +264,8 @@ import {
   numberClass,
 } from '@/composables/useUnitTableRendering'
 import UnitRunStatusBadge from './UnitRunStatusBadge.vue'
+
+const { t } = useI18n()
 
 defineProps<{
   units: StrategyUnit[]

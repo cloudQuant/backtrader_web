@@ -6,7 +6,7 @@
     <div class="trading-toolbar__groups">
       <el-button-group class="toolbar-group">
         <el-tooltip
-          content="全选 / 取消全选"
+          :content="t('workspaceDialogs.selectAll') + ' / ' + t('workspaceDialogs.deselectAll')"
           placement="top"
         >
           <el-button
@@ -17,7 +17,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="启动自动交易"
+          :content="t('workspaceDialogs.autoTradingEnable')"
           placement="top"
         >
           <el-button
@@ -32,7 +32,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="关闭自动交易"
+          :content="t('workspaceDialogs.autoTradingDisable')"
           placement="top"
         >
           <el-button
@@ -50,7 +50,7 @@
 
       <el-button-group class="toolbar-group">
         <el-tooltip
-          content="锁定交易"
+          :content="t('workspaceDialogs.lockTrading')"
           placement="top"
         >
           <el-button
@@ -62,7 +62,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="锁定运行"
+          :content="t('workspaceDialogs.lockRunning')"
           placement="top"
         >
           <el-button
@@ -74,7 +74,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="解锁"
+          :content="t('workspaceDialogs.unlock')"
           placement="top"
         >
           <el-button
@@ -89,7 +89,7 @@
 
       <el-button-group class="toolbar-group">
         <el-tooltip
-          content="启动策略单元"
+          :content="t('workspaceDialogs.startUnits')"
           placement="top"
         >
           <el-button
@@ -102,7 +102,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="停止策略单元"
+          :content="t('workspaceDialogs.stopUnits')"
           placement="top"
         >
           <el-button
@@ -119,7 +119,7 @@
 
       <el-button-group class="toolbar-group">
         <el-tooltip
-          content="新建策略单元"
+          :content="t('workspaceDialogs.newUnit')"
           placement="top"
         >
           <el-button
@@ -131,7 +131,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="删除策略单元"
+          :content="t('workspaceDialogs.deleteUnits')"
           placement="top"
         >
           <el-button
@@ -143,7 +143,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="导入策略单元"
+          :content="t('workspaceDialogs.importTitle')"
           placement="top"
         >
           <el-button
@@ -154,7 +154,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="导出策略单元"
+          :content="t('workspaceDialogs.exportTitle')"
           placement="top"
         >
           <el-button
@@ -169,7 +169,7 @@
 
       <el-button-group class="toolbar-group">
         <el-tooltip
-          content="数据源设置"
+          :content="t('workspaceDialogs.dataSourceTitle')"
           placement="top"
         >
           <el-button
@@ -181,7 +181,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="策略单元设置"
+          :content="t('workspaceDialogs.unitSettingsTitle')"
           placement="top"
         >
           <el-button
@@ -193,7 +193,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="公式应用设置"
+          :content="t('workspaceDialogs.formulaApply')"
           placement="top"
         >
           <el-button
@@ -208,7 +208,7 @@
 
       <el-button-group class="toolbar-group">
         <el-tooltip
-          content="头寸管理器"
+          :content="t('workspaceDialogs.positionManager')"
           placement="top"
         >
           <el-button
@@ -220,7 +220,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="打开K线"
+          :content="t('workspaceDialogs.open') + ' K'"
           placement="top"
         >
           <el-button
@@ -232,7 +232,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="打开组合报告"
+          :content="t('workspaceDialogs.openPortfolioReport')"
           placement="top"
         >
           <el-button
@@ -247,7 +247,7 @@
 
       <el-button-group class="toolbar-group">
         <el-tooltip
-          content="自动交易配置"
+          :content="t('workspaceDialogs.autoTradingConfig')"
           placement="top"
         >
           <el-button
@@ -258,7 +258,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="新建优化任务"
+          :content="t('workspaceDialogs.newOptTask')"
           placement="top"
         >
           <el-button
@@ -270,7 +270,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="打开优化结果"
+          :content="t('workspaceDialogs.openOptResults')"
           placement="top"
         >
           <el-button
@@ -282,7 +282,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="定时优化设置"
+          :content="t('workspaceDialogs.scheduledOptTitle')"
           placement="top"
         >
           <el-button
@@ -293,7 +293,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="交易日统计选项"
+          :content="t('workspaceDialogs.tradingDayStat')"
           placement="top"
         >
           <el-button
@@ -305,7 +305,7 @@
           </el-button>
         </el-tooltip>
         <el-tooltip
-          content="联动分组"
+          :content="t('workspaceDialogs.groupLink')"
           placement="top"
         >
           <el-button
@@ -325,7 +325,7 @@
         effect="dark"
         :type="autoTradingEnabled ? 'success' : 'info'"
       >
-        自动交易{{ autoTradingEnabled ? '已启用' : '已关闭' }}
+        {{ t('workspaceDialogs.autoTradingTitleAlt') }}{{ autoTradingEnabled ? t('workspaceDialogs.enabledStatus') : t('workspaceDialogs.disabledStatus') }}
       </el-tag>
       <span
         v-if="autoTradingScheduleSummary"
@@ -333,7 +333,7 @@
       >
         {{ autoTradingScheduleSummary }}
       </span>
-      <span class="text-slate-500">已选 {{ selectedCount }} / {{ unitCount }}</span>
+      <span class="text-slate-500">{{ t('workspaceDialogs.selectedSuffix') }} {{ selectedCount }} / {{ unitCount }}</span>
     </div>
   </div>
 </template>
@@ -365,6 +365,9 @@ import {
   VideoPlay,
   Wallet,
 } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 defineProps<{
   active?: boolean
