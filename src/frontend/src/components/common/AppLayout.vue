@@ -1,6 +1,6 @@
 <template>
   <el-container class="min-h-screen">
-    <!-- 桌面端侧边栏 -->
+    <!-- Desktop sidebar -->
     <el-aside
       width="220px"
       class="app-sidebar-desktop"
@@ -110,7 +110,7 @@
       </el-menu>
     </el-aside>
 
-    <!-- 移动端侧边栏抽屉 -->
+    <!-- Mobile sidebar drawer -->
     <el-drawer
       id="mobile-sidebar-drawer"
       v-model="mobileMenuOpen"
@@ -237,12 +237,12 @@
       </el-menu>
     </el-drawer>
     
-    <!-- 主内容区 -->
+    <!-- Main content -->
     <el-container>
-      <!-- 顶部栏 -->
+      <!-- Top header -->
       <el-header class="app-header flex items-center justify-between border-b px-6">
         <div class="app-header-left flex items-center gap-4 flex-1 min-w-0 flex-wrap">
-          <!-- 移动端汉堡按钮 -->
+          <!-- Mobile hamburger button -->
           <button
             type="button"
             class="hamburger-btn"
@@ -325,7 +325,7 @@
         </div>
       </el-header>
       
-      <!-- 页面内容 -->
+      <!-- Page body -->
       <el-main
         class="app-main-content bg-gray-50 p-6"
         role="main"

@@ -1879,6 +1879,62 @@ export default {
     tscVolume: 'Volume',
   },
 
+  // Common UI components (components/common/*)
+  commonUi: {
+    // LogViewer
+    logSelectFile: 'Select log file',
+    logModeRaw: 'Raw',
+    logModeFormatted: 'Formatted',
+    logSearchPlaceholder: 'Search and highlight',
+    logTailAll: 'All',
+    logTail500: 'Last 500 lines',
+    logTail1000: 'Last 1000 lines',
+    logTail5000: 'Last 5000 lines',
+    logRefresh: 'Refresh',
+    logDownload: 'Download',
+    logClearCurrent: 'Clear current',
+    logClearAll: 'Clear all',
+    logLoading: 'Loading...',
+    logSelectFilePrompt: 'Select a log file to view',
+    logFilesLoadFailed: 'Failed to load file list',
+    logLoadFailed: 'Failed to load log',
+    logClearCurrentTitle: 'Clear current log',
+    logClearCurrentMsg: 'Are you sure you want to clear log file "{name}"?',
+    logClearAllTitle: 'Clear all logs',
+    logClearAllMsg: 'Are you sure you want to clear all log files? This cannot be undone.',
+    logBtnConfirm: 'Confirm',
+    logBtnCancel: 'Cancel',
+    logCleared: 'Logs cleared',
+    logAllCleared: 'All logs cleared',
+    logClearFailed: 'Failed to clear logs',
+
+    // ErrorBoundary
+    errorRetry: 'Retry',
+    errorPageTitle: 'Something went wrong',
+
+    // ThemeToggle
+    themeCurrentLabel: 'Current theme: {label}',
+
+    // logViewerHelpers
+    logLblSymbol: 'Symbol',
+    logLblPrice: 'Price',
+    logLblVol: 'Vol',
+    logLblBid: 'Bid',
+    logLblBidVol: 'BidVol',
+    logLblAsk: 'Ask',
+    logLblAskVol: 'AskVol',
+    logLblOI: 'OI',
+    logLblStrategy: 'Strategy',
+    logLblInterval: 'Interval',
+    logLblSource: 'Source',
+    logLblAccount: 'Account',
+    logLblErrorCode: 'ErrCode',
+    logLblError: 'Error',
+    logLblSize: 'Size',
+    logLblValue: 'Value',
+    logPosTpl: 'Symbol {sym} | Size {size} | Price {price} | Value {value}',
+  },
+
   // Data
   data: {
     title: 'Data Management',

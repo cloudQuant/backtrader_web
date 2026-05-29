@@ -1,3 +1,9 @@
+import i18n from '@/i18n'
+
+function t(key: string, named?: Record<string, unknown>): string {
+  return named ? i18n.global.t(key, named) : i18n.global.t(key)
+}
+
 export interface FormattedEntry {
   raw: string
   text?: string
@@ -11,11 +17,11 @@ export function formatLogLine(line: string): FormattedEntry {
   const raw = line
   if (!line) return { raw, text: ' ', levelClass: 'border-transparent' }
 
-  // 尝试解析 JSON 行
+  // Try to parse a JSON line
   if (line.startsWith('{')) {
     try {
       const obj = JSON.parse(line) as Record<string, unknown>
-      // 优先 event_time（通常是本地时间），否则用 log_time（ISO 需转本地）
+      // Prefer event_time (typically local), else log_time (ISO needs local conversion)
       const eventTime = obj.event_time as string
       const logTime = obj.log_time as string
       const datetime = obj.datetime as string
@@ -32,7 +38,7 @@ export function formatLogLine(line: string): FormattedEntry {
       const errorCode = obj.error_code ? String(obj.error_code) : ''
       const errorMsg = obj.error_msg ? String(obj.error_msg) : ''
 
-      // Tick 行情日志 (tick.log)
+      // Tick log (tick.log)
       if (eventType === 'tick') {
         const symbol = String(obj.symbol || obj.instrument_id || '')
         const tickPrice = obj.price != null ? Number(obj.price) : null
@@ -43,15 +49,15 @@ export function formatLogLine(line: string): FormattedEntry {
         const askVol = obj.ask_volume != null ? Number(obj.ask_volume) : null
         const oi = obj.openinterest != null ? Number(obj.openinterest) : null
         const parts: string[] = []
-        if (symbol) parts.push(`品种:${symbol}`)
-        if (tickPrice != null) parts.push(`价格:${tickPrice}`)
-        if (tickVol != null) parts.push(`量:${tickVol}`)
-        if (bid != null) parts.push(`买:${bid}`)
-        if (bidVol != null) parts.push(`买量:${bidVol}`)
-        if (ask != null) parts.push(`卖:${ask}`)
-        if (askVol != null) parts.push(`卖量:${askVol}`)
-        if (oi != null) parts.push(`持仓:${oi}`)
-        if (strategyName) parts.push(`策略:${strategyName}`)
+        if (symbol) parts.push(`${t('commonUi.logLblSymbol')}:${symbol}`)
+        if (tickPrice != null) parts.push(`${t('commonUi.logLblPrice')}:${tickPrice}`)
+        if (tickVol != null) parts.push(`${t('commonUi.logLblVol')}:${tickVol}`)
+        if (bid != null) parts.push(`${t('commonUi.logLblBid')}:${bid}`)
+        if (bidVol != null) parts.push(`${t('commonUi.logLblBidVol')}:${bidVol}`)
+        if (ask != null) parts.push(`${t('commonUi.logLblAsk')}:${ask}`)
+        if (askVol != null) parts.push(`${t('commonUi.logLblAskVol')}:${askVol}`)
+        if (oi != null) parts.push(`${t('commonUi.logLblOI')}:${oi}`)
+        if (strategyName) parts.push(`${t('commonUi.logLblStrategy')}:${strategyName}`)
         return {
           raw: line,
           text: parts.join(' | '),
@@ -62,7 +68,7 @@ export function formatLogLine(line: string): FormattedEntry {
         }
       }
 
-      // Bar K线日志 (bar.log)
+      // Bar/K-line log (bar.log)
       if (eventType === 'bar') {
         const symbol = String(obj.symbol || obj.instrument_id || '')
         const o = obj.open != null ? Number(obj.open) : null
@@ -73,15 +79,15 @@ export function formatLogLine(line: string): FormattedEntry {
         const oi = obj.openinterest != null ? Number(obj.openinterest) : null
         const interval = obj.interval || obj.period || ''
         const parts: string[] = []
-        if (symbol) parts.push(`品种:${symbol}`)
-        if (interval) parts.push(`周期:${interval}`)
+        if (symbol) parts.push(`${t('commonUi.logLblSymbol')}:${symbol}`)
+        if (interval) parts.push(`${t('commonUi.logLblInterval')}:${interval}`)
         if (o != null) parts.push(`O:${o}`)
         if (h != null) parts.push(`H:${h}`)
         if (l != null) parts.push(`L:${l}`)
         if (c != null) parts.push(`C:${c}`)
         if (v != null) parts.push(`V:${v}`)
-        if (oi != null) parts.push(`持仓:${oi}`)
-        if (strategyName) parts.push(`策略:${strategyName}`)
+        if (oi != null) parts.push(`${t('commonUi.logLblOI')}:${oi}`)
+        if (strategyName) parts.push(`${t('commonUi.logLblStrategy')}:${strategyName}`)
         return {
           raw: line,
           text: parts.join(' | '),
@@ -92,7 +98,7 @@ export function formatLogLine(line: string): FormattedEntry {
         }
       }
 
-      // 系统事件日志 (system.log)
+      // System event log (system.log)
       if (eventType) {
         const levelColors: Record<string, string> = {
           INFO: 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/20',
@@ -110,12 +116,12 @@ export function formatLogLine(line: string): FormattedEntry {
         const badgeClass = badgeColors[level] || badgeColors.INFO
         const parts: string[] = [eventType]
         if (status) parts.push(`[${status}]`)
-        if (dataName) parts.push(`品种:${dataName}`)
-        if (strategyName) parts.push(`策略:${strategyName}`)
-        if (provider) parts.push(`来源:${provider}`)
-        if (accountMasked) parts.push(`账户:${accountMasked}`)
-        if (errorCode) parts.push(`错误码:${errorCode}`)
-        if (errorMsg) parts.push(`错误:${errorMsg}`)
+        if (dataName) parts.push(`${t('commonUi.logLblSymbol')}:${dataName}`)
+        if (strategyName) parts.push(`${t('commonUi.logLblStrategy')}:${strategyName}`)
+        if (provider) parts.push(`${t('commonUi.logLblSource')}:${provider}`)
+        if (accountMasked) parts.push(`${t('commonUi.logLblAccount')}:${accountMasked}`)
+        if (errorCode) parts.push(`${t('commonUi.logLblErrorCode')}:${errorCode}`)
+        if (errorMsg) parts.push(`${t('commonUi.logLblError')}:${errorMsg}`)
         const details = obj.details as Record<string, unknown> | undefined
         if (details && Object.keys(details).length > 0) {
           const d = JSON.stringify(details)
@@ -131,12 +137,12 @@ export function formatLogLine(line: string): FormattedEntry {
         }
       }
 
-      // 持仓日志 (position.log)
+      // Position log (position.log)
       if (obj.data_name != null && obj.size != null) {
         const size = Number(obj.size)
         const price = Number(obj.price ?? 0)
         const value = Number(obj.value ?? 0)
-        const text = `品种 ${dataName} | 数量 ${size} | 价格 ${price.toFixed(2)} | 市值 ${value}`
+        const text = t('commonUi.logPosTpl', { sym: dataName, size, price: price.toFixed(2), value })
         return {
           raw: line,
           text,
@@ -145,7 +151,7 @@ export function formatLogLine(line: string): FormattedEntry {
         }
       }
 
-      // 指标日志 (indicator.log) - 仅显示关键数据
+      // Indicator log (indicator.log) — show key data only
       const close = obj.data_BtApiFeed_close ?? obj.dataprimary_BtApiFeed_close
       if (close != null) {
         const open = obj.data_BtApiFeed_open ?? obj.dataprimary_BtApiFeed_open
@@ -164,7 +170,7 @@ export function formatLogLine(line: string): FormattedEntry {
         }
       }
 
-      // 其他 JSON：美化输出
+      // Other JSON: pretty-print
       const keys = ['log_time', 'datetime', 'event_time', 'event_type', 'level', 'status', 'data_name']
       const parts: string[] = []
       for (const k of keys) {
@@ -183,11 +189,11 @@ export function formatLogLine(line: string): FormattedEntry {
         levelClass: 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800/30',
       }
     } catch {
-      // 解析失败，按原始显示
+      // Parse failed; show as raw
     }
   }
 
-  // TSV 行：简单表格式展示
+  // TSV row: simple table-style display
   if (line.includes('\t')) {
     const cols = line.split('\t')
     return {
@@ -202,13 +208,13 @@ export function formatLogLine(line: string): FormattedEntry {
 
 export function formatLogTime(s: string | undefined): string {
   if (!s) return ''
-  // "1970-01-01" 表示无效时间，不显示
+  // "1970-01-01" indicates an invalid time and is hidden
   if (s.startsWith('1970-01-01')) return ''
   try {
-    // log_time 多为 UTC (如 "2026-03-10T05:57:20.264")，补 Z 后解析再转本地
-    // event_time 多为本地 (如 "2026-03-10 13:57:18")，直接解析
+    // log_time is mostly UTC (e.g. "2026-03-10T05:57:20.264"); append 'Z' before parsing
+    // event_time is mostly local (e.g. "2026-03-10 13:57:18"); parse directly
     let toParse = s.trim()
-    // 仅对带毫秒的 ISO（log_time 格式，通常为 UTC）补 Z；event_time 带空格无毫秒，已为本地
+    // Only ISO-with-millis (log_time format, typically UTC) gets 'Z' suffix; event_time has space + no millis
     if (/T\d{2}:\d{2}:\d{2}\.\d+$/.test(toParse)) {
       toParse = toParse + 'Z'
     }
@@ -227,9 +233,12 @@ export function formatLogTime(s: string | undefined): string {
   }
 }
 
-export function lineMatchesSearch(line: string): boolean {
-  if (!searchText.value.trim()) return false
-  return line.toLowerCase().includes(searchText.value.toLowerCase())
+// NOTE: previous version of this helper used `searchText.value` which only
+// existed inside the SFC; this caused a TS reference error. We accept
+// `searchText` from the caller to keep the helper pure and testable.
+export function lineMatchesSearch(line: string, searchText = ''): boolean {
+  if (!searchText.trim()) return false
+  return line.toLowerCase().includes(searchText.toLowerCase())
 }
 
 export function formatSize(bytes: number): string {

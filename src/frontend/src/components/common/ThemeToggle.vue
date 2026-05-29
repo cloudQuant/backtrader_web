@@ -7,7 +7,7 @@
     <el-button 
       circle 
       data-shortcut="toggle-dark-mode"
-      :title="`当前主题: ${themeStore.currentThemeLabel}`"
+      :title="t('commonUi.themeCurrentLabel', { label: themeStore.currentThemeLabel })"
     >
       <span class="theme-toggle-icon">{{ themeStore.currentThemeIcon }}</span>
     </el-button>
@@ -31,8 +31,10 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { useThemeStore, type ThemeMode } from '@/stores/theme'
 
+const { t } = useI18n()
 const themeStore = useThemeStore()
 
 function handleCommand(command: string) {

@@ -1898,6 +1898,62 @@ export default {
     tscVolume: '成交量',
   },
 
+  // 通用 UI 组件 (components/common/*)
+  commonUi: {
+    // LogViewer
+    logSelectFile: '选择日志文件',
+    logModeRaw: '原始',
+    logModeFormatted: '格式化',
+    logSearchPlaceholder: '搜索并高亮',
+    logTailAll: '全部',
+    logTail500: '最近 500 行',
+    logTail1000: '最近 1000 行',
+    logTail5000: '最近 5000 行',
+    logRefresh: '刷新',
+    logDownload: '下载',
+    logClearCurrent: '清空当前',
+    logClearAll: '清空全部',
+    logLoading: '加载中...',
+    logSelectFilePrompt: '请选择要查看的日志文件',
+    logFilesLoadFailed: '加载文件列表失败',
+    logLoadFailed: '加载日志失败',
+    logClearCurrentTitle: '清空当前日志',
+    logClearCurrentMsg: '确定要清空日志文件 "{name}" 吗？',
+    logClearAllTitle: '清空全部日志',
+    logClearAllMsg: '确定要清空所有日志文件吗？此操作不可恢复。',
+    logBtnConfirm: '确定',
+    logBtnCancel: '取消',
+    logCleared: '日志已清空',
+    logAllCleared: '全部日志已清空',
+    logClearFailed: '清空日志失败',
+
+    // ErrorBoundary
+    errorRetry: '重试',
+    errorPageTitle: '页面出错了',
+
+    // ThemeToggle
+    themeCurrentLabel: '当前主题: {label}',
+
+    // logViewerHelpers
+    logLblSymbol: '品种',
+    logLblPrice: '价格',
+    logLblVol: '量',
+    logLblBid: '买',
+    logLblBidVol: '买量',
+    logLblAsk: '卖',
+    logLblAskVol: '卖量',
+    logLblOI: '持仓',
+    logLblStrategy: '策略',
+    logLblInterval: '周期',
+    logLblSource: '来源',
+    logLblAccount: '账户',
+    logLblErrorCode: '错误码',
+    logLblError: '错误',
+    logLblSize: '数量',
+    logLblValue: '市值',
+    logPosTpl: '品种 {sym} | 数量 {size} | 价格 {price} | 市值 {value}',
+  },
+
   // 数据管理
   data: {
     title: '数据管理',

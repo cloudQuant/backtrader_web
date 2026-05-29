@@ -20,7 +20,7 @@
           type="primary"
           @click="handleRetry"
         >
-          重试
+          {{ t('commonUi.errorRetry') }}
         </el-button>
       </template>
     </el-result>
@@ -29,14 +29,18 @@
 
 <script setup lang="ts">
 import { ref, computed, onErrorCaptured } from 'vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 interface Props {
   fallbackTitle?: string
 }
 
-withDefaults(defineProps<Props>(), {
-  fallbackTitle: '页面出错了',
+const props = withDefaults(defineProps<Props>(), {
+  fallbackTitle: '',
 })
+const fallbackTitle = computed(() => props.fallbackTitle || t('commonUi.errorPageTitle'))
 
 const emit = defineEmits<{
   (e: 'error', error: Error, info: string): void

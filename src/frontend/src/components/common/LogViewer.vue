@@ -1,11 +1,10 @@
-import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type FormattedEntry } from './logViewerHelpers'
 <template>
   <div class="log-viewer">
-    <!-- 工具栏 -->
+    <!-- Toolbar -->
     <div class="flex flex-wrap items-center gap-2 mb-3">
       <el-select
         v-model="selectedFile"
-        placeholder="选择日志文件"
+        :placeholder="t('commonUi.logSelectFile')"
         class="w-48"
         @change="onFileChange"
       >
@@ -21,15 +20,15 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
         size="small"
       >
         <el-radio-button value="raw">
-          原始
+          {{ t('commonUi.logModeRaw') }}
         </el-radio-button>
         <el-radio-button value="formatted">
-          格式化
+          {{ t('commonUi.logModeFormatted') }}
         </el-radio-button>
       </el-radio-group>
       <el-input
         v-model="searchText"
-        placeholder="搜索并高亮"
+        :placeholder="t('commonUi.logSearchPlaceholder')"
         clearable
         class="w-40"
       >
@@ -43,19 +42,19 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
         @change="loadLog"
       >
         <el-option
-          label="全部"
+          :label="t('commonUi.logTailAll')"
           :value="0"
         />
         <el-option
-          label="最近 500 行"
+          :label="t('commonUi.logTail500')"
           :value="500"
         />
         <el-option
-          label="最近 1000 行"
+          :label="t('commonUi.logTail1000')"
           :value="1000"
         />
         <el-option
-          label="最近 5000 行"
+          :label="t('commonUi.logTail5000')"
           :value="5000"
         />
       </el-select>
@@ -64,13 +63,13 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
         :loading="loading"
         @click="loadLog"
       >
-        刷新
+        {{ t('commonUi.logRefresh') }}
       </el-button>
       <el-button
         :icon="Download"
         @click="downloadLog"
       >
-        下载
+        {{ t('commonUi.logDownload') }}
       </el-button>
       <el-button
         :icon="Delete"
@@ -79,7 +78,7 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
         :disabled="!selectedFile"
         @click="handleClearCurrentLog"
       >
-        清空当前
+        {{ t('commonUi.logClearCurrent') }}
       </el-button>
       <el-button
         :icon="Delete"
@@ -87,11 +86,11 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
         plain
         @click="handleClearAllLogs"
       >
-        清空全部
+        {{ t('commonUi.logClearAll') }}
       </el-button>
     </div>
 
-    <!-- 日志内容 -->
+    <!-- Log content -->
     <div
       class="log-content rounded border overflow-auto font-mono text-sm"
       :class="displayMode === 'raw' ? 'bg-gray-900 text-gray-100' : 'bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-200'"
@@ -104,7 +103,7 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
         <el-icon class="is-loading text-2xl">
           <Loading />
         </el-icon>
-        <span class="ml-2">加载中...</span>
+        <span class="ml-2">{{ t('commonUi.logLoading') }}</span>
       </div>
       <div
         v-else-if="error"
@@ -116,9 +115,9 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
         v-else-if="!selectedFile"
         class="p-4 text-gray-400"
       >
-        请选择要查看的日志文件
+        {{ t('commonUi.logSelectFilePrompt') }}
       </div>
-      <!-- 原始模式 -->
+      <!-- Raw mode -->
       <pre
         v-else-if="displayMode === 'raw'"
         ref="contentRef"
@@ -126,9 +125,9 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
       ><span
         v-for="(line, i) in displayLines"
         :key="i"
-        :class="{ 'bg-yellow-800/50': searchText && lineMatchesSearch(line) }"
+        :class="{ 'bg-yellow-800/50': searchText && lineMatchesSearch(line, searchText) }"
       >{{ String(i + 1).padStart(6) }} | {{ line }}</span></pre>
-      <!-- 格式化模式 -->
+      <!-- Formatted mode -->
       <div
         v-else
         ref="contentRef"
@@ -153,7 +152,7 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
             :class="item.badgeClass"
           >{{ item.badge }}</span>
           <span
-            :class="{ 'bg-amber-200 dark:bg-amber-800/50': searchText && (item.raw && lineMatchesSearch(item.raw) || (item.text && item.text.toLowerCase().includes(searchText.toLowerCase()))) }"
+            :class="{ 'bg-amber-200 dark:bg-amber-800/50': searchText && (item.raw && lineMatchesSearch(item.raw, searchText) || (item.text && item.text.toLowerCase().includes(searchText.toLowerCase()))) }"
           >{{ item.text || item.raw }}</span>
         </div>
       </div>
@@ -163,9 +162,13 @@ import { formatLogLine, formatLogTime, lineMatchesSearch, formatSize, type Forma
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search, Refresh, Download, Loading, Delete } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { simulationApi } from '@/api/simulation'
+import { formatLogLine, lineMatchesSearch, formatSize, type FormattedEntry } from './logViewerHelpers'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   instanceId: string
@@ -203,7 +206,7 @@ async function loadFiles() {
       await loadLog()
     }
   } catch (e: unknown) {
-    error.value = (e as Error).message || '加载文件列表失败'
+    error.value = (e as Error).message || t('commonUi.logFilesLoadFailed')
   }
 }
 
@@ -218,7 +221,7 @@ async function loadLog() {
       tailLines.value || undefined
     )
   } catch (e: unknown) {
-    error.value = (e as Error).message || '加载日志失败'
+    error.value = (e as Error).message || t('commonUi.logLoadFailed')
   } finally {
     loading.value = false
   }
@@ -241,17 +244,17 @@ async function handleClearCurrentLog() {
   if (!selectedFile.value) return
   try {
     await ElMessageBox.confirm(
-      `确定要清空日志文件 "${selectedFile.value}" 吗？`,
-      '清空当前日志',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+      t('commonUi.logClearCurrentMsg', { name: selectedFile.value }),
+      t('commonUi.logClearCurrentTitle'),
+      { confirmButtonText: t('commonUi.logBtnConfirm'), cancelButtonText: t('commonUi.logBtnCancel'), type: 'warning' }
     )
     await simulationApi.clearLog(props.instanceId, selectedFile.value)
-    ElMessage.success('日志已清空')
+    ElMessage.success(t('commonUi.logCleared'))
     await loadLog()
     await loadFiles()
   } catch (e: unknown) {
     if (e !== 'cancel' && (e as { toString?: () => string })?.toString?.() !== 'cancel') {
-      ElMessage.error('清空日志失败')
+      ElMessage.error(t('commonUi.logClearFailed'))
     }
   }
 }
@@ -259,17 +262,17 @@ async function handleClearCurrentLog() {
 async function handleClearAllLogs() {
   try {
     await ElMessageBox.confirm(
-      '确定要清空所有日志文件吗？此操作不可恢复。',
-      '清空全部日志',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+      t('commonUi.logClearAllMsg'),
+      t('commonUi.logClearAllTitle'),
+      { confirmButtonText: t('commonUi.logBtnConfirm'), cancelButtonText: t('commonUi.logBtnCancel'), type: 'warning' }
     )
     const res = await simulationApi.clearAllLogs(props.instanceId)
-    ElMessage.success(res.message || '全部日志已清空')
+    ElMessage.success(res.message || t('commonUi.logAllCleared'))
     await loadLog()
     await loadFiles()
   } catch (e: unknown) {
     if (e !== 'cancel' && (e as { toString?: () => string })?.toString?.() !== 'cancel') {
-      ElMessage.error('清空日志失败')
+      ElMessage.error(t('commonUi.logClearFailed'))
     }
   }
 }
