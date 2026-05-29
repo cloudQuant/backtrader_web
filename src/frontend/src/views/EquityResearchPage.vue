@@ -1,73 +1,177 @@
 <template>
   <div class="space-y-4">
     <div>
-      <h2 class="text-2xl font-bold">权益研究</h2>
-      <p class="text-sm text-gray-500 mt-1">检索标的、查看画像、财务、行情历史与因子信号。</p>
+      <h2 class="text-2xl font-bold">
+        {{ t('equityResearch.headerTitle') }}
+      </h2>
+      <p class="text-sm text-gray-500 mt-1">
+        {{ t('equityResearch.headerDesc') }}
+      </p>
     </div>
 
     <el-card>
       <div class="flex gap-3 flex-wrap items-center mb-4">
-        <el-input v-model="keyword" placeholder="输入标的代码或名称" class="max-w-sm" />
-        <el-button type="primary" :loading="loading" @click="load">查询</el-button>
+        <el-input
+          v-model="keyword"
+          :placeholder="t('equityResearch.searchPlaceholder')"
+          class="max-w-sm"
+        />
+        <el-button
+          type="primary"
+          :loading="loading"
+          @click="load"
+        >
+          {{ t('equityResearch.btnQuery') }}
+        </el-button>
       </div>
-      <el-table :data="items" @row-click="handleRowClick">
-        <el-table-column prop="symbol" label="代码" />
-        <el-table-column prop="name" label="名称" />
-        <el-table-column prop="asset_type" label="类型" />
-        <el-table-column prop="exchange" label="交易所" />
+      <el-table
+        :data="items"
+        @row-click="handleRowClick"
+      >
+        <el-table-column
+          prop="symbol"
+          :label="t('equityResearch.colSymbol')"
+        />
+        <el-table-column
+          prop="name"
+          :label="t('equityResearch.colName')"
+        />
+        <el-table-column
+          prop="asset_type"
+          :label="t('equityResearch.colAssetType')"
+        />
+        <el-table-column
+          prop="exchange"
+          :label="t('equityResearch.colExchange')"
+        />
       </el-table>
     </el-card>
 
     <el-card v-if="selectedSymbol">
       <template #header>
         <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div class="font-bold">{{ selectedSymbol }}</div>
-          <div class="text-sm text-gray-500">{{ quote?.provider }} / {{ info?.exchange }}</div>
+          <div class="font-bold">
+            {{ selectedSymbol }}
+          </div>
+          <div class="text-sm text-gray-500">
+            {{ quote?.provider }} / {{ info?.exchange }}
+          </div>
         </div>
       </template>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-        <el-statistic title="最新价" :value="Number(quote?.price || 0)" />
-        <el-statistic title="昨收" :value="Number(quote?.previous_close || 0)" />
-        <el-statistic title="涨跌幅" :value="Number(quote?.change_pct || 0)" />
-        <el-statistic title="币种" :value="String(quote?.currency || '')" />
+        <el-statistic
+          :title="t('equityResearch.statLatestPrice')"
+          :value="Number(quote?.price || 0)"
+        />
+        <el-statistic
+          :title="t('equityResearch.statPrevClose')"
+          :value="Number(quote?.previous_close || 0)"
+        />
+        <el-statistic
+          :title="t('equityResearch.statChangePct')"
+          :value="Number(quote?.change_pct || 0)"
+        />
+        <el-statistic
+          :title="t('equityResearch.statCurrency')"
+          :value="String(quote?.currency || '')"
+        />
       </div>
       <el-tabs v-model="activeTab">
-        <el-tab-pane label="画像" name="info">
+        <el-tab-pane
+          :label="t('equityResearch.tabInfo')"
+          name="info"
+        >
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <div>名称：{{ info?.name }}</div>
-            <div>行业：{{ info?.industry }}</div>
-            <div>板块：{{ info?.sector }}</div>
-            <div>国家：{{ info?.country }}</div>
-            <div class="md:col-span-2">说明：{{ info?.description }}</div>
+            <div>{{ t('equityResearch.infoName') }}：{{ info?.name }}</div>
+            <div>{{ t('equityResearch.infoIndustry') }}：{{ info?.industry }}</div>
+            <div>{{ t('equityResearch.infoSector') }}：{{ info?.sector }}</div>
+            <div>{{ t('equityResearch.infoCountry') }}：{{ info?.country }}</div>
+            <div class="md:col-span-2">
+              {{ t('equityResearch.infoDescription') }}：{{ info?.description }}
+            </div>
           </div>
         </el-tab-pane>
-        <el-tab-pane label="财务" name="financials">
+        <el-tab-pane
+          :label="t('equityResearch.tabFinancials')"
+          name="financials"
+        >
           <el-table :data="annualRows">
-            <el-table-column prop="period" label="期间" />
-            <el-table-column prop="revenue" label="营收" />
-            <el-table-column prop="net_income" label="净利润" />
-            <el-table-column prop="eps" label="EPS" />
-            <el-table-column prop="roe" label="ROE" />
+            <el-table-column
+              prop="period"
+              :label="t('equityResearch.finPeriod')"
+            />
+            <el-table-column
+              prop="revenue"
+              :label="t('equityResearch.finRevenue')"
+            />
+            <el-table-column
+              prop="net_income"
+              :label="t('equityResearch.finNetIncome')"
+            />
+            <el-table-column
+              prop="eps"
+              label="EPS"
+            />
+            <el-table-column
+              prop="roe"
+              label="ROE"
+            />
           </el-table>
         </el-tab-pane>
-        <el-tab-pane label="技术面" name="technicals">
+        <el-tab-pane
+          :label="t('equityResearch.tabTechnicals')"
+          name="technicals"
+        >
           <pre class="text-xs bg-slate-900 text-slate-100 rounded p-3 overflow-auto">{{ JSON.stringify(technicals?.factors || {}, null, 2) }}</pre>
         </el-tab-pane>
-        <el-tab-pane label="可比" name="peers">
+        <el-tab-pane
+          :label="t('equityResearch.tabPeers')"
+          name="peers"
+        >
           <el-table :data="peerRows">
-            <el-table-column prop="symbol" label="代码" />
-            <el-table-column prop="name" label="名称" />
-            <el-table-column prop="reason" label="可比逻辑" />
+            <el-table-column
+              prop="symbol"
+              :label="t('equityResearch.peerSymbol')"
+            />
+            <el-table-column
+              prop="name"
+              :label="t('equityResearch.peerName')"
+            />
+            <el-table-column
+              prop="reason"
+              :label="t('equityResearch.peerReason')"
+            />
           </el-table>
         </el-tab-pane>
-        <el-tab-pane label="历史" name="history">
+        <el-tab-pane
+          :label="t('equityResearch.tabHistory')"
+          name="history"
+        >
           <el-table :data="historyRows">
-            <el-table-column prop="date" label="日期" />
-            <el-table-column prop="open" label="开盘" />
-            <el-table-column prop="high" label="最高" />
-            <el-table-column prop="low" label="最低" />
-            <el-table-column prop="close" label="收盘" />
-            <el-table-column prop="volume" label="成交量" />
+            <el-table-column
+              prop="date"
+              :label="t('equityResearch.histDate')"
+            />
+            <el-table-column
+              prop="open"
+              :label="t('equityResearch.histOpen')"
+            />
+            <el-table-column
+              prop="high"
+              :label="t('equityResearch.histHigh')"
+            />
+            <el-table-column
+              prop="low"
+              :label="t('equityResearch.histLow')"
+            />
+            <el-table-column
+              prop="close"
+              :label="t('equityResearch.histClose')"
+            />
+            <el-table-column
+              prop="volume"
+              :label="t('equityResearch.histVolume')"
+            />
           </el-table>
         </el-tab-pane>
       </el-tabs>
@@ -77,7 +181,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { marketIntelApi } from '@/api/marketIntel'
+
+const { t } = useI18n()
 
 const keyword = ref('RB')
 const loading = ref(false)

@@ -3,7 +3,7 @@
     <!-- 回测配置表单 -->
     <el-card>
       <template #header>
-        <span class="font-bold">回测配置</span>
+        <span class="font-bold">{{ t('backtestPg.sectionTitle') }}</span>
       </template>
       
       <el-form
@@ -12,19 +12,19 @@
         class="max-w-3xl"
       >
         <!-- 策略选择 -->
-        <el-form-item label="策略">
+        <el-form-item :label="t('backtestPg.formStrategy')">
           <el-select
             v-model="form.strategy_id"
-            placeholder="选择策略"
+            :placeholder="t('backtestPg.formStrategyPlaceholder')"
             class="w-full"
             filterable
             @change="onStrategyChange"
           >
             <el-option
-              v-for="t in templates"
-              :key="t.id"
-              :label="t.name"
-              :value="t.id"
+              v-for="t2 in templates"
+              :key="t2.id"
+              :label="t2.name"
+              :value="t2.id"
             />
           </el-select>
         </el-form-item>
@@ -32,7 +32,7 @@
         <!-- 策略描述 -->
         <el-form-item
           v-if="strategyConfig"
-          label="策略说明"
+          :label="t('backtestPg.formStrategyDesc')"
         >
           <div class="text-gray-500 text-sm">
             <span v-if="strategyConfig.strategy.description">{{ strategyConfig.strategy.description }}</span>
@@ -46,7 +46,7 @@
         <!-- 动态策略参数（从config.yaml的params段读取） -->
         <template v-if="Object.keys(dynamicParams).length > 0">
           <el-divider content-position="left">
-            策略参数
+            {{ t('backtestPg.paramsDivider') }}
           </el-divider>
           <el-row :gutter="20">
             <el-col
@@ -78,14 +78,14 @@
             :loading="loading"
             @click="runBacktest"
           >
-            运行回测
+            {{ t('backtestPg.btnRun') }}
           </el-button>
           <el-button
             v-if="loading && currentTaskId"
             type="danger"
             @click="cancelBacktest"
           >
-            取消
+            {{ t('backtestPg.btnCancel') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -116,11 +116,11 @@
     <el-card v-if="results.length > 0">
       <template #header>
         <div class="flex justify-between items-center">
-          <span class="font-bold">查看回测分析</span>
+          <span class="font-bold">{{ t('backtestPg.sectionAnalysisTitle') }}</span>
         </div>
       </template>
       <div class="flex items-center gap-4">
-        <span class="text-gray-500">在回测历史表格中点击"查看"按钮，可查看完整的回测分析可视化效果</span>
+        <span class="text-gray-500">{{ t('backtestPg.analysisTip') }}</span>
       </div>
     </el-card>
     
@@ -138,6 +138,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
@@ -150,6 +151,7 @@ import { useBacktestRuntime } from '@/composables/useBacktestRuntime'
 import type { BacktestResult, StrategyConfig } from '@/types'
 import dayjs from 'dayjs'
 
+const { t } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const backtestStore = useBacktestStore()
@@ -227,7 +229,7 @@ async function onStrategyChange(strategyId: string) {
       })
     }
   } catch (e: unknown) {
-    showRequestMessage(e, '无法加载策略配置，将使用默认参数', 'warning')
+    showRequestMessage(e, t('backtestPg.msgConfigLoadFail'), 'warning')
     strategyConfig.value = null
   } finally {
     configLoading.value = false
@@ -240,12 +242,12 @@ const results = computed(() => backtestStore.results)
 
 async function runBacktest() {
   if (!form.strategy_id) {
-    ElMessage.warning('请选择策略')
+    ElMessage.warning(t('backtestPg.msgPickStrategy'))
     return
   }
 
   loading.value = true
-  progressInfo.value = { progress: 0, message: '提交任务中...' }
+  progressInfo.value = { progress: 0, message: t('backtestPg.msgSubmitProgress') }
   try {
     const response = await backtestStore.runBacktest({
       strategy_id: form.strategy_id,
@@ -257,12 +259,12 @@ async function runBacktest() {
       params: { ...dynamicParams },
     })
 
-    ElMessage.success('回测任务已提交')
+    ElMessage.success(t('backtestPg.msgSubmitted'))
 
     startRuntime(response.task_id)
   } catch (e: unknown) {
     stopRuntime()
-    showRequestMessage(e, '提交回测失败')
+    showRequestMessage(e, t('backtestPg.msgSubmitFailed'))
   }
 }
 
@@ -272,12 +274,12 @@ function viewResult(result: BacktestResult) {
 }
 
 async function deleteBacktest(taskId: string) {
-  await ElMessageBox.confirm('确定删除此回测记录？', '提示', {
+  await ElMessageBox.confirm(t('backtestPg.confirmDelete'), t('backtestPg.msgDeletePrompt'), {
     type: 'warning',
   })
   
   await backtestStore.deleteResult(taskId)
-  ElMessage.success('删除成功')
+  ElMessage.success(t('backtestPg.msgDeleted'))
 }
 
 onMounted(async () => {
@@ -298,7 +300,7 @@ onMounted(async () => {
       await onStrategyChange(templates.value[0].id)
     }
   } catch (e: unknown) {
-    showRequestMessage(e, '初始化回测页面失败')
+    showRequestMessage(e, t('backtestPg.msgInitFailed'))
   }
 })
 

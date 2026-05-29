@@ -1,50 +1,120 @@
 <template>
   <div class="space-y-4">
     <div>
-      <h2 class="text-2xl font-bold">期权链</h2>
-      <p class="text-sm text-gray-500 mt-1">查看多档行权价链条、PCR、Max Pain 与 ATM IV。</p>
+      <h2 class="text-2xl font-bold">
+        {{ t('optionsChain.headerTitle') }}
+      </h2>
+      <p class="text-sm text-gray-500 mt-1">
+        {{ t('optionsChain.headerDesc') }}
+      </p>
     </div>
 
     <el-card>
       <div class="flex gap-3 flex-wrap items-center mb-4">
-        <el-input v-model="symbol" placeholder="标的代码" class="max-w-xs" />
-        <el-input v-model="expiry" placeholder="到期日 YYYY-MM-DD" class="max-w-xs" />
-        <el-select v-model="provider" class="max-w-xs">
-          <el-option label="Auto" value="auto" />
-          <el-option label="Data Governance" value="data_governance" />
-          <el-option label="Mock" value="mock" />
+        <el-input
+          v-model="symbol"
+          :placeholder="t('optionsChain.formSymbolPlaceholder')"
+          class="max-w-xs"
+        />
+        <el-input
+          v-model="expiry"
+          :placeholder="t('optionsChain.formExpiryPlaceholder')"
+          class="max-w-xs"
+        />
+        <el-select
+          v-model="provider"
+          class="max-w-xs"
+        >
+          <el-option
+            label="Auto"
+            value="auto"
+          />
+          <el-option
+            label="Data Governance"
+            value="data_governance"
+          />
+          <el-option
+            label="Mock"
+            value="mock"
+          />
         </el-select>
-        <el-button type="primary" :loading="loading" @click="load">查询期权链</el-button>
+        <el-button
+          type="primary"
+          :loading="loading"
+          @click="load"
+        >
+          {{ t('optionsChain.btnQuery') }}
+        </el-button>
       </div>
-      <div v-if="summary" class="text-sm text-gray-500 mb-3">
+      <div
+        v-if="summary"
+        class="text-sm text-gray-500 mb-3"
+      >
         {{ summary.underlying }} / {{ summary.source }} / {{ summary.timestamp }}
       </div>
-      <div v-if="summary" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <el-statistic title="PCR" :value="summary.pcr as number" />
-        <el-statistic title="Max Pain" :value="summary.max_pain as number" />
-        <el-statistic title="ATM IV" :value="summary.atm_iv as number" />
+      <div
+        v-if="summary"
+        class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4"
+      >
+        <el-statistic
+          title="PCR"
+          :value="summary.pcr as number"
+        />
+        <el-statistic
+          title="Max Pain"
+          :value="summary.max_pain as number"
+        />
+        <el-statistic
+          title="ATM IV"
+          :value="summary.atm_iv as number"
+        />
       </div>
-      <div v-if="summary" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <el-statistic title="Spot" :value="summary.spot as number" />
-        <el-statistic title="Strike 数" :value="summary.strike_count as number" />
-        <el-statistic title="Strike 间隔" :value="summary.strike_step as number" />
+      <div
+        v-if="summary"
+        class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4"
+      >
+        <el-statistic
+          title="Spot"
+          :value="summary.spot as number"
+        />
+        <el-statistic
+          :title="t('optionsChain.statStrikeCount')"
+          :value="summary.strike_count as number"
+        />
+        <el-statistic
+          :title="t('optionsChain.statStrikeStep')"
+          :value="summary.strike_step as number"
+        />
       </div>
       <el-table :data="rows">
-        <el-table-column prop="strike" label="行权价" />
+        <el-table-column
+          prop="strike"
+          :label="t('optionsChain.colStrike')"
+        />
         <el-table-column label="Call OI">
-          <template #default="scope">{{ scope.row.call?.oi }}</template>
+          <template #default="scope">
+            {{ scope.row.call?.oi }}
+          </template>
         </el-table-column>
         <el-table-column label="Call Vol">
-          <template #default="scope">{{ scope.row.call?.volume }}</template>
+          <template #default="scope">
+            {{ scope.row.call?.volume }}
+          </template>
         </el-table-column>
         <el-table-column label="Call IV">
-          <template #default="scope">{{ scope.row.call?.iv }}</template>
+          <template #default="scope">
+            {{ scope.row.call?.iv }}
+          </template>
         </el-table-column>
         <el-table-column label="Put OI">
-          <template #default="scope">{{ scope.row.put?.oi }}</template>
+          <template #default="scope">
+            {{ scope.row.put?.oi }}
+          </template>
         </el-table-column>
         <el-table-column label="Put Vol">
-          <template #default="scope">{{ scope.row.put?.volume }}</template>
+          <template #default="scope">
+            {{ scope.row.put?.volume }}
+          </template>
         </el-table-column>
       </el-table>
     </el-card>
@@ -53,7 +123,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { marketIntelApi } from '@/api/marketIntel'
+
+const { t } = useI18n()
 
 const loading = ref(false)
 const symbol = ref('RB2510')
