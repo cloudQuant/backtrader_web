@@ -2,13 +2,13 @@
   <div class="space-y-6">
     <el-card>
       <template #header>
-        <span class="font-bold">数据管理</span>
+        <span class="font-bold">{{ t('dataMgmt.headerTitle') }}</span>
       </template>
 
       <el-tabs v-model="activeTab">
         <!-- 股票数据 Tab -->
         <el-tab-pane
-          label="股票数据"
+          :label="t('dataMgmt.tabStock')"
           name="stock"
         >
           <el-form
@@ -16,24 +16,24 @@
             :model="queryForm"
             class="mt-2"
           >
-            <el-form-item label="股票代码">
+            <el-form-item :label="t('dataMgmt.formSymbol')">
               <el-input
                 v-model="queryForm.symbol"
-                placeholder="如: 000001.SZ"
+                :placeholder="t('dataMgmt.formSymbolPlaceholder')"
               />
             </el-form-item>
-            <el-form-item label="开始日期">
+            <el-form-item :label="t('dataMgmt.formStartDate')">
               <el-date-picker
                 v-model="queryForm.startDate"
                 type="date"
-                placeholder="开始日期"
+                :placeholder="t('dataMgmt.formStartDate')"
               />
             </el-form-item>
-            <el-form-item label="结束日期">
+            <el-form-item :label="t('dataMgmt.formEndDate')">
               <el-date-picker
                 v-model="queryForm.endDate"
                 type="date"
-                placeholder="结束日期"
+                :placeholder="t('dataMgmt.formEndDate')"
               />
             </el-form-item>
             <el-form-item>
@@ -42,7 +42,7 @@
                 :loading="loading"
                 @click="queryData"
               >
-                查询
+                {{ t('dataMgmt.btnQuery') }}
               </el-button>
             </el-form-item>
           </el-form>
@@ -50,7 +50,7 @@
 
         <!-- 期货数据 Tab -->
         <el-tab-pane
-          label="期货数据"
+          :label="t('dataMgmt.tabFutures')"
           name="futures"
         >
           <div class="mt-2 space-y-4">
@@ -58,7 +58,7 @@
             <div class="flex items-center gap-3">
               <el-select
                 v-model="selectedGateway"
-                placeholder="选择已连接的 Gateway"
+                :placeholder="t('dataMgmt.selectGatewayPlaceholder')"
                 class="w-80"
                 @change="onGatewaySelect"
               >
@@ -73,7 +73,7 @@
                 :loading="futuresLoading"
                 @click="refreshFuturesData"
               >
-                <el-icon><Refresh /></el-icon>刷新
+                <el-icon><Refresh /></el-icon>{{ t('dataMgmt.btnRefresh') }}
               </el-button>
               <el-button
                 v-if="futuresPositions.length > 0"
@@ -81,13 +81,13 @@
                 size="small"
                 @click="exportFuturesPositions"
               >
-                导出持仓CSV
+                {{ t('dataMgmt.btnExportPositionsCsv') }}
               </el-button>
             </div>
 
             <el-empty
               v-if="connectedGateways.length === 0"
-              description="暂无已连接的 Gateway，请先在 Gateway 状态页面连接"
+              :description="t('dataMgmt.emptyNoGateway')"
             />
 
             <!-- 账户信息卡片 -->
@@ -96,7 +96,7 @@
               shadow="never"
             >
               <template #header>
-                <span class="font-bold">账户信息</span>
+                <span class="font-bold">{{ t('dataMgmt.cardAccount') }}</span>
               </template>
               <el-descriptions
                 :column="3"
@@ -120,7 +120,7 @@
             >
               <template #header>
                 <div class="flex justify-between items-center">
-                  <span class="font-bold">持仓明细 ({{ futuresPositions.length }})</span>
+                  <span class="font-bold">{{ t('dataMgmt.cardPositionsTitle', { count: futuresPositions.length }) }}</span>
                 </div>
               </template>
               <el-table
@@ -146,7 +146,7 @@
     <!-- K线图 -->
     <el-card v-if="activeTab === 'stock' && klineData">
       <template #header>
-        <span class="font-bold">K线图 - {{ queryForm.symbol }}</span>
+        <span class="font-bold">{{ t('dataMgmt.cardKlineTitle', { symbol: queryForm.symbol }) }}</span>
       </template>
       <div class="h-96">
         <KlineChart :data="klineData" />
@@ -157,13 +157,13 @@
     <el-card v-if="activeTab === 'stock' && tableData.length">
       <template #header>
         <div class="flex justify-between items-center">
-          <span class="font-bold">历史数据</span>
+          <span class="font-bold">{{ t('dataMgmt.cardHistory') }}</span>
           <el-button
             type="success"
             size="small"
             @click="exportData"
           >
-            导出CSV
+            {{ t('dataMgmt.btnExportCsv') }}
           </el-button>
         </div>
       </template>
@@ -175,27 +175,27 @@
       >
         <el-table-column
           prop="date"
-          label="日期"
+          :label="t('dataMgmt.colDate')"
           width="120"
         />
         <el-table-column
           prop="open"
-          label="开盘"
+          :label="t('dataMgmt.colOpen')"
           width="100"
         />
         <el-table-column
           prop="high"
-          label="最高"
+          :label="t('dataMgmt.colHigh')"
           width="100"
         />
         <el-table-column
           prop="low"
-          label="最低"
+          :label="t('dataMgmt.colLow')"
           width="100"
         />
         <el-table-column
           prop="close"
-          label="收盘"
+          :label="t('dataMgmt.colClose')"
           width="100"
         >
           <template #default="{ row }">
@@ -206,12 +206,12 @@
         </el-table-column>
         <el-table-column
           prop="volume"
-          label="成交量"
+          :label="t('dataMgmt.colVolume')"
           width="120"
         />
         <el-table-column
           prop="change"
-          label="涨跌幅"
+          :label="t('dataMgmt.colChange')"
           width="100"
         >
           <template #default="{ row }">
@@ -227,6 +227,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Refresh } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import api from '@/api/index'
@@ -234,6 +235,8 @@ import { liveTradingApi } from '@/api/liveTrading'
 import KlineChart from '@/components/charts/KlineChart.vue'
 import type { KlineData, KlineRecord, KlineResponse } from '@/types'
 import dayjs from 'dayjs'
+
+const { t } = useI18n()
 
 const activeTab = ref('stock')
 const loading = ref(false)
@@ -283,7 +286,7 @@ async function refreshFuturesData() {
     futuresAccount.value = acct
     futuresPositions.value = pos.positions
   } catch {
-    ElMessage.error('查询失败，请确认 Gateway 已连接')
+    ElMessage.error(t('dataMgmt.msgQueryFail'))
   } finally {
     futuresLoading.value = false
   }
@@ -305,7 +308,7 @@ function exportFuturesPositions() {
   a.download = `positions_${selectedGateway.value}_${dayjs().format('YYYYMMDD')}.csv`
   a.click()
   URL.revokeObjectURL(url)
-  ElMessage.success('导出成功')
+  ElMessage.success(t('dataMgmt.msgExportSuccess'))
 }
 
 // ---- Stock Tab ----
@@ -321,7 +324,7 @@ async function queryData() {
 
     klineData.value = data.kline
     tableData.value = data.records.slice().reverse()
-    ElMessage.success(`查询到 ${data.count} 条数据`)
+    ElMessage.success(t('dataMgmt.msgQueriedCount', { count: data.count }))
   } catch {
     // error handled by interceptor
   } finally {
@@ -332,7 +335,15 @@ async function queryData() {
 function exportData() {
   if (!tableData.value.length) return
   
-  const headers = ['日期', '开盘', '最高', '最低', '收盘', '成交量', '涨跌幅']
+  const headers = [
+    t('dataMgmt.colDate'),
+    t('dataMgmt.colOpen'),
+    t('dataMgmt.colHigh'),
+    t('dataMgmt.colLow'),
+    t('dataMgmt.colClose'),
+    t('dataMgmt.colVolume'),
+    t('dataMgmt.colChange'),
+  ]
   const csv = [
     headers.join(','),
     ...tableData.value.map(row => 
@@ -348,7 +359,7 @@ function exportData() {
   a.click()
   URL.revokeObjectURL(url)
   
-  ElMessage.success('导出成功')
+  ElMessage.success(t('dataMgmt.msgExportSuccess'))
 }
 
 onMounted(() => {

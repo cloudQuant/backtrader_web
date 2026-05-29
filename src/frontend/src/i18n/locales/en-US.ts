@@ -2993,6 +2993,65 @@ export default {
     descVerdant: 'Fresh green, friendly and clear',
   },
 
+  // Data management page (views/DataPage.vue)
+  dataMgmt: {
+    headerTitle: 'Data management',
+    tabStock: 'Stock data',
+    tabFutures: 'Futures data',
+    formSymbol: 'Stock code',
+    formSymbolPlaceholder: 'e.g. 000001.SZ',
+    formStartDate: 'Start date',
+    formEndDate: 'End date',
+    btnQuery: 'Query',
+    selectGatewayPlaceholder: 'Select a connected gateway',
+    btnRefresh: 'Refresh',
+    btnExportPositionsCsv: 'Export positions CSV',
+    emptyNoGateway: 'No connected gateway. Connect one on the Gateway status page first.',
+    cardAccount: 'Account information',
+    cardPositionsTitle: 'Positions ({count})',
+    cardKlineTitle: 'K-line chart - {symbol}',
+    cardHistory: 'Historical data',
+    btnExportCsv: 'Export CSV',
+    colDate: 'Date',
+    colOpen: 'Open',
+    colHigh: 'High',
+    colLow: 'Low',
+    colClose: 'Close',
+    colVolume: 'Volume',
+    colChange: 'Change %',
+    msgQueryFail: 'Query failed; verify the gateway is connected',
+    msgExportSuccess: 'Export succeeded',
+    msgQueriedCount: 'Queried {count} records',
+  },
+
+  // Quant tools page (views/QuantToolsPage.vue)
+  quantTools: {
+    headerTitle: 'Quant tools',
+    headerDesc: 'Read-only AI tool registry with call protection panel.',
+    btnRefreshTools: 'Refresh tools',
+    btnCallTool: 'Call tool',
+    colName: 'Tool name',
+    colDesc: 'Description',
+    colAuth: 'Permission',
+    colTimeoutMs: 'Timeout (ms)',
+    colRateLimit: 'Rate limit',
+  },
+
+  // Scanner page (views/ScannerPage.vue)
+  scannerPage: {
+    headerTitle: 'Conditional scanner',
+    headerDesc: 'Multi-dimensional quantitative filter built on a secure DSL.',
+    btnRun: 'Run',
+    taskInfo: 'Task: {taskId} / {status}',
+    colSymbol: 'Symbol',
+    colPrice: 'Price',
+    colVolume: 'Volume',
+    colIndicator: 'Indicator',
+    colFactor: 'Factor',
+    colNewsSentiment: 'News sentiment',
+    colPortfolioExposure: 'Portfolio exposure',
+  },
+
   // Workspace list (/backtest route)
   workspace: {
     createNew: 'New Workspace',

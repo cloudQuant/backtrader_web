@@ -3012,6 +3012,65 @@ export default {
     descVerdant: '清新绿意·友好明快',
   },
 
+  // 数据管理页（views/DataPage.vue）
+  dataMgmt: {
+    headerTitle: '数据管理',
+    tabStock: '股票数据',
+    tabFutures: '期货数据',
+    formSymbol: '股票代码',
+    formSymbolPlaceholder: '如: 000001.SZ',
+    formStartDate: '开始日期',
+    formEndDate: '结束日期',
+    btnQuery: '查询',
+    selectGatewayPlaceholder: '选择已连接的 Gateway',
+    btnRefresh: '刷新',
+    btnExportPositionsCsv: '导出持仓CSV',
+    emptyNoGateway: '暂无已连接的 Gateway，请先在 Gateway 状态页面连接',
+    cardAccount: '账户信息',
+    cardPositionsTitle: '持仓明细 ({count})',
+    cardKlineTitle: 'K线图 - {symbol}',
+    cardHistory: '历史数据',
+    btnExportCsv: '导出CSV',
+    colDate: '日期',
+    colOpen: '开盘',
+    colHigh: '最高',
+    colLow: '最低',
+    colClose: '收盘',
+    colVolume: '成交量',
+    colChange: '涨跌幅',
+    msgQueryFail: '查询失败，请确认 Gateway 已连接',
+    msgExportSuccess: '导出成功',
+    msgQueriedCount: '查询到 {count} 条数据',
+  },
+
+  // 量化工具页（views/QuantToolsPage.vue）
+  quantTools: {
+    headerTitle: '量化工具',
+    headerDesc: 'AI 工具注册表只读能力与调用保护面板。',
+    btnRefreshTools: '刷新工具',
+    btnCallTool: '调用工具',
+    colName: '工具名',
+    colDesc: '说明',
+    colAuth: '权限',
+    colTimeoutMs: '超时(ms)',
+    colRateLimit: '限频',
+  },
+
+  // 条件扫描页（views/ScannerPage.vue）
+  scannerPage: {
+    headerTitle: '条件扫描',
+    headerDesc: '基于安全 DSL 的多维量化筛选器。',
+    btnRun: '运行',
+    taskInfo: '任务：{taskId} / {status}',
+    colSymbol: '标的',
+    colPrice: '价格',
+    colVolume: '成交量',
+    colIndicator: '指标',
+    colFactor: '因子',
+    colNewsSentiment: '新闻情绪',
+    colPortfolioExposure: '组合暴露',
+  },
+
   // 工作区列表（/backtest 路由）
   workspace: {
     createNew: '新建工作区',
