@@ -66,7 +66,7 @@ export function useAIChatPage() {
     resetExecutions,
   } = useStrategyDraftWorkspaceExecution()
 
-  const currentModeMeta = computed(() => assistantModeMetaMap[selectedAssistantMode.value])
+  const currentModeMeta = computed(() => assistantModeMetaMap.value[selectedAssistantMode.value])
   const suggestedPrompts = computed(() => currentModeMeta.value.suggestedPrompts)
   const quickTools = computed(() => currentModeMeta.value.quickTools)
   const inputPlaceholder = computed(() => currentModeMeta.value.inputPlaceholder)
@@ -406,7 +406,7 @@ export function useAIChatPage() {
       question.value = prompt
     }
     const mode = route.query.mode
-    if (mode && typeof mode === 'string' && mode in assistantModeMetaMap) {
+    if (mode && typeof mode === 'string' && mode in assistantModeMetaMap.value) {
       selectedAssistantMode.value = mode as KBAssistantMode
     }
   })

@@ -1,12 +1,13 @@
+import { computed, type ComputedRef } from 'vue'
+import i18n from '@/i18n'
 import type { KBAssistantMode, KBCitation, KBReasonCode, KBStrategyDraft } from '@/api/kbChat'
 
-export const assistantModeOptions: Array<{ value: KBAssistantMode; label: string }> = [
-  { value: 'knowledge_qa', label: '知识问答' },
-  { value: 'strategy_idea', label: '策略构思' },
-  { value: 'backtrader_strategy', label: 'Backtrader策略生成' },
-  { value: 'strategy_review', label: '策略审查' },
-  { value: 'trading_execution', label: '交易执行' },
-]
+// Top-level helper to access translations from a non-component module.
+// Wrap in a function so the i18n instance's locale ref is consulted at call time
+// (vue-i18n's t() is reactive when the locale ref changes).
+function t(key: string): string {
+  return i18n.global.t(key)
+}
 
 export interface QuickTool {
   icon: string
@@ -25,181 +26,191 @@ export interface AssistantModeMeta {
   quickTools: QuickTool[]
 }
 
-export const assistantModeMetaMap: Record<KBAssistantMode, AssistantModeMeta> = {
+// Reactive computed list — locale changes update labels automatically.
+export const assistantModeOptions: ComputedRef<Array<{ value: KBAssistantMode; label: string }>> = computed(() => [
+  { value: 'knowledge_qa', label: t('aiChat.modeKnowledgeQA') },
+  { value: 'strategy_idea', label: t('aiChat.modeStrategyIdea') },
+  { value: 'backtrader_strategy', label: t('aiChat.modeBacktraderStrategy') },
+  { value: 'strategy_review', label: t('aiChat.modeStrategyReview') },
+  { value: 'trading_execution', label: t('aiChat.modeTradingExecution') },
+])
+
+// Reactive computed map — locale changes update labels automatically.
+export const assistantModeMetaMap: ComputedRef<Record<KBAssistantMode, AssistantModeMeta>> = computed(() => ({
   knowledge_qa: {
-    label: '知识问答',
-    emptyTitle: '从知识库开始提问',
-    emptyDescription: '选择知识库后输入问题，回答会优先引用已经保存的文档内容。',
-    inputHint: '输入问题，AI 将结合知识库回答',
-    inputPlaceholder: '请输入问题... (Enter 发送，Shift+Enter 换行)',
+    label: t('aiChat.modeKnowledgeQA'),
+    emptyTitle: t('aiChat.kqaEmptyTitle'),
+    emptyDescription: t('aiChat.kqaEmptyDesc'),
+    inputHint: t('aiChat.kqaInputHint'),
+    inputPlaceholder: t('aiChat.kqaInputPh'),
     suggestedPrompts: [
-      '这个知识库主要包含哪些内容？',
-      '总结当前知识库的核心主题',
-      '有哪些值得重点阅读的文档？',
+      t('aiChat.kqaPrompt1'),
+      t('aiChat.kqaPrompt2'),
+      t('aiChat.kqaPrompt3'),
     ],
     quickTools: [
       {
         icon: 'summary',
-        title: '总结知识库',
-        description: '快速生成核心主题摘要',
-        prompt: '请总结这个知识库的核心主题与重点文档。',
+        title: t('aiChat.kqaToolSummaryTitle'),
+        description: t('aiChat.kqaToolSummaryDesc'),
+        prompt: t('aiChat.kqaToolSummaryPrompt'),
       },
       {
         icon: 'docs',
-        title: '提取关键文档',
-        description: '找出最值得优先阅读的内容',
-        prompt: '请列出这个知识库中最值得优先阅读的文档，并说明原因。',
+        title: t('aiChat.kqaToolDocsTitle'),
+        description: t('aiChat.kqaToolDocsDesc'),
+        prompt: t('aiChat.kqaToolDocsPrompt'),
       },
       {
         icon: 'path',
-        title: '生成阅读路径',
-        description: '给出推荐阅读顺序',
-        prompt: '请为我生成这个知识库的推荐阅读路径。',
+        title: t('aiChat.kqaToolPathTitle'),
+        description: t('aiChat.kqaToolPathDesc'),
+        prompt: t('aiChat.kqaToolPathPrompt'),
       },
     ],
   },
   strategy_idea: {
-    label: '策略构思',
-    emptyTitle: '拆解策略想法',
-    emptyDescription: '把一句策略设想拆成信号、风控、数据需求和回测验证步骤。',
-    inputHint: '输入一句话策略想法，AI 将生成结构化研究方案',
-    inputPlaceholder: '例如：我想做一个基于均线突破和成交量放大的日线趋势策略',
+    label: t('aiChat.modeStrategyIdea'),
+    emptyTitle: t('aiChat.sideaEmptyTitle'),
+    emptyDescription: t('aiChat.sideaEmptyDesc'),
+    inputHint: t('aiChat.sideaInputHint'),
+    inputPlaceholder: t('aiChat.sideaInputPh'),
     suggestedPrompts: [
-      '把“均线突破 + 放量确认”的想法扩展成完整研究方案',
-      '帮我设计一个适合 A 股日线回测的低频趋势策略',
-      '把“回撤后反弹买入”整理成可验证的量化假设',
+      t('aiChat.sideaPrompt1'),
+      t('aiChat.sideaPrompt2'),
+      t('aiChat.sideaPrompt3'),
     ],
     quickTools: [
       {
         icon: 'expand',
-        title: '一句话扩展',
-        description: '把模糊策略想法拆成研究任务',
-        prompt: '请把下面这句自然语言策略想法扩展成结构化研究方案：',
+        title: t('aiChat.sideaToolExpandTitle'),
+        description: t('aiChat.sideaToolExpandDesc'),
+        prompt: t('aiChat.sideaToolExpandPrompt'),
       },
       {
         icon: 'test',
-        title: '生成回测计划',
-        description: '补充样本区间、指标和验证步骤',
-        prompt: '请基于这个策略想法生成详细的回测计划与验证步骤：',
+        title: t('aiChat.sideaToolTestTitle'),
+        description: t('aiChat.sideaToolTestDesc'),
+        prompt: t('aiChat.sideaToolTestPrompt'),
       },
       {
         icon: 'risk',
-        title: '补风控框架',
-        description: '为策略添加仓位和止损框架',
-        prompt: '请为这个策略补充仓位控制、止损止盈和风险暴露约束：',
+        title: t('aiChat.sideaToolRiskTitle'),
+        description: t('aiChat.sideaToolRiskDesc'),
+        prompt: t('aiChat.sideaToolRiskPrompt'),
       },
     ],
   },
   backtrader_strategy: {
-    label: 'Backtrader策略生成',
-    emptyTitle: '生成策略实现草案',
-    emptyDescription: '输入自然语言策略需求，生成可保存、可加入工作区的 Backtrader 草稿。',
-    inputHint: '输入自然语言需求，AI 将生成 Backtrader 策略草案',
-    inputPlaceholder: '例如：帮我生成一个 RSI 超卖反弹 + ATR 止损的 Backtrader 策略骨架',
+    label: t('aiChat.modeBacktraderStrategy'),
+    emptyTitle: t('aiChat.btEmptyTitle'),
+    emptyDescription: t('aiChat.btEmptyDesc'),
+    inputHint: t('aiChat.btInputHint'),
+    inputPlaceholder: t('aiChat.btInputPh'),
     suggestedPrompts: [
-      '请生成一个“双均线 + ATR 止损”的 Backtrader 策略代码骨架',
-      '请把“突破20日高点买入，跌破10日低点卖出”转成 Backtrader 策略',
-      '请生成一个适合期货分钟级别的布林带均值回归策略草案',
+      t('aiChat.btPrompt1'),
+      t('aiChat.btPrompt2'),
+      t('aiChat.btPrompt3'),
     ],
     quickTools: [
       {
         icon: 'code',
-        title: '生成代码骨架',
-        description: '输出 Backtrader 类与关键参数',
-        prompt: '请把下面的自然语言策略需求生成 Backtrader 策略代码骨架：',
+        title: t('aiChat.btToolCodeTitle'),
+        description: t('aiChat.btToolCodeDesc'),
+        prompt: t('aiChat.btToolCodePrompt'),
       },
       {
         icon: 'platform',
-        title: '生成接入建议',
-        description: '补充平台参数与运行建议',
-        prompt: '请为这个 Backtrader 策略补充在 Backtrader Web 中的接入建议：',
+        title: t('aiChat.btToolPlatformTitle'),
+        description: t('aiChat.btToolPlatformDesc'),
+        prompt: t('aiChat.btToolPlatformPrompt'),
       },
       {
         icon: 'params',
-        title: '生成参数表',
-        description: '提炼可优化参数与默认值',
-        prompt: '请为这个策略生成参数表、默认值以及建议优化区间：',
+        title: t('aiChat.btToolParamsTitle'),
+        description: t('aiChat.btToolParamsDesc'),
+        prompt: t('aiChat.btToolParamsPrompt'),
       },
     ],
   },
   strategy_review: {
-    label: '策略审查',
-    emptyTitle: '审查策略质量',
-    emptyDescription: '粘贴策略描述或代码片段，从逻辑、风控、数据和回测偏差角度审查。',
-    inputHint: '输入策略描述或代码，AI 将执行结构化审查',
-    inputPlaceholder: '例如：请审查这个动量策略的风控设计是否充分...',
+    label: t('aiChat.modeStrategyReview'),
+    emptyTitle: t('aiChat.reviewEmptyTitle'),
+    emptyDescription: t('aiChat.reviewEmptyDesc'),
+    inputHint: t('aiChat.reviewInputHint'),
+    inputPlaceholder: t('aiChat.reviewInputPh'),
     suggestedPrompts: [
-      '请审查一个“动量轮动 + 每周调仓”策略的主要风险',
-      '请从回测偏差角度审查“财报因子选股”策略',
-      '请检查这个趋势策略是否存在过拟合和数据窥探风险',
+      t('aiChat.reviewPrompt1'),
+      t('aiChat.reviewPrompt2'),
+      t('aiChat.reviewPrompt3'),
     ],
     quickTools: [
       {
         icon: 'logic',
-        title: '审查策略逻辑',
-        description: '识别核心假设和漏洞',
-        prompt: '请从策略逻辑、风险和可执行性角度审查下面的策略：',
+        title: t('aiChat.reviewToolLogicTitle'),
+        description: t('aiChat.reviewToolLogicDesc'),
+        prompt: t('aiChat.reviewToolLogicPrompt'),
       },
       {
         icon: 'bias',
-        title: '审查回测偏差',
-        description: '检查未来函数、幸存者偏差等问题',
-        prompt: '请重点审查下面策略是否存在未来函数、数据泄露或样本偏差：',
+        title: t('aiChat.reviewToolBiasTitle'),
+        description: t('aiChat.reviewToolBiasDesc'),
+        prompt: t('aiChat.reviewToolBiasPrompt'),
       },
       {
         icon: 'next',
-        title: '给出优化顺序',
-        description: '生成下一步修改建议',
-        prompt: '请为这个策略生成按优先级排序的优化建议与验证顺序：',
+        title: t('aiChat.reviewToolNextTitle'),
+        description: t('aiChat.reviewToolNextDesc'),
+        prompt: t('aiChat.reviewToolNextPrompt'),
       },
     ],
   },
   trading_execution: {
-    label: '交易执行',
-    emptyTitle: '自然语言交易',
-    emptyDescription: '用自然语言描述交易意图，AI 自动解析并执行。支持期货、加密货币等多品种。',
-    inputHint: '描述您的交易意图',
-    inputPlaceholder: '例如：买入1手螺纹钢主力合约 / 帮我在币安买入0.1个BTC / 查看当前持仓',
+    label: t('aiChat.modeTradingExecution'),
+    emptyTitle: t('aiChat.tradeEmptyTitle'),
+    emptyDescription: t('aiChat.tradeEmptyDesc'),
+    inputHint: t('aiChat.tradeInputHint'),
+    inputPlaceholder: t('aiChat.tradeInputPh'),
     suggestedPrompts: [
-      '买入1手螺纹钢主力合约',
-      '帮我在币安买入0.1个BTC',
-      '以3500限价卖出2手铁矿石',
-      '查看当前持仓',
-      '平掉所有螺纹钢仓位',
+      t('aiChat.tradePrompt1'),
+      t('aiChat.tradePrompt2'),
+      t('aiChat.tradePrompt3'),
+      t('aiChat.tradePrompt4'),
+      t('aiChat.tradePrompt5'),
     ],
     quickTools: [
       {
         icon: 'trade',
-        title: '快速下单',
-        description: '用自然语言描述交易',
-        prompt: '买入',
+        title: t('aiChat.tradeToolTradeTitle'),
+        description: t('aiChat.tradeToolTradeDesc'),
+        prompt: t('aiChat.tradeToolTradePrompt'),
       },
       {
         icon: 'position',
-        title: '查看持仓',
-        description: '查询当前持仓状态',
-        prompt: '查看我当前的持仓情况',
+        title: t('aiChat.tradeToolPositionTitle'),
+        description: t('aiChat.tradeToolPositionDesc'),
+        prompt: t('aiChat.tradeToolPositionPrompt'),
       },
       {
         icon: 'close',
-        title: '平仓',
-        description: '平掉指定品种仓位',
-        prompt: '平掉所有',
+        title: t('aiChat.tradeToolCloseTitle'),
+        description: t('aiChat.tradeToolCloseDesc'),
+        prompt: t('aiChat.tradeToolClosePrompt'),
       },
     ],
   },
-}
+}))
 
 
 export function formatDate(value?: string | null): string {
-  if (!value) return '未知时间'
+  if (!value) return t('aiChat.msgUnknownTime')
   return value.replace('T', ' ').slice(0, 16)
 }
 
 export function retrievalProfileLabel(profile?: string | null): string {
-  if (profile === 'precision') return '高精度引用'
-  if (profile === 'exploration') return '探索式阅读'
-  return '量化研究平衡'
+  if (profile === 'precision') return t('kb.profilePrecision')
+  if (profile === 'exploration') return t('kb.profileExploration')
+  return t('aiChat.profileBalance')
 }
 
 export function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -219,57 +230,57 @@ export function getDraftRiskPoints(draft?: KBStrategyDraft | null): string[] {
 }
 
 export function getDraftDataSourceType(draft?: KBStrategyDraft | null): string {
-  return draft?.data_source?.type || '未设置'
+  return draft?.data_source?.type || t('aiChat.notSet')
 }
 
 export function getDraftTimeframe(draft?: KBStrategyDraft | null): string {
-  return draft?.data_source?.timeframe || draft?.suggested_timeframe || '未设置'
+  return draft?.data_source?.timeframe || draft?.suggested_timeframe || t('aiChat.notSet')
 }
 
 export function getDraftInitialCash(draft?: KBStrategyDraft | null): number | string {
   return typeof draft?.backtest_defaults?.initial_cash === 'number'
     ? draft.backtest_defaults.initial_cash
-    : '未设置'
+    : t('aiChat.notSet')
 }
 
 export function getDraftCommission(draft?: KBStrategyDraft | null): number | string {
   return typeof draft?.backtest_defaults?.commission === 'number'
     ? draft.backtest_defaults.commission
-    : '未设置'
+    : t('aiChat.notSet')
 }
 
 export function getStrategyDraftIssue(draft?: KBStrategyDraft | null): string | null {
-  if (!draft) return '当前回答未包含策略草稿'
-  if (!draft.name?.trim()) return '策略草稿缺少名称，暂不能保存或执行'
-  if (!draft.code?.trim()) return '策略草稿缺少 Backtrader 代码，暂不能保存或执行'
-  if (!isPlainRecord(draft.params)) return '策略草稿参数格式异常，暂不能保存或执行'
-  if (!draft.category?.trim()) return '策略草稿缺少策略分类，暂不能保存或执行'
+  if (!draft) return t('aiChat.draftIssueNoCard')
+  if (!draft.name?.trim()) return t('aiChat.draftIssueNoName')
+  if (!draft.code?.trim()) return t('aiChat.draftIssueNoCode')
+  if (!isPlainRecord(draft.params)) return t('aiChat.draftIssueBadParams')
+  if (!draft.category?.trim()) return t('aiChat.draftIssueNoCategory')
   if (!draft.data_source || !draft.data_source.timeframe) {
-    return '策略草稿缺少数据源周期，暂不能添加到工作区'
+    return t('aiChat.draftIssueNoTimeframe')
   }
   if (
     !draft.backtest_defaults
       || typeof draft.backtest_defaults.initial_cash !== 'number'
       || typeof draft.backtest_defaults.commission !== 'number'
   ) {
-    return '策略草稿缺少回测默认参数，暂不能执行'
+    return t('aiChat.draftIssueNoBacktestDefaults')
   }
   if (!draft.execution_plan || typeof draft.execution_plan.run_parallel !== 'boolean') {
-    return '策略草稿缺少执行计划，暂不能添加到工作区'
+    return t('aiChat.draftIssueNoExecPlan')
   }
   return null
 }
 
 export function getDiagnosticTitle(reasonCode?: KBReasonCode | null): string {
-  if (reasonCode === 'no_context_found') return '未找到相关上下文'
-  if (reasonCode === 'ai_not_configured') return 'AI 模型未配置'
-  if (reasonCode === 'ai_provider_failed') return 'AI 模型调用失败'
-  return 'AI 助手诊断'
+  if (reasonCode === 'no_context_found') return t('aiChat.diagNoContext')
+  if (reasonCode === 'ai_not_configured') return t('aiChat.diagAINotConfigured')
+  if (reasonCode === 'ai_provider_failed') return t('aiChat.diagAIProviderFailed')
+  return t('aiChat.diagDefault')
 }
 
 export function getCitationTitle(citation: KBCitation): string {
   const title = citation.document_title?.trim()
-  return title || '未命名文档'
+  return title || t('aiChat.citationUnnamedDoc')
 }
 
 export function getCitationKey(citation: KBCitation, index: number): string {
@@ -277,7 +288,7 @@ export function getCitationKey(citation: KBCitation, index: number): string {
 }
 
 export function getCitationChunkIndex(citation: KBCitation): number | string {
-  return typeof citation.chunk_index === 'number' ? citation.chunk_index : '未知'
+  return typeof citation.chunk_index === 'number' ? citation.chunk_index : t('aiChat.citationChunkUnknown')
 }
 
 export function getCitationSimilarity(citation: KBCitation): number {
