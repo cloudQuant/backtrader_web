@@ -2,7 +2,7 @@
   <div class="trade-signal-chart">
     <div class="flex justify-between items-center mb-4">
       <h4 class="text-md font-medium">
-        K线图与交易信号
+        {{ t('charts.tscTitle') }}
       </h4>
       <div class="flex gap-2">
         <el-button-group size="small">
@@ -32,11 +32,14 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type * as echarts from 'echarts'
 import { Download } from '@element-plus/icons-vue'
 import type { KlineData, TradeSignal } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
 import { CANDLE_DOWN_COLOR, CANDLE_ITEM_STYLE, CANDLE_UP_COLOR, TRADE_SIGNAL_MA_COLORS, TRADE_SIGNAL_SUB_COLORS } from '@/constants/chartColors'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   klines: KlineData[]
@@ -62,13 +65,13 @@ const computedHeight = computed(() => {
 // 指标可见性状态（由 legend 点击驱动）
 const indicatorVisibility: Record<string, boolean> = {}
 
-const periods = [
-  { label: '1月', value: '1m' },
-  { label: '3月', value: '3m' },
-  { label: '6月', value: '6m' },
-  { label: '1年', value: '1y' },
-  { label: '全部', value: 'all' },
-]
+const periods = computed(() => [
+  { label: t('charts.tscPeriod1m'), value: '1m' },
+  { label: t('charts.tscPeriod3m'), value: '3m' },
+  { label: t('charts.tscPeriod6m'), value: '6m' },
+  { label: t('charts.tscPeriod1y'), value: '1y' },
+  { label: t('charts.tscPeriodAll'), value: 'all' },
+])
 const selectedPeriod = ref('all')
 
 watch(
@@ -189,8 +192,8 @@ function renderChart() {
   yAxes.push({ scale: true, splitArea: { show: true } })
   curTop += mainH + gap
 
-  // Grid 1 — 成交量
-  titles.push({ text: '成交量', left: '10%', top: `${curTop - 0.5}%`, textStyle: { fontSize: 11, color: '#999', fontWeight: 'normal' } })
+  // Grid 1 — Volume
+  titles.push({ text: t('charts.tscVolume'), left: '10%', top: `${curTop - 0.5}%`, textStyle: { fontSize: 11, color: '#999', fontWeight: 'normal' } })
   curTop += 1.5
   grids.push({ left: '10%', right: '8%', top: `${curTop}%`, height: `${volH}%` })
   xAxes.push({ type: 'category', gridIndex: 1, data: dates, boundaryGap: false, axisLine: { onZero: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: numSub === 0 }, min: 'dataMin', max: 'dataMax' })
@@ -208,13 +211,13 @@ function renderChart() {
     curTop += subH + gap
   }
 
-  // ---------- 系列 ----------
+  // ---------- Series ----------
   const series: echarts.SeriesOption[] = []
-  const legendData: string[] = ['日K']
+  const legendData: string[] = [t('charts.tscDailyKline')]
   const legendSelected: Record<string, boolean> = {}
   const maColors = [...TRADE_SIGNAL_MA_COLORS]
 
-  // 买卖点标记
+  // Buy/sell point markers
   const buyPoints = props.signals
     .filter(s => s.type === 'buy')
     .map(s => ({ coord: [s.date, s.price * 0.98], value: s.price, itemStyle: { color: CANDLE_UP_COLOR }, symbol: 'triangle', symbolSize: 15 }))
@@ -223,7 +226,7 @@ function renderChart() {
     .map(s => ({ coord: [s.date, s.price * 1.02], value: s.price, itemStyle: { color: CANDLE_DOWN_COLOR }, symbol: 'triangle', symbolSize: 15, symbolRotate: 180 }))
 
   series.push({
-    name: '日K', type: 'candlestick', data: ohlc,
+    name: t('charts.tscDailyKline'), type: 'candlestick', data: ohlc,
     itemStyle: CANDLE_ITEM_STYLE,
     markPoint: { data: [...buyPoints, ...sellPoints], label: { show: false } },
   } as unknown as echarts.SeriesOption)
@@ -236,10 +239,10 @@ function renderChart() {
     ci++
   }
 
-  // 成交量（记住其 seriesIndex 用于 visualMap）
+  // Volume (record its seriesIndex for visualMap)
   const volSeriesIdx = series.length
   series.push({
-    name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
+    name: t('charts.tscVolume'), type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: volumes,
     itemStyle: { color: (_params: unknown) => ((_params as { data?: unknown[] }).data?.[2] === 1 ? CANDLE_UP_COLOR : CANDLE_DOWN_COLOR) },
   } as unknown as echarts.SeriesOption)
 

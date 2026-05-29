@@ -7,10 +7,13 @@
 
 <script setup lang="ts">
 import { watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type * as echarts from 'echarts'
 import type { KlineData } from '@/types'
 import { useChartResize } from '@/composables/useChartResize'
 import { CANDLE_ITEM_STYLE, KLINE_VOLUME_COLOR } from '@/constants/chartColors'
+
+const { t } = useI18n()
 
 interface Props {
   data: KlineData
@@ -48,7 +51,7 @@ function initChart() {
   const option: echarts.EChartsOption = {
     animation: false,
     legend: {
-      data: ['K线', ...props.indicators],
+      data: [t('charts.klineSeries'), ...props.indicators],
       top: 10,
     },
     tooltip: {
@@ -103,7 +106,7 @@ function initChart() {
     ],
     series: [
       {
-        name: 'K线',
+        name: t('charts.klineSeries'),
         type: 'candlestick',
         data: props.data.ohlc,
         itemStyle: CANDLE_ITEM_STYLE,
@@ -119,7 +122,7 @@ function initChart() {
         }
       }),
       {
-        name: '成交量',
+        name: t('charts.klineVolume'),
         type: 'bar',
         xAxisIndex: 1,
         yAxisIndex: 1,

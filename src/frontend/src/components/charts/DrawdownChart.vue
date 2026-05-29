@@ -1,7 +1,7 @@
 <template>
   <div class="drawdown-chart">
     <h4 class="text-md font-medium mb-4">
-      回撤曲线
+      {{ t('charts.drawdownTitle') }}
     </h4>
     <div
       ref="chartRef"
@@ -12,10 +12,13 @@
 
 <script setup lang="ts">
 import { watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import * as echarts from 'echarts'
 import type { DrawdownPoint } from '@/types/analytics'
 import { useChartResize } from '@/composables/useChartResize'
 import { DRAWDOWN_AREA_END, DRAWDOWN_AREA_START, DRAWDOWN_COLOR } from '@/constants/chartColors'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   data: DrawdownPoint[]
@@ -56,7 +59,7 @@ function renderChart() {
         if (typeof params === 'string') return params
         const arr = Array.isArray(params) ? params : []
         const p = arr[0] as { axisValue?: string; value?: number } | undefined
-        return p ? `${p.axisValue}<br/>回撤: ${p.value}%` : ''
+        return p ? `${p.axisValue}<br/>${t('charts.drawdownTooltip', { value: p.value })}` : ''
       },
     },
     grid: {
@@ -81,7 +84,7 @@ function renderChart() {
     },
     series: [
       {
-        name: '回撤',
+        name: t('charts.drawdownSeries'),
         type: 'line',
         data: drawdowns,
         areaStyle: {
@@ -95,7 +98,7 @@ function renderChart() {
         markPoint: {
           data: [
             {
-              name: '最大回撤',
+              name: t('charts.drawdownMaxLabel'),
               coord: [dates[maxDdIndex], drawdowns[maxDdIndex]],
               value: `${drawdowns[maxDdIndex]}%`,
               itemStyle: { color: DRAWDOWN_COLOR },

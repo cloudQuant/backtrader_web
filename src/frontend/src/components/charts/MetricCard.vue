@@ -32,7 +32,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { QuestionFilled } from '@element-plus/icons-vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   title: string
@@ -57,7 +60,7 @@ const formattedValue = computed(() => {
     case 'percent':
       return `${(props.value * 100).toFixed(precision)}%`
     case 'days':
-      return `${props.value.toFixed(1)}天`
+      return `${props.value.toFixed(1)}${t('charts.days')}`
     case 'number':
     default:
       return props.value.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: precision })
