@@ -170,7 +170,7 @@ def _scan_file(path: Path) -> list[Violation]:
     return violations
 
 
-def cmd_strict() -> int:
+def cmd_strict(cjk_only: bool = False) -> int:
     candidates = sorted(
         list(FRONTEND_SRC.rglob("*.vue")) + list(FRONTEND_SRC.rglob("*.ts"))
     )
@@ -187,6 +187,9 @@ def cmd_strict() -> int:
     for path in candidates:
         total.extend(_scan_file(path))
 
+    if cjk_only:
+        total = [v for v in total if v.kind == "cjk"]
+
     for v in total:
         rel = v.path.relative_to(REPO_ROOT)
         print(
@@ -200,7 +203,8 @@ def cmd_strict() -> int:
                 }
             )
         )
-    print(f"summary: {len(total)} violations", flush=True)
+    label = "CJK violations" if cjk_only else "violations"
+    print(f"summary: {len(total)} {label}", flush=True)
     return 0 if not total else 1
 
 
@@ -330,7 +334,12 @@ def cmd_check_parity() -> int:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="i18n coverage / parity lint")
-    p.add_argument("--strict", action="store_true", help="run scan mode")
+    p.add_argument("--strict", action="store_true", help="run scan mode (CJK + English)")
+    p.add_argument(
+        "--cjk-only",
+        action="store_true",
+        help="restrict --strict output to CJK violations only (used as blocking CI gate)",
+    )
     p.add_argument("--check-parity", action="store_true", help="run parity mode")
     args = p.parse_args()
 
@@ -340,7 +349,7 @@ def main() -> int:
 
     rc = 0
     if args.strict:
-        rc |= cmd_strict()
+        rc |= cmd_strict(cjk_only=args.cjk_only)
     if args.check_parity:
         rc |= cmd_check_parity()
     return rc

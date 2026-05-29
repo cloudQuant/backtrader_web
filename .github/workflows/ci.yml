@@ -807,12 +807,19 @@ jobs:
       - name: Locale parity check (blocking)
         run: python scripts/dev/check_i18n_coverage.py --check-parity
 
-      # Iteration 175 §4 — strict bare-string scan starts in advisory mode.
-      # Baseline at 175 entry: 15553 violations. Promoting to a blocking gate
-      # is tracked under PROGRESS.md §4 ("尾巴清单"). Set the env var
-      # CHECK_I18N_STRICT_BLOCKING=true to flip the gate when the project
-      # reaches the desired threshold.
-      - name: Strict scan (advisory until baseline cleared)
+      # Iteration 176 §C — CJK extraction reached 0 violations on 2026-05-29
+      # (commit 487d7659). The CJK-only gate is now blocking; future PRs that
+      # introduce hard-coded CJK literals (in <template> text, Element Plus
+      # label/placeholder props, or ElMessage* call positions) will fail CI.
+      - name: i18n CJK strict scan (blocking)
+        run: python scripts/dev/check_i18n_coverage.py --strict --cjk-only
+
+      # Iteration 175 §4 — full strict scan (CJK + English) remains advisory.
+      # The remaining ~14k violations are scanner over-reach on legitimate
+      # English placeholders, abbreviations, and config-style strings; they
+      # are not user-visible bare strings. Promoting this to blocking would
+      # require additional scanner heuristics (see PROGRESS.md §4 "尾巴清单").
+      - name: Strict scan full (advisory; CJK + English over-reach)
         continue-on-error: true
         run: python scripts/dev/check_i18n_coverage.py --strict | tail -50
 

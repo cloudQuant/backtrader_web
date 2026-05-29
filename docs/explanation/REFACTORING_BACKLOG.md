@@ -36,11 +36,14 @@ first slice.
 | T7 (News Intelligence 产品化) | 顺延 176（**需独立产品 brief**） | @yunjinqi | 2026-09-01 |
 | T10 (Quant Tool Registry 产品化) | 顺延 176 | @yunjinqi | 2026-08-30 |
 
-### C. 前端 i18n 中文裸串清理（来源：175 §4.3 advisory baseline）
+### C. 前端 i18n 中文裸串清理（**已完成 2026-05-29**，176 §C）
 
-- 15553 处违规作为 advisory baseline（`scripts/dev/check_i18n_coverage_baseline.json`）
-- 优先级建议：`views/` → `components/` → `composables/`
-- 每批清理后更新 `baseline_violations`；归零后移除 strict 步骤的 `continue-on-error`
+- 起点：15553 处 strict 违规（其中 CJK ~1867）作为 175 advisory baseline
+- 终点：CJK 违规 0（24 个 commit，passes 17-40），strict 残留 13986（英文占位符/属性扫描器过度命中，advisory only）
+- 终态 baseline：`scripts/dev/check_i18n_coverage_baseline.json` baseline_commit `176-c-pass-41`
+- CI 已新增阻塞门：`i18n CJK strict scan (blocking)` 步骤运行 `python scripts/dev/check_i18n_coverage.py --strict --cjk-only`；未来引入 CJK 裸串的 PR 将被阻塞
+- 完整 strict 步骤保留 advisory（英文过度命中需要更细的扫描器启发式，非 176 范围）
+- 唯一豁免：`LanguageSwitcher.vue` 的 `中文` 自标签（语言选择器原生脚本约定，附 `i18n-ignore-next-line` + `i18n-reason`）
 
 ### D. 前端 a11y 违规修复（来源：175 §3.4 内容侧清理）
 
