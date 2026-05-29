@@ -3156,6 +3156,26 @@ export default {
     tabReport: 'Portfolio report',
   },
 
+  // Broker profile management (views/BrokerProfilesPage.vue)
+  brokerProfiles: {
+    headerDesc: 'Manage broker profiles, view read-only runtime state, and toggle live write permission explicitly.',
+    btnRefresh: 'Refresh list',
+    btnCreateDemo: 'Create demo profile',
+    cardCreate: 'New profile',
+    btnSave: 'Save profile',
+    btnFillDemo: 'Fill demo data',
+    colRotationWarning: 'Rotation warning',
+    colRuntimeBinding: 'Runtime binding',
+    runtimeUnbound: 'Not bound',
+    cardCurrent: 'Current profile',
+    statProfileCount: 'Profiles',
+    statAccountsCount: 'Accounts',
+    statPositionsCount: 'Positions',
+    statOrdersCount: 'Orders',
+    selectedNone: 'None selected',
+    msgConfirmHint: 'Type confirmation phrase: {phrase}',
+  },
+
   // Workspace list (/backtest route)
   workspace: {
     createNew: 'New Workspace',

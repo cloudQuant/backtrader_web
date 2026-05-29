@@ -6,7 +6,7 @@
           Broker Profiles
         </h2>
         <p class="text-sm text-gray-500 mt-1">
-          管理 broker profile、查看只读运行态，并对实盘写入权限做显式开关。
+          {{ t('brokerProfiles.headerDesc') }}
         </p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
@@ -14,14 +14,14 @@
           :loading="loading"
           @click="loadProfiles"
         >
-          刷新列表
+          {{ t('brokerProfiles.btnRefresh') }}
         </el-button>
         <el-button
           type="primary"
           :loading="creating"
           @click="createDemoProfile"
         >
-          创建示例 Profile
+          {{ t('brokerProfiles.btnCreateDemo') }}
         </el-button>
         <el-button
           v-if="isAdmin"
@@ -38,25 +38,53 @@
     <el-card>
       <template #header>
         <div class="font-bold">
-          新建 Profile
+          {{ t('brokerProfiles.cardCreate') }}
         </div>
       </template>
       <div class="grid gap-3 md:grid-cols-2">
-        <el-input v-model="form.broker_id" placeholder="broker_id" />
-        <el-input v-model="form.account_alias" placeholder="account_alias" />
-        <el-input v-model="form.runtimeGatewayKey" placeholder="manual:IB_WEB:DU123456" />
-        <el-input v-model="form.runtimeAccountId" placeholder="DU123456" />
-        <el-input v-model="form.capabilitiesText" placeholder="health, accounts, positions, orders, quotes" />
-        <el-input v-model="form.credentialsRotatedAt" placeholder="2026-02-01T00:00:00+00:00" />
-        <el-input v-model="form.apiKeyEnv" placeholder="BT_BROKER_SIM_KEY" />
-        <el-input v-model="form.apiSecretEnv" placeholder="BT_BROKER_SIM_SECRET" />
+        <el-input
+          v-model="form.broker_id"
+          placeholder="broker_id"
+        />
+        <el-input
+          v-model="form.account_alias"
+          placeholder="account_alias"
+        />
+        <el-input
+          v-model="form.runtimeGatewayKey"
+          placeholder="manual:IB_WEB:DU123456"
+        />
+        <el-input
+          v-model="form.runtimeAccountId"
+          placeholder="DU123456"
+        />
+        <el-input
+          v-model="form.capabilitiesText"
+          placeholder="health, accounts, positions, orders, quotes"
+        />
+        <el-input
+          v-model="form.credentialsRotatedAt"
+          placeholder="2026-02-01T00:00:00+00:00"
+        />
+        <el-input
+          v-model="form.apiKeyEnv"
+          placeholder="BT_BROKER_SIM_KEY"
+        />
+        <el-input
+          v-model="form.apiSecretEnv"
+          placeholder="BT_BROKER_SIM_SECRET"
+        />
       </div>
       <div class="mt-3 flex gap-2 flex-wrap">
-        <el-button type="primary" :loading="creating" @click="submitCreateProfile">
-          保存 Profile
+        <el-button
+          type="primary"
+          :loading="creating"
+          @click="submitCreateProfile"
+        >
+          {{ t('brokerProfiles.btnSave') }}
         </el-button>
         <el-button @click="fillDemoForm">
-          填充示例
+          {{ t('brokerProfiles.btnFillDemo') }}
         </el-button>
       </div>
     </el-card>
@@ -92,11 +120,11 @@
         />
         <el-table-column
           prop="rotation_warning"
-          label="轮换提醒"
+          :label="t('brokerProfiles.colRotationWarning')"
         />
-        <el-table-column label="Runtime 绑定">
+        <el-table-column :label="t('brokerProfiles.colRuntimeBinding')">
           <template #default="{ row }">
-            {{ row.runtime_binding?.gateway_key || '未绑定' }}
+            {{ row.runtime_binding?.gateway_key || t('brokerProfiles.runtimeUnbound') }}
           </template>
         </el-table-column>
       </el-table>
@@ -105,30 +133,30 @@
     <el-card>
       <template #header>
         <div class="font-bold">
-          当前 Profile
+          {{ t('brokerProfiles.cardCurrent') }}
         </div>
       </template>
       <div class="grid gap-3 md:grid-cols-4">
         <el-statistic
-          title="Profile 数量"
+          :title="t('brokerProfiles.statProfileCount')"
           :value="profiles.length"
         />
         <el-statistic
-          title="账户数"
+          :title="t('brokerProfiles.statAccountsCount')"
           :value="accounts.length"
         />
         <el-statistic
-          title="持仓数"
+          :title="t('brokerProfiles.statPositionsCount')"
           :value="positions.length"
         />
         <el-statistic
-          title="订单数"
+          :title="t('brokerProfiles.statOrdersCount')"
           :value="orders.length"
         />
       </div>
       <div class="space-y-2 text-sm mt-4">
         <div>
-          <strong>Selected:</strong> {{ selectedProfile?.account_alias || '未选择' }}
+          <strong>Selected:</strong> {{ selectedProfile?.account_alias || t('brokerProfiles.selectedNone') }}
         </div>
         <div>
           <strong>Write Enabled:</strong> {{ selectedProfile?.is_destructive_enabled ? 'yes' : 'no' }}
@@ -139,12 +167,21 @@
         <div>
           <strong>Runtime Binding:</strong> {{ selectedProfile?.runtime_binding?.gateway_key || 'none' }}
         </div>
-        <div v-if="isAdmin" class="space-y-2">
+        <div
+          v-if="isAdmin"
+          class="space-y-2"
+        >
           <div>
             <strong>Enable Write Confirmation:</strong> {{ enableWriteExpectedConfirmation }}
           </div>
-          <el-input v-model="enableWriteForm.confirmationText" placeholder="type confirmation phrase" />
-          <div v-if="enableWriteError" class="text-red-500">
+          <el-input
+            v-model="enableWriteForm.confirmationText"
+            placeholder="type confirmation phrase"
+          />
+          <div
+            v-if="enableWriteError"
+            class="text-red-500"
+          >
             {{ enableWriteError }}
           </div>
         </div>
@@ -175,9 +212,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { brokerProfilesApi, type BrokerAccountItem, type BrokerProfile } from '@/api/brokerProfiles'
 import { useAuthStore } from '@/stores/auth'
 
+const { t } = useI18n()
 const authStore = useAuthStore()
 const loading = ref(false)
 const creating = ref(false)
@@ -312,7 +351,7 @@ async function enableLiveWrite(profileId: string = selectedProfileId.value) {
     return
   }
   if (enableWriteForm.confirmationText.trim() !== enableWriteExpectedConfirmation.value) {
-    enableWriteError.value = `请输入确认短语: ${enableWriteExpectedConfirmation.value}`
+    enableWriteError.value = t('brokerProfiles.msgConfirmHint', { phrase: enableWriteExpectedConfirmation.value })
     return
   }
 

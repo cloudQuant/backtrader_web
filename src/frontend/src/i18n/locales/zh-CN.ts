@@ -3175,6 +3175,26 @@ export default {
     tabReport: '组合报告',
   },
 
+  // Broker Profile 管理（views/BrokerProfilesPage.vue）
+  brokerProfiles: {
+    headerDesc: '管理 broker profile、查看只读运行态，并对实盘写入权限做显式开关。',
+    btnRefresh: '刷新列表',
+    btnCreateDemo: '创建示例 Profile',
+    cardCreate: '新建 Profile',
+    btnSave: '保存 Profile',
+    btnFillDemo: '填充示例',
+    colRotationWarning: '轮换提醒',
+    colRuntimeBinding: 'Runtime 绑定',
+    runtimeUnbound: '未绑定',
+    cardCurrent: '当前 Profile',
+    statProfileCount: 'Profile 数量',
+    statAccountsCount: '账户数',
+    statPositionsCount: '持仓数',
+    statOrdersCount: '订单数',
+    selectedNone: '未选择',
+    msgConfirmHint: '请输入确认短语: {phrase}',
+  },
+
   // 工作区列表（/backtest 路由）
   workspace: {
     createNew: '新建工作区',

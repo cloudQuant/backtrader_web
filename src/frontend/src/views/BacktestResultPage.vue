@@ -1,6 +1,6 @@
 <template>
   <div class="backtest-result-page p-6">
-    <!-- 加载状态 -->
+    <!-- Loading state -->
     <div
       v-if="loading"
       class="flex justify-center items-center h-64"
@@ -15,7 +15,7 @@
       </el-icon>
     </div>
 
-    <!-- 错误状态 -->
+    <!-- Error state -->
     <div
       v-else-if="error"
       class="text-center py-12"
@@ -39,9 +39,9 @@
       </el-button>
     </div>
     
-    <!-- 内容 -->
+    <!-- Content -->
     <template v-else-if="detail">
-      <!-- 顶部标题和操作 -->
+      <!-- Header title and actions -->
       <div
         class="flex justify-between items-center mb-6"
         data-test="backtest-detail"
@@ -99,7 +99,7 @@
         </div>
       </div>
       
-      <!-- 绩效指标面板 -->
+      <!-- Performance metrics panel -->
       <el-card class="mb-6">
         <PerformancePanel :metrics="detail.metrics" />
       </el-card>
@@ -125,7 +125,7 @@
         class="mb-6"
       />
       
-      <!-- 图表区域 -->
+      <!-- Charts area -->
       <el-tabs
         v-model="activeTab"
         class="mb-6"
