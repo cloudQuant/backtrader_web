@@ -3124,6 +3124,38 @@ export default {
     colStrike: 'Strike',
   },
 
+  // Prompt template governance page (views/PromptTemplatesPage.vue)
+  promptTpl: {
+    headerTitle: 'Prompt template governance',
+    headerDesc: 'Manage AI prompt template versions, activation and rollout ratio.',
+    btnRefresh: 'Refresh',
+    cardCreate: 'New template version',
+    formName: 'Template name',
+    formVersion: 'Version',
+    formVariables: 'Variables',
+    formContent: 'Template content',
+    formContentPlaceholder: 'Canary template {var}',
+    formRollout: 'Rollout ratio',
+    rolloutCurrent: 'Current rollout ratio: {pct}%',
+    btnCreate: 'Create template',
+    cardList: 'Template versions',
+    statusLabel: 'Status: {status} · rollout: {pct}%',
+    btnActivate: 'Activate',
+    msgCreated: 'Prompt template created',
+    msgActivated: 'Prompt template version activated',
+  },
+
+  // Workspace detail page (views/workspace/WorkspaceDetailPage.vue)
+  workspaceDetail: {
+    tagTrading: 'Trading',
+    nameLoading: 'Loading...',
+    btnDataSource: 'Data source',
+    emptyNotFound: 'Workspace not found or access denied',
+    tabUnits: 'Strategy units',
+    tabOptimization: 'Optimization results',
+    tabReport: 'Portfolio report',
+  },
+
   // Workspace list (/backtest route)
   workspace: {
     createNew: 'New Workspace',

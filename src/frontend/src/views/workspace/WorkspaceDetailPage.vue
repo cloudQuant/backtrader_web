@@ -11,10 +11,10 @@
         type="warning"
         effect="plain"
       >
-        策略交易
+        {{ t('workspaceDetail.tagTrading') }}
       </el-tag>
       <span class="text-base text-gray-600 dark:text-gray-300 truncate max-w-[420px]">
-        {{ store.currentWorkspace?.name || '加载中...' }}
+        {{ store.currentWorkspace?.name || t('workspaceDetail.nameLoading') }}
       </span>
     </teleport>
 
@@ -30,7 +30,7 @@
         <el-icon class="mr-1">
           <DataLine />
         </el-icon>
-        数据源
+        {{ t('workspaceDetail.btnDataSource') }}
         <span class="ml-1 text-xs text-gray-500">{{ dataSourceTypeLabel }}</span>
       </el-button>
     </teleport>
@@ -46,7 +46,7 @@
 
     <el-empty
       v-else-if="!store.currentWorkspace"
-      description="工作区不存在或无权访问"
+      :description="t('workspaceDetail.emptyNotFound')"
     />
 
     <template v-else>
@@ -56,7 +56,7 @@
         @tab-remove="handleTabRemove"
       >
         <el-tab-pane
-          label="策略单元"
+          :label="t('workspaceDetail.tabUnits')"
           name="units"
         >
           <TradingWorkspaceUnitsTab
@@ -76,7 +76,7 @@
         </el-tab-pane>
         <el-tab-pane
           v-if="showOptTab"
-          label="优化结果"
+          :label="t('workspaceDetail.tabOptimization')"
           name="optimization"
           closable
         >
@@ -89,7 +89,7 @@
         </el-tab-pane>
         <el-tab-pane
           v-if="showReportTab"
-          label="组合报告"
+          :label="t('workspaceDetail.tabReport')"
           name="report"
           closable
         >
@@ -115,6 +115,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { DataLine, Loading } from '@element-plus/icons-vue'
 import TradingWorkspaceUnitsTab from '@/components/workspace/TradingWorkspaceUnitsTab.vue'
@@ -125,6 +126,7 @@ import WorkspaceUnitsTab from '@/components/workspace/WorkspaceUnitsTab.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { WorkspaceType } from '@/types/workspace'
 
+const { t } = useI18n()
 const route = useRoute()
 const store = useWorkspaceStore()
 

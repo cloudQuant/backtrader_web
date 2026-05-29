@@ -3143,6 +3143,38 @@ export default {
     colStrike: '行权价',
   },
 
+  // Prompt 模板治理页（views/PromptTemplatesPage.vue）
+  promptTpl: {
+    headerTitle: 'Prompt 模板治理',
+    headerDesc: '管理 AI Prompt 模板版本、active 激活与灰度发布比例。',
+    btnRefresh: '刷新',
+    cardCreate: '新建模板版本',
+    formName: '模板名',
+    formVersion: '版本',
+    formVariables: '变量',
+    formContent: '模板内容',
+    formContentPlaceholder: '灰度模板 {var}',
+    formRollout: '灰度比例',
+    rolloutCurrent: '当前灰度比例：{pct}%',
+    btnCreate: '新建模板',
+    cardList: '模板版本列表',
+    statusLabel: '状态：{status} · 灰度比例：{pct}%',
+    btnActivate: '激活',
+    msgCreated: 'Prompt 模板已创建',
+    msgActivated: 'Prompt 模板版本已激活',
+  },
+
+  // 工作区详情页（views/workspace/WorkspaceDetailPage.vue）
+  workspaceDetail: {
+    tagTrading: '策略交易',
+    nameLoading: '加载中...',
+    btnDataSource: '数据源',
+    emptyNotFound: '工作区不存在或无权访问',
+    tabUnits: '策略单元',
+    tabOptimization: '优化结果',
+    tabReport: '组合报告',
+  },
+
   // 工作区列表（/backtest 路由）
   workspace: {
     createNew: '新建工作区',

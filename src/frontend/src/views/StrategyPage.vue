@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <!-- 页面操作栏 -->
+    <!-- Page action bar -->
     <div class="flex justify-end items-center">
       <el-button
         type="primary"
@@ -17,17 +17,17 @@
       </el-button>
     </div>
 
-    <!-- 主Tab: 策略库 / 我的策略 -->
+    <!-- Main tabs: Gallery / My strategies -->
     <el-tabs
       v-model="activeTab"
       type="border-card"
     >
-      <!-- ========== 策略库 ========== -->
+      <!-- ========== Gallery ========== -->
       <el-tab-pane
         :label="t('strategy.gallery')"
         name="gallery"
       >
-        <!-- 搜索和筛选栏 -->
+        <!-- Search and filter bar -->
         <div class="flex flex-wrap gap-4 mb-6">
           <el-input
             v-model="searchKeyword"
@@ -69,7 +69,7 @@
           </span>
         </div>
 
-        <!-- 策略卡片网格 -->
+        <!-- Strategy card grid -->
         <div
           v-if="filteredTemplates.length"
           class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
@@ -136,7 +136,7 @@
           :description="t('strategy.noMatch')"
         />
 
-        <!-- 分页 -->
+        <!-- Pagination -->
         <div
           v-if="filteredTemplates.length > pageSize"
           class="flex justify-center mt-6"
@@ -150,7 +150,7 @@
         </div>
       </el-tab-pane>
 
-      <!-- ========== 我的策略 ========== -->
+      <!-- ========== My strategies ========== -->
       <el-tab-pane
         :label="t('strategy.myStrategies')"
         name="my"
@@ -420,7 +420,7 @@
       </template>
     </el-dialog>
 
-    <!-- ========== 查看我的策略弹窗 ========== -->
+    <!-- ========== My strategy detail dialog ========== -->
     <el-dialog
       v-model="viewDialogVisible"
       :title="t('strategy.detailLabel')"

@@ -3,10 +3,10 @@
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div>
         <h2 class="text-2xl font-bold text-gray-900">
-          Prompt 模板治理
+          {{ t('promptTpl.headerTitle') }}
         </h2>
         <p class="text-sm text-gray-500 mt-1">
-          管理 AI Prompt 模板版本、active 激活与灰度发布比例。
+          {{ t('promptTpl.headerDesc') }}
         </p>
       </div>
       <el-button
@@ -14,43 +14,43 @@
         :loading="loading"
         @click="loadTemplates"
       >
-        刷新
+        {{ t('promptTpl.btnRefresh') }}
       </el-button>
     </div>
 
     <el-card>
       <template #header>
-        <span class="font-bold">新建模板版本</span>
+        <span class="font-bold">{{ t('promptTpl.cardCreate') }}</span>
       </template>
       <el-form label-width="110px">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <el-form-item label="模板名">
+          <el-form-item :label="t('promptTpl.formName')">
             <el-input
               v-model="form.name"
               placeholder="knowledge_qa"
             />
           </el-form-item>
-          <el-form-item label="版本">
+          <el-form-item :label="t('promptTpl.formVersion')">
             <el-input
               v-model="form.version"
               placeholder="v1 / canary"
             />
           </el-form-item>
         </div>
-        <el-form-item label="变量">
+        <el-form-item :label="t('promptTpl.formVariables')">
           <el-input
             v-model="form.variablesText"
             placeholder="question, context_text"
           />
         </el-form-item>
-        <el-form-item label="模板内容">
+        <el-form-item :label="t('promptTpl.formContent')">
           <el-input
             v-model="form.content"
             type="textarea"
-            placeholder="灰度模板 {{question}}"
+            :placeholder="t('promptTpl.formContentPlaceholder', { var: '{{question}}' })"
           />
         </el-form-item>
-        <el-form-item label="灰度比例">
+        <el-form-item :label="t('promptTpl.formRollout')">
           <div class="w-full">
             <el-slider
               v-model="form.rollout_percentage"
@@ -59,7 +59,7 @@
               :step="5"
             />
             <div class="text-sm text-gray-500 mt-1">
-              当前灰度比例：{{ form.rollout_percentage }}%
+              {{ t('promptTpl.rolloutCurrent', { pct: form.rollout_percentage }) }}
             </div>
           </div>
         </el-form-item>
@@ -68,14 +68,14 @@
           :loading="saving"
           @click="createTemplate"
         >
-          新建模板
+          {{ t('promptTpl.btnCreate') }}
         </el-button>
       </el-form>
     </el-card>
 
     <el-card>
       <template #header>
-        <span class="font-bold">模板版本列表</span>
+        <span class="font-bold">{{ t('promptTpl.cardList') }}</span>
       </template>
       <div class="space-y-3">
         <div
@@ -89,7 +89,7 @@
                 {{ template.name }} / {{ template.version }}
               </div>
               <div class="text-sm text-gray-500">
-                状态：{{ template.status }} · 灰度比例：{{ template.rollout_percentage }}%
+                {{ t('promptTpl.statusLabel', { status: template.status, pct: template.rollout_percentage }) }}
               </div>
             </div>
             <el-button
@@ -97,7 +97,7 @@
               :disabled="template.status === 'active'"
               @click="activateTemplate(template.id)"
             >
-              激活
+              {{ t('promptTpl.btnActivate') }}
             </el-button>
           </div>
           <pre class="text-xs bg-gray-50 rounded p-2 mt-2 whitespace-pre-wrap">{{ template.content }}</pre>
@@ -109,9 +109,12 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 
 import { promptTemplatesApi, type PromptTemplate } from '@/api/promptTemplates'
+
+const { t } = useI18n()
 
 const loading = ref(false)
 const saving = ref(false)
@@ -151,7 +154,7 @@ async function createTemplate() {
       variables: parseVariables(form.variablesText),
       rollout_percentage: form.rollout_percentage,
     })
-    ElMessage.success('Prompt 模板已创建')
+    ElMessage.success(t('promptTpl.msgCreated'))
     await loadTemplates()
   } finally {
     saving.value = false
@@ -160,7 +163,7 @@ async function createTemplate() {
 
 async function activateTemplate(id: string) {
   await promptTemplatesApi.activate(id)
-  ElMessage.success('Prompt 模板版本已激活')
+  ElMessage.success(t('promptTpl.msgActivated'))
   await loadTemplates()
 }
 
