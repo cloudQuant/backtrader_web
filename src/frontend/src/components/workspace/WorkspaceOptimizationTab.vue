@@ -11,7 +11,7 @@
         <div class="flex items-center gap-2 flex-wrap">
           <el-select
             v-model="selectedUnitId"
-            placeholder="选择单元查看优化结果"
+            :placeholder="t('optimization.selectUnitToView')"
             style="width: 300px"
             size="small"
             @change="loadResults"
@@ -27,7 +27,7 @@
           <!-- Group 1: Open / Save -->
           <el-button-group>
             <el-tooltip
-              content="打开"
+              :content="t('optimization.open')"
               placement="top"
             >
               <el-button
@@ -38,7 +38,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="保存"
+              :content="t('optimization.save')"
               placement="top"
             >
               <el-button
@@ -54,7 +54,7 @@
           <!-- Group 2: Apply best params -->
           <el-button-group>
             <el-tooltip
-              content="应用最佳参数"
+              :content="t('optimization.applyBestParams')"
               placement="top"
             >
               <el-button
@@ -67,7 +67,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="应用最佳参数到图表和策略单元"
+              :content="t('optimization.applyBestToUnit')"
               placement="top"
             >
               <el-button
@@ -80,7 +80,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="参数优化测试报告"
+              :content="t('optimization.paramReportTitle')"
               placement="top"
             >
               <el-button
@@ -96,7 +96,7 @@
           <!-- Group 3: View mode -->
           <el-button-group>
             <el-tooltip
-              content="表格"
+              :content="t('optimization.table')"
               placement="top"
             >
               <el-button
@@ -108,7 +108,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="参数分析"
+              :content="t('optimization.paramAnalysis')"
               placement="top"
             >
               <el-button
@@ -124,7 +124,7 @@
           <!-- Group 4: Filter / Sort / Reset -->
           <el-button-group>
             <el-tooltip
-              content="显示筛选"
+              :content="t('optimization.showFilter')"
               placement="top"
             >
               <el-button
@@ -135,7 +135,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="还原"
+              :content="t('optimization.restoreDefault')"
               placement="top"
             >
               <el-button
@@ -150,7 +150,7 @@
           <!-- Group 5: Config -->
           <el-button-group>
             <el-tooltip
-              content="统计时间"
+              :content="t('optimization.timeRange')"
               placement="top"
             >
               <el-button
@@ -161,7 +161,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="计算方式"
+              :content="t('optimization.calcMethod')"
               placement="top"
             >
               <el-button
@@ -172,7 +172,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="自定义字段"
+              :content="t('optimization.customField')"
               placement="top"
             >
               <el-button
@@ -187,7 +187,7 @@
           <!-- Group 6: Actions -->
           <el-button-group>
             <el-tooltip
-              content="重新计算"
+              :content="t('optimization.recalculate')"
               placement="top"
             >
               <el-button
@@ -198,7 +198,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="设为默认"
+              :content="t('optimization.setDefault')"
               placement="top"
             >
               <el-button
@@ -216,7 +216,7 @@
             size="small"
             @click="handleCancel"
           >
-            取消优化
+            {{ t('optimization.cancelOptimization') }}
           </el-button>
         </div>
       </div>
@@ -225,7 +225,7 @@
     <!-- Stat Time Dialog -->
     <el-dialog
       v-model="showStatTimeDialog"
-      title="统计时间"
+      :title="t('optimization.timeRange')"
       width="400px"
       destroy-on-close
     >
@@ -233,32 +233,32 @@
         label-width="100px"
         size="small"
       >
-        <el-form-item label="起始时间">
+        <el-form-item :label="t('optimization.timeStart')">
           <el-date-picker
             v-model="statTimeRange[0]"
             type="date"
-            placeholder="选择起始日期"
+            :placeholder="t('optimization.selectStart')"
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="结束时间">
+        <el-form-item :label="t('optimization.timeEnd')">
           <el-date-picker
             v-model="statTimeRange[1]"
             type="date"
-            placeholder="选择结束日期"
+            :placeholder="t('optimization.selectEnd')"
             style="width: 100%"
           />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showStatTimeDialog = false">
-          取消
+          {{ t('optimization.cancel') }}
         </el-button>
         <el-button
           type="primary"
           @click="showStatTimeDialog = false; loadResults()"
         >
-          确定
+          {{ t('optimization.confirm') }}
         </el-button>
       </template>
     </el-dialog>
@@ -266,7 +266,7 @@
     <!-- Calc Method Dialog -->
     <el-dialog
       v-model="showCalcMethodDialog"
-      title="计算方式"
+      :title="t('optimization.calcMethod')"
       width="400px"
       destroy-on-close
     >
@@ -274,34 +274,34 @@
         label-width="100px"
         size="small"
       >
-        <el-form-item label="收益计算">
+        <el-form-item :label="t('optimization.returnCalc')">
           <el-radio-group v-model="calcMethod">
             <el-radio value="simple">
-              简单收益
+              {{ t('optimization.simpleReturn') }}
             </el-radio>
             <el-radio value="compound">
-              复合收益
+              {{ t('optimization.compoundReturn') }}
             </el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="年化基准">
+        <el-form-item :label="t('optimization.annualBenchmark')">
           <el-input-number
             v-model="annualDays"
             :min="200"
             :max="365"
           />
-          <span class="ml-2 text-xs text-gray-400">天</span>
+          <span class="ml-2 text-xs text-gray-400">{{ t('optimization.days') }}</span>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showCalcMethodDialog = false">
-          取消
+          {{ t('optimization.cancel') }}
         </el-button>
         <el-button
           type="primary"
-          @click="showCalcMethodDialog = false; ElMessage.success('计算方式已更新')"
+          @click="showCalcMethodDialog = false; ElMessage.success(t('optimization.calcMethodUpdated'))"
         >
-          确定
+          {{ t('optimization.confirm') }}
         </el-button>
       </template>
     </el-dialog>
@@ -309,7 +309,7 @@
     <!-- Custom Fields Dialog -->
     <el-dialog
       v-model="showCustomFieldsDialog"
-      title="自定义字段"
+      :title="t('optimization.customField')"
       width="500px"
       destroy-on-close
     >
@@ -326,10 +326,10 @@
       </el-checkbox-group>
       <template #footer>
         <el-button @click="visibleFields = allFields.map(f => f.key)">
-          全选
+          {{ t('optimization.selectAll') }}
         </el-button>
         <el-button @click="showCustomFieldsDialog = false">
-          关闭
+          {{ t('optimization.close') }}
         </el-button>
       </template>
     </el-dialog>
@@ -339,7 +339,7 @@
       v-if="showFilter"
       class="mb-3 flex gap-3 items-center"
     >
-      <span class="text-xs text-gray-400">排序:</span>
+      <span class="text-xs text-gray-400">{{ t('optimization.sortLabel') }}:</span>
       <el-select
         v-model="sortKey"
         size="small"
@@ -347,27 +347,27 @@
         @change="applySort"
       >
         <el-option
-          label="夏普比率"
+          :label="t('optimization.sharpe')"
           value="sharpe_ratio"
         />
         <el-option
-          label="年化收益"
+          :label="t('optimization.annualReturn')"
           value="annual_return"
         />
         <el-option
-          label="总收益率"
+          :label="t('optimization.totalReturn')"
           value="total_return"
         />
         <el-option
-          label="最大回撤"
+          :label="t('optimization.maxDrawdown')"
           value="max_drawdown"
         />
         <el-option
-          label="胜率"
+          :label="t('optimization.winRate')"
           value="win_rate"
         />
         <el-option
-          label="盈利因子"
+          :label="t('optimization.profitFactor')"
           value="profit_factor"
         />
       </el-select>
@@ -377,10 +377,10 @@
         @change="applySort"
       >
         <el-radio-button value="desc">
-          降序
+          {{ t('optimization.sortDesc') }}
         </el-radio-button>
         <el-radio-button value="asc">
-          升序
+          {{ t('optimization.sortAsc') }}
         </el-radio-button>
       </el-radio-group>
     </div>
@@ -388,7 +388,7 @@
     <!-- No unit selected -->
     <el-empty
       v-if="!selectedUnitId"
-      description="请选择一个策略单元查看其优化结果"
+      :description="t('optimization.selectUnitToViewLong')"
     />
 
     <!-- Loading -->
@@ -427,7 +427,7 @@
           class="text-center"
         >
           <div class="text-sm text-gray-400">
-            总组合数
+            {{ t('optimization.totalCombosCount') }}
           </div>
           <div class="text-xl font-bold">
             {{ total }}
@@ -438,7 +438,7 @@
           class="text-center"
         >
           <div class="text-sm text-gray-400">
-            已完成
+            {{ t('optimization.completed') }}
           </div>
           <div class="text-xl font-bold text-green-600">
             {{ completed }}
@@ -449,7 +449,7 @@
           class="text-center"
         >
           <div class="text-sm text-gray-400">
-            最佳参数
+            {{ t('optimization.paramAtBestParam') }}
           </div>
           <div class="text-lg font-medium">
             {{ bestParamsStr }}
@@ -460,7 +460,7 @@
           class="text-center"
         >
           <div class="text-sm text-gray-400">
-            最佳夏普
+            {{ t('optimization.bestSharpe') }}
           </div>
           <div class="text-xl font-bold text-blue-600">
             {{ bestSharpe }}
@@ -518,7 +518,7 @@
           </el-table-column>
         </template>
         <el-table-column
-          label="操作"
+          :label="t('optimization.actions')"
           width="120"
           align="center"
           fixed="right"
@@ -531,7 +531,7 @@
               :loading="runningRow === row"
               @click="handleRunWithParams(row)"
             >
-              回测详情
+              {{ t('optimization.backtestDetail') }}
             </el-button>
           </template>
         </el-table-column>
@@ -544,14 +544,14 @@
           class="mb-4"
         >
           <div class="flex flex-wrap items-center gap-3 mb-4">
-            <span class="text-sm text-gray-500">参数</span>
+            <span class="text-sm text-gray-500">{{ t('optimization.paramHeader') }}</span>
             <el-select
               v-model="selectedAnalysisParams"
               multiple
               collapse-tags
               collapse-tags-tooltip
               :multiple-limit="3"
-              placeholder="选择 1-3 个参数"
+              :placeholder="t('optimization.forNParams', { n: '1-3' })"
               size="small"
               style="width: 360px"
             >
@@ -562,10 +562,10 @@
                 :value="paramName"
               />
             </el-select>
-            <span class="text-sm text-gray-500">目标值</span>
+            <span class="text-sm text-gray-500">{{ t('optimization.targetValue') }}</span>
             <el-select
               v-model="analysisMetric"
-              placeholder="选择目标值"
+              :placeholder="t('optimization.selectGoal')"
               size="small"
               style="width: 220px"
             >
@@ -589,7 +589,7 @@
             v-else
             class="text-center text-gray-400 py-12"
           >
-            请选择 1-3 个参数进行分析
+            {{ t('optimization.forNParams', { n: '1-3' }) }}
           </div>
         </el-card>
       </div>
@@ -599,7 +599,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import * as echarts from 'echarts'
+import type * as echarts from 'echarts'
 import 'echarts-gl'
 import { useRouter } from 'vue-router'
 import {
@@ -608,10 +608,13 @@ import {
   RefreshLeft, Timer, Operation, SetUp, Star,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
 import { renderAnalysisChart, disposeAnalysisChart, renderBoxplotChart, renderHeatmapChart, renderScatter3dChart } from './optimizationChartHelpers'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   workspaceId: string
@@ -647,45 +650,45 @@ const annualDays = ref(252)
 const selectedAnalysisParams = ref<string[]>([])
 const analysisMetric = ref('sharpe_ratio')
 const analysisChartRef = ref<HTMLElement | null>(null)
-let analysisChart: echarts.ECharts | null = null
+const analysisChart: echarts.ECharts | null = null
 
 interface ColDef {
   key: string; label: string; width?: number; align?: string;
   sortable?: boolean; money?: boolean; int?: boolean;
 }
 const allColumnDefs: ColDef[] = [
-  { key: 'initial_cash', label: '初始资金', width: 100, money: true },
-  { key: 'net_value', label: '净值', width: 80 },
-  { key: 'net_profit', label: '净利润', width: 100, money: true },
-  { key: 'annual_return', label: '年化收益率%', width: 100, sortable: true },
-  { key: 'max_leverage', label: '最大杠杆', width: 80 },
-  { key: 'max_market_value', label: '最大市值', width: 100, money: true },
-  { key: 'max_drawdown_value', label: '最大回撤值', width: 100, money: true },
-  { key: 'max_drawdown', label: '最大回撤%', width: 90, sortable: true },
-  { key: 'sharpe_ratio', label: '夏普比率', width: 85, sortable: true },
-  { key: 'adjusted_return_risk', label: '收益风险比', width: 90 },
-  { key: 'total_trades', label: '交易次数', width: 80, align: 'center', int: true },
-  { key: 'win_rate', label: '胜率%', width: 70, sortable: true },
-  { key: 'avg_profit', label: '平均利润', width: 90, money: true },
-  { key: 'avg_profit_rate', label: '平均利润率%', width: 100 },
-  { key: 'total_win_amount', label: '总盈利', width: 100, money: true },
-  { key: 'total_loss_amount', label: '总亏损', width: 100, money: true },
-  { key: 'profit_loss_ratio', label: '盈亏比', width: 80 },
-  { key: 'profit_factor', label: '盈利因子', width: 80, sortable: true },
-  { key: 'profit_rate_factor', label: '盈利率因子', width: 90 },
-  { key: 'profit_loss_rate_ratio', label: '盈亏率比', width: 80 },
-  { key: 'odds', label: '胜算率%', width: 80 },
-  { key: 'daily_avg_return', label: '日均收益%', width: 90 },
-  { key: 'daily_max_loss', label: '日最大亏损%', width: 100 },
-  { key: 'daily_max_profit', label: '日最大盈利%', width: 100 },
-  { key: 'weekly_avg_return', label: '周均收益%', width: 90 },
-  { key: 'weekly_max_loss', label: '周最大亏损%', width: 100 },
-  { key: 'weekly_max_profit', label: '周最大盈利%', width: 100 },
-  { key: 'monthly_avg_return', label: '月均收益%', width: 90 },
-  { key: 'monthly_max_loss', label: '月最大亏损%', width: 100 },
-  { key: 'monthly_max_profit', label: '月最大盈利%', width: 100 },
-  { key: 'trading_cost', label: '交易成本', width: 90, money: true },
-  { key: 'trading_days', label: '交易日数', width: 80, align: 'center', int: true },
+  { key: 'initial_cash', label: t('optimization.initialCash'), width: 100, money: true },
+  { key: 'net_value', label: t('optimization.netValue'), width: 80 },
+  { key: 'net_profit', label: t('optimization.netProfit'), width: 100, money: true },
+  { key: 'annual_return', label: t('optimization.annualizedReturn') + '%', width: 100, sortable: true },
+  { key: 'max_leverage', label: t('optimization.maxLeverage'), width: 80 },
+  { key: 'max_market_value', label: t('optimization.maxMarketValue'), width: 100, money: true },
+  { key: 'max_drawdown_value', label: t('optimization.maxDrawdownVal'), width: 100, money: true },
+  { key: 'max_drawdown', label: t('optimization.maxDrawdown') + '%', width: 90, sortable: true },
+  { key: 'sharpe_ratio', label: t('optimization.sharpe'), width: 85, sortable: true },
+  { key: 'adjusted_return_risk', label: t('optimization.riskReturnRatio'), width: 90 },
+  { key: 'total_trades', label: t('optimization.tradeCount'), width: 80, align: 'center', int: true },
+  { key: 'win_rate', label: t('optimization.winRate') + '%', width: 70, sortable: true },
+  { key: 'avg_profit', label: t('optimization.avgProfit'), width: 90, money: true },
+  { key: 'avg_profit_rate', label: t('optimization.avgProfitRate') + '%', width: 100 },
+  { key: 'total_win_amount', label: t('optimization.totalProfit'), width: 100, money: true },
+  { key: 'total_loss_amount', label: t('optimization.totalLoss'), width: 100, money: true },
+  { key: 'profit_loss_ratio', label: t('optimization.profitLossRatio'), width: 80 },
+  { key: 'profit_factor', label: t('optimization.profitFactor'), width: 80, sortable: true },
+  { key: 'profit_rate_factor', label: t('optimization.profitRateFactor'), width: 90 },
+  { key: 'profit_loss_rate_ratio', label: t('optimization.profitRateRatio'), width: 80 },
+  { key: 'odds', label: t('optimization.winChance') + '%', width: 80 },
+  { key: 'daily_avg_return', label: t('optimization.daily') + '%', width: 90 },
+  { key: 'daily_max_loss', label: t('optimization.dailyMaxLoss') + '%', width: 100 },
+  { key: 'daily_max_profit', label: t('optimization.dailyMaxProfit') + '%', width: 100 },
+  { key: 'weekly_avg_return', label: t('optimization.weekly') + '%', width: 90 },
+  { key: 'weekly_max_loss', label: t('optimization.weeklyMaxLoss') + '%', width: 100 },
+  { key: 'weekly_max_profit', label: t('optimization.weeklyMaxProfit') + '%', width: 100 },
+  { key: 'monthly_avg_return', label: t('optimization.monthly') + '%', width: 90 },
+  { key: 'monthly_max_loss', label: t('optimization.monthlyMaxLoss') + '%', width: 100 },
+  { key: 'monthly_max_profit', label: t('optimization.monthlyMaxProfit') + '%', width: 100 },
+  { key: 'trading_cost', label: t('optimization.tradeCost'), width: 90, money: true },
+  { key: 'trading_days', label: t('optimization.tradeDays'), width: 80, align: 'center', int: true },
 ]
 const allFields = allColumnDefs.map(c => ({ key: c.key, label: c.label }))
 const visibleFields = ref(allFields.map(f => f.key))
@@ -698,18 +701,18 @@ const hasResults = computed(() => resultRows.value.length > 0 || optimizationSta
 const progressPct = computed(() => total.value > 0 ? Math.round((completed.value / total.value) * 100) : 0)
 const emptyStateDescription = computed(() => {
   if (optimizationStatus.value === 'cancelled') {
-    return '该优化任务已取消。'
+    return t('optimization.taskCancelled') + '。'
   }
   if (optimizationStatus.value === 'failed') {
-    return '该优化任务执行失败，请检查参数范围、数据配置或后端日志。'
+    return t('optimization.taskFailed') + '，' + t('optimization.pleaseCheckRange') + '、' + t('optimization.pleaseCheckLogs') + '。'
   }
   if (optimizationStatus.value === 'completed' && failed.value > 0 && completed.value === 0) {
-    return `该单元优化已结束，但 ${failed.value} 组参数全部失败，因此没有可展示的优化结果。`
+    return t('optimization.taskCompleted') + '，' + t('optimization.butSuffix') + ` ${failed.value} ` + t('optimization.allFailed') + '，' + t('optimization.causeNoResults') + '。'
   }
   if (optimizationStatus.value === 'completed' && failed.value > 0) {
-    return `该单元优化已结束，但仅部分组合成功。当前无可展示结果，请检查失败任务日志。`
+    return t('optimization.taskCompleted') + '，' + t('optimization.butSomeFailed') + '。' + t('optimization.noResult') + '，' + t('optimization.taskFailedCheckLogs') + '。'
   }
-  return '该单元暂无优化结果。请先在策略单元工具栏中设置优化参数并提交优化。'
+  return t('optimization.noResultForUnit') + '。' + t('optimization.noResultDetail') + '。'
 })
 
 // Recalculate annual_return based on user's calcMethod + annualDays settings
@@ -899,12 +902,12 @@ function handleOpenFile() {
        resultRows.value = data.results
        paramNames.value = Array.isArray(data.param_names) ? (data.param_names as string[]) : deriveParamNames(data.results)
        initializeAnalysisControls(typeof data.objective === 'string' ? data.objective : sortKey.value)
-       ElMessage.success(`已加载 ${data.results.length} 条优化结果`)
+       ElMessage.success(t('optimization.loaded') + ` ${data.results.length} ` + t('optimization.nResultsCount', { n: '' }))
      } else {
-       ElMessage.warning('文件格式不正确')
+       ElMessage.warning(t('optimization.fileFormatErr'))
      }
     } catch {
-      ElMessage.error('读取文件失败')
+      ElMessage.error(t('optimization.readFileFailed'))
     }
   }
   input.click()
@@ -926,7 +929,7 @@ function handleSaveResults() {
   a.download = `opt_results_${selectedUnitId.value.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
-  ElMessage.success('优化结果已保存')
+  ElMessage.success(t('optimization.optimizationSaved'))
 }
 
 // --- Apply best + open chart ---
@@ -943,19 +946,19 @@ function handleTestReport() {
   if (!displayRows.value.length) return
   const best = displayRows.value[0]
   const lines = [
-    '=== 参数优化测试报告 ===',
-    `单元: ${selectedUnitId.value}`,
-    `总组合: ${total.value}`,
-    `最佳参数: ${formatParams(best.params)}`,
-    `夏普比率: ${fmtVal(best.sharpe_ratio)}`,
-    `年化收益: ${fmtVal(best.annual_return)}`,
-    `最大回撤: ${fmtVal(best.max_drawdown)}`,
-    `胜率: ${fmtVal(best.win_rate)}`,
-    `盈利因子: ${fmtVal(best.profit_factor)}`,
-    `交易次数: ${best.total_trades ?? '-'}`,
+    '=== ' + t('optimization.paramReportTitle') + ' ===',
+    t('optimization.parameterUnit') + `: ${selectedUnitId.value}`,
+    t('optimization.totalCombos') + `: ${total.value}`,
+    t('optimization.bestParams') + `: ${formatParams(best.params)}`,
+    t('optimization.sharpe') + `: ${fmtVal(best.sharpe_ratio)}`,
+    t('optimization.annualReturn') + `: ${fmtVal(best.annual_return)}`,
+    t('optimization.maxDrawdown') + `: ${fmtVal(best.max_drawdown)}`,
+    t('optimization.winRate') + `: ${fmtVal(best.win_rate)}`,
+    t('optimization.profitFactor') + `: ${fmtVal(best.profit_factor)}`,
+    t('optimization.tradeCount') + `: ${best.total_trades ?? '-'}`,
   ]
-  ElMessageBox.alert(lines.join('\n'), '参数优化测试报告', {
-    confirmButtonText: '关闭',
+  ElMessageBox.alert(lines.join('\n'), t('optimization.paramReportTitle'), {
+    confirmButtonText: t('optimization.close'),
     customStyle: { whiteSpace: 'pre-wrap', fontFamily: 'monospace' } as any,
   })
 }
@@ -967,7 +970,7 @@ function handleReset() {
   showFilter.value = false
   viewMode.value = 'table'
   visibleFields.value = allFields.map(f => f.key)
-  ElMessage.success('已还原默认设置')
+  ElMessage.success(t('optimization.restoredDefault'))
 }
 
 // --- Set as default (Bug-9 fix: persist to workspace.settings) ---
@@ -988,9 +991,9 @@ async function handleSetDefault() {
          },
        },
      })
-     ElMessage.success('已保存为默认优化结果配置')
+     ElMessage.success(t('optimization.savedAsDefault'))
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '保存默认配置失败'))
+    ElMessage.error(getErrorMessage(e, t('optimization.saveDefaultFailed')))
   }
 }
 
@@ -998,10 +1001,10 @@ async function handleCancel() {
   if (!selectedUnitId.value) return
   try {
     await workspaceApi.cancelOptimization(props.workspaceId, selectedUnitId.value)
-    ElMessage.success('优化任务已取消')
+    ElMessage.success(t('optimization.optimizationCancelled'))
     await loadResults()
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '取消失败'))
+    ElMessage.error(getErrorMessage(e, t('optimization.cancelFailed')))
   }
 }
 
@@ -1010,23 +1013,23 @@ async function handleApplyBest() {
   const unit = units.value.find(u => u.id === selectedUnitId.value)
   const taskId = unit?.last_optimization_task_id
   if (!taskId) {
-    ElMessage.warning('未找到优化任务ID')
+    ElMessage.warning(t('optimization.noTaskFound'))
     return
   }
   const bestRow = displayRows.value[0]
   const backendIdx = typeof bestRow.result_index === 'number' ? bestRow.result_index : 0
   try {
-    await ElMessageBox.confirm('确认将最佳参数应用到该策略单元？', '应用最佳参数', { type: 'info' })
+    await ElMessageBox.confirm(t('optimization.confirmApplyBest') + '?', t('optimization.applyBestParams'), { type: 'info' })
     await workspaceApi.applyBestParams(props.workspaceId, {
       unit_id: selectedUnitId.value,
       optimization_task_id: taskId,
       result_index: backendIdx,
     })
-    ElMessage.success('最佳参数已应用')
+    ElMessage.success(t('optimization.bestParamsApplied'))
     store.fetchUnits(props.workspaceId)
   } catch (e: unknown) {
     if (e !== 'cancel' && (e as { message?: string })?.message !== 'cancel') {
-      ElMessage.error(getErrorMessage(e, '应用失败'))
+      ElMessage.error(getErrorMessage(e, t('optimization.applyFailed')))
     }
   }
 }
@@ -1053,7 +1056,7 @@ async function handleRunWithParams(row: Record<string, unknown>) {
   if (!unit) return
   const params = row.params as Record<string, number> | undefined
   if (!params) {
-    ElMessage.warning('该行无参数信息')
+    ElMessage.warning(t('optimization.rowNoParam'))
     return
   }
   runningRow.value = row
@@ -1071,7 +1074,7 @@ async function handleRunWithParams(row: Record<string, unknown>) {
     const result = res.results?.[0]
     if (result?.task_id) {
       pollStarted = true
-      ElMessage.success('回测已提交，待完成后自动跳转')
+      ElMessage.success(t('optimization.backtestSubmitted') + '，' + t('optimization.waitingNavigate'))
       // 3. Poll until done, then navigate
       const pollId = setInterval(async () => {
         try {
@@ -1087,7 +1090,7 @@ async function handleRunWithParams(row: Record<string, unknown>) {
                 query: { workspaceId: props.workspaceId },
               })
             } else {
-              ElMessage.error('回测失败')
+              ElMessage.error(t('optimization.backtestFailed'))
             }
           }
         } catch { /* ignore */ }
@@ -1095,10 +1098,10 @@ async function handleRunWithParams(row: Record<string, unknown>) {
       // Safety timeout: stop polling after 10 minutes
       setTimeout(() => { clearInterval(pollId); runningRow.value = null }, 600000)
     } else {
-      ElMessage.warning('回测提交未返回任务ID')
+      ElMessage.warning(t('optimization.backtestNoTask'))
     }
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '提交回测失败'))
+    ElMessage.error(getErrorMessage(e, t('optimization.submitBacktestFailed')))
   } finally {
     if (!pollStarted && runningRow.value === row) runningRow.value = null
   }
@@ -1150,15 +1153,15 @@ const selectedAnalysisMode = computed<'boxplot' | 'heatmap' | 'scatter3d' | ''>(
 
 const analysisDescription = computed(() => {
   if (selectedAnalysisMode.value === 'boxplot') {
-    return `已选择 1 个参数，将展示 ${getMetricLabel(analysisMetric.value)} 在 ${selectedAnalysisParams.value[0]} 各取值下的分布。`
+    return t('optimization.selected') + ' 1 ' + t('optimization.paramHeader') + '，' + t('optimization.willShow') + ` ${getMetricLabel(analysisMetric.value)} ` + t('optimization.in') + ` ${selectedAnalysisParams.value[0]} ` + t('optimization.distribution') + '。'
   }
   if (selectedAnalysisMode.value === 'heatmap') {
-    return `已选择 2 个参数，将展示 ${getMetricLabel(analysisMetric.value)} 在参数组合上的热力分布。`
+    return t('optimization.selected') + ' 2 ' + t('optimization.paramHeader') + '，' + t('optimization.willShow') + ` ${getMetricLabel(analysisMetric.value)} ` + t('optimization.onCombinations') + '。'
   }
   if (selectedAnalysisMode.value === 'scatter3d') {
-    return `已选择 3 个参数，将展示三维参数空间中 ${getMetricLabel(analysisMetric.value)} 的分布。`
+    return t('optimization.selected') + ' 3 ' + t('optimization.paramHeader') + '，' + t('optimization.in3DSpace') + ` ${getMetricLabel(analysisMetric.value)} ` + t('optimization.distributionOf') + '。'
   }
-  return '选择 1 个参数显示箱体图，选择 2 个参数显示热力图，选择 3 个参数显示立体三维图。'
+  return t('optimization.selectGeneric') + ' 1 ' + t('optimization.showBoxplot', { n: '' }) + '，' + t('optimization.selectGeneric') + ' 2 ' + t('optimization.showHeatmap', { n: '' }) + '，' + t('optimization.selectGeneric') + ' 3 ' + t('optimization.show3D', { n: '' }) + '。'
 })
 
 function deriveParamNames(rows: Record<string, unknown>[]): string[] {
