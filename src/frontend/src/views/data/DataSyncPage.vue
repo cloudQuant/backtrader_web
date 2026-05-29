@@ -5,10 +5,10 @@
         <div class="header-row">
           <div>
             <div class="page-title">
-              数据同步
+              {{ t('dataPages.syncPageTitle') }}
             </div>
             <div class="page-subtitle">
-              在本地 MySQL 与远程 MySQL 之间按表直连同步数据库。
+              {{ t('dataPages.syncPageDesc') }}
             </div>
           </div>
           <div class="toolbar-actions">
@@ -16,14 +16,14 @@
               :loading="testingConnection"
               @click="handleTestConnection"
             >
-              测试连接
+              {{ t('dataPages.syncTestConnection') }}
             </el-button>
             <el-button
               type="primary"
               :loading="savingConfig"
               @click="handleSaveConfig"
             >
-              保存配置
+              {{ t('dataPages.syncSaveConfig') }}
             </el-button>
           </div>
         </div>
@@ -34,35 +34,35 @@
         label-width="120px"
       >
         <div class="config-section-title">
-          同步模式
+          {{ t('dataPages.syncSecMode') }}
         </div>
         <div class="form-grid">
-          <el-form-item label="同步方式">
+          <el-form-item :label="t('dataPages.syncFormMethod')">
             <el-input
-              value="直连 MySQL（按表同步）"
+              :value="t('dataPages.syncMethodValue')"
               disabled
             />
           </el-form-item>
-          <el-form-item label="同步模式">
+          <el-form-item :label="t('dataPages.syncFormMode')">
             <el-select
               v-model="syncMode"
               class="full-width"
             >
               <el-option
-                label="完整同步"
+                :label="t('dataPages.syncModeFull')"
                 value="full"
               />
               <el-option
-                label="仅结构"
+                :label="t('dataPages.syncModeSchemaOnly')"
                 value="schema_only"
               />
               <el-option
-                label="仅数据"
+                :label="t('dataPages.syncModeDataOnly')"
                 value="data_only"
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="并发同步数">
+          <el-form-item :label="t('dataPages.syncFormParallel')">
             <el-input-number
               v-model="configForm.sync_parallel_workers"
               class="full-width"
@@ -73,16 +73,16 @@
         </div>
 
         <div class="config-section-title">
-          本地 MySQL
+          {{ t('dataPages.syncSecLocal') }}
         </div>
         <div class="form-grid">
-          <el-form-item label="本地主机">
+          <el-form-item :label="t('dataPages.syncFormLocalHost')">
             <el-input
               v-model="configForm.local_mysql_host"
               placeholder="127.0.0.1"
             />
           </el-form-item>
-          <el-form-item label="本地端口">
+          <el-form-item :label="t('dataPages.syncFormLocalPort')">
             <el-input-number
               v-model="configForm.local_mysql_port"
               class="full-width"
@@ -90,32 +90,32 @@
               :max="65535"
             />
           </el-form-item>
-          <el-form-item label="本地用户">
+          <el-form-item :label="t('dataPages.syncFormLocalUser')">
             <el-input
               v-model="configForm.local_mysql_user"
               placeholder="root"
             />
           </el-form-item>
-          <el-form-item label="本地密码">
+          <el-form-item :label="t('dataPages.syncFormLocalPwd')">
             <el-input
               v-model="configForm.local_mysql_password"
               show-password
-              placeholder="输入本地 MySQL 密码"
+              :placeholder="t('dataPages.syncLocalPwdPh')"
             />
           </el-form-item>
         </div>
 
         <div class="config-section-title">
-          远程 MySQL
+          {{ t('dataPages.syncSecRemote') }}
         </div>
         <div class="form-grid">
-          <el-form-item label="远程 MySQL 主机">
+          <el-form-item :label="t('dataPages.syncFormRemoteHost')">
             <el-input
               v-model="configForm.remote_mysql_host"
               placeholder="43.167.221.188"
             />
           </el-form-item>
-          <el-form-item label="远程 MySQL 端口">
+          <el-form-item :label="t('dataPages.syncFormRemotePort')">
             <el-input-number
               v-model="configForm.remote_mysql_port"
               class="full-width"
@@ -123,31 +123,31 @@
               :max="65535"
             />
           </el-form-item>
-          <el-form-item label="远程 MySQL 用户">
+          <el-form-item :label="t('dataPages.syncFormRemoteUser')">
             <el-input
               v-model="configForm.remote_mysql_user"
               placeholder="root"
             />
           </el-form-item>
-          <el-form-item label="远程 MySQL 密码">
+          <el-form-item :label="t('dataPages.syncFormRemotePwd')">
             <el-input
               v-model="configForm.remote_mysql_password"
               show-password
-              placeholder="直连模式必须填写远程 MySQL 密码"
+              :placeholder="t('dataPages.syncRemotePwdPh')"
             />
           </el-form-item>
         </div>
 
         <div class="config-section-title">
-          同步范围
+          {{ t('dataPages.syncSecScope') }}
         </div>
         <div class="form-grid single-column">
-          <el-form-item label="同步数据库">
+          <el-form-item :label="t('dataPages.syncFormDatabases')">
             <el-input
               v-model="syncDatabasesInput"
               type="textarea"
               :rows="2"
-              placeholder="例如：backtrader_web, akshare_data"
+              :placeholder="t('dataPages.syncDatabasesPh')"
             />
           </el-form-item>
         </div>
@@ -156,26 +156,26 @@
       <div class="tips-grid">
         <div class="tip-card">
           <div class="tip-title">
-            填写提示
+            {{ t('dataPages.syncTipFillTitle') }}
           </div>
           <div class="tip-text">
-            当前页面只保留 MySQL 直连同步。只要远程 MySQL 主机、端口、用户名、密码可访问即可，不需要 SSH；数据库不存在时会自动创建，已存在时不会删除。你还可以配置并发同步数，控制同时处理的数据表数量。
+            {{ t('dataPages.syncTipFillText') }}
           </div>
         </div>
         <div class="tip-card">
           <div class="tip-title">
-            增量同步规则
+            {{ t('dataPages.syncTipIncTitle') }}
           </div>
           <div class="tip-text">
-            数据同步会优先使用数据表的主键，其次使用唯一索引；如果没有可用索引，会退化为按整行字段内容比对，只传输目标库缺失的数据行。
+            {{ t('dataPages.syncTipIncText') }}
           </div>
         </div>
         <div class="tip-card">
           <div class="tip-title">
-            使用限制
+            {{ t('dataPages.syncTipLimitTitle') }}
           </div>
           <div class="tip-text">
-            没有主键或唯一索引的数据表也可以同步，但只能按整行内容做缺失判断；如果表里存在完全相同的重复行，增量判断的精度会受限。
+            {{ t('dataPages.syncTipLimitText') }}
           </div>
         </div>
       </div>
@@ -190,7 +190,7 @@
           class="connection-item"
         >
           <el-tag :type="passed ? 'success' : 'danger'">
-            {{ passed ? '通过' : '失败' }}
+            {{ passed ? t('dataPages.syncCheckPassed') : t('dataPages.syncCheckFailed') }}
           </el-tag>
           <div class="connection-content">
             <div class="connection-title">
@@ -207,7 +207,7 @@
     <el-card v-if="activeTasks.length > 0">
       <template #header>
         <div class="page-title small">
-          同步进度
+          {{ t('dataPages.syncProgressTitle') }}
         </div>
       </template>
 
@@ -220,7 +220,7 @@
           <div class="task-top">
             <div>
               <div class="task-title">
-                {{ task.direction === 'upload' ? '上传到服务器' : '从服务器拉取' }}
+                {{ task.direction === 'upload' ? t('dataPages.syncDirUpload') : t('dataPages.syncDirDownload') }}
                 <span class="task-db">{{ task.current_database || task.databases.join(', ') }}</span>
               </div>
               <div class="task-subtitle">
@@ -245,10 +245,10 @@
           <div class="section-header">
             <div>
               <div class="page-title small">
-                上传到服务器
+                {{ t('dataPages.syncUploadTitle') }}
               </div>
               <div class="page-subtitle">
-                把本地数据库中的缺失结构与缺失数据增量同步到远程环境。
+                {{ t('dataPages.syncUploadDesc') }}
               </div>
             </div>
             <el-button
@@ -256,7 +256,7 @@
               :loading="submittingBulkUpload"
               @click="startSync('upload', databaseNames)"
             >
-              全部上传
+              {{ t('dataPages.syncUploadAll') }}
             </el-button>
           </div>
         </template>
@@ -268,19 +268,19 @@
         >
           <el-table-column
             prop="name"
-            label="数据库"
+            :label="t('dataPages.syncColDatabase')"
             min-width="160"
           />
           <el-table-column
-            label="本地大小"
+            :label="t('dataPages.syncColLocalSize')"
             width="120"
           >
             <template #default="{ row }">
-              {{ row.local.exists ? row.local.size_display : '不存在' }}
+              {{ row.local.exists ? row.local.size_display : t('dataPages.syncStateNotExists') }}
             </template>
           </el-table-column>
           <el-table-column
-            label="远程状态"
+            :label="t('dataPages.syncColRemoteState')"
             min-width="160"
           >
             <template #default="{ row }">
@@ -288,7 +288,7 @@
             </template>
           </el-table-column>
           <el-table-column
-            label="操作"
+            :label="t('dataPages.syncColActions')"
             width="120"
           >
             <template #default="{ row }">
@@ -297,7 +297,7 @@
                 type="primary"
                 @click="startSync('upload', [row.name])"
               >
-                上传
+                {{ t('dataPages.syncActionUpload') }}
               </el-button>
             </template>
           </el-table-column>
@@ -309,17 +309,17 @@
           <div class="section-header">
             <div>
               <div class="page-title small">
-                从服务器拉取
+                {{ t('dataPages.syncDownloadTitle') }}
               </div>
               <div class="page-subtitle">
-                把远程数据库中的缺失结构与缺失数据增量同步到本地环境。
+                {{ t('dataPages.syncDownloadDesc') }}
               </div>
             </div>
             <el-button
               :loading="submittingBulkDownload"
               @click="startSync('download', databaseNames)"
             >
-              全部拉取
+              {{ t('dataPages.syncDownloadAll') }}
             </el-button>
           </div>
         </template>
@@ -331,19 +331,19 @@
         >
           <el-table-column
             prop="name"
-            label="数据库"
+            :label="t('dataPages.syncColDatabase')"
             min-width="160"
           />
           <el-table-column
-            label="远程大小"
+            :label="t('dataPages.syncColRemoteSize')"
             width="120"
           >
             <template #default="{ row }">
-              {{ row.remote.exists ? row.remote.size_display : '不存在' }}
+              {{ row.remote.exists ? row.remote.size_display : t('dataPages.syncStateNotExists') }}
             </template>
           </el-table-column>
           <el-table-column
-            label="本地状态"
+            :label="t('dataPages.syncColLocalState')"
             min-width="160"
           >
             <template #default="{ row }">
@@ -351,7 +351,7 @@
             </template>
           </el-table-column>
           <el-table-column
-            label="操作"
+            :label="t('dataPages.syncColActions')"
             width="120"
           >
             <template #default="{ row }">
@@ -360,7 +360,7 @@
                 type="primary"
                 @click="startSync('download', [row.name])"
               >
-                拉取
+                {{ t('dataPages.syncActionDownload') }}
               </el-button>
             </template>
           </el-table-column>
@@ -373,14 +373,14 @@
         <div class="section-header">
           <div>
             <div class="page-title small">
-              同步历史
+              {{ t('dataPages.syncHistoryTitle') }}
             </div>
             <div class="page-subtitle">
-              展示最近一次同步结果与耗时。
+              {{ t('dataPages.syncHistoryDesc') }}
             </div>
           </div>
           <el-button @click="loadHistory">
-            刷新历史
+            {{ t('dataPages.syncRefreshHistory') }}
           </el-button>
         </div>
       </template>
@@ -391,7 +391,7 @@
         stripe
       >
         <el-table-column
-          label="时间"
+          :label="t('dataPages.syncHistColTime')"
           width="220"
         >
           <template #default="{ row }">
@@ -399,15 +399,15 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="方向"
+          :label="t('dataPages.syncHistColDirection')"
           width="120"
         >
           <template #default="{ row }">
-            {{ row.direction === 'upload' ? '上传' : '拉取' }}
+            {{ row.direction === 'upload' ? t('dataPages.syncDirUploadShort') : t('dataPages.syncDirDownloadShort') }}
           </template>
         </el-table-column>
         <el-table-column
-          label="数据库"
+          :label="t('dataPages.syncHistColDatabases')"
           min-width="180"
         >
           <template #default="{ row }">
@@ -415,7 +415,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="状态"
+          :label="t('dataPages.syncHistColStatus')"
           width="120"
         >
           <template #default="{ row }">
@@ -425,7 +425,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="耗时"
+          :label="t('dataPages.syncHistColDuration')"
           width="120"
         >
           <template #default="{ row }">
@@ -433,7 +433,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="消息"
+          :label="t('dataPages.syncHistColMessage')"
           min-width="260"
         >
           <template #default="{ row }">
@@ -447,6 +447,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
 import { syncApi } from '@/api/sync'
@@ -458,6 +459,8 @@ import type {
   SyncMode,
   SyncTaskStatus,
 } from '@/types'
+
+const { t } = useI18n()
 
 const configForm = reactive<SyncConfig>({
   connection_mode: 'direct_mysql',
@@ -510,30 +513,30 @@ function formatDuration(value: number | null) {
 }
 
 function statusLabel(status: SyncTaskStatus['status']) {
-  if (status === 'pending') return '等待中'
-  if (status === 'running') return '执行中'
-  if (status === 'completed') return '已完成'
-  return '失败'
+  if (status === 'pending') return t('dataPages.syncStatusPending')
+  if (status === 'running') return t('dataPages.syncStatusRunning')
+  if (status === 'completed') return t('dataPages.syncStatusCompleted')
+  return t('dataPages.syncStatusFailed')
 }
 
 function labelForCheck(key: string) {
-  if (key === 'local_tools') return '本地命令依赖'
-  if (key === 'local_mysql') return '本地 MySQL'
-  if (key === 'remote_mysql') return '远程 MySQL'
-  if (key === 'ssh') return 'SSH 连通性'
-  if (key === 'docker') return 'Docker 容器状态'
-  if (key === 'remote_env') return '远程密码配置'
+  if (key === 'local_tools') return t('dataPages.syncCheckLocalTools')
+  if (key === 'local_mysql') return t('dataPages.syncCheckLocalMysql')
+  if (key === 'remote_mysql') return t('dataPages.syncCheckRemoteMysql')
+  if (key === 'ssh') return t('dataPages.syncCheckSsh')
+  if (key === 'docker') return t('dataPages.syncCheckDocker')
+  if (key === 'remote_env') return t('dataPages.syncCheckRemoteEnv')
   return key
 }
 
 function formatRemoteState(row: DatabaseSyncInfo) {
-  if (!row.remote.exists) return '不存在'
-  return `已存在（${row.remote.size_display} / ${row.remote.table_count}表）`
+  if (!row.remote.exists) return t('dataPages.syncStateNotExists')
+  return t('dataPages.syncStateExists', { size: row.remote.size_display, tables: row.remote.table_count })
 }
 
 function formatLocalState(row: DatabaseSyncInfo) {
-  if (!row.local.exists) return '不存在'
-  return `已存在（${row.local.size_display} / ${row.local.table_count}表）`
+  if (!row.local.exists) return t('dataPages.syncStateNotExists')
+  return t('dataPages.syncStateExists', { size: row.local.size_display, tables: row.local.table_count })
 }
 
 function normalizeDatabaseNames(value: string) {
@@ -564,7 +567,7 @@ async function loadDatabases() {
     const response = await syncApi.getDatabases()
     databaseRows.value = response.items
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载数据库状态失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncLoadDatabasesFailed')))
   } finally {
     loadingDatabases.value = false
   }
@@ -576,7 +579,7 @@ async function loadHistory() {
     const response = await syncApi.getHistory()
     history.value = response.items
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载同步历史失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncLoadHistoryFailed')))
   } finally {
     loadingHistory.value = false
   }
@@ -591,7 +594,7 @@ async function persistConfig(options: { showSuccess?: boolean; reloadDatabases?:
     configForm.connection_mode = 'direct_mysql'
     syncDatabasesInput.value = response.sync_databases.join(', ')
     if (showSuccess) {
-      ElMessage.success('同步配置已保存')
+      ElMessage.success(t('dataPages.syncSavedSuccess'))
     }
     if (reloadDatabases) {
       await loadDatabases()
@@ -605,7 +608,7 @@ async function handleSaveConfig() {
   try {
     await persistConfig({ showSuccess: true, reloadDatabases: true })
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '保存同步配置失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncSaveFailed')))
   }
 }
 
@@ -614,9 +617,9 @@ async function handleTestConnection() {
   try {
     await persistConfig()
     connectionStatus.value = await syncApi.testConnection(buildConfigPayload())
-    ElMessage.success(connectionStatus.value.success ? '连接测试通过' : '连接测试完成，请查看结果')
+    ElMessage.success(connectionStatus.value.success ? t('dataPages.syncTestPassed') : t('dataPages.syncTestPartial'))
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '测试连接失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncTestFailed')))
   } finally {
     testingConnection.value = false
   }
@@ -624,17 +627,17 @@ async function handleTestConnection() {
 
 async function startSync(direction: SyncDirection, databases: string[]) {
   if (databases.length === 0) {
-    ElMessage.warning('没有可同步的数据库')
+    ElMessage.warning(t('dataPages.syncNoDatabases'))
     return
   }
 
-  const actionLabel = direction === 'upload' ? '上传到服务器' : '从服务器拉取'
+  const actionLabel = direction === 'upload' ? t('dataPages.syncDirUpload') : t('dataPages.syncDirDownload')
   const loadingFlag = direction === 'upload' ? submittingBulkUpload : submittingBulkDownload
 
   try {
     await ElMessageBox.confirm(
-      `${actionLabel}会保留目标数据库中已存在的数据，仅补齐缺失结构和缺失数据，是否继续？\n\n数据库：${databases.join(', ')}`,
-      '同步确认',
+      t('dataPages.syncConfirmMsg', { action: actionLabel, databases: databases.join(', ') }),
+      t('dataPages.syncConfirmTitle'),
       { type: 'warning' }
     )
   } catch {
@@ -667,10 +670,10 @@ async function startSync(direction: SyncDirection, databases: string[]) {
         sync_mode: syncMode.value,
       },
     }
-    ElMessage.success('同步任务已创建')
+    ElMessage.success(t('dataPages.syncTaskCreated'))
     void pollTask(response.task_id)
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '启动同步任务失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncStartFailed')))
   } finally {
     loadingFlag.value = false
   }
@@ -688,7 +691,7 @@ async function pollTask(taskId: string) {
       clearPoller(taskId)
       await Promise.all([loadDatabases(), loadHistory()])
       if (status.status === 'completed') {
-        ElMessage.success(`同步完成：${status.databases.join(', ')}`)
+        ElMessage.success(t('dataPages.syncCompleted', { databases: status.databases.join(', ') }))
       } else {
         ElMessage.error(status.error || status.message)
       }
@@ -700,7 +703,7 @@ async function pollTask(taskId: string) {
     pollers.set(taskId, timer)
   } catch (error) {
     clearPoller(taskId)
-    ElMessage.error(getErrorMessage(error, '查询同步任务状态失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncStatusFetchFailed')))
   }
 }
 
@@ -716,7 +719,7 @@ onMounted(async () => {
   try {
     await loadConfig()
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载同步配置失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.syncLoadConfigFailed')))
   }
   await Promise.all([loadDatabases(), loadHistory()])
 })
