@@ -52,10 +52,32 @@ first slice.
 - 修复 7 个核心页面 axe critical/serious 违规至 0
 - 必要豁免登记到 `docs/explanation/accessibility-baseline.md`
 
-### E. 前端覆盖率从 60 → 75 过渡（来源：175 §2 阈值已设到 75）
+### E. 前端覆盖率从 60 → 75 过渡（**部分完成 2026-05-29**，后续待续）
 
-- High_Coverage_Core 8 模块的 90% 阈值需要核心 store/composable 补单测
-- 全局 75% 阈值需要在过渡期内稳定补齐
+**已完成**（25 commits 跨 175 close → 176 §E）：
+- High_Coverage_Core 8 模块全部达到 90% per-file 门槛（之前 useBacktestRuntime 39%、knowledgeBase 55%、auth 70%、api/index 82%、theme/backtest branches/funcs 边缘等都未达标）
+- 全局 branches 从 72% 提升至 **76.25%**（实际 vs 阈值 70 通过）
+- 全局 lines/funcs/stats 从 53/52/53 提升至 **60/60/60**
+- vitest 测试通过率 64% → **100%**（388/248 → 806/806，+528 cases）
+- 关键测试基础设施修复：global vue-i18n install + zh-CN passthrough（解决 140 个失败测试）、$t global mock、test/stubs shim 路径
+
+**新增的测试文件**（共 ~600 cases）：
+- composables: useBacktestRuntime, useInstanceActions, useUnitTableRendering
+- stores: knowledgeBase（全部覆盖）、auth（全部覆盖）、theme（关键分支）、backtest（缺失方法）、workspace（公共 CRUD）
+- api: api/index helpers、retry-interceptor、sync, audit, autoTrading, kbChat, quote, knowledgeBase, airflow, aiTrading
+- utils: auditTracker, exportUtils（扩展）、session
+- components/common: logViewerHelpers
+- components/workspace: tradingUnitTransfer
+
+**当前阈值状态**（`src/frontend/vitest.config.ts`）：
+- 全局：lines/functions/statements 50%（实际 60%），branches 70%（实际 76%）
+- High_Coverage_Core：lines/functions/statements 90%、branches 88-90% 严格执行
+- 阈值数字暂时低于 175 计划的 75% 是因为尚有大量 0%-coverage views/.vue 文件拖低全局聚合，但 High_Coverage_Core 已完全达标
+
+**仍待完成（阈值 50/70 → 75/75）**：
+- views/data/ 多个 800+ 行 .vue 文件覆盖率 0%（DataSyncPage 854、DataInterfacesPage 610、DataTasksPage 547、DataExecutionsPage 447 等）
+- components/workspace/ 多个 1000+ 行 .vue 文件覆盖率 0%（WorkspaceUnitsTab 1271、WorkspaceOptimizationTab 1193、WorkspaceReportTab 1160 等）
+- 这些需要复杂的 Element Plus stub + Pinia + router 三方 mock；优先级不如直接拆分大文件（参见 §G）
 
 ### F. OTel 性能基准对比（来源：175 §5.8 降级）
 
