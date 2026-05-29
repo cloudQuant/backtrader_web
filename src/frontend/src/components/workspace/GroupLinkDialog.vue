@@ -1,42 +1,42 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="联动分组"
+    :title="t('workspaceDialogs.glTitle')"
     width="720px"
   >
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            选中单元
+            {{ t('workspaceDialogs.glSelectedUnits') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ props.unitIds.length }}
           </div>
           <div class="text-xs text-slate-400">
-            待配置联动范围
+            {{ t('workspaceDialogs.glPendingScope') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            当前联动组
+            {{ t('workspaceDialogs.glCurrentGroup') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
-            {{ groupName.trim() || '未设置' }}
+            {{ groupName.trim() || t('workspaceDialogs.glNotSet') }}
           </div>
           <div class="text-xs text-slate-400">
-            组名可跨单元复用
+            {{ t('workspaceDialogs.glReusable') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            已存在联动组
+            {{ t('workspaceDialogs.glExistingGroups') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ existingGroupCount }}
           </div>
           <div class="text-xs text-slate-400">
-            工作区级配置
+            {{ t('workspaceDialogs.glWorkspaceConfig') }}
           </div>
         </div>
       </div>
@@ -45,15 +45,15 @@
         type="info"
         :closable="false"
         show-icon
-        :title="`当前将为 ${props.unitIds.length} 个策略单元设置联动分组。`"
+        :title="t('workspaceDialogs.glAlertText', { n: props.unitIds.length })"
       />
 
       <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
         <el-form label-width="100px">
-          <el-form-item label="联动组名称">
+          <el-form-item :label="t('workspaceDialogs.glGroupName')">
             <el-input
               v-model="groupName"
-              placeholder="例如：黑色系联动、股指对冲组"
+              :placeholder="t('workspaceDialogs.glPlaceholderName')"
             />
           </el-form-item>
         </el-form>
@@ -61,7 +61,7 @@
 
       <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
         <div class="mb-2 text-sm font-medium text-gray-700">
-          包含单元
+          {{ t('workspaceDialogs.glIncludedUnits') }}
         </div>
         <div class="flex flex-wrap gap-2">
           <el-tag
@@ -78,17 +78,17 @@
 
     <template #footer>
       <el-button @click="visible = false">
-        取消
+        {{ t('common.cancel') }}
       </el-button>
       <el-button @click="handleClear">
-        清除联动
+        {{ t('workspaceDialogs.glClear') }}
       </el-button>
       <el-button
         type="primary"
         :loading="loading"
         @click="handleSave"
       >
-        保存
+        {{ t('common.save') }}
       </el-button>
     </template>
   </el-dialog>
@@ -96,9 +96,12 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
 import { useWorkspaceStore } from '@/stores/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -150,12 +153,12 @@ async function saveLinks(nextLinks: Record<string, string>) {
 
 async function handleSave() {
   if (!props.unitIds.length) {
-    ElMessage.warning('请先选择要联动的策略单元')
+    ElMessage.warning(t('workspaceDialogs.glSelectFirst'))
     return
   }
   const trimmed = groupName.value.trim()
   if (!trimmed) {
-    ElMessage.warning('请输入联动组名称')
+    ElMessage.warning(t('workspaceDialogs.glInputName'))
     return
   }
   try {
@@ -164,10 +167,10 @@ async function handleSave() {
       links[unitId] = trimmed
     }
     await saveLinks(links)
-    ElMessage.success('联动分组已保存')
+    ElMessage.success(t('workspaceDialogs.glSaved'))
     visible.value = false
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '保存联动分组失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.glSaveFailed')))
   }
 }
 
@@ -178,10 +181,10 @@ async function handleClear() {
       delete links[unitId]
     }
     await saveLinks(links)
-    ElMessage.success('联动分组已清除')
+    ElMessage.success(t('workspaceDialogs.glCleared'))
     visible.value = false
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '清除联动分组失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.glClearFailed')))
   }
 }
 </script>

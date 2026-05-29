@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="策略单元运行文件"
+    :title="t('workspaceDialogs.urdTitle')"
     width="1120px"
     @close="emit('update:modelValue', false)"
   >
@@ -12,7 +12,7 @@
       <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            策略单元
+            {{ t('workspaceDialogs.urdStrategyUnit') }}
           </div>
           <div class="mt-1 font-semibold text-slate-700">
             {{ unit.strategy_name || unit.strategy_id }}
@@ -23,18 +23,18 @@
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            实例状态
+            {{ t('workspaceDialogs.urdInstanceStatus') }}
           </div>
           <div class="mt-1 font-semibold text-slate-700">
             {{ unit.trading_snapshot?.instance_status || unit.run_status }}
           </div>
           <div class="text-xs text-slate-400">
-            {{ unit.trading_instance_id || '未分配实例' }}
+            {{ unit.trading_instance_id || t('workspaceDialogs.urdNoInstance') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            日志目录
+            {{ t('workspaceDialogs.urdLogDir') }}
           </div>
           <div class="mt-1 break-all font-mono text-xs text-slate-700">
             {{ runtimeInfo?.log_dir || '-' }}
@@ -46,7 +46,7 @@
         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <div class="text-sm font-medium text-slate-700">
-              运行目录
+              {{ t('workspaceDialogs.urdRuntimeDir') }}
             </div>
             <div class="font-mono text-xs text-slate-500">
               {{ runtimeInfo?.runtime_dir || '-' }}
@@ -56,7 +56,7 @@
             <el-select
               v-model="selectedFile"
               class="w-72"
-              placeholder="选择文件"
+              :placeholder="t('workspaceDialogs.urdSelectFile')"
               :loading="loadingInfo"
               @change="loadSelectedFile"
             >
@@ -73,19 +73,19 @@
               @change="loadSelectedFile"
             >
               <el-option
-                label="全部"
+                :label="t('workspaceDialogs.urdAll')"
                 :value="0"
               />
               <el-option
-                label="200 行"
+                :label="t('workspaceDialogs.urdLines200')"
                 :value="200"
               />
               <el-option
-                label="500 行"
+                :label="t('workspaceDialogs.urdLines500')"
                 :value="500"
               />
               <el-option
-                label="1000 行"
+                :label="t('workspaceDialogs.urdLines1000')"
                 :value="1000"
               />
             </el-select>
@@ -93,14 +93,14 @@
               :loading="loadingInfo || loadingContent"
               @click="refreshAll"
             >
-              刷新
+              {{ t('workspaceDialogs.urdRefresh') }}
             </el-button>
             <el-button
               type="primary"
               :loading="openingDir"
               @click="openRuntimeDir"
             >
-              打开策略单元
+              {{ t('workspaceDialogs.urdOpenUnit') }}
             </el-button>
           </div>
         </div>
@@ -120,14 +120,14 @@
 
         <div class="rounded-lg border border-slate-200 bg-slate-950 text-slate-100">
           <div class="border-b border-slate-800 px-4 py-2 font-mono text-xs text-slate-400">
-            {{ selectedFile || '未选择文件' }}
+            {{ selectedFile || t('workspaceDialogs.urdNoFileSelected') }}
           </div>
           <div class="unit-runtime-dialog__content">
             <div
               v-if="loadingContent"
               class="px-4 py-6 text-center text-sm text-slate-400"
             >
-              加载中...
+              {{ t('workspaceDialogs.urdLoading') }}
             </div>
             <div
               v-else-if="contentError"
@@ -139,7 +139,7 @@
               v-else-if="!selectedFile"
               class="px-4 py-6 text-sm text-slate-400"
             >
-              请选择要查看的文件
+              {{ t('workspaceDialogs.urdSelectFilePrompt') }}
             </div>
             <pre
               v-else
@@ -154,10 +154,13 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
 import { workspaceApi } from '@/api/workspace'
 import type { StrategyUnit, StrategyUnitRuntimeFile, StrategyUnitRuntimeInfo } from '@/types/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -250,7 +253,7 @@ async function loadRuntimeInfo() {
   } catch (error: unknown) {
     runtimeInfo.value = null
     fileContent.value = ''
-    contentError.value = getErrorMessage(error, '加载运行文件失败')
+    contentError.value = getErrorMessage(error, t('workspaceDialogs.urdLoadInfoFailed'))
   } finally {
     loadingInfo.value = false
   }
@@ -272,7 +275,7 @@ async function loadSelectedFile() {
     )
   } catch (error: unknown) {
     fileContent.value = ''
-    contentError.value = getErrorMessage(error, '读取文件失败')
+    contentError.value = getErrorMessage(error, t('workspaceDialogs.urdReadFileFailed'))
   } finally {
     loadingContent.value = false
   }
@@ -283,9 +286,9 @@ async function openRuntimeDir() {
   openingDir.value = true
   try {
     const result = await workspaceApi.openUnitRuntimeDir(props.workspaceId, props.unit.id)
-    ElMessage.success(result.message || '策略单元目录已打开')
+    ElMessage.success(result.message || t('workspaceDialogs.urdDirOpened'))
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '打开策略单元失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.urdOpenDirFailed')))
   } finally {
     openingDir.value = false
   }

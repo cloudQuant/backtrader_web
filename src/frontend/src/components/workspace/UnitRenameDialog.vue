@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="策略研究--单元重命名"
+    :title="t('workspaceDialogs.rnUnitTitle')"
     width="480px"
     @update:model-value="$emit('update:modelValue', $event)"
   >
@@ -10,48 +10,48 @@
       :model="form"
       label-width="120px"
     >
-      <el-form-item label="单元原名称">
+      <el-form-item :label="t('workspaceDialogs.rnOriginalName')">
         <span class="font-medium">{{ unit.symbol }}_{{ unit.timeframe }}</span>
       </el-form-item>
 
-      <el-form-item label="重命名方式">
+      <el-form-item :label="t('workspaceDialogs.rnMode')">
         <el-radio-group
           v-model="form.mode"
           class="flex flex-col gap-2"
         >
           <el-radio value="custom">
-            自定义
+            {{ t('workspaceDialogs.rnModeCustom') }}
             <el-input
               v-model="form.value"
               :disabled="form.mode !== 'custom'"
               style="width: 200px; margin-left: 8px"
-              placeholder="输入新名称"
+              :placeholder="t('workspaceDialogs.rnInputNewName')"
             />
           </el-radio>
           <el-radio value="strategy">
-            使用公式名
+            {{ t('workspaceDialogs.rnModeStrategy') }}
           </el-radio>
           <el-radio value="symbol">
-            使用代码
+            {{ t('workspaceDialogs.rnModeSymbol') }}
           </el-radio>
           <el-radio value="symbol_name">
-            使用名称
+            {{ t('workspaceDialogs.rnModeSymbolName') }}
           </el-radio>
           <el-radio value="category">
-            使用分类
+            {{ t('workspaceDialogs.rnModeCategory') }}
           </el-radio>
           <el-radio value="replace">
-            替换
+            {{ t('workspaceDialogs.rnModeReplace') }}
             <span
               v-if="form.mode === 'replace'"
               class="ml-2"
             >
-              原字符: <el-input
+              {{ t('workspaceDialogs.rnSearchLabel') }} <el-input
                 v-model="form.search"
                 style="width: 100px"
                 size="small"
               />
-              替换为: <el-input
+              {{ t('workspaceDialogs.rnReplaceLabel') }} <el-input
                 v-model="form.replace"
                 style="width: 100px"
                 size="small"
@@ -64,14 +64,14 @@
 
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('common.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="saving"
         @click="handleSave"
       >
-        确定
+        {{ t('workspaceDialogs.rnConfirm') }}
       </el-button>
     </template>
   </el-dialog>
@@ -79,10 +79,13 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { StrategyUnit } from '@/types/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -118,11 +121,11 @@ async function handleSave() {
       search: form.value.search,
       replace: form.value.replace,
     })
-    ElMessage.success('单元已重命名')
+    ElMessage.success(t('workspaceDialogs.rnUnitRenamed'))
     emit('update:modelValue', false)
     emit('saved')
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '重命名失败'))
+    ElMessage.error(getErrorMessage(e, t('workspaceDialogs.rnRenameFailed')))
   } finally {
     saving.value = false
   }

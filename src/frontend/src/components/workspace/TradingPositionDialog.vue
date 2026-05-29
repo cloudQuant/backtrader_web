@@ -1,17 +1,17 @@
 <template>
   <el-dialog
     :model-value="modelValue"
-    title="头寸管理器"
+    :title="t('workspaceDialogs.tpdTitle')"
     width="820px"
     @update:model-value="$emit('update:modelValue', $event)"
   >
     <div class="mb-4 text-sm text-gray-500">
-      {{ unit?.strategy_name || unit?.strategy_id || '未选择策略单元' }}
+      {{ unit?.strategy_name || unit?.strategy_id || t('workspaceDialogs.tpdNoUnit') }}
     </div>
 
     <el-empty
       v-if="positions.length === 0"
-      description="当前单元暂无持仓数据"
+      :description="t('workspaceDialogs.tpdEmpty')"
     />
 
     <el-table
@@ -23,23 +23,23 @@
     >
       <el-table-column
         prop="data_name"
-        label="标的"
+        :label="t('workspaceDialogs.tpdColInstrument')"
         min-width="140"
       />
       <el-table-column
         prop="direction"
-        label="方向"
+        :label="t('workspaceDialogs.tpdColDirection')"
         width="90"
         align="center"
       />
       <el-table-column
         prop="size"
-        label="数量"
+        :label="t('workspaceDialogs.tpdColSize')"
         width="90"
         align="right"
       />
       <el-table-column
-        label="开仓价"
+        :label="t('workspaceDialogs.tpdColOpenPrice')"
         width="110"
         align="right"
       >
@@ -48,7 +48,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="当前价"
+        :label="t('workspaceDialogs.tpdColCurrentPrice')"
         width="110"
         align="right"
       >
@@ -57,7 +57,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="市值"
+        :label="t('workspaceDialogs.tpdColMarketValue')"
         width="120"
         align="right"
       >
@@ -66,7 +66,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="持仓盈亏"
+        :label="t('workspaceDialogs.tpdColPositionPnl')"
         width="120"
         align="right"
       >
@@ -82,7 +82,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { StrategyUnit } from '@/types/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean

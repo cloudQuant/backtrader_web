@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14769 violations; CJK subset is ~1012 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
-  "baseline_violations": 14769,
-  "baseline_cjk_violations": 1012,
-  "baseline_commit": "176-c-pass-17",
+  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14621 violations; CJK subset is ~867 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
+  "baseline_violations": 14621,
+  "baseline_cjk_violations": 867,
+  "baseline_commit": "176-c-pass-18",
   "baseline_date": "2026-05-29",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -25,6 +25,7 @@
     {"commit": "145fefe4", "violations": 15148, "cjk": 1405, "note": "WorkspaceUnitsTab"},
     {"commit": "299f15eb", "violations": 15040, "cjk": 1290, "note": "CreateUnitDialog + TradingWorkspaceUnitsTab"},
     {"commit": "175-close-pass-16", "violations": 14945, "cjk": 1188, "note": "AutoTradingConfigDialog (52) + OptimizationConfigDialog (39) + DataSourceDialog (38) -> workspaceDialogs.* namespace (+64 keys)"},
-    {"commit": "176-c-pass-17", "violations": 14769, "cjk": 1012, "note": "8 workspace dialogs: UnitSettings(31)+ExportTradingUnits(18)+ScheduledOptimization(27)+ImportTradingUnits(28)+WorkspaceDataSource(30)+UnitTable(28)+UnitActionsBar(26)+BatchOptimizationConfigDialog(28) -> workspaceDialogs.* namespace (+147 keys, parity 1100/1100)"}
+    {"commit": "176-c-pass-17", "violations": 14769, "cjk": 1012, "note": "8 workspace dialogs: UnitSettings(31)+ExportTradingUnits(18)+ScheduledOptimization(27)+ImportTradingUnits(28)+WorkspaceDataSource(30)+UnitTable(28)+UnitActionsBar(26)+BatchOptimizationConfigDialog(28) -> workspaceDialogs.* namespace (+147 keys, parity 1100/1100)"},
+    {"commit": "176-c-pass-18", "violations": 14621, "cjk": 867, "note": "10 workspace dialogs: PositionManager(25)+GroupLink(24)+TradingDayStats(22)+UnitRuntime(20)+StrategyParams(18)+UnitRename(17)+GroupRename(16)+ChangeSymbol(16)+OptimizationThread(12)+TradingPosition(10) -> workspaceDialogs.* namespace (+155 keys, parity 1255/1255)"}
   ]
 }

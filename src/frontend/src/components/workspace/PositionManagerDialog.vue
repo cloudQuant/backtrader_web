@@ -1,47 +1,47 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="头寸管理器"
+    :title="t('workspaceDialogs.positionMgrTitle')"
     width="1180px"
   >
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            展示头寸
+            {{ t('workspaceDialogs.pmDisplayPositions') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ positions.length }}
           </div>
           <div class="text-xs text-slate-400">
-            按策略单元聚合
+            {{ t('workspaceDialogs.pmAggByUnit') }}
           </div>
         </div>
         <div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
           <div class="text-xs text-red-500">
-            多头市值
+            {{ t('workspaceDialogs.pmLongValue') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-red-600">
             {{ formatAmountCompact(summary.total_long_value) }}
           </div>
           <div class="text-xs text-red-300">
-            Long Exposure
+            {{ t('workspaceDialogs.pmLongExposure') }}
           </div>
         </div>
         <div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
           <div class="text-xs text-green-500">
-            空头市值
+            {{ t('workspaceDialogs.pmShortValue') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-green-600">
             {{ formatAmountCompact(summary.total_short_value) }}
           </div>
           <div class="text-xs text-green-300">
-            Short Exposure
+            {{ t('workspaceDialogs.pmShortExposure') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
           <div class="text-xs text-slate-500">
-            总盈亏
+            {{ t('workspaceDialogs.pmTotalPnl') }}
           </div>
           <div
             class="mt-1 text-lg font-semibold"
@@ -50,21 +50,21 @@
             {{ formatSigned(summary.total_pnl, 2) }}
           </div>
           <div class="text-xs text-slate-400">
-            Unrealized PnL
+            {{ t('workspaceDialogs.pmUnrealizedPnl') }}
           </div>
         </div>
       </div>
 
       <div class="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3">
         <div class="text-sm text-slate-500">
-          当前展示 {{ positions.length }} 个策略单元的聚合头寸
+          {{ t('workspaceDialogs.pmCurrentDisplay') }} {{ positions.length }} {{ t('workspaceDialogs.pmAggUnitsSuffix') }}
         </div>
         <el-button
           size="small"
           :loading="loading"
           @click="loadPositions"
         >
-          刷新
+          {{ t('workspaceDialogs.pmRefresh') }}
         </el-button>
       </div>
 
@@ -74,27 +74,27 @@
         size="small"
         border
         class="position-table"
-        empty-text="暂无可展示的头寸数据"
+        :empty-text="t('workspaceDialogs.pmEmpty')"
       >
         <el-table-column
           prop="unit_name"
-          label="策略单元"
+          :label="t('workspaceDialogs.pmColUnit')"
           min-width="160"
           show-overflow-tooltip
         />
         <el-table-column
           prop="symbol"
-          label="品种"
+          :label="t('workspaceDialogs.pmColSymbol')"
           width="110"
         />
         <el-table-column
           prop="symbol_name"
-          label="简称"
+          :label="t('workspaceDialogs.pmColSymbolName')"
           width="120"
           show-overflow-tooltip
         />
         <el-table-column
-          label="模式"
+          :label="t('workspaceDialogs.pmColMode')"
           width="90"
           align="center"
         >
@@ -103,13 +103,13 @@
               :type="row.trading_mode === 'live' ? 'danger' : 'info'"
               size="small"
             >
-              {{ row.trading_mode === 'live' ? '实盘' : '模拟' }}
+              {{ row.trading_mode === 'live' ? t('workspaceDialogs.pmModeLive') : t('workspaceDialogs.pmModeSim') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="long_position"
-          label="多仓"
+          :label="t('workspaceDialogs.pmColLong')"
           width="90"
           align="right"
         >
@@ -119,7 +119,7 @@
         </el-table-column>
         <el-table-column
           prop="short_position"
-          label="空仓"
+          :label="t('workspaceDialogs.pmColShort')"
           width="90"
           align="right"
         >
@@ -129,7 +129,7 @@
         </el-table-column>
         <el-table-column
           prop="avg_price"
-          label="均价"
+          :label="t('workspaceDialogs.pmColAvgPrice')"
           width="100"
           align="right"
         >
@@ -139,7 +139,7 @@
         </el-table-column>
         <el-table-column
           prop="latest_price"
-          label="最新价"
+          :label="t('workspaceDialogs.pmColLatestPrice')"
           width="100"
           align="right"
         >
@@ -148,7 +148,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="持仓盈亏"
+          :label="t('workspaceDialogs.pmColPositionPnl')"
           width="110"
           align="right"
         >
@@ -159,7 +159,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="市值"
+          :label="t('workspaceDialogs.pmColMarketValue')"
           width="120"
           align="right"
         >
@@ -174,10 +174,13 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { workspaceApi } from '@/api/workspace'
 import { getErrorMessage } from '@/api/index'
 import type { TradingPositionManagerItem } from '@/types/workspace'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -211,7 +214,7 @@ async function loadPositions() {
     summary.total_short_value = response.total_short_value
     summary.total_pnl = response.total_pnl
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '加载头寸数据失败'))
+    ElMessage.error(getErrorMessage(error, t('workspaceDialogs.pmLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -236,10 +239,10 @@ function formatAmountCompact(value: number | null | undefined, digits = 2) {
   const number = Number(value)
   const abs = Math.abs(number)
   if (abs >= 100000000) {
-    return `${(number / 100000000).toFixed(digits)}亿`
+    return `${(number / 100000000).toFixed(digits)}${t('workspaceDialogs.pmAmountYi')}`
   }
   if (abs >= 10000) {
-    return `${(number / 10000).toFixed(digits)}万`
+    return `${(number / 10000).toFixed(digits)}${t('workspaceDialogs.pmAmountWan')}`
   }
   return number.toFixed(digits)
 }
