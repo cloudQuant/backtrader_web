@@ -3,10 +3,10 @@
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div>
         <h2 class="text-2xl font-bold">
-          Data Topic Hub
+          {{ t('dataPages.topicsTitle') }}
         </h2>
         <p class="text-sm text-gray-500 mt-1">
-          查看主题缓存、刷新结果，并连接 WebSocket 观察实时 fan-out。
+          {{ t('dataPages.topicsDesc') }}
         </p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
@@ -14,7 +14,7 @@
           :loading="loading"
           @click="loadData"
         >
-          刷新列表
+          {{ t('dataPages.topicsRefreshList') }}
         </el-button>
         <el-button
           type="primary"
@@ -22,7 +22,7 @@
           :loading="refreshing"
           @click="refreshSelectedTopic"
         >
-          刷新主题
+          {{ t('dataPages.topicsRefreshTopic') }}
         </el-button>
       </div>
     </div>
@@ -30,7 +30,7 @@
     <el-card>
       <template #header>
         <div class="flex items-center justify-between gap-3 flex-wrap">
-          <span class="font-bold">实时订阅</span>
+          <span class="font-bold">{{ t('dataPages.topicsRealtimeSub') }}</span>
           <div class="flex items-center gap-2 flex-wrap">
             <el-input
               v-model="topicPattern"
@@ -42,33 +42,33 @@
               type="success"
               @click="connectStream"
             >
-              连接 WS
+              {{ t('dataPages.topicsConnectWs') }}
             </el-button>
             <el-button
               v-else
               type="warning"
               @click="disconnectStream"
             >
-              断开 WS
+              {{ t('dataPages.topicsDisconnectWs') }}
             </el-button>
           </div>
         </div>
       </template>
       <div class="grid gap-3 md:grid-cols-4">
         <el-statistic
-          title="连接状态"
+          :title="t('dataPages.topicsConnState')"
           :value="wsConnected ? 'connected' : 'idle'"
         />
         <el-statistic
-          title="主题总数"
+          :title="t('dataPages.topicsTotal')"
           :value="stats?.total_topics ?? topics.length"
         />
         <el-statistic
-          title="活跃缓存"
+          :title="t('dataPages.topicsActiveCache')"
           :value="stats?.topics_with_value ?? 0"
         />
         <el-statistic
-          title="错误数"
+          :title="t('dataPages.topicsErrorCount')"
           :value="stats?.error_count ?? 0"
         />
       </div>
@@ -80,7 +80,7 @@
     <el-card>
       <template #header>
         <div class="font-bold">
-          主题列表
+          {{ t('dataPages.topicsList') }}
         </div>
       </template>
       <div class="topic-tags">
@@ -100,15 +100,15 @@
       >
         <el-table-column
           prop="topic"
-          label="Topic"
+          :label="t('dataPages.topicsColTopic')"
         />
         <el-table-column
           prop="subscription_count"
-          label="订阅者"
+          :label="t('dataPages.topicsColSubs')"
         />
         <el-table-column
           prop="has_value"
-          label="有缓存"
+          :label="t('dataPages.topicsColHasValue')"
         />
       </el-table>
     </el-card>
@@ -116,12 +116,12 @@
     <el-card>
       <template #header>
         <div class="font-bold">
-          当前主题
+          {{ t('dataPages.topicsCurrent') }}
         </div>
       </template>
       <div class="space-y-2 text-sm">
         <div>
-          <strong>Selected:</strong> {{ selectedTopic || '未选择' }}
+          <strong>Selected:</strong> {{ selectedTopic || t('dataPages.topicsNotSelected') }}
         </div>
         <div>
           <strong>Last Refresh Value:</strong>
@@ -138,9 +138,11 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { dataTopicsApi, type DataTopicItem, type DataTopicStats } from '@/api/dataTopics'
 import { useAuthStore } from '@/stores/auth'
 
+const { t } = useI18n()
 const authStore = useAuthStore()
 const loading = ref(false)
 const refreshing = ref(false)

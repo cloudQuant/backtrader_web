@@ -4,14 +4,14 @@
       <div class="header-row">
         <div>
           <div class="page-title">
-            数据表
+            {{ t('dataPages.tablesPageTitle') }}
           </div>
           <div class="page-subtitle">
-            查看已落盘数据表、更新状态和表详情预览。
+            {{ t('dataPages.tablesPageDesc') }}
           </div>
         </div>
         <el-tag type="info">
-          共 {{ total }} 张
+          {{ t('dataPages.tablesTotalSuffix', { n: total }) }}
         </el-tag>
       </div>
     </template>
@@ -20,7 +20,7 @@
       <el-input
         v-model="search"
         clearable
-        placeholder="按表名或备注搜索"
+        :placeholder="t('dataPages.tablesSearchPh')"
         class="toolbar-search"
         @keyup.enter="reloadFirstPage"
         @clear="reloadFirstPage"
@@ -29,7 +29,7 @@
         type="primary"
         @click="reloadFirstPage"
       >
-        查询
+        {{ t('dataPages.tablesQuery') }}
       </el-button>
     </div>
 
@@ -40,17 +40,17 @@
     >
       <el-table-column
         prop="table_name"
-        label="表名"
+        :label="t('dataPages.tablesColName')"
         min-width="220"
       />
       <el-table-column
         prop="table_comment"
-        label="备注"
+        :label="t('dataPages.tablesColComment')"
         min-width="180"
       />
       <el-table-column
         prop="row_count"
-        label="行数"
+        :label="t('dataPages.tablesColRowCount')"
         width="120"
       >
         <template #default="{ row }">
@@ -59,7 +59,7 @@
       </el-table-column>
       <el-table-column
         prop="last_update_status"
-        label="最近状态"
+        :label="t('dataPages.tablesColLastStatus')"
         width="110"
       >
         <template #default="{ row }">
@@ -70,7 +70,7 @@
       </el-table-column>
       <el-table-column
         prop="data_start_date"
-        label="数据起始"
+        :label="t('dataPages.tablesColDataStart')"
         width="120"
       >
         <template #default="{ row }">
@@ -79,7 +79,7 @@
       </el-table-column>
       <el-table-column
         prop="data_end_date"
-        label="数据结束"
+        :label="t('dataPages.tablesColDataEnd')"
         width="120"
       >
         <template #default="{ row }">
@@ -88,7 +88,7 @@
       </el-table-column>
       <el-table-column
         prop="updated_at"
-        label="更新时间"
+        :label="t('dataPages.tablesColUpdatedAt')"
         width="180"
       >
         <template #default="{ row }">
@@ -96,7 +96,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="操作"
+        :label="t('dataPages.tablesColActions')"
         width="100"
         fixed="right"
       >
@@ -106,7 +106,7 @@
             type="primary"
             @click="goDetail(row.id)"
           >
-            详情
+            {{ t('dataPages.tablesActionDetail') }}
           </el-button>
         </template>
       </el-table-column>
@@ -128,6 +128,7 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { akshareTablesApi } from '@/api/akshare'
@@ -135,6 +136,7 @@ import { getErrorMessage } from '@/api/index'
 import type { DataTable } from '@/types'
 import { compactCount, formatDateTime, formatShortDate } from '@/views/data/utils'
 
+const { t } = useI18n()
 const router = useRouter()
 
 const loading = ref(false)
@@ -155,7 +157,7 @@ async function loadTables() {
     tables.value = response.items
     total.value = response.total
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载数据表失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.tablesLoadFailed')))
   } finally {
     loading.value = false
   }

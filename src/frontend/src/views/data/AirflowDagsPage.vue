@@ -8,9 +8,9 @@
       class="mb-4"
     >
       <template #title>
-        当前编排后端: {{ orchestrationStatus.type === 'apscheduler' ? 'APScheduler (本地)' : '未初始化' }}
+        {{ t('dataPages.airflowBackend', { backend: orchestrationStatus.type === 'apscheduler' ? t('dataPages.airflowBackendApSched') : t('dataPages.airflowBackendUninit') }) }}
       </template>
-      Airflow 服务未连接，DAG 管理功能不可用。定时任务通过 APScheduler 执行。
+      {{ t('dataPages.airflowNotConnected') }}
     </el-alert>
 
     <!-- DAG List -->
@@ -22,7 +22,7 @@
             size="small"
             @click="refreshDags"
           >
-            刷新
+            {{ t('dataPages.airflowRefresh') }}
           </el-button>
         </div>
       </template>
@@ -34,30 +34,30 @@
       >
         <el-table-column
           prop="dag_id"
-          label="DAG ID"
+          :label="t('dataPages.airflowColDagId')"
           min-width="200"
         />
         <el-table-column
           prop="schedule_interval"
-          label="调度表达式"
+          :label="t('dataPages.airflowColSchedule')"
           width="150"
         />
         <el-table-column
-          label="状态"
+          :label="t('dataPages.airflowColStatus')"
           width="100"
         >
           <template #default="{ row }">
             <el-switch
               :model-value="!row.is_paused"
-              active-text="运行"
-              inactive-text="暂停"
+              :active-text="t('dataPages.airflowSwitchOn')"
+              :inactive-text="t('dataPages.airflowSwitchOff')"
               data-testid="dag-pause-switch"
               @change="(val: string | number | boolean) => togglePause(row.dag_id, !(val as boolean))"
             />
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="t('dataPages.airflowColActions')"
           width="200"
         >
           <template #default="{ row }">
@@ -67,14 +67,14 @@
               data-testid="dag-trigger-btn"
               @click="triggerDag(row.dag_id)"
             >
-              执行
+              {{ t('dataPages.airflowExecute') }}
             </el-button>
             <el-button
               size="small"
               data-testid="dag-runs-btn"
               @click="viewRuns(row.dag_id)"
             >
-              历史
+              {{ t('dataPages.airflowHistory') }}
             </el-button>
           </template>
         </el-table-column>
@@ -83,17 +83,19 @@
 
     <!-- Fallback: APScheduler mode info -->
     <el-card v-else>
-      <el-empty description="Airflow 未连接，请使用数据管理中的定时任务功能" />
+      <el-empty :description="t('dataPages.airflowEmptyDesc')" />
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { airflowApi } from '@/api/airflow'
 import type { AirflowDAG, OrchestrationStatus } from '@/api/airflow'
 
+const { t } = useI18n()
 const loading = ref(false)
 const dags = ref<AirflowDAG[]>([])
 const orchestrationStatus = ref<OrchestrationStatus | null>(null)
@@ -112,7 +114,7 @@ async function refreshDags() {
     const result = await airflowApi.listDags()
     dags.value = result.dags || []
   } catch {
-    ElMessage.error('获取 DAG 列表失败')
+    ElMessage.error(t('dataPages.airflowListFailed'))
   } finally {
     loading.value = false
   }
@@ -121,25 +123,25 @@ async function refreshDags() {
 async function togglePause(dagId: string, isPaused: boolean) {
   try {
     await airflowApi.togglePause(dagId, isPaused)
-    ElMessage.success(isPaused ? 'DAG 已暂停' : 'DAG 已恢复')
+    ElMessage.success(isPaused ? t('dataPages.airflowDagPaused') : t('dataPages.airflowDagResumed'))
     await refreshDags()
   } catch {
-    ElMessage.error('操作失败')
+    ElMessage.error(t('dataPages.airflowOpFailed'))
   }
 }
 
 async function triggerDag(dagId: string) {
   try {
     await airflowApi.triggerDag(dagId)
-    ElMessage.success('DAG 已触发执行')
+    ElMessage.success(t('dataPages.airflowDagTriggered'))
   } catch {
-    ElMessage.error('触发执行失败')
+    ElMessage.error(t('dataPages.airflowTriggerFailed'))
   }
 }
 
 function viewRuns(dagId: string) {
   // TODO: Navigate to DAG runs detail page
-  ElMessage.info(`查看 ${dagId} 执行历史`)
+  ElMessage.info(t('dataPages.airflowViewHistory', { dag: dagId }))
 }
 
 onMounted(async () => {

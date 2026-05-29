@@ -3,15 +3,15 @@
     <el-card class="data-shell">
       <div class="hero">
         <div>
-          <h1>数据治理中心</h1>
-          <p>统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。</p>
+          <h1>{{ t('dataPages.layoutHeroTitle') }}</h1>
+          <p>{{ t('dataPages.layoutHeroDesc') }}</p>
         </div>
         <div class="hero-tags">
           <el-tag :type="isAdmin ? 'danger' : 'info'">
-            {{ isAdmin ? '管理员模式' : '只读模式' }}
+            {{ isAdmin ? t('dataPages.layoutAdminMode') : t('dataPages.layoutReadOnly') }}
           </el-tag>
           <el-tag type="success">
-            市场数据已并入
+            {{ t('dataPages.layoutMarketMerged') }}
           </el-tag>
         </div>
       </div>
@@ -36,8 +36,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+
+const { t } = useI18n()
 
 type DataTab = {
   label: string
@@ -52,18 +55,18 @@ const isAdmin = computed(() => authStore.user?.is_admin ?? false)
 
 const tabs = computed<DataTab[]>(() => {
   const items: DataTab[] = [
-    { label: '市场数据', path: '/data/market' },
-    { label: '主题中心', path: '/data/topics' },
-    { label: '数据接口', path: '/data/scripts' },
-    { label: '定时任务', path: '/data/tasks' },
-    { label: '执行记录', path: '/data/executions' },
-    { label: '数据表', path: '/data/tables' },
+    { label: t('dataPages.layoutTabMarket'), path: '/data/market' },
+    { label: t('dataPages.layoutTabTopics'), path: '/data/topics' },
+    { label: t('dataPages.layoutTabScripts'), path: '/data/scripts' },
+    { label: t('dataPages.layoutTabTasks'), path: '/data/tasks' },
+    { label: t('dataPages.layoutTabExecutions'), path: '/data/executions' },
+    { label: t('dataPages.layoutTabTables'), path: '/data/tables' },
   ]
 
   if (isAdmin.value) {
-    items.push({ label: '数据同步', path: '/data/sync' })
-    items.push({ label: '接口管理', path: '/data/interfaces' })
-    items.push({ label: '连接治理', path: '/data/governance' })
+    items.push({ label: t('dataPages.layoutTabSync'), path: '/data/sync' })
+    items.push({ label: t('dataPages.layoutTabInterfaces'), path: '/data/interfaces' })
+    items.push({ label: t('dataPages.layoutTabGovernance'), path: '/data/governance' })
   }
 
   return items

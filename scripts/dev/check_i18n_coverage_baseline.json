@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14621 violations; CJK subset is ~867 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
-  "baseline_violations": 14621,
-  "baseline_cjk_violations": 867,
-  "baseline_commit": "176-c-pass-18",
+  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14574 violations; CJK subset is ~813 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
+  "baseline_violations": 14574,
+  "baseline_cjk_violations": 813,
+  "baseline_commit": "176-c-pass-19",
   "baseline_date": "2026-05-29",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -26,6 +26,7 @@
     {"commit": "299f15eb", "violations": 15040, "cjk": 1290, "note": "CreateUnitDialog + TradingWorkspaceUnitsTab"},
     {"commit": "175-close-pass-16", "violations": 14945, "cjk": 1188, "note": "AutoTradingConfigDialog (52) + OptimizationConfigDialog (39) + DataSourceDialog (38) -> workspaceDialogs.* namespace (+64 keys)"},
     {"commit": "176-c-pass-17", "violations": 14769, "cjk": 1012, "note": "8 workspace dialogs: UnitSettings(31)+ExportTradingUnits(18)+ScheduledOptimization(27)+ImportTradingUnits(28)+WorkspaceDataSource(30)+UnitTable(28)+UnitActionsBar(26)+BatchOptimizationConfigDialog(28) -> workspaceDialogs.* namespace (+147 keys, parity 1100/1100)"},
-    {"commit": "176-c-pass-18", "violations": 14621, "cjk": 867, "note": "10 workspace dialogs: PositionManager(25)+GroupLink(24)+TradingDayStats(22)+UnitRuntime(20)+StrategyParams(18)+UnitRename(17)+GroupRename(16)+ChangeSymbol(16)+OptimizationThread(12)+TradingPosition(10) -> workspaceDialogs.* namespace (+155 keys, parity 1255/1255)"}
+    {"commit": "176-c-pass-18", "violations": 14621, "cjk": 867, "note": "10 workspace dialogs: PositionManager(25)+GroupLink(24)+TradingDayStats(22)+UnitRuntime(20)+StrategyParams(18)+UnitRename(17)+GroupRename(16)+ChangeSymbol(16)+OptimizationThread(12)+TradingPosition(10) -> workspaceDialogs.* namespace (+155 keys, parity 1255/1255)"},
+    {"commit": "176-c-pass-19", "violations": 14574, "cjk": 813, "note": "7 views/data/* small pages: DataLayout(18)+DataTablesPage(17)+DataTableDetailPage(18)+DataTopicsPage(18)+DataGovernancePage(9)+AirflowDagsPage(26)+DataScriptDetailPage(26) -> dataPages.* namespace (+114 keys, parity 1369/1369)"}
   ]
 }

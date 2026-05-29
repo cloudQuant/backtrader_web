@@ -1,11 +1,11 @@
 <template>
   <div class="space-y-6">
     <el-page-header
-      title="返回"
+      :title="t('dataPages.detailGoBack')"
       @back="goBack"
     >
       <template #content>
-        <span>{{ script?.script_name || '脚本详情' }}</span>
+        <span>{{ script?.script_name || t('dataPages.scriptDetailFallback') }}</span>
       </template>
     </el-page-header>
 
@@ -14,7 +14,7 @@
         <div class="detail-header">
           <div>
             <div class="detail-title">
-              {{ script?.script_name || '加载中' }}
+              {{ script?.script_name || t('dataPages.scriptDetailLoading') }}
             </div>
             <div class="detail-subtitle">
               {{ script?.script_id }}
@@ -28,7 +28,7 @@
               v-if="script"
               :type="script.is_active ? 'success' : 'warning'"
             >
-              {{ script.is_active ? '启用' : '停用' }}
+              {{ script.is_active ? t('dataPages.scriptDetailEnabled') : t('dataPages.scriptDetailDisabled') }}
             </el-tag>
           </div>
         </div>
@@ -39,49 +39,49 @@
         :column="2"
         border
       >
-        <el-descriptions-item label="模块路径">
+        <el-descriptions-item :label="t('dataPages.scriptDetailModulePath')">
           {{ script.module_path || '-' }}
         </el-descriptions-item>
-        <el-descriptions-item label="函数名">
+        <el-descriptions-item :label="t('dataPages.scriptDetailFuncName')">
           {{ script.function_name || '-' }}
         </el-descriptions-item>
-        <el-descriptions-item label="目标表">
+        <el-descriptions-item :label="t('dataPages.scriptDetailTargetTable')">
           {{ script.target_table || '-' }}
         </el-descriptions-item>
-        <el-descriptions-item label="频率">
+        <el-descriptions-item :label="t('dataPages.scriptDetailFrequency')">
           {{ script.frequency || '-' }}
         </el-descriptions-item>
         <el-descriptions-item
-          label="描述"
+          :label="t('dataPages.scriptDetailDescription')"
           :span="2"
         >
-          {{ script.description || '暂无描述' }}
+          {{ script.description || t('dataPages.scriptDetailNoDesc') }}
         </el-descriptions-item>
       </el-descriptions>
 
       <div class="run-panel">
         <div class="section-title">
-          手动执行
+          {{ t('dataPages.scriptDetailManualRun') }}
         </div>
         <el-alert
           type="info"
           :closable="false"
           show-icon
         >
-          这里直接向后端发送执行参数 JSON，执行结果会写入“执行记录”和“数据表”页面。
+          {{ t('dataPages.scriptDetailRunNote') }}
         </el-alert>
         <el-input
           v-model="paramsText"
           type="textarea"
           :rows="10"
-          placeholder="请输入 JSON 参数对象"
+          :placeholder="t('dataPages.scriptDetailParamsPh')"
         />
         <div class="run-actions">
           <el-button
             :disabled="!script"
             @click="openTaskCreate"
           >
-            去创建定时任务
+            {{ t('dataPages.scriptDetailGoCreateTask') }}
           </el-button>
           <el-button
             v-if="isAdmin"
@@ -90,7 +90,7 @@
             :disabled="!script"
             @click="runNow"
           >
-            立即执行
+            {{ t('dataPages.scriptDetailRunNow') }}
           </el-button>
         </div>
       </div>
@@ -100,7 +100,7 @@
         class="json-panel"
       >
         <div class="section-title">
-          依赖参数定义
+          {{ t('dataPages.scriptDetailDepsTitle') }}
         </div>
         <pre>{{ toJsonText(script.dependencies || {}) }}</pre>
       </div>
@@ -110,6 +110,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { akshareScriptsApi } from '@/api/akshare'
@@ -118,6 +119,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { DataScript } from '@/types'
 import { parseJsonText, toJsonText } from '@/views/data/utils'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -138,7 +140,7 @@ async function loadDetail() {
   try {
     script.value = await akshareScriptsApi.getDetail(String(route.params.id))
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载脚本详情失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.scriptDetailLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -154,13 +156,13 @@ async function runNow() {
     const result = await akshareScriptsApi.run(script.value.script_id, {
       parameters: parseJsonText(paramsText.value),
     })
-    ElMessage.success(`执行已触发：${result.execution_id}`)
+    ElMessage.success(t('dataPages.scriptDetailRunTriggered', { id: result.execution_id }))
     void router.push({
       name: 'DataExecutions',
       query: { script_id: script.value.script_id },
     })
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '执行脚本失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.scriptDetailRunFailed')))
   } finally {
     running.value = false
   }

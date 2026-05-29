@@ -1,11 +1,11 @@
 <template>
   <div class="space-y-6">
     <el-page-header
-      title="返回"
+      :title="t('dataPages.detailGoBack')"
       @back="goBack"
     >
       <template #content>
-        <span>{{ table?.table_name || '数据表详情' }}</span>
+        <span>{{ table?.table_name || t('dataPages.detailFallbackTitle') }}</span>
       </template>
     </el-page-header>
 
@@ -15,22 +15,22 @@
         :column="2"
         border
       >
-        <el-descriptions-item label="表名">
+        <el-descriptions-item :label="t('dataPages.detailLabelTableName')">
           {{ table.table_name }}
         </el-descriptions-item>
-        <el-descriptions-item label="行数">
+        <el-descriptions-item :label="t('dataPages.detailLabelRowCount')">
           {{ compactCount(table.row_count) }}
         </el-descriptions-item>
-        <el-descriptions-item label="脚本 ID">
+        <el-descriptions-item :label="t('dataPages.detailLabelScriptId')">
           {{ table.script_id || '-' }}
         </el-descriptions-item>
-        <el-descriptions-item label="最近状态">
+        <el-descriptions-item :label="t('dataPages.detailLabelLastStatus')">
           {{ table.last_update_status || '-' }}
         </el-descriptions-item>
-        <el-descriptions-item label="数据起始">
+        <el-descriptions-item :label="t('dataPages.detailLabelDataStart')">
           {{ formatShortDate(table.data_start_date) }}
         </el-descriptions-item>
-        <el-descriptions-item label="数据结束">
+        <el-descriptions-item :label="t('dataPages.detailLabelDataEnd')">
           {{ formatShortDate(table.data_end_date) }}
         </el-descriptions-item>
       </el-descriptions>
@@ -41,7 +41,7 @@
         @tab-change="handleTabChange"
       >
         <el-tab-pane
-          label="表结构"
+          :label="t('dataPages.detailTabSchema')"
           name="schema"
         >
           <el-table
@@ -50,34 +50,34 @@
           >
             <el-table-column
               prop="name"
-              label="列名"
+              :label="t('dataPages.detailColColumnName')"
               min-width="180"
             />
             <el-table-column
               prop="type"
-              label="类型"
+              :label="t('dataPages.detailColColumnType')"
               width="180"
             />
             <el-table-column
-              label="可空"
+              :label="t('dataPages.detailColNullable')"
               width="100"
             >
               <template #default="{ row }">
                 <el-tag :type="row.nullable ? 'success' : 'danger'">
-                  {{ row.nullable ? '是' : '否' }}
+                  {{ row.nullable ? t('dataPages.detailColNullYes') : t('dataPages.detailColNullNo') }}
                 </el-tag>
               </template>
             </el-table-column>
             <el-table-column
               prop="default"
-              label="默认值"
+              :label="t('dataPages.detailColDefault')"
               min-width="140"
             />
           </el-table>
         </el-tab-pane>
 
         <el-tab-pane
-          label="数据预览"
+          :label="t('dataPages.detailTabRows')"
           name="rows"
         >
           <el-table
@@ -114,6 +114,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { akshareTablesApi } from '@/api/akshare'
@@ -121,6 +122,7 @@ import { getErrorMessage } from '@/api/index'
 import type { DataTable, DataTableRowsResponse, DataTableSchemaResponse } from '@/types'
 import { compactCount, formatShortDate } from '@/views/data/utils'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
@@ -155,7 +157,7 @@ async function loadBase() {
     table.value = tableDetail
     schema.value = schemaDetail
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载表详情失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.detailLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -169,7 +171,7 @@ async function loadRows() {
     })
     Object.assign(rows, response)
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载表预览失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.detailLoadRowsFailed')))
   }
 }
 
