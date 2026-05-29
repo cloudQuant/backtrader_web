@@ -142,6 +142,7 @@ export default {
     createdAt: 'Created At',
     updatedAt: 'Updated At',
     confirmDelete: 'Are you sure you want to delete this strategy?',
+    warnNameOrCodeEmpty: 'Please fill in the strategy name and code',
     // 175 §5.8 / 176 § C — StrategyPage extension
     gallery: 'Strategy Library',
     pagination: 'Pagination',

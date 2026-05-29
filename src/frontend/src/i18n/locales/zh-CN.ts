@@ -142,6 +142,7 @@ export default {
     createdAt: '创建时间',
     updatedAt: '更新时间',
     confirmDelete: '确定要删除该策略吗？',
+    warnNameOrCodeEmpty: '请填写策略名称和代码',
     // 175 §5.8 / 176 § C — StrategyPage extension
     gallery: '策略库',
     pagination: '分页',

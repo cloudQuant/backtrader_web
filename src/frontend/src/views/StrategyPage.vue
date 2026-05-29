@@ -637,7 +637,7 @@ function useTemplate(template: StrategyTemplate) {
 
 async function saveStrategy() {
   if (!form.name || !form.code) {
-    ElMessage.warning(t('strategy.strategyName') + ' & ' + t('strategy.strategyCode'))
+    ElMessage.warning(t('strategy.warnNameOrCodeEmpty'))
     return
   }
   saving.value = true

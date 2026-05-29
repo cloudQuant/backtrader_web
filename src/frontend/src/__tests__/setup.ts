@@ -3,13 +3,82 @@
  * 在所有测试运行前执行
  */
 import { config } from '@vue/test-utils'
+import { ref } from 'vue'
 import { vi } from 'vitest'
 
 import { elStubs } from './stubs'
+import zhCN from '@/i18n/locales/zh-CN'
+
+// Flatten the zh-CN nested object into a dotted-key map so `t('ns.key')`
+// returns the localized string. Iteration 176 §C left many tests asserting
+// directly against Chinese phrases, so this restores those assertions
+// without requiring per-file vi.mock('vue-i18n', ...) overrides.
+function flattenLocale(obj: Record<string, unknown>, prefix = ''): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix}.${k}` : k
+    if (v && typeof v === 'object') {
+      Object.assign(out, flattenLocale(v as Record<string, unknown>, key))
+    } else {
+      out[key] = String(v)
+    }
+  }
+  return out
+}
+
+const flatZhCN = flattenLocale(zhCN as Record<string, unknown>)
+
+function tWithInterp(key: string, named?: Record<string, unknown>): string {
+  const template = flatZhCN[key] ?? key
+  if (!named) return template
+  return template.replace(/\{(\w+)\}/g, (_, name) =>
+    name in named ? String(named[name]) : `{${name}}`
+  )
+}
+
+// Iteration 176 §C left many components calling useI18n() in <script setup>.
+// Without a vue-i18n install (createI18n + app.use), those calls throw at
+// mount time ("Need to install with `app.use` function"). Provide a
+// passthrough that returns the actual zh-CN translation so existing
+// per-test assertions on Chinese phrases keep working.
+//
+// Individual tests can still override this via vi.mock('vue-i18n', ...) when
+// they need locale-specific assertions on en-US.
+vi.mock('vue-i18n', () => ({
+  createI18n: vi.fn(() => ({
+    global: { t: tWithInterp, locale: ref('zh-CN') },
+    install: vi.fn(),
+  })),
+  useI18n: vi.fn(() => ({
+    t: tWithInterp,
+    locale: ref('zh-CN'),
+  })),
+}))
+
+// Iteration 176 §C TS-modules (api/index, stores/quote, stores/kbChat,
+// composables/useBacktestRuntime, …) import the i18n singleton directly via
+// `import i18n from '@/i18n'` and call `i18n.global.t(key, named)`. Mirror
+// the same passthrough so these modules render zh-CN strings.
+vi.mock('@/i18n', () => ({
+  default: {
+    global: {
+      t: tWithInterp,
+      locale: { value: 'zh-CN' },
+    },
+  },
+}))
 
 config.global.stubs = {
   ...(config.global.stubs || {}),
   ...elStubs,
+}
+
+// Provide $t as a global property so templates that use Vue 2-style $t()
+// (e.g., StrategyPage.vue line 176 `:label="$t('common.action')"`) keep
+// working without mounting a real i18n plugin.
+config.global.mocks = {
+  ...(config.global.mocks || {}),
+  $t: tWithInterp,
 }
 
 // Mock v-loading directive

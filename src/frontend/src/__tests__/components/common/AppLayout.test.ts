@@ -298,18 +298,18 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('AI助手')
     })
 
-    it('AI成本页面应该显示"AI成本看板"', async () => {
+    it('AI成本页面应该显示"AI成本"', async () => {
       await router.push('/admin/ai-observability')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      expect(wrapper.text()).toContain('AI成本看板')
+      expect(wrapper.text()).toContain('AI成本')
     })
 
-    it('Prompt治理页面应该显示"Prompt模板治理"', async () => {
+    it('Prompt治理页面应该显示"Prompt治理"', async () => {
       await router.push('/admin/prompt-templates')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      expect(wrapper.text()).toContain('Prompt模板治理')
+      expect(wrapper.text()).toContain('Prompt治理')
     })
 
     it('知识库页面应该显示"知识库"', async () => {

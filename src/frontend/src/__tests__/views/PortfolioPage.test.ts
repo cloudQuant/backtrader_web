@@ -8,10 +8,31 @@ vi.mock('element-plus', () => ({
   ElMessage: { success: vi.fn(), error: vi.fn() },
 }))
 
-vi.mock('vue-i18n', () => ({
-  createI18n: vi.fn(() => ({ global: { t: (key: string) => key } })),
-  useI18n: vi.fn(() => ({ t: (key: string) => key })),
-}))
+// Use the actual zh-CN locale so `t('portfolio.unitYi')` -> '亿' for assertions
+// like formatMoney(-2e8) -> '-2.00亿'. Aligns with the global setup.ts mock.
+vi.mock('vue-i18n', async () => {
+  const { ref } = await import('vue')
+  const zhCN = (await import('@/i18n/locales/zh-CN')).default
+  function flatten(obj: Record<string, unknown>, prefix = ''): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const [k, v] of Object.entries(obj)) {
+      const key = prefix ? `${prefix}.${k}` : k
+      if (v && typeof v === 'object') Object.assign(out, flatten(v as Record<string, unknown>, key))
+      else out[key] = String(v)
+    }
+    return out
+  }
+  const flat = flatten(zhCN as Record<string, unknown>)
+  const t = (key: string, named?: Record<string, unknown>) => {
+    const tpl = flat[key] ?? key
+    if (!named) return tpl
+    return tpl.replace(/\{(\w+)\}/g, (_, n) => (n in named ? String(named[n]) : `{${n}}`))
+  }
+  return {
+    createI18n: vi.fn(() => ({ global: { t, locale: ref('zh-CN') }, install: vi.fn() })),
+    useI18n: vi.fn(() => ({ t, locale: ref('zh-CN') })),
+  }
+})
 
 vi.mock('@/api/strategy', () => ({
   strategyApi: {
