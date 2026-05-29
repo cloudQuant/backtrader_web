@@ -3,7 +3,7 @@
     <section class="stats-grid">
       <el-card>
         <div class="stat-title">
-          脚本总数
+          {{ t('dataPages.scriptsStatTotal') }}
         </div>
         <div class="stat-value">
           {{ stats.total_scripts }}
@@ -11,7 +11,7 @@
       </el-card>
       <el-card>
         <div class="stat-title">
-          启用脚本
+          {{ t('dataPages.scriptsStatActive') }}
         </div>
         <div class="stat-value">
           {{ stats.active_scripts }}
@@ -19,7 +19,7 @@
       </el-card>
       <el-card>
         <div class="stat-title">
-          自定义脚本
+          {{ t('dataPages.scriptsStatCustom') }}
         </div>
         <div class="stat-value">
           {{ stats.custom_scripts }}
@@ -27,7 +27,7 @@
       </el-card>
       <el-card>
         <div class="stat-title">
-          覆盖分类
+          {{ t('dataPages.scriptsStatCategories') }}
         </div>
         <div class="stat-value">
           {{ stats.categories.length }}
@@ -40,10 +40,10 @@
         <div class="header-row">
           <div>
             <div class="page-title">
-              数据脚本
+              {{ t('dataPages.scriptsPageTitle') }}
             </div>
             <div class="page-subtitle">
-              扫描内置脚本、管理自定义脚本并手动触发执行。
+              {{ t('dataPages.scriptsPageDesc') }}
             </div>
           </div>
           <div class="actions">
@@ -52,14 +52,14 @@
               :loading="scanLoading"
               @click="handleScan"
             >
-              重新扫描
+              {{ t('dataPages.scriptsRescan') }}
             </el-button>
             <el-button
               v-if="isAdmin"
               type="primary"
               @click="openCreateDialog"
             >
-              新建自定义脚本
+              {{ t('dataPages.scriptsNewCustom') }}
             </el-button>
           </div>
         </div>
@@ -69,7 +69,7 @@
         <el-select
           v-model="filters.category"
           clearable
-          placeholder="按分类筛选"
+          :placeholder="t('dataPages.scriptsCategoryPh')"
           class="toolbar-item"
           @change="reloadFirstPage"
         >
@@ -83,20 +83,20 @@
 
         <el-select
           v-model="activeFilter"
-          placeholder="启用状态"
+          :placeholder="t('dataPages.scriptsActivePh')"
           class="toolbar-item"
           @change="reloadFirstPage"
         >
           <el-option
-            label="全部状态"
+            :label="t('dataPages.scriptsFilterAll')"
             value="all"
           />
           <el-option
-            label="仅启用"
+            :label="t('dataPages.scriptsFilterActive')"
             value="active"
           />
           <el-option
-            label="仅停用"
+            :label="t('dataPages.scriptsFilterInactive')"
             value="inactive"
           />
         </el-select>
@@ -104,13 +104,13 @@
         <el-input
           v-model="filters.keyword"
           clearable
-          placeholder="搜索脚本名称、ID、描述"
+          :placeholder="t('dataPages.scriptsSearchPh')"
           class="toolbar-search"
           @keyup.enter="reloadFirstPage"
           @clear="reloadFirstPage"
         />
         <el-button @click="reloadFirstPage">
-          查询
+          {{ t('dataPages.scriptsQuery') }}
         </el-button>
       </div>
 
@@ -121,17 +121,17 @@
       >
         <el-table-column
           prop="script_name"
-          label="名称"
+          :label="t('dataPages.scriptsColName')"
           min-width="180"
         />
         <el-table-column
           prop="script_id"
-          label="脚本 ID"
+          :label="t('dataPages.scriptsColScriptId')"
           min-width="150"
         />
         <el-table-column
           prop="category"
-          label="分类"
+          :label="t('dataPages.scriptsColCategory')"
           width="120"
         >
           <template #default="{ row }">
@@ -140,32 +140,32 @@
         </el-table-column>
         <el-table-column
           prop="target_table"
-          label="目标表"
+          :label="t('dataPages.scriptsColTargetTable')"
           min-width="140"
         />
         <el-table-column
-          label="类型"
+          :label="t('dataPages.scriptsColType')"
           width="100"
         >
           <template #default="{ row }">
             <el-tag :type="row.is_custom ? 'success' : 'info'">
-              {{ row.is_custom ? '自定义' : '内置' }}
+              {{ row.is_custom ? t('dataPages.scriptsTypeCustom') : t('dataPages.scriptsTypeBuiltin') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
-          label="状态"
+          :label="t('dataPages.scriptsColStatus')"
           width="100"
         >
           <template #default="{ row }">
             <el-tag :type="row.is_active ? 'success' : 'warning'">
-              {{ row.is_active ? '启用' : '停用' }}
+              {{ row.is_active ? t('dataPages.scriptsStatusActive') : t('dataPages.scriptsStatusInactive') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="updated_at"
-          label="更新时间"
+          :label="t('dataPages.scriptsColUpdatedAt')"
           width="180"
         >
           <template #default="{ row }">
@@ -173,7 +173,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="t('dataPages.scriptsColActions')"
           fixed="right"
           min-width="260"
         >
@@ -183,7 +183,7 @@
               type="primary"
               @click="goDetail(row.script_id)"
             >
-              详情
+              {{ t('dataPages.scriptsActionDetail') }}
             </el-button>
             <el-button
               v-if="isAdmin"
@@ -191,21 +191,21 @@
               type="success"
               @click="runScript(row.script_id)"
             >
-              执行
+              {{ t('dataPages.scriptsActionRun') }}
             </el-button>
             <el-button
               v-if="isAdmin"
               link
               @click="toggleScript(row.script_id)"
             >
-              {{ row.is_active ? '停用' : '启用' }}
+              {{ row.is_active ? t('dataPages.scriptsActionDisable') : t('dataPages.scriptsActionEnable') }}
             </el-button>
             <el-button
               v-if="isAdmin && row.is_custom"
               link
               @click="openEditDialog(row)"
             >
-              编辑
+              {{ t('dataPages.scriptsActionEdit') }}
             </el-button>
             <el-button
               v-if="isAdmin && row.is_custom"
@@ -213,7 +213,7 @@
               type="danger"
               @click="deleteScript(row)"
             >
-              删除
+              {{ t('dataPages.scriptsActionDelete') }}
             </el-button>
           </template>
         </el-table-column>
@@ -234,29 +234,29 @@
 
     <el-dialog
       v-model="dialogVisible"
-      :title="dialogMode === 'create' ? '新建自定义脚本' : '编辑自定义脚本'"
+      :title="dialogMode === 'create' ? t('dataPages.scriptsDialogCreate') : t('dataPages.scriptsDialogEdit')"
       width="720px"
     >
       <el-form
         label-width="110px"
         :model="form"
       >
-        <el-form-item label="脚本 ID">
+        <el-form-item :label="t('dataPages.scriptsFormScriptId')">
           <el-input
             v-model="form.script_id"
             :disabled="dialogMode === 'edit'"
           />
         </el-form-item>
-        <el-form-item label="名称">
+        <el-form-item :label="t('dataPages.scriptsFormName')">
           <el-input v-model="form.script_name" />
         </el-form-item>
-        <el-form-item label="分类">
+        <el-form-item :label="t('dataPages.scriptsFormCategory')">
           <el-input v-model="form.category" />
         </el-form-item>
-        <el-form-item label="子分类">
+        <el-form-item :label="t('dataPages.scriptsFormSubCategory')">
           <el-input v-model="form.sub_category" />
         </el-form-item>
-        <el-form-item label="频率">
+        <el-form-item :label="t('dataPages.scriptsFormFrequency')">
           <el-select
             v-model="form.frequency"
             class="full-width"
@@ -269,59 +269,59 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="目标表">
+        <el-form-item :label="t('dataPages.scriptsFormTargetTable')">
           <el-input v-model="form.target_table" />
         </el-form-item>
-        <el-form-item label="模块路径">
+        <el-form-item :label="t('dataPages.scriptsFormModulePath')">
           <el-input v-model="form.module_path" />
         </el-form-item>
-        <el-form-item label="函数名">
+        <el-form-item :label="t('dataPages.scriptsFormFuncName')">
           <el-input v-model="form.function_name" />
         </el-form-item>
-        <el-form-item label="超时秒数">
+        <el-form-item :label="t('dataPages.scriptsFormTimeout')">
           <el-input-number
             v-model="form.timeout"
             :min="1"
             :step="30"
           />
         </el-form-item>
-        <el-form-item label="预计时长">
+        <el-form-item :label="t('dataPages.scriptsFormEstDuration')">
           <el-input-number
             v-model="form.estimated_duration"
             :min="1"
             :step="10"
           />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('dataPages.scriptsFormDesc')">
           <el-input
             v-model="form.description"
             type="textarea"
             :rows="3"
           />
         </el-form-item>
-        <el-form-item label="依赖参数">
+        <el-form-item :label="t('dataPages.scriptsFormDeps')">
           <el-input
             v-model="dependenciesText"
             type="textarea"
             :rows="8"
-            placeholder="请输入 JSON 对象"
+            :placeholder="t('dataPages.scriptsDepsPh')"
           />
         </el-form-item>
-        <el-form-item label="启用">
+        <el-form-item :label="t('dataPages.scriptsFormIsActive')">
           <el-switch v-model="form.is_active" />
         </el-form-item>
       </el-form>
 
       <template #footer>
         <el-button @click="dialogVisible = false">
-          取消
+          {{ t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           :loading="saving"
           @click="submitForm"
         >
-          保存
+          {{ t('common.save') }}
         </el-button>
       </template>
     </el-dialog>
@@ -330,6 +330,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { akshareScriptsApi } from '@/api/akshare'
@@ -338,6 +339,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { DataScript, DataScriptFormPayload, ScriptStatsResponse } from '@/types'
 import { formatDateTime, parseJsonText, toJsonText } from '@/views/data/utils'
 
+const { t } = useI18n()
 const router = useRouter()
 const authStore = useAuthStore()
 
@@ -425,7 +427,7 @@ async function loadScripts() {
     scripts.value = response.items
     total.value = response.total
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载脚本失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.scriptsLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -477,7 +479,7 @@ function openEditDialog(script: DataScript) {
 
 async function submitForm() {
   if (!form.script_id.trim() || !form.script_name.trim() || !form.category.trim()) {
-    ElMessage.warning('请填写脚本 ID、名称和分类')
+    ElMessage.warning(t('dataPages.scriptsValidationFill'))
     return
   }
 
@@ -498,17 +500,17 @@ async function submitForm() {
 
     if (dialogMode.value === 'create') {
       await akshareScriptsApi.create(payload)
-      ElMessage.success('脚本已创建')
+      ElMessage.success(t('dataPages.scriptsCreated'))
     } else {
       const { script_id, ...updatePayload } = payload
       void script_id
       await akshareScriptsApi.update(form.script_id, updatePayload)
-      ElMessage.success('脚本已更新')
+      ElMessage.success(t('dataPages.scriptsUpdated'))
     }
     dialogVisible.value = false
     await refreshAll()
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '保存脚本失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.scriptsSaveFailed')))
   } finally {
     saving.value = false
   }
@@ -518,10 +520,10 @@ async function handleScan() {
   scanLoading.value = true
   try {
     const result = await akshareScriptsApi.scan()
-    ElMessage.success(`扫描完成：新增 ${result.registered}，更新 ${result.updated}`)
+    ElMessage.success(t('dataPages.scriptsScanned', { registered: result.registered, updated: result.updated }))
     await refreshAll()
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '扫描脚本失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.scriptsScanFailed')))
   } finally {
     scanLoading.value = false
   }
@@ -530,32 +532,36 @@ async function handleScan() {
 async function runScript(scriptId: string) {
   try {
     const result = await akshareScriptsApi.run(scriptId, { parameters: {} })
-    ElMessage.success(`已触发执行：${result.execution_id}`)
+    ElMessage.success(t('dataPages.scriptsRunTriggered', { id: result.execution_id }))
     void router.push({ name: 'DataExecutions', query: { script_id: scriptId } })
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '执行脚本失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.scriptsRunFailed')))
   }
 }
 
 async function toggleScript(scriptId: string) {
   try {
     await akshareScriptsApi.toggle(scriptId)
-    ElMessage.success('脚本状态已更新')
+    ElMessage.success(t('dataPages.scriptsToggled'))
     await refreshAll()
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '更新脚本状态失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.scriptsToggleFailed')))
   }
 }
 
 async function deleteScript(script: DataScript) {
   try {
-    await ElMessageBox.confirm(`确认删除脚本 ${script.script_name}？`, '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(
+      t('dataPages.scriptsDeleteConfirmMsg', { name: script.script_name }),
+      t('dataPages.scriptsDeleteConfirmTitle'),
+      { type: 'warning' }
+    )
     await akshareScriptsApi.delete(script.script_id)
-    ElMessage.success('脚本已删除')
+    ElMessage.success(t('dataPages.scriptsDeleted'))
     await refreshAll()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(getErrorMessage(error, '删除脚本失败'))
+      ElMessage.error(getErrorMessage(error, t('dataPages.scriptsDeleteFailed')))
     }
   }
 }

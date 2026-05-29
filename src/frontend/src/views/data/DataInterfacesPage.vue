@@ -5,10 +5,10 @@
         <div class="header-row">
           <div>
             <div class="page-title">
-              接口管理
+              {{ t('dataPages.ifPageTitle') }}
             </div>
             <div class="page-subtitle">
-              管理 akshare 接口元数据和参数定义。
+              {{ t('dataPages.ifPageDesc') }}
             </div>
           </div>
           <div class="actions">
@@ -17,14 +17,14 @@
               :loading="bootstrapping"
               @click="bootstrapInterfaces"
             >
-              从 akshare 引导
+              {{ t('dataPages.ifBootstrap') }}
             </el-button>
             <el-button
               v-if="isAdmin"
               type="primary"
               @click="openCreateDialog"
             >
-              新建接口
+              {{ t('dataPages.ifNewInterface') }}
             </el-button>
           </div>
         </div>
@@ -35,7 +35,7 @@
           v-model="categoryId"
           clearable
           class="toolbar-item"
-          placeholder="接口分类"
+          :placeholder="t('dataPages.ifCategoryPh')"
           @change="reloadFirstPage"
         >
           <el-option
@@ -51,22 +51,22 @@
           @change="reloadFirstPage"
         >
           <el-option
-            label="全部状态"
+            :label="t('dataPages.ifFilterAll')"
             value="all"
           />
           <el-option
-            label="启用"
+            :label="t('dataPages.ifFilterActive')"
             value="active"
           />
           <el-option
-            label="停用"
+            :label="t('dataPages.ifFilterInactive')"
             value="inactive"
           />
         </el-select>
         <el-input
           v-model="search"
           clearable
-          placeholder="搜索接口名、展示名、描述"
+          :placeholder="t('dataPages.ifSearchPh')"
           class="toolbar-search"
           @keyup.enter="reloadFirstPage"
           @clear="reloadFirstPage"
@@ -75,7 +75,7 @@
           type="primary"
           @click="reloadFirstPage"
         >
-          查询
+          {{ t('dataPages.ifQuery') }}
         </el-button>
       </div>
 
@@ -86,16 +86,16 @@
       >
         <el-table-column
           prop="display_name"
-          label="展示名"
+          :label="t('dataPages.ifColDisplayName')"
           min-width="180"
         />
         <el-table-column
           prop="name"
-          label="接口名"
+          :label="t('dataPages.ifColName')"
           min-width="180"
         />
         <el-table-column
-          label="分类"
+          :label="t('dataPages.ifColCategory')"
           width="140"
         >
           <template #default="{ row }">
@@ -104,11 +104,11 @@
         </el-table-column>
         <el-table-column
           prop="return_type"
-          label="返回类型"
+          :label="t('dataPages.ifColReturnType')"
           width="120"
         />
         <el-table-column
-          label="参数数"
+          :label="t('dataPages.ifColParamCount')"
           width="90"
         >
           <template #default="{ row }">
@@ -116,17 +116,17 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="状态"
+          :label="t('dataPages.ifColStatus')"
           width="90"
         >
           <template #default="{ row }">
             <el-tag :type="row.is_active ? 'success' : 'warning'">
-              {{ row.is_active ? '启用' : '停用' }}
+              {{ row.is_active ? t('dataPages.ifStatusActive') : t('dataPages.ifStatusInactive') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="t('dataPages.ifColActions')"
           fixed="right"
           min-width="220"
         >
@@ -136,14 +136,14 @@
               type="primary"
               @click="openDetail(row.id)"
             >
-              详情
+              {{ t('dataPages.ifActionDetail') }}
             </el-button>
             <el-button
               v-if="isAdmin"
               link
               @click="openEditDialog(row)"
             >
-              编辑
+              {{ t('dataPages.ifActionEdit') }}
             </el-button>
             <el-button
               v-if="isAdmin"
@@ -151,7 +151,7 @@
               type="danger"
               @click="deleteInterface(row.id)"
             >
-              删除
+              {{ t('dataPages.ifActionDelete') }}
             </el-button>
           </template>
         </el-table-column>
@@ -172,23 +172,23 @@
 
     <el-dialog
       v-model="dialogVisible"
-      :title="dialogMode === 'create' ? '新建接口' : '编辑接口'"
+      :title="dialogMode === 'create' ? t('dataPages.ifDialogCreate') : t('dataPages.ifDialogEdit')"
       width="760px"
     >
       <el-form
         :model="form"
         label-width="110px"
       >
-        <el-form-item label="接口名">
+        <el-form-item :label="t('dataPages.ifFormName')">
           <el-input
             v-model="form.name"
             :disabled="dialogMode === 'edit'"
           />
         </el-form-item>
-        <el-form-item label="展示名">
+        <el-form-item :label="t('dataPages.ifFormDisplayName')">
           <el-input v-model="form.display_name" />
         </el-form-item>
-        <el-form-item label="分类">
+        <el-form-item :label="t('dataPages.ifFormCategory')">
           <el-select
             v-model="form.category_id"
             class="full-width"
@@ -201,65 +201,65 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="模块路径">
+        <el-form-item :label="t('dataPages.ifFormModulePath')">
           <el-input v-model="form.module_path" />
         </el-form-item>
-        <el-form-item label="函数名">
+        <el-form-item :label="t('dataPages.ifFormFuncName')">
           <el-input v-model="form.function_name" />
         </el-form-item>
-        <el-form-item label="返回类型">
+        <el-form-item :label="t('dataPages.ifFormReturnType')">
           <el-input v-model="form.return_type" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('dataPages.ifFormDesc')">
           <el-input
             v-model="form.description"
             type="textarea"
             :rows="3"
           />
         </el-form-item>
-        <el-form-item label="参数定义">
+        <el-form-item :label="t('dataPages.ifFormParameters')">
           <el-input
             v-model="parametersText"
             type="textarea"
             :rows="8"
           />
         </el-form-item>
-        <el-form-item label="额外配置">
+        <el-form-item :label="t('dataPages.ifFormExtraConfig')">
           <el-input
             v-model="extraConfigText"
             type="textarea"
             :rows="6"
           />
         </el-form-item>
-        <el-form-item label="示例">
+        <el-form-item :label="t('dataPages.ifFormExample')">
           <el-input
             v-model="form.example"
             type="textarea"
             :rows="3"
           />
         </el-form-item>
-        <el-form-item label="启用">
+        <el-form-item :label="t('dataPages.ifFormIsActive')">
           <el-switch v-model="form.is_active" />
         </el-form-item>
       </el-form>
 
       <template #footer>
         <el-button @click="dialogVisible = false">
-          取消
+          {{ t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           :loading="saving"
           @click="submitForm"
         >
-          保存
+          {{ t('common.save') }}
         </el-button>
       </template>
     </el-dialog>
 
     <el-drawer
       v-model="detailVisible"
-      title="接口详情"
+      :title="t('dataPages.ifDetailTitle')"
       size="50%"
     >
       <div v-if="currentInterface">
@@ -267,20 +267,20 @@
           :column="2"
           border
         >
-          <el-descriptions-item label="接口名">
+          <el-descriptions-item :label="t('dataPages.ifFormName')">
             {{ currentInterface.name }}
           </el-descriptions-item>
-          <el-descriptions-item label="展示名">
+          <el-descriptions-item :label="t('dataPages.ifFormDisplayName')">
             {{ currentInterface.display_name }}
           </el-descriptions-item>
-          <el-descriptions-item label="分类">
+          <el-descriptions-item :label="t('dataPages.ifFormCategory')">
             {{ categoryNameMap[currentInterface.category_id] || currentInterface.category_id }}
           </el-descriptions-item>
-          <el-descriptions-item label="返回类型">
+          <el-descriptions-item :label="t('dataPages.ifFormReturnType')">
             {{ currentInterface.return_type }}
           </el-descriptions-item>
           <el-descriptions-item
-            label="描述"
+            :label="t('dataPages.ifFormDesc')"
             :span="2"
           >
             {{ currentInterface.description || '-' }}
@@ -289,7 +289,7 @@
 
         <div class="drawer-section">
           <div class="section-title">
-            参数列表
+            {{ t('dataPages.ifDetailParamList') }}
           </div>
           <el-table
             :data="currentInterface.params"
@@ -297,27 +297,27 @@
           >
             <el-table-column
               prop="name"
-              label="参数名"
+              :label="t('dataPages.ifDetailColParamName')"
               min-width="140"
             />
             <el-table-column
               prop="param_type"
-              label="类型"
+              :label="t('dataPages.ifDetailColType')"
               width="100"
             />
             <el-table-column
-              label="必填"
+              :label="t('dataPages.ifDetailColRequired')"
               width="80"
             >
               <template #default="{ row }">
                 <el-tag :type="row.required ? 'danger' : 'info'">
-                  {{ row.required ? '是' : '否' }}
+                  {{ row.required ? t('dataPages.ifReqYes') : t('dataPages.ifReqNo') }}
                 </el-tag>
               </template>
             </el-table-column>
             <el-table-column
               prop="default_value"
-              label="默认值"
+              :label="t('dataPages.ifDetailColDefault')"
               min-width="120"
             />
           </el-table>
@@ -325,7 +325,7 @@
 
         <div class="drawer-section">
           <div class="section-title">
-            原始参数定义
+            {{ t('dataPages.ifDetailRawParams') }}
           </div>
           <pre>{{ toJsonText(currentInterface.parameters || {}) }}</pre>
         </div>
@@ -336,6 +336,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { akshareInterfacesApi } from '@/api/akshare'
 import { getErrorMessage } from '@/api/index'
@@ -343,6 +344,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { DataInterface, DataInterfaceFormPayload, InterfaceCategory } from '@/types'
 import { parseJsonText, toJsonText } from '@/views/data/utils'
 
+const { t } = useI18n()
 const authStore = useAuthStore()
 
 const loading = ref(false)
@@ -422,7 +424,7 @@ async function loadInterfaces() {
     interfaces.value = response.items
     total.value = response.total
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载接口失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.ifLoadFailed')))
   } finally {
     loading.value = false
   }
@@ -465,7 +467,7 @@ function openEditDialog(item: DataInterface) {
 
 async function submitForm() {
   if (!form.name.trim() || !form.display_name.trim() || !form.category_id) {
-    ElMessage.warning('请填写接口名、展示名并选择分类')
+    ElMessage.warning(t('dataPages.ifValidationFill'))
     return
   }
 
@@ -485,16 +487,16 @@ async function submitForm() {
 
     if (dialogMode.value === 'create') {
       await akshareInterfacesApi.create(payload)
-      ElMessage.success('接口已创建')
+      ElMessage.success(t('dataPages.ifCreated'))
     } else if (editingInterfaceId.value !== null) {
       await akshareInterfacesApi.update(editingInterfaceId.value, payload)
-      ElMessage.success('接口已更新')
+      ElMessage.success(t('dataPages.ifUpdated'))
     }
 
     dialogVisible.value = false
     await loadInterfaces()
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '保存接口失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.ifSaveFailed')))
   } finally {
     saving.value = false
   }
@@ -504,10 +506,10 @@ async function bootstrapInterfaces() {
   bootstrapping.value = true
   try {
     const result = await akshareInterfacesApi.bootstrap(true)
-    ElMessage.success(`引导完成：新增 ${result.created}，更新 ${result.updated}`)
+    ElMessage.success(t('dataPages.ifBootstrapped', { created: result.created, updated: result.updated }))
     await Promise.all([loadCategories(), loadInterfaces()])
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '引导接口失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.ifBootstrapFailed')))
   } finally {
     bootstrapping.value = false
   }
@@ -518,19 +520,23 @@ async function openDetail(interfaceId: number) {
     currentInterface.value = await akshareInterfacesApi.getDetail(interfaceId)
     detailVisible.value = true
   } catch (error) {
-    ElMessage.error(getErrorMessage(error, '加载接口详情失败'))
+    ElMessage.error(getErrorMessage(error, t('dataPages.ifLoadDetailFailed')))
   }
 }
 
 async function deleteInterface(interfaceId: number) {
   try {
-    await ElMessageBox.confirm('确认删除该接口？', '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(
+      t('dataPages.ifDeleteConfirmMsg'),
+      t('dataPages.ifDeleteConfirmTitle'),
+      { type: 'warning' }
+    )
     await akshareInterfacesApi.delete(interfaceId)
-    ElMessage.success('接口已删除')
+    ElMessage.success(t('dataPages.ifDeleted'))
     await loadInterfaces()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(getErrorMessage(error, '删除接口失败'))
+      ElMessage.error(getErrorMessage(error, t('dataPages.ifDeleteFailed')))
     }
   }
 }
