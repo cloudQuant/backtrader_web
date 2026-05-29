@@ -2909,6 +2909,56 @@ export default {
     citationChunkUnknown: '未知',
   },
 
+  // 实例操作（composables/useInstanceActions.ts）
+  instanceActions: {
+    statusRunning: '运行中',
+    statusStopped: '已停止',
+    statusError: '异常',
+    msgStarted: '{name} 已启动',
+    msgStopped: '{name} 已停止',
+    msgRemoved: '已删除',
+    msgStartFailed: '启动失败',
+    msgStopFailed: '停止失败',
+    msgRemoveFailed: '删除失败',
+    msgStartAllResult: '启动完成: 成功 {success}, 失败 {failed}',
+    msgStopAllResult: '停止完成: 成功 {success}, 失败 {failed}',
+    msgBatchStartFail: '批量启动失败',
+    msgBatchStopFail: '批量停止失败',
+  },
+
+  // 全局快捷键（composables/useKeyboardShortcuts.ts）
+  kbShortcuts: {
+    descRunBacktest: '运行回测',
+    descSaveStrategy: '保存策略',
+    descToggleDarkMode: '切换暗色模式',
+    descNavDashboard: '导航到仪表盘',
+    descNavStrategy: '导航到策略管理',
+    descNavBacktest: '导航到回测',
+    descNavLiveTrading: '导航到实盘交易',
+    descHelpKey: '显示快捷键帮助',
+    descGlobalSearch: '打开全局搜索',
+    descCloseDialog: '关闭对话框或返回',
+    msgRunningBacktest: '正在提交回测任务...',
+    msgStrategySaved: '策略已保存',
+    helpHeading: '⌨️ 快捷键列表',
+  },
+
+  // 单元渲染辅助（composables/useUnitTableRendering.ts）
+  unitRendering: {
+    statusIdle: '空闲',
+    statusQueued: '排队中',
+    statusRunning: '运行中',
+    statusStopped: '已停止',
+    statusCompleted: '已完成',
+    statusFailed: '失败',
+    statusError: '错误',
+    statusCancelled: '已取消',
+    dirLong: '多头',
+    dirShort: '空头',
+    unitYi: '亿',
+    unitWan: '万',
+  },
+
   // 工作区列表（/backtest 路由）
   workspace: {
     createNew: '新建工作区',

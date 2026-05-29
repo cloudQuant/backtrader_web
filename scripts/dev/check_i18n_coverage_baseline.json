@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14076 violations; CJK subset is ~184 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
-  "baseline_violations": 14076,
-  "baseline_cjk_violations": 184,
-  "baseline_commit": "176-c-pass-31",
+  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14097 violations; CJK subset is 146 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
+  "baseline_violations": 14097,
+  "baseline_cjk_violations": 146,
+  "baseline_commit": "176-c-pass-32",
   "baseline_date": "2026-05-29",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -39,6 +39,7 @@
     {"commit": "176-c-pass-28", "violations": 14092, "cjk": 317, "note": "components/backtest/* (5 files, 24 CJK violations) -> backtestComp.* namespace (zh-CN side now matches existing en-US +84 keys, parity 2183/2183). OverfittingPanel(9), BacktestMetricsPanel(9), BacktestHistoryTable(11), StrategyScoreCard(8), StrategyExplanationCard(29). Removed duplicate backtestCmp namespace from en-US."},
     {"commit": "176-c-pass-29", "violations": 14125, "cjk": 275, "note": "NewsIntelligencePage.vue (22 CJK) -> newsIntel.* namespace + KnowledgeBaseDocumentPage.vue (20 CJK) -> kbDoc.* namespace (+74 keys, parity 2257/2257). Strict total slightly up (+33) due to new tag-attribute strings now visible to strict scanner; CJK-only -42."},
     {"commit": "176-c-pass-30", "violations": 14113, "cjk": 225, "note": "Quote module: stores/quote.ts (default columns) + views/QuotePage.vue (page UI/dialogs) + composables/useBacktestRuntime.ts (websocket/poll messages) -> quote.* + backtestRt.* namespaces (+85 keys, parity 2342/2342). Default columns rebuilt on each fetch via buildDefaultColumns() so locale switches work."},
-    {"commit": "176-c-pass-31", "violations": 14076, "cjk": 184, "note": "AIObservabilityPage(14)+PortfolioPage(14)+SettingsPage(14) -> aiObs.*+portfolio.*+userSettings.* namespaces (+93 keys, parity 2435/2435). Renamed namespace to userSettings.* to avoid collision with pre-existing settings.* (general/security/notification namespace)."}
+    {"commit": "176-c-pass-31", "violations": 14076, "cjk": 184, "note": "AIObservabilityPage(14)+PortfolioPage(14)+SettingsPage(14) -> aiObs.*+portfolio.*+userSettings.* namespaces (+93 keys, parity 2435/2435). Renamed namespace to userSettings.* to avoid collision with pre-existing settings.* (general/security/notification namespace)."},
+    {"commit": "176-c-pass-32", "violations": 14097, "cjk": 146, "note": "3 composables: useInstanceActions(13)+useKeyboardShortcuts(13)+useUnitTableRendering(12) -> instanceActions.*+kbShortcuts.*+unitRendering.* namespaces (+27 keys, parity 2462/2462). All 3 ts-modules use i18n.global.t pattern. Strict total +21 (new English values now visible to scanner); CJK -38."}
   ]
 }

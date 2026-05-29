@@ -2890,6 +2890,56 @@ export default {
     citationChunkUnknown: 'Unknown',
   },
 
+  // Instance actions (composables/useInstanceActions.ts)
+  instanceActions: {
+    statusRunning: 'Running',
+    statusStopped: 'Stopped',
+    statusError: 'Error',
+    msgStarted: '{name} started',
+    msgStopped: '{name} stopped',
+    msgRemoved: 'Removed',
+    msgStartFailed: 'Start failed',
+    msgStopFailed: 'Stop failed',
+    msgRemoveFailed: 'Remove failed',
+    msgStartAllResult: 'Start completed: success {success}, failed {failed}',
+    msgStopAllResult: 'Stop completed: success {success}, failed {failed}',
+    msgBatchStartFail: 'Batch start failed',
+    msgBatchStopFail: 'Batch stop failed',
+  },
+
+  // Global keyboard shortcuts (composables/useKeyboardShortcuts.ts)
+  kbShortcuts: {
+    descRunBacktest: 'Run backtest',
+    descSaveStrategy: 'Save strategy',
+    descToggleDarkMode: 'Toggle dark mode',
+    descNavDashboard: 'Navigate to dashboard',
+    descNavStrategy: 'Navigate to strategy management',
+    descNavBacktest: 'Navigate to backtest',
+    descNavLiveTrading: 'Navigate to live trading',
+    descHelpKey: 'Show keyboard shortcuts help',
+    descGlobalSearch: 'Open global search',
+    descCloseDialog: 'Close dialog or go back',
+    msgRunningBacktest: 'Submitting backtest task...',
+    msgStrategySaved: 'Strategy saved',
+    helpHeading: '⌨️ Keyboard shortcuts',
+  },
+
+  // Unit rendering helpers (composables/useUnitTableRendering.ts)
+  unitRendering: {
+    statusIdle: 'Idle',
+    statusQueued: 'Queued',
+    statusRunning: 'Running',
+    statusStopped: 'Stopped',
+    statusCompleted: 'Completed',
+    statusFailed: 'Failed',
+    statusError: 'Error',
+    statusCancelled: 'Cancelled',
+    dirLong: 'Long',
+    dirShort: 'Short',
+    unitYi: 'B',
+    unitWan: 'K',
+  },
+
   // Workspace list (/backtest route)
   workspace: {
     createNew: 'New Workspace',
