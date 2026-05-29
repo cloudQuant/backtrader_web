@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14102 violations; CJK subset is 130 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
-  "baseline_violations": 14102,
-  "baseline_cjk_violations": 130,
-  "baseline_commit": "176-c-pass-33",
+  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14121 violations; CJK subset is 111 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
+  "baseline_violations": 14121,
+  "baseline_cjk_violations": 111,
+  "baseline_commit": "176-c-pass-34",
   "baseline_date": "2026-05-29",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -41,6 +41,7 @@
     {"commit": "176-c-pass-30", "violations": 14113, "cjk": 225, "note": "Quote module: stores/quote.ts (default columns) + views/QuotePage.vue (page UI/dialogs) + composables/useBacktestRuntime.ts (websocket/poll messages) -> quote.* + backtestRt.* namespaces (+85 keys, parity 2342/2342). Default columns rebuilt on each fetch via buildDefaultColumns() so locale switches work."},
     {"commit": "176-c-pass-31", "violations": 14076, "cjk": 184, "note": "AIObservabilityPage(14)+PortfolioPage(14)+SettingsPage(14) -> aiObs.*+portfolio.*+userSettings.* namespaces (+93 keys, parity 2435/2435). Renamed namespace to userSettings.* to avoid collision with pre-existing settings.* (general/security/notification namespace)."},
     {"commit": "176-c-pass-32", "violations": 14097, "cjk": 146, "note": "3 composables: useInstanceActions(13)+useKeyboardShortcuts(13)+useUnitTableRendering(12) -> instanceActions.*+kbShortcuts.*+unitRendering.* namespaces (+27 keys, parity 2462/2462). All 3 ts-modules use i18n.global.t pattern. Strict total +21 (new English values now visible to scanner); CJK -38."},
-    {"commit": "176-c-pass-33", "violations": 14102, "cjk": 130, "note": "api/index.ts (8 zh) -> apiClient.* namespace + useOverfittingRuntime.ts (8 zh) -> overfittingRt.* namespace (+12 keys, parity 2471/2471). Updated __tests__/api/index.test.ts with vi.mock('@/i18n') passthrough preserving zh strings -> all 19 api tests pass. Strict +5; CJK -16."}
+    {"commit": "176-c-pass-33", "violations": 14102, "cjk": 130, "note": "api/index.ts (8 zh) -> apiClient.* namespace + useOverfittingRuntime.ts (8 zh) -> overfittingRt.* namespace (+12 keys, parity 2471/2471). Updated __tests__/api/index.test.ts with vi.mock('@/i18n') passthrough preserving zh strings -> all 19 api tests pass. Strict +5; CJK -16."},
+    {"commit": "176-c-pass-34", "violations": 14121, "cjk": 111, "note": "constants/strategy.ts (11 zh) -> strategyConst.* namespace + stores/theme.ts (8 zh) -> themeStore.* namespace (+18 keys, parity 2494/2494). theme.ts THEME_OPTIONS now built from buildThemeOptions(); store themes/currentThemeLabel/Icon computed wrappers rebuild per call so locale switches reflect. Updated __tests__/stores/theme.test.ts with vi.mock('@/i18n') passthrough -> all 10 theme tests pass. Strict +19; CJK -19."}
   ]
 }

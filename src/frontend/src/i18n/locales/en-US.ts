@@ -2960,6 +2960,39 @@ export default {
     msgTimeout: 'Overfitting detection timed out; refresh later for the result',
   },
 
+  // Strategy/task status and category labels (constants/strategy.ts)
+  strategyConst: {
+    statusCompleted: 'Completed',
+    statusRunning: 'Running',
+    statusPending: 'Pending',
+    statusFailed: 'Failed',
+    statusCancelled: 'Cancelled',
+    catTrend: 'Trend',
+    catMeanReversion: 'Mean reversion',
+    catVolatility: 'Volatility',
+    catIndicator: 'Indicator',
+    catArbitrage: 'Arbitrage',
+    catCustom: 'Other',
+  },
+
+  // Theme switcher (stores/theme.ts)
+  themeStore: {
+    labelAurora: 'Aurora',
+    labelObsidian: 'Obsidian',
+    labelNebula: 'Nebula',
+    labelSolaris: 'Solaris',
+    labelGlacier: 'Glacier',
+    labelMeridian: 'Meridian',
+    labelVerdant: 'Verdant',
+    descAurora: 'Clean & trusted, institutional style',
+    descObsidian: 'Sleek dark, fintech precision',
+    descNebula: 'Purple-toned data, pro trading feel',
+    descSolaris: 'Golden pulse, trading-floor energy',
+    descGlacier: 'Purple gradients, minimalist elegance',
+    descMeridian: 'Warm cream, editorial readability',
+    descVerdant: 'Fresh green, friendly and clear',
+  },
+
   // Workspace list (/backtest route)
   workspace: {
     createNew: 'New Workspace',

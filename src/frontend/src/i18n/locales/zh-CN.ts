@@ -2979,6 +2979,39 @@ export default {
     msgTimeout: '过拟合检测超时，请稍后刷新结果',
   },
 
+  // 策略/任务状态与分类标签（constants/strategy.ts）
+  strategyConst: {
+    statusCompleted: '完成',
+    statusRunning: '运行中',
+    statusPending: '等待中',
+    statusFailed: '失败',
+    statusCancelled: '已取消',
+    catTrend: '趋势',
+    catMeanReversion: '均值回归',
+    catVolatility: '波动率',
+    catIndicator: '指标',
+    catArbitrage: '套利',
+    catCustom: '其他',
+  },
+
+  // 主题切换（stores/theme.ts）
+  themeStore: {
+    labelAurora: '极光',
+    labelObsidian: '黑曜',
+    labelNebula: '星云',
+    labelSolaris: '烈阳',
+    labelGlacier: '冰川',
+    labelMeridian: '暖阳',
+    labelVerdant: '翠谷',
+    descAurora: '清爽信赖·机构风格',
+    descObsidian: '暗夜精密·科技质感',
+    descNebula: '紫韵数据·专业看盘',
+    descSolaris: '金色脉冲·交易激情',
+    descGlacier: '紫调优雅·极简美学',
+    descMeridian: '暖色编辑·温润阅读',
+    descVerdant: '清新绿意·友好明快',
+  },
+
   // 工作区列表（/backtest 路由）
   workspace: {
     createNew: '新建工作区',

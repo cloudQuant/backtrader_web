@@ -2,6 +2,12 @@
  * Shared constants for strategy/backtest status and category display.
  */
 
+import i18n from '@/i18n'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
+
 /** Element Plus component type union. */
 export type TagType = 'primary' | 'success' | 'warning' | 'info' | 'danger'
 
@@ -14,15 +20,6 @@ export const STATUS_TYPE_MAP: Record<string, TagType> = {
   cancelled: 'warning',
 }
 
-/** Map backtest/task status to Chinese label. */
-export const STATUS_TEXT_MAP: Record<string, string> = {
-  completed: '完成',
-  running: '运行中',
-  pending: '等待中',
-  failed: '失败',
-  cancelled: '已取消',
-}
-
 /** Map strategy category to Element Plus tag type. */
 export const CATEGORY_TYPE_MAP: Record<string, TagType> = {
   trend: 'info',
@@ -33,22 +30,25 @@ export const CATEGORY_TYPE_MAP: Record<string, TagType> = {
   custom: 'info',
 }
 
-/** Map strategy category to Chinese label. */
-export const CATEGORY_LABEL_MAP: Record<string, string> = {
-  trend: '趋势',
-  mean_reversion: '均值回归',
-  volatility: '波动率',
-  indicator: '指标',
-  arbitrage: '套利',
-  custom: '其他',
-}
-
 export function getStatusType(status: string): TagType {
   return STATUS_TYPE_MAP[status] || 'info'
 }
 
 export function getStatusText(status: string): string {
-  return STATUS_TEXT_MAP[status] || status
+  switch (status) {
+    case 'completed':
+      return tt('strategyConst.statusCompleted')
+    case 'running':
+      return tt('strategyConst.statusRunning')
+    case 'pending':
+      return tt('strategyConst.statusPending')
+    case 'failed':
+      return tt('strategyConst.statusFailed')
+    case 'cancelled':
+      return tt('strategyConst.statusCancelled')
+    default:
+      return status
+  }
 }
 
 export function getCategoryType(category: string): TagType {
@@ -56,5 +56,20 @@ export function getCategoryType(category: string): TagType {
 }
 
 export function getCategoryLabel(category: string): string {
-  return CATEGORY_LABEL_MAP[category] || category
+  switch (category) {
+    case 'trend':
+      return tt('strategyConst.catTrend')
+    case 'mean_reversion':
+      return tt('strategyConst.catMeanReversion')
+    case 'volatility':
+      return tt('strategyConst.catVolatility')
+    case 'indicator':
+      return tt('strategyConst.catIndicator')
+    case 'arbitrage':
+      return tt('strategyConst.catArbitrage')
+    case 'custom':
+      return tt('strategyConst.catCustom')
+    default:
+      return category
+  }
 }

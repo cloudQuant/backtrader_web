@@ -1,5 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import i18n from '@/i18n'
+
+function tt(key: string): string {
+  return i18n.global.t(key)
+}
 
 /**
  * Available theme identifiers.
@@ -29,16 +34,28 @@ export interface ThemeOption {
   description: string
 }
 
-/** All available themes with metadata for the UI selector. */
-export const THEME_OPTIONS: ThemeOption[] = [
-  { value: 'aurora', label: '极光', icon: '💎', description: '清爽信赖·机构风格' },
-  { value: 'obsidian', label: '黑曜', icon: '🌙', description: '暗夜精密·科技质感' },
-  { value: 'nebula', label: '星云', icon: '🔮', description: '紫韵数据·专业看盘' },
-  { value: 'solaris', label: '烈阳', icon: '⚡', description: '金色脉冲·交易激情' },
-  { value: 'glacier', label: '冰川', icon: '🧊', description: '紫调优雅·极简美学' },
-  { value: 'meridian', label: '暖阳', icon: '☀️', description: '暖色编辑·温润阅读' },
-  { value: 'verdant', label: '翠谷', icon: '🌿', description: '清新绿意·友好明快' },
-]
+/** Build the theme options list with localized label/description. */
+function buildThemeOptions(): ThemeOption[] {
+  return [
+    { value: 'aurora',   label: tt('themeStore.labelAurora'),   icon: '💎', description: tt('themeStore.descAurora') },
+    { value: 'obsidian', label: tt('themeStore.labelObsidian'), icon: '🌙', description: tt('themeStore.descObsidian') },
+    { value: 'nebula',   label: tt('themeStore.labelNebula'),   icon: '🔮', description: tt('themeStore.descNebula') },
+    { value: 'solaris',  label: tt('themeStore.labelSolaris'),  icon: '⚡', description: tt('themeStore.descSolaris') },
+    { value: 'glacier',  label: tt('themeStore.labelGlacier'),  icon: '🧊', description: tt('themeStore.descGlacier') },
+    { value: 'meridian', label: tt('themeStore.labelMeridian'), icon: '☀️', description: tt('themeStore.descMeridian') },
+    { value: 'verdant',  label: tt('themeStore.labelVerdant'),  icon: '🌿', description: tt('themeStore.descVerdant') },
+  ]
+}
+
+/**
+ * All available themes with metadata for the UI selector.
+ *
+ * Exported as an array literal for backward compatibility. Inside the store
+ * `themes` is a computed ref that rebuilds on access so locale switches
+ * reflect in the UI immediately. Direct access via THEME_OPTIONS returns the
+ * current locale snapshot.
+ */
+export const THEME_OPTIONS: ThemeOption[] = buildThemeOptions()
 
 /** CSS variable definitions for each theme. */
 const THEME_VARIABLES: Record<string, Record<string, string>> = {
@@ -254,18 +271,18 @@ export const useThemeStore = defineStore('theme', () => {
   const mode = ref<ThemeMode>('aurora')
   const sidebarCollapsed = ref(false)
 
-  /** List of available themes for the UI. */
-  const themes = computed(() => THEME_OPTIONS)
+  /** List of available themes for the UI (rebuilt per call so locale switches reflect). */
+  const themes = computed(() => buildThemeOptions())
 
-  /** Current theme label for display. */
+  /** Current theme label for display (locale-aware). */
   const currentThemeLabel = computed(() => {
-    const option = THEME_OPTIONS.find(t => t.value === mode.value)
-    return option?.label ?? '极光'
+    const option = buildThemeOptions().find(t => t.value === mode.value)
+    return option?.label ?? tt('themeStore.labelAurora')
   })
 
   /** Current theme icon for display. */
   const currentThemeIcon = computed(() => {
-    const option = THEME_OPTIONS.find(t => t.value === mode.value)
+    const option = buildThemeOptions().find(t => t.value === mode.value)
     return option?.icon ?? '💎'
   })
 

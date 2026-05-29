@@ -2,6 +2,35 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useThemeStore } from '@/stores/theme'
 
+// Mock i18n: provide a passthrough that returns the original zh-CN strings
+// so locale-stable assertions in this suite continue to pass after the 176 §C
+// extraction of theme labels into the i18n catalog.
+vi.mock('@/i18n', () => ({
+  default: {
+    global: {
+      t: (key: string) => {
+        const map: Record<string, string> = {
+          'themeStore.labelAurora': '极光',
+          'themeStore.labelObsidian': '黑曜',
+          'themeStore.labelNebula': '星云',
+          'themeStore.labelSolaris': '烈阳',
+          'themeStore.labelGlacier': '冰川',
+          'themeStore.labelMeridian': '暖阳',
+          'themeStore.labelVerdant': '翠谷',
+          'themeStore.descAurora': '清爽信赖·机构风格',
+          'themeStore.descObsidian': '暗夜精密·科技质感',
+          'themeStore.descNebula': '紫韵数据·专业看盘',
+          'themeStore.descSolaris': '金色脉冲·交易激情',
+          'themeStore.descGlacier': '紫调优雅·极简美学',
+          'themeStore.descMeridian': '暖色编辑·温润阅读',
+          'themeStore.descVerdant': '清新绿意·友好明快',
+        }
+        return map[key] ?? key
+      },
+    },
+  },
+}))
+
 // Ensure a proper localStorage mock exists for this test suite
 const storage: Record<string, string> = {}
 const localStorageMock = {
