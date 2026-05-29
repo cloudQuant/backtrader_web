@@ -44,38 +44,38 @@
 
     <div class="trading-overview-grid">
       <div class="overview-card">
-        <span class="overview-card__label">策略单元</span>
+        <span class="overview-card__label">{{ t('units.nStrategyUnits') }}</span>
         <strong class="overview-card__value">{{ store.units.length }}</strong>
-        <span class="overview-card__meta">当前工作区总量</span>
+        <span class="overview-card__meta">{{ t('tradingUnits.workspaceTotal') }}</span>
       </div>
       <div class="overview-card is-success">
-        <span class="overview-card__label">运行中</span>
+        <span class="overview-card__label">{{ t('tradingUnits.runStatus') }}</span>
         <strong class="overview-card__value">{{ runningUnitCount }}</strong>
-        <span class="overview-card__meta">含运行与排队状态</span>
+        <span class="overview-card__meta">{{ t('tradingUnits.runningQueued') }}</span>
       </div>
       <div class="overview-card is-warning">
-        <span class="overview-card__label">实盘 / 模拟</span>
+        <span class="overview-card__label">{{ t('tradingUnits.liveTradingShort') }} / {{ t('tradingUnits.paperTradingShort') }}</span>
         <strong class="overview-card__value">{{ liveUnitCount }} / {{ paperUnitCount }}</strong>
-        <span class="overview-card__meta">交易模式分布</span>
+        <span class="overview-card__meta">{{ t('tradingUnits.tradingModeDist') }}</span>
       </div>
       <div class="overview-card is-danger">
-        <span class="overview-card__label">锁定单元</span>
+        <span class="overview-card__label">{{ t('tradingUnits.lockUnit') }}</span>
         <strong class="overview-card__value">{{ lockedUnitCount }}</strong>
-        <span class="overview-card__meta">交易或运行锁定</span>
+        <span class="overview-card__meta">{{ t('tradingUnits.tradingOrLocked') }}</span>
       </div>
     </div>
 
     <div class="trading-schedule-bar">
       <div class="trading-schedule-bar__item">
-        <span class="label">自动交易</span>
-        <span class="value">{{ autoTradingScheduleSummary || '未配置交易时段' }}</span>
+        <span class="label">{{ t('tradingUnits.autoTrading') }}</span>
+        <span class="value">{{ autoTradingScheduleSummary || t('tradingUnits.noTradingSession') }}</span>
       </div>
       <div class="trading-schedule-bar__item">
-        <span class="label">当日盈利单元</span>
+        <span class="label">{{ t('tradingUnits.todayProfitUnits') }}</span>
         <span class="value">{{ profitableUnitCount }}</span>
       </div>
       <div class="trading-schedule-bar__item">
-        <span class="label">最近更新</span>
+        <span class="label">{{ t('tradingUnits.lastUpdate') }}</span>
         <span class="value">{{ lastUpdatedLabel }}</span>
       </div>
     </div>
@@ -176,7 +176,7 @@
 
     <el-dialog
       v-model="showDetailDialog"
-      title="策略单元详情"
+      :title="t('tradingUnits.unitDetail')"
       width="980px"
     >
       <div
@@ -188,21 +188,21 @@
             size="small"
             @click="handleOpenRuntimeDialog(detailUnit)"
           >
-            查看运行文件
+            {{ t('tradingUnits.viewRunFile') }}
           </el-button>
           <el-button
             type="primary"
             size="small"
             @click="handleOpenRuntimeDirectory(detailUnit)"
           >
-            打开策略单元
+            {{ t('tradingUnits.openUnit') }}
           </el-button>
         </div>
 
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              单元
+              {{ t('tradingUnits.unit') }}
             </div>
             <div class="mt-1 font-semibold text-slate-700">
               {{ detailUnit.strategy_name || detailUnit.strategy_id }}
@@ -213,10 +213,10 @@
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              交易模式
+              {{ t('tradingUnits.tradingMode') }}
             </div>
             <div class="mt-1 font-semibold text-slate-700">
-              {{ detailUnit.trading_mode === 'live' ? '实盘交易' : '模拟交易' }}
+              {{ detailUnit.trading_mode === 'live' ? t('tradingUnits.liveTrading') : t('tradingUnits.paperTrading') }}
             </div>
             <div class="text-xs text-slate-400">
               {{ statusLabel(detailUnit) }}
@@ -224,24 +224,24 @@
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              网关
+              {{ t('tradingUnits.gateway') }}
             </div>
             <div class="mt-1 font-semibold text-slate-700">
               {{ detailUnit.trading_snapshot?.gateway_summary || '-' }}
             </div>
             <div class="text-xs text-slate-400">
-              实例 {{ detailUnit.trading_instance_id || '-' }}
+              {{ t('tradingUnits.instance') }} {{ detailUnit.trading_instance_id || '-' }}
             </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
             <div class="text-xs text-slate-500">
-              最近更新
+              {{ t('tradingUnits.lastUpdate') }}
             </div>
             <div class="mt-1 font-semibold text-slate-700">
               {{ detailUnit.trading_snapshot?.updated_at || formatTime(detailUnit.updated_at) }}
             </div>
             <div class="text-xs text-slate-400">
-              交易日 {{ detailUnit.trading_snapshot?.trading_day || '-' }}
+              {{ t('tradingUnits.tradingDay') }} {{ detailUnit.trading_snapshot?.trading_day || '-' }}
             </div>
           </div>
         </div>
@@ -249,7 +249,7 @@
         <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div class="text-xs text-slate-500">
-              多仓 / 空仓
+              {{ t('tradingUnits.longPosition') }} / {{ t('tradingUnits.flat') }}
             </div>
             <div class="mt-1 text-lg font-semibold text-slate-700">
               {{ formatNumber(detailUnit.trading_snapshot?.long_position, 0, false) }}
@@ -259,7 +259,7 @@
           </div>
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div class="text-xs text-slate-500">
-              当日盈亏
+              {{ t('tradingUnits.todayPnL') }}
             </div>
             <div
               class="mt-1 text-lg font-semibold"
@@ -270,7 +270,7 @@
           </div>
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div class="text-xs text-slate-500">
-              累计盈亏
+              {{ t('tradingUnits.cumulativePnL') }}
             </div>
             <div
               class="mt-1 text-lg font-semibold"
@@ -281,7 +281,7 @@
           </div>
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
             <div class="text-xs text-slate-500">
-              杠杆 / 最新价
+              {{ t('tradingUnits.leverage') }} / {{ t('tradingUnits.latestPrice') }}
             </div>
             <div class="mt-1 text-lg font-semibold text-slate-700">
               {{ formatNumber(detailUnit.trading_snapshot?.leverage, 2, false) }}
@@ -293,36 +293,36 @@
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-3 text-sm font-medium text-slate-700">
-            运行信息
+            {{ t('tradingUnits.runInfo') }}
           </div>
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div><span class="text-gray-500">启动时间：</span>{{ detailUnit.trading_snapshot?.started_at || '-' }}</div>
-            <div><span class="text-gray-500">停止时间：</span>{{ detailUnit.trading_snapshot?.stopped_at || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('tradingUnits.runStarted') }}：</span>{{ detailUnit.trading_snapshot?.started_at || '-' }}</div>
+            <div><span class="text-gray-500">{{ t('tradingUnits.runStopped') }}：</span>{{ detailUnit.trading_snapshot?.stopped_at || '-' }}</div>
             <div class="md:col-span-2">
-              <span class="text-gray-500">错误信息：</span>{{ detailUnit.trading_snapshot?.error || '-' }}
+              <span class="text-gray-500">{{ t('tradingUnits.errorInfo') }}：</span>{{ detailUnit.trading_snapshot?.error || '-' }}
             </div>
           </div>
         </div>
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-3 text-sm font-medium text-slate-700">
-            头寸明细
+            {{ t('tradingUnits.positionDetail') }}
           </div>
           <el-table
             :data="detailUnit.trading_snapshot?.positions || []"
             size="small"
             border
             class="detail-positions-table"
-            empty-text="暂无持仓明细"
+            :empty-text="t('tradingUnits.noPositionDetail')"
           >
             <el-table-column
               prop="data_name"
-              label="合约"
+              :label="t('tradingUnits.contract')"
               min-width="150"
               show-overflow-tooltip
             />
             <el-table-column
-              label="方向"
+              :label="t('tradingUnits.direction')"
               width="90"
               align="center"
             >
@@ -332,12 +332,12 @@
             </el-table-column>
             <el-table-column
               prop="size"
-              label="数量"
+              :label="t('tradingUnits.quantity')"
               width="90"
               align="right"
             />
             <el-table-column
-              label="开仓价"
+              :label="t('tradingUnits.openPrice')"
               width="110"
               align="right"
             >
@@ -346,7 +346,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              label="现价"
+              :label="t('tradingUnits.currentPrice')"
               width="110"
               align="right"
             >
@@ -355,7 +355,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              label="市值"
+              :label="t('tradingUnits.marketValue')"
               width="120"
               align="right"
             >
@@ -364,7 +364,7 @@
               </template>
             </el-table-column>
             <el-table-column
-              label="盈亏"
+              :label="t('tradingUnits.pnl')"
               width="110"
               align="right"
             >
@@ -389,6 +389,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api/index'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -434,6 +435,7 @@ const emit = defineEmits<{
   'switch-tab': [tab: string, unitId?: string, unitIds?: string[]]
 }>()
 
+const { t } = useI18n()
 const store = useWorkspaceStore()
 const tableRef = ref<{
   clearSelection: () => void
@@ -562,9 +564,9 @@ async function updateAutoTradingEnabled(enabled: boolean) {
     const scheduleResponse = await workspaceApi.getTradingAutoSchedule(props.workspaceId)
     autoTradingEnabled.value = updated.enabled
     autoTradingSchedule.value = scheduleResponse
-    ElMessage.success(updated.enabled ? '自动交易已启用' : '自动交易已关闭')
+    ElMessage.success(updated.enabled ? t('tradingUnits.autoTradingEnabled') : t('tradingUnits.autoTradingDisabled'))
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '更新自动交易配置失败'))
+    ElMessage.error(getErrorMessage(error, t('tradingUnits.updateAutoTradingFailed')))
   } finally {
     autoTradingLoading.value = false
   }
@@ -585,7 +587,7 @@ function handleAutoTradingSaved(payload: { config: TradingAutoConfig; schedule: 
 
 function handleCreateOptimizationTask() {
   if (!store.selectedUnitIds.length) {
-    ElMessage.warning('请先选择要创建优化任务的策略单元')
+    ElMessage.warning(t('tradingUnits.selectUnitForOpt'))
     return
   }
   if (hasSingleSelection.value) {
@@ -603,26 +605,26 @@ async function handleStartSelected() {
   try {
     if (liveUnits.length > 0) {
       await ElMessageBox.confirm(
-        `将启动 ${liveUnits.length} 个实盘策略单元。请确认网关状态和交易参数无误。`,
-        '实盘启动确认',
+        `${t('tradingUnits.willStart')} ${liveUnits.length} ${t('tradingUnits.nLiveUnits')}。${t('tradingUnits.confirmGateway')}。`,
+        t('tradingUnits.liveStartConfirm'),
         {
           type: 'warning',
-          confirmButtonText: '确认启动',
-          cancelButtonText: '取消',
+          confirmButtonText: t('tradingUnits.confirmStart'),
+          cancelButtonText: t('tradingUnits.cancel'),
         }
       )
     }
     const results = await store.runSelectedUnits(props.workspaceId, false)
     const failed = (results ?? []).filter(result => result.status === 'failed')
     if (failed.length > 0) {
-      ElMessage.warning(`已提交启动请求，${failed.length} 个单元启动失败`)
+      ElMessage.warning(`${t('tradingUnits.startSubmitted')}，${failed.length} ${t('tradingUnits.nUnitsLaunchFailed')}`)
     } else {
-      ElMessage.success('启动请求已提交')
+      ElMessage.success(t('tradingUnits.startRequestSubmitted'))
     }
     await onUnitUpdated()
   } catch (error: unknown) {
     if (error !== 'cancel' && (error as { message?: string })?.message !== 'cancel') {
-      ElMessage.error(getErrorMessage(error, '启动失败'))
+      ElMessage.error(getErrorMessage(error, t('tradingUnits.startFailed')))
     }
   }
 }
@@ -631,10 +633,10 @@ async function handleStopSelected() {
   if (!store.selectedUnitIds.length) return
   try {
     await store.stopSelectedUnits(props.workspaceId)
-    ElMessage.success('停止指令已发送')
+    ElMessage.success(t('tradingUnits.stopSent'))
     await onUnitUpdated()
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '停止失败'))
+    ElMessage.error(getErrorMessage(error, t('tradingUnits.stopFailed')))
   }
 }
 
@@ -648,33 +650,33 @@ async function applyLockPatch(
     ElMessage.success(successMessage)
     await onUnitUpdated()
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '更新锁定状态失败'))
+    ElMessage.error(getErrorMessage(error, t('tradingUnits.updateLockFailed')))
   }
 }
 
 function handleLockTrading() {
-  void applyLockPatch({ lock_trading: true }, '已锁定交易')
+  void applyLockPatch({ lock_trading: true }, t('tradingUnits.lockedTrading'))
 }
 
 function handleLockRunning() {
-  void applyLockPatch({ lock_running: true }, '已锁定运行')
+  void applyLockPatch({ lock_running: true }, t('tradingUnits.lockedRunning'))
 }
 
 function handleUnlock() {
-  void applyLockPatch({ lock_trading: false, lock_running: false }, '已解除锁定')
+  void applyLockPatch({ lock_trading: false, lock_running: false }, t('tradingUnits.unlocked'))
 }
 
 async function handleBulkDelete() {
   if (!store.selectedUnitIds.length) return
   try {
-    await ElMessageBox.confirm(`确认删除选中的 ${store.selectedUnitIds.length} 个策略单元？`, '删除确认', {
+    await ElMessageBox.confirm(`${t('tradingUnits.confirmDeleteSelected')} ${store.selectedUnitIds.length} ${t('tradingUnits.nUnits')}？`, t('tradingUnits.deleteConfirm'), {
       type: 'warning',
     })
     await store.bulkDeleteUnits(props.workspaceId, [...store.selectedUnitIds])
-    ElMessage.success('策略单元已删除')
+    ElMessage.success(t('tradingUnits.unitDeleted'))
   } catch (error: unknown) {
     if (error !== 'cancel' && (error as { message?: string })?.message !== 'cancel') {
-      ElMessage.error(getErrorMessage(error, '删除失败'))
+      ElMessage.error(getErrorMessage(error, t('tradingUnits.deleteFailed')))
     }
   }
 }
@@ -685,7 +687,7 @@ function handleImportUnits() {
 
 function handleExportUnits() {
   if (!selectedUnits.value.length) {
-    ElMessage.warning('请先选择要导出的策略单元')
+    ElMessage.warning(t('tradingUnits.selectUnitForExport'))
     return
   }
   showExportDialog.value = true
@@ -696,7 +698,7 @@ async function handleUnitsImported() {
 }
 
 function handleUnitsExported() {
-  ElMessage.success('导出操作已完成')
+  ElMessage.success(t('tradingUnits.exportDone'))
 }
 
 function handleOpenKline() {
@@ -716,9 +718,9 @@ function openDetail(unit: StrategyUnit) {
 async function handleOpenRuntimeDirectory(unit: StrategyUnit) {
   try {
     const result = await workspaceApi.openUnitRuntimeDir(props.workspaceId, unit.id)
-    ElMessage.success(result.message || '策略单元目录已打开')
+    ElMessage.success(result.message || t('tradingUnits.unitDirOpened'))
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '打开策略单元失败'))
+    ElMessage.error(getErrorMessage(error, t('tradingUnits.openUnitFailed')))
   }
 }
 

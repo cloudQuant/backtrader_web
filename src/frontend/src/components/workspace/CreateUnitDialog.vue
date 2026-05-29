@@ -10,46 +10,46 @@
       <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            工作区类型
+            {{ t('unitDialog.workspaceType') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
-            {{ isTradingWorkspace ? '策略交易' : '策略研究' }}
+            {{ isTradingWorkspace ? t('unitDialog.tradingTrading') : t('unitDialog.tradingResearch') }}
           </div>
           <div class="text-xs text-slate-400">
-            当前创建上下文
+            {{ t('unitDialog.currentContext') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            新建方式
+            {{ t('unitDialog.creationMode') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
-            {{ form.create_mode === 'batch' ? '批量' : '叠加' }}
+            {{ form.create_mode === 'batch' ? t('unitDialog.batch') : t('unitDialog.overlay') }}
           </div>
           <div class="text-xs text-slate-400">
-            支持多品种展开
+            {{ t('unitDialog.supportMulti') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            品种数量
+            {{ t('unitDialog.symbolCount') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
             {{ validSymbolCount }}
           </div>
           <div class="text-xs text-slate-400">
-            有效代码行数
+            {{ t('unitDialog.validCodeLines') }}
           </div>
         </div>
         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
           <div class="text-xs text-slate-500">
-            交易模式
+            {{ t('unitDialog.tradingMode') }}
           </div>
           <div class="mt-1 text-lg font-semibold text-slate-700">
-            {{ isTradingWorkspace ? tradingModeLabel : '研究模式' }}
+            {{ isTradingWorkspace ? tradingModeLabel : t('unitDialog.researchMode') }}
           </div>
           <div class="text-xs text-slate-400">
-            {{ selectedStrategyName || '未选择策略' }}
+            {{ selectedStrategyName || t('unitDialog.notSelected') }}
           </div>
         </div>
       </div>
@@ -62,20 +62,20 @@
       >
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            基本信息
+            {{ t('unitDialog.single') }}
           </div>
           <el-row :gutter="20">
             <el-col :span="24">
-              <el-form-item label="新建方式">
+              <el-form-item :label="t('unitDialog.creationMode')">
                 <el-radio-group v-model="form.create_mode">
                   <el-radio value="batch">
-                    批量
+                    {{ t('unitDialog.batch') }}
                   </el-radio>
                   <el-radio
                     value="overlay"
                     disabled
                   >
-                    叠加
+                    {{ t('unitDialog.overlay') }}
                   </el-radio>
                 </el-radio-group>
               </el-form-item>
@@ -85,20 +85,20 @@
           <el-row :gutter="20">
             <el-col :span="12">
               <el-form-item
-                label="单元组名"
+                :label="t('unitDialog.groupName')"
                 prop="group_name"
               >
                 <el-input
                   v-model="form.group_name"
-                  placeholder="例如: 黄金策略组"
+                  :placeholder="t('unitDialog.egPrefix') + ': ' + t('unitDialog.sampleGroup')"
                 />
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="分类">
+              <el-form-item :label="t('unitDialog.category')">
                 <el-select
                   v-model="form.category"
-                  placeholder="选择分类"
+                  :placeholder="t('unitDialog.selectCategory')"
                   style="width: 100%"
                 >
                   <el-option
@@ -113,13 +113,13 @@
           </el-row>
 
           <el-form-item
-            label="选择策略"
+            :label="t('unitDialog.selectStrategy')"
             prop="strategy_id"
           >
             <el-select
               v-model="form.strategy_id"
               filterable
-              placeholder="选择策略模板"
+              :placeholder="t('unitDialog.selectTemplate')"
               style="width: 100%"
               @change="onStrategyChange"
             >
@@ -138,17 +138,17 @@
           class="rounded-xl border border-slate-200 bg-white px-4 py-4"
         >
           <div class="mb-4 text-sm font-medium text-slate-700">
-            交易设置
+            {{ t('unitDialog.tradingSettings') }}
           </div>
           <el-row :gutter="20">
             <el-col :span="12">
-              <el-form-item label="交易模式">
+              <el-form-item :label="t('unitDialog.tradingMode')">
                 <el-radio-group v-model="form.trading_mode">
                   <el-radio value="paper">
-                    模拟交易
+                    {{ t('unitDialog.paperTrading') }}
                   </el-radio>
                   <el-radio value="live">
-                    实盘交易
+                    {{ t('unitDialog.liveTrading') }}
                   </el-radio>
                 </el-radio-group>
               </el-form-item>
@@ -156,7 +156,7 @@
           </el-row>
           <el-form-item
             v-if="form.trading_mode === 'live'"
-            label="网关配置"
+            :label="t('unitDialog.gatewayConfig')"
           >
             <TradingGatewaySelect v-model="form.gateway_config" />
           </el-form-item>
@@ -164,10 +164,10 @@
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            商品列表
+            {{ t('unitDialog.symbolListLabel') }}
           </div>
           <el-form-item
-            label="品种代码"
+            :label="t('unitDialog.symbolCode')"
             prop="symbols"
           >
             <div class="w-full">
@@ -178,12 +178,12 @@
               >
                 <el-input
                   v-model="symbol.code"
-                  placeholder="代码 (如 au000)"
+                  :placeholder="t('unitDialog.codeLabel') + ' (' + t('unitDialog.likePrefix') + ' au000)'"
                   style="width: 180px"
                 />
                 <el-input
                   v-model="symbol.name"
-                  placeholder="名称 (如 黄金加权0)"
+                  :placeholder="t('unitDialog.nameLabel') + ' (' + t('unitDialog.likePrefix') + ' ' + t('unitDialog.sampleSymbol') + '0)'"
                   style="width: 220px"
                 />
                 <el-button
@@ -201,7 +201,7 @@
               >
                 <el-icon class="mr-1">
                   <Plus />
-                </el-icon>添加品种
+                </el-icon>{{ t('unitDialog.addSymbol') }}
               </el-button>
             </div>
           </el-form-item>
@@ -209,48 +209,48 @@
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-4 text-sm font-medium text-slate-700">
-            周期与范围
+            {{ t('unitDialog.timeframeAndRange') }}
           </div>
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="周期">
+              <el-form-item :label="t('unitDialog.timeframe')">
                 <el-select
                   v-model="form.timeframe"
                   style="width: 100%"
                 >
                   <el-option
-                    label="1分钟"
+                    label="1m"
                     value="1m"
                   />
                   <el-option
-                    label="5分钟"
+                    label="5m"
                     value="5m"
                   />
                   <el-option
-                    label="15分钟"
+                    label="15m"
                     value="15m"
                   />
                   <el-option
-                    label="30分钟"
+                    label="30m"
                     value="30m"
                   />
                   <el-option
-                    label="1小时"
+                    label="1h"
                     value="1h"
                   />
                   <el-option
-                    label="4小时"
+                    label="4h"
                     value="4h"
                   />
                   <el-option
-                    label="日线"
+                    :label="t('unitDialog.daily')"
                     value="1d"
                   />
                 </el-select>
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="N值">
+              <el-form-item label="N">
                 <el-input-number
                   v-model="form.timeframe_n"
                   :min="1"
@@ -263,13 +263,13 @@
 
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="范围类型">
+              <el-form-item :label="t('unitDialog.rangeType')">
                 <el-radio-group v-model="form.range_type">
                   <el-radio value="date">
-                    日期
+                    {{ t('unitDialog.dateLabel') }}
                   </el-radio>
                   <el-radio value="sample">
-                    样本数
+                    {{ t('unitDialog.sampleCount') }}
                   </el-radio>
                 </el-radio-group>
               </el-form-item>
@@ -278,7 +278,7 @@
               v-if="form.range_type === 'sample'"
               :span="8"
             >
-              <el-form-item label="样本数">
+              <el-form-item :label="t('unitDialog.sampleCount')">
                 <el-input-number
                   v-model="form.sample_count"
                   :min="100"
@@ -294,23 +294,23 @@
             :gutter="20"
           >
             <el-col :span="12">
-              <el-form-item label="起始日期">
+              <el-form-item :label="t('unitDialog.rangeStartDate')">
                 <el-date-picker
                   v-model="form.start_date"
                   type="datetime"
-                  placeholder="选择起始日期"
+                  :placeholder="t('unitDialog.selectStartDate')"
                   style="width: 100%"
                 />
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="结束日期">
+              <el-form-item :label="t('unitDialog.rangeEndDate')">
                 <div class="flex w-full items-center gap-3">
                   <el-checkbox v-model="form.use_end_date" />
                   <el-date-picker
                     v-model="form.end_date"
                     type="datetime"
-                    placeholder="选择结束日期"
+                    :placeholder="t('unitDialog.selectEndDate')"
                     :disabled="!form.use_end_date"
                     style="width: 100%"
                   />
@@ -321,45 +321,45 @@
 
           <el-row :gutter="20">
             <el-col :span="8">
-              <el-form-item label="复权方式">
+              <el-form-item :label="t('units.config')">
                 <el-radio-group v-model="form.adjust_type">
                   <el-radio value="none">
-                    不复权
+                    {{ t('unitDialog.adjustNone') }}
                   </el-radio>
                   <el-radio value="forward">
-                    后复权
+                    {{ t('unitDialog.adjustPost') }}
                   </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="分割方式">
+              <el-form-item :label="t('unitDialog.splitMode')">
                 <el-radio-group v-model="form.split_type">
                   <el-radio value="natural">
-                    自然时间
+                    {{ t('unitDialog.timestampNatural') }}
                   </el-radio>
                   <el-radio value="trading">
-                    交易时间
+                    {{ t('unitDialog.tradingTime') }}
                   </el-radio>
                 </el-radio-group>
               </el-form-item>
             </el-col>
             <el-col :span="8">
-              <el-form-item label="数据范围">
+              <el-form-item :label="t('unitDialog.dataRange')">
                 <el-select
                   v-model="form.data_range"
                   style="width: 100%"
                 >
                   <el-option
-                    label="全部"
+                    :label="t('unitDialog.all')"
                     value="all"
                   />
                   <el-option
-                    label="主力"
+                    :label="t('unitDialog.main')"
                     value="main"
                   />
                   <el-option
-                    label="夜盘"
+                    :label="t('unitDialog.nightSession')"
                     value="night"
                   />
                 </el-select>
@@ -372,14 +372,14 @@
 
     <template #footer>
       <el-button @click="$emit('update:modelValue', false)">
-        取消
+        {{ t('unitDialog.cancel') }}
       </el-button>
       <el-button
         type="primary"
         :loading="submitting"
         @click="handleSubmit"
       >
-        创建
+        {{ t('unitDialog.create') }}
       </el-button>
     </template>
   </el-dialog>
@@ -390,11 +390,14 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import { Delete, Plus } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api/index'
 import { useStrategyStore } from '@/stores/strategy'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { GatewayConfig, WorkspaceType } from '@/types/workspace'
 import TradingGatewaySelect from './TradingGatewaySelect.vue'
+
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
@@ -412,17 +415,17 @@ const emit = defineEmits<{
 const strategyStore = useStrategyStore()
 const workspaceStore = useWorkspaceStore()
 
-const UNIT_CATEGORY_OPTIONS = ['股票', '期货', '期权', '外汇', '基金', '债券', 'crypto']
+const UNIT_CATEGORY_OPTIONS = computed(() => [t('unitDialog.catStock'), t('unitDialog.catFuture'), t('unitDialog.catOption'), t('unitDialog.catFx'), t('unitDialog.catFund'), t('unitDialog.catBond'), 'crypto'])
 
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 
 const isTradingWorkspace = computed(() => props.workspaceType === 'trading')
 const dialogTitle = computed(() =>
-  isTradingWorkspace.value ? '策略交易--新建策略单元' : '策略研究--新建策略单元'
+  (isTradingWorkspace.value ? t('unitDialog.tradingTrading') : t('unitDialog.tradingResearch')) + '--' + t('unitDialog.title')
 )
 const validSymbolCount = computed(() => form.value.symbols.filter(symbol => symbol.code.trim()).length)
-const tradingModeLabel = computed(() => (form.value.trading_mode === 'live' ? '实盘交易' : '模拟交易'))
+const tradingModeLabel = computed(() => (form.value.trading_mode === 'live' ? t('unitDialog.liveTrading') : t('unitDialog.paperTrading')))
 const selectedStrategyName = computed(() => {
   const template = strategyStore.templates.find(item => item.id === form.value.strategy_id)
   return template?.name || form.value.strategy_name || ''
@@ -439,7 +442,7 @@ function defaultEndDate(): Date {
 const defaultForm = () => ({
   create_mode: 'batch' as const,
   group_name: '',
-  category: '股票',
+  category: t('unitDialog.catStock'),
   strategy_id: '',
   strategy_name: '',
   symbols: [{ code: '', name: '' }],
@@ -460,8 +463,8 @@ const defaultForm = () => ({
 const form = ref(defaultForm())
 
 const rules: FormRules = {
-  group_name: [{ required: true, message: '请输入组名', trigger: 'blur' }],
-  strategy_id: [{ required: true, message: '请选择策略', trigger: 'change' }],
+  group_name: [{ required: true, message: t('unitDialog.pleaseEnterGroup'), trigger: 'blur' }],
+  strategy_id: [{ required: true, message: t('unitDialog.pleaseSelectStrategy'), trigger: 'change' }],
 }
 
 onMounted(() => {
@@ -490,7 +493,7 @@ async function handleSubmit() {
 
   const validSymbols = form.value.symbols.filter(symbol => symbol.code.trim())
   if (!validSymbols.length) {
-    ElMessage.warning('请至少添加一个品种')
+    ElMessage.warning(t('unitDialog.pleaseAddSymbol'))
     return
   }
 
@@ -501,7 +504,7 @@ async function handleSubmit() {
       && form.value.trading_mode === 'live'
       && !form.value.gateway_config?.preset_id
     ) {
-      ElMessage.warning('请选择实盘网关预设')
+      ElMessage.warning(t('unitDialog.selectLiveGateway'))
       return
     }
 
@@ -552,11 +555,11 @@ async function handleSubmit() {
       await workspaceStore.batchCreateUnits(props.workspaceId, units)
     }
 
-    ElMessage.success(`已创建 ${validSymbols.length} 个策略单元`)
+    ElMessage.success(`${t('unitDialog.created')} ${validSymbols.length} ${t('unitDialog.nUnits')}`)
     emit('update:modelValue', false)
     emit('created')
   } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, '创建失败'))
+    ElMessage.error(getErrorMessage(error, t('unitDialog.createFailed')))
   } finally {
     submitting.value = false
   }

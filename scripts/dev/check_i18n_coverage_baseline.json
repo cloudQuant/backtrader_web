@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 175 §4 advisory baseline. The strict scan finds 15148 violations at the latest commit. Most are false positives. The CJK violation subset is ~1405 — these are the actual zh-CN literals that need extracting to i18n keys. The CI gate runs in advisory mode (warning only) until the count reaches 0.",
-  "baseline_violations": 15148,
-  "baseline_cjk_violations": 1405,
-  "baseline_commit": "175-close-pass-14",
+  "_comment": "Iteration 175 §4 advisory baseline. Strict scan finds 15040 violations; CJK subset is ~1290 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
+  "baseline_violations": 15040,
+  "baseline_cjk_violations": 1290,
+  "baseline_commit": "175-close-pass-15",
   "baseline_date": "2026-05-28",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -22,6 +22,7 @@
     {"commit": "0531649d", "violations": 15375, "cjk": 1632, "note": "WorkspaceCard + CreateWorkspaceDialog"},
     {"commit": "d44156f6", "violations": 15291, "cjk": 1548, "note": "WorkspaceOptimizationTab"},
     {"commit": "35b9f135", "violations": 15197, "cjk": 1454, "note": "WorkspaceReportTab"},
-    {"commit": "175-close-pass-14", "violations": 15148, "cjk": 1405, "note": "WorkspaceUnitsTab (~106 zh -> units.* namespace; +80 keys)"}
+    {"commit": "145fefe4", "violations": 15148, "cjk": 1405, "note": "WorkspaceUnitsTab"},
+    {"commit": "175-close-pass-15", "violations": 15040, "cjk": 1290, "note": "CreateUnitDialog (~87 zh) + TradingWorkspaceUnitsTab (~72 zh) -> unitDialog.* + tradingUnits.* namespaces (+116 keys)"}
   ]
 }
