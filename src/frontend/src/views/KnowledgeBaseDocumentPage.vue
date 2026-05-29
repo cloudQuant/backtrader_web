@@ -3,10 +3,10 @@
     <div class="flex items-center justify-between gap-3">
       <div>
         <div class="text-sm text-slate-500">
-          知识库文档
+          {{ t('kbDoc.pageTitle') }}
         </div>
         <h2 class="text-2xl font-semibold text-slate-900">
-          {{ docData?.title || '文档详情' }}
+          {{ docData?.title || t('kbDoc.fallbackTitle') }}
         </h2>
       </div>
       <button
@@ -14,7 +14,7 @@
         class="rounded border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
         @click="goBack"
       >
-        返回知识库
+        {{ t('kbDoc.btnBack') }}
       </button>
     </div>
 
@@ -22,7 +22,7 @@
       v-if="loading"
       class="rounded border border-slate-200 bg-white px-4 py-8 text-sm text-slate-500"
     >
-      正在加载文档...
+      {{ t('kbDoc.loading') }}
     </div>
 
     <div
@@ -33,7 +33,7 @@
     </div>
 
     <template v-else-if="docData">
-      <!-- 文档类型 / 状态标签行 -->
+      <!-- Document type / status tag row -->
       <div class="flex flex-wrap items-center gap-2 text-xs">
         <span
           class="rounded px-2 py-0.5"
@@ -49,24 +49,24 @@
         >{{ sourceFileName }}</span>
       </div>
 
-      <!-- 三栏: 文档预览 / 摘要 / 信息 -->
+      <!-- Three columns: doc preview / summary / info -->
       <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <!-- 主内容卡片 -->
+        <!-- Main content card -->
         <el-card class="min-w-0">
           <template #header>
             <div class="flex items-center justify-between gap-3">
               <div class="font-medium text-slate-900">
-                文档内容
+                {{ t('kbDoc.cardTitle') }}
               </div>
               <div class="flex items-center gap-2 text-xs">
-                <!-- 视图切换 Tab -->
+                <!-- View switcher tab -->
                 <el-tabs
                   v-model="activeTab"
                   class="kb-doc-tabs"
                   @tab-change="onTabChange"
                 >
                   <el-tab-pane
-                    label="源文件"
+                    :label="t('kbDoc.tabSource')"
                     name="source"
                   />
                   <el-tab-pane
@@ -74,17 +74,17 @@
                     name="markdown"
                   />
                   <el-tab-pane
-                    label="元信息"
+                    :label="t('kbDoc.tabMeta')"
                     name="metadata"
                   />
                 </el-tabs>
-                <!-- 缩放控制（仅 PDF 源文件模式） -->
+                <!-- Zoom controls (PDF only) -->
                 <template v-if="activeTab === 'source' && sourceMimeType === 'application/pdf'">
                   <span class="text-slate-400">|</span>
                   <button
                     type="button"
                     class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
-                    title="缩小"
+                    :title="t('kbDoc.btnZoomOut')"
                     @click="adjustZoom(-0.1)"
                   >
                     −
@@ -93,7 +93,7 @@
                   <button
                     type="button"
                     class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
-                    title="放大"
+                    :title="t('kbDoc.btnZoomIn')"
                     @click="adjustZoom(0.1)"
                   >
                     +
@@ -101,7 +101,7 @@
                   <button
                     type="button"
                     class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
-                    title="重置"
+                    :title="t('kbDoc.btnReset')"
                     @click="pdfZoom = 1"
                   >
                     ⟲
@@ -109,7 +109,7 @@
                   <button
                     type="button"
                     class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
-                    :title="pdfFullscreen ? '退出全屏' : '全屏'"
+                    :title="pdfFullscreen ? t('kbDoc.btnExitFullscreen') : t('kbDoc.btnFullscreen')"
                     @click="toggleFullscreen"
                   >
                     {{ pdfFullscreen ? '⊠' : '⛶' }}
@@ -119,7 +119,7 @@
                     :href="sourcePreviewUrl"
                     :download="sourceFileName || 'document'"
                     class="rounded border border-slate-200 px-1.5 py-0.5 text-xs text-slate-600 hover:bg-slate-50"
-                    title="下载"
+                    :title="t('kbDoc.btnDownload')"
                     target="_blank"
                   >
                     ↓
@@ -129,12 +129,12 @@
             </div>
           </template>
 
-          <!-- ========== 源文件视图 ========== -->
+          <!-- ========== Source file view ========== -->
           <div
             v-show="activeTab === 'source'"
             class="min-h-[60vh]"
           >
-            <!-- PDF 预览 -->
+            <!-- PDF preview -->
             <div
               v-if="sourceMimeType === 'application/pdf' && sourcePreviewUrl"
               :class="['overflow-hidden rounded border border-slate-200 bg-slate-50', pdfFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : '']"
@@ -143,11 +143,11 @@
                 :src="pdfEmbedUrl"
                 class="w-full bg-slate-100"
                 :class="pdfFullscreen ? 'h-screen' : 'h-[72vh]'"
-                title="PDF预览"
+                :title="t('kbDoc.pdfTitle')"
               />
             </div>
 
-            <!-- Office 文件 (docx/xlsx/pptx) 使用 Office Online Viewer -->
+            <!-- Office files (docx/xlsx/pptx) via Office Online Viewer -->
             <div
               v-else-if="isOfficeFile && sourcePreviewUrl"
               class="overflow-hidden rounded border border-slate-200"
@@ -155,11 +155,11 @@
               <iframe
                 :src="officeViewerUrl"
                 class="h-[72vh] w-full bg-slate-100"
-                title="Office文档预览"
+                :title="t('kbDoc.officeTitle')"
               />
             </div>
 
-            <!-- 其他不支持预览的文件 -->
+            <!-- Other unsupported files -->
             <div
               v-else-if="sourceFileName"
               class="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 py-16 text-sm text-slate-500"
@@ -171,7 +171,7 @@
                 {{ sourceFileName }}
               </div>
               <div class="mt-2 text-xs text-slate-400">
-                此文件类型暂不支持浏览器内联预览
+                {{ t('kbDoc.notInlinePreview') }}
               </div>
               <div class="mt-4 flex gap-2">
                 <button
@@ -179,7 +179,7 @@
                   class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
                   @click="downloadSourceFile"
                 >
-                  下载原文件
+                  {{ t('kbDoc.btnDownloadOriginal') }}
                 </button>
                 <button
                   v-if="doc.content"
@@ -187,12 +187,12 @@
                   class="rounded border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
                   @click="activeTab = 'markdown'"
                 >
-                  阅读 Markdown 正文
+                  {{ t('kbDoc.btnReadMarkdown') }}
                 </button>
               </div>
             </div>
 
-            <!-- 无源文件 -->
+            <!-- No source file -->
             <div
               v-else
               class="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 py-16 text-sm text-slate-500"
@@ -201,12 +201,12 @@
                 📭
               </div>
               <div class="mt-2">
-                暂无源文件
+                {{ t('kbDoc.noSourceFile') }}
               </div>
             </div>
           </div>
 
-          <!-- ========== Markdown 视图 ========== -->
+          <!-- ========== Markdown view ========== -->
           <div
             v-show="activeTab === 'markdown'"
             class="min-h-[60vh]"
@@ -225,12 +225,12 @@
                 📝
               </div>
               <div class="mt-2">
-                暂无 Markdown 正文内容
+                {{ t('kbDoc.noMarkdownContent') }}
               </div>
             </div>
           </div>
 
-          <!-- ========== 元信息视图 ========== -->
+          <!-- ========== Metadata view ========== -->
           <div
             v-show="activeTab === 'metadata'"
             class="min-h-[60vh] space-y-4 py-2"
@@ -238,7 +238,7 @@
             <div class="grid grid-cols-2 gap-3 text-sm">
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
                 <div class="text-xs text-slate-400">
-                  文档 ID
+                  {{ t('kbDoc.metaDocId') }}
                 </div>
                 <div class="mt-1 break-all text-slate-700">
                   {{ doc.id }}
@@ -246,7 +246,7 @@
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
                 <div class="text-xs text-slate-400">
-                  知识库 ID
+                  {{ t('kbDoc.metaKbId') }}
                 </div>
                 <div class="mt-1 break-all text-slate-700">
                   {{ doc.knowledge_base_id }}
@@ -254,15 +254,15 @@
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
                 <div class="text-xs text-slate-400">
-                  类型
+                  {{ t('kbDoc.metaType') }}
                 </div>
                 <div class="mt-1 text-slate-700">
-                  {{ doc.is_folder ? '文件夹' : doc.content_type }}
+                  {{ doc.is_folder ? t('kbDoc.metaTypeFolder') : doc.content_type }}
                 </div>
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
                 <div class="text-xs text-slate-400">
-                  状态
+                  {{ t('kbDoc.metaStatus') }}
                 </div>
                 <div class="mt-1 text-slate-700">
                   {{ doc.status }}
@@ -270,7 +270,7 @@
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
                 <div class="text-xs text-slate-400">
-                  索引状态
+                  {{ t('kbDoc.metaIndexStatus') }}
                 </div>
                 <div class="mt-1 text-slate-700">
                   {{ doc.index_status }}
@@ -278,7 +278,7 @@
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
                 <div class="text-xs text-slate-400">
-                  创建时间
+                  {{ t('kbDoc.metaCreatedAt') }}
                 </div>
                 <div class="mt-1 text-slate-700">
                   {{ formatDate(doc.created_at) }}
@@ -286,7 +286,7 @@
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
                 <div class="text-xs text-slate-400">
-                  更新时间
+                  {{ t('kbDoc.metaUpdatedAt') }}
                 </div>
                 <div class="mt-1 text-slate-700">
                   {{ formatDate(doc.updated_at) }}
@@ -294,10 +294,10 @@
               </div>
               <div class="rounded border border-slate-100 bg-slate-50 p-3">
                 <div class="text-xs text-slate-400">
-                  内容长度
+                  {{ t('kbDoc.metaContentLength') }}
                 </div>
                 <div class="mt-1 text-slate-700">
-                  {{ doc.content?.length ?? 0 }} 字符
+                  {{ doc.content?.length ?? 0 }} {{ t('kbDoc.metaContentLengthSuffix') }}
                 </div>
               </div>
               <div
@@ -305,7 +305,7 @@
                 class="rounded border border-slate-100 bg-slate-50 p-3 col-span-2"
               >
                 <div class="text-xs text-slate-400">
-                  原始文件名
+                  {{ t('kbDoc.metaOriginalName') }}
                 </div>
                 <div class="mt-1 text-slate-700">
                   {{ sourceFileName }}
@@ -316,7 +316,7 @@
                 class="rounded border border-slate-100 bg-slate-50 p-3"
               >
                 <div class="text-xs text-slate-400">
-                  MIME 类型
+                  {{ t('kbDoc.metaMimeType') }}
                 </div>
                 <div class="mt-1 text-slate-700">
                   {{ sourceMimeType }}
@@ -327,7 +327,7 @@
                 class="rounded border border-slate-100 bg-slate-50 p-3"
               >
                 <div class="text-xs text-slate-400">
-                  文件大小
+                  {{ t('kbDoc.metaFileSize') }}
                 </div>
                 <div class="mt-1 text-slate-700">
                   {{ formatBytes(sourceFileSize) }}
@@ -338,7 +338,7 @@
                 class="rounded border border-slate-100 bg-slate-50 p-3 col-span-2"
               >
                 <div class="text-xs text-slate-400">
-                  文件路径
+                  {{ t('kbDoc.metaFilePath') }}
                 </div>
                 <div class="mt-1 break-all text-slate-700">
                   {{ doc.file_path }}
@@ -351,20 +351,21 @@
               class="rounded border border-slate-200 p-4"
             >
               <div class="mb-2 text-sm font-medium text-slate-700">
-                完整元数据
+                {{ t('kbDoc.metaFullMetadata') }}
               </div>
               <pre class="overflow-auto whitespace-pre-wrap break-all text-xs text-slate-600">{{ JSON.stringify(doc.metadata, null, 2) }}</pre>
             </div>
           </div>
         </el-card>
 
-        <!-- 右侧摘要/操作面板 -->
+
+        <!-- Right summary/action panel -->
         <div class="space-y-4">
-          <!-- 文档摘要卡片 -->
+          <!-- Document summary card -->
           <el-card>
             <template #header>
               <div class="font-medium">
-                文档摘要
+                {{ t('kbDoc.summaryTitle') }}
               </div>
             </template>
             <div class="space-y-3 text-sm">
@@ -381,7 +382,7 @@
                   class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
                   @click="activeTab = 'source'"
                 >
-                  预览源文件
+                  {{ t('kbDoc.btnPreviewSource') }}
                 </button>
                 <button
                   v-if="doc.content"
@@ -389,7 +390,7 @@
                   class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
                   @click="activeTab = 'markdown'"
                 >
-                  阅读 Markdown
+                  {{ t('kbDoc.btnReadMd') }}
                 </button>
                 <button
                   v-if="sourcePreviewUrl"
@@ -397,40 +398,40 @@
                   class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
                   @click="downloadSourceFile"
                 >
-                  下载原文件
+                  {{ t('kbDoc.btnDownloadOriginal') }}
                 </button>
               </div>
             </div>
           </el-card>
 
-          <!-- 阅读建议 -->
+          <!-- Reading tips -->
           <el-card>
             <template #header>
               <div class="font-medium">
-                阅读建议
+                {{ t('kbDoc.readingTipsTitle') }}
               </div>
             </template>
             <ul class="space-y-2 text-sm text-slate-600">
               <li v-if="sourceMimeType === 'application/pdf' || isOfficeFile">
-                优先查看"源文件"标签页获取原始文档内容。
+                {{ t('kbDoc.tipPreferSource') }}
               </li>
               <li v-if="doc.content">
-                使用"Markdown"标签页可全文检索/复制。
+                {{ t('kbDoc.tipUseMarkdown') }}
               </li>
               <li v-if="doc.index_status !== 'indexed'">
-                ⚠️ 当前文档尚未完成索引，AI 检索结果可能不完整。
+                {{ t('kbDoc.tipNotIndexed') }}
               </li>
               <li v-else>
-                ✅ 当前文档已索引，可在 AI 问答页结合上下文进行追问。
+                {{ t('kbDoc.tipIndexed') }}
               </li>
             </ul>
           </el-card>
 
-          <!-- AI 快捷问答入口 -->
+          <!-- Quick AI Q&A entry -->
           <el-card>
             <template #header>
               <div class="font-medium">
-                快捷 AI 问答
+                {{ t('kbDoc.quickAiTitle') }}
               </div>
             </template>
             <div class="space-y-2 text-sm">
@@ -453,12 +454,14 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import type { KBDocumentItem } from '@/api/knowledgeBase'
 import { knowledgeBaseApi } from '@/api/knowledgeBase'
 import { getErrorMessage } from '@/api'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
@@ -467,14 +470,14 @@ const errorMessage = ref('')
 const docData = ref<KBDocumentItem | null>(null)
 const sourcePreviewUrl = ref('')
 
-// Tab 状态
+// Tab state
 const activeTab = ref<'source' | 'markdown' | 'metadata'>('source')
 
-// PDF 缩放/全屏
+// PDF zoom/fullscreen
 const pdfZoom = ref(1)
 const pdfFullscreen = ref(false)
 
-// Office 文件支持列表
+// Office file support list
 const OFFICE_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',       // .xlsx
@@ -487,35 +490,33 @@ const isOfficeFile = computed(() => {
   return OFFICE_TYPES.has(sourceMimeType.value)
 })
 
-// PDF embed URL (Google Docs viewer，支持缩放参数)
+// PDF embed URL (Google Docs viewer with zoom param)
 const pdfEmbedUrl = computed(() => {
   if (!sourcePreviewUrl.value) return ''
-  // Google Docs PDF viewer 支持 zoom 参数
   return `${sourcePreviewUrl.value}#toolbar=1&navpanes=1&zoom=${Math.round(pdfZoom.value * 100)}`
 })
 
-// Office Online Viewer URL（免费，无需 API key）
+// Office Online Viewer URL (free, no API key)
 const officeViewerUrl = computed(() => {
   if (!sourcePreviewUrl.value) return ''
-  // 必须是经过 encode 的 URL
   const encodedSrc = encodeURIComponent(sourcePreviewUrl.value)
   return `https://view.officeapps.live.com/op/embed.aspx?src=${encodedSrc}&wdPrint=0&wdDownload=1`
 })
 
-const quickPrompts = [
-  '总结这篇文档的核心内容',
-  '提取文档中的关键要点',
-  '这篇文章的主要结论是什么？',
-]
+const quickPrompts = computed(() => [
+  t('kbDoc.prompt1'),
+  t('kbDoc.prompt2'),
+  t('kbDoc.prompt3'),
+])
 
 const documentSummary = computed(() => {
   const content = docData.value?.content?.trim() ?? ''
-  if (!content) return '该文档暂无正文内容。'
+  if (!content) return t('kbDoc.summaryEmpty')
   if (content.length <= 200) return content
   return `${content.slice(0, 200)}...`
 })
 
-// 模板专用的非 null 文档对象（避免每个属性都要可选链）
+// Template-friendly non-null doc object (avoids optional chaining everywhere)
 const doc = computed<KBDocumentItem>(() => docData.value ?? ({
   id: '',
   knowledge_base_id: '',
@@ -567,7 +568,7 @@ function indexClass(status: string) {
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return '未知时间'
+  if (!value) return t('kbDoc.msgUnknownTime')
   return value.replace('T', ' ').slice(0, 16)
 }
 
@@ -630,7 +631,7 @@ async function loadSourceFile() {
     const blob = await knowledgeBaseApi.getDocumentSourceFile(kbId, docId)
     sourcePreviewUrl.value = URL.createObjectURL(blob)
   } catch {
-    // 源文件加载失败，静默
+    // Source file load failed; silent
   }
 }
 
@@ -638,7 +639,7 @@ async function fetchDocument() {
   const kbId = String(route.params.kbId || '')
   const docId = String(route.params.docId || '')
   if (!kbId || !docId) {
-    errorMessage.value = '缺少文档参数'
+    errorMessage.value = t('kbDoc.msgMissingDocParams')
     return
   }
 
@@ -649,7 +650,7 @@ async function fetchDocument() {
     docData.value = await knowledgeBaseApi.getDocument(kbId, docId)
     if (sourceFileName.value) {
       await loadSourceFile()
-      // 自动选择源文件预览（如果支持）
+      // Auto-select source preview if supported
       if (sourceMimeType.value === 'application/pdf' || isOfficeFile.value) {
         activeTab.value = 'source'
       } else if (docData.value?.content) {
@@ -659,18 +660,18 @@ async function fetchDocument() {
       activeTab.value = 'markdown'
     }
   } catch (error) {
-    errorMessage.value = getErrorMessage(error, '加载文档失败')
+    errorMessage.value = getErrorMessage(error, t('kbDoc.msgLoadDocFailed'))
   } finally {
     loading.value = false
   }
 }
 
-// 监听来自 AI 问答页的快捷 prompt
+// Watch for quick prompt from AI chat page
 watch(
   () => route.query?.prompt,
   (prompt) => {
     if (prompt && typeof prompt === 'string') {
-      // 将 prompt 传递到 AI 问答页（通过 sessionStorage 桥接）
+      // Bridge prompt to AI chat page via sessionStorage
       sessionStorage.setItem('kb_quick_prompt', prompt)
       router.replace({ path: '/ai-chat', query: { kbId: route.params.kbId, prompt } })
     }
@@ -681,7 +682,7 @@ watch(
 onMounted(fetchDocument)
 onBeforeUnmount(revokeSourcePreviewUrl)
 
-// 监听全屏退出事件（浏览器 ESC 等）
+// Listen for fullscreen exit (browser ESC etc.)
 if (typeof window !== 'undefined') {
   window.document.addEventListener('fullscreenchange', () => {
     if (!window.document.fullscreenElement) {
@@ -696,7 +697,7 @@ if (typeof window !== 'undefined') {
   font-feature-settings: 'liga' 1, 'calt' 1;
 }
 
-/* Tab 样式覆盖 */
+/* Tab style overrides */
 :deep(.kb-doc-tabs .el-tabs__header) {
   margin-bottom: 0;
 }

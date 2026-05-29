@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14092 violations; CJK subset is ~317 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
-  "baseline_violations": 14092,
-  "baseline_cjk_violations": 317,
-  "baseline_commit": "176-c-pass-28",
+  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14125 violations; CJK subset is ~275 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
+  "baseline_violations": 14125,
+  "baseline_cjk_violations": 275,
+  "baseline_commit": "176-c-pass-29",
   "baseline_date": "2026-05-29",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -36,6 +36,7 @@
     {"commit": "176-c-pass-25", "violations": 14194, "cjk": 429, "note": "components/charts/* (8 files, ~54 zh literals) -> charts.* namespace (+92 keys, parity 1979/1979). Includes EquityCurve, DrawdownChart, ReturnHeatmap, KlineChart, MetricCard, PerformancePanel, TradeRecordsTable, TradeSignalChart. Echart series names/legend data/tooltip formatters all i18n-keyed."},
     {"commit": "176-c-pass-26", "violations": 14165, "cjk": 396, "note": "components/common/* (5 files, ~33 zh literals) -> commonUi.* namespace (+46 keys, parity 2025/2025). LogViewer + helpers (i18n.global.t for log labels), ErrorBoundary, ThemeToggle, AppLayout (comment translation). Bonus: fixed pre-existing searchText.value ref bug in logViewerHelpers, vue-tsc 139->132."},
     {"commit": "176-c-pass-27", "violations": 14116, "cjk": 341, "note": "AITradingPage.vue (30 zh) -> aiTrading.* namespace + useStrategyDraftWorkspaceExecution.ts (25 zh) -> draftExec.* namespace via i18n.global.t (+74 keys, parity 2099/2099). Includes status/action enum maps and report analysis text generation."},
-    {"commit": "176-c-pass-28", "violations": 14092, "cjk": 317, "note": "components/backtest/* (5 files, 24 CJK violations) -> backtestComp.* namespace (zh-CN side now matches existing en-US +84 keys, parity 2183/2183). OverfittingPanel(9), BacktestMetricsPanel(9), BacktestHistoryTable(11), StrategyScoreCard(8), StrategyExplanationCard(29). Removed duplicate backtestCmp namespace from en-US."}
+    {"commit": "176-c-pass-28", "violations": 14092, "cjk": 317, "note": "components/backtest/* (5 files, 24 CJK violations) -> backtestComp.* namespace (zh-CN side now matches existing en-US +84 keys, parity 2183/2183). OverfittingPanel(9), BacktestMetricsPanel(9), BacktestHistoryTable(11), StrategyScoreCard(8), StrategyExplanationCard(29). Removed duplicate backtestCmp namespace from en-US."},
+    {"commit": "176-c-pass-29", "violations": 14125, "cjk": 275, "note": "NewsIntelligencePage.vue (22 CJK) -> newsIntel.* namespace + KnowledgeBaseDocumentPage.vue (20 CJK) -> kbDoc.* namespace (+74 keys, parity 2257/2257). Strict total slightly up (+33) due to new tag-attribute strings now visible to strict scanner; CJK-only -42."}
   ]
 }

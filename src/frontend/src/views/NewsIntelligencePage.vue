@@ -1,60 +1,175 @@
 <template>
   <div class="space-y-4">
     <div>
-      <h2 class="text-2xl font-bold">新闻情报</h2>
-      <p class="text-sm text-gray-500 mt-1">聚合新闻、规则分类与实时主题分发入口。</p>
+      <h2 class="text-2xl font-bold">
+        {{ t('newsIntel.title') }}
+      </h2>
+      <p class="text-sm text-gray-500 mt-1">
+        {{ t('newsIntel.desc') }}
+      </p>
     </div>
 
     <el-card>
       <div class="flex gap-3 flex-wrap items-center mb-4">
-        <el-input v-model="sourceName" placeholder="来源名称" class="max-w-xs" />
-        <el-input v-model="sourceUrl" placeholder="来源 URL / RSS" class="max-w-md" />
-        <el-button type="primary" :loading="loading" @click="createSource">新增来源</el-button>
-        <el-button :loading="loading" @click="pullSource">拉取 RSS</el-button>
+        <el-input
+          v-model="sourceName"
+          :placeholder="t('newsIntel.sourceNamePh')"
+          class="max-w-xs"
+        />
+        <el-input
+          v-model="sourceUrl"
+          :placeholder="t('newsIntel.sourceUrlPh')"
+          class="max-w-md"
+        />
+        <el-button
+          type="primary"
+          :loading="loading"
+          @click="createSource"
+        >
+          {{ t('newsIntel.btnAddSource') }}
+        </el-button>
+        <el-button
+          :loading="loading"
+          @click="pullSource"
+        >
+          {{ t('newsIntel.btnPullRss') }}
+        </el-button>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-4">
-        <el-input v-model="headline" placeholder="新闻标题" class="md:col-span-2" />
-        <el-input v-model="url" placeholder="文章 URL" class="md:col-span-2" />
-        <el-button :loading="loading" @click="ingest">导入文章</el-button>
+        <el-input
+          v-model="headline"
+          :placeholder="t('newsIntel.headlinePh')"
+          class="md:col-span-2"
+        />
+        <el-input
+          v-model="url"
+          :placeholder="t('newsIntel.urlPh')"
+          class="md:col-span-2"
+        />
+        <el-button
+          :loading="loading"
+          @click="ingest"
+        >
+          {{ t('newsIntel.btnIngest') }}
+        </el-button>
       </div>
       <div class="flex gap-3 flex-wrap items-center mb-4">
-        <el-input v-model="analysisHeadline" placeholder="分析标题情绪" class="max-w-xl" />
-        <el-button :loading="loading" @click="analyzeHeadline">分析</el-button>
-        <el-button :loading="loading" @click="loadArticles">刷新列表</el-button>
+        <el-input
+          v-model="analysisHeadline"
+          :placeholder="t('newsIntel.analysisPh')"
+          class="max-w-xl"
+        />
+        <el-button
+          :loading="loading"
+          @click="analyzeHeadline"
+        >
+          {{ t('newsIntel.btnAnalyze') }}
+        </el-button>
+        <el-button
+          :loading="loading"
+          @click="loadArticles"
+        >
+          {{ t('newsIntel.btnRefreshList') }}
+        </el-button>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
-        <el-select v-model="filterSentiment" clearable placeholder="情绪过滤">
-          <el-option label="BULLISH" value="BULLISH" />
-          <el-option label="BEARISH" value="BEARISH" />
-          <el-option label="NEUTRAL" value="NEUTRAL" />
+        <el-select
+          v-model="filterSentiment"
+          clearable
+          :placeholder="t('newsIntel.sentimentPh')"
+        >
+          <el-option
+            label="BULLISH"
+            value="BULLISH"
+          />
+          <el-option
+            label="BEARISH"
+            value="BEARISH"
+          />
+          <el-option
+            label="NEUTRAL"
+            value="NEUTRAL"
+          />
         </el-select>
-        <el-input v-model="filterTicker" placeholder="标的过滤，如 RB2510" />
-        <el-input v-model="filterClusterId" placeholder="Cluster ID" />
-        <el-button :loading="loading" @click="loadArticles">应用过滤</el-button>
+        <el-input
+          v-model="filterTicker"
+          :placeholder="t('newsIntel.tickerPh')"
+        />
+        <el-input
+          v-model="filterClusterId"
+          :placeholder="t('newsIntel.clusterIdPh')"
+        />
+        <el-button
+          :loading="loading"
+          @click="loadArticles"
+        >
+          {{ t('newsIntel.btnApplyFilter') }}
+        </el-button>
       </div>
-      <div v-if="pullResult" class="text-sm text-gray-500 mb-4">
-        拉取结果：{{ pullResult.status }} / fetched={{ pullResult.fetched_count }} / inserted={{ pullResult.inserted_count }}
+      <div
+        v-if="pullResult"
+        class="text-sm text-gray-500 mb-4"
+      >
+        {{ t('newsIntel.pullResultTpl', { status: pullResult.status, fetched: pullResult.fetched_count, inserted: pullResult.inserted_count }) }}
       </div>
-      <div v-if="analysisResult" class="text-sm text-gray-500 mb-4">
-        分析结果：{{ analysisResult.sentiment }} / {{ analysisResult.impact }} / {{ analysisResult.status }}
+      <div
+        v-if="analysisResult"
+        class="text-sm text-gray-500 mb-4"
+      >
+        {{ t('newsIntel.analysisResultTpl', { sentiment: analysisResult.sentiment, impact: analysisResult.impact, status: analysisResult.status }) }}
       </div>
       <el-table :data="articles">
-        <el-table-column prop="headline" label="标题" />
-        <el-table-column prop="sentiment" label="情绪" />
-        <el-table-column prop="impact" label="影响" />
-        <el-table-column prop="cluster_id" label="Cluster" />
-        <el-table-column label="操作" width="120">
+        <el-table-column
+          prop="headline"
+          :label="t('newsIntel.colHeadline')"
+        />
+        <el-table-column
+          prop="sentiment"
+          :label="t('newsIntel.colSentiment')"
+        />
+        <el-table-column
+          prop="impact"
+          :label="t('newsIntel.colImpact')"
+        />
+        <el-table-column
+          prop="cluster_id"
+          :label="t('newsIntel.colCluster')"
+        />
+        <el-table-column
+          :label="t('newsIntel.colActions')"
+          width="120"
+        >
           <template #default="scope">
-            <el-button link type="primary" @click="expandCluster(String(scope.row.cluster_id || ''))">展开同簇</el-button>
+            <el-button
+              link
+              type="primary"
+              @click="expandCluster(String(scope.row.cluster_id || ''))"
+            >
+              {{ t('newsIntel.btnExpandCluster') }}
+            </el-button>
           </template>
         </el-table-column>
       </el-table>
-      <div v-if="selectedClusterId" class="mt-4">
-        <div class="font-medium mb-2">Cluster 展开：{{ selectedClusterId }}</div>
+      <div
+        v-if="selectedClusterId"
+        class="mt-4"
+      >
+        <div class="font-medium mb-2">
+          {{ t('newsIntel.clusterExpand', { id: selectedClusterId }) }}
+        </div>
         <el-table :data="clusterArticles">
-          <el-table-column prop="headline" label="标题" />
-          <el-table-column prop="source" label="来源" />
-          <el-table-column prop="sentiment" label="情绪" />
+          <el-table-column
+            prop="headline"
+            :label="t('newsIntel.colHeadline')"
+          />
+          <el-table-column
+            prop="source"
+            :label="t('newsIntel.colSource')"
+          />
+          <el-table-column
+            prop="sentiment"
+            :label="t('newsIntel.colSentiment')"
+          />
         </el-table>
       </div>
     </el-card>
@@ -63,7 +178,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { marketIntelApi, type NewsArticleItem } from '@/api/marketIntel'
+
+const { t } = useI18n()
 
 const loading = ref(false)
 const articles = ref<NewsArticleItem[]>([])
