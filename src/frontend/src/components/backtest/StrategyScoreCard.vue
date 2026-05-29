@@ -4,7 +4,7 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <h3 class="text-lg font-semibold text-gray-900">
-            策略评分
+            {{ t('backtestComp.ssTitle') }}
           </h3>
           <p class="text-sm text-gray-500 mt-1">
             {{ score.disclaimer }}
@@ -15,7 +15,7 @@
             {{ score.total_score.toFixed(1) }}
           </div>
           <el-tag type="success">
-            {{ score.level }} 级
+            {{ score.level }}{{ t('backtestComp.ssLevelSuffix') }}
           </el-tag>
         </div>
       </div>
@@ -24,10 +24,10 @@
     <section class="rounded-lg border border-blue-100 bg-blue-50 p-4 mb-4">
       <div class="flex items-center justify-between gap-3 mb-3">
         <div class="text-sm font-medium text-blue-900">
-          维度雷达图
+          {{ t('backtestComp.ssRadarTitle') }}
         </div>
         <div class="text-xs text-blue-700">
-          点击下方维度查看子指标
+          {{ t('backtestComp.ssRadarHint') }}
         </div>
       </div>
       <div
@@ -38,7 +38,7 @@
           viewBox="0 0 240 240"
           class="h-full w-full"
           role="img"
-          aria-label="策略评分维度雷达图"
+          :aria-label="t('backtestComp.ssRadarAria')"
         >
           <polygon
             v-for="level in radarLevels"
@@ -105,7 +105,7 @@
               {{ dimension.label }}
             </div>
             <div class="text-xs text-gray-500 mt-1">
-              权重 {{ (dimension.weight * 100).toFixed(0) }}%
+              {{ t('backtestComp.ssWeightLabel') }} {{ (dimension.weight * 100).toFixed(0) }}%
             </div>
           </div>
           <div class="text-xl font-semibold text-gray-900">
@@ -135,7 +135,7 @@
           v-if="dimension.degraded"
           class="mt-3 text-xs text-amber-600"
         >
-          当前维度为降级结果，后续会接入更完整检测。
+          {{ t('backtestComp.ssDimDegraded') }}
         </div>
       </div>
     </div>
@@ -144,7 +144,10 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { StrategyScoreResponse } from '@/api/strategy'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   score: StrategyScoreResponse

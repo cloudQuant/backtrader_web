@@ -4,12 +4,12 @@
       <div class="flex items-center justify-between gap-3">
         <div>
           <h3 class="text-lg font-semibold text-gray-900">
-            过拟合诊断
+            {{ t('backtestComp.ofTitle') }}
           </h3>
           <p
             class="text-sm text-gray-500 mt-1"
           >
-            用 Monte Carlo 等方法评估回测结果是否过度依赖样本巧合。
+            {{ t('backtestComp.ofDesc') }}
           </p>
         </div>
         <div class="text-right shrink-0">
@@ -40,7 +40,7 @@
           :disabled="loading"
           @update:model-value="toggleMethod('out_of_sample', Boolean($event))"
         >
-          样本外
+          {{ t('backtestComp.ofSampleOut') }}
         </el-checkbox>
         <el-checkbox
           :model-value="isMethodSelected('monte_carlo')"
@@ -55,7 +55,7 @@
         :loading="loading"
         @click="handleRerun"
       >
-        重新检测
+        {{ t('backtestComp.ofRerun') }}
       </el-button>
     </div>
 
@@ -63,7 +63,7 @@
       v-if="loading"
       class="text-sm text-gray-500"
     >
-      {{ progressMessage || '正在加载过拟合诊断...' }}
+      {{ progressMessage || t('backtestComp.ofLoading') }}
     </div>
 
     <div
@@ -80,7 +80,7 @@
       >
         <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div class="text-sm font-medium text-blue-900">
-            检测方法图表
+            {{ t('backtestComp.ofMethodChartTitle') }}
           </div>
           <div class="flex flex-wrap gap-2">
             <button
@@ -102,7 +102,7 @@
         >
           <template v-if="activeMethod.method === 'walk_forward'">
             <div class="mb-3 text-xs text-gray-500">
-              IS/OOS Sharpe 窗口对比
+              {{ t('backtestComp.ofIsOosSharpe') }}
             </div>
             <div class="space-y-3">
               <div
@@ -133,12 +133,12 @@
           </template>
           <template v-else-if="activeMethod.method === 'out_of_sample'">
             <div class="mb-3 text-xs text-gray-500">
-              样本内/样本外收益与显著性
+              {{ t('backtestComp.ofIsOosReturnSig') }}
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div class="rounded border border-gray-100 p-3">
                 <div class="text-xs text-gray-500">
-                  IS 年化收益
+                  {{ t('backtestComp.ofIsAnnual') }}
                 </div>
                 <div class="mt-1 text-lg font-semibold text-gray-900">
                   {{ formatMetricValue(activeMethod.metrics.is_annual_return, 'percent') }}
@@ -146,7 +146,7 @@
               </div>
               <div class="rounded border border-gray-100 p-3">
                 <div class="text-xs text-gray-500">
-                  OOS 年化收益
+                  {{ t('backtestComp.ofOosAnnual') }}
                 </div>
                 <div class="mt-1 text-lg font-semibold text-gray-900">
                   {{ formatMetricValue(activeMethod.metrics.oos_annual_return, 'percent') }}
@@ -164,7 +164,7 @@
           </template>
           <template v-else>
             <div class="mb-3 text-xs text-gray-500">
-              随机分布与实际收益分位
+              {{ t('backtestComp.ofRandomDist') }}
             </div>
             <div class="flex items-end gap-1 h-28">
               <div
@@ -176,7 +176,7 @@
               />
             </div>
             <div class="mt-3 text-xs text-gray-600">
-              实际收益分位：{{ formatMetricValue(activeMethod.metrics.bootstrap_percentile, 'percent') }}
+              {{ t('backtestComp.ofActualPercentile', { value: formatMetricValue(activeMethod.metrics.bootstrap_percentile, 'percent') }) }}
             </div>
           </template>
         </div>
@@ -223,18 +223,21 @@
       v-else
       class="text-sm text-gray-500"
     >
-      暂无过拟合检测结果。
+      {{ t('backtestComp.ofEmpty') }}
     </div>
   </el-card>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type {
   StrategyOverfittingMethod,
   StrategyOverfittingMethodResult,
   StrategyOverfittingTaskResult,
 } from '@/api/strategy'
+
+const { t } = useI18n()
 
 interface EvidenceItem {
   label: string
@@ -259,10 +262,10 @@ const selectedMethods = ref<StrategyOverfittingMethod[]>([
 const activeMethodKey = ref<StrategyOverfittingMethod>('walk_forward')
 
 const riskLabel = computed(() => {
-  if (!props.result) return '待检测'
-  if (props.result.overall_level === 'low') return '低风险'
-  if (props.result.overall_level === 'medium') return '中风险'
-  return '高风险'
+  if (!props.result) return t('backtestComp.ofRiskPending')
+  if (props.result.overall_level === 'low') return t('backtestComp.ofRiskLow')
+  if (props.result.overall_level === 'medium') return t('backtestComp.ofRiskMedium')
+  return t('backtestComp.ofRiskHigh')
 })
 
 const riskTagType = computed(() => {
@@ -289,7 +292,7 @@ const walkForwardWindows = computed(() => {
     const oosSharpe = numberFromMetric(record.oos_sharpe)
     const scale = Math.max(Math.abs(isSharpe), Math.abs(oosSharpe), 1)
     return {
-      label: `窗口 ${index + 1}`,
+      label: t('backtestComp.ofWindowLabel', { n: index + 1 }),
       isSharpe: isSharpe.toFixed(2),
       oosSharpe: oosSharpe.toFixed(2),
       isWidth: Math.max(4, Math.min(100, Math.abs(isSharpe) / scale * 100)),
@@ -354,29 +357,29 @@ function handleRerun() {
 function buildEvidenceItems(method: StrategyOverfittingMethodResult): EvidenceItem[] {
   if (method.method === 'monte_carlo') {
     return compactEvidence([
-      evidenceFromMetric(method.metrics, 'actual_compound_return_pct', '实际复合收益', 'percent'),
-      evidenceFromMetric(method.metrics, 'bootstrap_percentile', 'Bootstrap 分位', 'percent'),
-      evidenceFromMetric(method.metrics, 'iterations', '模拟次数'),
-      evidenceFromMetric(method.metrics, 'trade_return_count', '交易样本数'),
-      evidenceFromMetric(method.metrics, 'bootstrap_mean_return_pct', 'Bootstrap 均值', 'percent'),
-      evidenceFromMetric(method.metrics, 'bootstrap_p95_return_pct', 'Bootstrap 95%分位收益', 'percent'),
+      evidenceFromMetric(method.metrics, 'actual_compound_return_pct', t('backtestComp.ofEvActualCompound'), 'percent'),
+      evidenceFromMetric(method.metrics, 'bootstrap_percentile', t('backtestComp.ofEvBootstrapPercentile'), 'percent'),
+      evidenceFromMetric(method.metrics, 'iterations', t('backtestComp.ofEvIterations')),
+      evidenceFromMetric(method.metrics, 'trade_return_count', t('backtestComp.ofEvTradeSampleCount')),
+      evidenceFromMetric(method.metrics, 'bootstrap_mean_return_pct', t('backtestComp.ofEvBootstrapMean'), 'percent'),
+      evidenceFromMetric(method.metrics, 'bootstrap_p95_return_pct', t('backtestComp.ofEvBootstrap95'), 'percent'),
     ])
   }
   if (method.method === 'walk_forward') {
     return compactEvidence([
-      evidenceFromMetric(method.metrics, 'window_count', '窗口数'),
-      evidenceFromMetric(method.metrics, 'avg_is_sharpe', '样本内 Sharpe'),
-      evidenceFromMetric(method.metrics, 'avg_oos_sharpe', '样本外 Sharpe'),
-      evidenceFromMetric(method.metrics, 'sharpe_decay_pct', 'Sharpe 衰减', 'percent'),
-      evidenceFromMetric(method.metrics, 'return_decay_pct', '收益衰减', 'percent'),
+      evidenceFromMetric(method.metrics, 'window_count', t('backtestComp.ofEvWindowCount')),
+      evidenceFromMetric(method.metrics, 'avg_is_sharpe', t('backtestComp.ofEvAvgIsSharpe')),
+      evidenceFromMetric(method.metrics, 'avg_oos_sharpe', t('backtestComp.ofEvAvgOosSharpe')),
+      evidenceFromMetric(method.metrics, 'sharpe_decay_pct', t('backtestComp.ofEvSharpeDecay'), 'percent'),
+      evidenceFromMetric(method.metrics, 'return_decay_pct', t('backtestComp.ofEvReturnDecay'), 'percent'),
     ])
   }
   if (method.method === 'out_of_sample') {
     return compactEvidence([
-      evidenceFromMetric(method.metrics, 'is_sharpe', '样本内 Sharpe'),
-      evidenceFromMetric(method.metrics, 'oos_sharpe', '样本外 Sharpe'),
-      evidenceFromMetric(method.metrics, 'sharpe_decay_pct', 'Sharpe 衰减', 'percent'),
-      evidenceFromMetric(method.metrics, 'return_decay_pct', '收益衰减', 'percent'),
+      evidenceFromMetric(method.metrics, 'is_sharpe', t('backtestComp.ofEvIsSharpe')),
+      evidenceFromMetric(method.metrics, 'oos_sharpe', t('backtestComp.ofEvOosSharpe')),
+      evidenceFromMetric(method.metrics, 'sharpe_decay_pct', t('backtestComp.ofEvSharpeDecay'), 'percent'),
+      evidenceFromMetric(method.metrics, 'return_decay_pct', t('backtestComp.ofEvReturnDecay'), 'percent'),
       evidenceFromMetric(method.metrics, 'p_value', 'p-value'),
     ])
   }

@@ -1,10 +1,10 @@
 <template>
   <el-card>
     <template #header>
-      <span class="font-bold">回测结果</span>
+      <span class="font-bold">{{ t('backtestComp.bmTitle') }}</span>
     </template>
 
-    <!-- 指标面板 -->
+    <!-- Metric panel -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
       <div
         v-for="m in metrics"
@@ -23,7 +23,7 @@
       </div>
     </div>
 
-    <!-- 资金曲线图 -->
+    <!-- Equity curve -->
     <div class="h-80">
       <EquityCurve
         v-if="result.equity_curve.length"
@@ -37,8 +37,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import EquityCurve from '@/components/charts/EquityCurve.vue'
 import type { BacktestResult } from '@/types'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   result: BacktestResult
@@ -48,42 +51,42 @@ const metrics = computed(() => {
   const r = props.result
   return [
     {
-      label: '总收益率',
+      label: t('backtestComp.bmTotalReturn'),
       display: `${(r.total_return ?? 0).toFixed(2)}%`,
       colorClass: (r.total_return ?? 0) >= 0 ? 'text-green-500' : 'text-red-500',
     },
     {
-      label: '年化收益',
+      label: t('backtestComp.bmAnnualReturn'),
       display: `${(r.annual_return ?? 0).toFixed(2)}%`,
       colorClass: (r.annual_return ?? 0) >= 0 ? 'text-green-500' : 'text-red-500',
     },
     {
-      label: '夏普比率',
+      label: t('backtestComp.bmSharpeRatio'),
       display: (r.sharpe_ratio ?? 0).toFixed(2),
       colorClass: 'text-gray-800',
     },
     {
-      label: '最大回撤',
+      label: t('backtestComp.bmMaxDrawdown'),
       display: `${(r.max_drawdown ?? 0).toFixed(2)}%`,
       colorClass: 'text-red-500',
     },
     {
-      label: '胜率',
+      label: t('backtestComp.bmWinRate'),
       display: `${(r.win_rate ?? 0).toFixed(1)}%`,
       colorClass: 'text-gray-800',
     },
     {
-      label: '总交易次数',
+      label: t('backtestComp.bmTotalTrades'),
       display: String(r.total_trades),
       colorClass: 'text-gray-800',
     },
     {
-      label: '盈利次数',
+      label: t('backtestComp.bmProfitable'),
       display: String(r.profitable_trades),
       colorClass: 'text-green-500',
     },
     {
-      label: '亏损次数',
+      label: t('backtestComp.bmLosing'),
       display: String(r.losing_trades),
       colorClass: 'text-red-500',
     },

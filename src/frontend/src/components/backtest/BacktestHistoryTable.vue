@@ -1,7 +1,7 @@
 <template>
   <el-card>
     <template #header>
-      <span class="font-bold">回测历史</span>
+      <span class="font-bold">{{ t('backtestComp.bhTitle') }}</span>
     </template>
 
     <el-table
@@ -10,7 +10,7 @@
       stripe
     >
       <el-table-column
-        label="策略"
+        :label="t('backtestComp.bhStrategy')"
         width="180"
       >
         <template #default="{ row }">
@@ -19,11 +19,11 @@
       </el-table-column>
       <el-table-column
         prop="symbol"
-        label="标的"
+        :label="t('backtestComp.bhSymbol')"
         width="120"
       />
       <el-table-column
-        label="收益率"
+        :label="t('backtestComp.bhReturn')"
         width="100"
       >
         <template #default="{ row }">
@@ -33,7 +33,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="夏普"
+        :label="t('backtestComp.bhSharpe')"
         width="80"
       >
         <template #default="{ row }">
@@ -41,7 +41,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="回撤"
+        :label="t('backtestComp.bhDrawdown')"
         width="80"
       >
         <template #default="{ row }">
@@ -49,7 +49,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="状态"
+        :label="t('backtestComp.bhStatus')"
         width="100"
       >
         <template #default="{ row }">
@@ -63,11 +63,11 @@
       </el-table-column>
       <el-table-column
         prop="created_at"
-        label="创建时间"
+        :label="t('backtestComp.bhCreatedAt')"
         width="180"
       />
       <el-table-column
-        label="操作"
+        :label="t('backtestComp.bhActions')"
         width="120"
       >
         <template #default="{ row }">
@@ -77,7 +77,7 @@
             size="small"
             @click="$emit('view', row)"
           >
-            查看
+            {{ t('backtestComp.bhView') }}
           </el-button>
           <el-button
             type="danger"
@@ -85,7 +85,7 @@
             size="small"
             @click="$emit('delete', row.task_id)"
           >
-            删除
+            {{ t('backtestComp.bhDelete') }}
           </el-button>
         </template>
       </el-table-column>
@@ -94,8 +94,11 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import { getStatusType, getStatusText } from '@/constants/strategy'
 import type { BacktestResult, StrategyTemplate, Strategy } from '@/types'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   results: BacktestResult[]
@@ -110,9 +113,9 @@ defineEmits<{
 }>()
 
 function getStrategyName(id: string): string {
-  const t = props.templates.find(t => t.id === id)
-  if (t) return t.name
-  const s = props.strategies.find(s => s.id === id)
+  const tpl = props.templates.find(item => item.id === id)
+  if (tpl) return tpl.name
+  const s = props.strategies.find(item => item.id === id)
   if (s) return s.name
   return id
 }
