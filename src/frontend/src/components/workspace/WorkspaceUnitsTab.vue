@@ -12,7 +12,7 @@
           <!-- Group 1: Run operations -->
           <el-button-group>
             <el-tooltip
-              content="顺序运行选中"
+              :content="t('units.runSerial')"
               placement="top"
             >
               <el-button
@@ -24,7 +24,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="并行运行选中"
+              :content="t('units.runParallel')"
               placement="top"
             >
               <el-button
@@ -36,7 +36,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="停止选中"
+              :content="t('units.stopSelected')"
               placement="top"
             >
               <el-button
@@ -54,7 +54,7 @@
           <!-- Group 2: Unit management -->
           <el-button-group>
             <el-tooltip
-              content="策略重新加载"
+              :content="t('units.reloadStrategy')"
               placement="top"
             >
               <el-button
@@ -65,7 +65,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="新建单元"
+              :content="t('units.createUnit')"
               placement="top"
             >
               <el-button
@@ -77,7 +77,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="删除单元"
+              :content="t('units.deleteUnit')"
               placement="top"
             >
               <el-button
@@ -89,7 +89,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="导入策略单元"
+              :content="t('units.importUnits')"
               placement="top"
             >
               <el-button
@@ -100,7 +100,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="导出策略单元"
+              :content="t('units.exportUnits')"
               placement="top"
             >
               <el-button
@@ -116,7 +116,7 @@
           <!-- Group 3: Config dialogs -->
           <el-button-group>
             <el-tooltip
-              content="数据源"
+              :content="t('units.dataSource')"
               placement="top"
             >
               <el-button
@@ -128,7 +128,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="单元设置"
+              :content="t('units.unitSettings')"
               placement="top"
             >
               <el-button
@@ -140,7 +140,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="策略参数"
+              :content="t('units.strategyParams')"
               placement="top"
             >
               <el-button
@@ -152,7 +152,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="切换商品"
+              :content="t('units.switchSymbol')"
               placement="top"
             >
               <el-button
@@ -164,7 +164,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="打开K线"
+              :content="t('units.open') + ' K'"
               placement="top"
             >
               <el-button
@@ -180,7 +180,7 @@
           <!-- Group 4: Optimization -->
           <el-button-group>
             <el-tooltip
-              content="优化参数设置"
+              :content="t('units.paramOpt')"
               placement="top"
             >
               <el-button
@@ -192,7 +192,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="优化线程设置"
+              :content="t('units.threadOpt')"
               placement="top"
             >
               <el-button
@@ -204,7 +204,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="批量优化参数设置"
+              :content="t('units.batchParamOpt')"
               placement="top"
             >
               <el-button
@@ -216,7 +216,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="批量提交优化"
+              :content="t('units.submitBatchOpt')"
               placement="top"
             >
               <el-button
@@ -230,7 +230,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="优化参数复制"
+              :content="t('units.paramOptCopy')"
               placement="top"
             >
               <el-button
@@ -242,7 +242,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="优化任务结果"
+              :content="t('units.optResults')"
               placement="top"
             >
               <el-button
@@ -254,7 +254,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="多任务组合报告"
+              :content="t('units.multiTaskReport')"
               placement="top"
             >
               <el-button
@@ -270,7 +270,7 @@
           <!-- Group 5: Rename & Sort -->
           <el-button-group>
             <el-tooltip
-              content="组名重命名"
+              :content="t('units.groupRename')"
               placement="top"
             >
               <el-button
@@ -282,7 +282,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="单元重命名"
+              :content="t('units.renameUnit')"
               placement="top"
             >
               <el-button
@@ -297,7 +297,7 @@
 
           <el-button-group>
             <el-tooltip
-              content="上移"
+              :content="t('units.moveUp')"
               placement="top"
             >
               <el-button
@@ -309,7 +309,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="下移"
+              :content="t('units.moveDown')"
               placement="top"
             >
               <el-button
@@ -321,7 +321,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="移到顶部"
+              :content="t('units.moveTop')"
               placement="top"
             >
               <el-button
@@ -333,7 +333,7 @@
               </el-button>
             </el-tooltip>
             <el-tooltip
-              content="移到底部"
+              :content="t('units.moveBottom')"
               placement="top"
             >
               <el-button
@@ -347,7 +347,7 @@
           </el-button-group>
         </div>
 
-        <span class="text-sm text-gray-400">共 {{ store.units.length }} 个单元</span>
+        <span class="text-sm text-gray-400">{{ t('units.total') }} {{ store.units.length }} {{ t('units.nUnitsSuffix') }}</span>
       </div>
     </teleport>
 
@@ -357,7 +357,7 @@
       stripe
       border
       size="small"
-      empty-text="暂无策略单元，点击 + 新建"
+      :empty-text="t('units.emptyUnits') + '，' + t('units.clickToCreate') + ' + ' + t('units.create')"
       @selection-change="onSelectionChange"
       @row-dblclick="handleRowDblClick"
     >
@@ -376,41 +376,41 @@
       </el-table-column>
       <el-table-column
         prop="group_name"
-        label="组名"
+        :label="t('units.groupName')"
         min-width="120"
         show-overflow-tooltip
       />
       <el-table-column
         prop="strategy_name"
-        label="策略名"
+        :label="t('units.strategyName')"
         min-width="120"
         show-overflow-tooltip
       />
       <el-table-column
         prop="symbol"
-        label="代码"
+        :label="t('units.code')"
         width="80"
       />
       <el-table-column
         prop="symbol_name"
-        label="名称"
+        :label="t('units.name')"
         width="100"
         show-overflow-tooltip
       />
       <el-table-column
         prop="timeframe"
-        label="周期"
+        :label="t('units.timeframe')"
         width="70"
         align="center"
       />
       <el-table-column
         prop="category"
-        label="分类"
+        :label="t('units.category')"
         width="80"
         show-overflow-tooltip
       />
       <el-table-column
-        label="起始日期"
+        :label="t('units.rangeStartDate')"
         width="150"
       >
         <template #default="{ row }">
@@ -418,7 +418,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="结束日期"
+        :label="t('units.rangeEndDate')"
         width="150"
       >
         <template #default="{ row }">
@@ -426,7 +426,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="bar数"
+        :label="'bar ' + t('units.countSuffix')"
         width="70"
         align="center"
       >
@@ -435,7 +435,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="策略目标"
+        :label="t('units.strategyTarget')"
         width="100"
         align="center"
       >
@@ -444,7 +444,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="运行状态"
+        :label="t('units.runStatus')"
         width="120"
         align="center"
       >
@@ -476,12 +476,12 @@
       </el-table-column>
       <el-table-column
         prop="run_count"
-        label="运行次数"
+        :label="t('units.runCount')"
         width="80"
         align="center"
       />
       <el-table-column
-        label="已用时间"
+        :label="t('units.elapsed')"
         width="90"
         align="center"
       >
@@ -490,7 +490,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="剩余时间"
+        :label="t('units.remaining')"
         width="130"
         align="center"
       >
@@ -499,7 +499,7 @@
         </template>
       </el-table-column>
       <el-table-column
-        label="创建时间"
+        :label="t('units.createdAt')"
         width="150"
       >
         <template #default="{ row }">
@@ -614,6 +614,7 @@ import {
   Switch, TrendCharts, Cpu, CopyDocument, Odometer, Notebook,
   Operation, Promotion,
 } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { workspaceApi } from '@/api/workspace'
 import { getErrorMessage } from '@/api/index'
@@ -628,6 +629,8 @@ import OptimizationThreadDialog from './OptimizationThreadDialog.vue'
 import BatchOptimizationConfigDialog from './BatchOptimizationConfigDialog.vue'
 import ChangeSymbolDialog from './ChangeSymbolDialog.vue'
 import GroupRenameDialog from './GroupRenameDialog.vue'
+
+const { t } = useI18n()
 import UnitRenameDialog from './UnitRenameDialog.vue'
 
 const props = defineProps<{
@@ -716,12 +719,12 @@ async function onUnitsRefresh() {
 async function handleBulkDelete() {
   if (!store.selectedUnitIds.length) return
   try {
-    await ElMessageBox.confirm(`确认删除选中的 ${store.selectedUnitIds.length} 个单元？`, '删除确认', { type: 'warning' })
+    await ElMessageBox.confirm(`${t('units.confirmDeleteSelected')} ${store.selectedUnitIds.length} ${t('units.nUnitsSuffix')}？`, t('units.deleteConfirm'), { type: 'warning' })
     await store.bulkDeleteUnits(props.workspaceId, [...store.selectedUnitIds])
-    ElMessage.success('已删除')
+    ElMessage.success(t('units.deleted'))
   } catch (e: unknown) {
     if (e !== 'cancel' && (e as { message?: string })?.message !== 'cancel') {
-      ElMessage.error(getErrorMessage(e, '删除失败'))
+      ElMessage.error(getErrorMessage(e, t('units.deleteFailed')))
     }
   }
 }
@@ -731,9 +734,9 @@ async function handleRunSelected(parallel = false) {
   if (!store.selectedUnitIds.length) return
   try {
     await store.runSelectedUnits(props.workspaceId, parallel)
-    ElMessage.success(parallel ? '并行运行已启动' : '顺序运行已启动')
+    ElMessage.success(parallel ? t('units.parallelStarted') : t('units.serialStarted'))
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '运行失败'))
+    ElMessage.error(getErrorMessage(e, t('units.statusFailed')))
   }
 }
 
@@ -741,9 +744,9 @@ async function handleStopSelected() {
   if (!store.selectedUnitIds.length) return
   try {
     await store.stopSelectedUnits(props.workspaceId)
-    ElMessage.success('已发送停止指令')
+    ElMessage.success(t('units.stopSent'))
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '停止失败'))
+    ElMessage.error(getErrorMessage(e, t('units.stopFailed')))
   }
 }
 
@@ -768,14 +771,14 @@ async function handleMove(direction: 'up' | 'down' | 'top' | 'bottom') {
   try {
     await store.reorderUnits(props.workspaceId, newIds)
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '排序失败'))
+    ElMessage.error(getErrorMessage(e, t('units.sortFailed')))
   }
 }
 
 // --- Reload strategy ---
 function handleReloadStrategy() {
   store.fetchUnits(props.workspaceId)
-  ElMessage.success('策略已重新加载')
+  ElMessage.success(t('units.strategyReloaded'))
 }
 
 // --- Import / Export ---
@@ -791,13 +794,13 @@ async function onImportFileSelected(event: Event) {
     const data = JSON.parse(text)
     const units = Array.isArray(data) ? data : (data.units ?? [])
     if (!units.length) {
-      ElMessage.warning('文件中未找到策略单元数据')
+      ElMessage.warning(t('units.importNoUnits'))
       return
     }
     await store.batchCreateUnits(props.workspaceId, units)
-    ElMessage.success(`成功导入 ${units.length} 个策略单元`)
+    ElMessage.success(`${t('units.importSuccess')} ${units.length} ${t('units.nStrategyUnits')}`)
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '导入失败'))
+    ElMessage.error(getErrorMessage(e, t('units.importFailed')))
   } finally {
     if (importFileInput.value) importFileInput.value.value = ''
   }
@@ -826,7 +829,7 @@ function handleExportUnits() {
   a.download = `units_export_${new Date().toISOString().slice(0, 10)}.json`
   a.click()
   URL.revokeObjectURL(url)
-  ElMessage.success(`已导出 ${selected.length} 个策略单元`)
+  ElMessage.success(`${t('units.exported')} ${selected.length} ${t('units.nStrategyUnits')}`)
 }
 
 // --- Open K-line ---
@@ -984,7 +987,7 @@ async function waitForUnitOptimizationCompletion(unitId: string, pendingUnitIds:
     }
     await sleep(3000)
   }
-  throw new Error('等待优化任务完成超时')
+  throw new Error(t('units.waitOptTimeout'))
 }
 
 // --- Batch submit optimization ---
@@ -1000,7 +1003,7 @@ async function handleBatchSubmitOpt() {
       u => ids.includes(u.id) && u.optimization_config && (u.optimization_config as Record<string, unknown>).param_layers
     )
     if (!unitsWithConfig.length) {
-      ElMessage.warning('选中的单元尚未设置优化参数（param_layers），请先通过"批量优化参数设置"配置')
+      ElMessage.warning(t('units.needParamRange') + '（param_layers），' + t('units.paramRangePleaseSet') + ' "' + t('units.batchParamOpt') + '"')
       return
     }
 
@@ -1017,15 +1020,15 @@ async function handleBatchSubmitOpt() {
       }
     }
     if (validCount === 0) {
-      ElMessage.warning('所有选中单元的优化参数范围无效（请确保 结束值 > 起始值 且 步长 > 0）')
+      ElMessage.warning(t('units.paramRangeAllInvalid') + '（' + t('units.paramRangeEnsure') + ' ' + t('units.rangeEnd') + ' > ' + t('units.rangeStart') + ' ' + t('units.and') + ' ' + t('units.rangeStep') + ' > 0）')
       return
     }
 
-    const invalidHint = invalidNames.length > 0 ? `\n（${invalidNames.length} 个单元参数范围无效将被跳过）` : ''
+    const invalidHint = invalidNames.length > 0 ? `\n（${invalidNames.length} ${t('units.paramRangeInvalid')}）` : ''
     try {
       await ElMessageBox.confirm(
-        `确认顺序为 ${validCount} 个单元串行提交优化任务？${invalidHint}`,
-        '批量提交优化',
+        `${t('units.confirmOrder')} ${validCount} ${t('units.submitNUnits')}？${invalidHint}`,
+        t('units.submitBatchOpt'),
         { type: 'info' },
       )
     } catch { return }
@@ -1078,7 +1081,7 @@ async function handleBatchSubmitOpt() {
           }
         }
         if (!Object.keys(paramRanges).length) {
-          errors.push(`${name}: 无有效参数范围`)
+          errors.push(`${name}: ${t('units.paramRange')}`)
           submitFailed++
           continue
         }
@@ -1110,18 +1113,18 @@ async function handleBatchSubmitOpt() {
           completed++
         } else {
           failed++
-          errors.push(`${name}: 优化结束状态 ${terminalStatus}`)
+          errors.push(`${name}: ${t('units.optEndStatus')} ${terminalStatus}`)
         }
       } catch (e: unknown) {
-        errors.push(`${name}: ${getErrorMessage(e, '提交失败')}`)
+        errors.push(`${name}: ${getErrorMessage(e, t('units.nSubmitFailed'))}`)
         submitFailed++
       }
     }
 
     if (failed > 0 || submitFailed > 0) {
-      ElMessage.warning(`串行优化完成：${completed} 个完成，${failed} 个运行失败，${submitFailed} 个提交失败\n${errors.slice(0, 3).join('; ')}`)
+      ElMessage.warning(`${t('units.serialFinished')}: ${completed} ${t('units.nFinished')}, ${failed} ${t('units.nFailed')}, ${submitFailed} ${t('units.nSubmitFailed')}\n${errors.slice(0, 3).join('; ')}`)
     } else {
-      ElMessage.success(`串行优化完成：${completed} 个单元已依次执行完成`)
+      ElMessage.success(`${t('units.serialFinished')}: ${completed} ${t('units.nUnitsFinished')}`)
     }
   } finally {
     batchSubmittingOptimization.value = false
@@ -1134,12 +1137,12 @@ async function handleCopyOptParams() {
   if (!selectedUnit.value) return
   const source = selectedUnit.value
   if (!source.optimization_config) {
-    ElMessage.warning('当前单元没有优化参数设置')
+    ElMessage.warning(t('units.noParamRange'))
     return
   }
   const targets = store.selectedUnitIds.filter(id => id !== source.id)
   if (!targets.length) {
-    ElMessage.warning('请额外选中要复制到的目标单元')
+    ElMessage.warning(t('units.needCopyTarget'))
     return
   }
   try {
@@ -1148,10 +1151,10 @@ async function handleCopyOptParams() {
         optimization_config: { ...source.optimization_config },
       })
     }
-    ElMessage.success(`优化参数已复制到 ${targets.length} 个单元`)
+    ElMessage.success(`${t('units.paramCopiedTo')} ${targets.length} ${t('units.nUnitsSuffix')}`)
     store.fetchUnits(props.workspaceId)
   } catch (e: unknown) {
-    ElMessage.error(getErrorMessage(e, '复制失败'))
+    ElMessage.error(getErrorMessage(e, t('units.paramOptCopyFailed')))
   }
 }
 
@@ -1165,7 +1168,7 @@ function runStatusTagType(status: string): TagType {
 
 function runStatusLabel(status: string) {
   const map: Record<string, string> = {
-    idle: '空闲', queued: '排队中', running: '运行中', completed: '已完成', failed: '失败', cancelled: '已取消',
+    idle: t('units.statusIdle'), queued: t('units.statusQueued'), running: t('units.statusRunning'), completed: t('units.statusCompleted'), failed: t('units.statusFail'), cancelled: t('units.statusCancelled'),
   }
   return map[status] || status
 }
@@ -1179,7 +1182,7 @@ function optimizationStatusTagType(status: string | null | undefined): TagType {
 
 function optimizationStatusLabel(status: string | null | undefined) {
   const map: Record<string, string> = {
-    completed: '已完成', failed: '失败', cancelled: '已取消',
+    completed: t('units.statusCompleted'), failed: t('units.statusFail'), cancelled: t('units.statusCancelled'),
   }
   return map[status || ''] || '-'
 }
@@ -1187,7 +1190,7 @@ function optimizationStatusLabel(status: string | null | undefined) {
 function objectiveLabel(obj: string | undefined) {
   if (!obj) return '-'
   const map: Record<string, string> = {
-    sharpe_max: '夏普最大', max_return: '最大收益', min_drawdown: '最小回撤',
+    sharpe_max: t('units.bestSharpe'), max_return: t('units.bestReturn'), min_drawdown: t('units.leastDrawdown'),
   }
   return map[obj] || obj
 }

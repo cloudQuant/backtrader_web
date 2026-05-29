@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 175 §4 advisory baseline. The strict scan finds 15197 violations at the latest commit. Most are false positives (HTML element/attribute names, type literal strings detected as 'long English literals' by the conservative scanner). The CJK violation subset is ~1454 — these are the actual zh-CN literals that need extracting to i18n keys. The CI gate runs in advisory mode (warning only) until the count reaches 0. Set CHECK_I18N_STRICT_BLOCKING=true in the frontend-lint CI step to force-block. Once violations reach 0, this baseline file can be deleted.",
-  "baseline_violations": 15197,
-  "baseline_cjk_violations": 1454,
-  "baseline_commit": "175-close-pass-13",
+  "_comment": "Iteration 175 §4 advisory baseline. The strict scan finds 15148 violations at the latest commit. Most are false positives. The CJK violation subset is ~1405 — these are the actual zh-CN literals that need extracting to i18n keys. The CI gate runs in advisory mode (warning only) until the count reaches 0.",
+  "baseline_violations": 15148,
+  "baseline_cjk_violations": 1405,
+  "baseline_commit": "175-close-pass-14",
   "baseline_date": "2026-05-28",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -10,17 +10,18 @@
     {"commit": "51efc51e", "violations": 15578, "cjk": "n/a", "note": "175 entry baseline"},
     {"commit": "45294295", "violations": 15553, "cjk": 1867, "note": "AppLayout"},
     {"commit": "03060f9e", "violations": 15593, "cjk": 1859, "note": "WorkspaceListPage"},
-    {"commit": "0ee91e07", "violations": 15593, "cjk": 1859, "note": "A11y fixes 4 critical pages"},
+    {"commit": "0ee91e07", "violations": 15593, "cjk": 1859, "note": "A11y fixes"},
     {"commit": "cc445b0c", "violations": 15554, "cjk": 1820, "note": "StrategyPage"},
     {"commit": "23df23dc", "violations": 15534, "cjk": 1797, "note": "AIChatPage"},
     {"commit": "84966b75", "violations": 15523, "cjk": 1786, "note": "BacktestResultPage"},
-    {"commit": "3f215ba8", "violations": 15480, "cjk": 1743, "note": "KnowledgeBasePage main-view"},
-    {"commit": "515ab5a1", "violations": 15480, "cjk": 1743, "note": "KnowledgeBasePage 8 dialogs"},
+    {"commit": "3f215ba8", "violations": 15480, "cjk": 1743, "note": "KnowledgeBasePage main"},
+    {"commit": "515ab5a1", "violations": 15480, "cjk": 1743, "note": "KnowledgeBasePage dialogs"},
     {"commit": "b3b6d343", "violations": 15436, "cjk": 1697, "note": "useKnowledgeBasePage"},
     {"commit": "7876d76f", "violations": 15422, "cjk": 1681, "note": "useAIChatPage"},
     {"commit": "f1ac07b8", "violations": 15382, "cjk": 1641, "note": "components/aichat/*"},
     {"commit": "0531649d", "violations": 15375, "cjk": 1632, "note": "WorkspaceCard + CreateWorkspaceDialog"},
-    {"commit": "d44156f6", "violations": 15291, "cjk": 1548, "note": "WorkspaceOptimizationTab (~156 zh)"},
-    {"commit": "175-close-pass-13", "violations": 15197, "cjk": 1454, "note": "WorkspaceReportTab (~141 zh -> report.* namespace; +47 keys)"}
+    {"commit": "d44156f6", "violations": 15291, "cjk": 1548, "note": "WorkspaceOptimizationTab"},
+    {"commit": "35b9f135", "violations": 15197, "cjk": 1454, "note": "WorkspaceReportTab"},
+    {"commit": "175-close-pass-14", "violations": 15148, "cjk": 1405, "note": "WorkspaceUnitsTab (~106 zh -> units.* namespace; +80 keys)"}
   ]
 }
