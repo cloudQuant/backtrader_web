@@ -1,8 +1,8 @@
 {
-  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14339 violations; CJK subset is ~573 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
-  "baseline_violations": 14339,
-  "baseline_cjk_violations": 573,
-  "baseline_commit": "176-c-pass-23",
+  "_comment": "Iteration 176 §C advisory baseline. Strict scan finds 14246 violations; CJK subset is ~483 (the actual zh literals to extract). CI gate runs in advisory mode until count reaches 0.",
+  "baseline_violations": 14246,
+  "baseline_cjk_violations": 483,
+  "baseline_commit": "176-c-pass-24",
   "baseline_date": "2026-05-29",
   "blocking_threshold": 0,
   "advisory_until_blocking": true,
@@ -31,6 +31,7 @@
     {"commit": "176-c-pass-20", "violations": 14533, "cjk": 771, "note": "2 views/data/* medium pages: DataExecutionsPage(46)+DataTasksPage(54) -> dataPages.exec*/tasks* (+95 keys, parity 1464/1464)"},
     {"commit": "176-c-pass-21", "violations": 14482, "cjk": 718, "note": "2 views/data/* large pages: DataInterfacesPage(70)+DataScriptsPage(72) -> dataPages.if*/scripts* (+120 keys, parity 1584/1584)"},
     {"commit": "176-c-pass-22", "violations": 14451, "cjk": 687, "note": "DataSyncPage (131 zh) -> dataPages.sync* namespace (+90 keys, parity 1674/1674); views/data/ now 100% zh-clean (13/13 files)"},
-    {"commit": "176-c-pass-23", "violations": 14339, "cjk": 573, "note": "useAIChatRendering.ts (114 zh) -> ts-module refactor: import i18n.global, convert assistantModeOptions/MetaMap to ComputedRef so labels are reactive on locale switch (+102 keys, parity 1776/1776). Updated useAIChatPage.ts callers to .value. AIChatPage.vue template auto-unwraps."}
+    {"commit": "176-c-pass-23", "violations": 14339, "cjk": 573, "note": "useAIChatRendering.ts (114 zh) -> ts-module refactor: import i18n.global, convert assistantModeOptions/MetaMap to ComputedRef so labels are reactive on locale switch (+102 keys, parity 1776/1776). Updated useAIChatPage.ts callers to .value. AIChatPage.vue template auto-unwraps."},
+    {"commit": "176-c-pass-24", "violations": 14246, "cjk": 483, "note": "GatewayStatusPage.vue (79 zh) + gatewayStatusHelpers.ts (11 zh) -> gatewayStatus.* namespace (+111 keys, parity 1887/1887). Helper now imports i18n.global; fixed 5 pre-existing vue-tsc errors (Ref-vs-number signature). vue-tsc 144->139."}
   ]
 }

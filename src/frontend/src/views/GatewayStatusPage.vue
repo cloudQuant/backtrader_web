@@ -9,7 +9,7 @@
           :type="healthyCount > 0 ? 'success' : 'info'"
           size="small"
         >
-          {{ healthyCount }} 健康 / {{ visibleGateways.length }} 总计
+          {{ t('gatewayStatus.headerHealthSummary', { healthy: healthyCount, total: visibleGateways.length }) }}
         </el-tag>
         <el-radio-group
           v-model="viewMode"
@@ -27,14 +27,14 @@
           size="small"
           @click="openConnectDialog"
         >
-          <el-icon><Connection /></el-icon>连接 Gateway
+          <el-icon><Connection /></el-icon>{{ t('gatewayStatus.btnConnect') }}
         </el-button>
         <el-button
           size="small"
           :loading="loading"
           @click="fetchHealth"
         >
-          <el-icon><Refresh /></el-icon>刷新
+          <el-icon><Refresh /></el-icon>{{ t('gatewayStatus.btnRefresh') }}
         </el-button>
       </div>
     </teleport>
@@ -62,7 +62,7 @@
       v-else-if="visibleGateways.length === 0"
       class="text-center py-12"
     >
-      <el-empty description="暂无 Gateway。你可以在本页手动连接，或在实盘交易页面启动带 Gateway 的策略。" />
+      <el-empty :description="t('gatewayStatus.emptyDesc')" />
     </div>
 
     <!-- Gateway Cards -->
@@ -93,7 +93,7 @@
                 type="warning"
                 effect="plain"
               >
-                直连
+                {{ t('gatewayStatus.tagDirect') }}
               </el-tag>
             </div>
             <div class="flex items-center gap-2">
@@ -105,7 +105,7 @@
               </el-tag>
               <el-popconfirm
                 v-if="gw.gateway_key.startsWith('manual:')"
-                title="确定断开此 Gateway？"
+                :title="t('gatewayStatus.tagDisconnect')"
                 @confirm="handleDisconnect(gw.gateway_key)"
               >
                 <template #reference>
@@ -115,7 +115,7 @@
                     plain
                     :loading="disconnecting === gw.gateway_key"
                   >
-                    断开
+                    {{ t('gatewayStatus.btnDisconnect') }}
                   </el-button>
                 </template>
               </el-popconfirm>
@@ -126,31 +126,31 @@
         <!-- Info Grid -->
         <div class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
           <div>
-            <span class="text-gray-500">交易所</span>
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldExchange') }}</span>
             <div class="font-medium">
               {{ gw.exchange || '-' }}
             </div>
           </div>
           <div>
-            <span class="text-gray-500">资产类型</span>
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldAssetType') }}</span>
             <div class="font-medium">
               {{ gw.asset_type || '-' }}
             </div>
           </div>
           <div>
-            <span class="text-gray-500">账户</span>
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldAccount') }}</span>
             <div class="font-medium">
               {{ gw.account_id || '-' }}
             </div>
           </div>
           <div>
-            <span class="text-gray-500">运行时长</span>
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldUptime') }}</span>
             <div class="font-medium">
               {{ formatUptime(gw.uptime_sec) }}
             </div>
           </div>
           <div>
-            <span class="text-gray-500">行情连接</span>
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldMarketConn') }}</span>
             <div>
               <el-tag
                 :type="connTagType(gw.market_connection)"
@@ -161,7 +161,7 @@
             </div>
           </div>
           <div>
-            <span class="text-gray-500">交易连接</span>
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldTradeConn') }}</span>
             <div>
               <el-tag
                 :type="connTagType(gw.trade_connection)"
@@ -178,7 +178,7 @@
         <div class="grid grid-cols-4 gap-2 text-center text-sm">
           <div>
             <div class="text-gray-500">
-              策略数
+              {{ t('gatewayStatus.statStrategyCount') }}
             </div>
             <div class="text-lg font-bold text-blue-600">
               {{ gw.strategy_count }}
@@ -186,7 +186,7 @@
           </div>
           <div>
             <div class="text-gray-500">
-              订阅品种
+              {{ t('gatewayStatus.statSymbolCount') }}
             </div>
             <div class="text-lg font-bold text-blue-600">
               {{ gw.symbol_count }}
@@ -194,7 +194,7 @@
           </div>
           <div>
             <div class="text-gray-500">
-              Tick数
+              {{ t('gatewayStatus.statTickCount') }}
             </div>
             <div class="text-lg font-bold text-green-600">
               {{ formatNumber(gw.tick_count) }}
@@ -202,7 +202,7 @@
           </div>
           <div>
             <div class="text-gray-500">
-              订单数
+              {{ t('gatewayStatus.statOrderCount') }}
             </div>
             <div class="text-lg font-bold text-orange-600">
               {{ gw.order_count }}
@@ -214,17 +214,17 @@
         <el-divider />
         <div class="text-sm space-y-2">
           <div class="flex justify-between">
-            <span class="text-gray-500">心跳延迟</span>
-            <span :class="heartbeatClass(getHeartbeatAge(gw))">
-              {{ formatHeartbeatAge(gw) }}
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldHeartbeat') }}</span>
+            <span :class="heartbeatClass(getHeartbeatAge(gw, nowMs, lastHealthFetchMs))">
+              {{ formatHeartbeatAge(gw, nowMs, lastHealthFetchMs) }}
             </span>
           </div>
           <div class="flex justify-between">
-            <span class="text-gray-500">引用计数</span>
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldRefCount') }}</span>
             <span>{{ gw.ref_count }}</span>
           </div>
           <div v-if="gw.instances.length > 0">
-            <span class="text-gray-500">关联实例：</span>
+            <span class="text-gray-500">{{ t('gatewayStatus.fieldInstances') }}</span>
             <el-tag
               v-for="iid in gw.instances"
               :key="iid"
@@ -242,7 +242,7 @@
           <el-divider />
           <div class="text-sm">
             <div class="text-red-500 font-medium mb-1">
-              最近错误 ({{ gw.recent_errors.length }})
+              {{ t('gatewayStatus.recentErrors', { n: gw.recent_errors.length }) }}
             </div>
             <div
               v-for="(err, idx) in gw.recent_errors.slice(-3)"
@@ -287,7 +287,7 @@
                 type="warning"
                 effect="plain"
               >
-                直连
+                {{ t('gatewayStatus.tagDirect') }}
               </el-tag>
             </div>
             <div class="text-xs text-gray-500 mt-1">
@@ -298,23 +298,23 @@
 
         <el-table-column
           prop="exchange"
-          label="交易所"
+          :label="t('gatewayStatus.fieldExchange')"
           min-width="110"
         />
         <el-table-column
           prop="asset_type"
-          label="资产类型"
+          :label="t('gatewayStatus.fieldAssetType')"
           min-width="100"
         />
         <el-table-column
           prop="account_id"
-          label="账户"
+          :label="t('gatewayStatus.fieldAccount')"
           min-width="120"
           show-overflow-tooltip
         />
 
         <el-table-column
-          label="状态"
+          :label="t('gatewayStatus.colState')"
           min-width="110"
         >
           <template #default="{ row }">
@@ -328,7 +328,7 @@
         </el-table-column>
 
         <el-table-column
-          label="行情连接"
+          :label="t('gatewayStatus.fieldMarketConn')"
           min-width="110"
         >
           <template #default="{ row }">
@@ -342,7 +342,7 @@
         </el-table-column>
 
         <el-table-column
-          label="交易连接"
+          :label="t('gatewayStatus.fieldTradeConn')"
           min-width="110"
         >
           <template #default="{ row }">
@@ -356,7 +356,7 @@
         </el-table-column>
 
         <el-table-column
-          label="运行时长"
+          :label="t('gatewayStatus.fieldUptime')"
           min-width="110"
         >
           <template #default="{ row }">
@@ -366,17 +366,17 @@
 
         <el-table-column
           prop="strategy_count"
-          label="策略数"
+          :label="t('gatewayStatus.statStrategyCount')"
           min-width="90"
         />
         <el-table-column
           prop="symbol_count"
-          label="订阅品种"
+          :label="t('gatewayStatus.statSymbolCount')"
           min-width="100"
         />
 
         <el-table-column
-          label="Tick数"
+          :label="t('gatewayStatus.statTickCount')"
           min-width="100"
         >
           <template #default="{ row }">
@@ -386,29 +386,29 @@
 
         <el-table-column
           prop="order_count"
-          label="订单数"
+          :label="t('gatewayStatus.statOrderCount')"
           min-width="90"
         />
 
         <el-table-column
-          label="心跳延迟"
+          :label="t('gatewayStatus.fieldHeartbeat')"
           min-width="100"
         >
           <template #default="{ row }">
-            <span :class="heartbeatClass(getHeartbeatAge(row))">
-              {{ formatHeartbeatAge(row) }}
+            <span :class="heartbeatClass(getHeartbeatAge(row, nowMs, lastHealthFetchMs))">
+              {{ formatHeartbeatAge(row, nowMs, lastHealthFetchMs) }}
             </span>
           </template>
         </el-table-column>
 
         <el-table-column
           prop="ref_count"
-          label="引用计数"
+          :label="t('gatewayStatus.fieldRefCount')"
           min-width="100"
         />
 
         <el-table-column
-          label="关联实例"
+          :label="t('gatewayStatus.colInstances')"
           min-width="180"
           show-overflow-tooltip
         >
@@ -440,7 +440,7 @@
         </el-table-column>
 
         <el-table-column
-          label="最近错误"
+          :label="t('gatewayStatus.colRecentErrors')"
           min-width="220"
           show-overflow-tooltip
         >
@@ -457,14 +457,14 @@
         </el-table-column>
 
         <el-table-column
-          label="操作"
+          :label="t('gatewayStatus.colActions')"
           fixed="right"
           width="100"
         >
           <template #default="{ row }">
             <el-popconfirm
               v-if="row.gateway_key.startsWith('manual:')"
-              title="确定断开此 Gateway？"
+              :title="t('gatewayStatus.tagDisconnect')"
               @confirm="handleDisconnect(row.gateway_key)"
             >
               <template #reference>
@@ -474,7 +474,7 @@
                   plain
                   :loading="disconnecting === row.gateway_key"
                 >
-                  断开
+                  {{ t('gatewayStatus.btnDisconnect') }}
                 </el-button>
               </template>
             </el-popconfirm>
@@ -490,7 +490,7 @@
     <!-- Connect Gateway Dialog -->
     <el-dialog
       v-model="showConnectDialog"
-      title="连接 Gateway"
+      :title="t('gatewayStatus.dialogTitle')"
       width="560px"
     >
       <el-form
@@ -498,33 +498,33 @@
         label-width="100px"
       >
         <el-form-item
-          label="交易所"
+          :label="t('gatewayStatus.formExchangeRequired')"
           required
         >
           <el-select
             v-model="connectForm.exchange_type"
-            placeholder="选择交易所"
+            :placeholder="t('gatewayStatus.selectExchangePh')"
             class="w-full"
             @change="onExchangeChange"
           >
             <el-option
-              label="CTP (国内期货)"
+              :label="t('gatewayStatus.optCtp')"
               value="CTP"
             />
             <el-option
-              label="MT5 (外汇/CFD)"
+              :label="t('gatewayStatus.optMt5')"
               value="MT5"
             />
             <el-option
-              label="IB Web (美股)"
+              :label="t('gatewayStatus.optIbWeb')"
               value="IB_WEB"
             />
             <el-option
-              label="Binance (币安)"
+              :label="t('gatewayStatus.optBinance')"
               value="BINANCE"
             />
             <el-option
-              label="OKX (欧意)"
+              :label="t('gatewayStatus.optOkx')"
               value="OKX"
             />
           </el-select>
@@ -533,7 +533,7 @@
         <!-- CTP Fields -->
         <template v-if="connectForm.exchange_type === 'CTP'">
           <el-form-item
-            label="环境"
+            :label="t('gatewayStatus.formEnv')"
             required
           >
             <el-radio-group
@@ -541,22 +541,22 @@
               @change="onCtpEnvChange"
             >
               <el-radio-button value="simnow">
-                SimNow 标准
+                {{ t('gatewayStatus.envSimnow') }}
               </el-radio-button>
               <el-radio-button value="simnow_7x24">
-                SimNow 7×24
+                {{ t('gatewayStatus.envSimnow7x24') }}
               </el-radio-button>
               <el-radio-button
                 value="live"
                 disabled
               >
-                实盘
+                {{ t('gatewayStatus.envLive') }}
               </el-radio-button>
             </el-radio-group>
           </el-form-item>
           <el-form-item
             v-if="ctpEnv === 'simnow'"
-            label="线路"
+            :label="t('gatewayStatus.formLine')"
           >
             <el-select
               v-model="ctpGroup"
@@ -564,66 +564,66 @@
               @change="onCtpGroupChange"
             >
               <el-option
-                label="第一组 (30001/30011)"
+                :label="t('gatewayStatus.lineGroup1')"
                 :value="1"
               />
               <el-option
-                label="第二组 (30002/30012)"
+                :label="t('gatewayStatus.lineGroup2')"
                 :value="2"
               />
               <el-option
-                label="第三组 (30003/30013)"
+                :label="t('gatewayStatus.lineGroup3')"
                 :value="3"
               />
             </el-select>
           </el-form-item>
           <el-form-item
-            label="账户"
+            :label="t('gatewayStatus.formAccount')"
             required
           >
             <el-input
               v-model="connectForm.credentials.user_id"
-              placeholder="投资者代码"
+              :placeholder="t('gatewayStatus.accountPh')"
             />
           </el-form-item>
           <el-form-item
-            label="密码"
+            :label="t('gatewayStatus.formPassword')"
             required
           >
             <el-input
               v-model="connectForm.credentials.password"
               type="password"
               show-password
-              placeholder="交易密码"
+              :placeholder="t('gatewayStatus.pwdPhTrade')"
             />
           </el-form-item>
           <el-collapse class="mt-2 mb-2">
-            <el-collapse-item title="高级设置">
-              <el-form-item label="经纪商ID">
+            <el-collapse-item :title="t('gatewayStatus.advanced')">
+              <el-form-item :label="t('gatewayStatus.formBrokerId')">
                 <el-input
                   v-model="connectForm.credentials.broker_id"
                   placeholder="9999"
                 />
               </el-form-item>
-              <el-form-item label="交易前置">
+              <el-form-item :label="t('gatewayStatus.formTdFront')">
                 <el-input
                   v-model="connectForm.credentials.td_front"
-                  placeholder="自动填入"
+                  :placeholder="t('gatewayStatus.autoFillPh')"
                 />
               </el-form-item>
-              <el-form-item label="行情前置">
+              <el-form-item :label="t('gatewayStatus.formMdFront')">
                 <el-input
                   v-model="connectForm.credentials.md_front"
-                  placeholder="自动填入"
+                  :placeholder="t('gatewayStatus.autoFillPh')"
                 />
               </el-form-item>
-              <el-form-item label="AppID">
+              <el-form-item :label="t('gatewayStatus.formAppId')">
                 <el-input
                   v-model="connectForm.credentials.app_id"
                   placeholder="simnow_client_test"
                 />
               </el-form-item>
-              <el-form-item label="认证码">
+              <el-form-item :label="t('gatewayStatus.formAuthCode')">
                 <el-input
                   v-model="connectForm.credentials.auth_code"
                   placeholder="0000000000000000"
@@ -639,16 +639,15 @@
             class="mb-3"
           >
             <template #title>
-              7×24 环境说明
+              {{ t('gatewayStatus.ctp7x24Title') }}
             </template>
-            新注册用户需等到第三个交易日才可使用。账户/资金/持仓与标准环境上一交易日一致。
-            服务时间：交易日 16:00～次日 09:00；非交易日 16:00～次日 12:00。
+            {{ t('gatewayStatus.ctp7x24Desc') }}
           </el-alert>
         </template>
 
         <template v-if="connectForm.exchange_type === 'MT5'">
           <el-form-item
-            label="环境"
+            :label="t('gatewayStatus.formEnv')"
             required
           >
             <el-radio-group
@@ -656,15 +655,15 @@
               @change="onMt5EnvChange"
             >
               <el-radio-button value="demo">
-                模拟盘
+                {{ t('gatewayStatus.envDemo') }}
               </el-radio-button>
               <el-radio-button value="live">
-                实盘
+                {{ t('gatewayStatus.envLive') }}
               </el-radio-button>
             </el-radio-group>
           </el-form-item>
           <el-form-item
-            label="登录号"
+            :label="t('gatewayStatus.formLogin')"
             required
           >
             <el-input
@@ -673,7 +672,7 @@
             />
           </el-form-item>
           <el-form-item
-            label="密码"
+            :label="t('gatewayStatus.formPassword')"
             required
           >
             <el-input
@@ -683,25 +682,25 @@
               placeholder="MT5 Password"
             />
           </el-form-item>
-          <el-form-item label="服务器">
+          <el-form-item :label="t('gatewayStatus.formServer')">
             <el-input
               v-model="connectForm.credentials.server"
               placeholder="Broker-Server"
             />
           </el-form-item>
-          <el-form-item label="WS URI">
+          <el-form-item :label="t('gatewayStatus.formWsUri')">
             <el-input
               v-model="connectForm.credentials.ws_uri"
-              placeholder="ws://host:port 或 wss://host:port"
+              :placeholder="t('gatewayStatus.wsUriPh')"
             />
           </el-form-item>
-          <el-form-item label="后缀">
+          <el-form-item :label="t('gatewayStatus.formSuffix')">
             <el-input
               v-model="connectForm.credentials.symbol_suffix"
-              placeholder="如 .m 或留空"
+              :placeholder="t('gatewayStatus.suffixPh')"
             />
           </el-form-item>
-          <el-form-item label="超时">
+          <el-form-item :label="t('gatewayStatus.formTimeout')">
             <el-input
               v-model="connectForm.credentials.timeout"
               placeholder="60"
@@ -712,7 +711,7 @@
         <!-- IB Web Fields -->
         <template v-if="connectForm.exchange_type === 'IB_WEB'">
           <el-form-item
-            label="环境"
+            :label="t('gatewayStatus.formEnv')"
             required
           >
             <el-radio-group
@@ -720,99 +719,99 @@
               @change="onIbEnvChange"
             >
               <el-radio-button value="paper">
-                模拟盘
+                {{ t('gatewayStatus.envDemo') }}
               </el-radio-button>
               <el-radio-button value="live">
-                实盘
+                {{ t('gatewayStatus.envLive') }}
               </el-radio-button>
             </el-radio-group>
           </el-form-item>
           <el-form-item
-            label="账户ID"
+            :label="t('gatewayStatus.formAccountId')"
             required
           >
             <el-input
               v-model="connectForm.credentials.account_id"
-              placeholder="如 DU123456"
+              :placeholder="t('gatewayStatus.accountIdPh')"
             />
           </el-form-item>
-          <el-form-item label="资产类型">
+          <el-form-item :label="t('gatewayStatus.fieldAssetType')">
             <el-select
               v-model="connectForm.credentials.asset_type"
               class="w-full"
             >
               <el-option
-                label="股票 STK"
+                :label="t('gatewayStatus.optStock')"
                 value="STK"
               />
               <el-option
-                label="期货 FUT"
+                :label="t('gatewayStatus.optFut')"
                 value="FUT"
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="Base URL">
+          <el-form-item :label="t('gatewayStatus.formBaseUrl')">
             <el-input
               v-model="connectForm.credentials.base_url"
               placeholder="https://localhost:5000"
             />
           </el-form-item>
-          <el-form-item label="Access Token">
+          <el-form-item :label="t('gatewayStatus.formAccessToken')">
             <el-input
               v-model="connectForm.credentials.access_token"
-              placeholder="可选"
+              :placeholder="t('gatewayStatus.optionalPh')"
             />
           </el-form-item>
           <el-collapse class="mt-2 mb-2">
-            <el-collapse-item title="高级认证">
-              <el-form-item label="用户名">
+            <el-collapse-item :title="t('gatewayStatus.advancedAuth')">
+              <el-form-item :label="t('gatewayStatus.formUsername')">
                 <el-input
                   v-model="connectForm.credentials.username"
-                  placeholder="IBKR 用户名"
+                  :placeholder="t('gatewayStatus.ibkrUserPh')"
                 />
               </el-form-item>
-              <el-form-item label="密码">
+              <el-form-item :label="t('gatewayStatus.formPassword')">
                 <el-input
                   v-model="connectForm.credentials.password"
                   type="password"
                   show-password
-                  placeholder="IBKR 密码"
+                  :placeholder="t('gatewayStatus.ibkrPwdPh')"
                 />
               </el-form-item>
-              <el-form-item label="Cookie 来源">
+              <el-form-item :label="t('gatewayStatus.formCookieSrc')">
                 <el-input
                   v-model="connectForm.credentials.cookie_source"
-                  placeholder="browser / env / file:C:/path/to/cookies.json"
+                  :placeholder="t('gatewayStatus.cookieSrcPh')"
                 />
               </el-form-item>
-              <el-form-item label="浏览器">
+              <el-form-item :label="t('gatewayStatus.formBrowser')">
                 <el-input
                   v-model="connectForm.credentials.cookie_browser"
                   placeholder="chrome"
                 />
               </el-form-item>
-              <el-form-item label="登录浏览器">
+              <el-form-item :label="t('gatewayStatus.formLoginBrowser')">
                 <el-input
                   v-model="connectForm.credentials.login_browser"
                   placeholder="chrome"
                 />
               </el-form-item>
-              <el-form-item label="Cookie 输出">
+              <el-form-item :label="t('gatewayStatus.formCookieOutput')">
                 <el-input
                   v-model="connectForm.credentials.cookie_output"
-                  placeholder="../bt_api_py/configs/ibkr_cookies.json"
+                  :placeholder="t('gatewayStatus.cookieOutputPh')"
                 />
               </el-form-item>
-              <el-form-item label="Cookie Path">
+              <el-form-item :label="t('gatewayStatus.formCookiePath')">
                 <el-input
                   v-model="connectForm.credentials.cookie_path"
                   placeholder="/sso"
                 />
               </el-form-item>
-              <el-form-item label="无头登录">
+              <el-form-item :label="t('gatewayStatus.formHeadless')">
                 <el-switch v-model="connectForm.credentials.login_headless" />
               </el-form-item>
-              <el-form-item label="登录超时">
+              <el-form-item :label="t('gatewayStatus.formLoginTimeout')">
                 <el-input
                   v-model="connectForm.credentials.login_timeout"
                   placeholder="180"
@@ -827,17 +826,16 @@
             class="mb-3"
           >
             <template #title>
-              IB Web 认证说明
+              {{ t('gatewayStatus.ibAuthTitle') }}
             </template>
-            如果未填写 Access Token 且未设置 Cookie 来源，后端会默认尝试读取浏览器 Cookie。
-            如果使用文件，请填写
+            {{ t('gatewayStatus.ibAuthDesc') }}
             <code>file:C:/path/to/cookies.json</code>
-            或直接填写本地文件路径。
+            {{ t('gatewayStatus.ibAuthDescTail') }}
           </el-alert>
-          <el-form-item label="SSL校验">
+          <el-form-item :label="t('gatewayStatus.formVerifySsl')">
             <el-switch v-model="connectForm.credentials.verify_ssl" />
           </el-form-item>
-          <el-form-item label="超时">
+          <el-form-item :label="t('gatewayStatus.formTimeout')">
             <el-input
               v-model="connectForm.credentials.timeout"
               placeholder="10"
@@ -847,29 +845,29 @@
 
         <!-- Binance Fields -->
         <template v-if="connectForm.exchange_type === 'BINANCE'">
-          <el-form-item label="账户标识">
+          <el-form-item :label="t('gatewayStatus.accountIdLabel')">
             <el-input
               v-model="connectForm.credentials.account_id"
-              placeholder="自定义账户名称，可选"
+              :placeholder="t('gatewayStatus.accountIdLabelPh')"
             />
           </el-form-item>
-          <el-form-item label="资产类型">
+          <el-form-item :label="t('gatewayStatus.fieldAssetType')">
             <el-select
               v-model="connectForm.credentials.asset_type"
               class="w-full"
             >
               <el-option
-                label="永续/合约 SWAP"
+                :label="t('gatewayStatus.optSwap')"
                 value="SWAP"
               />
               <el-option
-                label="现货 SPOT"
+                :label="t('gatewayStatus.optSpot')"
                 value="SPOT"
               />
             </el-select>
           </el-form-item>
           <el-form-item
-            label="API Key"
+            :label="t('gatewayStatus.formApiKey')"
             required
           >
             <el-input
@@ -878,7 +876,7 @@
             />
           </el-form-item>
           <el-form-item
-            label="Secret Key"
+            :label="t('gatewayStatus.formSecretKey')"
             required
           >
             <el-input
@@ -888,42 +886,42 @@
               placeholder="Binance Secret Key"
             />
           </el-form-item>
-          <el-form-item label="Base URL">
+          <el-form-item :label="t('gatewayStatus.formBaseUrl')">
             <el-input
               v-model="connectForm.credentials.base_url"
-              placeholder="可选自定义 REST 地址"
+              :placeholder="t('gatewayStatus.baseUrlPh')"
             />
           </el-form-item>
-          <el-form-item label="测试网">
+          <el-form-item :label="t('gatewayStatus.formTestnet')">
             <el-switch v-model="connectForm.credentials.testnet" />
           </el-form-item>
         </template>
 
         <!-- OKX Fields -->
         <template v-if="connectForm.exchange_type === 'OKX'">
-          <el-form-item label="账户标识">
+          <el-form-item :label="t('gatewayStatus.accountIdLabel')">
             <el-input
               v-model="connectForm.credentials.account_id"
-              placeholder="自定义账户名称，可选"
+              :placeholder="t('gatewayStatus.accountIdLabelPh')"
             />
           </el-form-item>
-          <el-form-item label="资产类型">
+          <el-form-item :label="t('gatewayStatus.fieldAssetType')">
             <el-select
               v-model="connectForm.credentials.asset_type"
               class="w-full"
             >
               <el-option
-                label="永续/合约 SWAP"
+                :label="t('gatewayStatus.optSwap')"
                 value="SWAP"
               />
               <el-option
-                label="现货 SPOT"
+                :label="t('gatewayStatus.optSpot')"
                 value="SPOT"
               />
             </el-select>
           </el-form-item>
           <el-form-item
-            label="API Key"
+            :label="t('gatewayStatus.formApiKey')"
             required
           >
             <el-input
@@ -932,7 +930,7 @@
             />
           </el-form-item>
           <el-form-item
-            label="Secret Key"
+            :label="t('gatewayStatus.formSecretKey')"
             required
           >
             <el-input
@@ -943,7 +941,7 @@
             />
           </el-form-item>
           <el-form-item
-            label="Passphrase"
+            :label="t('gatewayStatus.formPassphrase')"
             required
           >
             <el-input
@@ -953,20 +951,20 @@
               placeholder="OKX Passphrase"
             />
           </el-form-item>
-          <el-form-item label="Base URL">
+          <el-form-item :label="t('gatewayStatus.formBaseUrl')">
             <el-input
               v-model="connectForm.credentials.base_url"
-              placeholder="可选自定义 REST 地址"
+              :placeholder="t('gatewayStatus.baseUrlPh')"
             />
           </el-form-item>
-          <el-form-item label="测试网">
+          <el-form-item :label="t('gatewayStatus.formTestnet')">
             <el-switch v-model="connectForm.credentials.testnet" />
           </el-form-item>
         </template>
       </el-form>
       <template #footer>
         <el-button @click="showConnectDialog = false">
-          取消
+          {{ t('gatewayStatus.btnCancel') }}
         </el-button>
         <el-button
           type="primary"
@@ -974,7 +972,7 @@
           :disabled="!connectForm.exchange_type"
           @click="handleConnect"
         >
-          连接
+          {{ t('gatewayStatus.btnConnectAction') }}
         </el-button>
       </template>
     </el-dialog>
@@ -984,6 +982,7 @@
 <script setup lang="ts">
 import { stateTagType, stateLabel, connTagType, connLabel, heartbeatClass, getHeartbeatAge, formatHeartbeatAge, formatUptime, formatNumber } from './gatewayStatusHelpers'
 import { ref, reactive, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Refresh,
   Loading,
@@ -997,6 +996,8 @@ import { ElMessage } from 'element-plus'
 import { getErrorMessage } from '@/api'
 import { liveTradingApi } from '@/api/liveTrading'
 import type { GatewayHealthInfo } from '@/api/liveTrading'
+
+const { t } = useI18n()
 
 const loading = ref(false)
 const gateways = ref<GatewayHealthInfo[]>([])
@@ -1173,7 +1174,7 @@ async function handleConnect() {
       exchange_type: connectForm.exchange_type,
       credentials,
     })
-    ElMessage.success(res.message || '连接成功')
+    ElMessage.success(res.message || t('gatewayStatus.msgConnected'))
     showConnectDialog.value = false
     connectForm.exchange_type = ''
     connectForm.credentials = {}
@@ -1190,7 +1191,7 @@ async function handleDisconnect(gatewayKey: string) {
   try {
     const res = await liveTradingApi.disconnectGateway(gatewayKey)
     gateways.value = gateways.value.filter((gw) => gw.gateway_key !== gatewayKey)
-    ElMessage.success(res.message || '已断开')
+    ElMessage.success(res.message || t('gatewayStatus.msgDisconnected'))
     try {
       await fetchHealth()
     } catch {
@@ -1213,7 +1214,7 @@ async function fetchHealth() {
     lastHealthFetchMs.value = nowMs.value
     loadError.value = ''
   } catch (error) {
-    loadError.value = getErrorMessage(error, 'Gateway 状态加载失败')
+    loadError.value = getErrorMessage(error, t('gatewayStatus.msgLoadFailed'))
   } finally {
     loading.value = false
   }

@@ -1,4 +1,10 @@
 /** Gateway status display formatting helpers (pure functions). */
+import i18n from '@/i18n'
+import type { GatewayHealthInfo } from '@/api/liveTrading'
+
+function t(key: string): string {
+  return i18n.global.t(key)
+}
 
 export function stateTagType(state: string) {
   switch (state) {
@@ -17,15 +23,15 @@ export function stateTagType(state: string) {
 export function stateLabel(state: string) {
   switch (state) {
     case 'running':
-      return '运行中'
+      return t('gatewayStatus.stateRunning')
     case 'starting':
-      return '启动中'
+      return t('gatewayStatus.stateStarting')
     case 'stopping':
-      return '停止中'
+      return t('gatewayStatus.stateStopping')
     case 'error':
-      return '异常'
+      return t('gatewayStatus.stateError')
     case 'registered':
-      return '已注册'
+      return t('gatewayStatus.stateRegistered')
     default:
       return state
   }
@@ -48,17 +54,17 @@ export function connTagType(conn: string) {
 export function connLabel(conn: string) {
   switch (conn) {
     case 'connected':
-      return '已连接'
+      return t('gatewayStatus.connConnected')
     case 'connecting':
-      return '连接中'
+      return t('gatewayStatus.connConnecting')
     case 'reconnecting':
-      return '重连中'
+      return t('gatewayStatus.connReconnecting')
     case 'error':
-      return '异常'
+      return t('gatewayStatus.connError')
     case 'disconnected':
-      return '已断开'
+      return t('gatewayStatus.connDisconnected')
     case 'not_started':
-      return '未启动'
+      return t('gatewayStatus.connNotStarted')
     default:
       return conn
   }
@@ -71,20 +77,32 @@ export function heartbeatClass(age: number | null) {
   return 'text-red-600 font-medium'
 }
 
-export function getHeartbeatAge(gateway: GatewayHealthInfo): number | null {
+// Note: getHeartbeatAge needs reactive nowMs / lastHealthFetchMs from caller;
+// pass plain number values (templates auto-unwrap refs to numbers).
+export function getHeartbeatAge(
+  gateway: GatewayHealthInfo,
+  nowMs?: number,
+  lastHealthFetchMs?: number,
+): number | null {
   const lastHeartbeat = gateway.last_heartbeat
+  const now = nowMs ?? Date.now()
+  const lastFetch = lastHealthFetchMs ?? now
   if (lastHeartbeat != null && Number.isFinite(lastHeartbeat)) {
-    return Math.max(0, Math.floor(nowMs.value / 1000 - lastHeartbeat))
+    return Math.max(0, Math.floor(now / 1000 - lastHeartbeat))
   }
   if (gateway.heartbeat_age_sec == null || !Number.isFinite(gateway.heartbeat_age_sec)) {
     return null
   }
-  const elapsedSinceFetch = Math.floor(Math.max(0, nowMs.value - lastHealthFetchMs.value) / 1000)
+  const elapsedSinceFetch = Math.floor(Math.max(0, now - lastFetch) / 1000)
   return Math.max(0, Math.floor(gateway.heartbeat_age_sec) + elapsedSinceFetch)
 }
 
-export function formatHeartbeatAge(gateway: GatewayHealthInfo): string {
-  const age = getHeartbeatAge(gateway)
+export function formatHeartbeatAge(
+  gateway: GatewayHealthInfo,
+  nowMs?: number,
+  lastHealthFetchMs?: number,
+): string {
+  const age = getHeartbeatAge(gateway, nowMs, lastHealthFetchMs)
   return age != null ? `${age}s` : '-'
 }
 
