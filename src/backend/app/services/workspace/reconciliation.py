@@ -31,7 +31,7 @@ from app.models.workspace import StrategyUnit
 from app.schemas.backtest import TaskStatus
 
 if TYPE_CHECKING:
-    from app.services.backtest_service import BacktestService
+    from app.services.backtest.service import BacktestService
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ async def reconcile_completed_bar_counts(
     Returns:
         Number of unit rows whose ``bar_count`` was updated.
     """
-    from app.services.backtest_service import BacktestService
+    from app.services.backtest.service import BacktestService
 
     backtest_service = BacktestService()
     async with async_session_maker() as session:

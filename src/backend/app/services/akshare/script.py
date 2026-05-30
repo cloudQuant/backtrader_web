@@ -16,7 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
-from app.models.akshare_mgmt import DataInterface, DataScript, ScriptFrequency, TriggeredBy
+from app.models.akshare_mgmt import (
+    DataInterface,
+    DataScript,
+    ScriptFrequency,
+    TaskExecution,
+    TriggeredBy,
+)
 from app.services.akshare_data_service import AkshareDataService
 from app.services.akshare_execution_service import AkshareExecutionService
 
@@ -134,7 +140,8 @@ class AkshareScriptService:
         for key, value in payload.items():
             if value is not None and hasattr(script, key):
                 setattr(script, key, value)
-        script.updated_by = operator_id
+        script_row: Any = script
+        script_row.updated_by = operator_id
         await self.db.commit()
         await self.db.refresh(script)
         return script
@@ -153,7 +160,8 @@ class AkshareScriptService:
         script = await self.get_script(script_id)
         if script is None:
             return None
-        script.is_active = not script.is_active
+        script_row: Any = script
+        script_row.is_active = not script.is_active
         await self.db.commit()
         await self.db.refresh(script)
         return script
@@ -311,8 +319,8 @@ class AkshareScriptService:
         if interface is None:
             return None
 
-        module_name = interface.module_path or "akshare"
-        function_name = interface.function_name or interface.name
+        module_name = str(interface.module_path or "akshare")
+        function_name = str(interface.function_name or interface.name)
         module = importlib.import_module(module_name)
         candidate = getattr(module, function_name, None)
         return candidate if callable(candidate) else None
@@ -339,10 +347,10 @@ class AkshareScriptService:
         return None
 
     async def _resolve_callable(self, script: DataScript) -> Any:
-        func_name = script.function_name or "main"
+        func_name = str(script.function_name or "main")
         if script.module_path:
             try:
-                module = importlib.import_module(script.module_path)
+                module = importlib.import_module(str(script.module_path))
             except ModuleNotFoundError:
                 module = None
             if module is not None:
@@ -395,7 +403,7 @@ class AkshareScriptService:
         operator_id: str | None = None,
         task_id: int | None = None,
         triggered_by: TriggeredBy = TriggeredBy.MANUAL,
-    ):
+    ) -> TaskExecution:
         script = await self.get_script(script_id)
         if script is None:
             raise ValueError("Script not found")

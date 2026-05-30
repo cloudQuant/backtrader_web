@@ -130,6 +130,33 @@ def _filter_sensitive_data(data: dict[str, Any]) -> dict[str, Any]:
     return filtered
 
 
+def _get_trace_context() -> dict[str, str]:
+    """Return the active OTel trace/span IDs for log↔trace correlation.
+
+    Returns ``{"trace_id": ..., "span_id": ...}`` (32-/16-hex, W3C format) when
+    there is a valid *recording* span in context, otherwise an empty dict.
+
+    This is the logs-correlation half of iteration 176 §H: structured log lines
+    emitted inside an OTel span carry the same ``trace_id`` the trace backend
+    (Jaeger/Tempo) uses, so an operator can pivot from a Loki/ELK log entry to
+    the exact distributed trace. When OTel is disabled or not installed the
+    helper is a cheap no-op (one import guard + one ``is_valid`` check).
+    """
+    try:
+        from opentelemetry import trace as _otel_trace
+
+        span = _otel_trace.get_current_span()
+        ctx = span.get_span_context()
+        if not ctx or not ctx.is_valid:
+            return {}
+        return {
+            "trace_id": format(ctx.trace_id, "032x"),
+            "span_id": format(ctx.span_id, "016x"),
+        }
+    except Exception:
+        return {}
+
+
 def _serialize_log(record: dict[str, Any]) -> str:
     """Serialize log record to JSON format for structured logging.
 
@@ -201,6 +228,13 @@ def _serialize_log(record: dict[str, Any]) -> str:
         log_entry["user_id"] = record["extra"]["user_id"]
     if "task_id" in record["extra"] and record["extra"]["task_id"]:
         log_entry["task_id"] = record["extra"]["task_id"]
+
+    # 176 §H — logs↔traces correlation: stamp the active OTel trace/span IDs so
+    # operators can pivot from a structured log line to its distributed trace.
+    trace_context = _get_trace_context()
+    if trace_context:
+        log_entry["trace_id"] = trace_context["trace_id"]
+        log_entry["span_id"] = trace_context["span_id"]
 
     return json.dumps(log_entry, ensure_ascii=False)
 

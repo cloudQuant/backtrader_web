@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,8 +43,9 @@ class AkshareExecutionService:
         return execution
 
     async def mark_running(self, execution: TaskExecution) -> TaskExecution:
-        execution.status = TaskStatus.RUNNING
-        execution.start_time = datetime.now(timezone.utc)
+        execution_row: Any = execution
+        execution_row.status = TaskStatus.RUNNING
+        execution_row.start_time = datetime.now(timezone.utc)
         await self.db.commit()
         await self.db.refresh(execution)
         return execution
@@ -56,20 +58,22 @@ class AkshareExecutionService:
         rows_after: int | None = None,
     ) -> TaskExecution:
         end_time = datetime.now(timezone.utc)
-        execution.status = TaskStatus.COMPLETED
-        execution.end_time = end_time
-        execution.duration = (
+        execution_row: Any = execution
+        execution_row.status = TaskStatus.COMPLETED
+        execution_row.end_time = end_time
+        execution_row.duration = (
             (end_time - execution.start_time).total_seconds() if execution.start_time else None
         )
-        execution.result = result
-        execution.rows_before = rows_before
-        execution.rows_after = rows_after
+        execution_row.result = result
+        execution_row.rows_before = rows_before
+        execution_row.rows_after = rows_after
         await self.db.commit()
         await self.db.refresh(execution)
         if execution.task_id:
             task = await self.db.get(ScheduledTask, execution.task_id)
             if task is not None:
-                task.last_execution_at = end_time
+                task_row: Any = task
+                task_row.last_execution_at = end_time
                 await self.db.commit()
         return execution
 
@@ -80,13 +84,14 @@ class AkshareExecutionService:
         error_trace: str | None = None,
     ) -> TaskExecution:
         end_time = datetime.now(timezone.utc)
-        execution.status = TaskStatus.FAILED
-        execution.end_time = end_time
-        execution.duration = (
+        execution_row: Any = execution
+        execution_row.status = TaskStatus.FAILED
+        execution_row.end_time = end_time
+        execution_row.duration = (
             (end_time - execution.start_time).total_seconds() if execution.start_time else None
         )
-        execution.error_message = error_message
-        execution.error_trace = error_trace
+        execution_row.error_message = error_message
+        execution_row.error_trace = error_trace
         await self.db.commit()
         await self.db.refresh(execution)
         return execution

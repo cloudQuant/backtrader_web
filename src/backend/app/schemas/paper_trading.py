@@ -4,7 +4,7 @@ Paper trading schemas.
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AccountCreate(BaseModel):
@@ -28,6 +28,8 @@ class AccountCreate(BaseModel):
 
 class AccountResponse(BaseModel):
     """Paper trading account response schema."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(..., description="Account ID")
     user_id: str = Field(..., description="User ID")
@@ -83,6 +85,8 @@ class OrderRequest(BaseModel):
 class OrderResponse(BaseModel):
     """Paper trading order response schema."""
 
+    model_config = ConfigDict(from_attributes=True)
+
     id: str = Field(..., description="Order ID")
     account_id: str = Field(..., description="Account ID")
     symbol: str = Field(..., description="Stock code")
@@ -115,6 +119,8 @@ class OrderListResponse(BaseModel):
 
 class PositionResponse(BaseModel):
     """Paper trading position response schema."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(..., description="Position ID")
     account_id: str = Field(..., description="Account ID")
@@ -150,6 +156,8 @@ class PositionListResponse(BaseModel):
 
 class TradeResponse(BaseModel):
     """Paper trading trade response schema."""
+
+    model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(..., description="Trade ID")
     account_id: str = Field(..., description="Account ID")

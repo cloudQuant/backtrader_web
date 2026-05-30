@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from app.db.database import async_session_maker
 from app.models.workspace import StrategyUnit, Workspace
@@ -72,7 +72,7 @@ def _unit_in_range(
     unit: StrategyUnit, start_date: str | None, end_date: str | None
 ) -> bool:
     """Return ``True`` if a unit's data window overlaps the requested range."""
-    dc = unit.data_config or {}
+    dc: dict[str, Any] = cast("dict[str, Any]", unit.data_config) or {}
     u_start = dc.get("start_date", "")
     u_end = dc.get("end_date", "")
     if start_date and u_end and u_end < start_date:
@@ -113,9 +113,9 @@ def _serialize_unit_reference(unit: StrategyUnit, value_metric_key: str) -> dict
         "run_count": unit.run_count or 0,
         "last_run_time": unit.last_run_time,
         "last_task_id": unit.last_task_id,
-        "start_date": (unit.data_config or {}).get("start_date"),
+        "start_date": (cast("dict[str, Any]", unit.data_config) or {}).get("start_date"),
         "data_source": f"{unit.symbol or ''}_{unit.timeframe or ''}",
-        "value": (unit.metrics_snapshot or {}).get(value_metric_key),
+        "value": (cast("dict[str, Any]", unit.metrics_snapshot) or {}).get(value_metric_key),
     }
 
 
@@ -311,7 +311,8 @@ async def delete_workspace_report(
         settings = dict(ws.settings or {})
         had_config = "report_config" in settings
         settings.pop("report_config", None)
-        ws.settings = settings
+        ws_row: Any = ws
+        ws_row.settings = settings
         await session.commit()
         return {
             "workspace_id": workspace_id,

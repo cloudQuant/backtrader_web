@@ -45,7 +45,7 @@ class LiveTradingService:
         cerebro_instances: Dictionary mapping task IDs to Cerebro instances.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the LiveTradingService.
 
         Creates empty dictionaries for tracking tasks and Cerebro instances,
@@ -107,7 +107,7 @@ class LiveTradingService:
         task_id = f"live-{user_id}-{datetime.now(timezone.utc).timestamp()}"
 
         # Run live trading in a background thread
-        def _run_live_trading():
+        def _run_live_trading() -> None:
             try:
                 logger.info(f"Starting live trading task: {task_id}")
 
@@ -182,7 +182,7 @@ class LiveTradingService:
 
         return task_id
 
-    def _load_strategy_from_code(self, code: str, params: dict[str, Any]):
+    def _load_strategy_from_code(self, code: str, params: dict[str, Any]) -> Any:
         """Load a Backtrader strategy class from executable Python code.
 
         Strategy code is executed via :class:`StrategySandbox` to enforce the

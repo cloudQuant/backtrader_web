@@ -78,6 +78,16 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # Reset the feature-flags cache so a subsequent in-process startup (e.g.
+    # tests, ASGI reload) recomputes flags after router registration rather
+    # than serving a stale snapshot. Computed once per process otherwise.
+    reset_feature_flags = globals().get("_reset_feature_flags_cache")
+    if callable(reset_feature_flags):
+        try:
+            reset_feature_flags()
+        except Exception:
+            pass
+
 
 app = FastAPI(
     title="Backtrader Web API",

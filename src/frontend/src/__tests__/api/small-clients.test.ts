@@ -28,8 +28,8 @@ vi.mock('@/api', () => ({
 }))
 
 describe('api/sync', () => {
-  beforeEach(() => vi.clearAllMocks())
-  afterEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
+  afterEach(() => { vi.clearAllMocks() })
 
   it('exposes 8 verbs that delegate to api.{get,post,put}', async () => {
     const { syncApi } = await import('@/api/sync')
@@ -68,7 +68,7 @@ describe('api/sync', () => {
 })
 
 describe('api/audit', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('postAuditEvents POSTs to /audit/events with the events payload', async () => {
     const { postAuditEvents } = await import('@/api/audit')
@@ -99,7 +99,7 @@ describe('api/audit', () => {
 })
 
 describe('api/autoTrading', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('getConfig GETs /auto-trading/config', async () => {
     const { autoTradingApi } = await import('@/api/autoTrading')

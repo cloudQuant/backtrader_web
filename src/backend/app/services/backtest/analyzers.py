@@ -5,18 +5,25 @@ Collects detailed backtest data for analytics and reporting.
 """
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 import backtrader as bt
 
 logger = logging.getLogger(__name__)
-AnalyzerBase = getattr(bt, "Analyzer", object)  # type: ignore[misc,assignment]
-if AnalyzerBase is object:
-    logger.warning(
-        "backtrader.Analyzer is unavailable; custom analyzers are running in fallback mode"
-    )
+
+if TYPE_CHECKING:
+    # backtrader has no type stubs (ignore_missing_imports). Aliasing to ``Any``
+    # lets mypy accept ``AnalyzerBase`` as a base class (inheriting from Any is allowed).
+    AnalyzerBase: Any = object
+else:
+    AnalyzerBase = getattr(bt, "Analyzer", object)
+    if AnalyzerBase is object:
+        logger.warning(
+            "backtrader.Analyzer is unavailable; custom analyzers are running in fallback mode"
+        )
 
 
-class DetailedTradeAnalyzer(AnalyzerBase):  # type: ignore[misc,valid-type]
+class DetailedTradeAnalyzer(AnalyzerBase):
     """Detailed trade analyzer that records detailed information for each trade.
 
     Attributes:
@@ -24,12 +31,12 @@ class DetailedTradeAnalyzer(AnalyzerBase):  # type: ignore[misc,valid-type]
         trade_count: Total number of trades recorded.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the trade analyzer."""
-        self.trades = []
+        self.trades: list[dict[str, Any]] = []
         self.trade_count = 0
 
-    def notify_trade(self, trade):
+    def notify_trade(self, trade: Any) -> None:
         """Called when a trade is closed to record its details.
 
         Args:
@@ -54,7 +61,7 @@ class DetailedTradeAnalyzer(AnalyzerBase):  # type: ignore[misc,valid-type]
                 }
             )
 
-    def get_analysis(self):
+    def get_analysis(self) -> dict[str, Any]:
         """Return the analysis results.
 
         Returns:
@@ -71,16 +78,16 @@ class EquityCurveAnalyzer(AnalyzerBase):
         _last_value: The last recorded portfolio value.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the equity curve analyzer."""
-        self.equity_curve = []
-        self._last_value = None
+        self.equity_curve: list[dict[str, Any]] = []
+        self._last_value: float | None = None
 
-    def start(self):
+    def start(self) -> None:
         """Record the initial portfolio value when backtest starts."""
         self._last_value = self.strategy.broker.getvalue()
 
-    def next(self):
+    def next(self) -> None:
         """Record equity data for each bar."""
         dt = self.datas[0].datetime.datetime(0)
         total = self.strategy.broker.getvalue()
@@ -96,7 +103,7 @@ class EquityCurveAnalyzer(AnalyzerBase):
             }
         )
 
-    def get_analysis(self):
+    def get_analysis(self) -> dict[str, Any]:
         """Return the analysis results.
 
         Returns:
@@ -112,11 +119,11 @@ class TradeSignalAnalyzer(AnalyzerBase):
         signals: List of trade signals with execution details.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the trade signal analyzer."""
-        self.signals = []
+        self.signals: list[dict[str, Any]] = []
 
-    def notify_order(self, order):
+    def notify_order(self, order: Any) -> None:
         """Called when an order is completed to record the signal.
 
         Args:
@@ -134,7 +141,7 @@ class TradeSignalAnalyzer(AnalyzerBase):
                 }
             )
 
-    def get_analysis(self):
+    def get_analysis(self) -> dict[str, Any]:
         """Return the analysis results.
 
         Returns:
@@ -152,17 +159,17 @@ class MonthlyReturnsAnalyzer(AnalyzerBase):
         current_month: The current (year, month) tuple being tracked.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the monthly returns analyzer."""
-        self.monthly_returns = {}
-        self.month_start_value = None
-        self.current_month = None
+        self.monthly_returns: dict[tuple[int, int], float] = {}
+        self.month_start_value: float | None = None
+        self.current_month: tuple[int, int] | None = None
 
-    def start(self):
+    def start(self) -> None:
         """Record the initial portfolio value when backtest starts."""
         self.month_start_value = self.strategy.broker.getvalue()
 
-    def next(self):
+    def next(self) -> None:
         """Calculate monthly returns when month changes."""
         dt = self.datas[0].datetime.datetime(0)
         month_key = (dt.year, dt.month)
@@ -178,14 +185,14 @@ class MonthlyReturnsAnalyzer(AnalyzerBase):
             self.month_start_value = current_value
             self.current_month = month_key
 
-    def stop(self):
+    def stop(self) -> None:
         """Record the final month's return when backtest ends."""
         if self.current_month and self.month_start_value:
             current_value = self.strategy.broker.getvalue()
             ret = (current_value - self.month_start_value) / self.month_start_value
             self.monthly_returns[self.current_month] = round(ret, 6)
 
-    def get_analysis(self):
+    def get_analysis(self) -> dict[str, Any]:
         """Return the analysis results.
 
         Returns:
@@ -202,16 +209,16 @@ class DrawdownAnalyzer(AnalyzerBase):
         peak: The highest portfolio value observed.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the drawdown analyzer."""
-        self.drawdown_curve = []
+        self.drawdown_curve: list[dict[str, Any]] = []
         self.peak = 0
 
-    def start(self):
+    def start(self) -> None:
         """Initialize the peak value when backtest starts."""
         self.peak = self.strategy.broker.getvalue()
 
-    def next(self):
+    def next(self) -> None:
         """Calculate drawdown for each bar."""
         dt = self.datas[0].datetime.datetime(0)
         current = self.strategy.broker.getvalue()
@@ -230,7 +237,7 @@ class DrawdownAnalyzer(AnalyzerBase):
             }
         )
 
-    def get_analysis(self):
+    def get_analysis(self) -> dict[str, Any]:
         """Return the analysis results.
 
         Returns:
@@ -239,7 +246,7 @@ class DrawdownAnalyzer(AnalyzerBase):
         return {"drawdown_curve": self.drawdown_curve}
 
 
-def get_all_analyzers():
+def get_all_analyzers() -> dict[str, Any]:
     """Get all custom analyzers.
 
     Returns:

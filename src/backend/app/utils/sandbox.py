@@ -134,7 +134,7 @@ class StrategySandbox:
                 try:
                     current = getattr(current, part)
                 except AttributeError:
-                    raise ImportError(f"Cannot import {name}")
+                    raise ImportError(f"Cannot import {name}") from None
 
         return imported_module
 
@@ -195,19 +195,21 @@ class StrategySandbox:
         except _SandboxTimeoutError:
             raise RuntimeError(
                 f"Strategy code execution timed out after {execution_timeout} seconds"
-            )
+            ) from None
         except SyntaxError as e:
-            raise SyntaxError(f"Strategy code syntax error: {e}")
+            raise SyntaxError(f"Strategy code syntax error: {e}") from e
         except NameError as e:
-            raise NameError(f"Undefined name in strategy code: {e}")
+            raise NameError(f"Undefined name in strategy code: {e}") from e
         except AttributeError as e:
-            raise AttributeError(f"Disallowed attribute in strategy code: {e}")
+            raise AttributeError(f"Disallowed attribute in strategy code: {e}") from e
         except ImportError as e:
-            raise ImportError(f"Disallowed module import in strategy code: {e}")
+            raise ImportError(f"Disallowed module import in strategy code: {e}") from e
         except ValueError:
             raise
         except Exception as e:
-            raise RuntimeError(f"Strategy code execution failed: {type(e).__name__}: {e}")
+            raise RuntimeError(
+                f"Strategy code execution failed: {type(e).__name__}: {e}"
+            ) from e
 
         if not strategy_class:
             raise ValueError(
@@ -506,7 +508,7 @@ class DockerSandbox:
         try:
             subprocess.run(["docker", "--version"], check=True, capture_output=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
-            raise RuntimeError("Docker is not available, please install Docker first")
+            raise RuntimeError("Docker is not available, please install Docker first") from None
 
         # Create temporary directory
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -553,7 +555,7 @@ class DockerSandbox:
             try:
                 return json.loads(result.stdout.strip())
             except json.JSONDecodeError as e:
-                raise RuntimeError(f"Cannot parse execution result: {e}")
+                raise RuntimeError(f"Cannot parse execution result: {e}") from e
 
 
 # Convenience function

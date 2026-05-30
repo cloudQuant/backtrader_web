@@ -655,7 +655,7 @@ def build_gateway_launch(
     config_data: dict[str, Any],
     env_data: dict[str, str],
     gateway_params: dict[str, Any],
-    gateway_config_cls: type,
+    gateway_config_cls: Any,
     gateway_runtime_cls: type,
     default_transport: str,
 ) -> dict[str, Any]:

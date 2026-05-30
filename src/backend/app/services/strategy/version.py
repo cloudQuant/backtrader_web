@@ -6,7 +6,7 @@ Supports versioning, branch management, rollback, and comparisons.
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 from app.db.sql_repository import SQLRepository
 from app.models.strategy import Strategy
@@ -50,7 +50,7 @@ class VersionControlService:
         strategy_repo: Repository for Strategy entities.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the VersionControlService with required repositories."""
         self.version_repo = SQLRepository(StrategyVersion)
         self.branch_repo = SQLRepository(VersionBranch)
@@ -270,6 +270,8 @@ class VersionControlService:
                 update_dict["changelog"] = update_data.changelog
 
         version = await self.version_repo.update(version_id, update_dict)
+        if version is None:
+            return None
 
         # Push version update notification
         await ws_manager.send_to_task(
@@ -308,7 +310,7 @@ class VersionControlService:
             return False
 
         # Unset other default versions on branch
-        await self._unset_default_versions(version.strategy_id, version.branch)
+        await self._unset_default_versions(str(version.strategy_id), str(version.branch))
 
         # Set as default version
         await self.version_repo.update(
@@ -342,7 +344,7 @@ class VersionControlService:
             return False
 
         # Unset other active versions on branch
-        await self._unset_active_versions(version.strategy_id, version.branch)
+        await self._unset_active_versions(str(version.strategy_id), str(version.branch))
 
         # Set as active version
         await self.version_repo.update(
@@ -392,16 +394,16 @@ class VersionControlService:
 
         # Calculate code diff
         code_diff = generate_code_diff(
-            from_version.code,
-            to_version.code,
-            from_version.version_name,
-            to_version.version_name,
+            str(from_version.code),
+            str(to_version.code),
+            str(from_version.version_name),
+            str(to_version.version_name),
         )
 
         # Calculate parameters diff
         params_diff = generate_params_diff(
-            from_version.params,
-            to_version.params,
+            cast("dict[str, Any]", from_version.params),
+            cast("dict[str, Any]", to_version.params),
         )
 
         # Calculate performance diff
@@ -539,13 +541,17 @@ class VersionControlService:
         }
 
     # Backward-compatible wrappers for tests that call these as instance methods.
-    def _generate_code_diff(self, code1, code2, name1, name2):
+    def _generate_code_diff(self, code1: str, code2: str, name1: str, name2: str) -> str:
         return generate_code_diff(code1, code2, name1, name2)
 
-    def _generate_params_diff(self, params1, params2):
+    def _generate_params_diff(
+        self, params1: dict[str, Any], params2: dict[str, Any]
+    ) -> dict[str, dict[str, Any]]:
         return generate_params_diff(params1, params2)
 
-    async def _generate_performance_diff(self, from_version_id, to_version_id):
+    async def _generate_performance_diff(
+        self, from_version_id: str, to_version_id: str
+    ) -> dict[str, Any]:
         return await generate_performance_diff(from_version_id, to_version_id)
 
     async def _get_or_create_branch(
@@ -579,10 +585,10 @@ class VersionControlService:
         self,
         branch: VersionBranch,
         version: StrategyVersion,
-    ):
+    ) -> None:
         """Update branch version_count and last_version_id after a version is created."""
         await self.branch_repo.update(
-            branch.id,
+            str(branch.id),
             {
                 "version_count": branch.version_count + 1,
                 "last_version_id": version.id,
@@ -740,7 +746,7 @@ class VersionControlService:
         )
 
         if versions:
-            return versions[0].version_number + 1
+            return int(versions[0].version_number) + 1
         else:
             return 1
 
@@ -748,7 +754,7 @@ class VersionControlService:
         self,
         strategy_id: str,
         branch: str,
-    ):
+    ) -> None:
         """Unset default flag for all versions on a branch."""
         versions = await self.version_repo.list(
             filters={
@@ -759,13 +765,13 @@ class VersionControlService:
         )
 
         for version in versions:
-            await self.version_repo.update(version.id, {"is_default": False})
+            await self.version_repo.update(str(version.id), {"is_default": False})
 
     async def _unset_active_versions(
         self,
         strategy_id: str,
         branch: str,
-    ):
+    ) -> None:
         """Unset active flag for all versions on a branch."""
         versions = await self.version_repo.list(
             filters={
@@ -776,4 +782,4 @@ class VersionControlService:
         )
 
         for version in versions:
-            await self.version_repo.update(version.id, {"is_active": False})
+            await self.version_repo.update(str(version.id), {"is_active": False})

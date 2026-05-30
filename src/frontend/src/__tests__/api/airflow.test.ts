@@ -14,7 +14,7 @@ vi.mock('@/api', () => ({
 }))
 
 describe('airflowApi', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('getStatus GETs orchestration status', async () => {
     const { airflowApi } = await import('@/api/airflow')

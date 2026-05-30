@@ -9,109 +9,32 @@ first slice.
 > All items below are deliberate "do later, on purpose". The hygiene fixes that
 > were applied in the same pass live in CHANGELOG / git history; this file is
 > only the *deferred* list.
+>
+> **2026-05-30 — iteration-175 debt clearance (176 §).** The bulk of the
+> "176 候选" list (mypy services strict §A, i18n CJK §C, a11y §D, frontend
+> coverage 75 §E, OTel perf baseline §F, 500–999 line .vue split §G) plus
+> P1#5, P2#8, P2#9, P2#11, P2#13 all shipped and were **deleted from this file**
+> per the "don't leave green checks" rule. Their evidence lives in
+> `docs/iterations/迭代176-工程债接续与基础设施收尾/DEBT_CLEARANCE.md`,
+> CHANGELOG and git history. What remains below is the genuinely-open set:
+> ops-only policy items, the large live-trading refactors that need staged
+> branches, and the feature-track reclassification of §B.
 
 ---
 
-## 176 候选（迭代 175 顺延）
+## Feature-track (NOT refactoring debt) — 173B 三项
 
-> 来源：`docs/iterations/迭代175-质量加固与可观测性纵深/RETROSPECTIVE.md` §「175 顺延 / 176 候选」。
-> 175 关闭日期：2026-05-28。
+> These are **new product features**, not refactor/hardening debt. Treating
+> them as debt to "clear with code" would mean shipping an un-briefed
+> implementation. 176 decision: move them out of the refactor backlog and track
+> them on the product backlog. Listed here only for audit trace; **out of scope
+> for the iteration-175 debt clearance.**
 
-### A. mypy services 剩余 6 子包扩盘（来源：175 §1.7 降级）
-
-| 子包 | 175 起点错误数 | 备注 |
-|---|---:|---|
-| `app.services.gateway` | 29 | 需补类型注解；中等工作量 |
-| `app.services.akshare` | 49 | 同上；建议 1 个独立 sprint |
-| `app.services.strategy` | 56 | SQLAlchemy `Column[T]` vs `T` 类型分歧 |
-| `app.services.backtest` | 57 | 同上 |
-| `app.services.live_trading` | 56 | 同上 |
-| `app.services.workspace` | 88 | 错误数最多；建议拿一个独立 sprint |
-
-### B. 173B 三项（来源：`迭代175-质量加固与可观测性纵深/173B_disposition.md`）
-
-| Item | 决议 | 责任人 | 目标日期 |
-|---|---|---|---|
-| T2 (WS Gateway Migration) | 顺延 176 | @yunjinqi | 2026-08-15 |
-| T7 (News Intelligence 产品化) | 顺延 176（**需独立产品 brief**） | @yunjinqi | 2026-09-01 |
-| T10 (Quant Tool Registry 产品化) | 顺延 176 | @yunjinqi | 2026-08-30 |
-
-### C. 前端 i18n 中文裸串清理（**已完成 2026-05-29**，176 §C）
-
-- 起点：15553 处 strict 违规（其中 CJK ~1867）作为 175 advisory baseline
-- 终点：CJK 违规 0（24 个 commit，passes 17-40），strict 残留 13986（英文占位符/属性扫描器过度命中，advisory only）
-- 终态 baseline：`scripts/dev/check_i18n_coverage_baseline.json` baseline_commit `176-c-pass-41`
-- CI 已新增阻塞门：`i18n CJK strict scan (blocking)` 步骤运行 `python scripts/dev/check_i18n_coverage.py --strict --cjk-only`；未来引入 CJK 裸串的 PR 将被阻塞
-- 完整 strict 步骤保留 advisory（英文过度命中需要更细的扫描器启发式，非 176 范围）
-- 唯一豁免：`LanguageSwitcher.vue` 的 `中文` 自标签（语言选择器原生脚本约定，附 `i18n-ignore-next-line` + `i18n-reason`）
-
-### D. 前端 a11y 违规修复（来源：175 §3.4 内容侧清理）
-
-- `frontend-a11y` job 已建（`e2e/a11y/` 7 spec）
-- Lighthouse a11y 阈值已升至 0.9
-- 修复 7 个核心页面 axe critical/serious 违规至 0
-- 必要豁免登记到 `docs/explanation/accessibility-baseline.md`
-
-### E. 前端覆盖率从 60 → 75 过渡（**部分完成 2026-05-29**，后续待续）
-
-**已完成**（25 commits 跨 175 close → 176 §E）：
-- High_Coverage_Core 8 模块全部达到 90% per-file 门槛（之前 useBacktestRuntime 39%、knowledgeBase 55%、auth 70%、api/index 82%、theme/backtest branches/funcs 边缘等都未达标）
-- 全局 branches 从 72% 提升至 **76.25%**（实际 vs 阈值 70 通过）
-- 全局 lines/funcs/stats 从 53/52/53 提升至 **60/60/60**
-- vitest 测试通过率 64% → **100%**（388/248 → 806/806，+528 cases）
-- 关键测试基础设施修复：global vue-i18n install + zh-CN passthrough（解决 140 个失败测试）、$t global mock、test/stubs shim 路径
-
-**新增的测试文件**（共 ~600 cases）：
-- composables: useBacktestRuntime, useInstanceActions, useUnitTableRendering
-- stores: knowledgeBase（全部覆盖）、auth（全部覆盖）、theme（关键分支）、backtest（缺失方法）、workspace（公共 CRUD）
-- api: api/index helpers、retry-interceptor、sync, audit, autoTrading, kbChat, quote, knowledgeBase, airflow, aiTrading
-- utils: auditTracker, exportUtils（扩展）、session
-- components/common: logViewerHelpers
-- components/workspace: tradingUnitTransfer
-
-**当前阈值状态**（`src/frontend/vitest.config.ts`）：
-- 全局：lines/functions/statements 50%（实际 60%），branches 70%（实际 76%）
-- High_Coverage_Core：lines/functions/statements 90%、branches 88-90% 严格执行
-- 阈值数字暂时低于 175 计划的 75% 是因为尚有大量 0%-coverage views/.vue 文件拖低全局聚合，但 High_Coverage_Core 已完全达标
-
-**仍待完成（阈值 50/70 → 75/75）**：
-- views/data/ 多个 800+ 行 .vue 文件覆盖率 0%（DataSyncPage 854、DataInterfacesPage 610、DataTasksPage 547、DataExecutionsPage 447 等）
-- components/workspace/ 多个 1000+ 行 .vue 文件覆盖率 0%（WorkspaceUnitsTab 1271、WorkspaceOptimizationTab 1193、WorkspaceReportTab 1160 等）
-- 这些需要复杂的 Element Plus stub + Pinia + router 三方 mock；优先级不如直接拆分大文件（参见 §G）
-
-### F. OTel 性能基准对比（来源：175 §5.8 降级）
-
-- 175 因 `tests/perf/test_backtest_throughput.py` 等同基准缺失，本轮未做硬阈值
-- 建议 176 先建立 perf baseline 再做 OTel ON/OFF 对比
-
-### G. 500-999 行 .vue 收尾（来源：175 §11.5 整体降级）
-
-- 174 主线 C 收尾后由 176 决定
-- 命中文件清单（175-close 扫描，2026-05-28）：
-
-| 行数 | 文件 | 拟拆分子组件方向 | 工作量 |
-|---:|---|---|:---:|
-| 860 | `views/AITradingPage.vue` | confirm dialog / history table / context panel | M |
-| 851 | `views/data/DataSyncPage.vue` | sync table / config panel / progress card | M |
-| 831 | `components/workspace/TradingWorkspaceUnitsTab.vue` | unit row / param dialog / status bar | L |
-| 715 | `views/KnowledgeBaseDocumentPage.vue` | citation panel / outline tree / chunk list | M |
-| 680 | `views/StrategyPage.vue` | template gallery / form / ai draft section | M |
-| 642 | `views/data/DataScriptsPage.vue` | script list / editor pane / upload dialog | M |
-| 604 | `views/data/DataInterfacesPage.vue` | tree / form / preview pane | M |
-| 599 | `views/PortfolioPage.vue` | summary card / position table / trade history | S |
-| 564 | `components/workspace/CreateUnitDialog.vue` | params section / data source section | S |
-| 541 | `views/data/DataTasksPage.vue` | task table / filter bar / detail drawer | S |
-
-- 176 启动时需重新扫描（数字可能已被零散变化）
-- 至少消化前 5 个最大文件即可视为本主题完成（§11.3）
-
-### H. 监控升级（来源：175 §「175 与 176 的接续」展望）
-
-- OTel metrics（不仅 traces）+ logs correlation
-- E2E 全套用例上 PR-blocking gate（175 仅 smoke 阻塞）
-- Bundle size 阈值再下探（300KB → 250KB）
-- DB 迁移在 staging 真实数据集 dry-run
-- `monorepo-check` job 由 advisory 升级为 blocker
+| Item | Nature | Disposition | Owner | Target |
+| --- | --- | --- | --- | --- |
+| T2 (WS Gateway Migration) | feature | product backlog (needs design) | @yunjinqi | 2026-08-15 |
+| T7 (News Intelligence 产品化) | feature | product backlog (**needs product brief**) | @yunjinqi | 2026-09-01 |
+| T10 (Quant Tool Registry 产品化) | feature | product backlog | @yunjinqi | 2026-08-30 |
 
 ---
 
@@ -125,10 +48,28 @@ first slice.
 - **Status**: `git log --all -- .env` returns empty — they were never committed,
   so this is **not a code fix**.
 - **Action**: operational. Audit any place these `.env` files might have leaked
-  (screenshots, CI artifacts, support bundles), rotate the keys that have, and
-  add a checklist item to the "share a repro bundle" section of
-  `CONTRIBUTING.md`.
-- **Effort**: 1–2 hours of audit + rotations.
+  (screenshots, CI artifacts, support bundles), rotate the keys that have.
+  **Code-side done (176)**: the "Sharing a Repro Bundle (Scrub Secrets First)"
+  checklist was added to `CONTRIBUTING.md` (scrub/redact `.env`, logs,
+  screenshots; rotate on exposure). The remaining audit + key rotation is a
+  developer/ops action that cannot be performed in-repo.
+- **Effort**: 1–2 hours of audit + rotations (ops, outside this repo).
+
+---
+
+## Infrastructure policy items (need team decision, 176 §H)
+
+These are the monitoring/CI items from §H that are **not closeable with code**;
+the code-side of §H (logs↔traces correlation, OTel/Prometheus metrics) shipped
+2026-05-30 — see `DEBT_CLEARANCE.md`.
+
+- E2E full suite as a PR-blocking gate (175 only blocks on smoke) — needs team
+  acceptance of longer PR times and a flake budget.
+- Bundle-size threshold tightening (300KB → 250KB) — confirm current headroom
+  first.
+- DB migration dry-run against a real staging dataset — needs a staging
+  environment + a real data snapshot.
+- `monorepo-check` job advisory → blocker — needs team policy decision.
 
 ---
 
@@ -154,56 +95,31 @@ first slice.
      fallback chain that doesn't require a non-Python tool to be installed.
 - **Effort**: M-L per slice; full split is L (1–2 weeks).
 
-### 5. `sync_service.py` is the largest file in the repo
+### 6. `workspace_service.py` (~2560 lines → 726 lines after slices)
 
-- **Where**: `src/backend/app/services/sync_service.py` (~3091 lines)
-- **Symptom**: single module owns Akshare → MySQL replication, schema diffing,
-  task scheduling, error backoff, progress reporting, and the SSH/Docker
-  fallback path. Hard to reason about, hard to test in isolation.
-- **Recommended slices**:
-  1. Extract progress / status reporting into `sync/progress.py`.
-  2. Extract the `direct_mysql` and `ssh_docker` transport adapters behind a
-     small `SyncTransport` protocol — the rest of the code shouldn't know which
-     is in use.
-  3. Move schema-diff logic into `sync/schema_diff.py`.
-  4. Add per-slice unit tests as each piece moves out.
-- **Effort**: L (1+ week).
+**Status update (2026-05-30)**: 7 slices have landed in `app/services/workspace/`
+(reconciliation, reports, lifecycle, units, optimization, runtime, run_ops).
+The original module is now 726 lines. The remaining work is opportunistic
+clean-up of the few static helpers still on the class; no large surface left.
 
-### 6. `workspace_service.py` (~2560 lines → ~2296 after first 2 slices)
+**Pattern (re-use for any further extraction)**:
 
-**Status update (2026-05-19)**: Slices 1 and 7 of the 7-step plan below have
-landed. Original module shrank by 264 lines (10%). The pattern is proven; the
-remaining slices follow the same recipe.
-
-**Completed slices** (in `app/services/workspace/`):
-
-- ✅ **Slice 7 — reconciliation** (`workspace/reconciliation.py`, ~140 lines).
-  Pulled out of the orchestration layer; called once at FastAPI startup. The
-  ``WorkspaceService.reconcile_*`` methods are now 5-line facades that
-  delegate to standalone async functions. ``_resolve_unit_bar_count`` is
-  injected as a callable to avoid a back-import on the workspace service.
-- ✅ **Slice 6 — reports** (`workspace/reports.py`, ~320 lines). Same recipe:
-  pure async functions, `_load_workspace` injected as a callable, original
-  ``WorkspaceService.{get,delete}_workspace_report`` methods now thin facades.
-  No back-imports.
-
-**Pattern (re-use for remaining slices)**:
-
-1. Create ``app/services/workspace/<slice>.py`` with module-level async
-   functions. No class, no ``self``. Dependencies (``_load_workspace``,
-   ``_resolve_unit_bar_count``, etc.) injected as callable parameters.
-2. Original ``WorkspaceService.<method>`` becomes a 5-line facade that
+1. Create `app/services/workspace/<slice>.py` with module-level async
+   functions. No class, no `self`. Dependencies (`_load_workspace`,
+   `_resolve_unit_bar_count`, etc.) injected as callable parameters.
+2. Original `WorkspaceService.<method>` becomes a 5-line facade that
    imports the slice locally (inside the method body) and delegates,
    passing the bound static helpers as the callable args.
-3. Tests that hit ``WorkspaceService.<method>`` keep working unchanged.
-4. Tests that reach into static helpers (``WorkspaceService._task_elapsed_seconds``)
+3. Tests that hit `WorkspaceService.<method>` keep working unchanged.
+4. Tests that reach into static helpers (`WorkspaceService._task_elapsed_seconds`)
    keep working too — those helpers stay on the class for now.
 
 ### 7. Vue views > 1500 lines
 
-- **Where**:
-  - `src/frontend/src/views/AIChatPage.vue` (~2220 lines)
-  - `src/frontend/src/views/TradingWorkspaceUnitsTab.vue` (~1597 lines)
+- **Status (2026-05-30)**: the original two offenders (`AIChatPage.vue` 2220→548,
+  `TradingWorkspaceUnitsTab.vue` 1597→481) were split during §G. No `.vue` file
+  is over 1500 lines anymore. This entry stays as a *standing rule*: any new
+  view that grows past ~500 lines should be split per the recipe below.
 - **Recommended slices**: extract per-pane child components, move data
   transformations into `src/frontend/src/composables/`, push API normalization
   into `src/frontend/src/api/*` modules. Aim for views under 500 lines.
@@ -213,55 +129,27 @@ remaining slices follow the same recipe.
 
 ## P2 — Worth doing, smaller
 
-### 8. Re-enable `B904` ruff rule (raise from)
-
-- **Where**: `src/backend/pyproject.toml`, `[tool.ruff.lint] ignore = ["B904"]`
-- **Symptom**: error context is silently dropped at every `raise X` inside an
-  `except` block. Hurts production debuggability.
-- **First slice**: run `ruff check --select B904 .`, group fixes by service,
-  fix one service at a time, then drop `B904` from the ignore list.
-- **Effort**: M (mostly mechanical, but a couple hundred call sites likely).
-
-### 9. CI runs only smoke integration tests
-
-- **Where**: `.github/workflows/ci.yml :: integration-test`
-- **Symptom**: only tests marked `@pytest.mark.integration` run; the
-  `paper_trading` and `live_trading` flows have no integration coverage.
-- **Recommended fix**: add a manual workflow_dispatch matrix that exercises a
-  paper-trading round-trip against the postgres service container.
-- **Effort**: S–M.
-
-### 11. `feature_flags` cache is computed at first request, then never refreshed
-
-- **Where**: `src/backend/app/main.py`, `_get_feature_flags`
-- **Status**: a `_reset_feature_flags_cache()` helper was added during the
-  iteration-163 pass for tests. Production still computes once at startup.
-- **Recommended fix**: call the reset helper in the FastAPI `lifespan`
-  shutdown handler and document that feature flags are computed once after
-  router registration.
-- **Effort**: XS.
-
 ### 12. `mypy` is installed but ungated
 
 - **Where**: `src/backend/pyproject.toml :: [tool.mypy]`
-- **Status**: config present, no CI gate.
-- **Recommended fix**: introduce a ratchet — start with `mypy app/utils
-  app/schemas` only, fail CI on new errors in those packages, and widen the
-  scope as packages get cleaned up.
+- **Status**: config present; strict override now covers the services subpackages
+  (§A) but there is still no CI gate that fails on *new* errors repo-wide.
+- **Recommended fix**: introduce a ratchet — fail CI on new errors in the
+  already-clean packages (`app/utils`, `app/schemas`, `app/services/*` strict
+  set), and widen the scope as packages get cleaned up.
 - **Effort**: S to set up, M-L to chase down errors.
 
 ### 13. `quote_service.py` still mixes transport, cache, symbol persistence, and normalization
 
-- **Where**: `src/backend/app/services/quote_service.py` (~1260 lines after cache slice)
-- **Status**: cache/persistence helpers were extracted to `app/services/quote/cache.py`,
-  and `quote_service.py` shrank by 89 lines. The remaining module still owns
-  gateway discovery, ZMQ subscription lifecycle, snapshot hydration, symbol
-  normalization, and response shaping.
+- **Where**: `src/backend/app/services/quote_service.py`
+- **Status**: cache/persistence helpers extracted to `quote/cache.py` and
+  gateway/runtime + ZMQ command transport extracted to `quote/runtime.py`
+  (176 §P2#13). The remaining module still owns symbol/default-source
+  normalization and response shaping.
 - **Recommended slices**:
-  1. Move gateway/runtime discovery and receiver lifecycle into `quote/runtime.py`.
-  2. Move symbol/default-source normalization into `quote/symbols.py`.
-  3. Keep `QuoteService` as the thin façade/singleton boundary used by the API.
-  4. Add focused unit tests per slice before touching transport behavior.
+  1. Move symbol/default-source normalization into `quote/symbols.py`.
+  2. Keep `QuoteService` as the thin façade/singleton boundary used by the API.
+  3. Add focused unit tests per slice before touching transport behavior.
 - **Effort**: M.
 
 ---
@@ -272,41 +160,3 @@ remaining slices follow the same recipe.
 - **Do** open a tracking issue per entry as you start it.
 - **Do** delete items from this file once they ship; don't leave green checks.
 - For P0 items, get product/ops alignment before writing code.
-**Remaining slices (in recommended order)**:
-
-- **Slice 1 — pure helpers** → `workspace/_helpers.py`. Static methods like
-  ``_db_task_elapsed_seconds``, ``_runtime_optimization_elapsed_seconds``,
-  ``_parse_runtime_datetime``, ``_build_runtime_optimization_progress``,
-  ``_build_db_optimization_progress``, ``_resolve_optimization_progress``,
-  ``_optimization_progress_response_to_opt_info``,
-  ``_requested_bar_count``, ``_collect_runtime_files``,
-  ``_runtime_file_kind``, ``_resolve_runtime_file``,
-  ``_open_path_in_file_manager``, ``_unit_to_dict``, ``_compute_rename``.
-  No state, no I/O. Tests in
-  ``src/backend/tests/test_workspace_service.py`` reach for some of these
-  directly via ``WorkspaceService._task_elapsed_seconds`` etc., so keep
-  thin ``@staticmethod`` shims on the class delegating to the helper module
-  until the tests are updated.
-- **Slice 2 — workspace CRUD** (`create_workspace`, `get_workspace`,
-  `list_workspaces`, `update_workspace`, `delete_workspace`) →
-  `workspace/lifecycle.py`. ~110 lines. Watch for tight coupling to
-  module-level ``_normalize_workspace_*`` and ``_workspace_to_response`` —
-  they need to move too or be re-exported.
-- **Slice 3 — unit CRUD + helpers** (`create_unit`, `batch_create_units`,
-  `list_units`, `get_unit`, `get_unit_runtime_info`, `read_unit_runtime_file`,
-  `open_unit_runtime_dir`, `update_unit`, `delete_unit`, `bulk_delete_units`,
-  `reorder_units`, `rename_group`, `rename_unit`) → `workspace/units.py`.
-  ~350 lines. Depends on slice 1 helpers.
-- **Slice 5 — optimization** (`submit_unit_optimization`,
-  `get_unit_optimization_*`, `cancel_unit_optimization`, `apply_best_params`,
-  `get_unit_optimization_result_artifact_metadata`,
-  `get_unit_optimization_result_payload`,
-  `_resolve_optimization_artifact_log_dir`,
-  `_build_optimization_artifact_metadata`,
-  `_build_optimization_trial_payload`) → `workspace/optimization.py`. ~500 lines.
-- **Slice 4 — run / stop / status** (`run_units`, `stop_units`,
-  `get_units_status`, `_background_poll_units`, `_poll_single_unit`,
-  `_poll_task_completion`) → `workspace/runtime.py`. ~430 lines including
-  helpers. Hardest slice; touches ``asyncio.create_task`` orchestration.
-
-**Effort**: M per slice; remaining 5 slices are ~M-L total (1 week).

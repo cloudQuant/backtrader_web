@@ -130,81 +130,19 @@
           </template>
 
           <!-- ========== Source file view ========== -->
-          <div
+          <KnowledgeBaseDocSourceView
             v-show="activeTab === 'source'"
-            class="min-h-[60vh]"
-          >
-            <!-- PDF preview -->
-            <div
-              v-if="sourceMimeType === 'application/pdf' && sourcePreviewUrl"
-              :class="['overflow-hidden rounded border border-slate-200 bg-slate-50', pdfFullscreen ? 'fixed inset-0 z-[9999] h-screen w-screen' : '']"
-            >
-              <iframe
-                :src="pdfEmbedUrl"
-                class="w-full bg-slate-100"
-                :class="pdfFullscreen ? 'h-screen' : 'h-[72vh]'"
-                :title="t('kbDoc.pdfTitle')"
-              />
-            </div>
-
-            <!-- Office files (docx/xlsx/pptx) via Office Online Viewer -->
-            <div
-              v-else-if="isOfficeFile && sourcePreviewUrl"
-              class="overflow-hidden rounded border border-slate-200"
-            >
-              <iframe
-                :src="officeViewerUrl"
-                class="h-[72vh] w-full bg-slate-100"
-                :title="t('kbDoc.officeTitle')"
-              />
-            </div>
-
-            <!-- Other unsupported files -->
-            <div
-              v-else-if="sourceFileName"
-              class="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 py-16 text-sm text-slate-500"
-            >
-              <div class="mb-4 text-4xl">
-                📄
-              </div>
-              <div class="font-medium text-slate-700">
-                {{ sourceFileName }}
-              </div>
-              <div class="mt-2 text-xs text-slate-400">
-                {{ t('kbDoc.notInlinePreview') }}
-              </div>
-              <div class="mt-4 flex gap-2">
-                <button
-                  type="button"
-                  class="rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
-                  @click="downloadSourceFile"
-                >
-                  {{ t('kbDoc.btnDownloadOriginal') }}
-                </button>
-                <button
-                  v-if="doc.content"
-                  type="button"
-                  class="rounded border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
-                  @click="activeTab = 'markdown'"
-                >
-                  {{ t('kbDoc.btnReadMarkdown') }}
-                </button>
-              </div>
-            </div>
-
-            <!-- No source file -->
-            <div
-              v-else
-              class="flex flex-col items-center justify-center rounded border border-dashed border-slate-300 bg-slate-50 py-16 text-sm text-slate-500"
-            >
-              <div class="text-4xl">
-                📭
-              </div>
-              <div class="mt-2">
-                {{ t('kbDoc.noSourceFile') }}
-              </div>
-            </div>
-          </div>
+            :source-mime-type="sourceMimeType"
+            :source-preview-url="sourcePreviewUrl"
+            :pdf-fullscreen="pdfFullscreen"
+            :pdf-embed-url="pdfEmbedUrl"
+            :is-office-file="isOfficeFile"
+            :office-viewer-url="officeViewerUrl"
+            :source-file-name="sourceFileName"
+            :has-content="!!doc.content"
+            @download="downloadSourceFile"
+            @read-markdown="activeTab = 'markdown'"
+          />
 
           <!-- ========== Markdown view ========== -->
           <div
@@ -231,222 +169,31 @@
           </div>
 
           <!-- ========== Metadata view ========== -->
-          <div
-            v-show="activeTab === 'metadata'"
-            class="min-h-[60vh] space-y-4 py-2"
-          >
-            <div class="grid grid-cols-2 gap-3 text-sm">
-              <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaDocId') }}
-                </div>
-                <div class="mt-1 break-all text-slate-700">
-                  {{ doc.id }}
-                </div>
-              </div>
-              <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaKbId') }}
-                </div>
-                <div class="mt-1 break-all text-slate-700">
-                  {{ doc.knowledge_base_id }}
-                </div>
-              </div>
-              <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaType') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ doc.is_folder ? t('kbDoc.metaTypeFolder') : doc.content_type }}
-                </div>
-              </div>
-              <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaStatus') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ doc.status }}
-                </div>
-              </div>
-              <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaIndexStatus') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ doc.index_status }}
-                </div>
-              </div>
-              <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaCreatedAt') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ formatDate(doc.created_at) }}
-                </div>
-              </div>
-              <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaUpdatedAt') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ formatDate(doc.updated_at) }}
-                </div>
-              </div>
-              <div class="rounded border border-slate-100 bg-slate-50 p-3">
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaContentLength') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ doc.content?.length ?? 0 }} {{ t('kbDoc.metaContentLengthSuffix') }}
-                </div>
-              </div>
-              <div
-                v-if="sourceFileName"
-                class="rounded border border-slate-100 bg-slate-50 p-3 col-span-2"
-              >
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaOriginalName') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ sourceFileName }}
-                </div>
-              </div>
-              <div
-                v-if="sourceMimeType"
-                class="rounded border border-slate-100 bg-slate-50 p-3"
-              >
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaMimeType') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ sourceMimeType }}
-                </div>
-              </div>
-              <div
-                v-if="sourceFileSize"
-                class="rounded border border-slate-100 bg-slate-50 p-3"
-              >
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaFileSize') }}
-                </div>
-                <div class="mt-1 text-slate-700">
-                  {{ formatBytes(sourceFileSize) }}
-                </div>
-              </div>
-              <div
-                v-if="doc.file_path"
-                class="rounded border border-slate-100 bg-slate-50 p-3 col-span-2"
-              >
-                <div class="text-xs text-slate-400">
-                  {{ t('kbDoc.metaFilePath') }}
-                </div>
-                <div class="mt-1 break-all text-slate-700">
-                  {{ doc.file_path }}
-                </div>
-              </div>
-            </div>
-
-            <div
-              v-if="doc.metadata"
-              class="rounded border border-slate-200 p-4"
-            >
-              <div class="mb-2 text-sm font-medium text-slate-700">
-                {{ t('kbDoc.metaFullMetadata') }}
-              </div>
-              <pre class="overflow-auto whitespace-pre-wrap break-all text-xs text-slate-600">{{ JSON.stringify(doc.metadata, null, 2) }}</pre>
-            </div>
-          </div>
+          <KnowledgeBaseDocMetadata
+            :visible="activeTab === 'metadata'"
+            :doc="doc"
+            :source-file-name="sourceFileName"
+            :source-mime-type="sourceMimeType"
+            :source-file-size="sourceFileSize"
+            :format-date="formatDate"
+            :format-bytes="formatBytes"
+          />
         </el-card>
 
 
-        <!-- Right summary/action panel -->
-        <div class="space-y-4">
-          <!-- Document summary card -->
-          <el-card>
-            <template #header>
-              <div class="font-medium">
-                {{ t('kbDoc.summaryTitle') }}
-              </div>
-            </template>
-            <div class="space-y-3 text-sm">
-              <div class="leading-6 text-slate-700">
-                {{ documentSummary }}
-              </div>
-              <div
-                v-if="sourceFileName"
-                class="flex flex-wrap gap-2"
-              >
-                <button
-                  v-if="sourceMimeType === 'application/pdf' || isOfficeFile"
-                  type="button"
-                  class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-                  @click="activeTab = 'source'"
-                >
-                  {{ t('kbDoc.btnPreviewSource') }}
-                </button>
-                <button
-                  v-if="doc.content"
-                  type="button"
-                  class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-                  @click="activeTab = 'markdown'"
-                >
-                  {{ t('kbDoc.btnReadMd') }}
-                </button>
-                <button
-                  v-if="sourcePreviewUrl"
-                  type="button"
-                  class="rounded border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50"
-                  @click="downloadSourceFile"
-                >
-                  {{ t('kbDoc.btnDownloadOriginal') }}
-                </button>
-              </div>
-            </div>
-          </el-card>
-
-          <!-- Reading tips -->
-          <el-card>
-            <template #header>
-              <div class="font-medium">
-                {{ t('kbDoc.readingTipsTitle') }}
-              </div>
-            </template>
-            <ul class="space-y-2 text-sm text-slate-600">
-              <li v-if="sourceMimeType === 'application/pdf' || isOfficeFile">
-                {{ t('kbDoc.tipPreferSource') }}
-              </li>
-              <li v-if="doc.content">
-                {{ t('kbDoc.tipUseMarkdown') }}
-              </li>
-              <li v-if="doc.index_status !== 'indexed'">
-                {{ t('kbDoc.tipNotIndexed') }}
-              </li>
-              <li v-else>
-                {{ t('kbDoc.tipIndexed') }}
-              </li>
-            </ul>
-          </el-card>
-
-          <!-- Quick AI Q&A entry -->
-          <el-card>
-            <template #header>
-              <div class="font-medium">
-                {{ t('kbDoc.quickAiTitle') }}
-              </div>
-            </template>
-            <div class="space-y-2 text-sm">
-              <button
-                v-for="prompt in quickPrompts"
-                :key="prompt"
-                type="button"
-                class="block w-full rounded border border-slate-200 px-3 py-2 text-left text-slate-600 hover:bg-slate-50"
-                @click="openQuickChat(prompt)"
-              >
-                {{ prompt }}
-              </button>
-            </div>
-          </el-card>
-        </div>
+        <KnowledgeBaseDocSidePanel
+          :document-summary="documentSummary"
+          :source-file-name="sourceFileName"
+          :source-mime-type="sourceMimeType"
+          :source-preview-url="sourcePreviewUrl"
+          :is-office-file="isOfficeFile"
+          :has-content="!!doc.content"
+          :is-indexed="doc.index_status === 'indexed'"
+          :quick-prompts="quickPrompts"
+          @navigate="(tab) => (activeTab = tab)"
+          @download="downloadSourceFile"
+          @quick-chat="openQuickChat"
+        />
       </div>
     </template>
   </div>
@@ -460,6 +207,9 @@ import { useRoute, useRouter } from 'vue-router'
 import type { KBDocumentItem } from '@/api/knowledgeBase'
 import { knowledgeBaseApi } from '@/api/knowledgeBase'
 import { getErrorMessage } from '@/api'
+import KnowledgeBaseDocSidePanel from './knowledge-base-components/KnowledgeBaseDocSidePanel.vue'
+import KnowledgeBaseDocMetadata from './knowledge-base-components/KnowledgeBaseDocMetadata.vue'
+import KnowledgeBaseDocSourceView from './knowledge-base-components/KnowledgeBaseDocSourceView.vue'
 
 const { t } = useI18n()
 const route = useRoute()

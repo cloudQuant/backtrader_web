@@ -380,6 +380,28 @@ All pull requests go through automated checks:
 
 See [CI/CD Documentation](./CI_CD.md) for details.
 
+## Sharing a Repro Bundle (Scrub Secrets First)
+
+When you attach logs, a zipped project copy, screenshots, or a support bundle to
+an issue or chat, **scrub local credentials before sharing**. Developer-local
+`.env` files and `strategies/simulate/*/.env` may hold real third-party keys
+(OKX / Binance / HTX / CTP / Telegram / PyPI / ReadTheDocs). These are never
+committed (they are `.gitignore`d), but they can leak through bundles.
+
+Checklist before sharing any bundle:
+
+- [ ] Remove or redact every `.env` / `*.env` file from the bundle
+      (`find . -name '*.env' -print` to locate them).
+- [ ] Strip credentials from logs: API keys, JWT secrets, admin passwords,
+      broker tokens, session cookies.
+- [ ] Redact secrets visible in screenshots (URLs with tokens, header panes).
+- [ ] If a key was ever exposed (screenshot, CI artifact, shared bundle),
+      **rotate it** at the provider and update your local `.env`.
+- [ ] Prefer `.env.example` (placeholder values only) when showing config shape.
+
+If you discover a credential leaked through a past bundle, treat it as an
+incident: rotate the affected keys first, then audit where the bundle traveled.
+
 ## Getting Help
 
 - Open an issue for bugs or feature requests

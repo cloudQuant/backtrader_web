@@ -143,6 +143,33 @@ any of `role="presentation"`, `aria-hidden="true"`, or empty `alt=""`.
 
 > 上述修复后，仍需在首次 `frontend-a11y` CI red line 后由团队继续清理 `BacktestPage` / 剩余 KnowledgeBasePage 子组件的具体违规。175 验收基线为「框架就绪 + 7 页核心结构清理」。
 
+### 176 §D 收尾（2026-05-30）
+
+对 7 页 Critical_Page_Set 做了静态 a11y 审计（缺 `alt` / icon-only button 无
+`aria-label` / 表单控件无关联 label / 装饰图标无 `aria-hidden` 四类硬约束）：
+
+- **LoginPage / DashboardPage / AIChatPage / StrategyPage / BacktestResultPage**：
+  175 已清理，复审无新增 always-visible 违规（icon-only 按钮均带 `aria-label`，
+  装饰 `<el-icon>` 均带 `aria-hidden`，表单输入均有 label/aria-label）。
+- **BacktestPage**：全部输入位于 `<el-form-item :label>` 内、按钮均有可见文本，
+  无违规。
+- **KnowledgeBasePage**：修复了实际违规——
+  - 文档搜索 `<input>` 仅有 `placeholder` → 补 `aria-label="搜索文档"`（placeholder
+    不替代 label，axe `label` serious）
+  - 排序 `<select>` 无可访问名 → 补 `aria-label="文档排序方式"`（axe `select-name`）
+  - 每页数量 `<select>` 无可访问名 → 补 `aria-label="每页显示数量"`
+  - 树视图 + 表格视图的逐行选择 `<input type=checkbox>` 无可访问名 →
+    补 `:aria-label="选择文档 {title}"`
+  - 8 个对话框的 `✕` 关闭按钮（自定义非 el-dialog）→ 补 `aria-label="关闭对话框"`
+  - 新增 i18n key：`kb.searchDocs / sortDocsBy / selectDocAria / perPageAria /
+    closeDialog`（zh-CN + en-US 同步）
+
+> 注：`critical/serious` 的「0 违规」终态判定仍需真实浏览器跑 `@axe-core/playwright`
+> 的 `frontend-a11y` job（本地无头浏览器环境不可用）。本轮做的是**静态源码审计 +
+> 修复发现的确定性违规**；CI a11y job 仍是最终裁判（已是 PR-blocking）。
+> 对比度（约束 c）与焦点可达（约束 d）属运行时/视觉判定，依赖 axe + Lighthouse
+> ≥0.9 门禁，不在静态审计范围内。
+
 ## Re-running the baseline locally
 
 ```bash

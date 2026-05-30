@@ -4,7 +4,9 @@ Type definitions for live trading module.
 Provides TypedDict and type aliases to replace Any types in live trading services.
 """
 
-from typing import NotRequired, TypedDict
+from typing import TypedDict
+
+from typing_extensions import NotRequired
 
 
 class InstanceData(TypedDict, total=False):
@@ -110,15 +112,33 @@ class GatewayLaunchParams(TypedDict, total=False):
     server: str
 
 
-class HealthStatus(TypedDict):
-    """Gateway health status."""
+class HealthStatus(TypedDict, total=False):
+    """Gateway health status.
 
-    key: str
-    type: str
-    status: str
-    account_balance: NotRequired[float]
-    positions_count: NotRequired[int]
-    error: NotRequired[str]
+    Mirrors the dict produced by ``gateway.health`` snapshots and
+    ``LiveTradingManager._build_subprocess_gateway_health``.
+    """
+
+    gateway_key: str
+    state: str
+    is_healthy: bool
+    exchange: str
+    asset_type: str
+    account_id: str
+    market_connection: str
+    trade_connection: str
+    uptime_sec: float
+    last_heartbeat: float | None
+    heartbeat_age_sec: float | None
+    last_tick_time: float | None
+    last_order_time: float | None
+    strategy_count: int
+    symbol_count: int
+    tick_count: int
+    order_count: int
+    ref_count: int
+    instances: list[str]
+    recent_errors: list[dict[str, str]]
 
 
 class InstanceListResult(TypedDict):
@@ -128,27 +148,33 @@ class InstanceListResult(TypedDict):
     total: int
 
 
-class OperationResult(TypedDict):
-    """Result of an operation."""
+class OperationResult(TypedDict, total=False):
+    """Result of an operation.
 
-    success: bool
+    Mirrors the dict shape returned by gateway/instance service helpers,
+    which use ``status``/``message`` (and an optional ``gateway_key``).
+    """
+
+    status: str
     message: str
-    data: NotRequired[dict]
+    gateway_key: str
+    success: bool
+    data: dict
 
 
-class StartResult(OperationResult):
+class StartResult(OperationResult, total=False):
     """Result of starting an instance."""
 
-    pid: NotRequired[int]
+    pid: int
 
 
-class StopResult(OperationResult):
+class StopResult(OperationResult, total=False):
     """Result of stopping an instance."""
 
-    was_running: NotRequired[bool]
+    was_running: bool
 
 
-class ConnectResult(OperationResult):
+class ConnectResult(OperationResult, total=False):
     """Result of connecting a gateway."""
 
-    key: NotRequired[str]
+    key: str

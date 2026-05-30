@@ -5,6 +5,7 @@ Single-instance APScheduler wrapper for akshare tasks.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
 
@@ -12,6 +13,9 @@ from app.config import get_settings
 from app.db.database import async_session_maker
 from app.models.akshare_mgmt import ScheduledTask, ScheduleType, TriggeredBy
 from app.services.akshare_script_service import AkshareScriptService
+
+if TYPE_CHECKING:
+    from app.models.akshare_mgmt import TaskExecution
 
 settings = get_settings()
 
@@ -22,7 +26,7 @@ class AkshareScheduler:
     def __init__(self) -> None:
         self.scheduler = None
 
-    def _ensure_scheduler(self):
+    def _ensure_scheduler(self) -> Any:
         if self.scheduler is not None:
             return self.scheduler
         try:
@@ -49,7 +53,7 @@ class AkshareScheduler:
             self.scheduler.shutdown(wait=False)
             self.scheduler = None
 
-    def _build_trigger(self, task: ScheduledTask):
+    def _build_trigger(self, task: ScheduledTask) -> Any:
         from apscheduler.triggers.cron import CronTrigger
         from apscheduler.triggers.date import DateTrigger
         from apscheduler.triggers.interval import IntervalTrigger
@@ -122,7 +126,9 @@ class AkshareScheduler:
         for task_id in task_ids:
             await self.add_or_update_task(task_id)
 
-    async def run_task_now(self, task_id: int, operator_id: str | None = None):
+    async def run_task_now(
+        self, task_id: int, operator_id: str | None = None
+    ) -> TaskExecution:
         async with async_session_maker() as session:
             task = await session.get(ScheduledTask, task_id)
             if task is None:

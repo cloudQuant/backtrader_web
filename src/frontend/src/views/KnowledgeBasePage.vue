@@ -113,10 +113,12 @@
                 v-model="documentSearch"
                 class="w-full rounded border px-3 py-2 text-sm"
                 :placeholder="t('kb.searchDocsPlaceholder')"
+                :aria-label="t('kb.searchDocs')"
               >
               <select
                 v-model="sortKey"
                 class="rounded border px-3 py-2 text-sm text-slate-600"
+                :aria-label="t('kb.sortDocsBy')"
               >
                 <option value="sort_order">
                   {{ t('kb.sortBy') }}
@@ -307,6 +309,7 @@
                   :checked="selectedDocumentIds.has(row.id)"
                   type="checkbox"
                   class="mt-1"
+                  :aria-label="t('kb.selectDocAria', { title: row.title })"
                   @change="toggleDocumentSelection(row.id)"
                 >
                 <button
@@ -478,6 +481,7 @@
                     <input
                       :checked="selectedDocumentIds.has(row.id)"
                       type="checkbox"
+                      :aria-label="t('kb.selectDocAria', { title: row.title })"
                       @change="toggleDocumentSelection(row.id)"
                     >
                   </td>
@@ -597,6 +601,7 @@
               <select
                 v-model.number="pageSize"
                 class="rounded border px-2 py-1 text-sm"
+                :aria-label="t('kb.perPageAria')"
               >
                 <option :value="8">
                   {{ t('kb.perPage', { n: 8 }) }}
@@ -756,6 +761,7 @@
           <button
             type="button"
             class="text-slate-400"
+            :aria-label="t('kb.closeDialog')"
             @click="closeCreateDialog"
           >
             ✕
@@ -809,6 +815,7 @@
           <button
             type="button"
             class="text-slate-400"
+            :aria-label="t('kb.closeDialog')"
             @click="closeRenameDialog"
           >
             ✕
@@ -850,6 +857,7 @@
           <button
             type="button"
             class="text-slate-400"
+            :aria-label="t('kb.closeDialog')"
             @click="closeImportDialog"
           >
             ✕
@@ -899,6 +907,7 @@
           <button
             type="button"
             class="text-slate-400"
+            :aria-label="t('kb.closeDialog')"
             @click="closeBulkDialog"
           >
             ✕
@@ -939,6 +948,7 @@
           <button
             type="button"
             class="text-slate-400"
+            :aria-label="t('kb.closeDialog')"
             @click="closeDeleteDialog"
           >
             ✕
@@ -978,6 +988,7 @@
           <button
             type="button"
             class="text-slate-400"
+            :aria-label="t('kb.closeDialog')"
             @click="closeKnowledgeBaseRenameDialog"
           >
             ✕
@@ -1019,6 +1030,7 @@
           <button
             type="button"
             class="text-slate-400"
+            :aria-label="t('kb.closeDialog')"
             @click="closeKnowledgeBaseDeleteDialog"
           >
             ✕
@@ -1063,6 +1075,7 @@
           <button
             type="button"
             class="text-slate-400"
+            :aria-label="t('kb.closeDialog')"
             @click="closeKnowledgeBaseSettingsDialog"
           >
             ✕

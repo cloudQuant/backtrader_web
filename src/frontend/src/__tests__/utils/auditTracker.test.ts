@@ -36,7 +36,7 @@ Object.defineProperty(globalThis, 'localStorage', { value: createMockStorage(), 
 Object.defineProperty(globalThis, 'sessionStorage', { value: createMockStorage(), writable: true, configurable: true })
 
 describe('AuditTracker', () => {
-  let getUserId: ReturnType<typeof vi.fn>
+  let getUserId: ReturnType<typeof vi.fn<[], string | null>>
   let tracker: AuditTracker
 
   beforeEach(() => {
@@ -45,7 +45,7 @@ describe('AuditTracker', () => {
     document.body.innerHTML = ''
     localStorage.clear()
     sessionStorage.clear()
-    getUserId = vi.fn(() => 'user-1')
+    getUserId = vi.fn<[], string | null>(() => 'user-1')
     tracker = new AuditTracker(getUserId as () => string | null)
   })
 

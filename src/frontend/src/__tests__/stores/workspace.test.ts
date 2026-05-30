@@ -84,7 +84,7 @@ describe('useWorkspaceStore', () => {
   describe('Workspace CRUD', () => {
     it('fetchWorkspaces populates list and total', async () => {
       vi.mocked(workspaceApi.list).mockResolvedValue({
-        items: [baseWs], total: 1, skip: 0, limit: 50,
+        items: [baseWs], total: 1,
       })
       const store = useWorkspaceStore()
       await store.fetchWorkspaces()
@@ -94,7 +94,7 @@ describe('useWorkspaceStore', () => {
     })
 
     it('fetchWorkspaces accepts skip/limit/workspaceType', async () => {
-      vi.mocked(workspaceApi.list).mockResolvedValue({ items: [], total: 0, skip: 10, limit: 25 })
+      vi.mocked(workspaceApi.list).mockResolvedValue({ items: [], total: 0 })
       const store = useWorkspaceStore()
       await store.fetchWorkspaces(10, 25, 'trading')
       expect(workspaceApi.list).toHaveBeenCalledWith(10, 25, 'trading')
@@ -109,7 +109,7 @@ describe('useWorkspaceStore', () => {
 
     it('createWorkspace creates and returns the new workspace', async () => {
       vi.mocked(workspaceApi.create).mockResolvedValue(baseWs)
-      vi.mocked(workspaceApi.list).mockResolvedValue({ items: [baseWs], total: 1, skip: 0, limit: 50 })
+      vi.mocked(workspaceApi.list).mockResolvedValue({ items: [baseWs], total: 1 })
       const store = useWorkspaceStore()
       const created = await store.createWorkspace({ name: 'workspace 1' } as any)
       expect(created).toEqual(baseWs)
@@ -119,7 +119,7 @@ describe('useWorkspaceStore', () => {
     it('updateWorkspace updates and refreshes state', async () => {
       const updated = { ...baseWs, name: 'renamed' }
       vi.mocked(workspaceApi.update).mockResolvedValue(updated)
-      vi.mocked(workspaceApi.list).mockResolvedValue({ items: [updated], total: 1, skip: 0, limit: 50 })
+      vi.mocked(workspaceApi.list).mockResolvedValue({ items: [updated], total: 1 })
       const store = useWorkspaceStore()
       const result = await store.updateWorkspace('ws-1', { name: 'renamed' } as any)
       expect(result).toEqual(updated)
@@ -127,7 +127,7 @@ describe('useWorkspaceStore', () => {
 
     it('deleteWorkspace deletes via API and refreshes the list', async () => {
       vi.mocked(workspaceApi.delete).mockResolvedValue(undefined as never)
-      vi.mocked(workspaceApi.list).mockResolvedValue({ items: [], total: 0, skip: 0, limit: 50 })
+      vi.mocked(workspaceApi.list).mockResolvedValue({ items: [], total: 0 })
       const store = useWorkspaceStore()
       await store.deleteWorkspace('ws-1')
       expect(workspaceApi.delete).toHaveBeenCalledWith('ws-1')
@@ -136,7 +136,7 @@ describe('useWorkspaceStore', () => {
 
   describe('Unit CRUD', () => {
     it('fetchUnits sets units array and merges optimization state', async () => {
-      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit] })
+      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit], total: 1 })
       const store = useWorkspaceStore()
       await store.fetchUnits('ws-1')
       expect(store.units).toHaveLength(1)
@@ -145,7 +145,7 @@ describe('useWorkspaceStore', () => {
 
     it('createUnit creates and refreshes unit list', async () => {
       vi.mocked(workspaceApi.createUnit).mockResolvedValue(baseUnit)
-      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit] })
+      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit], total: 1 })
       const store = useWorkspaceStore()
       const created = await store.createUnit('ws-1', {} as any)
       expect(created).toEqual(baseUnit)
@@ -162,7 +162,7 @@ describe('useWorkspaceStore', () => {
       vi.mocked(workspaceApi.updateUnit).mockResolvedValue(baseUnit)
       const store = useWorkspaceStore()
       // Pre-populate units so the index lookup finds the unit
-      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit] })
+      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit], total: 1 })
       await store.fetchUnits('ws-1')
       await store.updateUnit('ws-1', 'u-1', {} as any)
       expect(workspaceApi.updateUnit).toHaveBeenCalledWith('ws-1', 'u-1', {})
@@ -201,7 +201,7 @@ describe('useWorkspaceStore', () => {
 
     it('renameGroup delegates to API and refetches units', async () => {
       vi.mocked(workspaceApi.renameGroup).mockResolvedValue(undefined as never)
-      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit] })
+      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit], total: 1 })
       const store = useWorkspaceStore()
       await store.renameGroup('ws-1', { old_group: 'a', new_group: 'b' } as any)
       expect(workspaceApi.renameGroup).toHaveBeenCalled()
@@ -210,7 +210,7 @@ describe('useWorkspaceStore', () => {
 
     it('renameUnit delegates to API and refetches units', async () => {
       vi.mocked(workspaceApi.renameUnit).mockResolvedValue(undefined as never)
-      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit] })
+      vi.mocked(workspaceApi.listUnits).mockResolvedValue({ items: [baseUnit], total: 1 })
       const store = useWorkspaceStore()
       await store.renameUnit('ws-1', { unit_id: 'u-1', new_name: 'x' } as any)
       expect(workspaceApi.renameUnit).toHaveBeenCalled()

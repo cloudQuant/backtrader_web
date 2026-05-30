@@ -108,7 +108,7 @@ describe('tradingUnitTransfer', () => {
   describe('downloadTransferUnits', () => {
     let click: ReturnType<typeof vi.fn>
     let createElementOriginal: typeof document.createElement
-    let createURL: ReturnType<typeof vi.fn>
+    let createURL: ReturnType<typeof vi.fn<[], string>>
     let revokeURL: ReturnType<typeof vi.fn>
 
     beforeEach(() => {

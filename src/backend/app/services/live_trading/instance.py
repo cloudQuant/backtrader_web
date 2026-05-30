@@ -1,15 +1,20 @@
 import logging
 import uuid
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 _logger = logging.getLogger(__name__)
 
+# Callback dependencies injected by ``LiveTradingManager`` (file-IO, PID checks,
+# directory resolution, etc.). Typed loosely since signatures vary per callback.
+_Cb = Callable[..., Any]
+
 
 def _resolve_instance_strategy_dir(
     inst: dict[str, Any],
-    resolve_strategy_dir,
+    resolve_strategy_dir: _Cb,
 ) -> Path:
     runtime_dir = str(inst.get("runtime_dir") or "").strip()
     if runtime_dir:
@@ -19,7 +24,9 @@ def _resolve_instance_strategy_dir(
     return resolve_strategy_dir(inst["strategy_id"])
 
 
-def sync_status_on_boot(load_instances, save_instances, is_pid_alive) -> None:
+def sync_status_on_boot(
+    load_instances: _Cb, save_instances: _Cb, is_pid_alive: _Cb
+) -> None:
     instances = load_instances()
     changed = False
     for inst in instances.values():
@@ -35,12 +42,12 @@ def sync_status_on_boot(load_instances, save_instances, is_pid_alive) -> None:
 
 def list_instances(
     user_id: str | None,
-    load_instances,
-    save_instances,
-    scan_running_strategy_pids,
-    is_pid_alive,
-    resolve_strategy_dir,
-    find_latest_log_dir,
+    load_instances: _Cb,
+    save_instances: _Cb,
+    scan_running_strategy_pids: _Cb,
+    is_pid_alive: _Cb,
+    resolve_strategy_dir: _Cb,
+    find_latest_log_dir: _Cb,
 ) -> list[dict[str, Any]]:
     instances = load_instances()
     changed = False
@@ -84,12 +91,12 @@ def add_instance(
     strategy_id: str,
     params: dict[str, Any] | None,
     user_id: str | None,
-    load_instances,
-    save_instances,
-    resolve_strategy_dir,
-    get_template_by_id,
-    infer_gateway_params,
-    find_latest_log_dir,
+    load_instances: _Cb,
+    save_instances: _Cb,
+    resolve_strategy_dir: _Cb,
+    get_template_by_id: _Cb,
+    infer_gateway_params: _Cb,
+    find_latest_log_dir: _Cb,
     runtime_dir: str | None = None,
 ) -> dict[str, Any]:
     runtime_dir_text = str(runtime_dir or "").strip()
@@ -143,10 +150,10 @@ def add_instance(
 def remove_instance(
     instance_id: str,
     user_id: str | None,
-    load_instances,
-    save_instances,
-    kill_pid,
-    release_gateway_for_instance,
+    load_instances: _Cb,
+    save_instances: _Cb,
+    kill_pid: _Cb,
+    release_gateway_for_instance: _Cb,
     processes: dict[str, Any],
 ) -> bool:
     instances = load_instances()
@@ -167,11 +174,11 @@ def remove_instance(
 def get_instance(
     instance_id: str,
     user_id: str | None,
-    load_instances,
-    save_instances,
-    is_pid_alive,
-    resolve_strategy_dir,
-    find_latest_log_dir,
+    load_instances: _Cb,
+    save_instances: _Cb,
+    is_pid_alive: _Cb,
+    resolve_strategy_dir: _Cb,
+    find_latest_log_dir: _Cb,
 ) -> dict[str, Any] | None:
     instances = load_instances()
     inst = instances.get(instance_id)

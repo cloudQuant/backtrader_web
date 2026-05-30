@@ -11,7 +11,7 @@ vi.mock('@/api/index', () => ({
 }))
 
 describe('quoteApi', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('listSources GETs /quote/sources', async () => {
     const { quoteApi } = await import('@/api/quote')

@@ -73,3 +73,22 @@ export function getCategoryLabel(category: string): string {
       return category
   }
 }
+
+
+/**
+ * Strip the trailing " | <meta>" annotation from a template description,
+ * returning just the human-readable summary. Shared by StrategyPage and
+ * StrategyTemplateCard so both render the description identically.
+ */
+export function stripStrategyMeta(desc?: string): string {
+  if (!desc) return ''
+  return desc.split(' | ')[0]
+}
+
+/**
+ * Number of declared parameters on a strategy template (defensive against a
+ * missing/undefined ``params`` map).
+ */
+export function getStrategyParamCount(params: Record<string, unknown> | null | undefined): number {
+  return params ? Object.keys(params).length : 0
+}

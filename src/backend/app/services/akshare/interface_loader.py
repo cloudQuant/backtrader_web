@@ -112,10 +112,11 @@ class AkshareInterfaceLoader:
                 await self.db.flush()
                 created += 1
             else:
-                interface.category_id = category.id
-                interface.module_path = "akshare"
-                interface.function_name = func_name
-                interface.display_name = func_name.replace("_", " ").title()
+                interface_row: Any = interface
+                interface_row.category_id = category.id
+                interface_row.module_path = "akshare"
+                interface_row.function_name = func_name
+                interface_row.display_name = func_name.replace("_", " ").title()
                 updated += 1
                 if refresh:
                     await self.db.execute(
@@ -149,6 +150,7 @@ class AkshareInterfaceLoader:
                         sort_order=index,
                     )
                     self.db.add(param_model)
-            interface.parameters = parameters
+            interface_obj: Any = interface
+            interface_obj.parameters = parameters
         await self.db.commit()
         return {"created": created, "updated": updated}

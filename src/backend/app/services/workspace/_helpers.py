@@ -16,7 +16,7 @@ import platform
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.models.backtest import BacktestTask
 from app.models.optimization import OptimizationTask
@@ -59,7 +59,7 @@ def db_task_elapsed_seconds(task: BacktestTask | OptimizationTask | None) -> flo
     """Compute elapsed seconds for a persisted task row."""
     if task is None or task.created_at is None:
         return None
-    end_time = task.updated_at
+    end_time: datetime | None = cast("datetime | None", task.updated_at)
     if str(getattr(task, "status", "") or "") in {
         TaskStatus.RUNNING.value,
         "pending",
@@ -69,7 +69,7 @@ def db_task_elapsed_seconds(task: BacktestTask | OptimizationTask | None) -> flo
         end_time = datetime.now(timezone.utc)
     if end_time is None:
         return None
-    elapsed = (end_time - task.created_at).total_seconds()
+    elapsed = (end_time - cast(datetime, task.created_at)).total_seconds()
     if elapsed < 0:
         return None
     return round(elapsed, 2)
@@ -199,7 +199,7 @@ def requested_bar_count(unit: StrategyUnit) -> int | None:
     """Extract the requested bar count from a unit's data_config."""
     from app.services.workspace_service import _normalize_unit_data_config
 
-    data_cfg = _normalize_unit_data_config(unit.data_config)
+    data_cfg = _normalize_unit_data_config(cast("dict[str, Any] | None", unit.data_config))
     value = data_cfg.get("bar_count")
     try:
         bar_count = int(value) if value is not None else 0
@@ -331,13 +331,15 @@ def unit_to_dict(unit: StrategyUnit, opt_info: dict[str, Any] | None = None) -> 
         "timeframe_n": unit.timeframe_n or 1,
         "category": unit.category or "",
         "sort_order": unit.sort_order or 0,
-        "data_config": _normalize_unit_data_config(unit.data_config),
+        "data_config": _normalize_unit_data_config(
+            cast("dict[str, Any] | None", unit.data_config)
+        ),
         "unit_settings": unit.unit_settings or {},
         "params": unit.params or {},
         "optimization_config": unit.optimization_config or {},
         "trading_mode": TradingWorkspaceService.normalize_trading_mode(unit.trading_mode),
         "gateway_config": TradingWorkspaceService.normalize_gateway_config(
-            unit.gateway_config or {}
+            cast("dict[str, Any] | None", unit.gateway_config) or {}
         ),
         "lock_trading": bool(unit.lock_trading),
         "lock_running": bool(unit.lock_running),
@@ -377,14 +379,14 @@ def compute_rename(
     if mode == "custom":
         return value
     elif mode == "strategy":
-        return unit.strategy_name or ""
+        return str(unit.strategy_name or "")
     elif mode == "symbol":
-        return unit.symbol or ""
+        return str(unit.symbol or "")
     elif mode == "symbol_name":
-        return unit.symbol_name or ""
+        return str(unit.symbol_name or "")
     elif mode == "category":
-        return unit.category or ""
+        return str(unit.category or "")
     elif mode == "replace":
-        current = unit.group_name or ""
+        current = str(unit.group_name or "")
         return current.replace(search, replace) if search else current
     return value

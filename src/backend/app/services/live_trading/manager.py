@@ -13,19 +13,16 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-from app.services import (
-    manual_gateway_service,
-)
 from app.services.gateway import health as gateway_health_service
 from app.services.gateway import launch_builder as gateway_launch_builder
+from app.services.gateway import manual as manual_gateway_service
 from app.services.gateway import runtime as gateway_runtime_service
-from app.services.live_trading import execution as live_execution_service
-from app.services.live_trading import instance as live_instance_service
-from app.services.strategy import runtime_support as strategy_runtime_support
 from app.services.gateway.preset import get_gateway_presets as _get_gateway_presets
 from app.services.instance_store import InstanceStore
+from app.services.live_trading import execution as live_execution_service
+from app.services.live_trading import instance as live_instance_service
 from app.services.process_supervisor import (
     is_pid_alive as _is_pid_alive_impl,
 )
@@ -35,7 +32,8 @@ from app.services.process_supervisor import (
 from app.services.process_supervisor import (
     scan_running_strategy_pids as _scan_running_strategy_pids_impl,
 )
-from app.services.strategy_service import STRATEGIES_DIR, get_template_by_id
+from app.services.strategy import runtime_support as strategy_runtime_support
+from app.services.strategy.core import STRATEGIES_DIR, get_template_by_id
 from app.types.live_trading import (
     ConnectResult,
     GatewayCredentials,
@@ -49,9 +47,9 @@ from app.types.live_trading import (
 from app.utils.backend_data_paths import get_backend_data_path
 
 try:
-    from loguru import logger  # type: ignore[import-untyped]  # loguru lacks py.typed marker
+    from loguru import logger
 except ImportError:
-    logger = logging.getLogger(__name__)
+    logger = logging.getLogger(__name__)  # type: ignore[assignment]
 
 _BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
 _DATA_DIR = get_backend_data_path()
@@ -193,9 +191,9 @@ class LiveTradingManager:
         _processes: Dictionary of running subprocesses by instance ID.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
-        self._gateways: dict[str, GatewayData] = {}
+        self._gateways: dict[str, dict[str, Any]] = {}
         self._instance_gateways: dict[str, str] = {}
         self._stopping_instances: set[str] = set()
         self._gateway_lock = threading.RLock()
@@ -213,7 +211,7 @@ class LiveTradingManager:
 
     # ---- CRUD ----
 
-    def list_instances(self, user_id: str = None) -> list[dict]:
+    def list_instances(self, user_id: str | None = None) -> list[dict]:
         return live_instance_service.list_instances(
             user_id=user_id,
             load_instances=_load_instances,
@@ -286,13 +284,16 @@ class LiveTradingManager:
         with self._gateway_lock:
             gateways = dict(self._gateways)
         try:
-            results = gateway_health_service.get_gateway_health(
-                gateways=gateways,
-                load_instances=_load_instances,
-                is_pid_alive=_is_pid_alive,
-                resolve_strategy_dir=self._resolve_strategy_dir,
-                load_strategy_config=self._load_strategy_config,
-                load_strategy_env=self._load_strategy_env,
+            results = cast(
+                "list[HealthStatus]",
+                gateway_health_service.get_gateway_health(
+                    gateways=gateways,
+                    load_instances=_load_instances,
+                    is_pid_alive=_is_pid_alive,
+                    resolve_strategy_dir=self._resolve_strategy_dir,
+                    load_strategy_config=self._load_strategy_config,
+                    load_strategy_env=self._load_strategy_env,
+                ),
             )
         except Exception:
             logger.exception("Failed to collect gateway health snapshots")
@@ -327,7 +328,7 @@ class LiveTradingManager:
                 result = manual_gateway_service.connect_gateway(
                     gateways=self._gateways,
                     exchange_type=exchange_type,
-                    credentials=credentials,
+                    credentials=cast("dict[str, Any]", credentials),
                     normalize_exchange_type=self._normalize_gateway_exchange_type,
                     coerce_bool=self._coerce_bool,
                     coerce_float=self._coerce_float,
@@ -358,37 +359,46 @@ class LiveTradingManager:
                 message = str(result.get("message") or "").strip() or "网关已连接"
                 result = dict(result)
                 result["message"] = f"{message}；本地保存失败，重启后需要重新连接"
-        return result
+        return cast(ConnectResult, result)
 
     def _connect_ctp_gateway(self, key: str, credentials: GatewayCredentials) -> ConnectResult:
-        return manual_gateway_service.connect_ctp_gateway(
-            gateways=self._gateways,
-            key=key,
-            credentials=credentials,
-            import_gateway_runtime_classes=self._import_gateway_runtime_classes,
-            default_transport=_DEFAULT_TRANSPORT,
-            logger=logger,
+        return cast(
+            ConnectResult,
+            manual_gateway_service.connect_ctp_gateway(
+                gateways=self._gateways,
+                key=key,
+                credentials=cast("dict[str, Any]", credentials),
+                import_gateway_runtime_classes=self._import_gateway_runtime_classes,
+                default_transport=_DEFAULT_TRANSPORT,
+                logger=logger,
+            ),
         )
 
     def _connect_ib_web_gateway(self, key: str, credentials: GatewayCredentials) -> ConnectResult:
-        return manual_gateway_service.connect_ib_web_gateway(
-            gateways=self._gateways,
-            key=key,
-            credentials=credentials,
-            coerce_bool=self._coerce_bool,
-            coerce_float=self._coerce_float,
-            import_gateway_runtime_classes=self._import_gateway_runtime_classes,
-            default_transport=_DEFAULT_TRANSPORT,
-            logger=logger,
+        return cast(
+            ConnectResult,
+            manual_gateway_service.connect_ib_web_gateway(
+                gateways=self._gateways,
+                key=key,
+                credentials=cast("dict[str, Any]", credentials),
+                coerce_bool=self._coerce_bool,
+                coerce_float=self._coerce_float,
+                import_gateway_runtime_classes=self._import_gateway_runtime_classes,
+                default_transport=_DEFAULT_TRANSPORT,
+                logger=logger,
+            ),
         )
 
     def _connect_mt5_gateway(self, key: str, credentials: GatewayCredentials) -> ConnectResult:
-        return manual_gateway_service.connect_mt5_gateway(
-            gateways=self._gateways,
-            key=key,
-            credentials=credentials,
-            import_gateway_runtime_classes=self._import_gateway_runtime_classes,
-            logger=logger,
+        return cast(
+            ConnectResult,
+            manual_gateway_service.connect_mt5_gateway(
+                gateways=self._gateways,
+                key=key,
+                credentials=cast("dict[str, Any]", credentials),
+                import_gateway_runtime_classes=self._import_gateway_runtime_classes,
+                logger=logger,
+            ),
         )
 
     def query_gateway_account(self, gateway_key: str) -> dict[str, str | float] | None:
@@ -405,7 +415,10 @@ class LiveTradingManager:
 
     def list_connected_gateways(self) -> list[GatewayData]:
         with self._gateway_lock:
-            return manual_gateway_service.list_connected_gateways(self._gateways)
+            return cast(
+                "list[GatewayData]",
+                manual_gateway_service.list_connected_gateways(self._gateways),
+            )
 
     def disconnect_gateway(self, gateway_key: str) -> OperationResult:
         with self._gateway_lock:
@@ -425,14 +438,14 @@ class LiveTradingManager:
                 self._remove_persisted_manual_gateway(gateway_key)
             except Exception:
                 logger.exception("Failed to remove persisted manual gateway %s", gateway_key)
-        return result
+        return cast(OperationResult, result)
 
     def _start_restore_manual_gateways_background(self) -> None:
         self._restore_thread = threading.Thread(target=self._restore_manual_gateways, daemon=True)
         self._restore_thread.start()
 
     def _restore_manual_gateways(self) -> None:
-        restored_gateways: dict[str, GatewayData] = {}
+        restored_gateways: dict[str, dict[str, Any]] = {}
         for entry in _load_manual_gateways():
             exchange_type = str(entry.get("exchange_type") or "").strip()
             credentials = entry.get("credentials")
@@ -496,23 +509,26 @@ class LiveTradingManager:
         self,
         strategy_id: str,
         params: dict[str, str | int | float | bool] | None = None,
-        user_id: str = None,
+        user_id: str | None = None,
         runtime_dir: str | None = None,
     ) -> InstanceData:
-        return live_instance_service.add_instance(
-            strategy_id=strategy_id,
-            params=params,
-            user_id=user_id,
-            runtime_dir=runtime_dir,
-            load_instances=_load_instances,
-            save_instances=_save_instances,
-            resolve_strategy_dir=self._resolve_strategy_dir,
-            get_template_by_id=get_template_by_id,
-            infer_gateway_params=self._infer_gateway_params,
-            find_latest_log_dir=_find_latest_log_dir,
+        return cast(
+            InstanceData,
+            live_instance_service.add_instance(
+                strategy_id=strategy_id,
+                params=params,
+                user_id=user_id,
+                runtime_dir=runtime_dir,
+                load_instances=_load_instances,
+                save_instances=_save_instances,
+                resolve_strategy_dir=self._resolve_strategy_dir,
+                get_template_by_id=get_template_by_id,
+                infer_gateway_params=self._infer_gateway_params,
+                find_latest_log_dir=_find_latest_log_dir,
+            ),
         )
 
-    def remove_instance(self, instance_id: str, user_id: str = None) -> bool:
+    def remove_instance(self, instance_id: str, user_id: str | None = None) -> bool:
         return live_instance_service.remove_instance(
             instance_id=instance_id,
             user_id=user_id,
@@ -523,46 +539,55 @@ class LiveTradingManager:
             processes=self._processes,
         )
 
-    def get_instance(self, instance_id: str, user_id: str = None) -> InstanceData | None:
-        return live_instance_service.get_instance(
-            instance_id=instance_id,
-            user_id=user_id,
-            load_instances=_load_instances,
-            save_instances=_save_instances,
-            is_pid_alive=_is_pid_alive,
-            resolve_strategy_dir=self._resolve_strategy_dir,
-            find_latest_log_dir=_find_latest_log_dir,
+    def get_instance(self, instance_id: str, user_id: str | None = None) -> InstanceData | None:
+        return cast(
+            "InstanceData | None",
+            live_instance_service.get_instance(
+                instance_id=instance_id,
+                user_id=user_id,
+                load_instances=_load_instances,
+                save_instances=_save_instances,
+                is_pid_alive=_is_pid_alive,
+                resolve_strategy_dir=self._resolve_strategy_dir,
+                find_latest_log_dir=_find_latest_log_dir,
+            ),
         )
 
     # ---- Start/Stop ----
 
     async def start_instance(self, instance_id: str) -> StartResult:
-        return await live_execution_service.start_instance(
-            instance_id=instance_id,
-            load_instances=_load_instances,
-            save_instances=_save_instances,
-            is_pid_alive=_is_pid_alive,
-            resolve_strategy_dir=self._resolve_strategy_dir,
-            build_subprocess_env=self._build_subprocess_env,
-            release_gateway_for_instance=self._release_gateway_for_instance,
-            wait_process_callback=self._wait_process,
-            processes=self._processes,
-            stopping_instances=self._stopping_instances,
+        return cast(
+            StartResult,
+            await live_execution_service.start_instance(
+                instance_id=instance_id,
+                load_instances=_load_instances,
+                save_instances=_save_instances,
+                is_pid_alive=_is_pid_alive,
+                resolve_strategy_dir=self._resolve_strategy_dir,
+                build_subprocess_env=self._build_subprocess_env,
+                release_gateway_for_instance=self._release_gateway_for_instance,
+                wait_process_callback=self._wait_process,
+                processes=self._processes,
+                stopping_instances=self._stopping_instances,
+            ),
         )
 
     async def stop_instance(self, instance_id: str) -> StopResult:
-        return await live_execution_service.stop_instance(
-            instance_id=instance_id,
-            load_instances=_load_instances,
-            save_instances=_save_instances,
-            is_pid_alive=_is_pid_alive,
-            kill_pid=self._kill_pid,
-            release_gateway_for_instance=self._release_gateway_for_instance,
-            processes=self._processes,
-            stopping_instances=self._stopping_instances,
+        return cast(
+            StopResult,
+            await live_execution_service.stop_instance(
+                instance_id=instance_id,
+                load_instances=_load_instances,
+                save_instances=_save_instances,
+                is_pid_alive=_is_pid_alive,
+                kill_pid=self._kill_pid,
+                release_gateway_for_instance=self._release_gateway_for_instance,
+                processes=self._processes,
+                stopping_instances=self._stopping_instances,
+            ),
         )
 
-    async def start_all(self, user_id: str = None) -> dict[str, StartResult]:
+    async def start_all(self, user_id: str | None = None) -> dict[str, StartResult]:
         return await live_execution_service.start_all(
             user_id=user_id,
             load_instances=_load_instances,
@@ -570,7 +595,7 @@ class LiveTradingManager:
             start_instance_callback=self.start_instance,
         )
 
-    async def stop_all(self, user_id: str = None) -> dict[str, StopResult]:
+    async def stop_all(self, user_id: str | None = None) -> dict[str, StopResult]:
         return await live_execution_service.stop_all(
             user_id=user_id,
             load_instances=_load_instances,
@@ -579,7 +604,7 @@ class LiveTradingManager:
 
     # ---- Internal Methods ----
 
-    async def _wait_process(self, instance_id: str, proc: asyncio.subprocess.Process):
+    async def _wait_process(self, instance_id: str, proc: asyncio.subprocess.Process) -> None:
         await live_execution_service.wait_process(
             instance_id=instance_id,
             proc=proc,
@@ -593,7 +618,7 @@ class LiveTradingManager:
         )
 
     @staticmethod
-    def _kill_pid(pid: int):
+    def _kill_pid(pid: int) -> None:
         """Kill a process by PID.
 
         Args:
@@ -612,7 +637,7 @@ class LiveTradingManager:
             instance=instance,
             strategy_dir=strategy_dir,
             acquire_gateway_for_instance=self._acquire_gateway_for_instance,
-            os_environ=os.environ,
+            os_environ=dict(os.environ),
             bt_api_py_dir=_BT_API_PY_DIR,
         )
 
@@ -715,7 +740,7 @@ class LiveTradingManager:
 
     _gateway_import_ok: bool | None = None
 
-    def _import_gateway_runtime_classes(self):
+    def _import_gateway_runtime_classes(self) -> tuple[Any, Any]:
         # Pre-flight: test import in an isolated subprocess to avoid crashing
         # the main process if a native C extension (CTP SDK, spdlog, etc.) is
         # broken or incompatible.  The check runs only once and is cached.

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.workspace import WorkspaceResponse
@@ -165,7 +165,7 @@ def _workspace_to_response(ws: Workspace) -> WorkspaceResponse:
         name=ws.name,
         description=ws.description,
         workspace_type=_normalize_workspace_type(getattr(ws, "workspace_type", None)),
-        settings=_normalize_workspace_settings(ws.settings),
+        settings=_normalize_workspace_settings(cast("dict[str, Any] | None", ws.settings)),
         trading_config=_normalize_workspace_trading_config(getattr(ws, "trading_config", None)),
         unit_count=len(units),
         completed_count=completed_count,

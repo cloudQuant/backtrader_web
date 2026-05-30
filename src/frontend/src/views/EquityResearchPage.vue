@@ -71,10 +71,9 @@
           :title="t('equityResearch.statChangePct')"
           :value="Number(quote?.change_pct || 0)"
         />
-        <el-statistic
-          :title="t('equityResearch.statCurrency')"
-          :value="String(quote?.currency || '')"
-        />
+        <el-statistic :title="t('equityResearch.statCurrency')">
+          <template #default>{{ String(quote?.currency || '') }}</template>
+        </el-statistic>
       </div>
       <el-tabs v-model="activeTab">
         <el-tab-pane

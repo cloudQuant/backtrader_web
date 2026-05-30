@@ -1,6 +1,7 @@
 import logging
 import math
 import time
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
@@ -82,7 +83,7 @@ def _normalize_recent_errors(value: Any) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for item in value:
         if isinstance(item, dict):
-            entry = {
+            entry: dict[str, Any] = {
                 "source": _coerce_string(item.get("source"), ""),
                 "message": _coerce_string(item.get("message"), ""),
             }
@@ -235,11 +236,11 @@ def _augment_snapshot_from_quote_cache(snap: dict[str, Any]) -> None:
 
 def get_gateway_health(
     gateways: dict[str, dict[str, Any]],
-    load_instances,
-    is_pid_alive,
-    resolve_strategy_dir,
-    load_strategy_config,
-    load_strategy_env,
+    load_instances: Callable[..., Any],
+    is_pid_alive: Callable[..., Any],
+    resolve_strategy_dir: Callable[..., Any],
+    load_strategy_config: Callable[..., Any],
+    load_strategy_env: Callable[..., Any],
 ) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     gateway_instance_ids: set[str] = set()

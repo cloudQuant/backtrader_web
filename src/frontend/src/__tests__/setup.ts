@@ -128,26 +128,9 @@ vi.mock('echarts', () => {
 })
 
 // Mock Element Plus icons - comprehensive list
-vi.mock('@element-plus/icons-vue', () => {
-  const names = [
-    'Download', 'Upload', 'Plus', 'Delete', 'Edit', 'Search', 'Refresh',
-    'DataLine', 'Document', 'Grid', 'TrendCharts', 'Trophy', 'Loading',
-    'VideoPlay', 'VideoPause', 'Close', 'Check', 'Warning', 'InfoFilled',
-    'SuccessFilled', 'CircleCloseFilled', 'ArrowDown', 'ArrowUp', 'ArrowLeft',
-    'ArrowRight', 'Setting', 'User', 'Lock', 'View', 'Hide', 'More',
-    'Menu', 'Star', 'StarFilled', 'Timer', 'Clock', 'Calendar',
-    'Connection', 'Promotion', 'List', 'Histogram', 'PieChart',
-    'Monitor', 'Stopwatch', 'Switch', 'SwitchButton', 'Tickets',
-    'CircleCheck', 'CirclePlus', 'Remove', 'ZoomIn', 'ZoomOut',
-    'FullScreen', 'CopyDocument', 'DocumentCopy', 'Sort', 'SortDown', 'SortUp',
-    'Folder', 'FolderOpened', 'Picture', 'Link', 'Position', 'Odometer',
-    'ChatDotRound', 'Bell', 'QuestionFilled', 'Back', 'Right', 'Top', 'Bottom',
-    'Unlock', 'Select', 'Wallet', 'Tools', 'DataAnalysis', 'Share', 'Files',
-    'Aim', 'Collection', 'Compass', 'Cpu', 'MagicStick', 'Reading', 'UserFilled',
-  ]
-  const result: Record<string, any> = {}
-  for (const n of names) {
-    result[n] = { name: n, render: () => null }
-  }
-  return result
+vi.mock('@element-plus/icons-vue', async (importOriginal) => {
+  // Spread the real icon module so every icon name resolves; this is robust to
+  // components importing any icon without maintaining a hand-written list.
+  const actual = await importOriginal<Record<string, unknown>>()
+  return { ...actual }
 })

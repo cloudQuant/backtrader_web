@@ -1,20 +1,25 @@
 import asyncio
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+# Callback dependencies injected by ``LiveTradingManager``; typed loosely
+# since the concrete signatures vary per callback.
+_Cb = Callable[..., Any]
+
 
 async def start_instance(
     instance_id: str,
-    load_instances,
-    save_instances,
-    is_pid_alive,
-    resolve_strategy_dir,
-    build_subprocess_env,
-    release_gateway_for_instance,
-    wait_process_callback,
+    load_instances: _Cb,
+    save_instances: _Cb,
+    is_pid_alive: _Cb,
+    resolve_strategy_dir: _Cb,
+    build_subprocess_env: _Cb,
+    release_gateway_for_instance: _Cb,
+    wait_process_callback: _Cb,
     processes: dict[str, Any],
     stopping_instances: set[str],
 ) -> dict[str, Any]:
@@ -75,11 +80,11 @@ async def start_instance(
 
 async def stop_instance(
     instance_id: str,
-    load_instances,
-    save_instances,
-    is_pid_alive,
-    kill_pid,
-    release_gateway_for_instance,
+    load_instances: _Cb,
+    save_instances: _Cb,
+    is_pid_alive: _Cb,
+    kill_pid: _Cb,
+    release_gateway_for_instance: _Cb,
     processes: dict[str, Any],
     stopping_instances: set[str],
 ) -> dict[str, Any]:
@@ -114,9 +119,9 @@ async def stop_instance(
 
 async def start_all(
     user_id: str | None,
-    load_instances,
-    is_pid_alive,
-    start_instance_callback,
+    load_instances: _Cb,
+    is_pid_alive: _Cb,
+    start_instance_callback: _Cb,
 ) -> dict[str, Any]:
     instances = load_instances()
     success = 0
@@ -143,8 +148,8 @@ async def start_all(
 
 async def stop_all(
     user_id: str | None,
-    load_instances,
-    stop_instance_callback,
+    load_instances: _Cb,
+    stop_instance_callback: _Cb,
 ) -> dict[str, Any]:
     instances = load_instances()
     success = 0
@@ -171,12 +176,12 @@ async def stop_all(
 
 async def wait_process(
     instance_id: str,
-    proc,
-    load_instances,
-    save_instances,
-    resolve_strategy_dir,
-    find_latest_log_dir,
-    release_gateway_for_instance,
+    proc: asyncio.subprocess.Process,
+    load_instances: _Cb,
+    save_instances: _Cb,
+    resolve_strategy_dir: _Cb,
+    find_latest_log_dir: _Cb,
+    release_gateway_for_instance: _Cb,
     processes: dict[str, Any],
     stopping_instances: set[str],
 ) -> None:

@@ -74,62 +74,14 @@
           v-if="filteredTemplates.length"
           class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
         >
-          <el-card
+          <StrategyTemplateCard
             v-for="tpl in paginatedTemplates"
             :key="tpl.id"
-            shadow="hover"
-            class="strategy-card cursor-pointer"
-            role="button"
-            tabindex="0"
-            :aria-label="`${t('strategy.title')} ${tpl.name}`"
-            @click="openTemplateDetail(tpl)"
-            @keydown.enter="openTemplateDetail(tpl)"
-            @keydown.space.prevent="openTemplateDetail(tpl)"
-          >
-            <div class="flex flex-col h-full">
-              <div class="flex justify-between items-start mb-2">
-                <h3 class="font-bold text-base leading-tight">
-                  {{ tpl.name }}
-                </h3>
-                <el-tag
-                  size="small"
-                  :type="getCategoryType(tpl.category)"
-                  effect="light"
-                >
-                  {{ getCategoryLabel(tpl.category) }}
-                </el-tag>
-              </div>
-              <p class="text-gray-500 text-sm mb-3 line-clamp-2 flex-1">
-                {{ stripMeta(tpl.description) }}
-              </p>
-              <div class="flex items-center justify-between text-xs text-gray-400">
-                <span>{{ t('strategy.parameterCount', { count: getParamCount(tpl) }) }}</span>
-                <span>{{ tpl.id }}</span>
-              </div>
-              <div class="flex gap-2 mt-3 pt-3 border-t">
-                <el-button
-                  size="small"
-                  type="primary"
-                  @click.stop="openTemplateDetail(tpl)"
-                >
-                  {{ t('strategy.detailLabel') }}
-                </el-button>
-                <el-button
-                  size="small"
-                  @click.stop="useTemplate(tpl)"
-                >
-                  {{ t('strategy.actionCopy') }}
-                </el-button>
-                <el-button
-                  size="small"
-                  type="success"
-                  @click.stop="goBacktest(tpl)"
-                >
-                  {{ t('strategy.typeBacktest') }}
-                </el-button>
-              </div>
-            </div>
-          </el-card>
+            :tpl="tpl"
+            @detail="openTemplateDetail"
+            @use="useTemplate"
+            @backtest="goBacktest"
+          />
         </div>
         <el-empty
           v-else
@@ -227,198 +179,27 @@
     </el-tabs>
 
     <!-- ========== 策略详情弹窗 (模板) ========== -->
-    <el-dialog
-      v-model="detailVisible"
-      :title="detailTemplate?.name"
-      width="900px"
-      top="5vh"
-    >
-      <div
-        v-if="detailTemplate"
-        class="space-y-4"
-      >
-        <div class="flex items-center gap-3 flex-wrap">
-          <el-tag :type="getCategoryType(detailTemplate.category)">
-            {{ getCategoryLabel(detailTemplate.category) }}
-          </el-tag>
-          <span class="text-gray-400 text-sm">{{ detailTemplate.id }}</span>
-        </div>
-        <p class="text-gray-600">
-          {{ stripMeta(detailTemplate.description) }}
-        </p>
-
-        <!-- 参数表 -->
-        <div v-if="Object.keys(detailTemplate.params).length">
-          <h4 class="font-bold text-sm mb-2">
-            {{ t('strategy.params') }}
-          </h4>
-          <el-table
-            :data="paramTableData"
-            size="small"
-            border
-            stripe
-          >
-            <el-table-column
-              prop="name"
-              :label="t('strategy.paramName')"
-              width="180"
-            />
-            <el-table-column
-              prop="default"
-              :label="t('strategy.paramDefault')"
-              width="120"
-            />
-            <el-table-column
-              prop="type"
-              :label="t('strategy.paramType')"
-              width="80"
-            />
-            <el-table-column
-              prop="description"
-              :label="t('strategy.paramDescription')"
-            />
-          </el-table>
-        </div>
-
-        <!-- Tab: README / 代码 -->
-        <el-tabs v-model="detailTab">
-          <el-tab-pane
-            :label="t('strategy.docs')"
-            name="readme"
-          >
-            <div
-              v-if="readmeLoading"
-              class="flex justify-center py-8"
-            >
-              <el-icon class="is-loading text-2xl">
-                <Loading />
-              </el-icon>
-            </div>
-            <!-- eslint-disable vue/no-v-html -- Strategy readme Markdown; consider sanitizing with DOMPurify -->
-            <div
-              v-else-if="readmeContent"
-              class="prose prose-sm max-w-none readme-content"
-              v-html="renderedReadme"
-            />
-            <!-- eslint-enable vue/no-v-html -->
-            <el-empty
-              v-else
-              :description="t('strategy.docsEmpty')"
-            />
-          </el-tab-pane>
-          <el-tab-pane
-            :label="t('strategy.strategyCode')"
-            name="code"
-          >
-            <MonacoEditor
-              v-model="detailTemplate.code"
-              language="python"
-              :height="450"
-              :read-only="true"
-              theme="vs"
-            />
-          </el-tab-pane>
-        </el-tabs>
-      </div>
-      <template #footer>
-        <el-button @click="detailVisible = false">
-          {{ t('strategy.close') }}
-        </el-button>
-        <el-button @click="useTemplate(detailTemplate!)">
-          {{ t('strategy.actionCopy') }}
-        </el-button>
-        <el-button
-          type="primary"
-          @click="goBacktest(detailTemplate!)"
-        >
-          {{ t('strategy.actionRunBacktest') }}
-        </el-button>
-      </template>
-    </el-dialog>
+    <StrategyDetailDialog
+      v-model:visible="detailVisible"
+      v-model:detail-tab="detailTab"
+      :template="detailTemplate"
+      :param-table-data="paramTableData"
+      :readme-loading="readmeLoading"
+      :readme-content="readmeContent"
+      :rendered-readme="renderedReadme"
+      :strip-meta="stripStrategyMeta"
+      @use="useTemplate"
+      @backtest="goBacktest"
+    />
 
     <!-- ========== 创建/编辑弹窗 ========== -->
-    <el-dialog
-      v-model="dialogVisible"
-      :title="isEdit ? t('strategy.editStrategy') : t('strategy.createStrategy')"
-      width="800px"
-    >
-      <el-form
-        :model="form"
-        label-width="100px"
-      >
-        <el-form-item
-          :label="t('strategy.strategyName')"
-          required
-        >
-          <el-input
-            v-model="form.name"
-            :placeholder="t('strategy.strategyName')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('strategy.description')">
-          <el-input
-            v-model="form.description"
-            type="textarea"
-            :rows="2"
-            :placeholder="t('strategy.description')"
-          />
-        </el-form-item>
-        <el-form-item :label="t('strategy.title')">
-          <el-select
-            v-model="form.category"
-            class="w-full"
-          >
-            <el-option
-              :label="t('strategy.categoryTrend')"
-              value="trend"
-            />
-            <el-option
-              :label="t('strategy.categoryMeanReversion')"
-              value="mean_reversion"
-            />
-            <el-option
-              :label="t('strategy.categoryVolatility')"
-              value="volatility"
-            />
-            <el-option
-              :label="t('strategy.indicatorStrategy')"
-              value="indicator"
-            />
-            <el-option
-              :label="t('strategy.arbitrageStrategy')"
-              value="arbitrage"
-            />
-            <el-option
-              :label="t('strategy.categoryOther')"
-              value="custom"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item
-          :label="t('strategy.strategyCode')"
-          required
-        >
-          <MonacoEditor
-            v-model="form.code"
-            language="python"
-            :height="400"
-            theme="vs"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">
-          {{ t('strategy.cancel') }}
-        </el-button>
-        <el-button
-          type="primary"
-          :loading="saving"
-          @click="saveStrategy"
-        >
-          {{ isEdit ? t('strategy.save') : t('strategy.create') }}
-        </el-button>
-      </template>
-    </el-dialog>
+    <StrategyEditDialog
+      v-model:visible="dialogVisible"
+      :is-edit="isEdit"
+      :saving="saving"
+      :form="form"
+      @save="saveStrategy"
+    />
 
     <!-- ========== My strategy detail dialog ========== -->
     <el-dialog
@@ -457,13 +238,16 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Plus, Loading } from '@element-plus/icons-vue'
+import { Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useStrategyStore } from '@/stores/strategy'
 import { strategyApi } from '@/api/strategy'
-import { getCategoryType, getCategoryLabel } from '@/constants/strategy'
+import { getCategoryType, getCategoryLabel, stripStrategyMeta } from '@/constants/strategy'
 import MonacoEditor from '@/components/common/MonacoEditor.vue'
+import StrategyEditDialog from './strategy-components/StrategyEditDialog.vue'
+import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue'
+import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
 import DOMPurify from 'dompurify'
 
@@ -567,15 +351,6 @@ const renderedReadme = computed(() => {
 })
 
 // ---- Methods ----
-function stripMeta(desc?: string) {
-  if (!desc) return ''
-  return desc.split(' | ')[0]
-}
-
-function getParamCount(t: StrategyTemplate) {
-  return Object.keys(t.params).length
-}
-
 async function openTemplateDetail(t: StrategyTemplate) {
   detailTemplate.value = t
   detailTab.value = 'readme'
@@ -627,7 +402,7 @@ function useTemplate(template: StrategyTemplate) {
   editingId.value = ''
   Object.assign(form, {
     name: template.name + ` (${t('strategy.typeCopy')})`,
-    description: stripMeta(template.description),
+    description: stripStrategyMeta(template.description),
     code: template.code,
     category: template.category,
   })

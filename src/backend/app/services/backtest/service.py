@@ -13,7 +13,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from app.db.cache import get_cache
 from app.db.sql_repository import SQLRepository
@@ -24,6 +24,7 @@ from app.schemas.backtest import (
     BacktestResponse,
     BacktestResult,
     TaskStatus,
+    TradeRecord,
 )
 from app.schemas.backtest_enhanced import (
     BacktestCancelledEvent,
@@ -31,6 +32,8 @@ from app.schemas.backtest_enhanced import (
     BacktestFailedEvent,
     BacktestProgressEvent,
 )
+from app.services.backtest.manager import BacktestExecutionManager
+from app.services.backtest.runner import BacktestExecutionRunner
 from app.services.backtest.sanitize import (
     coerce_float as _coerce_float,
 )
@@ -67,8 +70,6 @@ from app.services.backtest.workspace_setup import (
 from app.services.backtest.workspace_setup import (
     write_temp_config as _write_temp_config,
 )
-from app.services.backtest.manager import BacktestExecutionManager
-from app.services.backtest.runner import BacktestExecutionRunner
 from app.services.strategy.runtime_support import has_log_artifacts
 from app.utils.response_cache import invalidate_cache
 from app.websocket_manager import manager as ws_manager
@@ -127,7 +128,7 @@ class BacktestService:
             return value
         if isinstance(value, str) and value.strip():
             return value
-        return task.created_at or datetime.now()
+        return cast(datetime, task.created_at) or datetime.now()
 
     @staticmethod
     def _normalize_trade_date(value: Any) -> str | None:
@@ -158,11 +159,11 @@ class BacktestService:
         task: BacktestTask, result_model: BacktestResultModel | None
     ) -> BacktestResult:
         return BacktestResult(
-            task_id=task.id,
-            strategy_id=task.strategy_id,
-            symbol=task.symbol,
-            start_date=BacktestService._get_request_date(task, "start_date"),
-            end_date=BacktestService._get_request_date(task, "end_date"),
+            task_id=cast(str, task.id),
+            strategy_id=cast(str, task.strategy_id),
+            symbol=cast(str, task.symbol),
+            start_date=cast(datetime, BacktestService._get_request_date(task, "start_date")),
+            end_date=cast(datetime, BacktestService._get_request_date(task, "end_date")),
             status=TaskStatus(task.status),
             total_return=BacktestService._coerce_float(
                 result_model.total_return if result_model else None,
@@ -197,12 +198,17 @@ class BacktestService:
                 result_model.losing_trades if result_model else None,
                 0,
             ),
-            equity_curve=result_model.equity_curve if result_model else [],
-            equity_dates=result_model.equity_dates if result_model else [],
-            drawdown_curve=result_model.drawdown_curve if result_model else [],
-            trades=BacktestService._sanitize_trades(result_model.trades if result_model else []),
-            created_at=task.created_at,
-            error_message=task.error_message,
+            equity_curve=cast("list[float]", result_model.equity_curve if result_model else []),
+            equity_dates=cast("list[str]", result_model.equity_dates if result_model else []),
+            drawdown_curve=cast(
+                "list[float]", result_model.drawdown_curve if result_model else []
+            ),
+            trades=cast(
+                "list[TradeRecord]",
+                BacktestService._sanitize_trades(result_model.trades if result_model else []),
+            ),
+            created_at=cast(datetime, task.created_at),
+            error_message=cast("str | None", task.error_message),
         )
 
     async def run_backtest(self, user_id: str, request: BacktestRequest) -> BacktestResponse:
@@ -248,12 +254,12 @@ class BacktestService:
             await self.task_manager.update_task_status(task_id, TaskStatus.RUNNING)
             await self._notify_progress(task_id, 10, "Task started")
 
-            from app.services.strategy_service import get_strategy_dir
+            from app.services.strategy.core import get_strategy_dir
 
             strategy_dir = get_strategy_dir(request.strategy_id)
             runtime_dir = Path(request.runtime_dir).expanduser() if request.runtime_dir else None
             use_runtime_dir = bool(runtime_dir and runtime_dir.is_dir())
-            if use_runtime_dir:
+            if use_runtime_dir and runtime_dir is not None:
                 task_work_dir = runtime_dir
                 if not (task_work_dir / "run.py").is_file():
                     raise ValueError(f"Unit runtime run.py not found: {task_work_dir}")
@@ -444,7 +450,7 @@ class BacktestService:
         self._normalize_trade_logger_params(run_py)
 
         # Prepare environment variables
-        from app.services.strategy_service import STRATEGIES_DIR
+        from app.services.strategy.core import STRATEGIES_DIR
 
         project_root = STRATEGIES_DIR.parent
         env = dict(os.environ)
@@ -454,7 +460,7 @@ class BacktestService:
         if task_id:
             env["BACKTRADER_LOG_DIR"] = str(work_dir / "logs" / f"task_{task_id}")
 
-        def _run():
+        def _run() -> tuple[int | None, str, str]:
             proc = subprocess.Popen(
                 [python_exec, "-O", str(run_py)],
                 cwd=str(work_dir),
@@ -542,11 +548,15 @@ class BacktestService:
                 if log_result:
                     metrics = calculate_metrics_from_log_data(log_result, use_fincore=True)
                     result = BacktestResult(
-                        task_id=task.id,
-                        strategy_id=task.strategy_id,
-                        symbol=task.symbol,
-                        start_date=BacktestService._get_request_date(task, "start_date"),
-                        end_date=BacktestService._get_request_date(task, "end_date"),
+                        task_id=cast(str, task.id),
+                        strategy_id=cast(str, task.strategy_id),
+                        symbol=cast(str, task.symbol),
+                        start_date=cast(
+                            datetime, BacktestService._get_request_date(task, "start_date")
+                        ),
+                        end_date=cast(
+                            datetime, BacktestService._get_request_date(task, "end_date")
+                        ),
                         status=TaskStatus(task.status),
                         total_return=BacktestService._coerce_float(
                             metrics.get("total_return"), 0.0
@@ -571,9 +581,12 @@ class BacktestService:
                         equity_curve=log_result.get("equity_curve", []),
                         equity_dates=log_result.get("equity_dates", []),
                         drawdown_curve=log_result.get("drawdown_curve", []),
-                        trades=BacktestService._sanitize_trades(log_result.get("trades", [])),
-                        created_at=task.created_at,
-                        error_message=task.error_message,
+                        trades=cast(
+                            "list[TradeRecord]",
+                            BacktestService._sanitize_trades(log_result.get("trades", [])),
+                        ),
+                        created_at=cast(datetime, task.created_at),
+                        error_message=cast("str | None", task.error_message),
                     )
                     await self.cache.set(cache_key, result.model_dump(mode="json"), ttl=3600)
                     return result

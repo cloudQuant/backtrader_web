@@ -11,12 +11,13 @@ sync logic.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any, cast
 
 from app.db.database import async_session_maker
-from app.models.workspace import StrategyUnit
-from app.schemas.workspace import ApplyBestParamsRequest
+from app.models.workspace import StrategyUnit, Workspace
+from app.schemas.workspace import ApplyBestParamsRequest, UnitOptimizationRequest
 from app.services.optimization.execution_manager import get_optimization_execution_manager
 from app.services.optimization.task_state import build_results_response
 from app.services.param_optimization_service import (
@@ -172,7 +173,7 @@ def build_optimization_trial_payload(
                 6,
             )
 
-    data_config = _normalize_unit_data_config(unit.data_config)
+    data_config = _normalize_unit_data_config(cast("dict[str, Any] | None", unit.data_config))
     start_date = str(data_config.get("start_date") or (equity_dates[0] if equity_dates else ""))[
         :10
     ]
@@ -217,7 +218,7 @@ async def get_unit_optimization_result_artifact_metadata(
         if unit is None or not unit.last_optimization_task_id:
             return None
 
-        task_id = unit.last_optimization_task_id
+        task_id = str(unit.last_optimization_task_id)
         mgr = get_optimization_execution_manager()
         db_task = await mgr.get_task(task_id, user_id=user_id)
         if (
@@ -249,7 +250,7 @@ async def get_unit_optimization_progress(
             return None
 
         return get_optimization_progress(
-            unit.last_optimization_task_id, user_id=user_id, use_db=True
+            str(unit.last_optimization_task_id), user_id=user_id, use_db=True
         )
 
 
@@ -269,8 +270,8 @@ async def get_unit_optimization_results(
         if unit is None or not unit.last_optimization_task_id:
             return None
 
-        task_id = unit.last_optimization_task_id
-        oc = unit.optimization_config or {}
+        task_id = str(unit.last_optimization_task_id)
+        oc: dict[str, Any] = cast("dict[str, Any]", unit.optimization_config) or {}
         objective_key = oc.get("objective", "sharpe_max") or "sharpe_max"
         objective_map = {
             "sharpe_max": "sharpe_ratio",
@@ -303,17 +304,17 @@ async def get_unit_optimization_results(
             results_response["objective"] = objective
             return results_response
 
-        results_response = get_optimization_results(task_id, user_id=user_id, use_db=False)
-        if results_response:
-            rows = list(results_response.get("rows") or [])
+        fallback_response = get_optimization_results(task_id, user_id=user_id, use_db=False)
+        if fallback_response:
+            rows = list(fallback_response.get("rows") or [])
             rows.sort(
                 key=lambda row: row.get(objective, 999999 if not reverse_sort else -999999),
                 reverse=reverse_sort,
             )
-            results_response["rows"] = rows
-            results_response["best"] = rows[0] if rows else None
-            results_response["objective"] = objective
-        return results_response
+            fallback_response["rows"] = rows
+            fallback_response["best"] = rows[0] if rows else None
+            fallback_response["objective"] = objective
+        return fallback_response
 
 
 async def cancel_unit_optimization(
@@ -332,7 +333,7 @@ async def cancel_unit_optimization(
         if unit is None or not unit.last_optimization_task_id:
             return {"error": "No optimization task found for this unit"}
 
-        task_id = unit.last_optimization_task_id
+        task_id = str(unit.last_optimization_task_id)
         mgr = get_optimization_execution_manager()
         cancelled = await mgr.set_cancelled(task_id, user_id=user_id)
         return {"task_id": task_id, "cancelled": cancelled}
@@ -366,9 +367,10 @@ async def apply_best_params(
         best = results[req.result_index]
         best_params = best.get("params", {})
 
-        current_params = unit.params or {}
+        current_params: dict[str, Any] = cast("dict[str, Any]", unit.params) or {}
         current_params.update(best_params)
-        unit.params = current_params
+        unit_row: Any = unit
+        unit_row.params = current_params
         await session.commit()
 
         return {
@@ -381,28 +383,30 @@ async def apply_best_params(
 async def submit_unit_optimization(
     workspace_id: str,
     user_id: str,
-    req: "UnitOptimizationRequest",
-    load_workspace,
-    get_unit,
+    req: UnitOptimizationRequest,
+    load_workspace: Callable[..., Awaitable[Workspace | None]],
+    get_unit: Callable[..., Awaitable[StrategyUnit | None]],
 ) -> dict[str, Any] | None:
     """Submit optimization for a strategy unit."""
-    from typing import cast
-
-    from app.services.param_optimization_service import generate_param_grid
+    from types import ModuleType
 
     from app.db.database import async_session_maker
-    from app.models.workspace import StrategyUnit
-    from app.services.workspace.config import _workspace_settings_dict, _write_json_file
+    from app.services.param_optimization_service import generate_param_grid
     from app.services.workspace import units as workspace_unit_runtime_mod
+    from app.services.workspace.config import _workspace_settings_dict, _write_json_file
 
+    workspace_unit_runtime: ModuleType
     try:
-        from app.services import workspace_unit_runtime
+        from app.services import workspace_unit_runtime as workspace_unit_runtime_pkg
+
+        workspace_unit_runtime = workspace_unit_runtime_pkg
     except ImportError:
         workspace_unit_runtime = workspace_unit_runtime_mod
 
-    from app.services.optimization.submission import submit_optimization
-    from app.services.optimization.execution_manager import get_optimization_execution_manager
     from datetime import datetime, timezone
+
+    from app.services.optimization.execution_manager import get_optimization_execution_manager
+    from app.services.param_optimization_service import submit_optimization
 
     async with async_session_maker() as session:
         ws = await load_workspace(session, workspace_id, user_id, load_units=False)
@@ -412,7 +416,7 @@ async def submit_unit_optimization(
         if unit is None:
             return None
 
-        param_ranges = {}
+        param_ranges: dict[str, dict[str, Any]] = {}
         for name, spec in req.param_ranges.items():
             param_ranges[name] = {
                 "start": spec.start,
@@ -421,12 +425,12 @@ async def submit_unit_optimization(
                 "type": spec.type,
             }
 
-        grid = generate_param_grid(param_ranges)
+        grid = generate_param_grid(cast("dict[str, dict[str, float]]", param_ranges))
         if not grid:
             return {"error": "Parameter grid is empty"}
 
-        strategy_id = unit.strategy_id or ""
-        workspace_settings = cast(dict[str, Any], _workspace_settings_dict(ws))
+        strategy_id = str(unit.strategy_id or "")
+        workspace_settings = _workspace_settings_dict(ws)
         unit_runtime_dir = workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
 
         mgr = get_optimization_execution_manager()
@@ -437,7 +441,7 @@ async def submit_unit_optimization(
             param_ranges=param_ranges,
             n_workers=req.n_workers,
         )
-        task_id = db_task.id
+        task_id = str(db_task.id)
         artifact_root = unit_runtime_dir / "optimization_runs" / task_id
         artifact_root.mkdir(parents=True, exist_ok=True)
         _write_json_file(
@@ -464,7 +468,8 @@ async def submit_unit_optimization(
             artifact_root=str(artifact_root),
         )
 
-        unit.last_optimization_task_id = task_id
+        unit_row: Any = unit
+        unit_row.last_optimization_task_id = task_id
         existing_oc = dict(unit.optimization_config or {})
         existing_oc.update(
             {
@@ -474,7 +479,7 @@ async def submit_unit_optimization(
                 "submitted_at": datetime.now(timezone.utc).isoformat(),
             }
         )
-        unit.optimization_config = existing_oc
+        unit_row.optimization_config = existing_oc
         await session.commit()
 
         return {

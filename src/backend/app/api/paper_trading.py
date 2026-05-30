@@ -179,9 +179,22 @@ async def submit_paper_order(
     Returns:
         OrderResponse: The created order details.
     """
+    # Verify the target account belongs to the requesting user before trading.
+    account = await service.get_account(request.account_id)
+    if account is None or account.user_id != current_user.sub:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Paper trading account not found",
+        )
     order = await service.submit_order(
-        user_id=current_user.sub,
-        request=request,
+        account_id=request.account_id,
+        symbol=request.symbol,
+        order_type=request.order_type,
+        side=request.side,
+        size=request.size,
+        price=request.price,
+        stop_price=request.stop_price,
+        limit_price=request.limit_price,
     )
     return order
 

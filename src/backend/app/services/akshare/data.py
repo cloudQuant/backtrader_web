@@ -46,7 +46,7 @@ class AkshareDataService:
 
     def build_table_name(self, script: DataScript, parameters: dict[str, Any]) -> str:
         """Build the physical warehouse table name for one script execution."""
-        base_name = script.target_table or script.script_id
+        base_name = str(script.target_table or script.script_id)
         base_name = self._normalize_identifier(base_name)
         symbol = parameters.get("symbol") or parameters.get("code") or parameters.get("ticker")
         if symbol:
@@ -131,25 +131,31 @@ class AkshareDataService:
             return record
 
         table = await self.db.get(DataTable, existing_id)
-        table.table_comment = script.script_name
-        table.category = script.category
-        table.script_id = script.script_id
-        table.row_count = row_count
-        table.last_update_time = datetime.utcnow()
-        table.last_update_status = status
-        table.data_start_date = data_start.date() if data_start else None
-        table.data_end_date = data_end.date() if data_end else None
-        table.symbol_raw = str(parameters.get("symbol")) if parameters.get("symbol") else None
-        table.symbol_normalized = (
+        if table is None:
+            raise RuntimeError(f"DataTable metadata row vanished for table_name={table_name}")
+        # ORM model uses legacy ``Column`` (not ``Mapped[]``), so mypy types the
+        # instance attributes as ``Column[T]``; assigning Python values through an
+        # ``Any`` alias keeps the writes type-clean without a project-wide migration.
+        table_row: Any = table
+        table_row.table_comment = script.script_name
+        table_row.category = script.category
+        table_row.script_id = script.script_id
+        table_row.row_count = row_count
+        table_row.last_update_time = datetime.utcnow()
+        table_row.last_update_status = status
+        table_row.data_start_date = data_start.date() if data_start else None
+        table_row.data_end_date = data_end.date() if data_end else None
+        table_row.symbol_raw = str(parameters.get("symbol")) if parameters.get("symbol") else None
+        table_row.symbol_normalized = (
             self._normalize_identifier(str(parameters.get("symbol")))
             if parameters.get("symbol")
             else None
         )
-        table.market = str(parameters.get("market")) if parameters.get("market") else None
-        table.asset_type = (
+        table_row.market = str(parameters.get("market")) if parameters.get("market") else None
+        table_row.asset_type = (
             str(parameters.get("asset_type")) if parameters.get("asset_type") else None
         )
-        table.metadata_json = {"columns": columns}
+        table_row.metadata_json = {"columns": columns}
         await self.db.commit()
         await self.db.refresh(table)
         return table

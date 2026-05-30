@@ -11,7 +11,7 @@ vi.mock('@/api/index', () => ({
 }))
 
 describe('kbChatApi', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('listConversations GETs with knowledge_base_id and optional params', async () => {
     const { kbChatApi } = await import('@/api/kbChat')

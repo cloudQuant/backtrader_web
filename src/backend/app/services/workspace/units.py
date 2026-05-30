@@ -72,14 +72,14 @@ async def create_unit(
             gateway_config=trading_service.normalize_gateway_config(
                 data.gateway_config.model_dump()
                 if hasattr(data.gateway_config, "model_dump")
-                else cast(dict[str, Any], data.gateway_config)
+                else data.gateway_config
             ),
             lock_trading=bool(data.lock_trading),
             lock_running=bool(data.lock_running),
             trading_snapshot=(
                 data.trading_snapshot.model_dump()
                 if hasattr(data.trading_snapshot, "model_dump")
-                else cast(dict[str, Any], data.trading_snapshot)
+                else data.trading_snapshot
             ),
         )
         session.add(unit)
@@ -87,8 +87,8 @@ async def create_unit(
         await session.refresh(unit)
         workspace_unit_runtime.sync_workspace_unit_runtime(
             unit,
-            ws.settings or {},
-            ws.workspace_type,
+            cast("dict[str, Any]", ws.settings) or {},
+            str(ws.workspace_type),
         )
         return WorkspaceService._unit_to_dict(unit)
 
@@ -132,14 +132,14 @@ async def batch_create_units(
                 gateway_config=trading_service.normalize_gateway_config(
                     data.gateway_config.model_dump()
                     if hasattr(data.gateway_config, "model_dump")
-                    else cast(dict[str, Any], data.gateway_config)
+                    else data.gateway_config
                 ),
                 lock_trading=bool(data.lock_trading),
                 lock_running=bool(data.lock_running),
                 trading_snapshot=(
                     data.trading_snapshot.model_dump()
                     if hasattr(data.trading_snapshot, "model_dump")
-                    else cast(dict[str, Any], data.trading_snapshot)
+                    else data.trading_snapshot
                 ),
             )
             session.add(unit)
@@ -150,8 +150,8 @@ async def batch_create_units(
             await session.refresh(unit)
             workspace_unit_runtime.sync_workspace_unit_runtime(
                 unit,
-                ws.settings or {},
-                ws.workspace_type,
+                cast("dict[str, Any]", ws.settings) or {},
+                str(ws.workspace_type),
             )
         return [WorkspaceService._unit_to_dict(unit) for unit in created]
 
@@ -161,7 +161,7 @@ async def list_units(
     user_id: str,
     trading_service: Any,
 ) -> list[dict[str, Any]] | None:
-    from app.services.backtest_service import BacktestService
+    from app.services.backtest.service import BacktestService
     from app.services.workspace_service import WorkspaceService, _normalize_workspace_type
 
     async with async_session_maker() as session:
@@ -422,8 +422,8 @@ async def update_unit(
         await session.refresh(unit)
         workspace_unit_runtime.sync_workspace_unit_runtime(
             unit,
-            ws.settings or {},
-            ws.workspace_type,
+            cast("dict[str, Any]", ws.settings) or {},
+            str(ws.workspace_type),
         )
         return WorkspaceService._unit_to_dict(unit)
 
@@ -483,7 +483,8 @@ async def reorder_units(workspace_id: str, user_id: str, unit_ids: list[str]) ->
         for idx, uid in enumerate(unit_ids):
             unit = await WorkspaceService._get_unit(session, workspace_id, uid)
             if unit:
-                unit.sort_order = idx
+                unit_row: Any = unit
+                unit_row.sort_order = idx
         await session.commit()
         return True
 
@@ -528,7 +529,8 @@ async def rename_unit(workspace_id: str, user_id: str, req: UnitRenameRequest) -
         unit = await WorkspaceService._get_unit(session, workspace_id, req.unit_id)
         if unit is None:
             return False
-        unit.strategy_name = compute_rename(
+        unit_row: Any = unit
+        unit_row.strategy_name = compute_rename(
             unit, req.mode, req.value, req.search, req.replace
         )
         await session.commit()

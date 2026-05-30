@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import StrategyPage from '@/views/StrategyPage.vue'
+import { stripStrategyMeta, getStrategyParamCount } from '@/constants/strategy'
 import { elStubs } from '@/test/stubs'
 
 vi.mock('vue-router', () => ({
@@ -64,16 +65,16 @@ describe('StrategyPage', () => {
     expect(vm.getCategoryType('unknown')).toBe('info')
   })
 
-  it('stripMeta strips after pipe', () => {
-    const vm = doMount().vm as any
-    expect(vm.stripMeta('hello | world')).toBe('hello')
-    expect(vm.stripMeta('no pipe')).toBe('no pipe')
+  it('stripStrategyMeta strips after pipe', () => {
+    expect(stripStrategyMeta('hello | world')).toBe('hello')
+    expect(stripStrategyMeta('no pipe')).toBe('no pipe')
+    expect(stripStrategyMeta(undefined)).toBe('')
   })
 
-  it('getParamCount returns param count', () => {
-    const vm = doMount().vm as any
-    expect(vm.getParamCount({ params: { a: 1, b: 2 } })).toBe(2)
-    expect(vm.getParamCount({ params: {} })).toBe(0)
+  it('getStrategyParamCount returns param count', () => {
+    expect(getStrategyParamCount({ a: 1, b: 2 })).toBe(2)
+    expect(getStrategyParamCount({})).toBe(0)
+    expect(getStrategyParamCount(undefined)).toBe(0)
   })
 
   it('filteredTemplates returns all when no filter', () => {

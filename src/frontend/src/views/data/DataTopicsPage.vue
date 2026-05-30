@@ -55,10 +55,9 @@
         </div>
       </template>
       <div class="grid gap-3 md:grid-cols-4">
-        <el-statistic
-          :title="t('dataPages.topicsConnState')"
-          :value="wsConnected ? 'connected' : 'idle'"
-        />
+        <el-statistic :title="t('dataPages.topicsConnState')">
+          <template #default>{{ wsConnected ? 'connected' : 'idle' }}</template>
+        </el-statistic>
         <el-statistic
           :title="t('dataPages.topicsTotal')"
           :value="stats?.total_topics ?? topics.length"

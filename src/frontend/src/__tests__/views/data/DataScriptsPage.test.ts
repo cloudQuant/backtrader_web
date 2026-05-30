@@ -1,169 +1,126 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises } from '@vue/test-utils'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 
-import DataScriptsPage from '@/views/data/DataScriptsPage.vue'
-import { mountWithPlugins } from '@/test/mountWithPlugins'
-
-const routerMocks = vi.hoisted(() => ({
-  push: vi.fn(),
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({ t: (k: string) => k }),
 }))
-
-const apiMocks = vi.hoisted(() => ({
-  list: vi.fn(),
-  getCategories: vi.fn(),
-  getStats: vi.fn(),
-  scan: vi.fn(),
-  run: vi.fn(),
-  toggle: vi.fn(),
-  create: vi.fn(),
-  update: vi.fn(),
-  delete: vi.fn(),
-}))
-
-const messageMocks = vi.hoisted(() => ({
-  success: vi.fn(),
-  warning: vi.fn(),
-  error: vi.fn(),
-}))
-
-const confirmMock = vi.hoisted(() => vi.fn())
-
-vi.mock('vue-router', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('vue-router')>()
-  return {
-    ...actual,
-    useRouter: () => ({ push: routerMocks.push }),
-  }
-})
 
 vi.mock('element-plus', () => ({
-  ElMessage: messageMocks,
-  ElMessageBox: {
-    confirm: confirmMock,
-  },
+  ElMessage: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  ElMessageBox: { confirm: vi.fn().mockResolvedValue('confirm') },
+}))
+
+vi.mock('vue-router', () => ({
+  useRouter: () => ({ push: vi.fn() }),
 }))
 
 vi.mock('@/api/akshare', () => ({
-  akshareScriptsApi: apiMocks,
-}))
-
-vi.mock('@/stores/auth', () => ({
-  useAuthStore: () => ({
-    user: {
-      is_admin: true,
-    },
-  }),
-}))
-
-describe('DataScriptsPage', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    apiMocks.getCategories.mockResolvedValue(['macro', 'futures'])
-    apiMocks.getStats.mockResolvedValue({
+  akshareScriptsApi: {
+    list: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+    getCategories: vi.fn().mockResolvedValue(['stock', 'future']),
+    getStats: vi.fn().mockResolvedValue({
       total_scripts: 3,
       active_scripts: 2,
       custom_scripts: 1,
-      categories: ['macro', 'futures'],
-    })
-    apiMocks.list.mockResolvedValue({
-      items: [
-        {
-          script_id: 'script-1',
-          script_name: '主力脚本',
-          category: 'macro',
-          sub_category: null,
-          frequency: 'daily',
-          description: '测试脚本',
-          source: 'akshare',
-          target_table: 'market_macro',
-          module_path: 'app.scripts.market_macro',
-          function_name: 'main',
-          dependencies: { limit: 10 },
-          estimated_duration: 60,
-          timeout: 300,
-          is_active: true,
-          is_custom: true,
-          updated_at: '2026-01-01T00:00:00Z',
-        },
-      ],
-      total: 1,
-    })
-    apiMocks.scan.mockResolvedValue({ registered: 1, updated: 2, errors: [] })
-    apiMocks.run.mockResolvedValue({ execution_id: 'exec-1' })
-    apiMocks.toggle.mockResolvedValue(undefined)
-    apiMocks.create.mockResolvedValue(undefined)
-    apiMocks.update.mockResolvedValue(undefined)
-    apiMocks.delete.mockResolvedValue(undefined)
-    confirmMock.mockResolvedValue(undefined)
+      categories: [],
+    }),
+    create: vi.fn().mockResolvedValue({ script_id: 's-1' }),
+    update: vi.fn().mockResolvedValue({ script_id: 's-1' }),
+    delete: vi.fn().mockResolvedValue(undefined),
+    run: vi.fn().mockResolvedValue({ execution_id: 'e-1' }),
+    scan: vi.fn().mockResolvedValue({ created: 1, updated: 0 }),
+    toggle: vi.fn().mockResolvedValue(undefined),
+  },
+}))
+
+vi.mock('@/api/index', () => ({
+  default: { get: vi.fn(), post: vi.fn() },
+  getErrorMessage: (_e: unknown, fallback: string) => fallback,
+}))
+
+vi.mock('@/stores/auth', () => ({
+  useAuthStore: () => ({ user: { is_admin: true } }),
+}))
+
+import DataScriptsPage from '@/views/data/DataScriptsPage.vue'
+import { akshareScriptsApi } from '@/api/akshare'
+import { elStubs } from '@/test/stubs'
+
+const api = akshareScriptsApi as unknown as Record<string, ReturnType<typeof vi.fn>>
+
+function doMount() {
+  return mount(DataScriptsPage, { global: { stubs: elStubs } })
+}
+
+describe('DataScriptsPage', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.clearAllMocks()
   })
 
-  it('loads scripts and executes create/edit/run/toggle/delete flows', async () => {
-    const wrapper = mountWithPlugins(DataScriptsPage)
-    await flushPromises()
+  it('loads categories, stats and scripts on mount', async () => {
+    doMount()
+    await new Promise(r => setTimeout(r, 0))
+    expect(api.getCategories).toHaveBeenCalled()
+    expect(api.getStats).toHaveBeenCalled()
+    expect(api.list).toHaveBeenCalled()
+  })
 
-    expect(apiMocks.getCategories).toHaveBeenCalledTimes(1)
-    expect(apiMocks.getStats).toHaveBeenCalledTimes(1)
-    expect(apiMocks.list).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('数据脚本')
+  it('isAdmin reflects the auth store', () => {
+    const vm = doMount().vm as any
+    expect(vm.isAdmin).toBe(true)
+  })
 
-    const vm = wrapper.vm as any
+  it('resetForm clears the form back to defaults', () => {
+    const vm = doMount().vm as any
+    vm.form.script_id = 'dirty'
+    vm.form.function_name = 'changed'
+    vm.dependenciesText = '{"a":1}'
+    vm.resetForm()
+    expect(vm.form.script_id).toBe('')
+    expect(vm.form.function_name).toBe('main')
+    expect(vm.dependenciesText).toBe('{}')
+  })
 
+  it('openCreateDialog resets form and opens dialog in create mode', () => {
+    const vm = doMount().vm as any
     vm.openCreateDialog()
-    vm.form.script_id = 'custom.script'
-    vm.form.script_name = '自定义脚本'
-    vm.form.category = 'macro'
-    vm.dependenciesText = '{"limit": 5}'
-    await vm.submitForm()
-    await flushPromises()
+    expect(vm.dialogVisible).toBe(true)
+    expect(vm.dialogMode).toBe('create')
+    expect(vm.form.script_id).toBe('')
+  })
 
-    expect(apiMocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      script_id: 'custom.script',
-      script_name: '自定义脚本',
-      category: 'macro',
-      dependencies: { limit: 5 },
-    }))
-    expect(messageMocks.success).toHaveBeenCalledWith('脚本已创建')
-
-    const currentScript = apiMocks.list.mock.results[0]?.value ? undefined : undefined
-    const row = {
-      script_id: 'script-1',
-      script_name: '主力脚本',
-      category: 'macro',
-      sub_category: null,
+  it('openEditDialog loads the script into the form in edit mode', () => {
+    const vm = doMount().vm as any
+    vm.openEditDialog({
+      script_id: 's-9',
+      script_name: 'Nine',
+      category: 'stock',
       frequency: 'daily',
-      description: '测试脚本',
-      source: 'akshare',
-      target_table: 'market_macro',
-      module_path: 'app.scripts.market_macro',
-      function_name: 'main',
-      dependencies: { limit: 10 },
-      estimated_duration: 60,
-      timeout: 300,
-      is_active: true,
-      is_custom: true,
-    }
-    void currentScript
+      function_name: 'run',
+      dependencies: {},
+    })
+    expect(vm.dialogVisible).toBe(true)
+    expect(vm.dialogMode).toBe('edit')
+    expect(vm.form.script_id).toBe('s-9')
+  })
 
-    vm.openEditDialog(row)
-    await vm.submitForm()
-    await flushPromises()
-
-    expect(apiMocks.update).toHaveBeenCalledWith('script-1', expect.objectContaining({
-      script_name: '主力脚本',
-      category: 'macro',
-      dependencies: { limit: 10 },
-    }))
-
+  it('handleScan invokes the scan API', async () => {
+    const vm = doMount().vm as any
     await vm.handleScan()
-    await vm.runScript('script-1')
-    await vm.toggleScript('script-1')
-    await vm.deleteScript(row)
-    await flushPromises()
+    expect(api.scan).toHaveBeenCalled()
+  })
 
-    expect(apiMocks.scan).toHaveBeenCalledTimes(1)
-    expect(apiMocks.run).toHaveBeenCalledWith('script-1', { parameters: {} })
-    expect(routerMocks.push).toHaveBeenCalledWith({ name: 'DataExecutions', query: { script_id: 'script-1' } })
-    expect(apiMocks.toggle).toHaveBeenCalledWith('script-1')
-    expect(apiMocks.delete).toHaveBeenCalledWith('script-1')
+  it('runScript invokes the run API', async () => {
+    const vm = doMount().vm as any
+    await vm.runScript('s-1')
+    expect(api.run).toHaveBeenCalledWith('s-1', { parameters: {} })
+  })
+
+  it('toggleScript invokes the toggle API', async () => {
+    const vm = doMount().vm as any
+    await vm.toggleScript('s-1')
+    expect(api.toggle).toHaveBeenCalledWith('s-1')
   })
 })

@@ -1,5 +1,6 @@
 import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -75,7 +76,7 @@ def build_subprocess_env(
     instance_id: str,
     instance: dict[str, Any],
     strategy_dir: Path,
-    acquire_gateway_for_instance,
+    acquire_gateway_for_instance: Callable[..., Any],
     os_environ: dict[str, str],
     bt_api_py_dir: Path,
 ) -> dict[str, str]:
@@ -105,11 +106,11 @@ def acquire_gateway_for_instance(
     instance_id: str,
     instance: dict[str, Any],
     strategy_dir: Path,
-    get_gateway_params,
-    build_gateway_launch,
+    get_gateway_params: Callable[..., Any],
+    build_gateway_launch: Callable[..., Any],
     gateways: dict[str, dict[str, Any]],
     instance_gateways: dict[str, str],
-    logger,
+    logger: Any,
 ) -> dict[str, Any] | None:
     gateway_params = get_gateway_params(instance)
     if not gateway_params.get("enabled"):
@@ -176,7 +177,7 @@ def release_gateway_for_instance(
     instance_id: str,
     gateways: dict[str, dict[str, Any]],
     instance_gateways: dict[str, str],
-    logger,
+    logger: Any,
 ) -> None:
     key = instance_gateways.pop(instance_id, None)
     if not key:

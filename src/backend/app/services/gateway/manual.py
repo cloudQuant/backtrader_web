@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import urllib.request
+from collections.abc import Callable
 from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,9 @@ def _kill_process_on_port(port: int) -> None:
 
         for conn in psutil.net_connections(kind="tcp"):
             status = str(getattr(conn, "status", "") or "").upper()
-            if conn.laddr.port == port and conn.pid and status == "LISTEN":
+            laddr = conn.laddr
+            laddr_port = getattr(laddr, "port", None)
+            if laddr_port == port and conn.pid and status == "LISTEN":
                 try:
                     proc = psutil.Process(conn.pid)
                     if proc.pid != os.getpid():
@@ -105,7 +108,7 @@ def _find_recent_bind_error(snapshot: dict[str, Any] | None) -> str:
     return ""
 
 
-def _release_gateway_zmq_ports(runtime) -> None:
+def _release_gateway_zmq_ports(runtime: Any) -> None:
     """Clear bt_api_base TCP port caches for a stopped runtime so reconnect
     can reuse or reallocate the same ports without 'Address in use' errors."""
     try:
@@ -134,8 +137,8 @@ def _release_gateway_zmq_ports(runtime) -> None:
 
 
 def _start_runtime_with_retry(
-    gateway_config_cls,
-    gateway_runtime_cls,
+    gateway_config_cls: Any,
+    gateway_runtime_cls: Any,
     kwargs: dict[str, Any],
     max_attempts: int = 3,
 ) -> tuple:
@@ -630,7 +633,7 @@ def _swap_url_scheme(base_url: str, scheme: str) -> str:
     return swap_url_scheme(base_url, scheme)
 
 
-def _import_ib_web_session_helpers():
+def _import_ib_web_session_helpers() -> tuple[Any, Any, Any]:
     from bt_api_py.functions.ib_web_session import (
         auth_status,
         ensure_authenticated_session,
@@ -693,7 +696,7 @@ def _resolve_ib_web_base_url(
     base_url: str,
     verify_ssl: bool,
     timeout: float,
-    logger,
+    logger: Any,
 ) -> str:
     from app.services.manual_gateway.ib_clientportal import resolve_ib_web_base_url
     return resolve_ib_web_base_url(
@@ -787,7 +790,9 @@ def _start_ib_clientportal_background(clientportal_dir: Path) -> subprocess.Pope
     return subprocess.Popen(_build_ib_clientportal_command(clientportal_dir), **kwargs)
 
 
-def _ensure_ib_clientportal_running(base_url: str, logger, startup_wait_sec: float = 8.0) -> None:
+def _ensure_ib_clientportal_running(
+    base_url: str, logger: Any, startup_wait_sec: float = 8.0
+) -> None:
     global _ib_clientportal_process
     if not _should_manage_ib_clientportal(base_url):
         return
@@ -945,8 +950,10 @@ def _extract_runtime_connect_error(snapshot: dict[str, Any] | None) -> str:
 
 def _resolve_startup_timeout_sec(credentials: dict[str, Any], default: float) -> float:
     candidate = credentials.get("startup_timeout_sec")
-    if candidate in (None, ""):
+    if candidate is None or candidate == "":
         candidate = credentials.get("timeout")
+    if candidate is None or candidate == "":
+        return default
     try:
         timeout = float(candidate)
     except (TypeError, ValueError):
@@ -963,7 +970,7 @@ def _parse_tcp_front_endpoint(front: str) -> tuple[str, int] | tuple[None, None]
     return host.lower(), port
 
 
-def _resolve_ctp_front_pair(td_front: str, md_front: str, logger) -> tuple[str, str]:
+def _resolve_ctp_front_pair(td_front: str, md_front: str, logger: Any) -> tuple[str, str]:
     requested = next(
         (
             item
@@ -1054,7 +1061,9 @@ def _get_macos_default_gateway() -> tuple[str, str] | tuple[None, None]:
                 gateway = stripped.split(":", 1)[1].strip()
             elif stripped.startswith("interface:"):
                 interface = stripped.split(":", 1)[1].strip()
-        return gateway, interface
+        if gateway is not None and interface is not None:
+            return gateway, interface
+        return None, None
     except Exception:
         return None, None
 
@@ -1100,7 +1109,7 @@ def _has_host_route(ip: str, expected_iface: str) -> bool:
         return False
 
 
-def _add_direct_route_for_ip(ip: str, gateway: str, interface: str, logger) -> bool:
+def _add_direct_route_for_ip(ip: str, gateway: str, interface: str, logger: Any) -> bool:
     """Add a host route so *ip* bypasses TUN and goes through the physical gateway.
 
     Tries in order:
@@ -1152,7 +1161,7 @@ def _extract_ips_from_fronts(*fronts: str) -> list[str]:
     return result
 
 
-def _add_ips_to_proxy_bypass_file(ips: list[str], logger) -> bool:
+def _add_ips_to_proxy_bypass_file(ips: list[str], logger: Any) -> bool:
     """Add IPs to proxy app's user-defined direct/local bypass list.
 
     Supports ViewTurbo (user_local.txt) and similar proxy apps.
@@ -1230,23 +1239,23 @@ def _find_clash_external_controller() -> tuple[str, str] | tuple[None, None]:
             except Exception:
                 continue
 
-    for port in (9090, 9097, 19090):
+    for probe_port in (9090, 9097, 19090):
         try:
             import urllib.request
 
             req = urllib.request.Request(
-                f"http://127.0.0.1:{port}/version",
+                f"http://127.0.0.1:{probe_port}/version",
                 headers={"User-Agent": "backtrader-web"},
             )
             resp = urllib.request.urlopen(req, timeout=2)
             if resp.status == 200:
-                return f"http://127.0.0.1:{port}", ""
+                return f"http://127.0.0.1:{probe_port}", ""
         except Exception:
             continue
     return None, None
 
 
-def _clash_api_add_direct_rules(ips: list[str], logger) -> bool:
+def _clash_api_add_direct_rules(ips: list[str], logger: Any) -> bool:
     """Try to add DIRECT rules for IPs via Clash external controller API."""
     base_url, secret = _find_clash_external_controller()
     if not base_url:
@@ -1290,7 +1299,7 @@ def _clash_api_add_direct_rules(ips: list[str], logger) -> bool:
     return True
 
 
-def _ensure_ctp_direct_routes(td_front: str, md_front: str, logger) -> None:
+def _ensure_ctp_direct_routes(td_front: str, md_front: str, logger: Any) -> None:
     """If a TUN proxy is active, bypass it for CTP server IPs.
 
     CTP uses native C++ TCP sockets which get intercepted by transparent proxies
@@ -1340,7 +1349,7 @@ def _ensure_ctp_direct_routes(td_front: str, md_front: str, logger) -> None:
         )
 
 
-def _maybe_tunnel_ctp_fronts(td_front: str, md_front: str, logger) -> tuple[str, str]:
+def _maybe_tunnel_ctp_fronts(td_front: str, md_front: str, logger: Any) -> tuple[str, str]:
     """If a system HTTP proxy is active, create HTTP CONNECT tunnels for CTP fronts.
 
     CTP uses native C++ TCP sockets that get intercepted by transparent proxies
@@ -1411,8 +1420,8 @@ def _format_ctp_connect_error(exc: Exception) -> str:
 
 
 def _wait_for_runtime_ready(
-    runtime,
-    logger,
+    runtime: Any,
+    logger: Any,
     timeout_sec: float,
     poll_interval_sec: float = 0.2,
 ) -> None:
@@ -1450,12 +1459,12 @@ def connect_gateway(
     gateways: dict[str, dict[str, Any]],
     exchange_type: str,
     credentials: dict[str, Any],
-    normalize_exchange_type,
-    coerce_bool,
-    coerce_float,
-    import_gateway_runtime_classes,
+    normalize_exchange_type: Callable[..., Any],
+    coerce_bool: Callable[..., Any],
+    coerce_float: Callable[..., Any],
+    import_gateway_runtime_classes: Callable[..., Any],
     default_transport: str,
-    logger,
+    logger: Any,
     allow_interactive_login: bool = True,
 ) -> dict[str, Any]:
     # One-time proxy health check: clears dead proxy env vars so ALL
@@ -1555,9 +1564,9 @@ def connect_ctp_gateway(
     gateways: dict[str, dict[str, Any]],
     key: str,
     credentials: dict[str, Any],
-    import_gateway_runtime_classes,
+    import_gateway_runtime_classes: Callable[..., Any],
     default_transport: str,
-    logger,
+    logger: Any,
 ) -> dict[str, Any]:
     required = ["broker_id", "user_id", "password", "td_front", "md_front"]
     missing = [field for field in required if not credentials.get(field)]
@@ -1568,6 +1577,7 @@ def connect_ctp_gateway(
             "message": f"Missing required fields: {', '.join(missing)}",
         }
     try:
+        runtime = None
         resolved_td_front, resolved_md_front = _resolve_ctp_front_pair(
             str(credentials["td_front"]),
             str(credentials["md_front"]),
@@ -1593,7 +1603,6 @@ def connect_ctp_gateway(
             "gateway_startup_timeout_sec": startup_timeout_sec,
         }
         ready_timeout = max(startup_timeout_sec * 3.0 + 4.0, 8.0)
-        runtime = None
 
         def _connect_with_fronts(td_front: str, md_front: str) -> tuple[Any, Any, dict[str, Any]]:
             nonlocal runtime
@@ -1655,7 +1664,7 @@ def connect_ctp_gateway(
             "message": "CTP gateway started successfully",
         }
     except Exception as exc:
-        if "runtime" in locals():
+        if runtime is not None:
             try:
                 runtime.stop()
             except Exception:
@@ -1673,11 +1682,11 @@ def connect_ib_web_gateway(
     gateways: dict[str, dict[str, Any]],
     key: str,
     credentials: dict[str, Any],
-    coerce_bool,
-    coerce_float,
-    import_gateway_runtime_classes,
+    coerce_bool: Callable[..., Any],
+    coerce_float: Callable[..., Any],
+    import_gateway_runtime_classes: Callable[..., Any],
     default_transport: str,
-    logger,
+    logger: Any,
     allow_interactive_login: bool = True,
 ) -> dict[str, Any]:
     from app.services.manual_gateway.ib_clientportal import connect_ib_web_gateway as _impl
@@ -1711,9 +1720,9 @@ def connect_binance_gateway(
     gateways: dict[str, dict[str, Any]],
     key: str,
     credentials: dict[str, Any],
-    import_gateway_runtime_classes,
+    import_gateway_runtime_classes: Callable[..., Any],
     default_transport: str,
-    logger,
+    logger: Any,
 ) -> dict[str, Any]:
     credentials = _merge_binance_default_credentials(credentials)
     required = ["api_key", "secret_key"]
@@ -1777,9 +1786,9 @@ def connect_okx_gateway(
     gateways: dict[str, dict[str, Any]],
     key: str,
     credentials: dict[str, Any],
-    import_gateway_runtime_classes,
+    import_gateway_runtime_classes: Callable[..., Any],
     default_transport: str,
-    logger,
+    logger: Any,
 ) -> dict[str, Any]:
     credentials = _merge_okx_default_credentials(credentials)
     required = ["api_key", "secret_key", "passphrase"]
@@ -1844,8 +1853,8 @@ def connect_mt5_gateway(
     gateways: dict[str, dict[str, Any]],
     key: str,
     credentials: dict[str, Any],
-    import_gateway_runtime_classes,
-    logger,
+    import_gateway_runtime_classes: Callable[..., Any],
+    logger: Any,
 ) -> dict[str, Any]:
     credentials = _merge_mt5_default_credentials(credentials)
     login = credentials.get("login")

@@ -1,0 +1,122 @@
+/* Styles for DataSyncPage.vue — extracted from the SFC <style scoped> block (175 §G / REFACTORING_BACKLOG.md). Consumed via scoped src so Vue keeps scoped-attribute hashing. */
+
+.header-row,
+.section-header,
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.page-title.small {
+  font-size: 16px;
+}
+
+.page-subtitle,
+.task-subtitle,
+.connection-detail,
+.task-db {
+  color: var(--text-color-secondary);
+  font-size: 12px;
+}
+
+.form-grid,
+.dual-grid,
+.connection-grid,
+.tips-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.form-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.dual-grid {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+}
+
+.tips-grid {
+  margin-top: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.connection-grid {
+  margin-top: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.connection-item,
+.task-item,
+.tip-card {
+  border: 1px solid var(--border-color-light);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--bg-color-page);
+}
+
+.connection-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.connection-title,
+.task-title {
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.config-section-title,
+.tip-title {
+  font-weight: 700;
+  color: var(--text-color-primary);
+  margin: 4px 0 12px;
+}
+
+.tip-text {
+  color: var(--text-color-regular);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.task-list,
+.database-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.database-tags {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.db-tag {
+  margin-right: 8px;
+}
+
+.full-width {
+  width: 100%;
+}

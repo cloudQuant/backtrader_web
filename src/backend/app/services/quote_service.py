@@ -18,10 +18,8 @@ backtrader_web  QuoteService
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -50,6 +48,9 @@ from app.services.quote.registry import (
 )
 from app.services.quote.registry import (
     resolve_quote_fields as _resolve_quote_fields,
+)
+from app.services.quote.runtime import (
+    send_gateway_command as _send_gateway_command_impl,
 )
 from app.services.quote.snapshots import (
     fetch_gateway_snapshot_tick as _fetch_gateway_snapshot_tick,
@@ -669,43 +670,13 @@ class QuoteService:
         send_timeout_ms: int = 3000,
         recv_timeout_ms: int = 3000,
     ) -> Any | None:
-        try:
-            import zmq
-        except ImportError:
-            logger.warning(
-                "pyzmq not installed; cannot execute %s on %s", command, command_endpoint
-            )
-            return None
-        ctx = zmq.Context.instance()
-        sock = ctx.socket(zmq.DEALER)
-        sock.setsockopt(zmq.IDENTITY, uuid.uuid4().hex.encode("utf-8"))
-        sock.setsockopt(zmq.SNDTIMEO, send_timeout_ms)
-        sock.setsockopt(zmq.RCVTIMEO, recv_timeout_ms)
-        try:
-            sock.connect(command_endpoint)
-            request = {
-                "request_id": uuid.uuid4().hex,
-                "command": command,
-                "payload": payload,
-            }
-            sock.send(
-                json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            )
-            resp_raw = sock.recv()
-            resp = json.loads(resp_raw.decode("utf-8"))
-            if isinstance(resp, dict) and resp.get("status") == "ok":
-                return resp.get("data")
-            if isinstance(resp, dict):
-                logger.warning("%s failed for %s: %s", command, command_endpoint, resp.get("error"))
-            else:
-                logger.warning("%s returned invalid response for %s", command, command_endpoint)
-        except zmq.Again:
-            logger.warning("%s timed out for %s", command, command_endpoint)
-        except Exception:
-            logger.exception("Failed to execute %s for %s", command, command_endpoint)
-        finally:
-            sock.close()
-        return None
+        return _send_gateway_command_impl(
+            command_endpoint,
+            command,
+            payload,
+            send_timeout_ms=send_timeout_ms,
+            recv_timeout_ms=recv_timeout_ms,
+        )
 
     @staticmethod
     def _build_tick(

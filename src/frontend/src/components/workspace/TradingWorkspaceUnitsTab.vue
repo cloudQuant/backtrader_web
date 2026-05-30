@@ -174,210 +174,12 @@
       @exported="handleUnitsExported"
     />
 
-    <el-dialog
-      v-model="showDetailDialog"
-      :title="t('tradingUnits.unitDetail')"
-      width="980px"
-    >
-      <div
-        v-if="detailUnit"
-        class="space-y-4 text-sm"
-      >
-        <div class="flex flex-wrap items-center justify-end gap-2">
-          <el-button
-            size="small"
-            @click="handleOpenRuntimeDialog(detailUnit)"
-          >
-            {{ t('tradingUnits.viewRunFile') }}
-          </el-button>
-          <el-button
-            type="primary"
-            size="small"
-            @click="handleOpenRuntimeDirectory(detailUnit)"
-          >
-            {{ t('tradingUnits.openUnit') }}
-          </el-button>
-        </div>
-
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs text-slate-500">
-              {{ t('tradingUnits.unit') }}
-            </div>
-            <div class="mt-1 font-semibold text-slate-700">
-              {{ detailUnit.strategy_name || detailUnit.strategy_id }}
-            </div>
-            <div class="text-xs text-slate-400">
-              {{ detailUnit.symbol }} / {{ detailUnit.timeframe }}
-            </div>
-          </div>
-          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs text-slate-500">
-              {{ t('tradingUnits.tradingMode') }}
-            </div>
-            <div class="mt-1 font-semibold text-slate-700">
-              {{ detailUnit.trading_mode === 'live' ? t('tradingUnits.liveTrading') : t('tradingUnits.paperTrading') }}
-            </div>
-            <div class="text-xs text-slate-400">
-              {{ statusLabel(detailUnit) }}
-            </div>
-          </div>
-          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs text-slate-500">
-              {{ t('tradingUnits.gateway') }}
-            </div>
-            <div class="mt-1 font-semibold text-slate-700">
-              {{ detailUnit.trading_snapshot?.gateway_summary || '-' }}
-            </div>
-            <div class="text-xs text-slate-400">
-              {{ t('tradingUnits.instance') }} {{ detailUnit.trading_instance_id || '-' }}
-            </div>
-          </div>
-          <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-            <div class="text-xs text-slate-500">
-              {{ t('tradingUnits.lastUpdate') }}
-            </div>
-            <div class="mt-1 font-semibold text-slate-700">
-              {{ detailUnit.trading_snapshot?.updated_at || formatTime(detailUnit.updated_at) }}
-            </div>
-            <div class="text-xs text-slate-400">
-              {{ t('tradingUnits.tradingDay') }} {{ detailUnit.trading_snapshot?.trading_day || '-' }}
-            </div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div class="text-xs text-slate-500">
-              {{ t('tradingUnits.longPosition') }} / {{ t('tradingUnits.flat') }}
-            </div>
-            <div class="mt-1 text-lg font-semibold text-slate-700">
-              {{ formatNumber(detailUnit.trading_snapshot?.long_position, 0, false) }}
-              /
-              {{ formatNumber(detailUnit.trading_snapshot?.short_position, 0, false) }}
-            </div>
-          </div>
-          <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div class="text-xs text-slate-500">
-              {{ t('tradingUnits.todayPnL') }}
-            </div>
-            <div
-              class="mt-1 text-lg font-semibold"
-              :class="numberClass(detailUnit.trading_snapshot?.today_pnl)"
-            >
-              {{ formatSignedNumber(detailUnit.trading_snapshot?.today_pnl, 2, false) }}
-            </div>
-          </div>
-          <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div class="text-xs text-slate-500">
-              {{ t('tradingUnits.cumulativePnL') }}
-            </div>
-            <div
-              class="mt-1 text-lg font-semibold"
-              :class="numberClass(detailUnit.trading_snapshot?.cumulative_pnl)"
-            >
-              {{ formatSignedNumber(detailUnit.trading_snapshot?.cumulative_pnl, 2, false) }}
-            </div>
-          </div>
-          <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
-            <div class="text-xs text-slate-500">
-              {{ t('tradingUnits.leverage') }} / {{ t('tradingUnits.latestPrice') }}
-            </div>
-            <div class="mt-1 text-lg font-semibold text-slate-700">
-              {{ formatNumber(detailUnit.trading_snapshot?.leverage, 2, false) }}
-              /
-              {{ formatPrice(detailUnit.trading_snapshot?.latest_price) }}
-            </div>
-          </div>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <div class="mb-3 text-sm font-medium text-slate-700">
-            {{ t('tradingUnits.runInfo') }}
-          </div>
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div><span class="text-gray-500">{{ t('tradingUnits.runStarted') }}：</span>{{ detailUnit.trading_snapshot?.started_at || '-' }}</div>
-            <div><span class="text-gray-500">{{ t('tradingUnits.runStopped') }}：</span>{{ detailUnit.trading_snapshot?.stopped_at || '-' }}</div>
-            <div class="md:col-span-2">
-              <span class="text-gray-500">{{ t('tradingUnits.errorInfo') }}：</span>{{ detailUnit.trading_snapshot?.error || '-' }}
-            </div>
-          </div>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
-          <div class="mb-3 text-sm font-medium text-slate-700">
-            {{ t('tradingUnits.positionDetail') }}
-          </div>
-          <el-table
-            :data="detailUnit.trading_snapshot?.positions || []"
-            size="small"
-            border
-            class="detail-positions-table"
-            :empty-text="t('tradingUnits.noPositionDetail')"
-          >
-            <el-table-column
-              prop="data_name"
-              :label="t('tradingUnits.contract')"
-              min-width="150"
-              show-overflow-tooltip
-            />
-            <el-table-column
-              :label="t('tradingUnits.direction')"
-              width="90"
-              align="center"
-            >
-              <template #default="{ row }">
-                {{ directionLabel(row.direction) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              prop="size"
-              :label="t('tradingUnits.quantity')"
-              width="90"
-              align="right"
-            />
-            <el-table-column
-              :label="t('tradingUnits.openPrice')"
-              width="110"
-              align="right"
-            >
-              <template #default="{ row }">
-                {{ formatPrice(row.price) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              :label="t('tradingUnits.currentPrice')"
-              width="110"
-              align="right"
-            >
-              <template #default="{ row }">
-                {{ formatPrice(row.current_price) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              :label="t('tradingUnits.marketValue')"
-              width="120"
-              align="right"
-            >
-              <template #default="{ row }">
-                {{ formatAmountCompact(row.market_value) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              :label="t('tradingUnits.pnl')"
-              width="110"
-              align="right"
-            >
-              <template #default="{ row }">
-                <span :class="numberClass(row.pnl)">
-                  {{ formatSignedNumber(row.pnl, 2, false) }}
-                </span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
-      </div>
-    </el-dialog>
+    <TradingUnitDetailDialog
+      v-model:visible="showDetailDialog"
+      :detail-unit="detailUnit"
+      @open-runtime-dialog="handleOpenRuntimeDialog"
+      @open-runtime-directory="handleOpenRuntimeDirectory"
+    />
     <UnitRuntimeDialog
       v-model="showRuntimeDialog"
       :workspace-id="workspaceId"
@@ -393,22 +195,10 @@ import { useI18n } from 'vue-i18n'
 import { getErrorMessage } from '@/api/index'
 import { workspaceApi } from '@/api/workspace'
 import { useWorkspaceStore } from '@/stores/workspace'
-import type {
-  StrategyUnit,
-  TradingAutoConfig,
-  TradingAutoScheduleItem,
-} from '@/types/workspace'
-import {
-  directionLabel,
-  formatAmountCompact,
-  formatNumber,
-  formatPrice,
-  formatSignedNumber,
-  formatTime,
-  numberClass,
-  statusLabel,
-} from '@/composables/useUnitTableRendering'
+import { useAutoTradingControls } from '@/composables/useAutoTradingControls'
+import type { StrategyUnit } from '@/types/workspace'
 import AutoTradingConfigDialog from './AutoTradingConfigDialog.vue'
+import TradingUnitDetailDialog from './TradingUnitDetailDialog.vue'
 import BatchOptimizationConfigDialog from './BatchOptimizationConfigDialog.vue'
 import CreateUnitDialog from './CreateUnitDialog.vue'
 import DataSourceDialog from './DataSourceDialog.vue'
@@ -459,9 +249,16 @@ const showDetailDialog = ref(false)
 const showRuntimeDialog = ref(false)
 const detailUnit = ref<StrategyUnit | null>(null)
 const runtimeUnit = ref<StrategyUnit | null>(null)
-const autoTradingEnabled = ref(false)
-const autoTradingLoading = ref(false)
-const autoTradingSchedule = ref<TradingAutoScheduleItem[]>([])
+
+const {
+  autoTradingEnabled,
+  autoTradingLoading,
+  autoTradingScheduleSummary,
+  loadAutoTradingState,
+  handleEnableAutoTrading,
+  handleDisableAutoTrading,
+  handleAutoTradingSaved,
+} = useAutoTradingControls(() => props.workspaceId)
 
 const hasSelection = computed(() => store.selectedUnitIds.length > 0)
 const hasSingleSelection = computed(() => store.selectedUnitIds.length === 1)
@@ -487,14 +284,6 @@ const paperUnitCount = computed(() =>
 const profitableUnitCount = computed(() =>
   store.units.filter(unit => Number(unit.trading_snapshot?.today_pnl || 0) > 0).length
 )
-const autoTradingScheduleSummary = computed(() => {
-  if (!autoTradingSchedule.value.length) {
-    return ''
-  }
-  return autoTradingSchedule.value
-    .map(item => `${item.session} ${item.start}-${item.stop}`)
-    .join(' / ')
-})
 const lastUpdatedLabel = computed(() => {
   const timestamps = store.units
     .map(unit => unit.trading_snapshot?.updated_at || unit.updated_at)
@@ -541,48 +330,6 @@ function onUnitCreated() {
 async function onUnitUpdated() {
   await store.fetchUnits(props.workspaceId)
   await store.pollStatus(props.workspaceId)
-}
-
-async function loadAutoTradingState() {
-  try {
-    const [config, scheduleResponse] = await Promise.all([
-      workspaceApi.getTradingAutoConfig(props.workspaceId),
-      workspaceApi.getTradingAutoSchedule(props.workspaceId),
-    ])
-    autoTradingEnabled.value = config.enabled
-    autoTradingSchedule.value = scheduleResponse
-  } catch {
-    autoTradingEnabled.value = false
-    autoTradingSchedule.value = []
-  }
-}
-
-async function updateAutoTradingEnabled(enabled: boolean) {
-  autoTradingLoading.value = true
-  try {
-    const updated = await workspaceApi.updateTradingAutoConfig(props.workspaceId, { enabled })
-    const scheduleResponse = await workspaceApi.getTradingAutoSchedule(props.workspaceId)
-    autoTradingEnabled.value = updated.enabled
-    autoTradingSchedule.value = scheduleResponse
-    ElMessage.success(updated.enabled ? t('tradingUnits.autoTradingEnabled') : t('tradingUnits.autoTradingDisabled'))
-  } catch (error: unknown) {
-    ElMessage.error(getErrorMessage(error, t('tradingUnits.updateAutoTradingFailed')))
-  } finally {
-    autoTradingLoading.value = false
-  }
-}
-
-function handleEnableAutoTrading() {
-  void updateAutoTradingEnabled(true)
-}
-
-function handleDisableAutoTrading() {
-  void updateAutoTradingEnabled(false)
-}
-
-function handleAutoTradingSaved(payload: { config: TradingAutoConfig; schedule: TradingAutoScheduleItem[] }) {
-  autoTradingEnabled.value = payload.config.enabled
-  autoTradingSchedule.value = payload.schedule
 }
 
 function handleCreateOptimizationTask() {
@@ -731,103 +478,4 @@ function handleOpenRuntimeDialog(unit: StrategyUnit) {
 
 </script>
 
-<style scoped>
-.trading-overview-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.overview-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--info-border-color);
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--info-surface) 100%);
-}
-
-.overview-card.is-success {
-  border-color: var(--success-border-color);
-  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--success-surface) 100%);
-}
-
-.overview-card.is-warning {
-  border-color: var(--warning-border-color);
-  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--warning-surface) 100%);
-}
-
-.overview-card.is-danger {
-  border-color: var(--danger-border-color);
-  background: linear-gradient(135deg, var(--bg-color-card) 0%, var(--danger-surface) 100%);
-}
-
-.overview-card__label {
-  font-size: 12px;
-  color: var(--text-color-secondary);
-}
-
-.overview-card__value {
-  font-size: 24px;
-  line-height: 1.1;
-  color: var(--text-color-primary);
-}
-
-.overview-card__meta {
-  font-size: 12px;
-  color: var(--text-color-placeholder);
-}
-
-.trading-schedule-bar {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-color-card);
-}
-
-.trading-schedule-bar__item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.trading-schedule-bar__item .label {
-  font-size: 12px;
-  color: var(--text-color-placeholder);
-}
-
-.trading-schedule-bar__item .value {
-  font-size: 13px;
-  color: var(--text-color-regular);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.detail-positions-table :deep(.el-table__header th) {
-  background: var(--bg-color-page);
-  color: var(--text-color-regular);
-  font-weight: 600;
-}
-
-@media (max-width: 1200px) {
-  .trading-overview-grid,
-  .trading-schedule-bar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 768px) {
-  .trading-overview-grid,
-  .trading-schedule-bar {
-    grid-template-columns: 1fr;
-  }
-}
-</style>
+<style scoped src="./TradingWorkspaceUnitsTab.styles.css"></style>

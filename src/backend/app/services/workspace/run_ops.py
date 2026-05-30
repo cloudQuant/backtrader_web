@@ -9,31 +9,70 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, cast, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.db.database import async_session_maker
+from app.models.backtest import BacktestTask
 from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.backtest import BacktestRequest, TaskStatus
 from app.schemas.workspace import UnitStatusResponse
+from app.services import workspace_unit_runtime
+from app.services.fincore_metrics_helper import calculate_extended_metrics
 from app.services.workspace.config import (
-    _is_trading_workspace,
     _normalize_workspace_type,
     _workspace_settings_dict,
 )
-from app.services import workspace_unit_runtime
-from app.services.fincore_metrics_helper import calculate_extended_metrics
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.services.backtest.service import BacktestService
+    from app.services.trading_workspace_service import TradingWorkspaceService
 
 logger = logging.getLogger(__name__)
 
 
 class WorkspaceRunOpsMixin:
     """Mixin providing run/stop/status/polling methods for WorkspaceService."""
+
+    if TYPE_CHECKING:
+        # These attributes/methods are provided by the composing class
+        # (``WorkspaceService``); declared here so mypy can type-check the mixin.
+        trading_service: TradingWorkspaceService
+
+        @staticmethod
+        async def _load_workspace(
+            session: AsyncSession,
+            workspace_id: str,
+            user_id: str,
+            load_units: bool = True,
+        ) -> Workspace | None: ...
+
+        @staticmethod
+        async def _get_unit(
+            session: AsyncSession, workspace_id: str, unit_id: str
+        ) -> StrategyUnit | None: ...
+
+        @staticmethod
+        def _build_backtest_request(unit: StrategyUnit) -> BacktestRequest: ...
+
+        @staticmethod
+        def _task_elapsed_seconds(task: BacktestTask | None) -> float | None: ...
+
+        @staticmethod
+        async def _resolve_unit_bar_count(
+            backtest_service: BacktestService,
+            task_id: str,
+            user_id: str | None,
+            bt_result: Any | None = None,
+        ) -> int: ...
+
+        @staticmethod
+        def _optimization_progress_response_to_opt_info(
+            progress: dict[str, Any] | None,
+        ) -> dict[str, Any] | None: ...
 
     async def run_units(
         self, workspace_id: str, user_id: str, unit_ids: list[str], parallel: bool = False
@@ -66,7 +105,7 @@ class WorkspaceRunOpsMixin:
                 results = await self.trading_service.start_units(
                     units,
                     user_id,
-                    cast(dict[str, Any], _workspace_settings_dict(ws)),
+                    _workspace_settings_dict(ws),
                 )
                 await session.commit()
                 return results
@@ -76,14 +115,14 @@ class WorkspaceRunOpsMixin:
                 unit.run_status = "queued"
             await session.commit()
 
-            from app.services.backtest_service import BacktestService
+            from app.services.backtest.service import BacktestService
 
             backtest_service = BacktestService()
 
             # Submit backtest for each unit, write back task_id immediately
             async def _submit_single(unit: StrategyUnit) -> dict[str, Any]:
                 try:
-                    workspace_settings = cast(dict[str, Any], _workspace_settings_dict(ws))
+                    workspace_settings = _workspace_settings_dict(ws)
                     workspace_unit_runtime.sync_unit_runtime(unit, workspace_settings)
                     bt_request = self._build_backtest_request(unit)
                     response = None
@@ -103,10 +142,11 @@ class WorkspaceRunOpsMixin:
 
                     # Immediately write task_id and set running (Bug-2 fix)
                     async with async_session_maker() as s2:
-                        u = await self._get_unit(s2, workspace_id, unit.id)
+                        u = await self._get_unit(s2, workspace_id, str(unit.id))
                         if u:
-                            u.last_task_id = task_id
-                            u.run_status = "running"
+                            u_row: Any = u
+                            u_row.last_task_id = task_id
+                            u_row.run_status = "running"
                             await s2.commit()
 
                     return {"unit_id": unit.id, "task_id": task_id, "status": "running"}
@@ -114,10 +154,11 @@ class WorkspaceRunOpsMixin:
                 except Exception as e:
                     logger.error("Unit %s submit failed: %s", unit.id, e)
                     async with async_session_maker() as s_err:
-                        u_err = await self._get_unit(s_err, workspace_id, unit.id)
+                        u_err = await self._get_unit(s_err, workspace_id, str(unit.id))
                         if u_err:
-                            u_err.run_status = "failed"
-                            u_err.run_count = (u_err.run_count or 0) + 1
+                            u_err_row: Any = u_err
+                            u_err_row.run_status = "failed"
+                            u_err_row.run_count = (u_err.run_count or 0) + 1
                             await s_err.commit()
                     return {
                         "unit_id": unit.id,
@@ -163,7 +204,7 @@ class WorkspaceRunOpsMixin:
                 await session.commit()
                 return results
 
-            from app.services.backtest_service import BacktestService
+            from app.services.backtest.service import BacktestService
 
             backtest_service = BacktestService()
 
@@ -209,7 +250,7 @@ class WorkspaceRunOpsMixin:
                     await session.commit()
                 return self.trading_service.build_status_responses(units)
 
-            from app.services.backtest_service import BacktestService
+            from app.services.backtest.service import BacktestService
 
             backtest_service = BacktestService()
 
@@ -306,6 +347,8 @@ class WorkspaceRunOpsMixin:
                 if cast(Any, u).last_optimization_task_id
             }
             if opt_task_ids:
+                from app.services.param_optimization_service import get_optimization_progress
+
                 for tid in opt_task_ids:
                     try:
                         progress = get_optimization_progress(tid, user_id=user_id, use_db=True)
@@ -364,7 +407,7 @@ class WorkspaceRunOpsMixin:
         workspace_id: str,
         user_id: str,
         submitted: list[tuple[str, str]],
-        backtest_service: "BacktestService",  # noqa: F821
+        backtest_service: BacktestService,  # noqa: F821
     ) -> None:
         """Background task: poll all submitted units **in parallel**, then update metrics."""
         await asyncio.gather(
@@ -381,7 +424,7 @@ class WorkspaceRunOpsMixin:
         user_id: str,
         unit_id: str,
         task_id: str,
-        backtest_service: "BacktestService",  # noqa: F821
+        backtest_service: BacktestService,  # noqa: F821
     ) -> None:
         """Poll a single unit's backtest task until completion, then update metrics."""
         start_ts = time.monotonic()
@@ -443,16 +486,17 @@ class WorkspaceRunOpsMixin:
                 async with async_session_maker() as s_err:
                     u_err = await self._get_unit(s_err, workspace_id, unit_id)
                     if u_err:
-                        u_err.run_status = "failed"
-                        u_err.run_count = (u_err.run_count or 0) + 1
-                        u_err.last_run_time = round(time.monotonic() - start_ts, 2)
+                        u_err_row: Any = u_err
+                        u_err_row.run_status = "failed"
+                        u_err_row.run_count = (u_err.run_count or 0) + 1
+                        u_err_row.last_run_time = round(time.monotonic() - start_ts, 2)
                         await s_err.commit()
             except Exception:
                 logger.exception("Failed to update unit %s status after error", unit_id)
 
     @staticmethod
     async def _poll_task_completion(
-        backtest_service: "BacktestService",  # noqa: F821
+        backtest_service: BacktestService,  # noqa: F821
         task_id: str,
         user_id: str,
         timeout: float = 600,

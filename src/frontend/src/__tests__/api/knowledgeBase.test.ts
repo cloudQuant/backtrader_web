@@ -23,7 +23,7 @@ vi.mock('@/utils/session', () => ({
 }))
 
 describe('knowledgeBaseApi', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('list GETs /knowledge-base/ with optional params', async () => {
     const { knowledgeBaseApi } = await import('@/api/knowledgeBase')

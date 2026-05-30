@@ -17,7 +17,6 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-
 _USER = SimpleNamespace(sub="u1")
 _OTHER_USER = SimpleNamespace(sub="u2")
 
@@ -130,9 +129,10 @@ async def test_create_paper_account():
 @pytest.mark.asyncio
 async def test_list_paper_accounts():
     """List accounts calls service with correct params and returns response."""
+    from datetime import datetime, timezone
+
     from app.api.paper_trading import list_paper_accounts
     from app.schemas.paper_trading import AccountResponse
-    from datetime import datetime, timezone
 
     svc = _MockService()
     acct = AccountResponse(
@@ -211,21 +211,56 @@ async def test_delete_paper_account_not_found():
 
 @pytest.mark.asyncio
 async def test_submit_paper_order():
-    """Submit order returns created order."""
+    """Submit order verifies account ownership then unpacks the request to the service."""
     from app.api.paper_trading import submit_paper_order
 
     svc = _MockService()
     request = SimpleNamespace(
         account_id="acct-1",
-        symbol="BTC/USDT",
+        symbol="000001.SZ",
         side="buy",
         order_type="limit",
-        quantity=0.5,
-        price=60000.0,
+        size=100,
+        price=10.5,
+        stop_price=None,
+        limit_price=None,
     )
     result = await submit_paper_order(request=request, current_user=_USER, service=svc)
     assert result.id == "ord-1"
-    svc.submit_order.assert_called_once_with(user_id="u1", request=request)
+    svc.get_account.assert_awaited_once_with("acct-1")
+    svc.submit_order.assert_called_once_with(
+        account_id="acct-1",
+        symbol="000001.SZ",
+        order_type="limit",
+        side="buy",
+        size=100,
+        price=10.5,
+        stop_price=None,
+        limit_price=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_submit_paper_order_rejects_foreign_account():
+    """Submitting against another user's account returns 404."""
+    from app.api.paper_trading import submit_paper_order
+
+    svc = _MockService()
+    svc.get_account = AsyncMock(return_value=_make_account(user_id="someone-else"))
+    request = SimpleNamespace(
+        account_id="acct-1",
+        symbol="000001.SZ",
+        side="buy",
+        order_type="market",
+        size=100,
+        price=None,
+        stop_price=None,
+        limit_price=None,
+    )
+    with pytest.raises(HTTPException) as exc:
+        await submit_paper_order(request=request, current_user=_USER, service=svc)
+    assert exc.value.status_code == 404
+    svc.submit_order.assert_not_called()
 
 
 @pytest.mark.asyncio

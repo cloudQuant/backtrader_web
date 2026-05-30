@@ -5,7 +5,7 @@ Service layer for akshare scheduled tasks.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.akshare_mgmt import DataScript, ScheduledTask
 from app.services.akshare_execution_service import AkshareExecutionService
 from app.services.akshare_scheduler import AkshareScheduler
+
+if TYPE_CHECKING:
+    from app.models.akshare_mgmt import TaskExecution
 
 SCHEDULE_TEMPLATES = [
     {
@@ -142,7 +145,8 @@ class AkshareSchedulerService:
         task = await self.get_task(db, task_id)
         if task is None:
             return None
-        task.is_active = not task.is_active
+        task_row: Any = task
+        task_row.is_active = not task.is_active
         await db.commit()
         await db.refresh(task)
         await self.scheduler.add_or_update_task(task.id)
@@ -152,7 +156,7 @@ class AkshareSchedulerService:
         self,
         task_id: int,
         operator_id: str | None = None,
-    ):
+    ) -> TaskExecution:
         return await self.scheduler.run_task_now(task_id, operator_id=operator_id)
 
     async def list_task_executions(
@@ -161,7 +165,7 @@ class AkshareSchedulerService:
         task_id: int,
         page: int = 1,
         page_size: int = 20,
-    ):
+    ) -> tuple[list[TaskExecution], int]:
         service = AkshareExecutionService(db)
         return await service.list_executions(task_id=task_id, page=page, page_size=page_size)
 

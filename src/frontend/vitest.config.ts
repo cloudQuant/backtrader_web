@@ -41,21 +41,33 @@ export default defineConfig({
         '**/main.ts',
         'src/i18n/**',
         'src/composables/useKeyboardShortcuts.ts',
+        // ECharts/canvas-backed chart wrappers cannot render under happy-dom
+        // (no canvas); their behaviour is covered by e2e + visual checks, not
+        // unit tests. Excluding them keeps the function-coverage denominator
+        // honest rather than parking permanently-0% canvas init code in it.
+        'src/components/charts/DrawdownChart.vue',
+        'src/components/charts/EquityCurve.vue',
+        'src/components/charts/KlineChart.vue',
+        'src/components/charts/ReturnHeatmap.vue',
+        'src/components/charts/TradeSignalChart.vue',
+        // Route table is declarative config (lazy-import factory functions),
+        // exercised by the app boot + e2e, not unit tests.
+        'src/router/**',
       ],
       thresholds: {
-        // Iteration 175 §2 — global ratchet started at 60→75. Iteration 176
-        // §E walked the actual numbers up significantly (branches now ~76%
-        // by 'All files' aggregate report), but Vitest's per-run threshold
-        // check uses a slightly different denominator that lands ~1.5pp
-        // below the report. To avoid the constant gate failure on numbers
-        // that are demonstrably at-target, we relax the explicit thresholds
-        // to 70 (lines/functions/statements still 50). High_Coverage_Core
-        // per-file thresholds remain strictly enforced at 90%, which is
-        // where the actual quality bar lives.
-        lines: 50,
-        functions: 50,
-        branches: 70,
-        statements: 50,
+        // Iteration 176 §E — global coverage ratchet walked up from the 175
+        // 50/70 floor. Lines/branches/statements are now genuinely ≥75% (the
+        // 175 §2 target) and enforced here. Functions is held at a realistic
+        // enforced floor: Vue SFCs accrue many template-bound handler
+        // "functions" that unit tests don't all trigger, so the function
+        // denominator runs structurally below line coverage even when the
+        // meaningful logic is covered. The floor ratchets up over time;
+        // ECharts/canvas chart wrappers and the route table are excluded
+        // above since they are covered by e2e/visual rather than unit tests.
+        lines: 75,
+        functions: 52,
+        branches: 75,
+        statements: 75,
         ...HIGH_COVERAGE_CORE_THRESHOLDS,
       },
     },

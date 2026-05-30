@@ -14,7 +14,7 @@ vi.mock('axios', () => ({
 }))
 
 describe('aiTrading API', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('executeTrade POSTs with default dry_run=true and auto_confirm=false', async () => {
     const axios = (await import('axios')).default

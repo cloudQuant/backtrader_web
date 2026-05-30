@@ -101,9 +101,8 @@ def sanitize_trades(trades: Any) -> list[dict[str, Any]]:
         if size <= 0:
             continue
         try:
-            value = (
-                float(trade.get("value")) if trade.get("value") is not None else price * size
-            )
+            value_raw = trade.get("value")
+            value = float(value_raw) if value_raw is not None else price * size
         except (TypeError, ValueError):
             value = price * size
         if value <= 0:

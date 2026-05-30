@@ -155,7 +155,7 @@ describe('exportUtils', () => {
       status: 'completed',
     } as any
 
-    let createURL: ReturnType<typeof vi.fn>
+    let createURL: ReturnType<typeof vi.fn<[], string>>
     let revokeURL: ReturnType<typeof vi.fn>
     let click: ReturnType<typeof vi.fn>
     let createElementOriginal: typeof document.createElement

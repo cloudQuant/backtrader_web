@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 from app.db.sql_repository import SQLRepository
 from app.models.strategy import Strategy
@@ -84,17 +86,21 @@ def _sync_user_strategy_runtime_files(strategy: StrategyResponse) -> None:
     _templates.sync_user_strategy_runtime_files(strategy)
 
 
-def get_strategy_dir(strategy_id: str):  # type: ignore[override]
+def get_strategy_dir(strategy_id: str) -> Path:
     _sync_strategies_dir()
     return _templates.get_strategy_dir(strategy_id)
 
 
-def get_strategy_readme(template_id: str, strategy_type: StrategyType | None = None):
+def get_strategy_readme(
+    template_id: str, strategy_type: StrategyType | None = None
+) -> str | None:
     _sync_strategies_dir()
     return _templates.get_strategy_readme(template_id, strategy_type)
 
 
-def get_template_by_id(template_id: str, strategy_type: StrategyType | None = None):
+def get_template_by_id(
+    template_id: str, strategy_type: StrategyType | None = None
+) -> StrategyTemplate | None:
     _sync_strategies_dir()
     # Bypass the lru_cache so monkeypatched STRATEGIES_DIR is honored
     # in unit tests; the production path calls this rarely enough that
@@ -111,7 +117,7 @@ def get_template_by_id(template_id: str, strategy_type: StrategyType | None = No
     return None
 
 
-def get_all_strategy_templates():
+def get_all_strategy_templates() -> list[StrategyTemplate]:
     _sync_strategies_dir()
     return (
         list(_templates.scan_strategies_folder(StrategyType.backtest))
@@ -338,9 +344,21 @@ class StrategyService:
         unit_status = None
         statuses = await workspace_service.get_units_status(workspace_id, user_id)
         if statuses:
-            matched = next((item for item in statuses if str(item.get("id")) == added.unit.id), None)
-            if matched:
-                unit_status = UnitStatusResponse.model_validate(matched)
+
+            def _status_id(item: Any) -> str:
+                if isinstance(item, dict):
+                    return str(item.get("id"))
+                return str(getattr(item, "id", ""))
+
+            matched = next(
+                (item for item in statuses if _status_id(item) == added.unit.id), None
+            )
+            if matched is not None:
+                unit_status = (
+                    matched
+                    if isinstance(matched, UnitStatusResponse)
+                    else UnitStatusResponse.model_validate(matched)
+                )
 
         report = None
         report_ready = False
@@ -434,7 +452,9 @@ class StrategyService:
 
         if update_data:
             update_data["updated_at"] = datetime.now(timezone.utc)
-            strategy = await self.strategy_repo.update(strategy_id, update_data)
+            updated = await self.strategy_repo.update(strategy_id, update_data)
+            if updated is not None:
+                strategy = updated
         response = self._to_response(strategy)
         _sync_user_strategy_runtime_files(response)
         await invalidate_cache("strategies")

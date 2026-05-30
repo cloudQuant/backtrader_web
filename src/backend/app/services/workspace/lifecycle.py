@@ -7,6 +7,7 @@ Extracted from :class:`app.services.workspace_service.WorkspaceService`.
 from __future__ import annotations
 
 import logging
+from typing import Any, cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -44,7 +45,7 @@ async def create_workspace(user_id: str, data: WorkspaceCreate) -> WorkspaceResp
         session.add(ws)
         await session.commit()
         await session.refresh(ws, attribute_names=["strategy_units"])
-        workspace_unit_runtime.ensure_workspace_dir(ws.id)
+        workspace_unit_runtime.ensure_workspace_dir(str(ws.id))
         return _workspace_to_response(ws)
 
 
@@ -115,9 +116,10 @@ async def update_workspace(
         if ws is None:
             return None
         update_data = data.model_dump(exclude_unset=True)
+        ws_row: Any = ws
         for key, value in update_data.items():
             if key == "settings" and isinstance(value, dict):
-                existing = _normalize_workspace_settings(ws.settings)
+                existing = _normalize_workspace_settings(cast("dict[str, Any] | None", ws.settings))
                 for settings_key, settings_value in value.items():
                     if settings_key != "data_source":
                         existing[settings_key] = settings_value
@@ -136,13 +138,15 @@ async def update_workspace(
                         else:
                             merged_data_source[source_key] = source_value
                     existing["data_source"] = merged_data_source
-                ws.settings = existing
+                ws_row.settings = existing
             elif key == "workspace_type":
-                ws.workspace_type = _normalize_workspace_type(value)
+                ws_row.workspace_type = _normalize_workspace_type(value)
             elif key == "trading_config" and isinstance(value, dict):
-                existing = _normalize_workspace_trading_config(ws.trading_config)
+                existing = _normalize_workspace_trading_config(
+                    cast("dict[str, Any] | None", ws.trading_config)
+                )
                 existing.update(value)
-                ws.trading_config = existing
+                ws_row.trading_config = existing
             else:
                 setattr(ws, key, value)
         await session.commit()
@@ -150,8 +154,8 @@ async def update_workspace(
         for unit in ws.strategy_units or []:
             workspace_unit_runtime.sync_workspace_unit_runtime(
                 unit,
-                ws.settings or {},
-                ws.workspace_type,
+                cast("dict[str, Any]", ws.settings) or {},
+                str(ws.workspace_type),
             )
         return _workspace_to_response(ws)
 

@@ -34,7 +34,7 @@ def setup_workspace(
         ``(tmp_base, task_work_dir)`` — the root temp directory and the
         strategy-specific working directory inside it.
     """
-    from app.services.strategy_service import STRATEGIES_DIR
+    from app.services.strategy.core import STRATEGIES_DIR
 
     tmp_base = Path(tempfile.mkdtemp(prefix=f"bt_{task_id}_"))
     task_work_dir = tmp_base / "strategies" / strategy_id

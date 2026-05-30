@@ -211,7 +211,7 @@ class RealTimeDataService:
             import akshare as ak
         except ImportError:
             logger.error("akshare not installed, cannot fetch historical data")
-            raise ValueError("akshare library is required for historical data")
+            raise ValueError("akshare library is required for historical data") from None
 
         # Parse symbol (e.g., 000001.SZ -> 000001)
         code = symbol.split(".")[0] if "." in symbol else symbol
@@ -279,7 +279,7 @@ class RealTimeDataService:
 
         except Exception as e:
             logger.error(f"Failed to fetch historical data for {symbol}: {e}")
-            raise ValueError(f"Failed to fetch historical data: {e}")
+            raise ValueError(f"Failed to fetch historical data: {e}") from e
 
     def update_tick(
         self,

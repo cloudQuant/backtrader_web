@@ -76,76 +76,6 @@ select = ["E", "F", "I", "W", "B", "UP", "C4", "T201"]
 ignore = ["E501", "B008"]
 # B=bugbear, UP=pyupgrade, C4=comprehensions
 
-[tool.ruff.lint.per-file-ignores]
-"app/services/ai_chat_service.py" = ["B904"]
-"app/services/ai_trading_service.py" = ["B904"]
-"app/services/akshare_data_service.py" = ["B904"]
-"app/services/akshare_execution_service.py" = ["B904"]
-"app/services/akshare_interface_loader.py" = ["B904"]
-"app/services/akshare_interface_service.py" = ["B904"]
-"app/services/akshare_scheduler.py" = ["B904"]
-"app/services/akshare_scheduler_service.py" = ["B904"]
-"app/services/akshare_script_service.py" = ["B904"]
-"app/services/alert_evaluation.py" = ["B904"]
-"app/services/analytics_service.py" = ["B904"]
-"app/services/auth_service.py" = ["B904"]
-"app/services/auto_trading_scheduler.py" = ["B904"]
-"app/services/backtest_analyzers.py" = ["B904"]
-"app/services/backtest_manager.py" = ["B904"]
-"app/services/backtest_runner.py" = ["B904"]
-"app/services/backtest_service.py" = ["B904"]
-"app/services/chunk_service.py" = ["B904"]
-"app/services/comparison_service.py" = ["B904"]
-"app/services/ctp_tunnel.py" = ["B904"]
-"app/services/direct_order_service.py" = ["B904"]
-"app/services/fincore_metrics_helper.py" = ["B904"]
-"app/services/gateway_health_service.py" = ["B904"]
-"app/services/gateway_launch_builder.py" = ["B904"]
-"app/services/gateway_preset_service.py" = ["B904"]
-"app/services/gateway_runtime_service.py" = ["B904"]
-"app/services/instance_store.py" = ["B904"]
-"app/services/kb_chat_service.py" = ["B904"]
-"app/services/knowledge_base_service.py" = ["B904"]
-"app/services/live_execution_service.py" = ["B904"]
-"app/services/live_instance_service.py" = ["B904"]
-"app/services/live_trading_manager.py" = ["B904"]
-"app/services/live_trading_service.py" = ["B904"]
-"app/services/log_parser_service.py" = ["B904"]
-"app/services/manual_gateway_service.py" = ["B904"]
-"app/services/monitoring_service.py" = ["B904"]
-"app/services/optimization_async_runner.py" = ["B904"]
-"app/services/optimization_execution_manager.py" = ["B904"]
-"app/services/optimization_submission.py" = ["B904"]
-"app/services/optimization_task_gateway.py" = ["B904"]
-"app/services/optimization_task_state.py" = ["B904"]
-"app/services/optimization_thread_runner.py" = ["B904"]
-"app/services/optimization_trial_runner.py" = ["B904"]
-"app/services/paper_trading_service.py" = ["B904"]
-"app/services/param_optimization_service.py" = ["B904"]
-"app/services/process_supervisor.py" = ["B904"]
-"app/services/quote_service.py" = ["B904"]
-"app/services/rag_service.py" = ["B904"]
-"app/services/realtime_data_service.py" = ["B904"]
-"app/services/report_service.py" = ["B904"]
-"app/services/reqdocs_migration_service.py" = ["B904"]
-"app/services/risk_control_service.py" = ["B904"]
-"app/services/strategy_runtime_support.py" = ["B904"]
-"app/services/strategy_service.py" = ["B904"]
-"app/services/strategy_version_service.py" = ["B904"]
-"app/services/sync_service.py" = ["B904"]
-"app/services/trading_intent_parser.py" = ["B904"]
-"app/services/trading_risk_guard.py" = ["B904"]
-"app/services/trading_workspace_service.py" = ["B904"]
-"app/services/version_diff_service.py" = ["B904"]
-"app/services/workspace_service.py" = ["B904"]
-"app/services/workspace_unit_runtime.py" = ["B904"]
-"app/services/manual_gateway/**/*.py" = ["B904"]
-"app/services/overfitting/**/*.py" = ["B904"]
-"app/services/strategy_explainer/**/*.py" = ["B904"]
-"app/services/strategy_score/**/*.py" = ["B904"]
-"app/services/workspace/**/*.py" = ["B904"]
-"app/utils/**/*.py" = ["B904"]
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
@@ -161,6 +91,10 @@ markers = [
 # Once warnings drop and time allows, tighten step-by-step
 # (e.g. enable `disallow_untyped_defs` per package).
 python_version = "3.10"
+# pydantic v2 mypy plugin: teaches mypy about model __init__ signatures so
+# constructing a model with Field-defaulted args (e.g. ParamSpec) no longer
+# reports spurious "missing named argument" errors. Net -146 errors repo-wide.
+plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 follow_imports = "silent"
 warn_redundant_casts = true
@@ -183,14 +117,21 @@ disallow_untyped_defs = true
 
 # Iteration 175 §1: services strict-scope expansion (wave 1).
 # Subpackages with zero or near-zero strict-mode errors are enrolled here.
-# Remaining 6 subpackages (strategy/backtest/gateway/akshare/live_trading/workspace)
-# are deferred to 176 — see docs/iterations/迭代175-质量加固与可观测性纵深/PROGRESS.md
-# §1 "已知尾巴" for the per-subpackage error baseline (recorded at 175 entry-commit).
+# 176 §A wave-2 (2026-05-30): the remaining 6 service subpackages
+# (gateway/akshare/strategy/backtest/live_trading/workspace) reached 0 errors
+# in strict mode and are now enrolled below (see
+# docs/explanation/REFACTORING_BACKLOG.md §A).
 [[tool.mypy.overrides]]
 module = [
     "app.services.optimization.*",
     "app.services.log_parser.*",
     "app.services.ai_trading.*",
+    "app.services.gateway.*",
+    "app.services.akshare.*",
+    "app.services.strategy.*",
+    "app.services.backtest.*",
+    "app.services.live_trading.*",
+    "app.services.workspace.*",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

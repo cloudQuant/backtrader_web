@@ -29,129 +29,11 @@
         </div>
       </template>
 
-      <el-form
-        :model="configForm"
-        label-width="120px"
-      >
-        <div class="config-section-title">
-          {{ t('dataPages.syncSecMode') }}
-        </div>
-        <div class="form-grid">
-          <el-form-item :label="t('dataPages.syncFormMethod')">
-            <el-input
-              :value="t('dataPages.syncMethodValue')"
-              disabled
-            />
-          </el-form-item>
-          <el-form-item :label="t('dataPages.syncFormMode')">
-            <el-select
-              v-model="syncMode"
-              class="full-width"
-            >
-              <el-option
-                :label="t('dataPages.syncModeFull')"
-                value="full"
-              />
-              <el-option
-                :label="t('dataPages.syncModeSchemaOnly')"
-                value="schema_only"
-              />
-              <el-option
-                :label="t('dataPages.syncModeDataOnly')"
-                value="data_only"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item :label="t('dataPages.syncFormParallel')">
-            <el-input-number
-              v-model="configForm.sync_parallel_workers"
-              class="full-width"
-              :min="1"
-              :max="16"
-            />
-          </el-form-item>
-        </div>
-
-        <div class="config-section-title">
-          {{ t('dataPages.syncSecLocal') }}
-        </div>
-        <div class="form-grid">
-          <el-form-item :label="t('dataPages.syncFormLocalHost')">
-            <el-input
-              v-model="configForm.local_mysql_host"
-              placeholder="127.0.0.1"
-            />
-          </el-form-item>
-          <el-form-item :label="t('dataPages.syncFormLocalPort')">
-            <el-input-number
-              v-model="configForm.local_mysql_port"
-              class="full-width"
-              :min="1"
-              :max="65535"
-            />
-          </el-form-item>
-          <el-form-item :label="t('dataPages.syncFormLocalUser')">
-            <el-input
-              v-model="configForm.local_mysql_user"
-              placeholder="root"
-            />
-          </el-form-item>
-          <el-form-item :label="t('dataPages.syncFormLocalPwd')">
-            <el-input
-              v-model="configForm.local_mysql_password"
-              show-password
-              :placeholder="t('dataPages.syncLocalPwdPh')"
-            />
-          </el-form-item>
-        </div>
-
-        <div class="config-section-title">
-          {{ t('dataPages.syncSecRemote') }}
-        </div>
-        <div class="form-grid">
-          <el-form-item :label="t('dataPages.syncFormRemoteHost')">
-            <el-input
-              v-model="configForm.remote_mysql_host"
-              placeholder="43.167.221.188"
-            />
-          </el-form-item>
-          <el-form-item :label="t('dataPages.syncFormRemotePort')">
-            <el-input-number
-              v-model="configForm.remote_mysql_port"
-              class="full-width"
-              :min="1"
-              :max="65535"
-            />
-          </el-form-item>
-          <el-form-item :label="t('dataPages.syncFormRemoteUser')">
-            <el-input
-              v-model="configForm.remote_mysql_user"
-              placeholder="root"
-            />
-          </el-form-item>
-          <el-form-item :label="t('dataPages.syncFormRemotePwd')">
-            <el-input
-              v-model="configForm.remote_mysql_password"
-              show-password
-              :placeholder="t('dataPages.syncRemotePwdPh')"
-            />
-          </el-form-item>
-        </div>
-
-        <div class="config-section-title">
-          {{ t('dataPages.syncSecScope') }}
-        </div>
-        <div class="form-grid single-column">
-          <el-form-item :label="t('dataPages.syncFormDatabases')">
-            <el-input
-              v-model="syncDatabasesInput"
-              type="textarea"
-              :rows="2"
-              :placeholder="t('dataPages.syncDatabasesPh')"
-            />
-          </el-form-item>
-        </div>
-      </el-form>
+      <DataSyncConfigForm
+        :config="configForm"
+        v-model:sync-mode="syncMode"
+        v-model:sync-databases-input="syncDatabasesInput"
+      />
 
       <div class="tips-grid">
         <div class="tip-card">
@@ -204,169 +86,21 @@
       </div>
     </el-card>
 
-    <el-card v-if="activeTasks.length > 0">
-      <template #header>
-        <div class="page-title small">
-          {{ t('dataPages.syncProgressTitle') }}
-        </div>
-      </template>
+    <DataSyncActiveTasks
+      :tasks="activeTasks"
+      :status-label="statusLabel"
+    />
 
-      <div class="task-list">
-        <div
-          v-for="task in activeTasks"
-          :key="task.task_id"
-          class="task-item"
-        >
-          <div class="task-top">
-            <div>
-              <div class="task-title">
-                {{ task.direction === 'upload' ? t('dataPages.syncDirUpload') : t('dataPages.syncDirDownload') }}
-                <span class="task-db">{{ task.current_database || task.databases.join(', ') }}</span>
-              </div>
-              <div class="task-subtitle">
-                {{ task.message }}
-              </div>
-            </div>
-            <el-tag :type="task.status === 'failed' ? 'danger' : task.status === 'completed' ? 'success' : 'warning'">
-              {{ statusLabel(task.status) }}
-            </el-tag>
-          </div>
-          <el-progress
-            :percentage="task.progress_pct"
-            :status="task.status === 'failed' ? 'exception' : undefined"
-          />
-        </div>
-      </div>
-    </el-card>
-
-    <div class="dual-grid">
-      <el-card>
-        <template #header>
-          <div class="section-header">
-            <div>
-              <div class="page-title small">
-                {{ t('dataPages.syncUploadTitle') }}
-              </div>
-              <div class="page-subtitle">
-                {{ t('dataPages.syncUploadDesc') }}
-              </div>
-            </div>
-            <el-button
-              type="primary"
-              :loading="submittingBulkUpload"
-              @click="startSync('upload', databaseNames)"
-            >
-              {{ t('dataPages.syncUploadAll') }}
-            </el-button>
-          </div>
-        </template>
-
-        <el-table
-          v-loading="loadingDatabases"
-          :data="databaseRows"
-          stripe
-        >
-          <el-table-column
-            prop="name"
-            :label="t('dataPages.syncColDatabase')"
-            min-width="160"
-          />
-          <el-table-column
-            :label="t('dataPages.syncColLocalSize')"
-            width="120"
-          >
-            <template #default="{ row }">
-              {{ row.local.exists ? row.local.size_display : t('dataPages.syncStateNotExists') }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            :label="t('dataPages.syncColRemoteState')"
-            min-width="160"
-          >
-            <template #default="{ row }">
-              {{ formatRemoteState(row) }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            :label="t('dataPages.syncColActions')"
-            width="120"
-          >
-            <template #default="{ row }">
-              <el-button
-                link
-                type="primary"
-                @click="startSync('upload', [row.name])"
-              >
-                {{ t('dataPages.syncActionUpload') }}
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
-
-      <el-card>
-        <template #header>
-          <div class="section-header">
-            <div>
-              <div class="page-title small">
-                {{ t('dataPages.syncDownloadTitle') }}
-              </div>
-              <div class="page-subtitle">
-                {{ t('dataPages.syncDownloadDesc') }}
-              </div>
-            </div>
-            <el-button
-              :loading="submittingBulkDownload"
-              @click="startSync('download', databaseNames)"
-            >
-              {{ t('dataPages.syncDownloadAll') }}
-            </el-button>
-          </div>
-        </template>
-
-        <el-table
-          v-loading="loadingDatabases"
-          :data="databaseRows"
-          stripe
-        >
-          <el-table-column
-            prop="name"
-            :label="t('dataPages.syncColDatabase')"
-            min-width="160"
-          />
-          <el-table-column
-            :label="t('dataPages.syncColRemoteSize')"
-            width="120"
-          >
-            <template #default="{ row }">
-              {{ row.remote.exists ? row.remote.size_display : t('dataPages.syncStateNotExists') }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            :label="t('dataPages.syncColLocalState')"
-            min-width="160"
-          >
-            <template #default="{ row }">
-              {{ formatLocalState(row) }}
-            </template>
-          </el-table-column>
-          <el-table-column
-            :label="t('dataPages.syncColActions')"
-            width="120"
-          >
-            <template #default="{ row }">
-              <el-button
-                link
-                type="primary"
-                @click="startSync('download', [row.name])"
-              >
-                {{ t('dataPages.syncActionDownload') }}
-              </el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
-    </div>
+    <DataSyncDatabaseTables
+      :database-rows="databaseRows"
+      :database-names="databaseNames"
+      :loading-databases="loadingDatabases"
+      :submitting-bulk-upload="submittingBulkUpload"
+      :submitting-bulk-download="submittingBulkDownload"
+      :format-remote-state="formatRemoteState"
+      :format-local-state="formatLocalState"
+      @sync="startSync"
+    />
 
     <el-card>
       <template #header>
@@ -451,6 +185,9 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getErrorMessage } from '@/api/index'
 import { syncApi } from '@/api/sync'
+import DataSyncConfigForm from './components/DataSyncConfigForm.vue'
+import DataSyncActiveTasks from './components/DataSyncActiveTasks.vue'
+import DataSyncDatabaseTables from './components/DataSyncDatabaseTables.vue'
 import type {
   DatabaseSyncInfo,
   SyncConfig,
@@ -730,125 +467,4 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
-.header-row,
-.section-header,
-.toolbar-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.page-title {
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.page-title.small {
-  font-size: 16px;
-}
-
-.page-subtitle,
-.task-subtitle,
-.connection-detail,
-.task-db {
-  color: var(--text-color-secondary);
-  font-size: 12px;
-}
-
-.form-grid,
-.dual-grid,
-.connection-grid,
-.tips-grid {
-  display: grid;
-  gap: 16px;
-}
-
-.form-grid {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-}
-
-.form-grid.single-column {
-  grid-template-columns: 1fr;
-}
-
-.dual-grid {
-  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-}
-
-.tips-grid {
-  margin-top: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-}
-
-.connection-grid {
-  margin-top: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
-
-.connection-item,
-.task-item,
-.tip-card {
-  border: 1px solid var(--border-color-light);
-  border-radius: 12px;
-  padding: 14px;
-  background: var(--bg-color-page);
-}
-
-.connection-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.connection-title,
-.task-title {
-  font-weight: 600;
-  color: var(--text-color-primary);
-}
-
-.config-section-title,
-.tip-title {
-  font-weight: 700;
-  color: var(--text-color-primary);
-  margin: 4px 0 12px;
-}
-
-.tip-text {
-  color: var(--text-color-regular);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.task-list,
-.database-tags {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.task-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.database-tags {
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 4px;
-}
-
-.db-tag {
-  margin-right: 8px;
-}
-
-.full-width {
-  width: 100%;
-}
-</style>
+<style scoped src="./DataSyncPage.styles.css"></style>
