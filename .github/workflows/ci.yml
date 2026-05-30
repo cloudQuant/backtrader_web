@@ -468,17 +468,22 @@ jobs:
           python -m venv .venv
           echo "$PWD/.venv/bin" >> $GITHUB_PATH
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/pip install --no-cache-dir bandit safety
+          .venv/bin/pip install --no-cache-dir bandit pip-audit
           .venv/bin/pip install --no-cache-dir -e .
 
       - name: Run Bandit security linter
         run: |
           bash ../../scripts/ci/bandit_gate.sh app
 
-      - name: Check for security vulnerabilities
+      # Iteration 177 §C — replace the deprecated `safety check` CLI (Safety
+      # 3.x removed `check` in favour of an account-gated `safety scan`) with
+      # pip-audit (PyPA, OSV-backed, no account required). Advisory for one
+      # iteration to establish a baseline; flip to blocking (drop the `|| true`)
+      # once the baseline is clean. See docs/iterations/迭代177-*/PLAN.md §C.
+      - name: Audit Python dependencies (pip-audit, advisory)
         run: |
-          safety check --json --output safety-report.json
-          safety check
+          pip-audit --desc --format json --output pip-audit-report.json || true
+          pip-audit --desc || echo "::warning::pip-audit reported vulnerabilities (advisory; see pip-audit-report.json)"
 
       - name: Upload security reports
         uses: actions/upload-artifact@v4
@@ -487,7 +492,7 @@ jobs:
           name: backend-security-reports
           path: |
             src/backend/bandit-report.json
-            src/backend/safety-report.json
+            src/backend/pip-audit-report.json
 
   # ========================================
   # Frontend Quality Checks
