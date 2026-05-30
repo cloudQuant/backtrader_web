@@ -5,9 +5,7 @@ Handles workspace and strategy unit CRUD, bulk operations,
 and workspace-level run orchestration (Phase 3).
 """
 
-import asyncio
 import logging
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
@@ -28,19 +26,27 @@ from app.schemas.workspace import (
     StrategyUnitUpdate,
     UnitOptimizationRequest,
     UnitRenameRequest,
-    UnitStatusResponse,
     WorkspaceCreate,
     WorkspaceResponse,
     WorkspaceUpdate,
 )
 from app.services import workspace_unit_runtime
-from app.services.fincore_metrics_helper import calculate_extended_metrics
 from app.services.optimization.execution_manager import get_optimization_execution_manager
-from app.services.param_optimization_service import (
-    get_optimization_progress,
-    submit_optimization,
-)
 from app.services.trading_workspace_service import TradingWorkspaceService
+from app.services.workspace.config import (
+    _default_unit_end_date_iso,
+    _default_unit_start_date_iso,
+    _is_trading_workspace,
+    _normalize_unit_data_config,
+    _normalize_workspace_trading_config,
+    _normalize_workspace_type,
+)
+from app.services.workspace.run_ops import WorkspaceRunOpsMixin
+
+# `_normalize_unit_data_config` and `_normalize_workspace_type` are re-exported
+# here for sibling slices (workspace/units.py, workspace/optimization.py,
+# workspace/_helpers.py) that import them from this module.
+__all__ = ["WorkspaceService", "_normalize_unit_data_config", "_normalize_workspace_type"]
 
 logger = logging.getLogger(__name__)
 
@@ -51,24 +57,6 @@ _TERMINAL_OPTIMIZATION_STATUSES = {
     TaskStatus.FAILED.value,
     TaskStatus.CANCELLED.value,
 }
-from app.services.workspace.config import (  # noqa: E402
-    _ALLOWED_RUNTIME_FILE_EXTENSIONS,
-    _aggregate_workspace_status,
-    _default_unit_end_date_iso,
-    _default_unit_start_date_iso,
-    _default_workspace_settings,
-    _is_trading_workspace,
-    _normalize_unit_data_config,
-    _normalize_workspace_settings,
-    _normalize_workspace_trading_config,
-    _normalize_workspace_type,
-    _workspace_settings_dict,
-    _workspace_to_response,
-    _write_json_file,
-)
-
-
-from app.services.workspace.run_ops import WorkspaceRunOpsMixin
 
 
 class WorkspaceService(WorkspaceRunOpsMixin):

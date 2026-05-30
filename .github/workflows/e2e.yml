@@ -2,9 +2,9 @@ name: E2E - End-to-End Tests
 
 on:
   push:
-    branches: [master, develop]
+    branches: [master, dev]
   pull_request:
-    branches: [master, develop]
+    branches: [master, dev]
   workflow_dispatch:
     inputs:
       browser:

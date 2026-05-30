@@ -2,7 +2,7 @@ name: Deploy - Preview Environment
 
 on:
   pull_request:
-    branches: [master, develop]
+    branches: [master, dev]
     paths:
       - 'src/frontend/**'
       - 'src/backend/**'

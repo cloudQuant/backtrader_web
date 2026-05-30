@@ -26,7 +26,6 @@ from app.models.data_governance import (
     DgProvider,
     DgQualityRule,
 )
-from app.models.news_intelligence import NewsAnalysisModel, NewsArticleModel, NewsSourceModel
 from app.models.knowledge_base import (
     ChatConversation,
     ChatMessage,
@@ -36,6 +35,7 @@ from app.models.knowledge_base import (
     ModelConfig,
     ModelUsageLog,
 )
+from app.models.news_intelligence import NewsAnalysisModel, NewsArticleModel, NewsSourceModel
 from app.models.optimization import OptimizationTask
 from app.models.overfitting_result import OverfittingResultModel
 from app.models.paper_trading import Account, Order, PaperTrade, Position

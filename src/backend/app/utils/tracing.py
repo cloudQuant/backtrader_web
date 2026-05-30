@@ -41,8 +41,9 @@ to "OTel was never imported" outside of the one boolean check below.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
-from typing import Any, Iterator
+from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
