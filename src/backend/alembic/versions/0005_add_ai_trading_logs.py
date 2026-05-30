@@ -6,6 +6,7 @@ Create Date: 2026-05-20
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0005_add_ai_trading_logs"

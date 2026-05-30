@@ -5,9 +5,9 @@ Revises: 0007_add_ai_budget_fields
 Create Date: 2026-05-26
 """
 
-from alembic import op
 import sqlalchemy as sa
 
+from alembic import op
 
 revision = "0008_add_ai_model_preferences"
 down_revision = "0007_add_ai_budget_fields"

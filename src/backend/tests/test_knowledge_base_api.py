@@ -11,11 +11,10 @@ Tests cover all knowledge base CRUD endpoints with mocked service layer:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-
 
 _USER = SimpleNamespace(sub="u1")
 

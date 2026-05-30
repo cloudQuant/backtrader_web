@@ -79,8 +79,9 @@ async def warehouse_engine(monkeypatch):
         poolclass=StaticPool,
     )
 
-    import app.db.akshare_data_database as akshare_db_module
     import app.services.akshare_data_service as akshare_data_service_module
+
+    import app.db.akshare_data_database as akshare_db_module
 
     monkeypatch.setattr(akshare_db_module, "akshare_data_engine", engine)
     monkeypatch.setattr(akshare_data_service_module, "akshare_data_engine", engine)

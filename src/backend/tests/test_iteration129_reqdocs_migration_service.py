@@ -8,10 +8,16 @@ class TestReqDocsMigrationService:
 
     @pytest.mark.asyncio
     async def test_migrate_structured_entities_preserves_links(self):
-        from app.services.reqdocs_migration_service import ReqDocsMigrationService
-        from app.db.database import async_session_maker
-        from app.models.knowledge_base import ChatConversation, ChatMessage, KBDocument, KnowledgeBase
         from sqlalchemy import select
+
+        from app.db.database import async_session_maker
+        from app.models.knowledge_base import (
+            ChatConversation,
+            ChatMessage,
+            KBDocument,
+            KnowledgeBase,
+        )
+        from app.services.reqdocs_migration_service import ReqDocsMigrationService
 
         service = ReqDocsMigrationService()
         payload = {
@@ -93,10 +99,11 @@ class TestReqDocsMigrationService:
 
     @pytest.mark.asyncio
     async def test_migrate_prefers_markdown_contents_and_persists_source_file(self, tmp_path, monkeypatch):
-        from app.services.reqdocs_migration_service import ReqDocsMigrationService
+        from sqlalchemy import select
+
         from app.db.database import async_session_maker
         from app.models.knowledge_base import KBDocument
-        from sqlalchemy import select
+        from app.services.reqdocs_migration_service import ReqDocsMigrationService
 
         monkeypatch.setattr(ReqDocsMigrationService, 'SOURCE_FILE_DIR', tmp_path)
         service = ReqDocsMigrationService()
@@ -165,10 +172,16 @@ class TestReqDocsMigrationService:
 
     @pytest.mark.asyncio
     async def test_migration_is_idempotent_by_reqdocs_source_ids(self):
-        from app.services.reqdocs_migration_service import ReqDocsMigrationService
+        from sqlalchemy import func, select
+
         from app.db.database import async_session_maker
-        from app.models.knowledge_base import ChatConversation, ChatMessage, KBDocument, KnowledgeBase
-        from sqlalchemy import select, func
+        from app.models.knowledge_base import (
+            ChatConversation,
+            ChatMessage,
+            KBDocument,
+            KnowledgeBase,
+        )
+        from app.services.reqdocs_migration_service import ReqDocsMigrationService
 
         service = ReqDocsMigrationService()
         payload = {

@@ -274,8 +274,9 @@ async def test_backtest_service_task_limits_and_cancel_cleanup_excepts(monkeypat
 
 @pytest.mark.asyncio
 async def test_strategy_version_service_create_version_and_update_version_branches():
-    from app.models.strategy_version import VersionStatus
     from app.services.strategy_version_service import VersionControlService
+
+    from app.models.strategy_version import VersionStatus
 
     svc = VersionControlService()
 

@@ -931,8 +931,8 @@ class TestBacktestGetResultWithUserCheck:
         self, client: AsyncClient, auth_headers: dict, clear_lru_cache
     ):
         """Test getting result passes user_id parameter."""
-        from app.main import app
         from app.api.backtest_enhanced import get_backtest_service
+        from app.main import app
 
         me = await client.get("/api/v1/auth/me", headers=auth_headers)
         assert me.status_code == 200

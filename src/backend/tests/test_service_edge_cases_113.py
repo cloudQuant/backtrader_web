@@ -530,9 +530,10 @@ def test_strategy_service_to_response_paramspec_and_inference():
 @pytest.mark.asyncio
 async def test_strategy_version_service_missing_branches(monkeypatch):
     """Cover strategy_version_service: parent_version_id, update_dict fields, changelog set, get_current, unset default/active loops."""
+    from app.services.strategy_version_service import VersionControlService
+
     from app.models.strategy_version import VersionStatus
     from app.schemas.strategy_version import VersionUpdate
-    from app.services.strategy_version_service import VersionControlService
 
     svc = _new_service_without_init(VersionControlService)
     svc.strategy_repo = SimpleNamespace(

@@ -4,8 +4,8 @@ Acceptance tests for Task 3: AirflowAdapter.
 Validates Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7
 """
 
-import pytest
 import httpx
+import pytest
 
 from app.services.orchestration.airflow_adapter import AirflowAdapter
 from app.services.orchestration.exceptions import (

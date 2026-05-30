@@ -10,8 +10,6 @@ Covers:
 
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
-
 from app.services.alert_evaluation import (
     _check_cross_trigger,
     _check_rate_trigger,
@@ -20,15 +18,14 @@ from app.services.alert_evaluation import (
     compare_values,
 )
 from app.utils.exceptions import (
-    AuthenticationError,
     BacktestExecutionError,
     BacktestNotFoundError,
     BacktestTimeoutError,
     BaseAppError,
     BrokerConnectionError,
-    ConfigurationError,
     DataNotFoundError,
     DataProviderError,
+    InsufficientPermissionsError,
     InvalidConfigError,
     InvalidCredentialsError,
     InvalidDateRangeError,
@@ -43,10 +40,8 @@ from app.utils.exceptions import (
     UserAlreadyExistsError,
     UserInactiveError,
     UserNotFoundError,
-    InsufficientPermissionsError,
     format_exception_for_response,
 )
-
 
 # ============================================================
 # Exception Classes Tests

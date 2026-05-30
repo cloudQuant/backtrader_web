@@ -10,12 +10,11 @@ Validates: Requirements 8.1, 8.2, 8.5
 import json
 import re
 from datetime import datetime, timezone
-from unittest.mock import patch
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from httpx import ASGITransport, AsyncClient
 
 from app.utils.logger import _serialize_log
 

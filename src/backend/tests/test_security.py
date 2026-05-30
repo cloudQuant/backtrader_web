@@ -13,10 +13,7 @@ Run with: pytest tests/test_security.py -v -m security
 
 from __future__ import annotations
 
-import time
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -72,6 +69,7 @@ class TestJWTSecurity:
     async def test_expired_token_rejected(self, client: AsyncClient):
         """Expired JWT tokens are rejected."""
         import jwt
+
         from app.config import get_settings
 
         settings = get_settings()
@@ -112,6 +110,7 @@ class TestJWTSecurity:
     async def test_tampered_payload_rejected(self, client: AsyncClient):
         """Tokens with tampered payload (modified sub) are rejected."""
         import jwt
+
         from app.config import get_settings
 
         settings = get_settings()

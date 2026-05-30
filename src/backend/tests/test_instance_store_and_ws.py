@@ -3,10 +3,7 @@ Tests for InstanceStore, WebSocket message classes, ConnectionManager,
 and permission utilities.
 """
 
-import json
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -19,7 +16,6 @@ from app.websocket_manager import (
     ProgressMessage,
     ResultMessage,
 )
-
 
 # ============================================================
 # InstanceStore Tests
@@ -290,7 +286,7 @@ class TestPermissionUtils:
     def test_has_permission_with_admin_role(self):
         """Admin role should have all permissions."""
         from app.api._dependencies import has_permission
-        from app.models.permission import Permission, Role, ROLE_PERMISSIONS
+        from app.models.permission import Permission, Role
 
         # Create a mock user with admin role
         user = MagicMock()

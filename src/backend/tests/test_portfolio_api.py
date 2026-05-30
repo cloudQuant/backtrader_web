@@ -13,10 +13,9 @@ Tests cover all portfolio endpoints with mocked dependencies:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import pytest
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -52,7 +51,6 @@ class _MockManager:
 
 def _patch_deps(manager):
     """Return a context manager that patches get_current_user and _get_manager."""
-    from unittest.mock import AsyncMock
 
     return (
         patch("app.api.portfolio_api.get_current_user", return_value=_USER),

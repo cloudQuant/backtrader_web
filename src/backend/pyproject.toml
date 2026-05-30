@@ -76,6 +76,11 @@ select = ["E", "F", "I", "W", "B", "UP", "C4", "T201"]
 ignore = ["E501", "B008"]
 # B=bugbear, UP=pyupgrade, C4=comprehensions
 
+[tool.ruff.lint.per-file-ignores]
+# CLI scripts and perf harnesses legitimately use print() for operator output.
+"scripts/**" = ["T201"]
+"tests/test_performance_baseline.py" = ["T201"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

@@ -10,10 +10,8 @@ Covers:
 - Comparison service helper methods
 """
 
-import pytest
 
 from app.services.backtest.analyzers import FincoreAdapter
-
 
 # ============================================================
 # FincoreAdapter Tests

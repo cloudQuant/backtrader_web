@@ -4,7 +4,6 @@ Tests for BacktestService static utility methods.
 These methods are pure functions that don't require database or external services.
 """
 
-import pytest
 
 from app.services.backtest_service import BacktestService
 
@@ -248,8 +247,8 @@ class TestGetRequestData:
         assert result["symbol"] == "000001.SZ"
 
     def test_json_string_input(self):
-        from unittest.mock import MagicMock
         import json
+        from unittest.mock import MagicMock
 
         task = MagicMock()
         task.request_data = json.dumps({"symbol": "000001.SZ"})

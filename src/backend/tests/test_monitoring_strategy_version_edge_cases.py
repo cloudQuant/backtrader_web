@@ -453,9 +453,10 @@ async def test_monitoring_remaining_branches_for_full_coverage():
 @pytest.mark.asyncio
 async def test_strategy_version_service_additional_coverage():
     """Cover new permission branches, existing-branch early return, and performance diff."""
+    from app.services.strategy_version_service import VersionControlService
+
     from app.db import database as db
     from app.models.backtest import BacktestResultModel, BacktestTask
-    from app.services.strategy_version_service import VersionControlService
 
     svc = VersionControlService()
 

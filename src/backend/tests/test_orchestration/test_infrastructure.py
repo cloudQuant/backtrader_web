@@ -4,7 +4,6 @@ Acceptance tests for Task 1: Infrastructure (config, exceptions, base class, sch
 Validates Requirements: 1.7, 2.3, 6.1, 6.4, 6.6, 7.2, 7.3, 7.6, 9.1
 """
 
-import pytest
 
 
 class TestConfigSettings:

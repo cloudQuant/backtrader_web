@@ -5,7 +5,6 @@ Tests the callback endpoint and the orchestration status endpoint.
 Validates Requirements: 6.7, 6.8, 7.1, 7.2, 7.3
 """
 
-import pytest
 from httpx import AsyncClient
 
 from tests.conftest import register_and_login

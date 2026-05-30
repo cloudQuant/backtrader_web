@@ -33,8 +33,9 @@ async def test_health_check_exception_branch(client: AsyncClient, monkeypatch):
 
 
 def test_deps_permissions_get_current_user_delegates(monkeypatch):
-    import app.api.deps as deps_module
     import app.api.deps_permissions as deps_perm_module
+
+    import app.api.deps as deps_module
 
     monkeypatch.setattr(deps_module, "get_current_user", lambda: "ok", raising=True)
     assert deps_perm_module.get_current_user() == "ok"

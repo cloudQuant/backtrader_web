@@ -13,7 +13,6 @@ import pytest
 from app.db.cache import MemoryCache
 from app.utils.cache_decorator import cache_response, generate_cache_key
 
-
 # ============================================================
 # Cache Decorator Tests
 # ============================================================

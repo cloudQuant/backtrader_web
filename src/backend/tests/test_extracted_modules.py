@@ -20,12 +20,12 @@ from app.services import (
 from app.services.gateway import health as gateway_health_service
 from app.services.gateway import launch_builder as gateway_launch_builder
 from app.services.gateway import runtime as gateway_runtime_service
-from app.services.live_trading import execution as live_execution_service
-from app.services.live_trading import instance as live_instance_service
-from app.services.strategy import runtime_support as strategy_runtime_support
 from app.services.gateway.preset import get_gateway_presets
 from app.services.instance_store import InstanceStore
+from app.services.live_trading import execution as live_execution_service
+from app.services.live_trading import instance as live_instance_service
 from app.services.process_supervisor import is_pid_alive, kill_pid, scan_running_strategy_pids
+from app.services.strategy import runtime_support as strategy_runtime_support
 
 
 class TestInstanceStore:
