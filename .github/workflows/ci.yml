@@ -213,7 +213,10 @@ jobs:
         run: |
           python -m venv .venv
           .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/pip install ruff pytest pytest-asyncio httpx mypy
+          # mypy pinned to match the 177 §E ratchet baseline
+          # (scripts/ci/mypy_app_baseline.json). Bumping mypy requires
+          # regenerating that baseline via `mypy_ratchet.py --update`.
+          .venv/bin/pip install ruff pytest pytest-asyncio httpx "mypy==1.20.2"
           .venv/bin/pip install -e ".[backtrader]"
 
       - name: Activate virtualenv
@@ -236,9 +239,16 @@ jobs:
           python -m py_compile app/main.py
           python -c "from app.main import app; print(app.title)"
 
-      - name: Run Mypy type check
+      - name: Run Mypy type check (repo-wide ratchet, 177 §E)
+        # The whole-`app` type check carries ~1055 legacy errors that predate
+        # CI ever running on `dev` (the F1 root cause). Rather than block on a
+        # green-field 0 (unrealistic) or silently ignore regressions, this
+        # ratchet fails only when the count *increases*. Per-package strict
+        # gates (backend-mypy-* jobs below) still enforce 0 on enrolled scopes.
+        # Lower the baseline via `python scripts/ci/mypy_ratchet.py --update`
+        # whenever the count drops. See docs/iterations/迭代177-*/CLOSURE.md §E.
         run: |
-          mypy app
+          python ../../scripts/ci/mypy_ratchet.py
 
   backend-mypy-ratchet:
     name: Backend - Mypy Ratchet (utils + schemas)

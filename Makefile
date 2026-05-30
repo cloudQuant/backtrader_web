@@ -22,6 +22,17 @@ i18n-strict:
 i18n-cjk:
 	@python3 scripts/dev/check_i18n_coverage.py --strict --cjk-only
 
+# Iteration 177 §E — repo-wide mypy error ratchet. Fails if `mypy app`
+# reports more errors than the frozen baseline; `make mypy-ratchet-update`
+# lowers the baseline after you've reduced the count.
+.PHONY: mypy-ratchet
+mypy-ratchet:
+	@python3 scripts/ci/mypy_ratchet.py
+
+.PHONY: mypy-ratchet-update
+mypy-ratchet-update:
+	@python3 scripts/ci/mypy_ratchet.py --update
+
 .PHONY: bundle-budget
 bundle-budget:
 	@bash scripts/ci/check_bundle_size.sh src/frontend/dist

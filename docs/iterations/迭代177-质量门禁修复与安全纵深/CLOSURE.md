@@ -27,7 +27,7 @@ lint/format 债（§B），把弃用的 `safety` 换成 `pip-audit`（§C），�
 | §C 依赖审计 | `safety`→`pip-audit` advisory | CI 已切换 + dev extra | ✅ |
 | §D Secret 扫描 | pre-commit + CI gitleaks | hook + 2 个 CI job（advisory 全史 + blocking PR diff） | ✅ |
 | §D 泄露凭据处置 | （PLAN 未预见） | 9 类运行时文件 untrack + ignore | ✅ |
-| §E mypy 仓库级棘轮 | stretch / 可选 | 未做（标注顺延） | ⏭️ |
+| §E mypy 仓库级棘轮 | stretch / 可选 | 实现棘轮脚本 + baseline，修复 backend-lint 的隐性红 | ✅ |
 
 ---
 
@@ -105,16 +105,47 @@ PLAN §D 假设"`.env` 已安全 ignore，仅缺自动化防御纵深"。实测 
 
 ---
 
-## 6. 未完成 / 顺延项
+## 6. §E — mypy 仓库级棘轮（commit 本次）
 
-- **§E mypy 仓库级棘轮**：PLAN 标注为 stretch，本迭代优先级让位于 §D 发现的安全事故，
-  顺延至后续迭代。
+### 6.1 ⚠️ 又一处隐性红（PLAN 低估）
+
+PLAN 把 §E 标为 stretch/可选，依据是"已清包之外新增 type 错误不会 fail CI"。但实测
+发现：`backend-lint` job 里有一个**阻塞**的 `Run Mypy type check` 步骤（`mypy app`，
+无 `continue-on-error`），它和 F2 的 ruff 债是同一种"CI 从不在 dev 跑 → 静默腐烂"：
+当前 `mypy app` 报 **1055 个错误**（355 文件，mypy 1.20.2）。§A 把 CI 在 `dev` 打开后，
+这一步会让 `backend-lint` 立刻红——而 §B 只清了 ruff。
+
+错误构成（前几类）：`no-untyped-def` 614、`attr-defined` 170、`arg-type` 103、
+`assignment` 89、`union-attr` 20、`var-annotated` 19……多为历史欠的类型标注。
+
+### 6.2 处置：棘轮而非假装清零
+
+新增 `scripts/ci/mypy_ratchet.py` + `scripts/ci/mypy_app_baseline.json`（baseline=1055，
+pin mypy 1.20.2）：
+
+- 把 `backend-lint` 的 `mypy app` 步骤换成 `python ../../scripts/ci/mypy_ratchet.py`。
+- 棘轮只在**错误数增加**时 fail（拦住新债），下降时提示 `--update` 收紧 baseline。
+- 为可复现，`backend-lint` 安装步骤把 mypy pin 到 `1.20.2`（与 baseline 一致；
+  dev lock 是 2.1.0，不同版本计数不可比，脚本会在版本不符时打 `::warning::`）。
+- 既有的 per-package strict 门（`backend-mypy-*` 4 个 job）仍对已登记 scope 强制 0，
+  不受影响。
+- `Makefile` 加 `make mypy-ratchet` / `make mypy-ratchet-update`。
+
+验收：本地 `python scripts/ci/mypy_ratchet.py` → `errors=1055 baseline=1055 delta=+0`
+（exit 0）；人为把 baseline 调低 5 → exit 1 并打印 `::error::`，证明棘轮有牙齿。
+
+---
+
+## 7. 未完成 / 顺延项
+
+- **§E mypy 仓库级棘轮**：已完成（见上）。注：1055 个 baseline 错误本身是长尾欠债，
+  后续迭代按 scope 逐步清并 `--update` 收紧。
 - **F5 超大文件拆分**：standing 规则，按既有纪律滚动推进，本迭代不强拆。
 - **P1#4 `manual_gateway_service` 阻塞 I/O 重构**：触及实盘下单，需独立分支 + 纸面验证。
 
 ---
 
-## 7. 复现命令
+## 8. 复现命令
 
 ```bash
 # §A 分支触发
@@ -130,4 +161,7 @@ gitleaks detect --config .gitleaks.toml --no-banner --redact
 # §D 确认泄露文件已 untrack 且 ignore
 git ls-files src/backend/data/ | grep -v .gitkeep # 应为空
 git check-ignore src/backend/data/sync_config.json
+
+# §E mypy 棘轮
+make mypy-ratchet                                 # errors=1055 baseline=1055 delta=+0
 ```

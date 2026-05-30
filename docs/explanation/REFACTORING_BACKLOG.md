@@ -144,16 +144,6 @@ clean-up of the few static helpers still on the class; no large surface left.
 
 ## P2 — Worth doing, smaller
 
-### 12. `mypy` is installed but ungated
-
-- **Where**: `src/backend/pyproject.toml :: [tool.mypy]`
-- **Status**: config present; strict override now covers the services subpackages
-  (§A) but there is still no CI gate that fails on *new* errors repo-wide.
-- **Recommended fix**: introduce a ratchet — fail CI on new errors in the
-  already-clean packages (`app/utils`, `app/schemas`, `app/services/*` strict
-  set), and widen the scope as packages get cleaned up.
-- **Effort**: S to set up, M-L to chase down errors.
-
 ### 13. `quote_service.py` still mixes transport, cache, symbol persistence, and normalization
 
 - **Where**: `src/backend/app/services/quote_service.py`
