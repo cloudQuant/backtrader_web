@@ -40,20 +40,35 @@ first slice.
 
 ## P0 — Policy decisions (need product / ops sign-off)
 
-### 3. Local `.env` files contain real third-party credentials
+### 3. Real third-party credentials committed to git (runtime data files)
 
-- **Where**: developer-local `.env` and `strategies/simulate/*/.env`
-- **Symptom**: real OKX / Binance / HTX / CTP / Telegram / PyPI / ReadTheDocs
-  keys live on developer machines.
-- **Status**: `git log --all -- .env` returns empty — they were never committed,
-  so this is **not a code fix**.
-- **Action**: operational. Audit any place these `.env` files might have leaked
-  (screenshots, CI artifacts, support bundles), rotate the keys that have.
-  **Code-side done (176)**: the "Sharing a Repro Bundle (Scrub Secrets First)"
-  checklist was added to `CONTRIBUTING.md` (scrub/redact `.env`, logs,
-  screenshots; rotate on exposure). The remaining audit + key rotation is a
-  developer/ops action that cannot be performed in-repo.
-- **Effort**: 1–2 hours of audit + rotations (ops, outside this repo).
+- **Where**:
+  - developer-local `.env` and `strategies/simulate/*/.env` (never committed — OK)
+  - **`src/backend/data/manual_gateways.json` + `manual_gateways/*/config.json`,
+    `sync_config.json`, `sync_history.json`** — these **WERE committed and tracked**.
+- **Symptom**: real OKX / Binance / HTX / CTP / MT5 / IB keys, passphrases and
+  account passwords, plus production MySQL root passwords (local + remote
+  `43.167.221.188`) live in git, both in the working tree and **in history**.
+- **Status (updated 2026-05-31, iteration 177 §D)**: The earlier note "`.env`
+  was never committed, so this is not a code fix" was **only half right**.
+  iteration-177's new gitleaks gate surfaced ~114 history findings, the bulk of
+  them the real credentials above. The original `.gitignore` rule
+  `data/manual_gateways.json` had the wrong path prefix (actual files are under
+  `src/backend/data/`) so it never matched.
+  - **Code-side done (177 §D)**: `git rm --cached` untracked all the runtime
+    secret/state files (disk copies kept; loaders recreate on demand with
+    `is_file()` fallbacks). `.gitignore` corrected to cover the real paths.
+    gitleaks pre-commit hook + CI `secret-scan` job (advisory full-history +
+    **blocking PR-diff**) added so no NEW secret can land. See
+    `docs/iterations/迭代177-质量门禁修复与安全纵深/CLOSURE.md` §5.
+- **⛔ STILL OPEN — P0 ops (cannot be done in-repo, needs owner + team)**:
+  1. Rotate every exposed key/secret/passphrase/password at the provider.
+  2. Purge git history (`git filter-repo`/BFG) + force-push, notify all
+     collaborators to re-clone.
+  3. After history is clean, flip the `secret-scan` full-history step from
+     advisory to blocking.
+- **Effort**: 2–4 hours of rotations + a coordinated history rewrite (ops,
+  outside this repo).
 
 ---
 

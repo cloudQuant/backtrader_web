@@ -1,0 +1,37 @@
+# Gitleaks configuration — iteration 177 §D
+# Extends the built-in default ruleset and adds an allowlist for the
+# project's intentional placeholder secrets so the gate has zero false
+# positives while still blocking real leaked credentials.
+#
+# Run locally:  gitleaks detect --config .gitleaks.toml --no-banner
+# Run on staged: gitleaks protect --staged --config .gitleaks.toml
+
+# Pull in all the upstream default rules (API keys, tokens, private keys, ...).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Project-wide allowlist for placeholder / example secrets"
+
+# Files that intentionally contain placeholder secrets or document them.
+paths = [
+  '''\.env\.example$''',
+  '''\.gitleaks\.toml$''',
+  # Iteration docs and explanations discuss secret-handling and may quote
+  # placeholder values verbatim.
+  '''docs/.*\.md$''',
+  '''CONTRIBUTING\.md$''',
+]
+
+# Placeholder secret values used across config defaults, .env.example, and
+# tests. These are deliberately non-secret sentinels, never real credentials.
+regexes = [
+  '''replace-with-[a-z0-9-]+''',
+  '''your-secret-key-change-in-production''',
+  '''your-jwt-secret-change-in-production''',
+  '''test-secret-key-for-ci-[a-z0-9-]+''',
+  '''test-jwt-secret-key-for-ci-[a-z0-9-]+''',
+  # Common weak defaults referenced by the production secret-guard validator
+  # (app/config.py _DEFAULT_PASSWORDS) — these are checked *against*, not used.
+  '''admin123''',
+]

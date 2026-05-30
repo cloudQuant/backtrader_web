@@ -97,6 +97,17 @@ runtime/
 *.sqlite
 *.sqlite3
 data/manual_gateways.json
+# Runtime-generated backend state & live-trading credentials (iteration 177 §D).
+# These are written by the app at runtime and have historically leaked real
+# API keys / passwords into git. Keep them out of version control; the backend
+# recreates them on demand and falls back to defaults when absent.
+src/backend/data/manual_gateways.json
+src/backend/data/manual_gateways/
+src/backend/data/sync_config.json
+src/backend/data/sync_history.json
+src/backend/data/auto_trading_config.json
+src/backend/data/live_trading_instances.json
+src/backend/data/quote_custom_symbols.json
 src/backend/data/reqdocs_source_files/
 workspace_units/
 scripts/diag_*.txt

@@ -495,6 +495,89 @@ jobs:
             src/backend/pip-audit-report.json
 
   # ========================================
+  # Secret Scanning (iteration 177 §D)
+  # ========================================
+  secret-scan:
+    name: Security - Secret Scan (177 §D)
+    runs-on: ubuntu-latest
+    needs: check-generated-artifacts
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Full history so the scan can catch secrets in any commit, not just
+          # the current tree.
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.30.1
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      # Iteration 177 §D — ADVISORY (non-blocking) for now.
+      #
+      # The full-history scan currently reports ~114 findings, the bulk of which
+      # are REAL credentials that were committed to runtime files before this
+      # iteration untracked them (manual_gateways/*, sync_config.json, ...). See
+      # docs/iterations/迭代177-质量门禁修复与安全纵深/CLOSURE.md.
+      #
+      # Those leaks live in git *history*, so this scan will keep flagging them
+      # until two ops actions land (tracked as P0 follow-up, out of scope here):
+      #   1. Rotate every exposed key/password at the provider.
+      #   2. Purge history (git filter-repo / BFG) + force-push, coordinated
+      #      with all collaborators.
+      # Only after the purge can `|| echo ...` below be replaced by a hard fail.
+      #
+      # The allowlist in .gitleaks.toml covers the project's intentional
+      # placeholders so the gate stays signal-rich.
+      - name: Scan full history for secrets (advisory)
+        run: |
+          gitleaks detect \
+            --config .gitleaks.toml \
+            --report-format sarif \
+            --report-path gitleaks-report.sarif \
+            --redact \
+            --no-banner \
+            --exit-code 1 \
+          || echo "::warning::gitleaks reported potential secrets (advisory; see gitleaks-report.sarif artifact)"
+
+      - name: Upload gitleaks report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.sarif
+          retention-days: 7
+
+      # BLOCKING — only the commits introduced by this PR are scanned, so the
+      # historical leaks above don't false-fail it. This makes the gate have
+      # teeth *now*: any NEW secret in a PR fails the build immediately, while
+      # the history purge (P0 ops follow-up) is still pending.
+      - name: Scan PR commits for newly introduced secrets (blocking)
+        if: github.event_name == 'pull_request'
+        run: |
+          gitleaks detect \
+            --config .gitleaks.toml \
+            --log-opts "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
+            --report-format sarif \
+            --report-path gitleaks-pr-report.sarif \
+            --redact \
+            --no-banner \
+            --exit-code 1
+
+      - name: Upload gitleaks PR report
+        uses: actions/upload-artifact@v4
+        if: always() && github.event_name == 'pull_request'
+        with:
+          name: gitleaks-pr-report
+          path: gitleaks-pr-report.sarif
+          retention-days: 7
+
+  # ========================================
   # Frontend Quality Checks
   # ========================================
   frontend-lint:
@@ -1150,7 +1233,7 @@ jobs:
   ci-summary:
     name: CI Summary
     runs-on: ubuntu-latest
-    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, check-openapi, backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-mypy-services, backend-test, backend-security, frontend-lint, frontend-test, frontend-build, lighthouse-ci, frontend-a11y, frontend-i18n, frontend-e2e-smoke, monorepo-check, integration-test]
+    needs: [check-generated-artifacts, check-doc-links, check-deps-sync, check-migrations, check-openapi, backend-lint, backend-mypy-ratchet, backend-mypy-quote, backend-mypy-api-subset, backend-mypy-services, backend-test, backend-security, secret-scan, frontend-lint, frontend-test, frontend-build, lighthouse-ci, frontend-a11y, frontend-i18n, frontend-e2e-smoke, monorepo-check, integration-test]
     if: always()
 
     steps:
@@ -1226,6 +1309,11 @@ jobs:
           echo "| Backend Mypy Services (175) | ${{ needs.backend-mypy-services.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Test | ${{ needs.backend-test.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Security | ${{ needs.backend-security.result }} |" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.secret-scan.result }}" = "failure" ]; then
+            echo "| Secret Scan (177, advisory) | ⚠️ ${{ needs.secret-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Secret Scan (177, advisory) | ${{ needs.secret-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "| Frontend Lint | ${{ needs.frontend-lint.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Test | ${{ needs.frontend-test.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Build | ${{ needs.frontend-build.result }} |" >> $GITHUB_STEP_SUMMARY
