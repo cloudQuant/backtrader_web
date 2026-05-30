@@ -104,7 +104,9 @@ async def activate_prompt_template(
 ) -> PromptTemplateRead:
     template = await PromptRegistryService(db).activate_template(template_id)
     if template is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt template not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Prompt template not found"
+        )
     return _serialize_template(template)
 
 
@@ -117,7 +119,9 @@ async def test_prompt_template(
 ) -> PromptTemplateTestResponse:
     result = await PromptRegistryService(db).test_template(template_id, payload.variables)
     if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prompt template not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Prompt template not found"
+        )
     return PromptTemplateTestResponse(
         template_id=result.template_id,
         name=result.name,

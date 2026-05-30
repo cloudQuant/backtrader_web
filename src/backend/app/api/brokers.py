@@ -37,7 +37,9 @@ async def _load_profile_for_user(
         allow_admin=await user_has_admin_access(db, current_user),
     )
     if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="broker_profile_not_found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="broker_profile_not_found"
+        )
     return profile
 
 
@@ -140,7 +142,9 @@ async def enable_broker_profile_live_write(
 ):
     profile = await service.get_profile(profile_id, user_id=current_user.id, allow_admin=True)
     if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="broker_profile_not_found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="broker_profile_not_found"
+        )
     confirmation_text = str(payload.get("confirmation_text") or "").strip()
     expected_confirmation_text = service.get_enable_write_confirmation_text(profile)
     if confirmation_text != expected_confirmation_text:

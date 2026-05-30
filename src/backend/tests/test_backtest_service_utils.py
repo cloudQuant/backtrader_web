@@ -4,7 +4,6 @@ Tests for BacktestService static utility methods.
 These methods are pure functions that don't require database or external services.
 """
 
-
 from app.services.backtest_service import BacktestService
 
 

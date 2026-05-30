@@ -65,7 +65,9 @@ def upgrade() -> None:
     op.create_table(
         "strategy_versions",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=False, index=True),
+        sa.Column(
+            "strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=False, index=True
+        ),
         sa.Column("version_number", sa.Integer(), nullable=False),
         sa.Column("version_name", sa.String(50), nullable=False),
         sa.Column("branch", sa.String(50)),
@@ -78,7 +80,9 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("is_default", sa.Boolean(), nullable=False),
         sa.Column("is_current", sa.Boolean(), nullable=False),
-        sa.Column("parent_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=True),
+        sa.Column(
+            "parent_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=True
+        ),
         sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
         sa.Column("created_at", sa.DateTime()),
         sa.Column("updated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True),
@@ -89,9 +93,15 @@ def upgrade() -> None:
     op.create_table(
         "version_comparisons",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=False, index=True),
-        sa.Column("from_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=False),
-        sa.Column("to_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=False),
+        sa.Column(
+            "strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=False, index=True
+        ),
+        sa.Column(
+            "from_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=False
+        ),
+        sa.Column(
+            "to_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=False
+        ),
         sa.Column("code_diff", sa.Text(), nullable=True),
         sa.Column("params_diff", sa.JSON()),
         sa.Column("performance_diff", sa.JSON()),
@@ -103,9 +113,15 @@ def upgrade() -> None:
     op.create_table(
         "version_rollbacks",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=False, index=True),
-        sa.Column("from_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=False),
-        sa.Column("to_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=False),
+        sa.Column(
+            "strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=False, index=True
+        ),
+        sa.Column(
+            "from_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=False
+        ),
+        sa.Column(
+            "to_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=False
+        ),
         sa.Column("reason", sa.Text(), nullable=True),
         sa.Column("snapshot_data", sa.JSON(), nullable=True),
         sa.Column("created_at", sa.DateTime()),
@@ -116,11 +132,15 @@ def upgrade() -> None:
     op.create_table(
         "strategy_branches",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=False, index=True),
+        sa.Column(
+            "strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=False, index=True
+        ),
         sa.Column("branch_name", sa.String(50), nullable=False, index=True),
         sa.Column("parent_branch", sa.String(50), nullable=True),
         sa.Column("version_count", sa.Integer(), nullable=False),
-        sa.Column("last_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=True),
+        sa.Column(
+            "last_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=True
+        ),
         sa.Column("is_default", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime()),
         sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=False),
@@ -132,7 +152,13 @@ def upgrade() -> None:
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False, index=True),
         sa.Column("strategy_id", sa.String(36), index=True),
-        sa.Column("strategy_version_id", sa.String(36), sa.ForeignKey("strategy_versions.id"), nullable=True, index=True),
+        sa.Column(
+            "strategy_version_id",
+            sa.String(36),
+            sa.ForeignKey("strategy_versions.id"),
+            nullable=True,
+            index=True,
+        ),
         sa.Column("symbol", sa.String(20), index=True),
         sa.Column("status", sa.String(20)),
         sa.Column("request_data", sa.JSON()),
@@ -146,7 +172,9 @@ def upgrade() -> None:
     op.create_table(
         "backtest_results",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("task_id", sa.String(36), sa.ForeignKey("backtest_tasks.id"), unique=True, index=True),
+        sa.Column(
+            "task_id", sa.String(36), sa.ForeignKey("backtest_tasks.id"), unique=True, index=True
+        ),
         sa.Column("total_return", sa.Float()),
         sa.Column("annual_return", sa.Float()),
         sa.Column("sharpe_ratio", sa.Float()),
@@ -201,8 +229,20 @@ def upgrade() -> None:
     op.create_table(
         "comparison_shares",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("comparison_id", sa.String(36), sa.ForeignKey("backtest_comparisons.id"), nullable=False, index=True),
-        sa.Column("shared_with_user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False, index=True),
+        sa.Column(
+            "comparison_id",
+            sa.String(36),
+            sa.ForeignKey("backtest_comparisons.id"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "shared_with_user_id",
+            sa.String(36),
+            sa.ForeignKey("users.id"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("can_edit", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime()),
     )
@@ -210,8 +250,15 @@ def upgrade() -> None:
     # --- comparison_backtest_association ---
     op.create_table(
         "comparison_backtest_association",
-        sa.Column("comparison_id", sa.String(36), sa.ForeignKey("backtest_comparisons.id"), primary_key=True),
-        sa.Column("backtest_task_id", sa.String(36), sa.ForeignKey("backtest_tasks.id"), primary_key=True),
+        sa.Column(
+            "comparison_id",
+            sa.String(36),
+            sa.ForeignKey("backtest_comparisons.id"),
+            primary_key=True,
+        ),
+        sa.Column(
+            "backtest_task_id", sa.String(36), sa.ForeignKey("backtest_tasks.id"), primary_key=True
+        ),
     )
 
     # --- workspaces ---
@@ -232,7 +279,13 @@ def upgrade() -> None:
     op.create_table(
         "strategy_units",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("workspace_id", sa.String(36), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "workspace_id",
+            sa.String(36),
+            sa.ForeignKey("workspaces.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("group_name", sa.String(200), nullable=True),
         sa.Column("strategy_id", sa.String(100), nullable=True),
         sa.Column("strategy_name", sa.String(200), nullable=True),
@@ -285,7 +338,13 @@ def upgrade() -> None:
     op.create_table(
         "paper_trading_positions",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("account_id", sa.String(36), sa.ForeignKey("paper_trading_accounts.id"), nullable=False, index=True),
+        sa.Column(
+            "account_id",
+            sa.String(36),
+            sa.ForeignKey("paper_trading_accounts.id"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("symbol", sa.String(20), nullable=False, index=True),
         sa.Column("size", sa.Integer(), nullable=False),
         sa.Column("avg_price", sa.Float(), nullable=False),
@@ -301,7 +360,13 @@ def upgrade() -> None:
     op.create_table(
         "paper_trading_orders",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("account_id", sa.String(36), sa.ForeignKey("paper_trading_accounts.id"), nullable=False, index=True),
+        sa.Column(
+            "account_id",
+            sa.String(36),
+            sa.ForeignKey("paper_trading_accounts.id"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("symbol", sa.String(20), nullable=False, index=True),
         sa.Column("order_type", sa.String(20), nullable=False),
         sa.Column("side", sa.String(10), nullable=False),
@@ -324,8 +389,20 @@ def upgrade() -> None:
     op.create_table(
         "paper_trades",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("account_id", sa.String(36), sa.ForeignKey("paper_trading_accounts.id"), nullable=False, index=True),
-        sa.Column("order_id", sa.String(36), sa.ForeignKey("paper_trading_orders.id"), nullable=True, index=True),
+        sa.Column(
+            "account_id",
+            sa.String(36),
+            sa.ForeignKey("paper_trading_accounts.id"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "order_id",
+            sa.String(36),
+            sa.ForeignKey("paper_trading_orders.id"),
+            nullable=True,
+            index=True,
+        ),
         sa.Column("symbol", sa.String(20), nullable=False, index=True),
         sa.Column("side", sa.String(10), nullable=False),
         sa.Column("size", sa.Integer(), nullable=False),
@@ -355,13 +432,25 @@ def upgrade() -> None:
     op.create_table(
         "kb_documents",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("knowledge_base_id", sa.String(36), sa.ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "knowledge_base_id",
+            sa.String(36),
+            sa.ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("title", sa.String(500), nullable=False),
         sa.Column("content", sa.Text(), nullable=True),
         sa.Column("content_type", sa.String(50), nullable=False),
         sa.Column("file_path", sa.String(1000), nullable=True),
         sa.Column("is_folder", sa.Boolean(), nullable=False),
-        sa.Column("parent_id", sa.String(36), sa.ForeignKey("kb_documents.id", ondelete="SET NULL"), nullable=True, index=True),
+        sa.Column(
+            "parent_id",
+            sa.String(36),
+            sa.ForeignKey("kb_documents.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
         sa.Column("sort_order", sa.Integer(), nullable=False),
         sa.Column("status", sa.String(20), nullable=False),
         sa.Column("index_status", sa.String(20), nullable=False),
@@ -375,8 +464,20 @@ def upgrade() -> None:
     op.create_table(
         "document_chunks",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("document_id", sa.String(36), sa.ForeignKey("kb_documents.id", ondelete="CASCADE"), nullable=False, index=True),
-        sa.Column("knowledge_base_id", sa.String(36), sa.ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "document_id",
+            sa.String(36),
+            sa.ForeignKey("kb_documents.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column(
+            "knowledge_base_id",
+            sa.String(36),
+            sa.ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("chunk_index", sa.Integer(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("token_count", sa.Integer(), nullable=True),
@@ -388,7 +489,13 @@ def upgrade() -> None:
     op.create_table(
         "chat_conversations",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("knowledge_base_id", sa.String(36), sa.ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "knowledge_base_id",
+            sa.String(36),
+            sa.ForeignKey("knowledge_bases.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False, index=True),
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("model_id", sa.String(200), nullable=True),
@@ -401,7 +508,13 @@ def upgrade() -> None:
     op.create_table(
         "chat_messages",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("conversation_id", sa.String(36), sa.ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False, index=True),
+        sa.Column(
+            "conversation_id",
+            sa.String(36),
+            sa.ForeignKey("chat_conversations.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("role", sa.String(20), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("citations", sa.JSON(), nullable=True),
@@ -435,7 +548,9 @@ def upgrade() -> None:
     op.create_table(
         "model_usage_logs",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("model_id", sa.String(36), sa.ForeignKey("model_configs.id"), nullable=False, index=True),
+        sa.Column(
+            "model_id", sa.String(36), sa.ForeignKey("model_configs.id"), nullable=False, index=True
+        ),
         sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False, index=True),
         sa.Column("request_type", sa.String(20), nullable=False),
         sa.Column("input_tokens", sa.Integer(), nullable=False),
@@ -474,12 +589,40 @@ def upgrade() -> None:
         sa.Column("title", sa.String(200), nullable=False),
         sa.Column("message", sa.Text(), nullable=False),
         sa.Column("details", sa.JSON(), nullable=True),
-        sa.Column("rule_id", sa.String(36), sa.ForeignKey("alert_rules.id"), nullable=True, index=True),
-        sa.Column("strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=True, index=True),
-        sa.Column("backtest_task_id", sa.String(36), sa.ForeignKey("backtest_tasks.id"), nullable=True, index=True),
-        sa.Column("account_id", sa.String(36), sa.ForeignKey("paper_trading_accounts.id"), nullable=True, index=True),
-        sa.Column("position_id", sa.String(36), sa.ForeignKey("paper_trading_positions.id"), nullable=True, index=True),
-        sa.Column("order_id", sa.String(36), sa.ForeignKey("paper_trading_orders.id"), nullable=True, index=True),
+        sa.Column(
+            "rule_id", sa.String(36), sa.ForeignKey("alert_rules.id"), nullable=True, index=True
+        ),
+        sa.Column(
+            "strategy_id", sa.String(36), sa.ForeignKey("strategies.id"), nullable=True, index=True
+        ),
+        sa.Column(
+            "backtest_task_id",
+            sa.String(36),
+            sa.ForeignKey("backtest_tasks.id"),
+            nullable=True,
+            index=True,
+        ),
+        sa.Column(
+            "account_id",
+            sa.String(36),
+            sa.ForeignKey("paper_trading_accounts.id"),
+            nullable=True,
+            index=True,
+        ),
+        sa.Column(
+            "position_id",
+            sa.String(36),
+            sa.ForeignKey("paper_trading_positions.id"),
+            nullable=True,
+            index=True,
+        ),
+        sa.Column(
+            "order_id",
+            sa.String(36),
+            sa.ForeignKey("paper_trading_orders.id"),
+            nullable=True,
+            index=True,
+        ),
         sa.Column("trigger_type", sa.String(50), nullable=False),
         sa.Column("trigger_value", sa.Float(), nullable=True),
         sa.Column("threshold_value", sa.Float(), nullable=True),
@@ -493,7 +636,9 @@ def upgrade() -> None:
     op.create_table(
         "alert_notifications",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("alert_id", sa.String(36), sa.ForeignKey("alerts.id"), nullable=False, index=True),
+        sa.Column(
+            "alert_id", sa.String(36), sa.ForeignKey("alerts.id"), nullable=False, index=True
+        ),
         sa.Column("channel", sa.String(50), nullable=False),
         sa.Column("status", sa.String(20), nullable=False),
         sa.Column("message", sa.Text(), nullable=True),
@@ -510,7 +655,13 @@ def upgrade() -> None:
         sa.Column("script_name", sa.String(200), nullable=False),
         sa.Column("category", sa.String(50), nullable=False, index=True),
         sa.Column("sub_category", sa.String(50), nullable=True, index=True),
-        sa.Column("frequency", sa.Enum("hourly", "daily", "weekly", "monthly", "once", "manual", name="scriptfrequency"), nullable=True),
+        sa.Column(
+            "frequency",
+            sa.Enum(
+                "hourly", "daily", "weekly", "monthly", "once", "manual", name="scriptfrequency"
+            ),
+            nullable=True,
+        ),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("source", sa.String(50), nullable=False),
         sa.Column("target_table", sa.String(100), nullable=True, index=True),
@@ -521,8 +672,12 @@ def upgrade() -> None:
         sa.Column("timeout", sa.Integer(), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("is_custom", sa.Boolean(), nullable=False, index=True),
-        sa.Column("created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True, index=True),
-        sa.Column("updated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True, index=True),
+        sa.Column(
+            "created_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True, index=True
+        ),
+        sa.Column(
+            "updated_by", sa.String(36), sa.ForeignKey("users.id"), nullable=True, index=True
+        ),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
     )
@@ -563,7 +718,9 @@ def upgrade() -> None:
         sa.Column("name", sa.String(100), unique=True, nullable=False, index=True),
         sa.Column("display_name", sa.String(255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("category_id", sa.Integer(), sa.ForeignKey("ak_interface_categories.id"), nullable=False),
+        sa.Column(
+            "category_id", sa.Integer(), sa.ForeignKey("ak_interface_categories.id"), nullable=False
+        ),
         sa.Column("module_path", sa.String(255), nullable=True),
         sa.Column("function_name", sa.String(100), nullable=True),
         sa.Column("parameters", sa.JSON(), nullable=False),
@@ -578,10 +735,25 @@ def upgrade() -> None:
     op.create_table(
         "ak_interface_parameters",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("interface_id", sa.Integer(), sa.ForeignKey("ak_data_interfaces.id"), nullable=False),
+        sa.Column(
+            "interface_id", sa.Integer(), sa.ForeignKey("ak_data_interfaces.id"), nullable=False
+        ),
         sa.Column("name", sa.String(50), nullable=False),
         sa.Column("display_name", sa.String(100), nullable=False),
-        sa.Column("param_type", sa.Enum("string", "integer", "float", "boolean", "date", "list", "option", name="parametertype"), nullable=False),
+        sa.Column(
+            "param_type",
+            sa.Enum(
+                "string",
+                "integer",
+                "float",
+                "boolean",
+                "date",
+                "list",
+                "option",
+                name="parametertype",
+            ),
+            nullable=False,
+        ),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("default_value", sa.Text(), nullable=True),
         sa.Column("required", sa.Boolean(), nullable=False),
@@ -595,8 +767,14 @@ def upgrade() -> None:
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("user_id", sa.String(36), sa.ForeignKey("users.id"), nullable=False, index=True),
-        sa.Column("script_id", sa.String(100), sa.ForeignKey("ak_data_scripts.script_id"), nullable=False),
-        sa.Column("schedule_type", sa.Enum("once", "daily", "weekly", "monthly", "cron", "interval", name="scheduletype"), nullable=False),
+        sa.Column(
+            "script_id", sa.String(100), sa.ForeignKey("ak_data_scripts.script_id"), nullable=False
+        ),
+        sa.Column(
+            "schedule_type",
+            sa.Enum("once", "daily", "weekly", "monthly", "cron", "interval", name="scheduletype"),
+            nullable=False,
+        ),
         sa.Column("schedule_expression", sa.String(100), nullable=False),
         sa.Column("parameters", sa.JSON(), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
@@ -613,10 +791,29 @@ def upgrade() -> None:
         "ak_task_executions",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column("execution_id", sa.String(100), unique=True, nullable=False, index=True),
-        sa.Column("task_id", sa.Integer(), sa.ForeignKey("ak_scheduled_tasks.id"), nullable=True, index=True),
+        sa.Column(
+            "task_id",
+            sa.Integer(),
+            sa.ForeignKey("ak_scheduled_tasks.id"),
+            nullable=True,
+            index=True,
+        ),
         sa.Column("script_id", sa.String(100), nullable=False, index=True),
         sa.Column("params", sa.JSON(), nullable=True),
-        sa.Column("status", sa.Enum("pending", "running", "completed", "failed", "timeout", "cancelled", name="taskstatus"), nullable=False, index=True),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "pending",
+                "running",
+                "completed",
+                "failed",
+                "timeout",
+                "cancelled",
+                name="taskstatus",
+            ),
+            nullable=False,
+            index=True,
+        ),
         sa.Column("start_time", sa.DateTime(), nullable=True),
         sa.Column("end_time", sa.DateTime(), nullable=True),
         sa.Column("duration", sa.Float(), nullable=True),
@@ -626,8 +823,14 @@ def upgrade() -> None:
         sa.Column("rows_before", sa.Integer(), nullable=True),
         sa.Column("rows_after", sa.Integer(), nullable=True),
         sa.Column("retry_count", sa.Integer(), nullable=False),
-        sa.Column("triggered_by", sa.Enum("scheduler", "manual", "api", name="triggeredby"), nullable=False),
-        sa.Column("operator_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True, index=True),
+        sa.Column(
+            "triggered_by",
+            sa.Enum("scheduler", "manual", "api", name="triggeredby"),
+            nullable=False,
+        ),
+        sa.Column(
+            "operator_id", sa.String(36), sa.ForeignKey("users.id"), nullable=True, index=True
+        ),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
     )

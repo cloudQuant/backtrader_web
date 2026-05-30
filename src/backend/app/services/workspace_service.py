@@ -38,15 +38,24 @@ from app.services.workspace.config import (
     _default_unit_start_date_iso,
     _is_trading_workspace,
     _normalize_unit_data_config,
+    _normalize_workspace_settings,
     _normalize_workspace_trading_config,
     _normalize_workspace_type,
+    _workspace_to_response,
 )
 from app.services.workspace.run_ops import WorkspaceRunOpsMixin
 
-# `_normalize_unit_data_config` and `_normalize_workspace_type` are re-exported
-# here for sibling slices (workspace/units.py, workspace/optimization.py,
-# workspace/_helpers.py) that import them from this module.
-__all__ = ["WorkspaceService", "_normalize_unit_data_config", "_normalize_workspace_type"]
+# These names are re-exported here for sibling slices (workspace/units.py,
+# workspace/optimization.py, workspace/lifecycle.py, workspace/_helpers.py)
+# that import them from this module rather than from workspace.config.
+__all__ = [
+    "WorkspaceService",
+    "_normalize_unit_data_config",
+    "_normalize_workspace_settings",
+    "_normalize_workspace_trading_config",
+    "_normalize_workspace_type",
+    "_workspace_to_response",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +77,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     @staticmethod
     def _requested_bar_count(unit: StrategyUnit) -> int | None:
         from app.services.workspace._helpers import requested_bar_count
+
         return requested_bar_count(unit)
 
     @staticmethod
@@ -97,31 +107,37 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     @staticmethod
     def _db_task_elapsed_seconds(task: BacktestTask | OptimizationTask | None) -> float | None:
         from app.services.workspace._helpers import db_task_elapsed_seconds
+
         return db_task_elapsed_seconds(task)
 
     @staticmethod
     def _task_elapsed_seconds(task: BacktestTask | None) -> float | None:
         from app.services.workspace._helpers import task_elapsed_seconds
+
         return task_elapsed_seconds(task)
 
     @staticmethod
     def _runtime_optimization_elapsed_seconds(task: dict[str, Any] | None) -> float | None:
         from app.services.workspace._helpers import runtime_optimization_elapsed_seconds
+
         return runtime_optimization_elapsed_seconds(task)
 
     @staticmethod
     def _parse_runtime_datetime(value: Any) -> datetime | None:
         from app.services.workspace._helpers import parse_runtime_datetime
+
         return parse_runtime_datetime(value)
 
     @staticmethod
     def _build_runtime_optimization_progress(task: dict[str, Any] | None) -> dict[str, Any] | None:
         from app.services.workspace._helpers import build_runtime_optimization_progress
+
         return build_runtime_optimization_progress(task)
 
     @staticmethod
     def _build_db_optimization_progress(task: OptimizationTask | None) -> dict[str, Any] | None:
         from app.services.workspace._helpers import build_db_optimization_progress
+
         return build_db_optimization_progress(task)
 
     @staticmethod
@@ -130,6 +146,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         db_task: OptimizationTask | None,
     ) -> dict[str, Any] | None:
         from app.services.workspace._helpers import resolve_optimization_progress
+
         return resolve_optimization_progress(runtime_task, db_task)
 
     @staticmethod
@@ -137,6 +154,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         progress: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
         from app.services.workspace._helpers import optimization_progress_response_to_opt_info
+
         return optimization_progress_response_to_opt_info(progress)
 
     @staticmethod
@@ -175,6 +193,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     @staticmethod
     def _resolve_optimization_artifact_log_dir(result_entry: dict[str, Any]) -> Path | None:
         from app.services.workspace._helpers import resolve_optimization_artifact_log_dir
+
         return resolve_optimization_artifact_log_dir(result_entry)
 
     @staticmethod
@@ -184,6 +203,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         result_entry: dict[str, Any],
     ) -> dict[str, Any]:
         from app.services.workspace._helpers import build_optimization_artifact_metadata
+
         return build_optimization_artifact_metadata(task_id, result_index, result_entry)
 
     @staticmethod
@@ -196,6 +216,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         result_entry: dict[str, Any],
     ) -> dict[str, Any]:
         from app.services.workspace.optimization import build_optimization_trial_payload
+
         return build_optimization_trial_payload(
             task_id,
             result_index,
@@ -216,6 +237,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         from app.services.workspace.optimization import (
             get_unit_optimization_result_artifact_metadata as _impl,
         )
+
         return await _impl(workspace_id, user_id, unit_id, result_index)
 
     async def get_unit_optimization_result_payload(
@@ -299,11 +321,13 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     async def create_workspace(self, user_id: str, data: WorkspaceCreate) -> WorkspaceResponse:
         """Delegate to :func:`app.services.workspace.lifecycle.create_workspace`."""
         from app.services.workspace.lifecycle import create_workspace as _impl
+
         return await _impl(user_id, data)
 
     async def get_workspace(self, workspace_id: str, user_id: str) -> WorkspaceResponse | None:
         """Delegate to :func:`app.services.workspace.lifecycle.get_workspace`."""
         from app.services.workspace.lifecycle import get_workspace as _impl
+
         return await _impl(workspace_id, user_id)
 
     async def list_workspaces(
@@ -315,6 +339,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     ) -> tuple[int, list[WorkspaceResponse]]:
         """Delegate to :func:`app.services.workspace.lifecycle.list_workspaces`."""
         from app.services.workspace.lifecycle import list_workspaces as _impl
+
         return await _impl(user_id, skip=skip, limit=limit, workspace_type=workspace_type)
 
     async def update_workspace(
@@ -322,11 +347,13 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     ) -> WorkspaceResponse | None:
         """Delegate to :func:`app.services.workspace.lifecycle.update_workspace`."""
         from app.services.workspace.lifecycle import update_workspace as _impl
+
         return await _impl(workspace_id, user_id, data)
 
     async def delete_workspace(self, workspace_id: str, user_id: str) -> bool:
         """Delegate to :func:`app.services.workspace.lifecycle.delete_workspace`."""
         from app.services.workspace.lifecycle import delete_workspace as _impl
+
         return await _impl(workspace_id, user_id)
 
     # ------------------------------------------------------------------
@@ -337,22 +364,26 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         self, workspace_id: str, user_id: str, data: StrategyUnitCreate
     ) -> dict[str, Any] | None:
         from app.services.workspace.units import create_unit as _impl
+
         return await _impl(workspace_id, user_id, data, self.trading_service)
 
     async def batch_create_units(
         self, workspace_id: str, user_id: str, units_data: list[StrategyUnitCreate]
     ) -> list[dict[str, Any]] | None:
         from app.services.workspace.units import batch_create_units as _impl
+
         return await _impl(workspace_id, user_id, units_data, self.trading_service)
 
     async def list_units(self, workspace_id: str, user_id: str) -> list[dict[str, Any]] | None:
         from app.services.workspace.units import list_units as _impl
+
         return await _impl(workspace_id, user_id, self.trading_service)
 
     async def get_unit(
         self, workspace_id: str, unit_id: str, user_id: str
     ) -> dict[str, Any] | None:
         from app.services.workspace.units import get_unit as _impl
+
         return await _impl(workspace_id, unit_id, user_id, self.trading_service)
 
     async def get_unit_runtime_info(
@@ -362,6 +393,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         user_id: str,
     ) -> dict[str, Any] | None:
         from app.services.workspace.units import get_unit_runtime_info as _impl
+
         return await _impl(workspace_id, unit_id, user_id, self.trading_service)
 
     async def read_unit_runtime_file(
@@ -373,6 +405,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         tail: int | None = None,
     ) -> str | None:
         from app.services.workspace.units import read_unit_runtime_file as _impl
+
         return await _impl(workspace_id, unit_id, user_id, relative_path, tail)
 
     async def open_unit_runtime_dir(
@@ -382,22 +415,26 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         user_id: str,
     ) -> dict[str, Any] | None:
         from app.services.workspace.units import open_unit_runtime_dir as _impl
+
         return await _impl(workspace_id, unit_id, user_id)
 
     async def update_unit(
         self, workspace_id: str, unit_id: str, user_id: str, data: StrategyUnitUpdate
     ) -> dict[str, Any] | None:
         from app.services.workspace.units import update_unit as _impl
+
         return await _impl(workspace_id, unit_id, user_id, data, self.trading_service)
 
     async def delete_unit(self, workspace_id: str, unit_id: str, user_id: str) -> bool:
         """Delegate to :func:`app.services.workspace.units.delete_unit`."""
         from app.services.workspace.units import delete_unit as _impl
+
         return await _impl(workspace_id, unit_id, user_id)
 
     async def bulk_delete_units(self, workspace_id: str, user_id: str, unit_ids: list[str]) -> int:
         """Delegate to :func:`app.services.workspace.units.bulk_delete_units`."""
         from app.services.workspace.units import bulk_delete_units as _impl
+
         return await _impl(workspace_id, user_id, unit_ids)
 
     # ------------------------------------------------------------------
@@ -407,6 +444,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     async def reorder_units(self, workspace_id: str, user_id: str, unit_ids: list[str]) -> bool:
         """Delegate to :func:`app.services.workspace.units.reorder_units`."""
         from app.services.workspace.units import reorder_units as _impl
+
         return await _impl(workspace_id, user_id, unit_ids)
 
     # ------------------------------------------------------------------
@@ -416,11 +454,13 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     async def rename_group(self, workspace_id: str, user_id: str, req: GroupRenameRequest) -> bool:
         """Delegate to :func:`app.services.workspace.units.rename_group`."""
         from app.services.workspace.units import rename_group as _impl
+
         return await _impl(workspace_id, user_id, req)
 
     async def rename_unit(self, workspace_id: str, user_id: str, req: UnitRenameRequest) -> bool:
         """Delegate to :func:`app.services.workspace.units.rename_unit`."""
         from app.services.workspace.units import rename_unit as _impl
+
         return await _impl(workspace_id, user_id, req)
 
     # ------------------------------------------------------------------
@@ -537,7 +577,9 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         from app.services.workspace.optimization import submit_unit_optimization as _impl
 
         return await _impl(
-            workspace_id, user_id, req,
+            workspace_id,
+            user_id,
+            req,
             load_workspace=self._load_workspace,
             get_unit=self._get_unit,
         )
@@ -549,6 +591,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         from app.services.workspace.optimization import (
             get_unit_optimization_progress as _impl,
         )
+
         return await _impl(workspace_id, user_id, unit_id)
 
     async def get_unit_optimization_results(
@@ -558,6 +601,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         from app.services.workspace.optimization import (
             get_unit_optimization_results as _impl,
         )
+
         return await _impl(workspace_id, user_id, unit_id)
 
     async def cancel_unit_optimization(
@@ -567,6 +611,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         from app.services.workspace.optimization import (
             cancel_unit_optimization as _impl,
         )
+
         return await _impl(workspace_id, user_id, unit_id)
 
     async def apply_best_params(
@@ -574,6 +619,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     ) -> dict[str, Any] | None:
         """Delegate to :mod:`app.services.workspace.optimization`."""
         from app.services.workspace.optimization import apply_best_params as _impl
+
         return await _impl(workspace_id, user_id, req)
 
     # ------------------------------------------------------------------
@@ -656,21 +702,25 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     @staticmethod
     def _collect_runtime_files(runtime_dir: Path) -> list[Path]:
         from app.services.workspace._helpers import collect_runtime_files
+
         return collect_runtime_files(runtime_dir)
 
     @staticmethod
     def _runtime_file_kind(relative_path: Path) -> str:
         from app.services.workspace._helpers import runtime_file_kind
+
         return runtime_file_kind(relative_path)
 
     @staticmethod
     def _resolve_runtime_file(runtime_dir: Path, relative_path: str) -> Path | None:
         from app.services.workspace._helpers import resolve_runtime_file
+
         return resolve_runtime_file(runtime_dir, relative_path)
 
     @staticmethod
     def _open_path_in_file_manager(path: Path) -> None:
         from app.services.workspace._helpers import open_path_in_file_manager
+
         open_path_in_file_manager(path)
 
     @staticmethod
@@ -700,6 +750,7 @@ class WorkspaceService(WorkspaceRunOpsMixin):
     @staticmethod
     def _unit_to_dict(unit: StrategyUnit, opt_info: dict[str, Any] | None = None) -> dict[str, Any]:
         from app.services.workspace._helpers import unit_to_dict
+
         return unit_to_dict(unit, opt_info)
 
     @staticmethod
@@ -711,4 +762,5 @@ class WorkspaceService(WorkspaceRunOpsMixin):
         replace: str,
     ) -> str:
         from app.services.workspace._helpers import compute_rename
+
         return compute_rename(unit, mode, value, search, replace)

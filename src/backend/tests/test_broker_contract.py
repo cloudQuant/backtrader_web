@@ -24,6 +24,8 @@ async def test_gateway_bridge_write_paths_require_feature_flag(monkeypatch):
     adapter = GatewayBridgeAdapter(gateway_service={"health": "ok"})
 
     with pytest.raises(BrokerError) as exc_info:
-        await adapter.place_order(OrderRequest(account_id="acct", symbol="RB2510", side="buy", quantity=1))
+        await adapter.place_order(
+            OrderRequest(account_id="acct", symbol="RB2510", side="buy", quantity=1)
+        )
 
     assert exc_info.value.code == BrokerErrorCode.NOT_SUPPORTED

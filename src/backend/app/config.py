@@ -165,9 +165,7 @@ class Settings(BaseSettings):
     AI_BUDGET_DAILY_USD: float | None = Field(
         default=None, description="Default daily AI cost budget in USD. None means unlimited"
     )
-    AI_BUDGET_MODE: str = Field(
-        default="soft", description="AI budget mode: soft or hard"
-    )
+    AI_BUDGET_MODE: str = Field(default="soft", description="AI budget mode: soft or hard")
     AI_PROVIDERS: dict[str, dict[str, Any]] = Field(
         default_factory=lambda: {
             "openai": {
@@ -260,15 +258,9 @@ class Settings(BaseSettings):
     LOG_DIR: str = Field(default="./logs", description="Log output directory path")
 
     # Log retention periods per category (days)
-    LOG_RETENTION_APP_DAYS: int = Field(
-        default=30, description="Application log retention in days"
-    )
-    LOG_RETENTION_ERROR_DAYS: int = Field(
-        default=90, description="Error log retention in days"
-    )
-    LOG_RETENTION_AUDIT_DAYS: int = Field(
-        default=365, description="Audit log retention in days"
-    )
+    LOG_RETENTION_APP_DAYS: int = Field(default=30, description="Application log retention in days")
+    LOG_RETENTION_ERROR_DAYS: int = Field(default=90, description="Error log retention in days")
+    LOG_RETENTION_AUDIT_DAYS: int = Field(default=365, description="Audit log retention in days")
 
     # Audit settings
     AUDIT_RETENTION_DAYS: int = Field(
@@ -503,10 +495,7 @@ class Settings(BaseSettings):
         normalized = str(v or "soft").strip().lower()
         supported_modes = {"soft", "hard"}
         if normalized not in supported_modes:
-            raise ValueError(
-                "AI_BUDGET_MODE must be one of: "
-                f"{', '.join(sorted(supported_modes))}"
-            )
+            raise ValueError(f"AI_BUDGET_MODE must be one of: {', '.join(sorted(supported_modes))}")
         return normalized
 
     @field_validator("AI_PROVIDERS", mode="before")

@@ -155,9 +155,7 @@ class TestGeneratePerformanceDiff:
             mock_db.async_session_maker.return_value.__aenter__ = AsyncMock(
                 return_value=mock_session
             )
-            mock_db.async_session_maker.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
+            mock_db.async_session_maker.return_value.__aexit__ = AsyncMock(return_value=False)
 
             result = await generate_performance_diff("v1", "v2")
             assert result["available"] is False
@@ -200,9 +198,7 @@ class TestGeneratePerformanceDiff:
             mock_db.async_session_maker.return_value.__aenter__ = AsyncMock(
                 side_effect=mock_session_context
             )
-            mock_db.async_session_maker.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
+            mock_db.async_session_maker.return_value.__aexit__ = AsyncMock(return_value=False)
 
             result = await generate_performance_diff("v1", "v2")
             assert result["available"] is False
@@ -245,9 +241,7 @@ class TestGeneratePerformanceDiff:
             mock_db.async_session_maker.return_value.__aenter__ = AsyncMock(
                 side_effect=mock_session_context
             )
-            mock_db.async_session_maker.return_value.__aexit__ = AsyncMock(
-                return_value=False
-            )
+            mock_db.async_session_maker.return_value.__aexit__ = AsyncMock(return_value=False)
 
             result = await generate_performance_diff("v1", "v2")
             assert result["available"] is True

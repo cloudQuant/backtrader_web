@@ -249,5 +249,8 @@ async def cancel_conditional_order(
     manager = get_conditional_order_manager()
     success = manager.cancel_conditional_order(order_id, current_user.sub)
     if not success:
-        return {"success": False, "message": "Conditional order not found or no permission / 条件单不存在或无权操作"}
+        return {
+            "success": False,
+            "message": "Conditional order not found or no permission / 条件单不存在或无权操作",
+        }
     return {"success": True, "message": "Conditional order cancelled / 条件单已取消"}

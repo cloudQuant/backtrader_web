@@ -66,7 +66,9 @@ def _validate_node(node: ast.AST) -> None:
 
 def _eval_node(node: ast.AST, record: dict[str, Any]) -> float:
     if isinstance(node, ast.BinOp):
-        return _ALLOWED_BINOPS[type(node.op)](_eval_node(node.left, record), _eval_node(node.right, record))
+        return _ALLOWED_BINOPS[type(node.op)](
+            _eval_node(node.left, record), _eval_node(node.right, record)
+        )
     if isinstance(node, ast.UnaryOp):
         return _ALLOWED_UNARYOPS[type(node.op)](_eval_node(node.operand, record))
     if isinstance(node, ast.Name):

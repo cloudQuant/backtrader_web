@@ -54,7 +54,10 @@ def test_ai_call_log_model_registers_privacy_preserving_columns() -> None:
 def test_ai_call_log_model_indexes_common_observability_queries() -> None:
     from app.models.ai_call_log import AICallLog
 
-    indexes = {index.name: {column.name for column in index.columns} for index in AICallLog.__table__.indexes}
+    indexes = {
+        index.name: {column.name for column in index.columns}
+        for index in AICallLog.__table__.indexes
+    }
     assert indexes["ix_ai_call_logs_created_at"] == {"created_at"}
     assert indexes["ix_ai_call_logs_user_created_at"] == {"user_id", "created_at"}
     assert indexes["ix_ai_call_logs_service_created_at"] == {"service_name", "created_at"}
@@ -147,10 +150,7 @@ def test_ai_call_log_read_schema_serializes_orm_model() -> None:
 
 def test_ai_call_log_migration_declares_expected_table() -> None:
     migration_path = (
-        Path(__file__).resolve().parents[1]
-        / "alembic"
-        / "versions"
-        / "0006_add_ai_call_logs.py"
+        Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0006_add_ai_call_logs.py"
     )
     assert migration_path.exists()
     content = migration_path.read_text(encoding="utf-8")

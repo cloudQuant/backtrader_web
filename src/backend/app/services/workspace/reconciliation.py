@@ -101,9 +101,7 @@ async def reconcile_orphaned_run_statuses() -> int:
 
 
 async def reconcile_completed_bar_counts(
-    resolve_bar_count: Callable[
-        [BacktestService, str, str | None], Awaitable[int]
-    ],
+    resolve_bar_count: Callable[[BacktestService, str, str | None], Awaitable[int]],
 ) -> int:
     """Backfill ``StrategyUnit.bar_count`` for completed runs that lost it.
 

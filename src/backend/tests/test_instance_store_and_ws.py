@@ -281,6 +281,7 @@ class TestPermissionUtils:
     def test_has_permission_import(self):
         """has_permission should be importable."""
         from app.api._dependencies import has_permission
+
         assert callable(has_permission)
 
     def test_has_permission_with_admin_role(self):

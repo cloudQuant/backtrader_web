@@ -49,6 +49,7 @@ async def _call_llm(question: str, system_prompt: str) -> str:
         except Exception as e:
             raise RuntimeError(f"AI provider call failed: {e}") from e
 
+
 _INTENT_PARSE_PROMPT = """你是一个交易指令解析器。将用户的自然语言交易指令解析为结构化 JSON。
 
 你必须返回一个 JSON 对象，不要使用 Markdown 代码块，不要输出 JSON 以外的内容。
@@ -155,10 +156,19 @@ async def parse_trading_intent(
             additional_params={
                 k: v
                 for k, v in intent_data.items()
-                if k not in {
-                    "action", "symbol", "exchange", "quantity", "price",
-                    "order_type", "stop_loss", "take_profit", "reason",
-                    "confidence", "risk_level",
+                if k
+                not in {
+                    "action",
+                    "symbol",
+                    "exchange",
+                    "quantity",
+                    "price",
+                    "order_type",
+                    "stop_loss",
+                    "take_profit",
+                    "reason",
+                    "confidence",
+                    "risk_level",
                 }
             },
         )

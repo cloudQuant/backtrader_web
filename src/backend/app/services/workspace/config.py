@@ -173,4 +173,3 @@ def _workspace_to_response(ws: Workspace) -> WorkspaceResponse:
         created_at=ws.created_at,
         updated_at=ws.updated_at,
     )
-

@@ -15,7 +15,10 @@ async def test_data_topic_hub_ttl_coalesce_push_only_drop_and_retire():
 
         async def refresh(self, topics: list[str]) -> dict[str, dict]:
             calls.append(topics)
-            return {topic: {"symbol": topic.rsplit(":", 1)[-1], "price": 100 + len(calls)} for topic in topics}
+            return {
+                topic: {"symbol": topic.rsplit(":", 1)[-1], "price": 100 + len(calls)}
+                for topic in topics
+            }
 
         def max_requests_per_sec(self) -> float:
             return 100.0
@@ -36,7 +39,9 @@ async def test_data_topic_hub_ttl_coalesce_push_only_drop_and_retire():
     assert await hub.peek("market:quote:PUSH") is None
 
     received: list[dict] = []
-    subscription_id = hub.subscribe("tester", "market:quote:*", lambda topic, value: received.append(value))
+    subscription_id = hub.subscribe(
+        "tester", "market:quote:*", lambda topic, value: received.append(value)
+    )
     await hub.push("market:quote:RB2510", {"price": 101})
     await hub.push("market:quote:RB2510", {"price": 102})
     await asyncio.sleep(0.06)

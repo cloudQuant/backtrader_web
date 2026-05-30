@@ -68,11 +68,7 @@ class ConditionalOrderManager:
     def list_conditional_orders(self, user_id: str) -> list[dict[str, Any]]:
         """List all conditional orders for a user."""
         self._expire_old_orders()
-        return [
-            order
-            for order in _conditional_orders.values()
-            if order["user_id"] == user_id
-        ]
+        return [order for order in _conditional_orders.values() if order["user_id"] == user_id]
 
     def cancel_conditional_order(self, order_id: str, user_id: str) -> bool:
         """Cancel a conditional order owned by ``user_id``."""

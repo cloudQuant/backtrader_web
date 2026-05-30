@@ -106,7 +106,9 @@ def _submit_batch(client: TestClient, headers: dict[str, str]) -> list[str]:
     return task_ids
 
 
-def _poll_status_batch(client: TestClient, headers: dict[str, str], task_ids: list[str]) -> list[str]:
+def _poll_status_batch(
+    client: TestClient, headers: dict[str, str], task_ids: list[str]
+) -> list[str]:
     statuses: list[str] = []
     for task_id in task_ids:
         response = client.get(f"/api/v1/backtests/{task_id}/status", headers=headers)

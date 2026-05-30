@@ -255,4 +255,6 @@ class TestParseTradingIntent:
             await parse_trading_intent("查看持仓", market_context="螺纹钢主力合约3500")
             # Verify the system prompt was built with market context
             call_args = mock_llm.call_args
-            assert "螺纹钢主力合约3500" in call_args[1]["system_prompt"] or "螺纹钢主力合约3500" in str(call_args)
+            assert "螺纹钢主力合约3500" in call_args[1][
+                "system_prompt"
+            ] or "螺纹钢主力合约3500" in str(call_args)

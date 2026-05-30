@@ -185,7 +185,11 @@ class AIChatService:
         if not self.is_enabled() and preference is None:
             return None
 
-        messages, prompt_template_id, prompt_template_version = await self._build_messages_with_registry(
+        (
+            messages,
+            prompt_template_id,
+            prompt_template_version,
+        ) = await self._build_messages_with_registry(
             question=question,
             citations=citations,
             assistant_mode=assistant_mode,
@@ -205,7 +209,9 @@ class AIChatService:
                 user_id=user_id,
                 preference=preference,
             )
-            result = await provider_result if inspect.isawaitable(provider_result) else provider_result
+            result = (
+                await provider_result if inspect.isawaitable(provider_result) else provider_result
+            )
         except (
             OSError,
             ValueError,
@@ -329,7 +335,9 @@ class AIChatService:
             ]
         ).strip()
         if settings.get("system_prompt_suffix"):
-            system_prompt = f"{system_prompt}\n{_normalize_text(str(settings['system_prompt_suffix']))}"
+            system_prompt = (
+                f"{system_prompt}\n{_normalize_text(str(settings['system_prompt_suffix']))}"
+            )
         messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         messages.extend(self._build_conversation_messages(conversation_history))
         messages.append({"role": "user", "content": rendered.rendered_prompt.strip()})
@@ -346,10 +354,14 @@ class AIChatService:
         retrieval_diagnostics: dict[str, Any] | None,
         knowledge_base_settings: dict[str, Any] | None,
     ) -> list[dict[str, str]]:
-        mode_instruction = _MODE_INSTRUCTIONS.get(assistant_mode, _MODE_INSTRUCTIONS["knowledge_qa"])
+        mode_instruction = _MODE_INSTRUCTIONS.get(
+            assistant_mode, _MODE_INSTRUCTIONS["knowledge_qa"]
+        )
         settings = knowledge_base_settings or {}
         quant_focus = str(settings.get("quant_focus") or "strategy_research")
-        quant_focus_hint = _QUANT_FOCUS_HINTS.get(quant_focus, _QUANT_FOCUS_HINTS["strategy_research"])
+        quant_focus_hint = _QUANT_FOCUS_HINTS.get(
+            quant_focus, _QUANT_FOCUS_HINTS["strategy_research"]
+        )
         context_text = self._build_context_blocks(citations)
         diagnostics_text = self._build_diagnostics_text(retrieval_diagnostics)
         reasoning_hint = (
@@ -368,7 +380,9 @@ class AIChatService:
         ).strip()
 
         if settings.get("system_prompt_suffix"):
-            system_prompt = f"{system_prompt}\n{_normalize_text(str(settings['system_prompt_suffix']))}"
+            system_prompt = (
+                f"{system_prompt}\n{_normalize_text(str(settings['system_prompt_suffix']))}"
+            )
 
         user_prompt = "\n".join(
             [

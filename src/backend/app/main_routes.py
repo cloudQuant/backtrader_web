@@ -41,8 +41,7 @@ def register_runtime_routes(
             "rate_limiting": True,
             "optimization": has_prefix("/api/v1/optimization"),
             "report_export": any(
-                path.startswith("/api/v1/backtests/") and "/report/" in path
-                for path in route_paths
+                path.startswith("/api/v1/backtests/") and "/report/" in path for path in route_paths
             ),
             "websocket": "/ws/backtest/{task_id}" in route_paths
             or "/api/v1/backtests/ws/backtest/{task_id}" in route_paths,
@@ -138,7 +137,9 @@ def register_runtime_routes(
             logger.exception("Health check database probe failed")
 
         unavailable_optional_routers = sorted(
-            name for name, status in _get_optional_router_status().items() if not status["available"]
+            name
+            for name, status in _get_optional_router_status().items()
+            if not status["available"]
         )
         result = {
             "status": "healthy" if db_status == "connected" else "degraded",

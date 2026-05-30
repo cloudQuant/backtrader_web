@@ -29,14 +29,16 @@ class TestTradingRiskGuard:
     """Test the risk guard assessment logic."""
 
     def setup_method(self):
-        self.guard = TradingRiskGuard(TradingRiskConfig(
-            max_single_trade_amount=10000,
-            max_daily_trades=50,
-            max_position_ratio=0.3,
-            require_confirmation_above=5000,
-            min_confidence_threshold=0.3,
-            blocked_symbols=["FORBIDDEN"],
-        ))
+        self.guard = TradingRiskGuard(
+            TradingRiskConfig(
+                max_single_trade_amount=10000,
+                max_daily_trades=50,
+                max_position_ratio=0.3,
+                require_confirmation_above=5000,
+                min_confidence_threshold=0.3,
+                blocked_symbols=["FORBIDDEN"],
+            )
+        )
 
     def test_query_always_approved(self):
         intent = TradingIntent(action=TradeAction.QUERY, confidence=0.1)
@@ -128,6 +130,7 @@ class TestTradingRiskGuard:
     def test_daily_trade_limit(self):
         # Set the last reset date to today so it won't reset
         from datetime import datetime, timezone
+
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self.guard._daily_trade_count = 50
         self.guard._last_reset_date = today
@@ -160,15 +163,18 @@ class TestAITradingService:
             reason="测试买入",
         )
 
-        with patch(
-            "app.services.ai_trading_service.parse_trading_intent",
-            new_callable=AsyncMock,
-            return_value=mock_intent,
-        ), patch.object(
-            service,
-            "_resolve_trading_context",
-            new_callable=AsyncMock,
-            return_value={"account_balance": 100000.0, "current_positions": []},
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=True)
             result = await service.process_trading_request("user1", request)
@@ -187,15 +193,18 @@ class TestAITradingService:
             risk_level=RiskLevel.HIGH,
         )
 
-        with patch(
-            "app.services.ai_trading_service.parse_trading_intent",
-            new_callable=AsyncMock,
-            return_value=mock_intent,
-        ), patch.object(
-            service,
-            "_resolve_trading_context",
-            new_callable=AsyncMock,
-            return_value={"account_balance": 100000.0, "current_positions": []},
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
         ):
             request = AITradingRequest(message="买点什么", dry_run=True)
             result = await service.process_trading_request("user1", request)
@@ -246,13 +255,16 @@ class TestAITradingService:
             risk_level=RiskLevel.LOW,
         )
 
-        with patch(
-            "app.services.ai_trading_service.parse_trading_intent",
-            new_callable=AsyncMock,
-            return_value=mock_intent,
-        ), patch(
-            "app.services.live_trading_manager.get_live_trading_manager",
-            return_value=FakeManager(),
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch(
+                "app.services.live_trading_manager.get_live_trading_manager",
+                return_value=FakeManager(),
+            ),
         ):
             request = AITradingRequest(
                 message="买入1手螺纹钢",
@@ -276,9 +288,12 @@ class TestAITradingAPI:
 
     async def test_execute_requires_auth(self, client):
         """Execute endpoint requires authentication."""
-        response = await client.post("/api/v1/ai-trading/execute", json={
-            "message": "买入1手螺纹钢",
-        })
+        response = await client.post(
+            "/api/v1/ai-trading/execute",
+            json={
+                "message": "买入1手螺纹钢",
+            },
+        )
         assert response.status_code in (401, 403)
 
     async def test_config_requires_auth(self, client):
@@ -319,30 +334,33 @@ class TestAITradingAPI:
 
     async def test_config_exposes_available_context_options(self, client, auth_headers):
         """Config endpoint returns selectable gateway and paper-account options."""
-        with patch.object(
-            AITradingService,
-            "list_available_gateways",
-            return_value=[
-                {
-                    "gateway_id": "manual:CTP:test",
-                    "exchange_type": "CTP",
-                    "account_id": "investor-001",
-                    "connected": True,
-                }
-            ],
-        ), patch.object(
-            AITradingService,
-            "list_available_accounts",
-            new_callable=AsyncMock,
-            return_value=[
-                {
-                    "account_id": "paper-001",
-                    "name": "主模拟账户",
-                    "total_equity": 100000.0,
-                    "current_cash": 80000.0,
-                    "is_active": True,
-                }
-            ],
+        with (
+            patch.object(
+                AITradingService,
+                "list_available_gateways",
+                return_value=[
+                    {
+                        "gateway_id": "manual:CTP:test",
+                        "exchange_type": "CTP",
+                        "account_id": "investor-001",
+                        "connected": True,
+                    }
+                ],
+            ),
+            patch.object(
+                AITradingService,
+                "list_available_accounts",
+                new_callable=AsyncMock,
+                return_value=[
+                    {
+                        "account_id": "paper-001",
+                        "name": "主模拟账户",
+                        "total_equity": 100000.0,
+                        "current_cash": 80000.0,
+                        "is_active": True,
+                    }
+                ],
+            ),
         ):
             response = await client.get("/api/v1/ai-trading/config", headers=auth_headers)
 
@@ -516,15 +534,18 @@ class TestAITradingServiceConfirmation:
             risk_level=RiskLevel.HIGH,  # HIGH risk triggers confirmation
         )
 
-        with patch(
-            "app.services.ai_trading_service.parse_trading_intent",
-            new_callable=AsyncMock,
-            return_value=mock_intent,
-        ), patch.object(
-            service,
-            "_resolve_trading_context",
-            new_callable=AsyncMock,
-            return_value={"account_balance": 100000.0, "current_positions": []},
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
         ):
             request = AITradingRequest(message="买入1个BTC", dry_run=False)
             result = await service.process_trading_request("user1", request)
@@ -546,15 +567,18 @@ class TestAITradingServiceConfirmation:
         )
 
         # First create a pending trade
-        with patch(
-            "app.services.ai_trading_service.parse_trading_intent",
-            new_callable=AsyncMock,
-            return_value=mock_intent,
-        ), patch.object(
-            service,
-            "_resolve_trading_context",
-            new_callable=AsyncMock,
-            return_value={"account_balance": 100000.0, "current_positions": []},
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=False)
             pending_result = await service.process_trading_request("user1", request)
@@ -585,15 +609,18 @@ class TestAITradingServiceConfirmation:
             risk_level=RiskLevel.HIGH,
         )
 
-        with patch(
-            "app.services.ai_trading_service.parse_trading_intent",
-            new_callable=AsyncMock,
-            return_value=mock_intent,
-        ), patch.object(
-            service,
-            "_resolve_trading_context",
-            new_callable=AsyncMock,
-            return_value={"account_balance": 100000.0, "current_positions": []},
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=False)
             pending_result = await service.process_trading_request("user1", request)
@@ -629,15 +656,18 @@ class TestAITradingServiceConfirmation:
             risk_level=RiskLevel.HIGH,
         )
 
-        with patch(
-            "app.services.ai_trading_service.parse_trading_intent",
-            new_callable=AsyncMock,
-            return_value=mock_intent,
-        ), patch.object(
-            service,
-            "_resolve_trading_context",
-            new_callable=AsyncMock,
-            return_value={"account_balance": 100000.0, "current_positions": []},
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=False)
             pending_result = await service.process_trading_request("user1", request)
@@ -655,13 +685,15 @@ class TestRiskGuardEdgeCases:
     """Test edge cases in the risk guard."""
 
     def setup_method(self):
-        self.guard = TradingRiskGuard(TradingRiskConfig(
-            max_single_trade_amount=10000,
-            max_daily_trades=50,
-            require_confirmation_above=5000,
-            min_confidence_threshold=0.3,
-            allowed_exchanges=["ctp", "binance", "okx"],
-        ))
+        self.guard = TradingRiskGuard(
+            TradingRiskConfig(
+                max_single_trade_amount=10000,
+                max_daily_trades=50,
+                require_confirmation_above=5000,
+                min_confidence_threshold=0.3,
+                allowed_exchanges=["ctp", "binance", "okx"],
+            )
+        )
 
     def test_exchange_not_in_whitelist(self):
         intent = TradingIntent(
@@ -822,12 +854,15 @@ class TestDirectOrderServiceLive:
         )
 
         # Mock the gateway lookup and ZMQ call
-        with patch.object(
-            service, "_get_gateway_command_endpoint", return_value="tcp://127.0.0.1:9999"
-        ), patch.object(
-            service,
-            "_send_gateway_command",
-            return_value={"order_id": "12345", "status": "submitted"},
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://127.0.0.1:9999"
+            ),
+            patch.object(
+                service,
+                "_send_gateway_command",
+                return_value={"order_id": "12345", "status": "submitted"},
+            ),
         ):
             result = await service.execute_live_trade(
                 intent, user_id="user1", gateway_id="manual:CTP:test"
@@ -850,10 +885,11 @@ class TestDirectOrderServiceLive:
             confidence=0.9,
         )
 
-        with patch.object(
-            service, "_get_gateway_command_endpoint", return_value="tcp://127.0.0.1:9999"
-        ), patch.object(
-            service, "_send_gateway_command", return_value=None
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://127.0.0.1:9999"
+            ),
+            patch.object(service, "_send_gateway_command", return_value=None),
         ):
             result = await service.execute_live_trade(
                 intent, user_id="user1", gateway_id="manual:CTP:test"
@@ -874,10 +910,11 @@ class TestDirectOrderServiceLive:
             {"symbol": "i2501", "volume": 1, "direction": "short"},
         ]
 
-        with patch.object(
-            service, "_get_gateway_command_endpoint", return_value="tcp://127.0.0.1:9999"
-        ), patch.object(
-            service, "_send_gateway_command", return_value=mock_positions
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://127.0.0.1:9999"
+            ),
+            patch.object(service, "_send_gateway_command", return_value=mock_positions),
         ):
             result = await service.execute_live_trade(
                 intent, user_id="user1", gateway_id="manual:CTP:test"
@@ -956,12 +993,11 @@ class TestConditionalOrders:
         manager = ConditionalOrderManager()
 
         # Create an order that's already expired
-        manager.create_conditional_order(
-            "user1", "条件", "动作", expiry_hours=0.0
-        )
+        manager.create_conditional_order("user1", "条件", "动作", expiry_hours=0.0)
 
         # Listing should mark it as expired
         import time
+
         time.sleep(0.01)  # Ensure time passes
         orders = manager.list_conditional_orders("user1")
         assert orders[0]["status"] == "expired"

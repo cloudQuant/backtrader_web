@@ -59,10 +59,7 @@ class KnowledgeBaseSettings(BaseModel):
     @model_validator(mode="after")
     def validate_weights(self) -> "KnowledgeBaseSettings":
         weighted_sum = (
-            self.title_weight
-            + self.keyword_weight
-            + self.phrase_weight
-            + self.recency_weight
+            self.title_weight + self.keyword_weight + self.phrase_weight + self.recency_weight
         )
         if weighted_sum <= 0:
             raise ValueError("At least one retrieval weight must be greater than zero")
@@ -93,7 +90,9 @@ class KnowledgeBaseCreate(BaseModel):
     """Create knowledge base request."""
 
     name: str = Field(..., min_length=1, max_length=255, examples=["量化策略研究库"])
-    description: str | None = Field(None, examples=["收录经典量化策略论文、因子研究报告和回测分析文档"])
+    description: str | None = Field(
+        None, examples=["收录经典量化策略论文、因子研究报告和回测分析文档"]
+    )
     is_public: bool = False
     settings: KnowledgeBaseSettings = Field(default_factory=_default_knowledge_base_settings)
 
@@ -142,7 +141,9 @@ class KnowledgeBaseResponse(BaseModel):
     id: str = Field(examples=["kb_1a2b3c4d5e6f"])
     owner_id: str = Field(examples=["usr_a1b2c3d4e5f6"])
     name: str = Field(examples=["量化策略研究库"])
-    description: str | None = Field(None, examples=["收录经典量化策略论文、因子研究报告和回测分析文档"])
+    description: str | None = Field(
+        None, examples=["收录经典量化策略论文、因子研究报告和回测分析文档"]
+    )
     document_count: int = Field(0, examples=[15])
     is_public: bool = False
     settings: KnowledgeBaseSettings = Field(default_factory=_default_knowledge_base_settings)
@@ -203,10 +204,14 @@ class KBDocumentCreate(BaseModel):
     """Create document request."""
 
     title: str = Field(
-        ..., min_length=1, max_length=500,
+        ...,
+        min_length=1,
+        max_length=500,
         examples=["双均线交叉策略研究报告"],
     )
-    content: str | None = Field(None, examples=["# 双均线交叉策略\n\n## 策略原理\n\n利用短期均线与长期均线的交叉信号..."])
+    content: str | None = Field(
+        None, examples=["# 双均线交叉策略\n\n## 策略原理\n\n利用短期均线与长期均线的交叉信号..."]
+    )
     content_type: str = Field("markdown", max_length=50, examples=["markdown"])
     parent_id: str | None = None
     is_folder: bool = False
@@ -279,7 +284,7 @@ class ReqDocsImportDocument(BaseModel):
 
     title: str = Field(..., min_length=1, max_length=500)
     content: str | None = None
-    content_type: str = Field('markdown', max_length=50)
+    content_type: str = Field("markdown", max_length=50)
     is_folder: bool = False
     parent_id: str | None = None
 

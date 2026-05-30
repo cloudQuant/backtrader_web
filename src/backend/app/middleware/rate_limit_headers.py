@@ -65,9 +65,7 @@ class RateLimitHeadersMiddleware:
                     rate_limit_info = self._extract_rate_limit_headers(scope)
                 except Exception as exc:
                     # Fail-open: don't add headers, log warning
-                    logger.warning(
-                        "Failed to extract rate limit state: %s", exc
-                    )
+                    logger.warning("Failed to extract rate limit state: %s", exc)
                     rate_limit_info = None
 
                 if rate_limit_info:
@@ -78,9 +76,7 @@ class RateLimitHeadersMiddleware:
                     if "X-RateLimit-Limit" not in headers:
                         headers.append("X-RateLimit-Limit", rate_limit_info["limit"])
                     if "X-RateLimit-Remaining" not in headers:
-                        headers.append(
-                            "X-RateLimit-Remaining", rate_limit_info["remaining"]
-                        )
+                        headers.append("X-RateLimit-Remaining", rate_limit_info["remaining"])
                     if "X-RateLimit-Reset" not in headers:
                         headers.append("X-RateLimit-Reset", rate_limit_info["reset"])
 

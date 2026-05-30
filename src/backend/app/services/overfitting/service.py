@@ -101,7 +101,9 @@ class OverfittingService:
                 continue
             return self._to_result(model)
 
-    async def _load_backtest_request(self, backtest_id: str, user_id: str) -> BacktestRequest | None:
+    async def _load_backtest_request(
+        self, backtest_id: str, user_id: str
+    ) -> BacktestRequest | None:
         task = await self.backtest_task_repo.get_by_id(backtest_id)
         if task is None or str(task.user_id) != str(user_id):
             return None
@@ -118,7 +120,9 @@ class OverfittingService:
         except Exception:
             return None
 
-    async def _execute_slice_backtest(self, user_id: str, request: BacktestRequest) -> BacktestResult:
+    async def _execute_slice_backtest(
+        self, user_id: str, request: BacktestRequest
+    ) -> BacktestResult:
         response = await self.backtest_service.run_backtest(user_id, request)
         return await self._wait_for_result(response.task_id, user_id)
 
@@ -172,7 +176,9 @@ class OverfittingService:
         methods: list[OverfittingMethodResult] = []
         resolved_base_request = base_request
         if resolved_base_request is None and user_id is not None:
-            resolved_base_request = await self._load_backtest_request(backtest_result.task_id, user_id)
+            resolved_base_request = await self._load_backtest_request(
+                backtest_result.task_id, user_id
+            )
         total_methods = max(len(request.methods), 1)
         for index, method in enumerate(request.methods, start=1):
             if progress_callback is not None:
@@ -248,7 +254,9 @@ class OverfittingService:
                     f"{method.value} 检测完成",
                 )
 
-        robustness_score = round(sum(item.score for item in methods) / len(methods), 2) if methods else 50.0
+        robustness_score = (
+            round(sum(item.score for item in methods) / len(methods), 2) if methods else 50.0
+        )
         overall_level = self._aggregate_risk_level(methods, robustness_score)
         summary = self._build_summary(methods, overall_level, robustness_score)
         return OverfittingTaskResult(
@@ -271,7 +279,9 @@ class OverfittingService:
         model = await self.repo.get_by_field("task_id", task_id)
         if model is None:
             return
-        await self.repo.update(model.id, {"status": "running", "summary": "过拟合检测执行中。"}, refresh=False)
+        await self.repo.update(
+            model.id, {"status": "running", "summary": "过拟合检测执行中。"}, refresh=False
+        )
         await self._emit_progress(task_id, 5, "过拟合检测执行中。")
         try:
             result = await self.calculate_analysis(
@@ -368,7 +378,9 @@ class OverfittingService:
             task_id=str(model.task_id),
             backtest_id=str(model.backtest_id),
             status=str(model.status),
-            overall_level=OverfittingRiskLevel(str(model.overall_level or OverfittingRiskLevel.MEDIUM.value)),
+            overall_level=OverfittingRiskLevel(
+                str(model.overall_level or OverfittingRiskLevel.MEDIUM.value)
+            ),
             robustness_score=round(float(model.robustness_score or 0.0), 2),
             summary=str(model.summary or ""),
             methods=list(model.methods or []),

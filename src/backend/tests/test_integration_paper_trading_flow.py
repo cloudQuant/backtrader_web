@@ -51,9 +51,7 @@ async def _poll_order_status(
 class TestPaperTradingRoundTrip:
     """End-to-end paper-trading lifecycle against the real service layer."""
 
-    async def test_full_paper_trading_lifecycle(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+    async def test_full_paper_trading_lifecycle(self, client: AsyncClient, auth_headers: dict):
         # Step 1: create a paper-trading account
         create_resp = await client.post(
             f"{_BASE}/accounts",
@@ -187,4 +185,3 @@ class TestPaperTradingRoundTrip:
         assert acct.json()["current_cash"] == pytest.approx(100.0)
 
         await client.delete(f"{_BASE}/accounts/{account_id}", headers=auth_headers)
-

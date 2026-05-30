@@ -105,7 +105,9 @@ class TradingRiskGuard:
             blocked_reasons.append("交易数量未指定，无法执行")
 
         # Rule 5: Blocked symbols
-        if intent.symbol and intent.symbol.upper() in [s.upper() for s in self.config.blocked_symbols]:
+        if intent.symbol and intent.symbol.upper() in [
+            s.upper() for s in self.config.blocked_symbols
+        ]:
             blocked_reasons.append(f"品种 {intent.symbol} 在禁止交易列表中")
 
         # Rule 6: Exchange whitelist
@@ -120,9 +122,7 @@ class TradingRiskGuard:
 
         # Rule 7: Daily trade count limit
         if self._daily_trade_count >= self.config.max_daily_trades:
-            blocked_reasons.append(
-                f"已达到每日最大交易次数 ({self.config.max_daily_trades})"
-            )
+            blocked_reasons.append(f"已达到每日最大交易次数 ({self.config.max_daily_trades})")
 
         # === Soft Rules (warnings + confirmation) ===
 
@@ -194,9 +194,7 @@ class TradingRiskGuard:
             self._daily_loss = 0.0
             self._last_reset_date = today
 
-    def _estimate_trade_value(
-        self, intent: TradingIntent, account_balance: float
-    ) -> float | None:
+    def _estimate_trade_value(self, intent: TradingIntent, account_balance: float) -> float | None:
         """Estimate the monetary value of a trade."""
         if intent.quantity is None:
             return None
@@ -205,9 +203,7 @@ class TradingRiskGuard:
         # For market orders without price, we can't estimate precisely
         return None
 
-    def _estimate_max_loss(
-        self, intent: TradingIntent, trade_value: float | None
-    ) -> float | None:
+    def _estimate_max_loss(self, intent: TradingIntent, trade_value: float | None) -> float | None:
         """Estimate maximum potential loss."""
         if trade_value is None:
             return None

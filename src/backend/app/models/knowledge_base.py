@@ -50,7 +50,9 @@ class KBDocument(Base):
     content_type = Column(String(50), nullable=False, default="markdown")
     file_path = Column(String(1000), nullable=True)
     is_folder = Column(Boolean, nullable=False, default=False)
-    parent_id = Column(String(36), ForeignKey("kb_documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    parent_id = Column(
+        String(36), ForeignKey("kb_documents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     sort_order = Column(Integer, nullable=False, default=0)
     status = Column(String(20), nullable=False, default="draft")
     index_status = Column(String(20), nullable=False, default="not_indexed")
@@ -121,7 +123,10 @@ class ChatMessage(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     conversation_id = Column(
-        String(36), ForeignKey("chat_conversations.id", ondelete="CASCADE"), nullable=False, index=True
+        String(36),
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     role = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)

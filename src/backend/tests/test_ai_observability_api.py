@@ -186,7 +186,9 @@ async def test_non_admin_cannot_access_admin_ai_observability(client: AsyncClien
 
 
 @pytest.mark.asyncio
-async def test_admin_ai_provider_health_reports_configured_providers(client: AsyncClient, monkeypatch):
+async def test_admin_ai_provider_health_reports_configured_providers(
+    client: AsyncClient, monkeypatch
+):
     from app.services.ai_router.health import AIProviderHealthService, ProviderHealth
 
     async def fake_check_all(self):

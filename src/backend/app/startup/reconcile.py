@@ -40,6 +40,8 @@ async def shutdown(app: FastAPI, settings: Any) -> None:
         mgr = BacktestExecutionManager()
         interrupted = await mgr.interrupt_active_tasks()
         if interrupted:
-            startup_logger.warning("Interrupted %d active backtest tasks during shutdown", interrupted)
+            startup_logger.warning(
+                "Interrupted %d active backtest tasks during shutdown", interrupted
+            )
     except Exception:
         startup_logger.exception("Failed to interrupt active tasks during shutdown")

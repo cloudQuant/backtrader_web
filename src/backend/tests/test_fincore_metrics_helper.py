@@ -1,6 +1,5 @@
 """Tests for fincore_metrics_helper - financial metric calculations."""
 
-
 from app.services.backtest.analyzers import FincoreAdapter
 from app.services.fincore_metrics_helper import (
     MetricsSource,
@@ -92,6 +91,7 @@ class TestCalculateSharpeRatio:
         adapter = FincoreAdapter(use_fincore=False)
         # Equity with some variance
         import random
+
         random.seed(42)
         equity = [100000.0]
         for _ in range(99):

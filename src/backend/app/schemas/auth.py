@@ -11,7 +11,10 @@ class UserCreate(BaseModel):
     """User registration request schema."""
 
     username: str = Field(
-        ..., min_length=3, max_length=50, description="Username",
+        ...,
+        min_length=3,
+        max_length=50,
+        description="Username",
         examples=["quant_trader_01"],
     )
     email: EmailStr = Field(..., description="Email address", examples=["zhangsan@example.com"])

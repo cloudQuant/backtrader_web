@@ -207,9 +207,7 @@ class StrategySandbox:
         except ValueError:
             raise
         except Exception as e:
-            raise RuntimeError(
-                f"Strategy code execution failed: {type(e).__name__}: {e}"
-            ) from e
+            raise RuntimeError(f"Strategy code execution failed: {type(e).__name__}: {e}") from e
 
         if not strategy_class:
             raise ValueError(

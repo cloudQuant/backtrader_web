@@ -82,7 +82,11 @@ class TestAuthErrors:
 
     def test_invalid_credentials(self):
         err = InvalidCredentialsError(username="john")
-        assert "john" in err.message or "credentials" in err.message.lower() or "password" in err.message.lower()
+        assert (
+            "john" in err.message
+            or "credentials" in err.message.lower()
+            or "password" in err.message.lower()
+        )
 
     def test_invalid_credentials_no_username(self):
         err = InvalidCredentialsError()
@@ -173,7 +177,9 @@ class TestDataErrors:
         assert err.message
 
     def test_invalid_date_range(self):
-        err = InvalidDateRangeError("end before start", start_date="2024-01-01", end_date="2023-01-01")
+        err = InvalidDateRangeError(
+            "end before start", start_date="2024-01-01", end_date="2023-01-01"
+        )
         assert err.message
 
 

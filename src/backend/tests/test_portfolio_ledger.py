@@ -120,8 +120,8 @@ async def test_portfolio_ledger_create_import_holdings_and_snapshots(client: Asy
     async with async_session_maker() as session:
         portfolios = (await session.execute(select(PortfolioLedgerModel))).scalars().all()
         snapshot_rows = (
-            await session.execute(select(PortfolioLedgerSnapshotModel))
-        ).scalars().all()
+            (await session.execute(select(PortfolioLedgerSnapshotModel))).scalars().all()
+        )
 
     assert len(portfolios) == 1
     assert len(snapshot_rows) == 4

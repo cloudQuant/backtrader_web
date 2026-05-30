@@ -32,7 +32,12 @@ class TestDAGGeneratorSingleTask:
     def test_generated_dag_contains_dag_id(self, tmp_path):
         """Generated file contains correct dag_id."""
         generator = DAGGenerator(dag_output_dir=str(tmp_path))
-        script = {"script_id": "test_script", "source": "akshare", "timeout": 300, "category": "test"}
+        script = {
+            "script_id": "test_script",
+            "source": "akshare",
+            "timeout": 300,
+            "category": "test",
+        }
         path = generator.generate_dag(script)
         content = open(path).read()
         assert 'dag_id="dag_test_script"' in content
@@ -48,7 +53,12 @@ class TestDAGGeneratorSingleTask:
     def test_file_naming_convention(self, tmp_path):
         """File is named dag_{script_id}.py."""
         generator = DAGGenerator(dag_output_dir=str(tmp_path))
-        script = {"script_id": "bond_zh_hs_daily", "source": "akshare", "timeout": 300, "category": "bonds"}
+        script = {
+            "script_id": "bond_zh_hs_daily",
+            "source": "akshare",
+            "timeout": 300,
+            "category": "bonds",
+        }
         path = generator.generate_dag(script)
         assert path.endswith("dag_bond_zh_hs_daily.py")
 
@@ -86,13 +96,16 @@ class TestDAGGeneratorWithTask:
 class TestDAGGeneratorScheduleConversion:
     """AT-3.4: Schedule expression conversion."""
 
-    @pytest.mark.parametrize("input_expr,expected", [
-        ("0 8 * * *", "0 8 * * *"),
-        ("18:00", "00 18 * * *"),
-        ("30m", "*/30 * * * *"),
-        ("2h", "0 */2 * * *"),
-        ("1d", "@daily"),
-    ])
+    @pytest.mark.parametrize(
+        "input_expr,expected",
+        [
+            ("0 8 * * *", "0 8 * * *"),
+            ("18:00", "00 18 * * *"),
+            ("30m", "*/30 * * * *"),
+            ("2h", "0 */2 * * *"),
+            ("1d", "@daily"),
+        ],
+    )
     def test_schedule_conversion(self, input_expr, expected):
         result = DAGGenerator._convert_schedule(input_expr)
         assert result == expected

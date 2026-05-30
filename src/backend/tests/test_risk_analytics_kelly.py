@@ -81,7 +81,9 @@ async def test_kelly_api_requires_auth(client: AsyncClient):
 async def test_kelly_api_returns_recommendation_for_backtest(client: AsyncClient):
     _, headers = await register_and_login(client, username="risk_kelly_user")
     trades = [_trade(120.0), _trade(80.0), _trade(100.0), _trade(-50.0), _trade(-50.0)]
-    mock_backtest_service = SimpleNamespace(get_result=AsyncMock(return_value=_backtest_result(trades)))
+    mock_backtest_service = SimpleNamespace(
+        get_result=AsyncMock(return_value=_backtest_result(trades))
+    )
 
     app.dependency_overrides[get_backtest_service] = lambda: mock_backtest_service
     try:

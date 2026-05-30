@@ -40,7 +40,9 @@ class TestIteration129RouterRegistration:
         from app.api.router import api_router
 
         routes = [
-            route for route in api_router.routes if getattr(route, "path", "").startswith("/knowledge-base")
+            route
+            for route in api_router.routes
+            if getattr(route, "path", "").startswith("/knowledge-base")
         ]
         http_routes = [route for route in routes if getattr(route, "methods", None)]
 
@@ -237,9 +239,7 @@ class TestIteration129KnowledgeBaseAPI:
         )
         assert resp.status_code == 400
 
-    async def test_non_owner_cannot_access_document(
-        self, client: AsyncClient, auth_headers: dict
-    ):
+    async def test_non_owner_cannot_access_document(self, client: AsyncClient, auth_headers: dict):
         other_headers = await _register_and_login(client)
         kb = await client.post(
             "/api/v1/knowledge-base/",
@@ -316,23 +316,23 @@ class TestIteration129KnowledgeBaseAPI:
         async with async_session_maker() as session:
             chunk_count = (
                 await session.execute(
-                    select(func.count()).select_from(DocumentChunk).where(
-                        DocumentChunk.knowledge_base_id == kb_id
-                    )
+                    select(func.count())
+                    .select_from(DocumentChunk)
+                    .where(DocumentChunk.knowledge_base_id == kb_id)
                 )
             ).scalar_one()
             conversation_count = (
                 await session.execute(
-                    select(func.count()).select_from(ChatConversation).where(
-                        ChatConversation.knowledge_base_id == kb_id
-                    )
+                    select(func.count())
+                    .select_from(ChatConversation)
+                    .where(ChatConversation.knowledge_base_id == kb_id)
                 )
             ).scalar_one()
             message_count = (
                 await session.execute(
-                    select(func.count()).select_from(ChatMessage).where(
-                        ChatMessage.conversation_id == conversation_id
-                    )
+                    select(func.count())
+                    .select_from(ChatMessage)
+                    .where(ChatMessage.conversation_id == conversation_id)
                 )
             ).scalar_one()
 
@@ -347,7 +347,9 @@ class TestIteration129KnowledgeBaseAPI:
         source_root.mkdir()
         source_file = source_root / "sample.pdf"
         source_file.write_bytes(b"%PDF")
-        monkeypatch.setattr(kb_api, "get_backend_data_path", lambda *parts: tmp_path.joinpath(*parts), raising=False)
+        monkeypatch.setattr(
+            kb_api, "get_backend_data_path", lambda *parts: tmp_path.joinpath(*parts), raising=False
+        )
 
         result = kb_api._get_source_file_path(
             SimpleNamespace(

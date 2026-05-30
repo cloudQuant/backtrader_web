@@ -271,9 +271,7 @@ class TestRateLimitHeadersIntegration:
         assert isinstance(body["retry_after"], int)
         assert body["retry_after"] > 0
 
-    async def test_rate_limited_response_has_retry_after_header(
-        self, client: AsyncClient
-    ):
+    async def test_rate_limited_response_has_retry_after_header(self, client: AsyncClient):
         """When rate limit is exceeded, Retry-After header is present."""
         from app.main import app
 

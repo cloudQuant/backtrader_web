@@ -41,7 +41,8 @@ def build_backtest_result(
         profitable_trades=profitable_trades,
         losing_trades=losing_trades,
         equity_curve=equity_curve or [100000, 103000, 101500, 109000, 123500],
-        equity_dates=equity_dates or [
+        equity_dates=equity_dates
+        or [
             "2024-01-02",
             "2024-03-01",
             "2024-06-03",

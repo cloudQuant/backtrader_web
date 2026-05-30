@@ -183,7 +183,9 @@ class ConnectionManager:
         # Clear all connections after closing
         self.active_connections.clear()
         self._closed_connections.clear()
-        logger.info("Closed %d WebSocket connections (code=%d, reason=%s)", closed_count, code, reason)
+        logger.info(
+            "Closed %d WebSocket connections (code=%d, reason=%s)", closed_count, code, reason
+        )
         return closed_count
 
 

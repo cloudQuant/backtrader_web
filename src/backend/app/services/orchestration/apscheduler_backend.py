@@ -37,9 +37,7 @@ class APSchedulerBackend(OrchestratorBackend):
         """Remove a task from APScheduler."""
         await self._scheduler.remove_task(task_id)
 
-    async def run_task_now(
-        self, task_id: int, operator_id: str | None = None
-    ) -> Any:
+    async def run_task_now(self, task_id: int, operator_id: str | None = None) -> Any:
         """Execute a task immediately via APScheduler."""
         return await self._scheduler.run_task_now(task_id, operator_id=operator_id)
 

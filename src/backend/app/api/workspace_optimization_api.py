@@ -29,7 +29,6 @@ from app.services.workspace_service import WorkspaceService
 router = APIRouter()
 
 
-
 @router.post("/{workspace_id}/optimize", summary="Submit unit optimization")
 async def submit_unit_optimization(
     workspace_id: str,
@@ -309,4 +308,3 @@ async def apply_best_params(
 
 
 # ---------------------------------------------------------------------------
-

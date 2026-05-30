@@ -69,7 +69,9 @@ async def test_benchmark_metrics_service_returns_degraded_for_insufficient_overl
 
 @pytest.mark.asyncio
 async def test_benchmark_metrics_api_requires_auth(client: AsyncClient):
-    response = await client.get("/api/v1/risk-analytics/benchmark-metrics/task123?benchmark_id=hs300")
+    response = await client.get(
+        "/api/v1/risk-analytics/benchmark-metrics/task123?benchmark_id=hs300"
+    )
 
     assert response.status_code == 401
 

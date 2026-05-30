@@ -56,10 +56,14 @@ class NewsIntelligenceService:
         self._require_db()
         inserted = 0
         source_rows = (
-            await self.db.execute(
-                select(NewsSourceModel).where(NewsSourceModel.owner_id == user_id)
+            (
+                await self.db.execute(
+                    select(NewsSourceModel).where(NewsSourceModel.owner_id == user_id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         sources = {source.name: source for source in source_rows}
         canonical_urls = [self._canonicalize_url(str(item.get("url") or "")) for item in articles]
         existing_keys = set(
@@ -70,7 +74,9 @@ class NewsIntelligenceService:
                         NewsArticleModel.canonical_url.in_(canonical_urls),
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
         for item in articles:
             canonical_url = self._canonicalize_url(str(item.get("url") or ""))
@@ -202,7 +208,11 @@ class NewsIntelligenceService:
                 item
                 for item in rows
                 if expected_ticker
-                in {str(value).strip().upper() for value in list(item.tickers or []) if str(value).strip()}
+                in {
+                    str(value).strip().upper()
+                    for value in list(item.tickers or [])
+                    if str(value).strip()
+                }
             ]
         items = [self._serialize_article(item) for item in rows]
         return {"items": items, "total": len(items)}
@@ -324,7 +334,9 @@ class NewsIntelligenceService:
         return items
 
     def _iter_feed_entries(self, root: ET.Element) -> list[ET.Element]:
-        entries = [element for element in root.iter() if self._tag_name(element.tag) in {"item", "entry"}]
+        entries = [
+            element for element in root.iter() if self._tag_name(element.tag) in {"item", "entry"}
+        ]
         return entries
 
     def _entry_text(self, entry: ET.Element, field_name: str) -> str:

@@ -126,9 +126,7 @@ class AkshareScheduler:
         for task_id in task_ids:
             await self.add_or_update_task(task_id)
 
-    async def run_task_now(
-        self, task_id: int, operator_id: str | None = None
-    ) -> TaskExecution:
+    async def run_task_now(self, task_id: int, operator_id: str | None = None) -> TaskExecution:
         async with async_session_maker() as session:
             task = await session.get(ScheduledTask, task_id)
             if task is None:

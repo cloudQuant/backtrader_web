@@ -1,4 +1,5 @@
 """Migrate source files from MongoDB to local disk and update KB documents."""
+
 import json
 import sqlite3
 import sys
@@ -10,12 +11,12 @@ BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(BACKEND_ROOT))
 
-SOURCE_FILE_DIR = BACKEND_ROOT / 'data' / 'reqdocs_source_files'
+SOURCE_FILE_DIR = BACKEND_ROOT / "data" / "reqdocs_source_files"
 SOURCE_FILE_DIR.mkdir(parents=True, exist_ok=True)
 
-DB_PATH = REPO_ROOT / 'data' / 'dev' / 'backtrader.db'
-MONGODB_URL = 'mongodb://localhost:27017/'
-MONGODB_DB = 'document_management'
+DB_PATH = REPO_ROOT / "data" / "dev" / "backtrader.db"
+MONGODB_URL = "mongodb://localhost:27017/"
+MONGODB_DB = "document_management"
 
 
 def get_connection():
@@ -25,8 +26,7 @@ def get_connection():
 def update_document_metadata(conn, doc_uuid: str, metadata: dict) -> None:
     cursor = conn.cursor()
     cursor.execute(
-        'UPDATE kb_documents SET metadata = ? WHERE id = ?',
-        (json.dumps(metadata), doc_uuid)
+        "UPDATE kb_documents SET metadata = ? WHERE id = ?", (json.dumps(metadata), doc_uuid)
     )
     conn.commit()
 
@@ -41,11 +41,11 @@ def migrate_source_files(dry_run: bool = True):
     conn = get_connection()
 
     print("Finding documents needing source files...")
-    cursor = conn.execute('''
+    cursor = conn.execute("""
         SELECT id, title, metadata
         FROM kb_documents
         WHERE metadata IS NOT NULL AND metadata != ''
-    ''')
+    """)
 
     docs_needing_migration = []
     for row in cursor.fetchall():
@@ -55,9 +55,9 @@ def migrate_source_files(dry_run: bool = True):
         except (json.JSONDecodeError, TypeError):
             continue
 
-        if not metadata.get('reqdocs_document_id'):
+        if not metadata.get("reqdocs_document_id"):
             continue
-        if metadata.get('reqdocs_source_file_path'):
+        if metadata.get("reqdocs_source_file_path"):
             continue
 
         docs_needing_migration.append((doc_uuid, metadata))
@@ -70,44 +70,47 @@ def migrate_source_files(dry_run: bool = True):
 
     for doc_uuid, metadata in docs_needing_migration:
         try:
-            reqdocs_id = int(metadata['reqdocs_document_id'])
+            reqdocs_id = int(metadata["reqdocs_document_id"])
 
             mongo_doc = db.source_files.find_one(
-                {'document_id': reqdocs_id},
+                {"document_id": reqdocs_id},
                 {
-                    'filename': 1,
-                    'mime_type': 1,
-                    'file_size': 1,
-                    'storage_type': 1,
-                    'gridfs_id': 1,
-                    'data': 1,
-                }
+                    "filename": 1,
+                    "mime_type": 1,
+                    "file_size": 1,
+                    "storage_type": 1,
+                    "gridfs_id": 1,
+                    "data": 1,
+                },
             )
 
             if not mongo_doc:
                 skipped_no_match += 1
                 continue
 
-            filename = mongo_doc.get('filename')
-            file_data = mongo_doc.get('data')
+            filename = mongo_doc.get("filename")
+            file_data = mongo_doc.get("data")
             if not filename or not file_data:
                 skipped_no_match += 1
                 continue
 
             safe_name = Path(filename).name
-            target_path = SOURCE_FILE_DIR / f'{reqdocs_id}_{safe_name}'
+            target_path = SOURCE_FILE_DIR / f"{reqdocs_id}_{safe_name}"
 
             if not dry_run:
                 target_path.write_bytes(file_data)
 
             new_metadata = dict(metadata)
-            new_metadata.update({
-                'reqdocs_source_filename': filename,
-                'reqdocs_source_mime_type': mongo_doc.get('mime_type') or 'application/octet-stream',
-                'reqdocs_source_file_size': mongo_doc.get('file_size'),
-                'reqdocs_source_storage_type': mongo_doc.get('storage_type'),
-                'reqdocs_source_file_path': str(target_path),
-            })
+            new_metadata.update(
+                {
+                    "reqdocs_source_filename": filename,
+                    "reqdocs_source_mime_type": mongo_doc.get("mime_type")
+                    or "application/octet-stream",
+                    "reqdocs_source_file_size": mongo_doc.get("file_size"),
+                    "reqdocs_source_storage_type": mongo_doc.get("storage_type"),
+                    "reqdocs_source_file_path": str(target_path),
+                }
+            )
 
             if not dry_run:
                 update_document_metadata(conn, doc_uuid, new_metadata)
@@ -129,6 +132,6 @@ def migrate_source_files(dry_run: bool = True):
     mongo.close()
 
 
-if __name__ == '__main__':
-    dry_run = '--dry-run' in sys.argv
+if __name__ == "__main__":
+    dry_run = "--dry-run" in sys.argv
     migrate_source_files(dry_run=dry_run)

@@ -48,39 +48,42 @@ class MigrationTool:
                 try:
                     # Load the associated script
                     script_result = await session.execute(
-                        select(DataScript).where(
-                            DataScript.script_id == task.script_id
-                        )
+                        select(DataScript).where(DataScript.script_id == task.script_id)
                     )
                     script = script_result.scalar_one_or_none()
 
                     if script is None:
-                        failures.append({
-                            "task_id": str(task.id),
-                            "task_name": task.name,
-                            "reason": f"Script '{task.script_id}' not found",
-                        })
+                        failures.append(
+                            {
+                                "task_id": str(task.id),
+                                "task_name": task.name,
+                                "reason": f"Script '{task.script_id}' not found",
+                            }
+                        )
                         continue
 
                     # Generate DAG file
                     path = self._generator.generate_dag(script, task)
-                    successes.append({
-                        "task_id": str(task.id),
-                        "task_name": task.name,
-                        "dag_file": path,
-                    })
+                    successes.append(
+                        {
+                            "task_id": str(task.id),
+                            "task_name": task.name,
+                            "dag_file": path,
+                        }
+                    )
 
                 except Exception as exc:
-                    failures.append({
-                        "task_id": str(task.id),
-                        "task_name": task.name,
-                        "reason": str(exc),
-                    })
+                    failures.append(
+                        {
+                            "task_id": str(task.id),
+                            "task_name": task.name,
+                            "reason": str(exc),
+                        }
+                    )
 
         total = len(successes) + len(failures)
         logger.info(
-            f"Migration completed: {len(successes)} success, "
-            f"{len(failures)} failed, {total} total"
+            f"Migration completed: {len(successes)} success, {len(failures)} failed, {total} total"
         )
 
         return {

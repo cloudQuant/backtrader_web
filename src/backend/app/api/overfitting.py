@@ -85,8 +85,12 @@ async def create_overfitting_task(
             user_id=current_user.sub,
             request=data,
         )
-        submission_task_id = submission["task_id"] if isinstance(submission, dict) else submission.task_id
-        submission_status = submission["status"] if isinstance(submission, dict) else submission.status
+        submission_task_id = (
+            submission["task_id"] if isinstance(submission, dict) else submission.task_id
+        )
+        submission_status = (
+            submission["status"] if isinstance(submission, dict) else submission.status
+        )
         await ws_manager.send_to_task(
             _overfitting_ws_channel(submission_task_id),
             {
@@ -136,7 +140,9 @@ async def websocket_endpoint(websocket: WebSocket, task_id: str):
     await ws_manager.connect(websocket, channel, client_id, accepted_subprotocol)
 
     try:
-        initial_snapshot = _build_overfitting_runtime_snapshot(task_id, task_result.status, task_result)
+        initial_snapshot = _build_overfitting_runtime_snapshot(
+            task_id, task_result.status, task_result
+        )
         await ws_manager.send_to_task(channel, initial_snapshot)
 
         if _is_terminal_overfitting_status(task_result.status):

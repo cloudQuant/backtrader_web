@@ -214,14 +214,10 @@ class AuditService:
                 count_query = count_query.where(AuditRecord.event_type == params.event_type)
             if params.start_time:
                 query = query.where(AuditRecord.server_timestamp >= params.start_time)
-                count_query = count_query.where(
-                    AuditRecord.server_timestamp >= params.start_time
-                )
+                count_query = count_query.where(AuditRecord.server_timestamp >= params.start_time)
             if params.end_time:
                 query = query.where(AuditRecord.server_timestamp <= params.end_time)
-                count_query = count_query.where(
-                    AuditRecord.server_timestamp <= params.end_time
-                )
+                count_query = count_query.where(AuditRecord.server_timestamp <= params.end_time)
 
             # Get total count
             total_result = await session.execute(count_query)

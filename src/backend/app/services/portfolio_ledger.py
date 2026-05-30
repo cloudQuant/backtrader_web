@@ -90,11 +90,7 @@ class PortfolioLedgerService:
             quantity = float(item.get("quantity") or 0.0)
             price = float(item.get("price") or 0.0)
             amount_raw = item.get("amount")
-            amount = (
-                float(amount_raw)
-                if amount_raw is not None
-                else round(quantity * price, 2)
-            )
+            amount = float(amount_raw) if amount_raw is not None else round(quantity * price, 2)
             self.db.add(
                 PortfolioLedgerTransactionModel(
                     portfolio_id=portfolio_id,
@@ -106,9 +102,7 @@ class PortfolioLedgerService:
                     trade_date=str(item.get("trade_date") or str(date.today())),
                     benchmark_symbol=(
                         str(
-                            item.get("benchmark_symbol")
-                            or portfolio.benchmark_symbol
-                            or ""
+                            item.get("benchmark_symbol") or portfolio.benchmark_symbol or ""
                         ).strip()
                         or None
                     ),

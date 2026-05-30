@@ -38,9 +38,7 @@ def normalize_tick_date_part(value: Any) -> str | None:
     return None
 
 
-def normalize_tick_update_time(
-    value: Any, raw: dict[str, Any], now: str
-) -> str | None:
+def normalize_tick_update_time(value: Any, raw: dict[str, Any], now: str) -> str | None:
     """Coalesce a tick's update_time into an ISO-8601 string.
 
     Accepts:

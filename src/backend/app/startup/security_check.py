@@ -15,6 +15,10 @@ def _get_logger(app: FastAPI):
 async def register(app: FastAPI, settings: Any) -> None:
     startup_logger = _get_logger(app)
     if settings.SECRET_KEY in _DEFAULT_SECRETS or settings.JWT_SECRET_KEY in _DEFAULT_SECRETS:
-        startup_logger.warning("Using default security key. Set SECRET_KEY / JWT_SECRET_KEY in production.")
+        startup_logger.warning(
+            "Using default security key. Set SECRET_KEY / JWT_SECRET_KEY in production."
+        )
     if settings.ADMIN_PASSWORD.lower() in _DEFAULT_PASSWORDS:
-        startup_logger.warning("Default admin password detected. Change ADMIN_PASSWORD in production.")
+        startup_logger.warning(
+            "Default admin password detected. Change ADMIN_PASSWORD in production."
+        )

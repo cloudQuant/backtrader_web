@@ -331,9 +331,7 @@ def unit_to_dict(unit: StrategyUnit, opt_info: dict[str, Any] | None = None) -> 
         "timeframe_n": unit.timeframe_n or 1,
         "category": unit.category or "",
         "sort_order": unit.sort_order or 0,
-        "data_config": _normalize_unit_data_config(
-            cast("dict[str, Any] | None", unit.data_config)
-        ),
+        "data_config": _normalize_unit_data_config(cast("dict[str, Any] | None", unit.data_config)),
         "unit_settings": unit.unit_settings or {},
         "params": unit.params or {},
         "optimization_config": unit.optimization_config or {},

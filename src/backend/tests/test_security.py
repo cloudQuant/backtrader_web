@@ -101,9 +101,7 @@ class TestJWTSecurity:
         # Sign with a different secret
         bad_token = jwt.encode(payload, "wrong-secret-key", algorithm="HS256")
 
-        resp = await client.get(
-            "/api/v1/auth/me", headers={"Authorization": f"Bearer {bad_token}"}
-        )
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bad_token}"})
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
@@ -123,9 +121,7 @@ class TestJWTSecurity:
         }
         token = jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm="HS256")
 
-        resp = await client.get(
-            "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
-        )
+        resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
         # Should return 404 (user not found) not 200 with another user's data
         assert resp.status_code in (401, 404)
 
@@ -147,9 +143,7 @@ class TestJWTSecurity:
             "undefined",
         ]
         for token in malformed_tokens:
-            resp = await client.get(
-                "/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"}
-            )
+            resp = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
             assert resp.status_code == 401, f"Token '{token}' should be rejected"
 
 
@@ -219,7 +213,7 @@ class TestInjection:
         """XSS payloads in strategy names are stored safely."""
         xss_payloads = [
             '<script>alert("xss")</script>',
-            '<img src=x onerror=alert(1)>',
+            "<img src=x onerror=alert(1)>",
             '"><script>document.cookie</script>',
             "javascript:alert(1)",
         ]

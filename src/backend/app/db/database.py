@@ -302,7 +302,9 @@ def _ensure_ai_budget_schema_compatibility_sync(bind) -> None:
         _add_column_if_missing(
             bind, "users", "ai_preferred_provider", "ai_preferred_provider VARCHAR(50)"
         )
-        _add_column_if_missing(bind, "users", "ai_preferred_model", "ai_preferred_model VARCHAR(100)")
+        _add_column_if_missing(
+            bind, "users", "ai_preferred_model", "ai_preferred_model VARCHAR(100)"
+        )
 
 
 def _ensure_prompt_template_schema_compatibility_sync(bind) -> None:

@@ -9,7 +9,10 @@ class KellyService:
 
     def calculate(self, trades: list[TradeRecord], *, min_trades: int = 3) -> KellyResult:
         """Calculate full, half, and quarter Kelly fractions."""
-        pnl_values = [float(trade.pnlcomm if trade.pnlcomm is not None else trade.pnl or 0.0) for trade in trades]
+        pnl_values = [
+            float(trade.pnlcomm if trade.pnlcomm is not None else trade.pnl or 0.0)
+            for trade in trades
+        ]
         closed = [value for value in pnl_values if value != 0]
         if len(closed) < min_trades:
             return KellyResult(

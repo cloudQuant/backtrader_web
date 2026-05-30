@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip('pytest_benchmark')
+pytest.importorskip("pytest_benchmark")
 
 
 def _p95_ms(values: list[float]) -> float:
@@ -32,7 +32,7 @@ def test_option_single_strike_greeks_under_500ms(benchmark: Any) -> None:
         return service.calculate_greeks(100.0, 100.0, 0.22, True)
 
     result = calculate_once()
-    assert result['delta'] is not None
+    assert result["delta"] is not None
 
     benchmark.pedantic(calculate_once, rounds=5, iterations=50)
 

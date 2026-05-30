@@ -18,7 +18,9 @@ def test_max_pain_against_manual():
 
 
 @pytest.mark.asyncio
-async def test_options_chain_calculates_pcr_max_pain_greeks_and_publishes_topics(client: AsyncClient):
+async def test_options_chain_calculates_pcr_max_pain_greeks_and_publishes_topics(
+    client: AsyncClient,
+):
     _, headers = await register_and_login(client, username="option_user")
     await client.post(
         "/api/v1/data-topics/register",
@@ -43,7 +45,10 @@ async def test_options_chain_calculates_pcr_max_pain_greeks_and_publishes_topics
     await client.post(
         "/api/v1/data-topics/register",
         headers=headers,
-        json={"topic": "option:chain:data_governance:RB2510:2026-12-31", "policy": {"ttl_ms": 1000}},
+        json={
+            "topic": "option:chain:data_governance:RB2510:2026-12-31",
+            "policy": {"ttl_ms": 1000},
+        },
     )
     await client.post(
         "/api/v1/data-topics/market:quote:RB2510/push",

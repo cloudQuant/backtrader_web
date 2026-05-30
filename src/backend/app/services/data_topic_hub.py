@@ -88,7 +88,9 @@ class DataTopicHub:
             ws_metrics = asdict(self._ws_gateway.metrics())
         return {
             "total_topics": len(self._topics),
-            "topics_with_value": sum(1 for state in self._topics.values() if state.value is not None),
+            "topics_with_value": sum(
+                1 for state in self._topics.values() if state.value is not None
+            ),
             "subscription_count": len(self._subscriptions),
             "error_count": self._error_count,
             "ws_gateway": ws_metrics,
@@ -134,7 +136,9 @@ class DataTopicHub:
 
     def subscribe(self, owner: str, pattern: str, callback: Callable[[str, Any], Any]) -> str:
         subscription_id = str(uuid.uuid4())
-        self._subscriptions[subscription_id] = _Subscription(owner=owner, pattern=pattern, callback=callback)
+        self._subscriptions[subscription_id] = _Subscription(
+            owner=owner, pattern=pattern, callback=callback
+        )
         return subscription_id
 
     def unsubscribe(self, subscription_id: str) -> None:
@@ -155,7 +159,9 @@ class DataTopicHub:
         ]
         for subscription_id, subscription in matching:
             if state.policy.coalesce_within_ms > 0:
-                self._schedule_coalesced(subscription_id, subscription, topic, value, state.policy.coalesce_within_ms)
+                self._schedule_coalesced(
+                    subscription_id, subscription, topic, value, state.policy.coalesce_within_ms
+                )
             else:
                 await self._deliver(subscription.callback, topic, value)
         delivered = len(matching)
@@ -214,7 +220,11 @@ class DataTopicHub:
             callback(error)
 
     def _subscription_count_for_topic(self, topic: str) -> int:
-        return sum(1 for subscription in self._subscriptions.values() if fnmatch.fnmatch(topic, subscription.pattern))
+        return sum(
+            1
+            for subscription in self._subscriptions.values()
+            if fnmatch.fnmatch(topic, subscription.pattern)
+        )
 
 
 _shared_hub = DataTopicHub()

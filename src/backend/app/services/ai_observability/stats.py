@@ -39,7 +39,9 @@ class AICallStatsService:
             "by_model": self._group(logs, "model_name", lambda item: item.model_name),
         }
         if include_user_breakdown:
-            payload["by_user"] = self._group(logs, "user_id", lambda item: item.user_id or "anonymous")
+            payload["by_user"] = self._group(
+                logs, "user_id", lambda item: item.user_id or "anonymous"
+            )
         return payload
 
     async def get_failures(
@@ -64,7 +66,9 @@ class AICallStatsService:
             "by_error_code": self._failure_group(
                 failures, "error_code", lambda item: item.error_code or "unknown"
             ),
-            "by_service": self._failure_group(failures, "service_name", lambda item: item.service_name),
+            "by_service": self._failure_group(
+                failures, "service_name", lambda item: item.service_name
+            ),
             "recent_failures": [self._diagnostic_record(item) for item in recent],
         }
 
@@ -129,9 +133,7 @@ class AICallStatsService:
             "avg_latency_ms": self._average_latency(logs),
         }
 
-    def _failure_summary(
-        self, logs: list[AICallLog], failures: list[AICallLog]
-    ) -> dict[str, Any]:
+    def _failure_summary(self, logs: list[AICallLog], failures: list[AICallLog]) -> dict[str, Any]:
         return {
             "total_calls": len(logs),
             "failed_calls": len(failures),
@@ -149,7 +151,9 @@ class AICallStatsService:
             )
         ]
 
-    def _failure_group(self, logs: list[AICallLog], field_name: str, key_fn) -> list[dict[str, Any]]:
+    def _failure_group(
+        self, logs: list[AICallLog], field_name: str, key_fn
+    ) -> list[dict[str, Any]]:
         buckets: dict[str, list[AICallLog]] = {}
         for item in logs:
             buckets.setdefault(str(key_fn(item)), []).append(item)
@@ -165,7 +169,9 @@ class AICallStatsService:
             )
         ]
 
-    def _latency_group(self, logs: list[AICallLog], field_name: str, key_fn) -> list[dict[str, Any]]:
+    def _latency_group(
+        self, logs: list[AICallLog], field_name: str, key_fn
+    ) -> list[dict[str, Any]]:
         buckets: dict[str, list[AICallLog]] = {}
         for item in logs:
             buckets.setdefault(str(key_fn(item)), []).append(item)
@@ -178,7 +184,8 @@ class AICallStatsService:
                 "p99_latency_ms": self._percentile_latency(items, 0.99),
             }
             for key, items in sorted(
-                buckets.items(), key=lambda entry: (-self._percentile_latency(entry[1], 0.95), str(entry[0]))
+                buckets.items(),
+                key=lambda entry: (-self._percentile_latency(entry[1], 0.95), str(entry[0])),
             )
         ]
 

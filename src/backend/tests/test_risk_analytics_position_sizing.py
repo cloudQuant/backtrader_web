@@ -28,7 +28,19 @@ def _backtest_result(equity_curve: list[float]) -> BacktestResult:
 async def test_position_sizing_service_calculates_volatility_target_fraction():
     from app.services.risk_analytics.position_sizing import PositionSizingService
 
-    equity_curve = [100000, 101000, 100000, 101000, 100000, 101000, 100000, 101000, 100000, 101000, 100000]
+    equity_curve = [
+        100000,
+        101000,
+        100000,
+        101000,
+        100000,
+        101000,
+        100000,
+        101000,
+        100000,
+        101000,
+        100000,
+    ]
     result = PositionSizingService().calculate_for_equity_curve(
         equity_curve,
         target_volatility=0.10,
@@ -48,7 +60,9 @@ async def test_position_sizing_service_calculates_volatility_target_fraction():
 async def test_position_sizing_service_calculates_risk_parity_weights():
     from app.services.risk_analytics.position_sizing import PositionSizingService
 
-    result = PositionSizingService().calculate_risk_parity_weights({"low_vol": 0.10, "high_vol": 0.20})
+    result = PositionSizingService().calculate_risk_parity_weights(
+        {"low_vol": 0.10, "high_vol": 0.20}
+    )
 
     assert result == {"low_vol": pytest.approx(2 / 3), "high_vol": pytest.approx(1 / 3)}
 
@@ -57,7 +71,9 @@ async def test_position_sizing_service_calculates_risk_parity_weights():
 async def test_position_sizing_service_returns_degraded_when_history_is_short():
     from app.services.risk_analytics.position_sizing import PositionSizingService
 
-    result = PositionSizingService().calculate_for_equity_curve([100000, 100100], min_observations=5)
+    result = PositionSizingService().calculate_for_equity_curve(
+        [100000, 100100], min_observations=5
+    )
 
     assert result.status == "degraded"
     assert result.reason == "insufficient_history"
@@ -74,8 +90,22 @@ async def test_position_sizing_api_requires_auth(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_position_sizing_api_returns_recommendation_for_backtest(client: AsyncClient):
     _, headers = await register_and_login(client, username="risk_position_user")
-    equity_curve = [100000, 101000, 100000, 101000, 100000, 101000, 100000, 101000, 100000, 101000, 100000]
-    mock_backtest_service = SimpleNamespace(get_result=AsyncMock(return_value=_backtest_result(equity_curve)))
+    equity_curve = [
+        100000,
+        101000,
+        100000,
+        101000,
+        100000,
+        101000,
+        100000,
+        101000,
+        100000,
+        101000,
+        100000,
+    ]
+    mock_backtest_service = SimpleNamespace(
+        get_result=AsyncMock(return_value=_backtest_result(equity_curve))
+    )
 
     app.dependency_overrides[get_backtest_service] = lambda: mock_backtest_service
     try:
@@ -101,7 +131,9 @@ async def test_position_sizing_api_returns_404_when_backtest_missing(client: Asy
 
     app.dependency_overrides[get_backtest_service] = lambda: mock_backtest_service
     try:
-        response = await client.get("/api/v1/risk-analytics/position-sizing/missing", headers=headers)
+        response = await client.get(
+            "/api/v1/risk-analytics/position-sizing/missing", headers=headers
+        )
     finally:
         app.dependency_overrides.pop(get_backtest_service, None)
 

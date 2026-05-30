@@ -91,8 +91,7 @@ def call_logger(
     level_upper = log_level.upper()
     if level_upper not in _VALID_LEVELS:
         raise ValueError(
-            f"Invalid log_level: '{log_level}'. "
-            f"Accepted values: {', '.join(sorted(_VALID_LEVELS))}"
+            f"Invalid log_level: '{log_level}'. Accepted values: {', '.join(sorted(_VALID_LEVELS))}"
         )
 
     def decorator(func: Callable[P, Any]) -> Callable[P, Any]:

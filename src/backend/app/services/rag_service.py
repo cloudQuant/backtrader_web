@@ -126,7 +126,9 @@ class RAGService:
                         KBDocument.is_folder.is_(False),
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
     async def _auto_index_documents(
@@ -147,7 +149,9 @@ class RAGService:
                         DocumentChunk.knowledge_base_id == knowledge_base_id
                     )
                 )
-            ).scalars().all()
+            )
+            .scalars()
+            .all()
         )
 
         stored = 0
@@ -165,7 +169,9 @@ class RAGService:
             if has_chunks and is_indexed:
                 continue
 
-            await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document.id))
+            await session.execute(
+                delete(DocumentChunk).where(DocumentChunk.document_id == document.id)
+            )
             changed = True
             chunks = chunk_service.split_text(content)
             for index, chunk in enumerate(chunks):
@@ -205,7 +211,9 @@ class RAGService:
             if document is None:
                 return None
 
-            await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
+            await session.execute(
+                delete(DocumentChunk).where(DocumentChunk.document_id == document_id)
+            )
 
             stored = 0
             for index, chunk in enumerate(chunks):
@@ -331,7 +339,15 @@ class RAGService:
             return _normalize_text(getattr(document, "file_path", "") or "")
 
         parts = [str(getattr(document, "file_path", "") or "")]
-        for key in ("tags", "category", "symbol", "symbol_name", "timeframe", "source", "asset_class"):
+        for key in (
+            "tags",
+            "category",
+            "symbol",
+            "symbol_name",
+            "timeframe",
+            "source",
+            "asset_class",
+        ):
             value = metadata.get(key)
             if isinstance(value, str):
                 parts.append(value)
@@ -352,7 +368,9 @@ class RAGService:
         title_text = _normalize_text(getattr(document, "title", "") or "")
         content_text = _normalize_text(getattr(chunk, "content", "") or "")
         metadata_text = self._metadata_text(document)
-        combined_header = _normalize_text(" ".join(part for part in (title_text, metadata_text) if part))
+        combined_header = _normalize_text(
+            " ".join(part for part in (title_text, metadata_text) if part)
+        )
 
         title_score = _keyword_similarity(retrieval_query, combined_header)
         keyword_score = _keyword_similarity(retrieval_query, content_text)
@@ -364,9 +382,12 @@ class RAGService:
         content_lower = content_text.lower()
         title_lower = title_text.lower()
         if search_mode == "keyword":
-            phrase_score = 1.0 if normalized_question and (
-                normalized_question in content_lower or normalized_question in title_lower
-            ) else 0.0
+            phrase_score = (
+                1.0
+                if normalized_question
+                and (normalized_question in content_lower or normalized_question in title_lower)
+                else 0.0
+            )
 
         updated_at = _safe_datetime(getattr(document, "updated_at", None))
         recency_score = 0.0
@@ -485,7 +506,9 @@ class RAGService:
             settings = merge_knowledge_base_settings(getattr(kb, "settings", None))
             effective_top_k = int(top_k or settings.get("default_top_k") or 8)
             effective_min_similarity = float(
-                min_similarity if min_similarity is not None else settings.get("min_similarity") or 0.0
+                min_similarity
+                if min_similarity is not None
+                else settings.get("min_similarity") or 0.0
             )
             effective_search_mode = str(search_mode or settings.get("search_mode") or "hybrid")
 
@@ -540,7 +563,9 @@ class RAGService:
             diversified = self._diversify_results(ranked, effective_top_k)
 
             total_indexable_documents = len(documents)
-            indexed_documents = sum(1 for document in documents if document.index_status == "indexed")
+            indexed_documents = sum(
+                1 for document in documents if document.index_status == "indexed"
+            )
             diagnostics = {
                 "retrieval_profile": str(settings.get("retrieval_profile") or "quant_research"),
                 "search_mode": effective_search_mode,
@@ -551,9 +576,7 @@ class RAGService:
                 "history_messages_used": history_messages_used,
                 "total_indexable_documents": total_indexable_documents,
                 "indexed_documents": indexed_documents,
-                "coverage_ratio": round(
-                    indexed_documents / total_indexable_documents, 4
-                )
+                "coverage_ratio": round(indexed_documents / total_indexable_documents, 4)
                 if total_indexable_documents
                 else 0.0,
             }

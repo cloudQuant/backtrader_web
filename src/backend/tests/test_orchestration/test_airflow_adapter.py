@@ -51,6 +51,7 @@ class TestAirflowAdapterHealthCheck:
 
     async def test_health_check_connection_error(self):
         """Connection error returns False (no exception raised)."""
+
         def raise_connect_error(req):
             raise httpx.ConnectError("Connection refused")
 
@@ -120,13 +121,17 @@ class TestAirflowAdapterTrigger:
 
         def handler(req: httpx.Request):
             import json
+
             received_body.update(json.loads(req.content))
-            return httpx.Response(200, json={
-                "dag_run_id": "manual__2024-01-01",
-                "dag_id": "test_dag",
-                "state": "queued",
-                "conf": received_body.get("conf", {}),
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "dag_run_id": "manual__2024-01-01",
+                    "dag_id": "test_dag",
+                    "state": "queued",
+                    "conf": received_body.get("conf", {}),
+                },
+            )
 
         transport = httpx.MockTransport(handler)
         adapter = AirflowAdapter.__new__(AirflowAdapter)
@@ -146,12 +151,16 @@ class TestAirflowAdapterTrigger:
 
         def handler(req: httpx.Request):
             import json
+
             received_body.update(json.loads(req.content))
-            return httpx.Response(200, json={
-                "dag_run_id": "manual__2024-01-01",
-                "dag_id": "test_dag",
-                "state": "queued",
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "dag_run_id": "manual__2024-01-01",
+                    "dag_id": "test_dag",
+                    "state": "queued",
+                },
+            )
 
         transport = httpx.MockTransport(handler)
         adapter = AirflowAdapter.__new__(AirflowAdapter)
@@ -169,10 +178,13 @@ class TestAirflowAdapterDAGOperations:
     async def test_list_dags(self):
         """List DAGs returns parsed response."""
         transport = httpx.MockTransport(
-            lambda req: httpx.Response(200, json={
-                "dags": [{"dag_id": "dag_1"}, {"dag_id": "dag_2"}],
-                "total_entries": 2,
-            })
+            lambda req: httpx.Response(
+                200,
+                json={
+                    "dags": [{"dag_id": "dag_1"}, {"dag_id": "dag_2"}],
+                    "total_entries": 2,
+                },
+            )
         )
         adapter = AirflowAdapter.__new__(AirflowAdapter)
         adapter._base_url = "http://test/api/v1"
@@ -188,6 +200,7 @@ class TestAirflowAdapterDAGOperations:
 
         def handler(req: httpx.Request):
             import json
+
             received_body.update(json.loads(req.content))
             return httpx.Response(200, json={"dag_id": "test", "is_paused": True})
 
@@ -206,6 +219,7 @@ class TestAirflowAdapterDAGOperations:
 
         def handler(req: httpx.Request):
             import json
+
             received_body.update(json.loads(req.content))
             return httpx.Response(200, json={"dag_id": "test", "is_paused": False})
 

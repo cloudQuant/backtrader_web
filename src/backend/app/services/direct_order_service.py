@@ -42,9 +42,7 @@ class DirectOrderService:
 
         try:
             # Resolve account
-            resolved_account_id = await self._resolve_paper_account(
-                service, user_id, account_id
-            )
+            resolved_account_id = await self._resolve_paper_account(service, user_id, account_id)
 
             if intent.action == TradeAction.QUERY:
                 return await self._query_positions(service, resolved_account_id)
@@ -87,8 +85,7 @@ class DirectOrderService:
                 "status": order.status if hasattr(order, "status") else "submitted",
                 "executed_at": datetime.now(timezone.utc).isoformat(),
                 "message": (
-                    f"模拟订单已提交: {side} {size} {intent.symbol} "
-                    f"@ {intent.price or '市价'}"
+                    f"模拟订单已提交: {side} {size} {intent.symbol} @ {intent.price or '市价'}"
                 ),
             }
 
@@ -264,9 +261,7 @@ class DirectOrderService:
         except Exception:
             return None
 
-    async def _query_live_positions(
-        self, command_endpoint: str, gateway_id: str
-    ) -> dict[str, Any]:
+    async def _query_live_positions(self, command_endpoint: str, gateway_id: str) -> dict[str, Any]:
         """Query positions from a live gateway."""
         result = self._send_gateway_command(command_endpoint, "get_positions", {})
         positions = result if isinstance(result, list) else []
@@ -275,11 +270,7 @@ class DirectOrderService:
             "type": "live_query",
             "gateway_id": gateway_id,
             "positions": positions,
-            "message": (
-                f"实盘持仓 {len(positions)} 个品种"
-                if positions
-                else "当前无实盘持仓"
-            ),
+            "message": (f"实盘持仓 {len(positions)} 个品种" if positions else "当前无实盘持仓"),
         }
 
     async def _close_live_position(
@@ -287,9 +278,7 @@ class DirectOrderService:
     ) -> dict[str, Any]:
         """Close a live position via gateway."""
         # First query positions to find the target
-        positions_result = self._send_gateway_command(
-            command_endpoint, "get_positions", {}
-        )
+        positions_result = self._send_gateway_command(command_endpoint, "get_positions", {})
         if not isinstance(positions_result, list):
             return {
                 "success": False,
@@ -385,9 +374,7 @@ class DirectOrderService:
             if isinstance(resp, dict) and resp.get("status") == "ok":
                 return resp.get("data")
             if isinstance(resp, dict):
-                logger.warning(
-                    "%s failed: %s", command, resp.get("error", "unknown error")
-                )
+                logger.warning("%s failed: %s", command, resp.get("error", "unknown error"))
             return None
         except Exception as e:
             logger.warning("Gateway command %s failed: %s", command, e)
@@ -424,9 +411,7 @@ class DirectOrderService:
         )
         return account.id
 
-    async def _query_positions(
-        self, service: Any, account_id: str
-    ) -> dict[str, Any]:
+    async def _query_positions(self, service: Any, account_id: str) -> dict[str, Any]:
         """Query current positions for an account."""
         try:
             positions, _ = await service.list_positions(
@@ -449,9 +434,7 @@ class DirectOrderService:
                 "account_id": account_id,
                 "positions": position_list,
                 "message": (
-                    f"当前持仓 {len(position_list)} 个品种"
-                    if position_list
-                    else "当前无持仓"
+                    f"当前持仓 {len(position_list)} 个品种" if position_list else "当前无持仓"
                 ),
             }
         except Exception as e:

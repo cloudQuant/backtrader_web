@@ -91,9 +91,7 @@ def get_strategy_dir(strategy_id: str) -> Path:
     return _templates.get_strategy_dir(strategy_id)
 
 
-def get_strategy_readme(
-    template_id: str, strategy_type: StrategyType | None = None
-) -> str | None:
+def get_strategy_readme(template_id: str, strategy_type: StrategyType | None = None) -> str | None:
     _sync_strategies_dir()
     return _templates.get_strategy_readme(template_id, strategy_type)
 
@@ -350,9 +348,7 @@ class StrategyService:
                     return str(item.get("id"))
                 return str(getattr(item, "id", ""))
 
-            matched = next(
-                (item for item in statuses if _status_id(item) == added.unit.id), None
-            )
+            matched = next((item for item in statuses if _status_id(item) == added.unit.id), None)
             if matched is not None:
                 unit_status = (
                     matched
@@ -444,9 +440,7 @@ class StrategyService:
         if strategy_update.code is not None:
             update_data["code"] = strategy_update.code
         if strategy_update.params is not None:
-            update_data["params"] = {
-                k: v.model_dump() for k, v in strategy_update.params.items()
-            }
+            update_data["params"] = {k: v.model_dump() for k, v in strategy_update.params.items()}
         if strategy_update.category is not None:
             update_data["category"] = strategy_update.category
 

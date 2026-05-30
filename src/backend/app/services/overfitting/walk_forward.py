@@ -49,14 +49,14 @@ async def run_walk_forward_analysis(
     while cursor + train_delta + test_delta <= base_request.end_date:
         train_request = base_request.model_copy(
             update={
-                'start_date': cursor,
-                'end_date': cursor + train_delta,
+                "start_date": cursor,
+                "end_date": cursor + train_delta,
             }
         )
         test_request = base_request.model_copy(
             update={
-                'start_date': cursor + train_delta,
-                'end_date': cursor + train_delta + test_delta,
+                "start_date": cursor + train_delta,
+                "end_date": cursor + train_delta + test_delta,
             }
         )
         window_requests.append((train_request, test_request))
@@ -65,11 +65,11 @@ async def run_walk_forward_analysis(
     if not window_requests:
         return OverfittingMethodResult(
             method=OverfittingMethod.WALK_FORWARD,
-            status='completed',
+            status="completed",
             risk_level=OverfittingRiskLevel.MEDIUM,
             score=50.0,
-            explanation='样本区间不足以构造有效的 Walk-forward 窗口，先按中位分处理。',
-            metrics={'window_count': 0},
+            explanation="样本区间不足以构造有效的 Walk-forward 窗口，先按中位分处理。",
+            metrics={"window_count": 0},
             degraded=True,
         )
 
@@ -90,15 +90,15 @@ async def run_walk_forward_analysis(
         if progress_callback is not None:
             await progress_callback(completed_windows, len(window_requests))
         return {
-            'index': index + 1,
-            'train_start': train_request.start_date.isoformat(),
-            'train_end': train_request.end_date.isoformat(),
-            'test_start': test_request.start_date.isoformat(),
-            'test_end': test_request.end_date.isoformat(),
-            'is_sharpe': round(float(is_result.sharpe_ratio), 4),
-            'oos_sharpe': round(float(oos_result.sharpe_ratio), 4),
-            'is_annual_return': round(float(is_result.annual_return), 4),
-            'oos_annual_return': round(float(oos_result.annual_return), 4),
+            "index": index + 1,
+            "train_start": train_request.start_date.isoformat(),
+            "train_end": train_request.end_date.isoformat(),
+            "test_start": test_request.start_date.isoformat(),
+            "test_end": test_request.end_date.isoformat(),
+            "is_sharpe": round(float(is_result.sharpe_ratio), 4),
+            "oos_sharpe": round(float(oos_result.sharpe_ratio), 4),
+            "is_annual_return": round(float(is_result.annual_return), 4),
+            "oos_annual_return": round(float(oos_result.annual_return), 4),
         }
 
     windows = await asyncio.gather(
@@ -108,18 +108,18 @@ async def run_walk_forward_analysis(
     if not windows:
         return OverfittingMethodResult(
             method=OverfittingMethod.WALK_FORWARD,
-            status='completed',
+            status="completed",
             risk_level=OverfittingRiskLevel.MEDIUM,
             score=50.0,
-            explanation='样本区间不足以构造有效的 Walk-forward 窗口，先按中位分处理。',
-            metrics={'window_count': 0},
+            explanation="样本区间不足以构造有效的 Walk-forward 窗口，先按中位分处理。",
+            metrics={"window_count": 0},
             degraded=True,
         )
 
-    avg_is_sharpe = sum(float(item['is_sharpe']) for item in windows) / len(windows)
-    avg_oos_sharpe = sum(float(item['oos_sharpe']) for item in windows) / len(windows)
-    avg_is_return = sum(float(item['is_annual_return']) for item in windows) / len(windows)
-    avg_oos_return = sum(float(item['oos_annual_return']) for item in windows) / len(windows)
+    avg_is_sharpe = sum(float(item["is_sharpe"]) for item in windows) / len(windows)
+    avg_oos_sharpe = sum(float(item["oos_sharpe"]) for item in windows) / len(windows)
+    avg_is_return = sum(float(item["is_annual_return"]) for item in windows) / len(windows)
+    avg_oos_return = sum(float(item["oos_annual_return"]) for item in windows) / len(windows)
     sharpe_decay_pct = _decay_pct(avg_is_sharpe, avg_oos_sharpe)
     return_decay_pct = _decay_pct(avg_is_return, avg_oos_return)
     worst_decay_pct = max(sharpe_decay_pct, return_decay_pct)
@@ -127,27 +127,27 @@ async def run_walk_forward_analysis(
     score = _score_from_decay(worst_decay_pct)
 
     if risk_level is OverfittingRiskLevel.LOW:
-        explanation = 'Walk-forward 各窗口 OOS 表现与样本内接近，策略稳健性较好。'
+        explanation = "Walk-forward 各窗口 OOS 表现与样本内接近，策略稳健性较好。"
     elif risk_level is OverfittingRiskLevel.MEDIUM:
-        explanation = 'Walk-forward 样本外表现相对样本内有一定衰减，需要结合更多证据确认。'
+        explanation = "Walk-forward 样本外表现相对样本内有一定衰减，需要结合更多证据确认。"
     else:
-        explanation = 'Walk-forward 样本外表现相对样本内明显衰减，存在较高过拟合风险。'
+        explanation = "Walk-forward 样本外表现相对样本内明显衰减，存在较高过拟合风险。"
 
     return OverfittingMethodResult(
         method=OverfittingMethod.WALK_FORWARD,
-        status='completed',
+        status="completed",
         risk_level=risk_level,
         score=score,
         explanation=explanation,
         metrics={
-            'window_count': len(windows),
-            'avg_is_sharpe': round(avg_is_sharpe, 4),
-            'avg_oos_sharpe': round(avg_oos_sharpe, 4),
-            'avg_is_annual_return': round(avg_is_return, 4),
-            'avg_oos_annual_return': round(avg_oos_return, 4),
-            'sharpe_decay_pct': sharpe_decay_pct,
-            'return_decay_pct': return_decay_pct,
-            'windows': windows,
+            "window_count": len(windows),
+            "avg_is_sharpe": round(avg_is_sharpe, 4),
+            "avg_oos_sharpe": round(avg_oos_sharpe, 4),
+            "avg_is_annual_return": round(avg_is_return, 4),
+            "avg_oos_annual_return": round(avg_oos_return, 4),
+            "sharpe_decay_pct": sharpe_decay_pct,
+            "return_decay_pct": return_decay_pct,
+            "windows": windows,
         },
         degraded=False,
     )

@@ -26,7 +26,14 @@ async def test_stress_test_service_calculates_loss_drawdown_and_recovery_days():
             "2020-03-06",
             "2020-03-07",
         ],
-        scenarios=[{"id": "custom_drop", "name": "Custom Drop", "start_date": "2020-03-02", "end_date": "2020-03-07"}],
+        scenarios=[
+            {
+                "id": "custom_drop",
+                "name": "Custom Drop",
+                "start_date": "2020-03-02",
+                "end_date": "2020-03-07",
+            }
+        ],
     )
 
     assert result.status == "ok"
@@ -48,7 +55,14 @@ async def test_stress_test_service_marks_uncovered_scenario_as_degraded():
     result = service.run_scenarios(
         equity_curve=[100.0, 101.0, 102.0],
         equity_dates=["2024-01-01", "2024-01-02", "2024-01-03"],
-        scenarios=[{"id": "old", "name": "Old Crisis", "start_date": "2020-03-01", "end_date": "2020-03-31"}],
+        scenarios=[
+            {
+                "id": "old",
+                "name": "Old Crisis",
+                "start_date": "2020-03-01",
+                "end_date": "2020-03-31",
+            }
+        ],
     )
 
     assert result.status == "degraded"
@@ -123,7 +137,9 @@ async def test_stress_test_api_returns_404_when_backtest_missing(client: AsyncCl
 
     app.dependency_overrides[get_backtest_service] = lambda: mock_backtest_service
     try:
-        response = await client.post("/api/v1/risk-analytics/stress-test/missing", headers=headers, json={})
+        response = await client.post(
+            "/api/v1/risk-analytics/stress-test/missing", headers=headers, json={}
+        )
     finally:
         app.dependency_overrides.pop(get_backtest_service, None)
 

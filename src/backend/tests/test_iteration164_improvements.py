@@ -79,7 +79,10 @@ class TestTelemetry:
 
         app.telemetry._OTEL_INITIALIZED = False
 
-        with patch.dict(os.environ, {"OTEL_ENABLED": "true", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"}):
+        with patch.dict(
+            os.environ,
+            {"OTEL_ENABLED": "true", "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4317"},
+        ):
             # Patch TracerProvider to simulate a connection failure
             with patch("app.telemetry.TracerProvider", side_effect=Exception("connection refused")):
                 result = app.telemetry.setup_telemetry(fastapi_app)
@@ -286,4 +289,3 @@ class TestSecurityHeaders:
 
 
 # ============================================================
-

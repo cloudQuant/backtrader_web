@@ -22,9 +22,7 @@ from app.services.strategy.inference import (
 )
 
 
-def build_ai_strategy_draft(
-    prompt: str, references: list[str] | None = None
-) -> AIStrategyDraft:
+def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) -> AIStrategyDraft:
     """Build a deterministic fallback strategy draft from natural language input."""
     name = strategy_name_from_prompt(prompt)
     category = infer_category(name, prompt)
@@ -37,8 +35,7 @@ def build_ai_strategy_draft(
     if references:
         reference_note = "\n".join(f"- {title}" for title in references[:3])
     param_lines = "\n".join(
-        f"        ('{key}', {render_param_default(spec.default)}),"
-        for key, spec in params.items()
+        f"        ('{key}', {render_param_default(spec.default)})," for key, spec in params.items()
     )
     setup_lines = [
         "        self.close = self.datas[0].close",
@@ -123,9 +120,7 @@ class {class_name}(bt.Strategy):
                 self.take_profit_price = None
 '''
 
-    rationale = (
-        f"该草案基于自然语言需求“{prompt_comment[:80]}”生成，已按 {category} 类策略补齐常见参数和 Backtrader 类骨架。"
-    )
+    rationale = f"该草案基于自然语言需求“{prompt_comment[:80]}”生成，已按 {category} 类策略补齐常见参数和 Backtrader 类骨架。"
     if reference_note:
         rationale += f"\n参考过的知识库文档：\n{reference_note}"
 
@@ -185,9 +180,7 @@ def render_ai_strategy_draft_answer(draft: AIStrategyDraft) -> str:
     timeframe = draft.suggested_timeframe or "待确认"
     rationale = draft.rationale or "基于自然语言需求自动生成。"
     data_source_type = draft.data_source.type if draft.data_source else "待确认"
-    initial_cash = (
-        draft.backtest_defaults.initial_cash if draft.backtest_defaults else 100000.0
-    )
+    initial_cash = draft.backtest_defaults.initial_cash if draft.backtest_defaults else 100000.0
     commission = draft.backtest_defaults.commission if draft.backtest_defaults else 0.001
     return (
         f"已为你生成一个可继续完善的 Backtrader 策略草案。\n\n"

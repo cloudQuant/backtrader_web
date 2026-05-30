@@ -72,8 +72,7 @@ class EquityResearchService:
     def history(self, symbol: str) -> dict[str, Any]:
         base_price = self._base_price(symbol)
         closes = [
-            round(base_price - 4 + index * 0.8 + (index % 2) * 0.35, 2)
-            for index in range(10)
+            round(base_price - 4 + index * 0.8 + (index % 2) * 0.35, 2) for index in range(10)
         ]
         rows = [
             {

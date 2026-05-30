@@ -29,7 +29,12 @@ class FamaFrenchAttributionService:
             )
 
         x_rows = [
-            [1.0, float(market_returns[index]), float(smb_returns[index]), float(hml_returns[index])]
+            [
+                1.0,
+                float(market_returns[index]),
+                float(smb_returns[index]),
+                float(hml_returns[index]),
+            ]
             for index in range(observation_count)
         ]
         y_values = [float(strategy_returns[index]) for index in range(observation_count)]
@@ -42,10 +47,16 @@ class FamaFrenchAttributionService:
                 reason="singular_matrix",
             )
 
-        predictions = [sum(coef * value for coef, value in zip(coefficients, row, strict=False)) for row in x_rows]
+        predictions = [
+            sum(coef * value for coef, value in zip(coefficients, row, strict=False))
+            for row in x_rows
+        ]
         y_mean = statistics.fmean(y_values)
         ss_total = sum((value - y_mean) ** 2 for value in y_values)
-        ss_residual = sum((actual - predicted) ** 2 for actual, predicted in zip(y_values, predictions, strict=False))
+        ss_residual = sum(
+            (actual - predicted) ** 2
+            for actual, predicted in zip(y_values, predictions, strict=False)
+        )
         r_squared = 1.0 if ss_total == 0 else 1 - ss_residual / ss_total
         return FamaFrenchAttributionResult(
             status="ok",

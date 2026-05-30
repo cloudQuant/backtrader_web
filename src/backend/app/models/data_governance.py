@@ -44,7 +44,9 @@ class DgProvider(Base):
 
 class DgEndpoint(Base):
     __tablename__ = "dg_endpoints"
-    __table_args__ = (UniqueConstraint("provider_id", "endpoint_name", name="uq_dg_endpoint_provider_name"),)
+    __table_args__ = (
+        UniqueConstraint("provider_id", "endpoint_name", name="uq_dg_endpoint_provider_name"),
+    )
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     provider_id = Column(String(36), ForeignKey("dg_providers.id"), nullable=False, index=True)
@@ -67,7 +69,9 @@ class DgEndpoint(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     provider = relationship("DgProvider", back_populates="endpoints")
-    params = relationship("DgEndpointParam", back_populates="endpoint", cascade="all, delete-orphan")
+    params = relationship(
+        "DgEndpointParam", back_populates="endpoint", cascade="all, delete-orphan"
+    )
     jobs = relationship("DgIngestJob", back_populates="endpoint", cascade="all, delete-orphan")
 
 
@@ -98,7 +102,12 @@ class DgIngestJob(Base):
     idempotency_key = Column(String(128), nullable=True, index=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     endpoint = relationship("DgEndpoint", back_populates="jobs")
 

@@ -27,10 +27,15 @@ class StressTestService:
     def _normalize_scenarios(scenarios: list[dict | StressScenario] | None) -> list[StressScenario]:
         if not scenarios:
             return list(BUILT_IN_STRESS_SCENARIOS)
-        return [scenario if isinstance(scenario, StressScenario) else StressScenario(**scenario) for scenario in scenarios]
+        return [
+            scenario if isinstance(scenario, StressScenario) else StressScenario(**scenario)
+            for scenario in scenarios
+        ]
 
     @staticmethod
-    def _normalize_points(equity_curve: list[float], equity_dates: list[str]) -> list[tuple[date, float]]:
+    def _normalize_points(
+        equity_curve: list[float], equity_dates: list[str]
+    ) -> list[tuple[date, float]]:
         points: list[tuple[date, float]] = []
         for raw_date, raw_value in zip(equity_dates, equity_curve, strict=False):
             try:

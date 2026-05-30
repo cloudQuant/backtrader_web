@@ -38,9 +38,20 @@ class TestAIChatServicePromptRegistry:
             await session.commit()
 
         service = self._make_service()
-        messages, prompt_template_id, prompt_template_version = await service._build_messages_with_registry(
+        (
+            messages,
+            prompt_template_id,
+            prompt_template_version,
+        ) = await service._build_messages_with_registry(
             question="什么是均线策略？",
-            citations=[{"document_title": "指南", "chunk_index": 1, "similarity": 0.9, "content": "均线交叉"}],
+            citations=[
+                {
+                    "document_title": "指南",
+                    "chunk_index": 1,
+                    "similarity": 0.9,
+                    "content": "均线交叉",
+                }
+            ],
             assistant_mode="knowledge_qa",
             thinking_mode=False,
             conversation_history=None,
@@ -57,7 +68,11 @@ class TestAIChatServicePromptRegistry:
     @pytest.mark.asyncio
     async def test_build_messages_falls_back_to_default_prompt_when_no_active_template(self):
         service = self._make_service()
-        messages, prompt_template_id, prompt_template_version = await service._build_messages_with_registry(
+        (
+            messages,
+            prompt_template_id,
+            prompt_template_version,
+        ) = await service._build_messages_with_registry(
             question="什么是均线策略？",
             citations=[],
             assistant_mode="knowledge_qa",
@@ -146,7 +161,11 @@ class TestAIChatServicePromptRegistry:
             await session.commit()
 
         service = self._make_service()
-        messages, prompt_template_id, prompt_template_version = await service._build_messages_with_registry(
+        (
+            messages,
+            prompt_template_id,
+            prompt_template_version,
+        ) = await service._build_messages_with_registry(
             question="什么是均线策略？",
             citations=[],
             assistant_mode="knowledge_qa",
@@ -187,7 +206,11 @@ class TestAIChatServicePromptRegistry:
             await session.commit()
 
         service = self._make_service()
-        messages, prompt_template_id, prompt_template_version = await service._build_messages_with_registry(
+        (
+            messages,
+            prompt_template_id,
+            prompt_template_version,
+        ) = await service._build_messages_with_registry(
             question="什么是均线策略？",
             citations=[],
             assistant_mode="knowledge_qa",

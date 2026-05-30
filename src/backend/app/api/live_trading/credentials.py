@@ -155,9 +155,7 @@ def build_gateway_credentials_payload(env_values: dict[str, str] | None = None) 
             "username": _first_non_empty(s.IB_WEB_USERNAME, s.IB_USERNAME),
             "password": _first_non_empty(s.IB_WEB_PASSWORD, s.IB_PASSWORD),
             "login_mode": _first_non_empty(s.IB_WEB_LOGIN_MODE, "paper"),
-            "login_browser": _first_non_empty(
-                s.IB_WEB_LOGIN_BROWSER, s.IB_LOGIN_BROWSER, "chrome"
-            ),
+            "login_browser": _first_non_empty(s.IB_WEB_LOGIN_BROWSER, s.IB_LOGIN_BROWSER, "chrome"),
             "login_headless": s.IB_WEB_LOGIN_HEADLESS
             if s.IB_WEB_LOGIN_BROWSER or s.IB_WEB_USERNAME
             else s.IB_LOGIN_HEADLESS,
@@ -220,12 +218,8 @@ def build_gateway_credentials_payload(env_values: dict[str, str] | None = None) 
                 "login_headless": s.IB_WEB_LOGIN_HEADLESS
                 if s.IB_WEB_LOGIN_BROWSER or s.IB_WEB_USERNAME
                 else s.IB_LOGIN_HEADLESS,
-                "login_timeout": _first_non_empty(
-                    s.IB_WEB_LOGIN_TIMEOUT, s.IB_LOGIN_TIMEOUT, 180
-                ),
-                "cookie_output": _first_non_empty(
-                    s.IB_WEB_COOKIE_OUTPUT, s.IB_COOKIE_OUTPUT
-                ),
+                "login_timeout": _first_non_empty(s.IB_WEB_LOGIN_TIMEOUT, s.IB_LOGIN_TIMEOUT, 180),
+                "cookie_output": _first_non_empty(s.IB_WEB_COOKIE_OUTPUT, s.IB_COOKIE_OUTPUT),
             },
             "live": {
                 "account_id": _first_non_empty(
@@ -284,12 +278,8 @@ def build_gateway_credentials_payload(env_values: dict[str, str] | None = None) 
                 "login_headless": s.IB_WEB_LOGIN_HEADLESS
                 if s.IB_WEB_LOGIN_BROWSER or s.IB_WEB_USERNAME
                 else s.IB_LOGIN_HEADLESS,
-                "login_timeout": _first_non_empty(
-                    s.IB_WEB_LOGIN_TIMEOUT, s.IB_LOGIN_TIMEOUT, 180
-                ),
-                "cookie_output": _first_non_empty(
-                    s.IB_WEB_COOKIE_OUTPUT, s.IB_COOKIE_OUTPUT
-                ),
+                "login_timeout": _first_non_empty(s.IB_WEB_LOGIN_TIMEOUT, s.IB_LOGIN_TIMEOUT, 180),
+                "cookie_output": _first_non_empty(s.IB_WEB_COOKIE_OUTPUT, s.IB_COOKIE_OUTPUT),
             },
         },
         "BINANCE": {

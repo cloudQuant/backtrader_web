@@ -771,7 +771,9 @@ class LiveTradingManager:
                     )
             except subprocess.TimeoutExpired:
                 LiveTradingManager._gateway_import_ok = False
-                raise ImportError("bt_api_base 网关模块导入超时，插件或原生扩展可能已损坏") from None
+                raise ImportError(
+                    "bt_api_base 网关模块导入超时，插件或原生扩展可能已损坏"
+                ) from None
             LiveTradingManager._gateway_import_ok = True
 
         if LiveTradingManager._gateway_import_ok is False:

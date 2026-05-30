@@ -34,7 +34,9 @@ class PromptRegistryService:
         self.db = db
 
     async def list_templates(self, name: str | None = None) -> list[PromptTemplate]:
-        stmt = select(PromptTemplate).order_by(PromptTemplate.name.asc(), PromptTemplate.created_at.desc())
+        stmt = select(PromptTemplate).order_by(
+            PromptTemplate.name.asc(), PromptTemplate.created_at.desc()
+        )
         if name:
             stmt = stmt.where(PromptTemplate.name == name)
         result = await self.db.execute(stmt)
@@ -116,7 +118,9 @@ class PromptRegistryService:
             return None
         return self.render_template(template, variables)
 
-    def render_template(self, template: PromptTemplate, variables: dict[str, Any]) -> PromptRenderResult:
+    def render_template(
+        self, template: PromptTemplate, variables: dict[str, Any]
+    ) -> PromptRenderResult:
         missing: list[str] = []
 
         def replace(match: re.Match[str]) -> str:
@@ -189,7 +193,9 @@ class PromptRegistry:
         user_id: str | None = None,
     ) -> PromptRenderResult | None:
         async with async_session_maker() as session:
-            return await PromptRegistryService(session).render_active_template(name, variables, user_id)
+            return await PromptRegistryService(session).render_active_template(
+                name, variables, user_id
+            )
 
 
 def _is_rollout_selected(

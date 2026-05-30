@@ -59,11 +59,7 @@ class ZmqTickReceiver:
 
     @property
     def is_alive(self) -> bool:
-        return (
-            self._running
-            and self._thread is not None
-            and self._thread.is_alive()
-        )
+        return self._running and self._thread is not None and self._thread.is_alive()
 
     # -- data access -------------------------------------------------------
 

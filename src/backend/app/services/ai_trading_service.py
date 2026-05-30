@@ -182,11 +182,7 @@ class AITradingService:
 
         # Real execution
         execution_result = await self._execute_trade(user_id, intent, request)
-        status = (
-            TradeStatus.FILLED
-            if execution_result.get("success")
-            else TradeStatus.FAILED
-        )
+        status = TradeStatus.FILLED if execution_result.get("success") else TradeStatus.FAILED
 
         return AITradingResponse(
             trade_id=trade_id,
@@ -243,11 +239,7 @@ class AITradingService:
         original_request = AITradingRequest(**pending["request"])
 
         execution_result = await self._execute_trade(user_id, intent, original_request)
-        status = (
-            TradeStatus.FILLED
-            if execution_result.get("success")
-            else TradeStatus.FAILED
-        )
+        status = TradeStatus.FILLED if execution_result.get("success") else TradeStatus.FAILED
 
         return TradeConfirmResponse(
             trade_id=request.trade_id,
@@ -382,8 +374,7 @@ class AITradingService:
         return {
             "account_balance": float(account.total_equity),
             "current_positions": [
-                {"symbol": position.symbol, "size": position.size}
-                for position in positions
+                {"symbol": position.symbol, "size": position.size} for position in positions
             ],
         }
 
@@ -423,9 +414,7 @@ class AITradingService:
         if gateway_state in {"error", "stopped"} or (
             trade_connection and trade_connection not in {"connected", "ready", "ok"}
         ):
-            return self._build_degraded_context(
-                "网关交易连接尚未就绪，已停止自动交易。"
-            )
+            return self._build_degraded_context("网关交易连接尚未就绪，已停止自动交易。")
 
         account_balance = self._extract_account_balance(account_snapshot)
         if account_balance is None:
@@ -559,9 +548,7 @@ class AITradingService:
         """Build user-friendly rejection message."""
         return _build_rejection_message(risk)
 
-    def _build_confirmation_message(
-        self, intent: TradingIntent, risk: RiskAssessment
-    ) -> str:
+    def _build_confirmation_message(self, intent: TradingIntent, risk: RiskAssessment) -> str:
         """Build confirmation request message."""
         return _build_confirmation_message(intent, risk)
 
@@ -569,15 +556,11 @@ class AITradingService:
         """Build dry run result message."""
         return _build_dry_run_message(intent)
 
-    def _build_execution_message(
-        self, intent: TradingIntent, result: dict[str, Any]
-    ) -> str:
+    def _build_execution_message(self, intent: TradingIntent, result: dict[str, Any]) -> str:
         """Build execution result message."""
         return _build_execution_message(intent, result)
 
-    def _build_suggestions(
-        self, intent: TradingIntent, risk: RiskAssessment
-    ) -> list[str]:
+    def _build_suggestions(self, intent: TradingIntent, risk: RiskAssessment) -> list[str]:
         """Build actionable suggestions for the user."""
         return _build_suggestions(intent, risk)
 
@@ -601,8 +584,7 @@ class AITradingService:
                 "risk_level": risk_assessment.risk_level.value,
                 "warnings": risk_assessment.warnings,
                 "message": (
-                    f"AI 交易需要确认: {intent.action.value} "
-                    f"{intent.quantity} {intent.symbol}"
+                    f"AI 交易需要确认: {intent.action.value} {intent.quantity} {intent.symbol}"
                 ),
             }
             await ws_manager.broadcast(message)

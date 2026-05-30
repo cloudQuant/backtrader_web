@@ -22,9 +22,7 @@ from app.services.quote.tick import opt_float
 logger = logging.getLogger(__name__)
 
 
-def fetch_gateway_snapshot_tick(
-    source: str, feed: Any, symbol: str
-) -> dict[str, Any] | None:
+def fetch_gateway_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[str, Any] | None:
     """Dispatch to the source-specific snapshot fetcher."""
     if source == "IB_WEB":
         return fetch_ib_web_snapshot_tick(feed, symbol)
@@ -49,18 +47,10 @@ def fetch_ib_web_snapshot_tick(feed: Any, symbol: str) -> dict[str, Any] | None:
     if not isinstance(snapshot, dict) or not snapshot:
         return None
 
-    price = opt_float(
-        snapshot.get("31") or snapshot.get("last") or snapshot.get("lastPrice")
-    )
-    bid_price = opt_float(
-        snapshot.get("84") or snapshot.get("bid") or snapshot.get("bidPrice")
-    )
-    ask_price = opt_float(
-        snapshot.get("86") or snapshot.get("ask") or snapshot.get("askPrice")
-    )
-    volume = opt_float(
-        snapshot.get("87") or snapshot.get("volume") or snapshot.get("lastSize")
-    )
+    price = opt_float(snapshot.get("31") or snapshot.get("last") or snapshot.get("lastPrice"))
+    bid_price = opt_float(snapshot.get("84") or snapshot.get("bid") or snapshot.get("bidPrice"))
+    ask_price = opt_float(snapshot.get("86") or snapshot.get("ask") or snapshot.get("askPrice"))
+    volume = opt_float(snapshot.get("87") or snapshot.get("volume") or snapshot.get("lastSize"))
     if price is None and bid_price is None and ask_price is None and volume is None:
         return None
 
@@ -69,9 +59,7 @@ def fetch_ib_web_snapshot_tick(feed: Any, symbol: str) -> dict[str, Any] | None:
         "symbol": symbol,
         "exchange": "IB_WEB",
         "instrument_id": str(snapshot.get("conid") or snapshot.get("conidEx") or ""),
-        "exchange_id": str(
-            snapshot.get("listingExchange") or snapshot.get("exchange") or ""
-        ),
+        "exchange_id": str(snapshot.get("listingExchange") or snapshot.get("exchange") or ""),
     }
     if price is not None:
         raw["price"] = price
@@ -84,9 +72,7 @@ def fetch_ib_web_snapshot_tick(feed: Any, symbol: str) -> dict[str, Any] | None:
     return raw
 
 
-def fetch_standard_snapshot_tick(
-    source: str, feed: Any, symbol: str
-) -> dict[str, Any] | None:
+def fetch_standard_snapshot_tick(source: str, feed: Any, symbol: str) -> dict[str, Any] | None:
     """Pull a single tick from a non-IB feed (CTP / MT5 / BINANCE / OKX)."""
     try:
         snapshot = feed.get_tick(symbol)
@@ -120,9 +106,7 @@ def fetch_standard_snapshot_tick(
     if price is None and bid_price is not None and ask_price is not None:
         price = (bid_price + ask_price) / 2.0
     volume = opt_float(first_present(payload, "volume_24h", "vol_24h", "volume"))
-    turnover = opt_float(
-        first_present(payload, "turnover_24h", "vol_ccy_24h", "turnover")
-    )
+    turnover = opt_float(first_present(payload, "turnover_24h", "vol_ccy_24h", "turnover"))
     high_price = opt_float(first_present(payload, "high_price", "high_24h"))
     low_price = opt_float(first_present(payload, "low_price", "low_24h"))
     open_price = opt_float(first_present(payload, "open_price", "open_24h"))
@@ -153,9 +137,7 @@ def fetch_standard_snapshot_tick(
 
     raw: dict[str, Any] = {
         "timestamp": timestamp,
-        "symbol": str(
-            first_present(payload, "ticker_symbol_name", "symbol_name") or symbol
-        ),
+        "symbol": str(first_present(payload, "ticker_symbol_name", "symbol_name") or symbol),
         "exchange": source,
     }
     if price is not None:

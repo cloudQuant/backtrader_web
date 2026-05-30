@@ -124,9 +124,7 @@ class MemoryCacheBackend:
         import fnmatch
 
         async with self._lock:
-            keys_to_delete = [
-                k for k in self._cache if fnmatch.fnmatch(k, pattern)
-            ]
+            keys_to_delete = [k for k in self._cache if fnmatch.fnmatch(k, pattern)]
             for k in keys_to_delete:
                 del self._cache[k]
             return len(keys_to_delete)
@@ -236,10 +234,7 @@ def cache_response(
                     response.headers["X-Cache"] = "HIT"
                     return response
             except Exception as e:
-                logger.warning(
-                    f"Cache read error for key '{cache_key}': "
-                    f"{type(e).__name__}: {e}"
-                )
+                logger.warning(f"Cache read error for key '{cache_key}': {type(e).__name__}: {e}")
 
             # Cache miss - execute handler
             result = await func(*args, **kwargs)
@@ -269,10 +264,12 @@ def cache_response(
                         body_content = result
                     status_code = 200
 
-                cache_entry = json.dumps({
-                    "body": body_content,
-                    "status_code": status_code,
-                }).encode()
+                cache_entry = json.dumps(
+                    {
+                        "body": body_content,
+                        "status_code": status_code,
+                    }
+                ).encode()
 
                 await backend.set(cache_key, cache_entry, ttl)
 
@@ -285,10 +282,7 @@ def cache_response(
                 return response
 
             except Exception as e:
-                logger.warning(
-                    f"Cache write error for key '{cache_key}': "
-                    f"{type(e).__name__}: {e}"
-                )
+                logger.warning(f"Cache write error for key '{cache_key}': {type(e).__name__}: {e}")
                 # Fail-open: return original result
                 if isinstance(result, Response):
                     result.headers["X-Cache"] = "MISS"
@@ -323,7 +317,6 @@ async def invalidate_cache(key_prefix: str, pattern: str | None = None) -> int:
         return deleted
     except Exception as e:
         logger.warning(
-            f"Cache invalidation error for pattern '{full_pattern}': "
-            f"{type(e).__name__}: {e}"
+            f"Cache invalidation error for pattern '{full_pattern}': {type(e).__name__}: {e}"
         )
         return 0

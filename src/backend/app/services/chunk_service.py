@@ -9,7 +9,9 @@ class ChunkService:
         text = (content or "").strip()
         if not text:
             return []
-        paragraphs = [part.strip() for part in text.replace("\r\n", "\n").split("\n\n") if part.strip()]
+        paragraphs = [
+            part.strip() for part in text.replace("\r\n", "\n").split("\n\n") if part.strip()
+        ]
         if paragraphs:
             return paragraphs
         return [text]

@@ -26,9 +26,7 @@ class DAGGenerator:
         template_dir: Optional custom template directory.
     """
 
-    def __init__(
-        self, dag_output_dir: str, template_dir: str | None = None
-    ) -> None:
+    def __init__(self, dag_output_dir: str, template_dir: str | None = None) -> None:
         self._output_dir = Path(dag_output_dir)
         self._output_dir.mkdir(parents=True, exist_ok=True)
         tpl_dir = Path(template_dir) if template_dir else _TEMPLATE_DIR
@@ -86,9 +84,7 @@ class DAGGenerator:
         logger.info(f"Generated DAG file: {output_path}")
         return str(output_path)
 
-    def generate_grouped_dag(
-        self, scripts: list[Any], category: str
-    ) -> str:
+    def generate_grouped_dag(self, scripts: list[Any], category: str) -> str:
         """Generate a multi-task DAG from scripts in the same category.
 
         Args:
@@ -111,7 +107,9 @@ class DAGGenerator:
         task_defs = []
         dep_lines = []
         for sid in script_ids:
-            task_defs.append(f'task_{sid} = PythonOperator(task_id="{sid}", python_callable=_noop, dag=dag)')
+            task_defs.append(
+                f'task_{sid} = PythonOperator(task_id="{sid}", python_callable=_noop, dag=dag)'
+            )
             for upstream in deps_map.get(sid, []):
                 dep_lines.append(f"task_{upstream} >> task_{sid}")
 

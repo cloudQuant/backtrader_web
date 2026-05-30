@@ -81,7 +81,9 @@ class StrategyExplanation(BaseModel):
     market_fit: str = Field(..., description="Suitable market regime")
     risk_notes: list[str] = Field(default_factory=list, description="Risk notes")
     ast: StrategyStructure = Field(..., description="Static analysis payload")
-    reason_code: str = Field(..., description="ai_generated/static_fallback/cache_hit/ai_not_configured")
+    reason_code: str = Field(
+        ..., description="ai_generated/static_fallback/cache_hit/ai_not_configured"
+    )
     model_id: str | None = Field(default=None, description="AI model id")
     cached: bool = Field(default=False, description="Whether response came from cache")
     disclaimer: str = Field(default="解释仅供研究参考，不构成投资建议。")

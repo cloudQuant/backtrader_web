@@ -24,9 +24,7 @@ def _resolve_instance_strategy_dir(
     return resolve_strategy_dir(inst["strategy_id"])
 
 
-def sync_status_on_boot(
-    load_instances: _Cb, save_instances: _Cb, is_pid_alive: _Cb
-) -> None:
+def sync_status_on_boot(load_instances: _Cb, save_instances: _Cb, is_pid_alive: _Cb) -> None:
     instances = load_instances()
     changed = False
     for inst in instances.values():

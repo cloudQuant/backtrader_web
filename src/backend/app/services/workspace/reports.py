@@ -68,9 +68,7 @@ _EXT_METRIC_KEYS: tuple[str, ...] = (
 WorkspaceLoader = Callable[..., Awaitable[Workspace | None]]
 
 
-def _unit_in_range(
-    unit: StrategyUnit, start_date: str | None, end_date: str | None
-) -> bool:
+def _unit_in_range(unit: StrategyUnit, start_date: str | None, end_date: str | None) -> bool:
     """Return ``True`` if a unit's data window overlaps the requested range."""
     dc: dict[str, Any] = cast("dict[str, Any]", unit.data_config) or {}
     u_start = dc.get("start_date", "")
@@ -82,9 +80,7 @@ def _unit_in_range(
     return True
 
 
-def _recalc_annual(
-    metrics: dict[str, Any], *, calc_method: str, annual_days: int
-) -> float | None:
+def _recalc_annual(metrics: dict[str, Any], *, calc_method: str, annual_days: int) -> float | None:
     """Recompute ``annual_return`` from ``total_return`` + ``trading_days``."""
     tr = metrics.get("total_return")
     td = metrics.get("trading_days")

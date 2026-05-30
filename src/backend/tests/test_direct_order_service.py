@@ -151,9 +151,7 @@ class TestDirectOrderServicePaperTrade:
         )
 
         mock_paper_service = AsyncMock()
-        mock_paper_service.list_accounts = AsyncMock(
-            return_value=([MagicMock(id="acc1")], 1)
-        )
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
         mock_paper_service.list_positions = AsyncMock(return_value=([], 0))
 
         with patch(
@@ -174,9 +172,7 @@ class TestDirectOrderServicePaperTrade:
         )
 
         mock_paper_service = AsyncMock()
-        mock_paper_service.list_accounts = AsyncMock(
-            return_value=([MagicMock(id="acc1")], 1)
-        )
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
 
         with patch(
             "app.services.paper_trading_service.PaperTradingService",
@@ -204,9 +200,7 @@ class TestDirectOrderServicePaperTrade:
         mock_order.status = "submitted"
 
         mock_paper_service = AsyncMock()
-        mock_paper_service.list_accounts = AsyncMock(
-            return_value=([MagicMock(id="acc1")], 1)
-        )
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
         mock_paper_service.submit_order = AsyncMock(return_value=mock_order)
 
         with patch(
@@ -239,9 +233,7 @@ class TestDirectOrderServicePaperTrade:
         mock_order.status = "submitted"
 
         mock_paper_service = AsyncMock()
-        mock_paper_service.list_accounts = AsyncMock(
-            return_value=([MagicMock(id="acc1")], 1)
-        )
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
         mock_paper_service.submit_order = AsyncMock(return_value=mock_order)
 
         with patch(
@@ -264,12 +256,8 @@ class TestDirectOrderServicePaperTrade:
         )
 
         mock_paper_service = AsyncMock()
-        mock_paper_service.list_accounts = AsyncMock(
-            return_value=([MagicMock(id="acc1")], 1)
-        )
-        mock_paper_service.submit_order = AsyncMock(
-            side_effect=ValueError("Insufficient balance")
-        )
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
+        mock_paper_service.submit_order = AsyncMock(side_effect=ValueError("Insufficient balance"))
 
         with patch(
             "app.services.paper_trading_service.PaperTradingService",
@@ -346,12 +334,8 @@ class TestDirectOrderServicePaperTrade:
         mock_order.id = "close_order"
 
         mock_paper_service = AsyncMock()
-        mock_paper_service.list_accounts = AsyncMock(
-            return_value=([MagicMock(id="acc1")], 1)
-        )
-        mock_paper_service.list_positions = AsyncMock(
-            return_value=([mock_position], 1)
-        )
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
+        mock_paper_service.list_positions = AsyncMock(return_value=([mock_position], 1))
         mock_paper_service.submit_order = AsyncMock(return_value=mock_order)
 
         with patch(
@@ -375,9 +359,7 @@ class TestDirectOrderServicePaperTrade:
         )
 
         mock_paper_service = AsyncMock()
-        mock_paper_service.list_accounts = AsyncMock(
-            return_value=([MagicMock(id="acc1")], 1)
-        )
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
         mock_paper_service.list_positions = AsyncMock(return_value=([], 0))
 
         with patch(
@@ -438,9 +420,7 @@ class TestDirectOrderServiceLiveTrade:
         with patch.object(
             service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
         ):
-            result = await service.execute_live_trade(
-                intent, user_id="user1", gateway_id="gw1"
-            )
+            result = await service.execute_live_trade(intent, user_id="user1", gateway_id="gw1")
             assert result["success"] is False
             assert "unsupported_action" in result["error"]
 
@@ -457,14 +437,13 @@ class TestDirectOrderServiceLiveTrade:
             confidence=0.9,
         )
 
-        with patch.object(
-            service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
-        ), patch.object(
-            service, "_send_gateway_command", return_value={"order_id": "live_123"}
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
+            ),
+            patch.object(service, "_send_gateway_command", return_value={"order_id": "live_123"}),
         ):
-            result = await service.execute_live_trade(
-                intent, user_id="user1", gateway_id="gw1"
-            )
+            result = await service.execute_live_trade(intent, user_id="user1", gateway_id="gw1")
             assert result["success"] is True
             assert result["type"] == "live_trade"
             assert result["gateway_id"] == "gw1"
@@ -480,12 +459,13 @@ class TestDirectOrderServiceLiveTrade:
             confidence=0.9,
         )
 
-        with patch.object(
-            service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
-        ), patch.object(service, "_send_gateway_command", return_value=None):
-            result = await service.execute_live_trade(
-                intent, user_id="user1", gateway_id="gw1"
-            )
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
+            ),
+            patch.object(service, "_send_gateway_command", return_value=None),
+        ):
+            result = await service.execute_live_trade(intent, user_id="user1", gateway_id="gw1")
             assert result["success"] is False
             assert result["error"] == "order_failed"
 
@@ -499,12 +479,13 @@ class TestDirectOrderServiceLiveTrade:
         )
 
         positions = [{"symbol": "rb2501", "size": 10}]
-        with patch.object(
-            service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
-        ), patch.object(service, "_send_gateway_command", return_value=positions):
-            result = await service.execute_live_trade(
-                intent, user_id="user1", gateway_id="gw1"
-            )
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
+            ),
+            patch.object(service, "_send_gateway_command", return_value=positions),
+        ):
+            result = await service.execute_live_trade(intent, user_id="user1", gateway_id="gw1")
             assert result["success"] is True
             assert result["type"] == "live_query"
             assert len(result["positions"]) == 1
@@ -517,8 +498,6 @@ class TestDirectOrderServiceFindGateway:
         service = DirectOrderService()
         intent = TradingIntent(action=TradeAction.BUY, confidence=0.9)
 
-        with patch.object(
-            service, "_get_gateways_dict", side_effect=ImportError("no module")
-        ):
+        with patch.object(service, "_get_gateways_dict", side_effect=ImportError("no module")):
             result = service._find_available_gateway(intent)
             assert result is None

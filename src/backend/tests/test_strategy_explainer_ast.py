@@ -32,18 +32,18 @@ def test_extract_strategy_structure_detects_indicators_params_and_signals() -> N
     structure = extract_strategy_structure(SAMPLE_STRATEGY)
 
     assert structure.parsable is True
-    assert {item.name for item in structure.indicators} >= {'SMA', 'CrossOver'}
-    assert {item.name for item in structure.params} >= {'fast_period', 'slow_period', 'risk_pct'}
-    assert any(signal.side == 'buy' for signal in structure.entry_signals)
-    assert any(signal.side == 'sell' for signal in structure.exit_signals)
-    assert any(control.type == 'position_size' for control in structure.risk_controls)
+    assert {item.name for item in structure.indicators} >= {"SMA", "CrossOver"}
+    assert {item.name for item in structure.params} >= {"fast_period", "slow_period", "risk_pct"}
+    assert any(signal.side == "buy" for signal in structure.entry_signals)
+    assert any(signal.side == "sell" for signal in structure.exit_signals)
+    assert any(control.type == "position_size" for control in structure.risk_controls)
 
 
 def test_extract_strategy_structure_gracefully_degrades_on_invalid_code() -> None:
-    structure = extract_strategy_structure('class Broken(:\n    pass')
+    structure = extract_strategy_structure("class Broken(:\n    pass")
 
     assert structure.parsable is False
-    assert structure.raw_code.startswith('class Broken')
+    assert structure.raw_code.startswith("class Broken")
     assert structure.parse_error
 
 
@@ -78,15 +78,15 @@ async def test_strategy_explainer_returns_static_fallback_when_ai_disabled() -> 
     service = StrategyExplainerService(ai_chat_service=None)
 
     result = await service.explain(
-        StrategyExplainRequest(code=SAMPLE_STRATEGY, strategy_name='双均线策略')
+        StrategyExplainRequest(code=SAMPLE_STRATEGY, strategy_name="双均线策略")
     )
 
-    assert result.reason_code == 'static_fallback'
+    assert result.reason_code == "static_fallback"
     assert result.ast.parsable is True
-    assert '双均线策略' in result.summary
-    assert 'SMA' in result.indicators_explanation
-    assert '买入' in result.entry_explanation
-    assert '卖出' in result.exit_explanation
+    assert "双均线策略" in result.summary
+    assert "SMA" in result.indicators_explanation
+    assert "买入" in result.entry_explanation
+    assert "卖出" in result.exit_explanation
     assert result.code_hash
 
 
@@ -95,25 +95,25 @@ async def test_strategy_explainer_uses_llm_explanation_when_available() -> None:
     class FakeLLMExplainer:
         async def generate(self, **kwargs):
             return {
-                'summary': 'AI 总结：双均线策略识别趋势。',
-                'indicators_explanation': 'AI 指标说明：SMA 衡量趋势。',
-                'entry_explanation': 'AI 买入说明：金叉买入。',
-                'exit_explanation': 'AI 卖出说明：死叉卖出。',
-                'params_explanation': 'AI 参数说明：fast_period 控制快线。',
-                'market_fit': 'AI 市场适配：趋势市场。',
-                'risk_notes': ['AI 风险：震荡市假信号'],
-                'model_id': 'fake-model',
+                "summary": "AI 总结：双均线策略识别趋势。",
+                "indicators_explanation": "AI 指标说明：SMA 衡量趋势。",
+                "entry_explanation": "AI 买入说明：金叉买入。",
+                "exit_explanation": "AI 卖出说明：死叉卖出。",
+                "params_explanation": "AI 参数说明：fast_period 控制快线。",
+                "market_fit": "AI 市场适配：趋势市场。",
+                "risk_notes": ["AI 风险：震荡市假信号"],
+                "model_id": "fake-model",
             }
 
     service = StrategyExplainerService(ai_chat_service=None, llm_explainer=FakeLLMExplainer())
 
     result = await service.explain(
-        StrategyExplainRequest(code=SAMPLE_STRATEGY, strategy_name='双均线策略')
+        StrategyExplainRequest(code=SAMPLE_STRATEGY, strategy_name="双均线策略")
     )
 
-    assert result.reason_code == 'ai_generated'
-    assert result.model_id == 'fake-model'
-    assert result.summary.startswith('AI 总结')
+    assert result.reason_code == "ai_generated"
+    assert result.model_id == "fake-model"
+    assert result.summary.startswith("AI 总结")
     assert result.ast.parsable is True
 
 

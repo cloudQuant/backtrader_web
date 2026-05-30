@@ -136,10 +136,18 @@ async def test_list_paper_accounts():
 
     svc = _MockService()
     acct = AccountResponse(
-        id="acct-1", user_id="u1", name="Test", initial_cash=100000,
-        current_cash=95000, total_equity=105000, profit_loss=5000,
-        profit_loss_pct=5.0, commission_rate=0.001, slippage_rate=0.0005,
-        is_active=True, created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        id="acct-1",
+        user_id="u1",
+        name="Test",
+        initial_cash=100000,
+        current_cash=95000,
+        total_equity=105000,
+        profit_loss=5000,
+        profit_loss_pct=5.0,
+        commission_rate=0.001,
+        slippage_rate=0.0005,
+        is_active=True,
+        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
         updated_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
     svc.list_accounts = AsyncMock(return_value=([acct], 1))
@@ -272,14 +280,16 @@ async def test_list_paper_orders_no_filters():
     # Skip response model validation — just verify service call
     svc.list_orders = AsyncMock(return_value=([], 0))
     result = await list_paper_orders(
-        current_user=_USER, service=svc,
-        account_id=None, symbol=None, status=None,
-        limit=20, offset=0,
+        current_user=_USER,
+        service=svc,
+        account_id=None,
+        symbol=None,
+        status=None,
+        limit=20,
+        offset=0,
     )
     assert result.total == 0
-    svc.list_orders.assert_called_once_with(
-        filters={"user_id": "u1"}, limit=20, offset=0
-    )
+    svc.list_orders.assert_called_once_with(filters={"user_id": "u1"}, limit=20, offset=0)
 
 
 @pytest.mark.asyncio
@@ -290,9 +300,13 @@ async def test_list_paper_orders_with_filters():
     svc = _MockService()
     svc.list_orders = AsyncMock(return_value=([], 0))
     await list_paper_orders(
-        current_user=_USER, service=svc,
-        account_id="acct-1", symbol="BTC/USDT", status="pending",
-        limit=10, offset=5,
+        current_user=_USER,
+        service=svc,
+        account_id="acct-1",
+        symbol="BTC/USDT",
+        status="pending",
+        limit=10,
+        offset=5,
     )
     svc.list_orders.assert_called_once_with(
         filters={
@@ -301,7 +315,8 @@ async def test_list_paper_orders_with_filters():
             "symbol": "BTC/USDT",
             "status": "pending",
         },
-        limit=10, offset=5,
+        limit=10,
+        offset=5,
     )
 
 
@@ -386,9 +401,12 @@ async def test_list_paper_positions_no_filters():
     svc = _MockService()
     svc.list_positions = AsyncMock(return_value=([], 0))
     result = await list_paper_positions(
-        current_user=_USER, service=svc,
-        account_id=None, symbol=None,
-        limit=20, offset=0,
+        current_user=_USER,
+        service=svc,
+        account_id=None,
+        symbol=None,
+        limit=20,
+        offset=0,
     )
     assert result.total == 0
 
@@ -401,13 +419,17 @@ async def test_list_paper_positions_with_filters():
     svc = _MockService()
     svc.list_positions = AsyncMock(return_value=([], 0))
     await list_paper_positions(
-        current_user=_USER, service=svc,
-        account_id="acct-1", symbol="ETH/USDT",
-        limit=10, offset=0,
+        current_user=_USER,
+        service=svc,
+        account_id="acct-1",
+        symbol="ETH/USDT",
+        limit=10,
+        offset=0,
     )
     svc.list_positions.assert_called_once_with(
         filters={"user_id": "u1", "account_id": "acct-1", "symbol": "ETH/USDT"},
-        limit=10, offset=0,
+        limit=10,
+        offset=0,
     )
 
 
@@ -457,9 +479,13 @@ async def test_list_paper_trades_no_filters():
     svc = _MockService()
     svc.list_trades = AsyncMock(return_value=([], 0))
     result = await list_paper_trades(
-        current_user=_USER, service=svc,
-        account_id=None, symbol=None, side=None,
-        limit=20, offset=0,
+        current_user=_USER,
+        service=svc,
+        account_id=None,
+        symbol=None,
+        side=None,
+        limit=20,
+        offset=0,
     )
     assert result.total == 0
 
@@ -472,9 +498,13 @@ async def test_list_paper_trades_with_filters():
     svc = _MockService()
     svc.list_trades = AsyncMock(return_value=([], 0))
     await list_paper_trades(
-        current_user=_USER, service=svc,
-        account_id="acct-1", symbol="BTC/USDT", side="buy",
-        limit=50, offset=10,
+        current_user=_USER,
+        service=svc,
+        account_id="acct-1",
+        symbol="BTC/USDT",
+        side="buy",
+        limit=50,
+        offset=10,
     )
     svc.list_trades.assert_called_once_with(
         filters={
@@ -483,5 +513,6 @@ async def test_list_paper_trades_with_filters():
             "symbol": "BTC/USDT",
             "side": "buy",
         },
-        limit=50, offset=10,
+        limit=50,
+        offset=10,
     )

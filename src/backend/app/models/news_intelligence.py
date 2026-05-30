@@ -9,9 +9,7 @@ from app.db.database import Base
 
 class NewsSourceModel(Base):
     __tablename__ = "news_sources"
-    __table_args__ = (
-        UniqueConstraint("owner_id", "name", name="uq_news_sources_owner_name"),
-    )
+    __table_args__ = (UniqueConstraint("owner_id", "name", name="uq_news_sources_owner_name"),)
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     owner_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)

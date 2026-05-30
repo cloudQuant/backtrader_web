@@ -31,9 +31,7 @@ class OrchestratorBackend(ABC):
         """Remove a scheduled task."""
 
     @abstractmethod
-    async def run_task_now(
-        self, task_id: int, operator_id: str | None = None
-    ) -> Any:
+    async def run_task_now(self, task_id: int, operator_id: str | None = None) -> Any:
         """Execute a task immediately (manual trigger)."""
 
     @abstractmethod

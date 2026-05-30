@@ -35,5 +35,5 @@ class TestIteration129ImportAPI:
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
-        assert body["knowledge_base"]["name"] == '迁移知识库'
+        assert body["knowledge_base"]["name"] == "迁移知识库"
         assert body["imported_documents"] == 2

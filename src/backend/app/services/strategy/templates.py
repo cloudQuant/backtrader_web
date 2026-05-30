@@ -211,9 +211,7 @@ def get_template_by_id(
     return None
 
 
-def get_strategy_readme(
-    template_id: str, strategy_type: StrategyType | None = None
-) -> str | None:
+def get_strategy_readme(template_id: str, strategy_type: StrategyType | None = None) -> str | None:
     """Read the strategy's ``README.md`` content.
 
     Args:

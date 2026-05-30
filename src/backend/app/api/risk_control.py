@@ -25,35 +25,50 @@ class RiskControlConfigRequest(BaseModel):
     """Risk control config request / 风控配置请求"""
 
     max_position_pct: float = Field(
-        30.0, ge=1, le=100,
+        30.0,
+        ge=1,
+        le=100,
         description="Max position ratio per instrument (%) / 单品种最大仓位比例(%)",
     )
     max_total_position_pct: float = Field(
-        80.0, ge=1, le=100,
+        80.0,
+        ge=1,
+        le=100,
         description="Max total position ratio (%) / 总仓位上限(%)",
     )
     max_daily_loss_pct: float = Field(
-        5.0, ge=0.1, le=50,
+        5.0,
+        ge=0.1,
+        le=50,
         description="Max daily loss limit (%) / 日亏损上限(%)",
     )
     max_drawdown_pct: float = Field(
-        20.0, ge=1, le=50,
+        20.0,
+        ge=1,
+        le=50,
         description="Max drawdown limit (%) / 最大回撤限制(%)",
     )
     stop_loss_pct: float = Field(
-        5.0, ge=0.1, le=50,
+        5.0,
+        ge=0.1,
+        le=50,
         description="Stop loss ratio (%) / 止损比例(%)",
     )
     take_profit_pct: float = Field(
-        20.0, ge=1, le=100,
+        20.0,
+        ge=1,
+        le=100,
         description="Take profit ratio (%) / 止盈比例(%)",
     )
     max_daily_trades: int = Field(
-        50, ge=1, le=500,
+        50,
+        ge=1,
+        le=500,
         description="Max daily trades / 每日最大交易次数",
     )
     max_order_size: float = Field(
-        100000.0, ge=1000,
+        100000.0,
+        ge=1000,
         description="Max single order amount / 单笔最大金额",
     )
     enable_stop_loss: bool = Field(True, description="Enable stop loss / 启用止损")

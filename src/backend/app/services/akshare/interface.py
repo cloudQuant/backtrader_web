@@ -81,11 +81,7 @@ class AkshareInterfaceService:
             count_stmt = count_stmt.where(DataInterface.is_active == is_active)
 
         total = int((await self.db.execute(count_stmt)).scalar() or 0)
-        stmt = (
-            stmt.order_by(DataInterface.id)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        )
+        stmt = stmt.order_by(DataInterface.id).offset((page - 1) * page_size).limit(page_size)
         result = await self.db.execute(stmt)
         return {
             "items": list(result.scalars().all()),

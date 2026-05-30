@@ -60,7 +60,10 @@ class AIModelPreferenceService:
     def is_model_available(self, *, provider: str | None, model: str | None) -> bool:
         if not provider and not model:
             return True
-        return any(option.provider == provider and option.model == model for option in self._model_options())
+        return any(
+            option.provider == provider and option.model == model
+            for option in self._model_options()
+        )
 
     async def resolve_for_user(self, user_id: str | None) -> ResolvedAIModelPreference | None:
         if not user_id:

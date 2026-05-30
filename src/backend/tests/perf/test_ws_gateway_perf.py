@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip('pytest_benchmark')
+pytest.importorskip("pytest_benchmark")
 
 
 def _p95_ms(values: list[float]) -> float:
@@ -29,14 +29,16 @@ def test_ws_gateway_broadcast_p95_for_500_connections(benchmark: Any) -> None:
 
     loop = asyncio.new_event_loop()
     try:
-        gateway = WSGateway(token_validator=lambda token: token == 'ok')
+        gateway = WSGateway(token_validator=lambda token: token == "ok")
         for index in range(500):
-            client_id = f'client-{index}'
-            assert loop.run_until_complete(gateway.connect(client_id, token='ok')) is True
-            loop.run_until_complete(gateway.subscribe(client_id, ['market:quote:*']))
+            client_id = f"client-{index}"
+            assert loop.run_until_complete(gateway.connect(client_id, token="ok")) is True
+            loop.run_until_complete(gateway.subscribe(client_id, ["market:quote:*"]))
 
         def publish_once() -> int:
-            delivered = loop.run_until_complete(gateway.publish('market:quote:RB2510', {'price': 100.0}))
+            delivered = loop.run_until_complete(
+                gateway.publish("market:quote:RB2510", {"price": 100.0})
+            )
             gateway._messages.clear()
             return delivered
 

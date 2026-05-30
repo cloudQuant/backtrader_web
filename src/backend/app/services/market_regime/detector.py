@@ -24,7 +24,9 @@ class MarketRegimeDetector:
             for previous, current in zip(values, values[1:], strict=False)
             if previous > 0
         ]
-        annualized_volatility = statistics.pstdev(returns) * math.sqrt(252) if len(returns) >= 2 else 0.0
+        annualized_volatility = (
+            statistics.pstdev(returns) * math.sqrt(252) if len(returns) >= 2 else 0.0
+        )
         trend_return = (values[-1] - values[0]) / values[0] if values[0] > 0 else 0.0
         volatility_regime = self._volatility_regime(annualized_volatility)
         trend_regime = self._trend_regime(trend_return)

@@ -78,9 +78,7 @@ def sanitize_trades(trades: Any) -> list[dict[str, Any]]:
             or trade.get("dtopen")
             or trade.get("dtclose")
         )
-        trade_type = normalize_trade_type(
-            trade.get("type") or trade.get("direction")
-        )
+        trade_type = normalize_trade_type(trade.get("type") or trade.get("direction"))
         if not date_value or not trade_type:
             continue
         try:

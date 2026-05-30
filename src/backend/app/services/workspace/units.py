@@ -44,7 +44,9 @@ async def create_unit(
     from app.services.workspace_service import WorkspaceService, _normalize_unit_data_config
 
     async with async_session_maker() as session:
-        ws = await WorkspaceService._load_workspace(session, workspace_id, user_id, load_units=False)
+        ws = await WorkspaceService._load_workspace(
+            session, workspace_id, user_id, load_units=False
+        )
         if ws is None:
             return None
 
@@ -102,7 +104,9 @@ async def batch_create_units(
     from app.services.workspace_service import WorkspaceService, _normalize_unit_data_config
 
     async with async_session_maker() as session:
-        ws = await WorkspaceService._load_workspace(session, workspace_id, user_id, load_units=False)
+        ws = await WorkspaceService._load_workspace(
+            session, workspace_id, user_id, load_units=False
+        )
         if ws is None:
             return None
 
@@ -165,7 +169,9 @@ async def list_units(
     from app.services.workspace_service import WorkspaceService, _normalize_workspace_type
 
     async with async_session_maker() as session:
-        ws = await WorkspaceService._load_workspace(session, workspace_id, user_id, load_units=False)
+        ws = await WorkspaceService._load_workspace(
+            session, workspace_id, user_id, load_units=False
+        )
         if ws is None:
             return None
 
@@ -235,7 +241,9 @@ async def list_units(
             for task_id in opt_task_ids:
                 try:
                     progress = get_optimization_progress(task_id, user_id=user_id, use_db=True)
-                    opt_info = WorkspaceService._optimization_progress_response_to_opt_info(progress)
+                    opt_info = WorkspaceService._optimization_progress_response_to_opt_info(
+                        progress
+                    )
                     if opt_info:
                         opt_progress_map[task_id] = opt_info
                 except Exception:
@@ -264,7 +272,9 @@ async def get_unit(
     from app.services.workspace_service import WorkspaceService, _normalize_workspace_type
 
     async with async_session_maker() as session:
-        ws = await WorkspaceService._load_workspace(session, workspace_id, user_id, load_units=False)
+        ws = await WorkspaceService._load_workspace(
+            session, workspace_id, user_id, load_units=False
+        )
         if ws is None:
             return None
         unit = await WorkspaceService._get_unit(session, workspace_id, unit_id)
@@ -286,7 +296,9 @@ async def get_unit_runtime_info(
     from app.services.workspace_service import WorkspaceService, _normalize_workspace_type
 
     async with async_session_maker() as session:
-        ws = await WorkspaceService._load_workspace(session, workspace_id, user_id, load_units=False)
+        ws = await WorkspaceService._load_workspace(
+            session, workspace_id, user_id, load_units=False
+        )
         if ws is None:
             return None
         unit = await WorkspaceService._get_unit(session, workspace_id, unit_id)
@@ -332,7 +344,9 @@ async def get_unit_runtime_dir(
     from app.services.workspace_service import WorkspaceService
 
     async with async_session_maker() as session:
-        ws = await WorkspaceService._load_workspace(session, workspace_id, user_id, load_units=False)
+        ws = await WorkspaceService._load_workspace(
+            session, workspace_id, user_id, load_units=False
+        )
         if ws is None:
             return None
         unit = await WorkspaceService._get_unit(session, workspace_id, unit_id)
@@ -393,7 +407,9 @@ async def update_unit(
     from app.services.workspace_service import WorkspaceService, _normalize_unit_data_config
 
     async with async_session_maker() as session:
-        ws = await WorkspaceService._load_workspace(session, workspace_id, user_id, load_units=False)
+        ws = await WorkspaceService._load_workspace(
+            session, workspace_id, user_id, load_units=False
+        )
         if ws is None:
             return None
         unit = await WorkspaceService._get_unit(session, workspace_id, unit_id)
@@ -508,9 +524,7 @@ async def rename_group(workspace_id: str, user_id: str, req: GroupRenameRequest)
         units = list(result.scalars().all())
 
         for unit in units:
-            unit.group_name = compute_rename(
-                unit, req.mode, req.value, req.search, req.replace
-            )
+            unit.group_name = compute_rename(unit, req.mode, req.value, req.search, req.replace)
 
         await session.commit()
         return True
@@ -530,8 +544,6 @@ async def rename_unit(workspace_id: str, user_id: str, req: UnitRenameRequest) -
         if unit is None:
             return False
         unit_row: Any = unit
-        unit_row.strategy_name = compute_rename(
-            unit, req.mode, req.value, req.search, req.replace
-        )
+        unit_row.strategy_name = compute_rename(unit, req.mode, req.value, req.search, req.replace)
         await session.commit()
         return True

@@ -48,7 +48,7 @@ class TestIteration129KBChatAPI:
         assert create_resp.status_code == 201, create_resp.text
         conversation = create_resp.json()
         assert conversation["knowledge_base_id"] == kb_id
-        assert conversation["title"] == '新对话'
+        assert conversation["title"] == "新对话"
 
         list_resp = await client.get(
             "/api/v1/kb-chat/conversations",
@@ -77,7 +77,9 @@ class TestIteration129KBChatAPI:
         )
         assert create_resp.status_code == 422, create_resp.text
 
-    async def test_send_history_and_delete_conversation(self, client: AsyncClient, auth_headers: dict):
+    async def test_send_history_and_delete_conversation(
+        self, client: AsyncClient, auth_headers: dict
+    ):
         kb_resp = await client.post(
             "/api/v1/knowledge-base/",
             headers=auth_headers,
@@ -101,7 +103,11 @@ class TestIteration129KBChatAPI:
         index_resp = await client.post(
             "/api/v1/rag/index",
             headers=auth_headers,
-            json={"knowledge_base_id": kb_id, "document_id": doc_resp.json()["id"], "force_reindex": False},
+            json={
+                "knowledge_base_id": kb_id,
+                "document_id": doc_resp.json()["id"],
+                "force_reindex": False,
+            },
         )
         assert index_resp.status_code == 200, index_resp.text
 
@@ -113,7 +119,7 @@ class TestIteration129KBChatAPI:
         assert send_resp.status_code == 200, send_resp.text
         send_body = send_resp.json()
         assert send_body["conversation_id"]
-        assert '开仓' in send_body["answer"]
+        assert "开仓" in send_body["answer"]
 
         history_resp = await client.get(
             f"/api/v1/kb-chat/history/{send_body['conversation_id']}",
@@ -123,8 +129,8 @@ class TestIteration129KBChatAPI:
         history_body = history_resp.json()
         assert history_body["conversation_id"] == send_body["conversation_id"]
         assert len(history_body["messages"]) == 2
-        assert history_body["messages"][0]["role"] == 'user'
-        assert history_body["messages"][1]["role"] == 'assistant'
+        assert history_body["messages"][0]["role"] == "user"
+        assert history_body["messages"][1]["role"] == "assistant"
 
         delete_resp = await client.delete(
             f"/api/v1/kb-chat/conversations/{send_body['conversation_id']}",
@@ -195,7 +201,11 @@ class TestIteration129KBChatAPI:
         index_resp = await client.post(
             "/api/v1/rag/index",
             headers=auth_headers,
-            json={"knowledge_base_id": kb_id, "document_id": doc_resp.json()["id"], "force_reindex": False},
+            json={
+                "knowledge_base_id": kb_id,
+                "document_id": doc_resp.json()["id"],
+                "force_reindex": False,
+            },
         )
         assert index_resp.status_code == 200, index_resp.text
 

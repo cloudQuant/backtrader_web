@@ -19,8 +19,8 @@ def build_backtest_result(
 ) -> BacktestResult:
     return BacktestResult(
         task_id=task_id,
-        strategy_id='strat-001',
-        symbol='000001.SZ',
+        strategy_id="strat-001",
+        symbol="000001.SZ",
         start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 12, 31, tzinfo=timezone.utc),
         status=TaskStatus.COMPLETED,
@@ -33,7 +33,7 @@ def build_backtest_result(
         profitable_trades=12,
         losing_trades=8,
         equity_curve=equity_curve or [100000, 103000, 101000, 105000],
-        equity_dates=['2024-01-01', '2024-04-01', '2024-08-01', '2024-12-31'],
+        equity_dates=["2024-01-01", "2024-04-01", "2024-08-01", "2024-12-31"],
         drawdown_curve=[0.0, -2.0, -4.0, -1.0],
         trades=[
             TradeRecord(price=10.0, size=1.0, value=1000.0, pnl=40.0, pnlcomm=38.0),
@@ -46,22 +46,22 @@ def build_backtest_result(
 @pytest.mark.asyncio
 async def test_run_walk_forward_analysis_reports_high_risk_when_oos_degrades_sharply() -> None:
     base_request = BacktestRequest(
-        strategy_id='strat-001',
-        symbol='000001.SZ',
+        strategy_id="strat-001",
+        symbol="000001.SZ",
         start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 9, 1, tzinfo=timezone.utc),
         initial_cash=100000,
         commission=0.001,
-        timeframe='1d',
+        timeframe="1d",
         timeframe_n=1,
-        params={'fast_period': 5},
+        params={"fast_period": 5},
     )
     queued_results = iter(
         [
-            build_backtest_result(task_id='wf-is-1', annual_return=24.0, sharpe_ratio=2.1),
-            build_backtest_result(task_id='wf-oos-1', annual_return=9.0, sharpe_ratio=0.8),
-            build_backtest_result(task_id='wf-is-2', annual_return=22.0, sharpe_ratio=1.9),
-            build_backtest_result(task_id='wf-oos-2', annual_return=8.0, sharpe_ratio=0.7),
+            build_backtest_result(task_id="wf-is-1", annual_return=24.0, sharpe_ratio=2.1),
+            build_backtest_result(task_id="wf-oos-1", annual_return=9.0, sharpe_ratio=0.8),
+            build_backtest_result(task_id="wf-is-2", annual_return=22.0, sharpe_ratio=1.9),
+            build_backtest_result(task_id="wf-oos-2", annual_return=8.0, sharpe_ratio=0.7),
         ]
     )
     executed_windows: list[tuple[datetime, datetime]] = []
@@ -79,28 +79,28 @@ async def test_run_walk_forward_analysis_reports_high_risk_when_oos_degrades_sha
     )
 
     assert result.method == OverfittingMethod.WALK_FORWARD
-    assert result.status == 'completed'
+    assert result.status == "completed"
     assert result.risk_level == OverfittingRiskLevel.HIGH
     assert result.degraded is False
     assert result.score < 50
-    assert result.metrics['window_count'] == 2
-    assert result.metrics['avg_is_sharpe'] > result.metrics['avg_oos_sharpe']
-    assert result.metrics['sharpe_decay_pct'] > 50
+    assert result.metrics["window_count"] == 2
+    assert result.metrics["avg_is_sharpe"] > result.metrics["avg_oos_sharpe"]
+    assert result.metrics["sharpe_decay_pct"] > 50
     assert len(executed_windows) == 4
 
 
 @pytest.mark.asyncio
 async def test_run_walk_forward_analysis_limits_concurrency_and_reports_window_progress() -> None:
     base_request = BacktestRequest(
-        strategy_id='strat-001',
-        symbol='000001.SZ',
+        strategy_id="strat-001",
+        symbol="000001.SZ",
         start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 10, 1, tzinfo=timezone.utc),
         initial_cash=100000,
         commission=0.001,
-        timeframe='1d',
+        timeframe="1d",
         timeframe_n=1,
-        params={'fast_period': 5},
+        params={"fast_period": 5},
     )
     active_slices = 0
     max_active_slices = 0
@@ -112,7 +112,7 @@ async def test_run_walk_forward_analysis_limits_concurrency_and_reports_window_p
         max_active_slices = max(max_active_slices, active_slices)
         await asyncio.sleep(0.01)
         active_slices -= 1
-        return build_backtest_result(task_id='wf-slice', annual_return=12.0, sharpe_ratio=1.2)
+        return build_backtest_result(task_id="wf-slice", annual_return=12.0, sharpe_ratio=1.2)
 
     async def progress_callback(completed: int, total: int) -> None:
         progress_events.append((completed, total))
@@ -128,35 +128,35 @@ async def test_run_walk_forward_analysis_limits_concurrency_and_reports_window_p
     )
 
     assert result.degraded is False
-    assert result.metrics['window_count'] >= 2
+    assert result.metrics["window_count"] >= 2
     assert max_active_slices <= 2
     assert progress_events
-    assert progress_events[-1] == (result.metrics['window_count'], result.metrics['window_count'])
+    assert progress_events[-1] == (result.metrics["window_count"], result.metrics["window_count"])
 
 
 @pytest.mark.asyncio
 async def test_run_out_of_sample_analysis_reports_high_risk_when_oos_is_much_weaker() -> None:
     base_request = BacktestRequest(
-        strategy_id='strat-001',
-        symbol='000001.SZ',
+        strategy_id="strat-001",
+        symbol="000001.SZ",
         start_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
         end_date=datetime(2024, 12, 31, tzinfo=timezone.utc),
         initial_cash=100000,
         commission=0.001,
-        timeframe='1d',
+        timeframe="1d",
         timeframe_n=1,
-        params={'fast_period': 5},
+        params={"fast_period": 5},
     )
     queued_results = iter(
         [
             build_backtest_result(
-                task_id='oos-is',
+                task_id="oos-is",
                 annual_return=20.0,
                 sharpe_ratio=1.8,
                 equity_curve=[100000, 104000, 108000, 112000],
             ),
             build_backtest_result(
-                task_id='oos-oos',
+                task_id="oos-oos",
                 annual_return=6.0,
                 sharpe_ratio=0.7,
                 equity_curve=[112000, 112500, 111800, 112300],
@@ -176,14 +176,14 @@ async def test_run_out_of_sample_analysis_reports_high_risk_when_oos_is_much_wea
     )
 
     assert result.method == OverfittingMethod.OUT_OF_SAMPLE
-    assert result.status == 'completed'
+    assert result.status == "completed"
     assert result.risk_level == OverfittingRiskLevel.HIGH
     assert result.degraded is False
     assert result.score < 50
-    assert result.metrics['is_sharpe'] > result.metrics['oos_sharpe']
-    assert result.metrics['sharpe_decay_pct'] > 50
-    assert 0.0 <= result.metrics['p_value'] <= 1.0
-    assert result.metrics['test_method'] == 'welch_t_test_normal_approx'
-    assert 't_statistic' in result.metrics
-    assert 'degrees_of_freedom' in result.metrics
+    assert result.metrics["is_sharpe"] > result.metrics["oos_sharpe"]
+    assert result.metrics["sharpe_decay_pct"] > 50
+    assert 0.0 <= result.metrics["p_value"] <= 1.0
+    assert result.metrics["test_method"] == "welch_t_test_normal_approx"
+    assert "t_statistic" in result.metrics
+    assert "degrees_of_freedom" in result.metrics
     assert len(executed_windows) == 2

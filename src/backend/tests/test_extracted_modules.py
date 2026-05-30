@@ -1691,6 +1691,7 @@ class TestManualGatewayService:
         runtime_kwargs = runtime_cls.call_args.kwargs
         assert runtime_kwargs["login"] == 123456
         assert runtime_kwargs["password"] == "alias-pass"
+
     def test_ensure_ib_clientportal_running_starts_background_process_when_local_port_down(self):
         logger = Mock()
         process = Mock()

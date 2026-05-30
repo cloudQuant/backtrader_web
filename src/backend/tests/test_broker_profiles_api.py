@@ -38,9 +38,7 @@ async def test_broker_profiles_create_and_list_masked_credentials(client):
                 "api_key_env": "BT_BROKER_SIM_KEY",
                 "api_secret_env": "BT_BROKER_SIM_SECRET",
             },
-            "credentials_rotated_at": (
-                datetime.now(timezone.utc) - timedelta(days=91)
-            ).isoformat(),
+            "credentials_rotated_at": (datetime.now(timezone.utc) - timedelta(days=91)).isoformat(),
         },
     )
     listed = await client.get("/api/v1/brokers/profiles", headers=headers)
@@ -90,7 +88,9 @@ async def test_broker_profiles_runtime_reads_and_enable_write_requires_admin(cli
 
     health = await client.get(f"/api/v1/brokers/profiles/{profile_id}/health", headers=headers)
     accounts = await client.get(f"/api/v1/brokers/profiles/{profile_id}/accounts", headers=headers)
-    positions = await client.get(f"/api/v1/brokers/profiles/{profile_id}/positions", headers=headers)
+    positions = await client.get(
+        f"/api/v1/brokers/profiles/{profile_id}/positions", headers=headers
+    )
     orders = await client.get(f"/api/v1/brokers/profiles/{profile_id}/orders", headers=headers)
     quotes = await client.get(
         f"/api/v1/brokers/profiles/{profile_id}/quotes?symbol=RB2510",
@@ -135,7 +135,9 @@ async def test_broker_profiles_runtime_reads_and_enable_write_requires_admin(cli
     assert enable_non_admin.status_code == 403
     assert enable_admin_missing_confirmation.status_code == 400
     assert enable_admin_missing_confirmation.json()["error"] == "HTTP_400"
-    assert enable_admin_missing_confirmation.json()["message"] == "write_enable_confirmation_required"
+    assert (
+        enable_admin_missing_confirmation.json()["message"] == "write_enable_confirmation_required"
+    )
     assert enable_admin.status_code == 200
     assert enable_admin.json()["is_destructive_enabled"] is True
 
@@ -247,8 +249,12 @@ async def test_broker_profiles_runtime_prefers_connected_gateway_binding(client)
     ):
         listed = await client.get("/api/v1/brokers/profiles", headers=headers)
         health = await client.get(f"/api/v1/brokers/profiles/{profile_id}/health", headers=headers)
-        accounts = await client.get(f"/api/v1/brokers/profiles/{profile_id}/accounts", headers=headers)
-        positions = await client.get(f"/api/v1/brokers/profiles/{profile_id}/positions", headers=headers)
+        accounts = await client.get(
+            f"/api/v1/brokers/profiles/{profile_id}/accounts", headers=headers
+        )
+        positions = await client.get(
+            f"/api/v1/brokers/profiles/{profile_id}/positions", headers=headers
+        )
         orders = await client.get(f"/api/v1/brokers/profiles/{profile_id}/orders", headers=headers)
         quotes = await client.get(
             f"/api/v1/brokers/profiles/{profile_id}/quotes?symbol=AAPL",
@@ -274,7 +280,9 @@ async def test_broker_profiles_runtime_prefers_connected_gateway_binding(client)
     assert positions.json()["items"] == [{"symbol": "AAPL", "direction": "LONG", "size": 2}]
 
     assert orders.status_code == 200
-    assert orders.json()["items"] == [{"order_id": "ord-1", "symbol": "AAPL", "status": "Submitted"}]
+    assert orders.json()["items"] == [
+        {"order_id": "ord-1", "symbol": "AAPL", "status": "Submitted"}
+    ]
 
     assert quotes.status_code == 200
     assert quotes.json()["symbol"] == "AAPL"
@@ -373,8 +381,12 @@ async def test_broker_profiles_runtime_prefers_explicit_gateway_binding_over_ali
     ):
         listed = await client.get("/api/v1/brokers/profiles", headers=headers)
         health = await client.get(f"/api/v1/brokers/profiles/{profile_id}/health", headers=headers)
-        accounts = await client.get(f"/api/v1/brokers/profiles/{profile_id}/accounts", headers=headers)
-        positions = await client.get(f"/api/v1/brokers/profiles/{profile_id}/positions", headers=headers)
+        accounts = await client.get(
+            f"/api/v1/brokers/profiles/{profile_id}/accounts", headers=headers
+        )
+        positions = await client.get(
+            f"/api/v1/brokers/profiles/{profile_id}/positions", headers=headers
+        )
         orders = await client.get(f"/api/v1/brokers/profiles/{profile_id}/orders", headers=headers)
 
     assert listed.status_code == 200

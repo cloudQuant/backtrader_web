@@ -49,7 +49,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop composite listing indexes."""
-    op.drop_index(
-        "idx_backtest_tasks_version_status_created_at", table_name="backtest_tasks"
-    )
+    op.drop_index("idx_backtest_tasks_version_status_created_at", table_name="backtest_tasks")
     op.drop_index("idx_backtest_tasks_user_created_at", table_name="backtest_tasks")

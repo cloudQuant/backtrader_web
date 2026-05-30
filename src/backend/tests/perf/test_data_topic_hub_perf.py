@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip('pytest_benchmark')
+pytest.importorskip("pytest_benchmark")
 
 
 def _p95_ms(values: list[float]) -> float:
@@ -30,13 +30,13 @@ def test_data_topic_hub_cached_peek_p95(benchmark: Any) -> None:
     loop = asyncio.new_event_loop()
     try:
         hub = DataTopicHub()
-        hub.register_topic('market:quote:RB2510', TopicPolicy(ttl_ms=1_000))
-        loop.run_until_complete(hub.push('market:quote:RB2510', {'price': 100.0}))
+        hub.register_topic("market:quote:RB2510", TopicPolicy(ttl_ms=1_000))
+        loop.run_until_complete(hub.push("market:quote:RB2510", {"price": 100.0}))
 
         def peek_once() -> dict[str, float]:
-            return loop.run_until_complete(hub.peek('market:quote:RB2510'))
+            return loop.run_until_complete(hub.peek("market:quote:RB2510"))
 
-        assert peek_once()['price'] == 100.0
+        assert peek_once()["price"] == 100.0
         benchmark.pedantic(peek_once, rounds=5, iterations=20)
 
         p95_ms = _p95_ms(_measure_ms(peek_once, rounds=200))
@@ -52,12 +52,12 @@ def test_data_topic_hub_fanout_p95_for_100_subscribers(benchmark: Any) -> None:
     loop = asyncio.new_event_loop()
     try:
         hub = DataTopicHub()
-        hub.register_topic('market:quote:RB2510', TopicPolicy(ttl_ms=1_000))
+        hub.register_topic("market:quote:RB2510", TopicPolicy(ttl_ms=1_000))
         for index in range(100):
-            hub.subscribe(f'client-{index}', 'market:quote:*', lambda topic, value: None)
+            hub.subscribe(f"client-{index}", "market:quote:*", lambda topic, value: None)
 
         def push_once() -> int:
-            return loop.run_until_complete(hub.push('market:quote:RB2510', {'price': 100.0}))
+            return loop.run_until_complete(hub.push("market:quote:RB2510", {"price": 100.0}))
 
         assert push_once() == 100
         benchmark.pedantic(push_once, rounds=5, iterations=10)

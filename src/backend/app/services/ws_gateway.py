@@ -14,7 +14,9 @@ class WSGatewayMetrics:
 
 
 class WSGateway:
-    def __init__(self, *, token_validator: Callable[[str], bool], heartbeat_timeout_ms: int = 30_000) -> None:
+    def __init__(
+        self, *, token_validator: Callable[[str], bool], heartbeat_timeout_ms: int = 30_000
+    ) -> None:
         self.token_validator = token_validator
         self.heartbeat_timeout_ms = heartbeat_timeout_ms
         self._connections: dict[str, float] = {}

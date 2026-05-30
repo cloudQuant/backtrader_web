@@ -45,9 +45,13 @@ async def test_data_topics_list_refresh_and_stats_require_admin(client: AsyncCli
     _, headers = await register_and_login(client, username="data_topics_user")
 
     listed = await client.get("/api/v1/data-topics", headers=headers)
-    refreshed = await client.post("/api/v1/data-topics/market:quote:RB2510/refresh", headers=headers)
+    refreshed = await client.post(
+        "/api/v1/data-topics/market:quote:RB2510/refresh", headers=headers
+    )
     stats_non_admin = await client.get("/api/v1/data-topics/stats", headers=headers)
-    stats_admin = await client.get("/api/v1/data-topics/stats", headers=await _get_admin_headers(client))
+    stats_admin = await client.get(
+        "/api/v1/data-topics/stats", headers=await _get_admin_headers(client)
+    )
 
     assert listed.status_code == 200
     assert listed.json()["total"] == 1
@@ -68,7 +72,9 @@ async def test_data_topics_list_refresh_and_stats_require_admin(client: AsyncCli
 
 
 @pytest.mark.asyncio
-async def test_data_topics_list_and_stats_expose_last_refresh_error(client: AsyncClient, monkeypatch):
+async def test_data_topics_list_and_stats_expose_last_refresh_error(
+    client: AsyncClient, monkeypatch
+):
     import app.services.data_topic_hub as data_topic_module
 
     class SlowProducer(data_topic_module.Producer):
@@ -80,15 +86,21 @@ async def test_data_topics_list_and_stats_expose_last_refresh_error(client: Asyn
             return {topic: {"ok": True} for topic in topics}
 
     hub = data_topic_module.DataTopicHub()
-    hub.register_topic("market:history:RB2510:D1:1d", data_topic_module.TopicPolicy(refresh_timeout_ms=10))
+    hub.register_topic(
+        "market:history:RB2510:D1:1d", data_topic_module.TopicPolicy(refresh_timeout_ms=10)
+    )
     hub.register_producer(SlowProducer())
     monkeypatch.setattr(data_topic_module, "_shared_hub", hub)
 
     _, headers = await register_and_login(client, username="data_topics_error_user")
 
-    refreshed = await client.post("/api/v1/data-topics/market:history:RB2510:D1:1d/refresh", headers=headers)
+    refreshed = await client.post(
+        "/api/v1/data-topics/market:history:RB2510:D1:1d/refresh", headers=headers
+    )
     listed = await client.get("/api/v1/data-topics", headers=headers)
-    stats_admin = await client.get("/api/v1/data-topics/stats", headers=await _get_admin_headers(client))
+    stats_admin = await client.get(
+        "/api/v1/data-topics/stats", headers=await _get_admin_headers(client)
+    )
 
     assert refreshed.status_code == 200
     assert refreshed.json()["value"] is None

@@ -171,7 +171,11 @@ def _target_name(node: ast.AST) -> str | None:
 
 
 def _self_attribute_name(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "self":
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+    ):
         return node.attr
     return None
 

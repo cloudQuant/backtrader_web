@@ -19,9 +19,7 @@ class DataConnectorResult:
 
 class DataConnectorExecutor:
     def __init__(self) -> None:
-        self._callables: dict[
-            str, Callable[..., Any] | Callable[..., Awaitable[Any]]
-        ] = {}
+        self._callables: dict[str, Callable[..., Any] | Callable[..., Awaitable[Any]]] = {}
         self._register_builtin_callables()
 
     def register_callable(

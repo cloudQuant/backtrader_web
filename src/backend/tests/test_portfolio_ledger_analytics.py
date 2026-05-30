@@ -108,8 +108,12 @@ async def test_portfolio_ledger_analytics_endpoints(
         f"/api/v1/portfolio-ledger/{portfolio_id}/analytics/fama-french",
         headers=headers,
         json={
-            "smb_returns": [round(((index % 3) - 1) * 0.002 + index * 0.0001, 6) for index in range(31)],
-            "hml_returns": [round(((index % 4) - 1.5) * 0.0015 - index * 0.00005, 6) for index in range(31)],
+            "smb_returns": [
+                round(((index % 3) - 1) * 0.002 + index * 0.0001, 6) for index in range(31)
+            ],
+            "hml_returns": [
+                round(((index % 4) - 1.5) * 0.0015 - index * 0.00005, 6) for index in range(31)
+            ],
         },
     )
     missing = await client.get(

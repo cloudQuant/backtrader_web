@@ -65,13 +65,9 @@ class AirflowAdapter:
         except Exception:
             return False
 
-    async def list_dags(
-        self, limit: int = 100, offset: int = 0
-    ) -> dict[str, Any]:
+    async def list_dags(self, limit: int = 100, offset: int = 0) -> dict[str, Any]:
         """List all DAGs."""
-        resp = await self._client.get(
-            "/dags", params={"limit": limit, "offset": offset}
-        )
+        resp = await self._client.get("/dags", params={"limit": limit, "offset": offset})
         return self._handle_response(resp, "/dags")
 
     async def get_dag(self, dag_id: str) -> dict[str, Any]:
@@ -80,9 +76,7 @@ class AirflowAdapter:
         resp = await self._client.get(endpoint)
         return self._handle_response(resp, endpoint)
 
-    async def trigger_dag_run(
-        self, dag_id: str, conf: dict | None = None
-    ) -> dict[str, Any]:
+    async def trigger_dag_run(self, dag_id: str, conf: dict | None = None) -> dict[str, Any]:
         """Trigger a new DAG run.
 
         Args:
@@ -96,17 +90,13 @@ class AirflowAdapter:
         resp = await self._client.post(endpoint, json=payload)
         return self._handle_response(resp, endpoint)
 
-    async def get_dag_run(
-        self, dag_id: str, dag_run_id: str
-    ) -> dict[str, Any]:
+    async def get_dag_run(self, dag_id: str, dag_run_id: str) -> dict[str, Any]:
         """Get DAG run details."""
         endpoint = f"/dags/{dag_id}/dagRuns/{dag_run_id}"
         resp = await self._client.get(endpoint)
         return self._handle_response(resp, endpoint)
 
-    async def list_dag_runs(
-        self, dag_id: str, limit: int = 25, offset: int = 0
-    ) -> dict[str, Any]:
+    async def list_dag_runs(self, dag_id: str, limit: int = 25, offset: int = 0) -> dict[str, Any]:
         """List DAG runs."""
         endpoint = f"/dags/{dag_id}/dagRuns"
         resp = await self._client.get(
@@ -114,9 +104,7 @@ class AirflowAdapter:
         )
         return self._handle_response(resp, endpoint)
 
-    async def get_task_instances(
-        self, dag_id: str, dag_run_id: str
-    ) -> dict[str, Any]:
+    async def get_task_instances(self, dag_id: str, dag_run_id: str) -> dict[str, Any]:
         """Get task instances for a DAG run."""
         endpoint = f"/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances"
         resp = await self._client.get(endpoint)
@@ -126,13 +114,8 @@ class AirflowAdapter:
         self, dag_id: str, dag_run_id: str, task_id: str, try_number: int = 1
     ) -> str:
         """Get task instance log content."""
-        endpoint = (
-            f"/dags/{dag_id}/dagRuns/{dag_run_id}"
-            f"/taskInstances/{task_id}/logs/{try_number}"
-        )
-        resp = await self._client.get(
-            endpoint, headers={"Accept": "text/plain"}
-        )
+        endpoint = f"/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/logs/{try_number}"
+        resp = await self._client.get(endpoint, headers={"Accept": "text/plain"})
         if resp.status_code >= 400:
             self._handle_response(resp, endpoint)
         return resp.text

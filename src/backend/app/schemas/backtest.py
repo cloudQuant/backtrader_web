@@ -69,7 +69,11 @@ class BacktestResponse(BaseModel):
 
     task_id: str = Field(..., description="Task ID", examples=["task_9a8b7c6d5e4f"])
     status: TaskStatus = Field(..., description="Task status")
-    message: str | None = Field(None, description="Status message", examples=["Backtest task submitted, queuing / 回测任务已提交，正在排队中"])
+    message: str | None = Field(
+        None,
+        description="Status message",
+        examples=["Backtest task submitted, queuing / 回测任务已提交，正在排队中"],
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

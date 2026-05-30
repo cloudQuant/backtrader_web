@@ -114,9 +114,7 @@ def build_ai_param_specs(prompt: str) -> dict[str, ParamSpec]:
     if any(token in text for token in ["rsi", "超卖", "超买"]):
         add_param(
             "rsi_period",
-            ParamSpec(
-                type="int", default=14, min=2, max=60, description="RSI lookback period"
-            ),
+            ParamSpec(type="int", default=14, min=2, max=60, description="RSI lookback period"),
         )
         add_param(
             "oversold",

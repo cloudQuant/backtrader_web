@@ -175,8 +175,8 @@ def _serialize_log(record: dict[str, Any]) -> str:
     """
     # Timestamp with millisecond precision in ISO 8601 format
     ts = record["time"]
-    timestamp = ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ts.microsecond // 1000:03d}" + ts.strftime(
-        "%z"
+    timestamp = (
+        ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ts.microsecond // 1000:03d}" + ts.strftime("%z")
     )
     # Insert colon in timezone offset for strict ISO 8601 (e.g. +0800 → +08:00)
     if len(timestamp) > 5 and timestamp[-5] in ("+", "-") and ":" not in timestamp[-5:]:
@@ -297,6 +297,7 @@ def _add_file_handler(
     backtrace: bool = False,
 ) -> None:
     """Add a rotating file handler with common defaults."""
+
     def _tag_filter(record: Any) -> bool:
         return bool(tag_filter and tag_filter in record["extra"].get("tags", []))
 
@@ -404,7 +405,9 @@ def setup_logger(
 
     # Resolve log levels: explicit LOG_LEVEL > function param > environment-based default
     raw_explicit_level = getattr(settings, "LOG_LEVEL", "")
-    explicit_level = raw_explicit_level.strip().upper() if isinstance(raw_explicit_level, str) else ""
+    explicit_level = (
+        raw_explicit_level.strip().upper() if isinstance(raw_explicit_level, str) else ""
+    )
     if log_level:
         console_level = log_level
         file_level = log_level
@@ -444,8 +447,11 @@ def setup_logger(
     audit_retention = f"{_resolve_int_setting(settings, 'LOG_RETENTION_AUDIT_DAYS', 365)} days"
 
     _add_file_handler(
-        logs_path, "app_{time:YYYY-MM-DD}.log", use_json,
-        level=file_level, retention=app_retention,
+        logs_path,
+        "app_{time:YYYY-MM-DD}.log",
+        use_json,
+        level=file_level,
+        retention=app_retention,
     )
 
     _add_file_handler(

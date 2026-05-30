@@ -39,9 +39,7 @@ class AuditRecord(Base):
     page_path = Column(String(500), nullable=False)
     event_data = Column(Text, nullable=True)
     client_timestamp = Column(DateTime, nullable=False)
-    server_timestamp = Column(
-        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
-    )
+    server_timestamp = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     client_ip = Column(String(45), nullable=True)
 
     __table_args__ = (

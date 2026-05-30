@@ -273,10 +273,7 @@ class PortfolioLedgerAnalyticsService:
         total = sum(values.values())
         if total <= 0:
             return {}
-        return {
-            symbol: round(value / total, 6)
-            for symbol, value in values.items()
-        }
+        return {symbol: round(value / total, 6) for symbol, value in values.items()}
 
     def _portfolio_returns(self, position_stats: dict[str, dict[str, float]]) -> dict[str, float]:
         return {

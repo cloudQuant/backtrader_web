@@ -510,6 +510,7 @@ def _pick_explicit_or_setting_or_env(
     default: Any = "",
 ) -> Any:
     from app.services.manual_gateway.utils import pick_explicit_or_setting_or_env
+
     return pick_explicit_or_setting_or_env(
         explicit_value,
         settings,
@@ -522,11 +523,13 @@ def _pick_explicit_or_setting_or_env(
 
 def _coerce_bool_like(value: Any, default: bool = False) -> bool:
     from app.services.manual_gateway.utils import coerce_bool_like
+
     return coerce_bool_like(value, default)
 
 
 def _coerce_str(value: Any) -> str:
     from app.services.manual_gateway.utils import coerce_str
+
     return coerce_str(value)
 
 
@@ -563,7 +566,9 @@ def _merge_mt5_default_credentials(credentials: dict[str, Any]) -> dict[str, Any
     )
 
 
-def _normalize_manual_gateway_credentials(exchange_type: str, credentials: dict[str, Any]) -> dict[str, Any]:
+def _normalize_manual_gateway_credentials(
+    exchange_type: str, credentials: dict[str, Any]
+) -> dict[str, Any]:
     if exchange_type == "IB_WEB":
         return _merge_ib_web_default_credentials(credentials)
     if exchange_type == "BINANCE":
@@ -582,6 +587,7 @@ def _pick_explicit_or_setting(
     default: Any = "",
 ) -> Any:
     from app.services.manual_gateway.utils import pick_explicit_or_setting
+
     return pick_explicit_or_setting(explicit_value, settings, *setting_names, default=default)
 
 
@@ -615,21 +621,25 @@ def _installed_bt_api_py_dir() -> Path | None:
 
 def _ib_web_cookie_base_dir() -> Path:
     from app.services.manual_gateway.ib_clientportal import ib_web_cookie_base_dir
+
     return ib_web_cookie_base_dir(_installed_bt_api_py_dir, _backend_env_file)
 
 
 def _to_backend_env_relative_path(path_value: str) -> str:
     from app.services.manual_gateway.ib_clientportal import to_backend_env_relative_path
+
     return to_backend_env_relative_path(path_value, _ib_web_cookie_base_dir)
 
 
 def _normalize_ib_web_base_url(base_url: str) -> str:
     from app.services.manual_gateway.ib_clientportal import normalize_ib_web_base_url
+
     return normalize_ib_web_base_url(base_url)
 
 
 def _swap_url_scheme(base_url: str, scheme: str) -> str:
     from app.services.manual_gateway.ib_clientportal import swap_url_scheme
+
     return swap_url_scheme(base_url, scheme)
 
 
@@ -650,6 +660,7 @@ def _load_ib_web_session_state(
     timeout: float,
 ) -> tuple[dict[str, Any], dict[str, str], bool, list[dict[str, Any]], str]:
     from app.services.manual_gateway.ib_clientportal import load_ib_web_session_state
+
     return load_ib_web_session_state(
         credentials,
         base_url,
@@ -699,6 +710,7 @@ def _resolve_ib_web_base_url(
     logger: Any,
 ) -> str:
     from app.services.manual_gateway.ib_clientportal import resolve_ib_web_base_url
+
     return resolve_ib_web_base_url(
         base_url,
         verify_ssl,
@@ -717,6 +729,7 @@ def _bootstrap_ib_web_session(
     allow_interactive_login: bool = True,
 ) -> dict[str, Any] | None:
     from app.services.manual_gateway.ib_clientportal import bootstrap_ib_web_session
+
     return bootstrap_ib_web_session(
         credentials,
         base_url,
@@ -740,6 +753,7 @@ def _build_ib_web_env_updates(
     session: dict[str, Any] | None,
 ) -> dict[str, str]:
     from app.services.manual_gateway.ib_clientportal import build_ib_web_env_updates
+
     return build_ib_web_env_updates(
         credentials,
         base_url,
@@ -1690,6 +1704,7 @@ def connect_ib_web_gateway(
     allow_interactive_login: bool = True,
 ) -> dict[str, Any]:
     from app.services.manual_gateway.ib_clientportal import connect_ib_web_gateway as _impl
+
     return _impl(
         gateways,
         key,

@@ -49,7 +49,9 @@ class BenchmarkMetricsService:
         )
         beta = covariance / benchmark_variance
         period_risk_free = risk_free_rate / periods_per_year
-        alpha = (strategy_mean - period_risk_free - beta * (benchmark_mean - period_risk_free)) * periods_per_year
+        alpha = (
+            strategy_mean - period_risk_free - beta * (benchmark_mean - period_risk_free)
+        ) * periods_per_year
         active_returns = [
             strategy_value - benchmark_value
             for strategy_value, benchmark_value in zip(strategy, benchmark, strict=False)
@@ -68,7 +70,9 @@ class BenchmarkMetricsService:
             alpha=round(alpha, 6),
             beta=round(beta, 6),
             tracking_error=round(tracking_error, 6),
-            information_ratio=round(information_ratio, 6) if information_ratio is not None else None,
+            information_ratio=round(information_ratio, 6)
+            if information_ratio is not None
+            else None,
             risk_free_rate=round(risk_free_rate, 6),
         )
 

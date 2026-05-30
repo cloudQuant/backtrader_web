@@ -11,14 +11,64 @@ from app.models.data_governance import DgEndpoint, DgIngestJob, DgJobStatus, DgP
 from app.services.data_connectors.executor import DataConnectorExecutor
 
 _PROVIDER_SEEDS = [
-    {"provider_id": "akshare", "name": "AkShare", "category": "china_market", "auth_type": "none", "rate_limit": 60},
-    {"provider_id": "yahoo", "name": "Yahoo Finance", "category": "global_market", "auth_type": "none", "rate_limit": 120},
-    {"provider_id": "fred", "name": "FRED", "category": "macro", "auth_type": "api_key", "api_key_env": "FRED_API_KEY", "rate_limit": 60},
-    {"provider_id": "coingecko", "name": "CoinGecko", "category": "crypto", "auth_type": "none", "rate_limit": 30},
-    {"provider_id": "cboe", "name": "CBOE", "category": "options", "auth_type": "none", "rate_limit": 30},
-    {"provider_id": "cftc", "name": "CFTC", "category": "futures", "auth_type": "none", "rate_limit": 30},
-    {"provider_id": "dbnomics", "name": "DBnomics", "category": "macro", "auth_type": "none", "rate_limit": 60},
-    {"provider_id": "fmp", "name": "FMP", "category": "fundamental", "auth_type": "api_key", "api_key_env": "FMP_API_KEY", "rate_limit": 20},
+    {
+        "provider_id": "akshare",
+        "name": "AkShare",
+        "category": "china_market",
+        "auth_type": "none",
+        "rate_limit": 60,
+    },
+    {
+        "provider_id": "yahoo",
+        "name": "Yahoo Finance",
+        "category": "global_market",
+        "auth_type": "none",
+        "rate_limit": 120,
+    },
+    {
+        "provider_id": "fred",
+        "name": "FRED",
+        "category": "macro",
+        "auth_type": "api_key",
+        "api_key_env": "FRED_API_KEY",
+        "rate_limit": 60,
+    },
+    {
+        "provider_id": "coingecko",
+        "name": "CoinGecko",
+        "category": "crypto",
+        "auth_type": "none",
+        "rate_limit": 30,
+    },
+    {
+        "provider_id": "cboe",
+        "name": "CBOE",
+        "category": "options",
+        "auth_type": "none",
+        "rate_limit": 30,
+    },
+    {
+        "provider_id": "cftc",
+        "name": "CFTC",
+        "category": "futures",
+        "auth_type": "none",
+        "rate_limit": 30,
+    },
+    {
+        "provider_id": "dbnomics",
+        "name": "DBnomics",
+        "category": "macro",
+        "auth_type": "none",
+        "rate_limit": 60,
+    },
+    {
+        "provider_id": "fmp",
+        "name": "FMP",
+        "category": "fundamental",
+        "auth_type": "api_key",
+        "api_key_env": "FMP_API_KEY",
+        "rate_limit": 20,
+    },
 ]
 
 _ENDPOINT_SEEDS = {
@@ -60,7 +110,9 @@ class DataGovernanceService:
         stmt = select(DgEndpoint, DgProvider).join(DgProvider)
         if provider_id:
             stmt = stmt.where(DgProvider.provider_id == provider_id)
-        rows = (await self.db.execute(stmt.order_by(DgProvider.provider_id, DgEndpoint.endpoint_name))).all()
+        rows = (
+            await self.db.execute(stmt.order_by(DgProvider.provider_id, DgEndpoint.endpoint_name))
+        ).all()
         items = [self._endpoint_to_dict(endpoint, provider) for endpoint, provider in rows]
         return {"items": items, "total": len(items)}
 
@@ -71,16 +123,23 @@ class DataGovernanceService:
         row = result.one_or_none()
         return row
 
-    async def get_endpoint_by_name(self, endpoint_name: str) -> tuple[DgEndpoint, DgProvider] | None:
+    async def get_endpoint_by_name(
+        self, endpoint_name: str
+    ) -> tuple[DgEndpoint, DgProvider] | None:
         result = await self.db.execute(
             select(DgEndpoint, DgProvider)
             .join(DgProvider)
-            .where((DgEndpoint.endpoint_name == endpoint_name) | (DgEndpoint.function_path == endpoint_name))
+            .where(
+                (DgEndpoint.endpoint_name == endpoint_name)
+                | (DgEndpoint.function_path == endpoint_name)
+            )
             .order_by(DgProvider.provider_id, DgEndpoint.endpoint_name)
         )
         return result.first()
 
-    async def preview_endpoint(self, endpoint_id: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    async def preview_endpoint(
+        self, endpoint_id: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         row = await self.get_endpoint(endpoint_id)
         if row is None:
             return None
@@ -93,7 +152,9 @@ class DataGovernanceService:
         payload["params"] = params or {}
         return payload
 
-    async def create_job(self, endpoint_id: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    async def create_job(
+        self, endpoint_id: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         row = await self.get_endpoint(endpoint_id)
         if row is None:
             return None
@@ -115,7 +176,10 @@ class DataGovernanceService:
             job.row_count = len(preview_payload["rows"])
             if str((preview_payload.get("metadata") or {}).get("status") or "ok") == "failed":
                 job.status = DgJobStatus.FAILED
-                job.error_message = str((preview_payload.get("metadata") or {}).get("error") or "connector_preview_failed")
+                job.error_message = str(
+                    (preview_payload.get("metadata") or {}).get("error")
+                    or "connector_preview_failed"
+                )
             else:
                 job.status = DgJobStatus.COMPLETED
                 job.error_message = None
@@ -184,7 +248,13 @@ class DataGovernanceService:
         interfaces = (await self.db.execute(select(DataInterface))).scalars().all()
         existing = {
             endpoint.legacy_interface_name
-            for endpoint in (await self.db.execute(select(DgEndpoint).where(DgEndpoint.provider_id == provider.id))).scalars().all()
+            for endpoint in (
+                await self.db.execute(
+                    select(DgEndpoint).where(DgEndpoint.provider_id == provider.id)
+                )
+            )
+            .scalars()
+            .all()
             if endpoint.legacy_interface_name
         }
         created = 0
@@ -196,11 +266,15 @@ class DataGovernanceService:
                     provider_id=provider.id,
                     endpoint_name=interface.name,
                     display_name=interface.display_name,
-                    function_path=".".join(part for part in [interface.module_path, interface.function_name] if part),
+                    function_path=".".join(
+                        part for part in [interface.module_path, interface.function_name] if part
+                    ),
                     category="akshare",
                     params_schema=interface.parameters or {},
                     target_table=interface.name,
-                    incremental_sync_key=str((interface.extra_config or {}).get("incremental_sync_key") or "date"),
+                    incremental_sync_key=str(
+                        (interface.extra_config or {}).get("incremental_sync_key") or "date"
+                    ),
                     legacy_interface_name=interface.name,
                 )
             )

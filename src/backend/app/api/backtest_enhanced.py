@@ -51,6 +51,8 @@ from app.websocket_manager import manager as ws_manager
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
 @lru_cache
 def get_backtest_service():
     return BacktestService()

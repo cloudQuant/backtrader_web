@@ -55,7 +55,9 @@ def _bind_shared_topic_gateway():
     return hub, gateway
 
 
-async def _stream_topics_websocket(websocket: WebSocket, *, topic: str | None = None, pattern: str | None = None) -> None:
+async def _stream_topics_websocket(
+    websocket: WebSocket, *, topic: str | None = None, pattern: str | None = None
+) -> None:
     current_user, accepted_subprotocol = get_websocket_current_user(websocket)
     if current_user is None:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -82,7 +84,9 @@ async def _stream_topics_websocket(websocket: WebSocket, *, topic: str | None = 
         while True:
             pending = gateway.pop_messages(client_id)
             for matched_topic, payload in pending:
-                await websocket.send_json({"type": "topic_update", "topic": matched_topic, "value": payload})
+                await websocket.send_json(
+                    {"type": "topic_update", "topic": matched_topic, "value": payload}
+                )
 
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)

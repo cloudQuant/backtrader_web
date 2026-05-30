@@ -49,9 +49,7 @@ class AirflowBackend(OrchestratorBackend):
         """
         logger.info(f"AirflowBackend: remove_task({task_id}) - DAG removal pending")
 
-    async def run_task_now(
-        self, task_id: int, operator_id: str | None = None
-    ) -> Any:
+    async def run_task_now(self, task_id: int, operator_id: str | None = None) -> Any:
         """Trigger a DAG run in Airflow.
 
         TODO: Map task_id to dag_id and trigger with conf.

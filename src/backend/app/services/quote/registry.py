@@ -59,12 +59,8 @@ SOURCE_REGISTRY = _SOURCE_REGISTRY  # public alias
 SOURCE_TO_LABEL: dict[str, str] = {s["source"]: s["source_label"] for s in _SOURCE_REGISTRY}
 
 
-_SYMBOLS_CONFIG_FILE = (
-    Path(__file__).resolve().parents[3] / "config" / "default_symbols.yaml"
-)
-_QUOTE_FIELDS_CONFIG_FILE = (
-    Path(__file__).resolve().parents[3] / "config" / "quote_fields.yaml"
-)
+_SYMBOLS_CONFIG_FILE = Path(__file__).resolve().parents[3] / "config" / "default_symbols.yaml"
+_QUOTE_FIELDS_CONFIG_FILE = Path(__file__).resolve().parents[3] / "config" / "quote_fields.yaml"
 
 
 def load_symbols_config() -> dict[str, Any]:
@@ -206,9 +202,7 @@ def first_present(mapping: dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def resolve_quote_fields(
-    source: str, ticks: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
+def resolve_quote_fields(source: str, ticks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Resolve the ordered list of quote fields to expose for ``source``.
 
     Includes a field if it is configured as ``always_show`` or if at least one
@@ -220,8 +214,6 @@ def resolve_quote_fields(
         prop = str(field.get("prop") or "").strip()
         if not prop:
             continue
-        if field.get("always_show") or any(
-            has_quote_field_value(tick.get(prop)) for tick in ticks
-        ):
+        if field.get("always_show") or any(has_quote_field_value(tick.get(prop)) for tick in ticks):
             resolved.append(dict(field))
     return resolved

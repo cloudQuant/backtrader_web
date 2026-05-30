@@ -174,7 +174,9 @@ class BrokerProfileService:
             "runtime_gateway_key": profile.runtime_gateway_key,
             "runtime_account_id": profile.runtime_account_id,
             "enabled": bool(profile.enabled),
-            "last_health": dict(profile.last_health or {}) if profile.last_health is not None else None,
+            "last_health": dict(profile.last_health or {})
+            if profile.last_health is not None
+            else None,
             "created_by": profile.created_by,
             "is_destructive_enabled": bool(profile.is_destructive_enabled),
             "credentials_rotated_at": profile.credentials_rotated_at.isoformat()
@@ -182,8 +184,12 @@ class BrokerProfileService:
             else None,
             "rotation_warning": self._rotation_warning(profile),
             "runtime_binding": self._resolve_runtime_binding(profile),
-            "created_at": profile.created_at.isoformat() if profile.created_at is not None else None,
-            "updated_at": profile.updated_at.isoformat() if profile.updated_at is not None else None,
+            "created_at": profile.created_at.isoformat()
+            if profile.created_at is not None
+            else None,
+            "updated_at": profile.updated_at.isoformat()
+            if profile.updated_at is not None
+            else None,
         }
 
     async def _build_adapter(self, profile: BrokerConnectionProfile) -> GatewayBridgeAdapter:
@@ -300,7 +306,9 @@ class BrokerProfileService:
         return {
             "gateway_key": str(selected.get("gateway_key") or explicit_gateway_key),
             "exchange_type": str(selected.get("exchange_type") or ""),
-            "account_id": str(selected.get("account_id") or explicit_account_id or normalized_alias),
+            "account_id": str(
+                selected.get("account_id") or explicit_account_id or normalized_alias
+            ),
             "has_runtime": bool(selected.get("has_runtime")),
         }
 
@@ -324,7 +332,9 @@ class BrokerProfileService:
                 return self._normalize_item(snapshot)
         return None
 
-    def _get_runtime_accounts(self, profile: BrokerConnectionProfile) -> list[dict[str, Any]] | None:
+    def _get_runtime_accounts(
+        self, profile: BrokerConnectionProfile
+    ) -> list[dict[str, Any]] | None:
         binding = self._resolve_runtime_binding(profile)
         if not binding or not binding.get("has_runtime"):
             return None
@@ -341,7 +351,9 @@ class BrokerProfileService:
             return None
         return [self._normalize_item(payload)]
 
-    def _get_runtime_positions(self, profile: BrokerConnectionProfile) -> list[dict[str, Any]] | None:
+    def _get_runtime_positions(
+        self, profile: BrokerConnectionProfile
+    ) -> list[dict[str, Any]] | None:
         binding = self._resolve_runtime_binding(profile)
         if not binding or not binding.get("has_runtime"):
             return None
@@ -415,11 +427,7 @@ class BrokerProfileService:
         if is_dataclass(item):
             return asdict(item)
         if hasattr(item, "__dict__"):
-            return {
-                key: value
-                for key, value in vars(item).items()
-                if not key.startswith("_")
-            }
+            return {key: value for key, value in vars(item).items() if not key.startswith("_")}
         return {"value": item}
 
 

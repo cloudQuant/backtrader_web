@@ -37,14 +37,30 @@ def build_backtest_result(task_id: str = "bt-overfit-001") -> BacktestResult:
         ],
         drawdown_curve=[0.0, -1.0, -2.3, -4.7, -1.8, -0.6, 0.0],
         trades=[
-            TradeRecord(type="buy", price=10.0, size=100, value=1000.0, pnl=80.0, pnlcomm=79.0, barlen=5),
-            TradeRecord(type="sell", price=11.0, size=120, value=1320.0, pnl=120.0, pnlcomm=118.0, barlen=8),
-            TradeRecord(type="buy", price=9.8, size=90, value=882.0, pnl=-45.0, pnlcomm=-46.0, barlen=4),
-            TradeRecord(type="sell", price=12.2, size=110, value=1342.0, pnl=140.0, pnlcomm=138.0, barlen=9),
-            TradeRecord(type="buy", price=8.5, size=150, value=1275.0, pnl=-30.0, pnlcomm=-31.0, barlen=6),
-            TradeRecord(type="sell", price=13.4, size=100, value=1340.0, pnl=160.0, pnlcomm=159.0, barlen=11),
-            TradeRecord(type="buy", price=14.0, size=80, value=1120.0, pnl=-20.0, pnlcomm=-21.0, barlen=3),
-            TradeRecord(type="sell", price=15.0, size=85, value=1275.0, pnl=95.0, pnlcomm=94.0, barlen=7),
+            TradeRecord(
+                type="buy", price=10.0, size=100, value=1000.0, pnl=80.0, pnlcomm=79.0, barlen=5
+            ),
+            TradeRecord(
+                type="sell", price=11.0, size=120, value=1320.0, pnl=120.0, pnlcomm=118.0, barlen=8
+            ),
+            TradeRecord(
+                type="buy", price=9.8, size=90, value=882.0, pnl=-45.0, pnlcomm=-46.0, barlen=4
+            ),
+            TradeRecord(
+                type="sell", price=12.2, size=110, value=1342.0, pnl=140.0, pnlcomm=138.0, barlen=9
+            ),
+            TradeRecord(
+                type="buy", price=8.5, size=150, value=1275.0, pnl=-30.0, pnlcomm=-31.0, barlen=6
+            ),
+            TradeRecord(
+                type="sell", price=13.4, size=100, value=1340.0, pnl=160.0, pnlcomm=159.0, barlen=11
+            ),
+            TradeRecord(
+                type="buy", price=14.0, size=80, value=1120.0, pnl=-20.0, pnlcomm=-21.0, barlen=3
+            ),
+            TradeRecord(
+                type="sell", price=15.0, size=85, value=1275.0, pnl=95.0, pnlcomm=94.0, barlen=7
+            ),
         ],
         created_at=datetime(2025, 1, 15, tzinfo=timezone.utc),
         error_message=None,

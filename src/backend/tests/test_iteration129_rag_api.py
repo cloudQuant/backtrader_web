@@ -370,9 +370,9 @@ class TestIteration129RAGAPI:
         async with async_session_maker() as session:
             chunk_count = (
                 await session.execute(
-                    select(func.count()).select_from(DocumentChunk).where(
-                        DocumentChunk.document_id == doc_id
-                    )
+                    select(func.count())
+                    .select_from(DocumentChunk)
+                    .where(DocumentChunk.document_id == doc_id)
                 )
             ).scalar_one()
 

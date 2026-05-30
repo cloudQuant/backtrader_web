@@ -5,7 +5,6 @@ Validates Requirements: 1.7, 2.3, 6.1, 6.4, 6.6, 7.2, 7.3, 7.6, 9.1
 """
 
 
-
 class TestConfigSettings:
     """AT-1.1: Airflow configuration fields exist with correct defaults."""
 

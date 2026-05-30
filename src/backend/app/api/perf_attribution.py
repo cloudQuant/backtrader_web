@@ -28,7 +28,9 @@ def get_fama_french_attribution_service() -> FamaFrenchAttributionService:
     return FamaFrenchAttributionService()
 
 
-@router.post("/brinson", response_model=BrinsonAttributionResult, summary="Calculate Brinson attribution")
+@router.post(
+    "/brinson", response_model=BrinsonAttributionResult, summary="Calculate Brinson attribution"
+)
 async def calculate_brinson_attribution(
     request: BrinsonAttributionRequest,
     current_user=Depends(get_current_user),

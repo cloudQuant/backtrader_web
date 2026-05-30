@@ -9,11 +9,11 @@ from app.schemas.rag import RAGDiagnostics
 from app.schemas.strategy import AIStrategyDraft
 
 KBAssistantMode = Literal[
-    'knowledge_qa',
-    'strategy_idea',
-    'backtrader_strategy',
-    'strategy_review',
-    'trading_execution',
+    "knowledge_qa",
+    "strategy_idea",
+    "backtrader_strategy",
+    "strategy_review",
+    "trading_execution",
 ]
 
 
@@ -21,7 +21,7 @@ class ConversationCreate(BaseModel):
     """Create conversation request."""
 
     knowledge_base_id: str = Field(..., min_length=1)
-    title: str = Field('新对话', min_length=1, max_length=200)
+    title: str = Field("新对话", min_length=1, max_length=200)
     model_id: str | None = None
 
     @field_validator("title")
@@ -84,7 +84,7 @@ class KBChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
     conversation_id: str | None = Field(None, min_length=1)
     model_id: str | None = None
-    assistant_mode: KBAssistantMode = 'knowledge_qa'
+    assistant_mode: KBAssistantMode = "knowledge_qa"
     thinking_mode: bool = False
 
     @field_validator("question")
@@ -105,7 +105,7 @@ class KBChatResponse(BaseModel):
     context_chunks_used: int
     tokens_used: int
     model_id: str | None = None
-    assistant_mode: KBAssistantMode = 'knowledge_qa'
+    assistant_mode: KBAssistantMode = "knowledge_qa"
     strategy_draft: AIStrategyDraft | None = None
     reasoning: str | None = None
     reason_code: str | None = None

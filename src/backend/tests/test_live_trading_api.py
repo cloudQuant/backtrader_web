@@ -465,7 +465,9 @@ class TestLiveTradingList:
         assert data["OKX"]["secret_key"] == "legacy-okx-secret"
         assert data["OKX"]["passphrase"] == "legacy-okx-passphrase"
 
-    async def test_gateway_credentials_prefers_okx_password_as_passphrase(self, client: AsyncClient, auth_headers):
+    async def test_gateway_credentials_prefers_okx_password_as_passphrase(
+        self, client: AsyncClient, auth_headers
+    ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
             CTP_USER_ID="",
@@ -670,7 +672,9 @@ class TestLiveTradingList:
         data = response.json()["OKX"]
         assert data["passphrase"] == "system-okx-passphrase"
 
-    async def test_gateway_credentials_prefers_mt5_legacy_env_keys(self, client: AsyncClient, auth_headers):
+    async def test_gateway_credentials_prefers_mt5_legacy_env_keys(
+        self, client: AsyncClient, auth_headers
+    ):
         fake_settings = SimpleNamespace(
             CTP_BROKER_ID="",
             CTP_USER_ID="",

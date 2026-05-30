@@ -41,7 +41,28 @@ async def test_market_regime_detector_identifies_bull_low_vol_regime():
 async def test_market_regime_detector_identifies_high_volatility():
     from app.services.market_regime.detector import MarketRegimeDetector
 
-    prices = [100, 110, 95, 120, 90, 125, 85, 130, 80, 135, 75, 140, 70, 145, 65, 150, 60, 155, 55, 160]
+    prices = [
+        100,
+        110,
+        95,
+        120,
+        90,
+        125,
+        85,
+        130,
+        80,
+        135,
+        75,
+        140,
+        70,
+        145,
+        65,
+        150,
+        60,
+        155,
+        55,
+        160,
+    ]
     result = MarketRegimeDetector().detect(prices, min_observations=10)
 
     assert result.status == "ok"
@@ -68,7 +89,9 @@ async def test_market_regime_api_requires_auth(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_market_regime_api_returns_regime_for_backtest(client: AsyncClient):
     _, headers = await register_and_login(client, username="market_regime_user")
-    mock_backtest_service = SimpleNamespace(get_result=AsyncMock(return_value=_backtest_result([100 + index for index in range(40)])))
+    mock_backtest_service = SimpleNamespace(
+        get_result=AsyncMock(return_value=_backtest_result([100 + index for index in range(40)]))
+    )
 
     app.dependency_overrides[get_backtest_service] = lambda: mock_backtest_service
     try:

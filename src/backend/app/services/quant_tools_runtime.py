@@ -300,9 +300,7 @@ class QuantToolsService:
 
     def list_tools(self) -> dict[str, Any]:
         items = [
-            self._public_tool(tool)
-            for tool in self._tools.values()
-            if not tool.get("internal")
+            self._public_tool(tool) for tool in self._tools.values() if not tool.get("internal")
         ]
         items.sort(key=lambda item: str(item["name"]))
         return {"tools": items}
@@ -425,9 +423,7 @@ class QuantToolsService:
             ledger = get_portfolio_ledger_service(session)
             portfolio = await ledger.get_portfolio(user_id, portfolio_id)
             holdings = (
-                await ledger.holdings(user_id, portfolio_id)
-                if portfolio is not None
-                else None
+                await ledger.holdings(user_id, portfolio_id) if portfolio is not None else None
             )
         return {
             "portfolio_id": portfolio_id,

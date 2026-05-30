@@ -104,5 +104,7 @@ class OverfittingTaskResult(BaseModel):
     overall_level: OverfittingRiskLevel = Field(..., description="Overall overfitting risk level")
     robustness_score: float = Field(..., ge=0, le=100, description="Overall robustness score")
     summary: str = Field(..., description="Task summary")
-    methods: list[OverfittingMethodResult] = Field(default_factory=list, description="Method results")
+    methods: list[OverfittingMethodResult] = Field(
+        default_factory=list, description="Method results"
+    )
     error_message: str | None = Field(default=None, description="Failure reason if task failed")

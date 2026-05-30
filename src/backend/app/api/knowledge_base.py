@@ -32,11 +32,11 @@ def get_knowledge_base_service() -> KnowledgeBaseService:
 
 
 def _get_source_file_path(entity) -> tuple[Path, str] | None:
-    metadata = getattr(entity, 'metadata_json', None)
+    metadata = getattr(entity, "metadata_json", None)
     if not isinstance(metadata, dict):
         return None
-    source_path = metadata.get('reqdocs_source_file_path')
-    source_mime_type = metadata.get('reqdocs_source_mime_type')
+    source_path = metadata.get("reqdocs_source_file_path")
+    source_mime_type = metadata.get("reqdocs_source_mime_type")
     if not isinstance(source_path, str) or not source_path:
         return None
     path = Path(source_path).resolve()
@@ -45,7 +45,9 @@ def _get_source_file_path(entity) -> tuple[Path, str] | None:
         path.relative_to(allowed_root)
     except ValueError:
         return None
-    return path, source_mime_type if isinstance(source_mime_type, str) and source_mime_type else 'application/octet-stream'
+    return path, source_mime_type if isinstance(
+        source_mime_type, str
+    ) and source_mime_type else "application/octet-stream"
 
 
 @router.get("/", response_model=KnowledgeBaseListResponse, summary="List knowledge bases")
@@ -56,7 +58,9 @@ async def list_knowledge_bases(
     limit: int = Query(20, ge=1, le=100),
     search: str | None = Query(None),
 ):
-    total, items = await service.list_knowledge_bases(current_user.sub, skip=skip, limit=limit, search=search)
+    total, items = await service.list_knowledge_bases(
+        current_user.sub, skip=skip, limit=limit, search=search
+    )
     return KnowledgeBaseListResponse(
         total=total,
         items=[KnowledgeBaseResponse.model_validate(item) for item in items],
@@ -87,7 +91,9 @@ async def get_knowledge_base(
 ):
     entity = await service.get_knowledge_base(kb_id, current_user.sub)
     if entity is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found"
+        )
     return entity
 
 
@@ -100,7 +106,9 @@ async def update_knowledge_base(
 ):
     entity = await service.update_knowledge_base(kb_id, current_user.sub, data)
     if entity is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found"
+        )
     return entity
 
 
@@ -112,7 +120,9 @@ async def delete_knowledge_base(
 ):
     success = await service.delete_knowledge_base(kb_id, current_user.sub)
     if not success:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found"
+        )
     return {"message": "Knowledge base deleted"}
 
 
@@ -124,7 +134,9 @@ async def list_documents(
 ):
     items = await service.list_documents(kb_id, current_user.sub)
     if items is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found"
+        )
     return KBDocumentListResponse(
         total=len(items),
         items=[KBDocumentResponse.model_validate(item) for item in items],
@@ -148,7 +160,9 @@ async def create_document(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if entity is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found"
+        )
     return entity
 
 
@@ -222,10 +236,10 @@ async def delete_document(
 
 
 @router.post(
-    '/import/reqdocs',
+    "/import/reqdocs",
     response_model=ReqDocsImportResponse,
     status_code=status.HTTP_201_CREATED,
-    summary='Import ReqDocs payload',
+    summary="Import ReqDocs payload",
 )
 async def import_reqdocs_payload(
     data: ReqDocsImportRequest,

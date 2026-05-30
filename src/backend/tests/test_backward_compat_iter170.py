@@ -5,7 +5,9 @@ from tests.conftest import register_and_login
 
 
 @pytest.mark.asyncio
-async def test_iter170_keeps_legacy_data_portfolio_and_quote_routes(client: AsyncClient, monkeypatch):
+async def test_iter170_keeps_legacy_data_portfolio_and_quote_routes(
+    client: AsyncClient, monkeypatch
+):
     _, headers = await register_and_login(client, username="compat_user")
 
     class DummyAk:
@@ -15,7 +17,15 @@ async def test_iter170_keeps_legacy_data_portfolio_and_quote_routes(client: Asyn
 
             return pd.DataFrame(
                 [
-                    {"日期": "2026-05-26", "开盘": 1, "最高": 2, "最低": 1, "收盘": 2, "成交量": 100, "涨跌幅": 1.0}
+                    {
+                        "日期": "2026-05-26",
+                        "开盘": 1,
+                        "最高": 2,
+                        "最低": 1,
+                        "收盘": 2,
+                        "成交量": 100,
+                        "涨跌幅": 1.0,
+                    }
                 ]
             )
 

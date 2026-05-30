@@ -10,7 +10,6 @@ Covers:
 - Comparison service helper methods
 """
 
-
 from app.services.backtest.analyzers import FincoreAdapter
 
 # ============================================================

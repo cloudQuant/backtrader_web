@@ -46,8 +46,14 @@ class StrategyScoreRequest(BaseModel):
         """Require either backtest id or backtest payload."""
         if not self.backtest_id and self.backtest_result is None:
             raise ValueError("Either backtest_id or backtest_result must be provided")
-        if self.backtest_id and self.backtest_result and self.backtest_id != self.backtest_result.task_id:
-            raise ValueError("backtest_id must match backtest_result.task_id when both are provided")
+        if (
+            self.backtest_id
+            and self.backtest_result
+            and self.backtest_id != self.backtest_result.task_id
+        ):
+            raise ValueError(
+                "backtest_id must match backtest_result.task_id when both are provided"
+            )
         return self
 
 
@@ -59,7 +65,9 @@ class StrategyScoreResponse(BaseModel):
     level: ScoreLevel = Field(..., description="Score level")
     model_version: str = Field(..., description="Scoring model version")
     disclaimer: str = Field(..., description="Risk disclaimer")
-    dimensions: list[ScoreDimension] = Field(default_factory=list, description="Dimension breakdown")
+    dimensions: list[ScoreDimension] = Field(
+        default_factory=list, description="Dimension breakdown"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={

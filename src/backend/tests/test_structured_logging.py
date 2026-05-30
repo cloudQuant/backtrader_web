@@ -55,7 +55,9 @@ class TestStructuredLoggingProperty:
     @given(
         message=st.text(min_size=1, max_size=5000),
         level_name=st.sampled_from(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
-        module_name=st.text(min_size=1, max_size=50, alphabet=st.characters(whitelist_categories=("L",))),
+        module_name=st.text(
+            min_size=1, max_size=50, alphabet=st.characters(whitelist_categories=("L",))
+        ),
     )
     @settings(max_examples=100)
     def test_json_contains_required_fields(
@@ -111,7 +113,9 @@ class TestStructuredLoggingProperty:
         assert re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}", ts)
 
     @given(
-        request_id=st.text(min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=("L", "N"))),
+        request_id=st.text(
+            min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=("L", "N"))
+        ),
     )
     @settings(max_examples=100)
     def test_request_id_preserved_in_output(self, request_id: str) -> None:
@@ -133,11 +137,13 @@ class TestRequestIDProperty:
 
     @pytest.mark.asyncio
     @given(
-        path=st.sampled_from([
-            "/api/v1/health",
-            "/api/v1/auth/login",
-            "/api/v1/strategy",
-        ]),
+        path=st.sampled_from(
+            [
+                "/api/v1/health",
+                "/api/v1/auth/login",
+                "/api/v1/strategy",
+            ]
+        ),
     )
     @settings(max_examples=100)
     async def test_request_id_is_8_hex_chars(self, path: str) -> None:
@@ -149,6 +155,6 @@ class TestRequestIDProperty:
             response = await client.get(path)
             request_id = response.headers.get("x-request-id", "")
             assert len(request_id) == 8, f"Expected 8 chars, got {len(request_id)}: '{request_id}'"
-            assert all(
-                c in "0123456789abcdef-" for c in request_id
-            ), f"Non-hex char in request_id: '{request_id}'"
+            assert all(c in "0123456789abcdef-" for c in request_id), (
+                f"Non-hex char in request_id: '{request_id}'"
+            )

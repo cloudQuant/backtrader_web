@@ -200,9 +200,7 @@ class BacktestService:
             ),
             equity_curve=cast("list[float]", result_model.equity_curve if result_model else []),
             equity_dates=cast("list[str]", result_model.equity_dates if result_model else []),
-            drawdown_curve=cast(
-                "list[float]", result_model.drawdown_curve if result_model else []
-            ),
+            drawdown_curve=cast("list[float]", result_model.drawdown_curve if result_model else []),
             trades=cast(
                 "list[TradeRecord]",
                 BacktestService._sanitize_trades(result_model.trades if result_model else []),

@@ -15,7 +15,9 @@ async def list_tools(current_user=Depends(get_current_user)):
 
 
 @router.post("/call")
-async def call_tool(payload: dict, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+async def call_tool(
+    payload: dict, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)
+):
     status_code, body = await get_quant_tools_service().call_tool(
         db,
         user_id=current_user.sub,
@@ -28,7 +30,9 @@ async def call_tool(payload: dict, db: AsyncSession = Depends(get_db), current_u
 
 
 @router.post("/chat-simulate")
-async def chat_simulate(payload: dict, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+async def chat_simulate(
+    payload: dict, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)
+):
     status_code, body = await get_quant_tools_service().simulate_chat(
         db,
         user_id=current_user.sub,

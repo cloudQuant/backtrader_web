@@ -80,12 +80,7 @@ def score_risk_control_dimension(backtest_result: BacktestResult, weight: float)
     if var_cvar.status == "ok" and var_cvar.var_95 is not None and var_cvar.cvar_95 is not None:
         var_score = _inverse_normalize(abs(var_cvar.var_95) * 100, 5.0, 10.0)
         cvar_score = _inverse_normalize(abs(var_cvar.cvar_95) * 100, 5.0, 15.0)
-        score = (
-            drawdown_score * 0.45
-            + loss_ratio_score * 0.25
-            + var_score * 0.2
-            + cvar_score * 0.1
-        )
+        score = drawdown_score * 0.45 + loss_ratio_score * 0.25 + var_score * 0.2 + cvar_score * 0.1
         sub_metrics.update(
             {
                 "var_95": var_cvar.var_95,
@@ -131,10 +126,7 @@ def score_overfitting_risk_dimension(
     analysis: OverfittingTaskResult | None = None,
 ) -> ScoreDimension:
     if analysis is not None and analysis.status == "completed":
-        method_metrics = {
-            item.method.value: item.metrics
-            for item in analysis.methods
-        }
+        method_metrics = {item.method.value: item.metrics for item in analysis.methods}
         return ScoreDimension(
             key="overfitting_risk",
             label="过拟合风险",
@@ -176,13 +168,18 @@ def score_executability_dimension(backtest_result: BacktestResult, weight: float
     )
 
 
-def score_benchmark_comparison_dimension(backtest_result: BacktestResult, weight: float) -> ScoreDimension:
+def score_benchmark_comparison_dimension(
+    backtest_result: BacktestResult, weight: float
+) -> ScoreDimension:
     return ScoreDimension(
         key="benchmark_comparison",
         label="基准对比",
         score=55.0,
         weight=weight,
         explanation="当前版本尚未接入真实 benchmark，对超额收益和跟踪误差暂作降级处理。",
-        sub_metrics={"status": "benchmark_not_connected", "annual_return": backtest_result.annual_return},
+        sub_metrics={
+            "status": "benchmark_not_connected",
+            "annual_return": backtest_result.annual_return,
+        },
         degraded=True,
     )

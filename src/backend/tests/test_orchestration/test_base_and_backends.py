@@ -21,8 +21,12 @@ class TestOrchestratorBackendInterface:
 
         abstract_methods = OrchestratorBackend.__abstractmethods__
         expected = {
-            "start", "shutdown", "add_or_update_task",
-            "remove_task", "run_task_now", "reload_active_tasks",
+            "start",
+            "shutdown",
+            "add_or_update_task",
+            "remove_task",
+            "run_task_now",
+            "reload_active_tasks",
             "get_backend_status",
         }
         assert expected == abstract_methods
@@ -60,6 +64,7 @@ class TestBackendDetector:
 
         # Reset settings cache
         import app.config
+
         app.config._settings = None
 
         from app.services.orchestration.apscheduler_backend import APSchedulerBackend
@@ -77,6 +82,7 @@ class TestBackendDetector:
         monkeypatch.setenv("ORCHESTRATION_BACKEND", "apscheduler")
 
         import app.config
+
         app.config._settings = None
 
         from app.services.orchestration.apscheduler_backend import APSchedulerBackend
@@ -94,6 +100,7 @@ class TestBackendDetector:
         monkeypatch.setenv("AIRFLOW_API_BASE_URL", "")
 
         import app.config
+
         app.config._settings = None
 
         from app.services.orchestration.apscheduler_backend import APSchedulerBackend
@@ -112,6 +119,7 @@ class TestBackendDetector:
         monkeypatch.setenv("AIRFLOW_PASSWORD", "test")
 
         import app.config
+
         app.config._settings = None
 
         from app.services.orchestration.apscheduler_backend import APSchedulerBackend

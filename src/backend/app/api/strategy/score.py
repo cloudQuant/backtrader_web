@@ -38,7 +38,9 @@ async def create_strategy_score(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
-@router.get("/score/{backtest_id}", response_model=StrategyScoreResponse, summary="Get strategy score")
+@router.get(
+    "/score/{backtest_id}", response_model=StrategyScoreResponse, summary="Get strategy score"
+)
 async def get_strategy_score(
     backtest_id: str,
     current_user=Depends(get_current_user),

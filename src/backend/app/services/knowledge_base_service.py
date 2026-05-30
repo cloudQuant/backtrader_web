@@ -85,7 +85,9 @@ class KnowledgeBaseService:
                 raise ValueError("Document parent cycle is not allowed")
             cursor = parent_by_id.get(cursor)
 
-    async def create_knowledge_base(self, owner_id: str, data: KnowledgeBaseCreate) -> KnowledgeBase:
+    async def create_knowledge_base(
+        self, owner_id: str, data: KnowledgeBaseCreate
+    ) -> KnowledgeBase:
         async with async_session_maker() as session:
             entity = KnowledgeBase(
                 owner_id=owner_id,
@@ -108,17 +110,23 @@ class KnowledgeBaseService:
                 filters.append(KnowledgeBase.name.ilike(f"%{search}%"))
 
             total = (
-                await session.execute(select(func.count()).select_from(KnowledgeBase).where(*filters))
+                await session.execute(
+                    select(func.count()).select_from(KnowledgeBase).where(*filters)
+                )
             ).scalar_one()
             items = (
-                await session.execute(
-                    select(KnowledgeBase)
-                    .where(*filters)
-                    .order_by(KnowledgeBase.created_at.desc())
-                    .offset(skip)
-                    .limit(limit)
+                (
+                    await session.execute(
+                        select(KnowledgeBase)
+                        .where(*filters)
+                        .order_by(KnowledgeBase.created_at.desc())
+                        .offset(skip)
+                        .limit(limit)
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return total, [self._hydrate_settings(item) for item in items]
 
     async def get_knowledge_base(self, kb_id: str, owner_id: str) -> KnowledgeBase | None:
@@ -174,7 +182,9 @@ class KnowledgeBaseService:
             conversation_ids = list(
                 (
                     await session.execute(
-                        select(ChatConversation.id).where(ChatConversation.knowledge_base_id == kb_id)
+                        select(ChatConversation.id).where(
+                            ChatConversation.knowledge_base_id == kb_id
+                        )
                     )
                 ).scalars()
             )
@@ -182,8 +192,12 @@ class KnowledgeBaseService:
                 await session.execute(
                     delete(ChatMessage).where(ChatMessage.conversation_id.in_(conversation_ids))
                 )
-            await session.execute(delete(ChatConversation).where(ChatConversation.knowledge_base_id == kb_id))
-            await session.execute(delete(DocumentChunk).where(DocumentChunk.knowledge_base_id == kb_id))
+            await session.execute(
+                delete(ChatConversation).where(ChatConversation.knowledge_base_id == kb_id)
+            )
+            await session.execute(
+                delete(DocumentChunk).where(DocumentChunk.knowledge_base_id == kb_id)
+            )
             await session.execute(delete(KBDocument).where(KBDocument.knowledge_base_id == kb_id))
             await session.delete(entity)
             await session.commit()
@@ -193,26 +207,36 @@ class KnowledgeBaseService:
         async with async_session_maker() as session:
             kb = (
                 await session.execute(
-                    select(KnowledgeBase).where(KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id)
+                    select(KnowledgeBase).where(
+                        KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id
+                    )
                 )
             ).scalar_one_or_none()
             if kb is None:
                 return None
             self._hydrate_settings(kb)
             items = (
-                await session.execute(
-                    select(KBDocument)
-                    .where(KBDocument.knowledge_base_id == kb_id)
-                    .order_by(KBDocument.sort_order.asc(), KBDocument.created_at.asc())
+                (
+                    await session.execute(
+                        select(KBDocument)
+                        .where(KBDocument.knowledge_base_id == kb_id)
+                        .order_by(KBDocument.sort_order.asc(), KBDocument.created_at.asc())
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             return list(items)
 
-    async def create_document(self, kb_id: str, owner_id: str, data: KBDocumentCreate) -> KBDocument | None:
+    async def create_document(
+        self, kb_id: str, owner_id: str, data: KBDocumentCreate
+    ) -> KBDocument | None:
         async with async_session_maker() as session:
             kb = (
                 await session.execute(
-                    select(KnowledgeBase).where(KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id)
+                    select(KnowledgeBase).where(
+                        KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id
+                    )
                 )
             ).scalar_one_or_none()
             if kb is None:
@@ -285,14 +309,18 @@ class KnowledgeBaseService:
         async with async_session_maker() as session:
             kb = (
                 await session.execute(
-                    select(KnowledgeBase).where(KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id)
+                    select(KnowledgeBase).where(
+                        KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id
+                    )
                 )
             ).scalar_one_or_none()
             if kb is None:
                 return False
             entity = (
                 await session.execute(
-                    select(KBDocument).where(KBDocument.id == doc_id, KBDocument.knowledge_base_id == kb_id)
+                    select(KBDocument).where(
+                        KBDocument.id == doc_id, KBDocument.knowledge_base_id == kb_id
+                    )
                 )
             ).scalar_one_or_none()
             if entity is None:
@@ -304,7 +332,9 @@ class KnowledgeBaseService:
             await session.commit()
             return True
 
-    async def import_reqdocs_payload(self, owner_id: str, data: ReqDocsImportRequest) -> tuple[KnowledgeBase, int]:
+    async def import_reqdocs_payload(
+        self, owner_id: str, data: ReqDocsImportRequest
+    ) -> tuple[KnowledgeBase, int]:
         async with async_session_maker() as session:
             kb = KnowledgeBase(
                 owner_id=owner_id,

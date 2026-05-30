@@ -196,14 +196,18 @@ def log_ai_call(
             started = time.perf_counter()
             active_sink = sink or get_ai_call_log_sink()
             call_kwargs = dict(kwargs)
-            metadata = {key: call_kwargs.pop(key) for key in _OBSERVABILITY_KWARGS if key in call_kwargs}
+            metadata = {
+                key: call_kwargs.pop(key) for key in _OBSERVABILITY_KWARGS if key in call_kwargs
+            }
             checker = budget_checker or AIBudgetService().ensure_budget_available
             await checker(user_id=metadata.get("user_id"))
             try:
                 result = await func(*args, **call_kwargs)
             except Exception as exc:
                 latency_ms = int((time.perf_counter() - started) * 1000)
-                status = AICallStatus.TIMEOUT if isinstance(exc, TimeoutError) else AICallStatus.FAILED
+                status = (
+                    AICallStatus.TIMEOUT if isinstance(exc, TimeoutError) else AICallStatus.FAILED
+                )
                 payload = _build_payload(
                     kwargs=metadata,
                     service_name=service_name,

@@ -83,7 +83,9 @@ class AIBudgetService:
             filters = [AICallLog.created_at >= start_at, AICallLog.created_at < reset_at]
             if user_id:
                 filters.append(AICallLog.user_id == user_id)
-            result = await session.execute(select(func.sum(AICallLog.estimated_cost_usd)).where(*filters))
+            result = await session.execute(
+                select(func.sum(AICallLog.estimated_cost_usd)).where(*filters)
+            )
             used_usd = float(result.scalar_one_or_none() or 0.0)
 
         remaining_usd = None if limit_usd is None else max(float(limit_usd) - used_usd, 0.0)

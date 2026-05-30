@@ -269,9 +269,7 @@ class TestAIChatServiceConversationMessages:
         assert result == []
 
     def test_history_trimmed_to_4(self):
-        history = [
-            {"role": "user", "content": f"msg{i}"} for i in range(10)
-        ]
+        history = [{"role": "user", "content": f"msg{i}"} for i in range(10)]
         result = AIChatService._build_conversation_messages(history)
         assert len(result) <= 4
 
@@ -319,9 +317,7 @@ class TestAIChatServiceExtractContent:
     """Test content extraction from API response."""
 
     def test_normal_response(self):
-        body = {
-            "choices": [{"message": {"content": "Hello world"}}]
-        }
+        body = {"choices": [{"message": {"content": "Hello world"}}]}
         result = AIChatService._extract_content(body)
         assert result == "Hello world"
 
@@ -336,19 +332,13 @@ class TestAIChatServiceExtractContent:
         assert result == ""
 
     def test_content_is_list(self):
-        body = {
-            "choices": [
-                {"message": {"content": [{"text": "part1"}, {"text": "part2"}]}}
-            ]
-        }
+        body = {"choices": [{"message": {"content": [{"text": "part1"}, {"text": "part2"}]}}]}
         result = AIChatService._extract_content(body)
         assert "part1" in result
         assert "part2" in result
 
     def test_content_with_whitespace(self):
-        body = {
-            "choices": [{"message": {"content": "  trimmed  "}}]
-        }
+        body = {"choices": [{"message": {"content": "  trimmed  "}}]}
         result = AIChatService._extract_content(body)
         assert result == "trimmed"
 

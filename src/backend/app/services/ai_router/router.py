@@ -30,7 +30,9 @@ class AIChatRouter:
         litellm_completion: _LiteLLMCompletion | None = None,
         urlopen: _URLOpen | None = None,
     ) -> None:
-        self._litellm_completion = litellm_completion if litellm_completion is not None else _load_litellm_completion()
+        self._litellm_completion = (
+            litellm_completion if litellm_completion is not None else _load_litellm_completion()
+        )
         self._urlopen = urlopen or urllib.request.urlopen
 
     async def chat_completion(

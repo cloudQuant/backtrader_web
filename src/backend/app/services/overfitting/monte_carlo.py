@@ -98,7 +98,9 @@ def run_monte_carlo_analysis(
             degraded=True,
         )
 
-    rng = random.Random(random_seed if random_seed is not None else _seed_from_backtest_id(backtest_result.task_id))
+    rng = random.Random(
+        random_seed if random_seed is not None else _seed_from_backtest_id(backtest_result.task_id)
+    )
     actual_compound_return = _compound_return(trade_returns)
     bootstrap_returns: list[float] = []
     for _ in range(iterations):

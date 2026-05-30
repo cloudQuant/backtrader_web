@@ -14,7 +14,9 @@ class TestStrategyScoreApi:
 
         assert response.status_code == 401
 
-    async def test_create_strategy_score_for_backtest_id(self, client: AsyncClient, auth_headers: dict):
+    async def test_create_strategy_score_for_backtest_id(
+        self, client: AsyncClient, auth_headers: dict
+    ):
         with patch(
             "app.api.strategy_score.StrategyScoreService.score_backtest",
             new_callable=AsyncMock,

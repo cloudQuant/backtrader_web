@@ -31,7 +31,9 @@ class FactorCorrelationService:
             for right_index, right_name in enumerate(factor_names):
                 if left_name == right_name:
                     correlation = 1.0
-                    observation_count = len([value for value in factor_values[left_name] if value is not None])
+                    observation_count = len(
+                        [value for value in factor_values[left_name] if value is not None]
+                    )
                 else:
                     correlation, observation_count = self._correlate(
                         factor_values[left_name], factor_values[right_name], min_observations

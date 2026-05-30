@@ -31,9 +31,7 @@ def load_strategy_config(strategy_dir: Path) -> dict[str, Any]:
         return {}
 
 
-def initial_cash_for_strategy(
-    strategy_dir: Path, run_info: dict[str, Any] | None = None
-) -> float:
+def initial_cash_for_strategy(strategy_dir: Path, run_info: dict[str, Any] | None = None) -> float:
     """Resolve the initial cash for a strategy run.
 
     Order of precedence: ``run_info`` keys (``initial_cash`` /
