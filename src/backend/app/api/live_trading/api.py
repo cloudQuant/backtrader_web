@@ -5,6 +5,7 @@ This module provides endpoints for managing live trading strategy instances,
 including starting, stopping, and monitoring live trading operations.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -113,7 +114,7 @@ async def get_gateway_health(
         heartbeat, tick/order counts, and recent errors.
     """
     try:
-        gateways = mgr.get_gateway_health()
+        gateways = await asyncio.to_thread(mgr.get_gateway_health)
     except Exception as exc:
         _logger.exception("Unhandled error in get_gateway_health")
         raise HTTPException(
@@ -163,7 +164,7 @@ async def disconnect_gateway(
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
     """Disconnect a manually-started gateway by its key."""
-    result = mgr.disconnect_gateway(gateway_key)
+    result = await asyncio.to_thread(mgr.disconnect_gateway, gateway_key)
     if result["status"] == "error":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=result["message"])
     return result
@@ -192,7 +193,7 @@ async def query_gateway_account(
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
     """Query account info from a connected gateway."""
-    result = mgr.query_gateway_account(gateway_key)
+    result = await asyncio.to_thread(mgr.query_gateway_account, gateway_key)
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -211,7 +212,7 @@ async def query_gateway_positions(
     mgr: LiveTradingManager = Depends(_get_manager),
 ):
     """Query positions from a connected gateway."""
-    positions = mgr.query_gateway_positions(gateway_key)
+    positions = await asyncio.to_thread(mgr.query_gateway_positions, gateway_key)
     return {"total": len(positions), "positions": positions}
 
 
@@ -446,7 +447,7 @@ async def get_live_detail(
         strategy_dir = get_strategy_dir(inst["strategy_id"])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    log_result = parse_all_logs(strategy_dir)
+    log_result = await asyncio.to_thread(parse_all_logs, strategy_dir)
     if not log_result:
         raise HTTPException(status_code=404, detail="No log data available")
 
@@ -558,10 +559,10 @@ async def get_live_kline(
     inst = mgr.get_instance(instance_id, user_id=current_user.sub)
     if not inst:
         raise HTTPException(status_code=404, detail="Instance not found")
-    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
+    log_dir = await asyncio.to_thread(_get_strategy_log_dir, mgr, instance_id, current_user.sub)
 
-    kline_data = parse_data_log(log_dir)
-    trades_raw = parse_trade_log(log_dir)
+    kline_data = await asyncio.to_thread(parse_data_log, log_dir)
+    trades_raw = await asyncio.to_thread(parse_trade_log, log_dir)
 
     kline_dates = kline_data.get("dates", [])
     ohlc_data = kline_data.get("ohlc", [])
@@ -647,8 +648,8 @@ async def get_live_monthly_returns(
     Raises:
         HTTPException: If the instance or log directory is not found.
     """
-    log_dir = _get_strategy_log_dir(mgr, instance_id, current_user.sub)
-    value_data = parse_value_log(log_dir)
+    log_dir = await asyncio.to_thread(_get_strategy_log_dir, mgr, instance_id, current_user.sub)
+    value_data = await asyncio.to_thread(parse_value_log, log_dir)
 
     equity_dates = value_data.get("dates", [])
     equity_values = value_data.get("equity_curve", [])

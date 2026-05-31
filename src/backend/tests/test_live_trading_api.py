@@ -219,6 +219,51 @@ class TestLiveTradingList:
         assert data["gateways"][0]["gateway_key"] == "manual:CTP:089763"
         assert data["gateways"][0]["market_connection"] == "connected"
 
+    async def test_gateway_query_offloads_blocking_call(self, client: AsyncClient, auth_headers):
+        """A slow blocking gateway query must not stall the event loop (178 §B).
+
+        ``query_gateway_account`` is a synchronous, potentially-blocking call that
+        the endpoint now offloads via ``asyncio.to_thread``. This test mocks it with
+        a blocking ``time.sleep`` and asserts that a second concurrent request to a
+        lightweight endpoint completes *before* the slow one returns — which is only
+        possible if the blocking call runs off the event loop.
+        """
+        import asyncio
+        import time
+
+        def _slow_query(_gateway_key: str) -> dict[str, str]:
+            time.sleep(0.5)  # blocking I/O stand-in
+            return {"gateway_key": "manual:CTP:089763", "state": "connected"}
+
+        order: list[str] = []
+
+        with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.query_gateway_account.side_effect = _slow_query
+            mock_mgr.list_instances.return_value = []
+            mock_get_mgr.return_value = mock_mgr
+
+            async def slow_request() -> None:
+                resp = await client.get(
+                    "/api/v1/live-trading/gateways/manual:CTP:089763/account",
+                    headers=auth_headers,
+                )
+                assert resp.status_code == 200
+                order.append("slow")
+
+            async def fast_request() -> None:
+                # Give the slow request a head start so it is mid-sleep.
+                await asyncio.sleep(0.1)
+                resp = await client.get("/api/v1/live-trading/", headers=auth_headers)
+                assert resp.status_code == 200
+                order.append("fast")
+
+            await asyncio.gather(slow_request(), fast_request())
+
+        # If the blocking sleep had run on the event loop, "fast" could not finish
+        # first. Offloading via to_thread lets the fast request overtake it.
+        assert order == ["fast", "slow"]
+
     async def test_connect_gateway_error_returns_400_not_500(
         self, client: AsyncClient, auth_headers
     ):
