@@ -37,10 +37,16 @@ def _create_limiter() -> Limiter:
     if not storage_uri:
         logger.info("Rate limiter using in-memory backend (not suitable for multi-instance)")
 
+    # `.slowapi.env` is an optional runtime override file (not tracked in git).
+    # Only pass it to the Limiter when it actually exists; otherwise slowapi/
+    # starlette emits a spurious "Config file not found" UserWarning on every
+    # startup of a fresh clone.
+    config_filename = str(_SLOWAPI_CONFIG_FILE) if _SLOWAPI_CONFIG_FILE.is_file() else None
+
     return Limiter(
         key_func=get_remote_address,
         storage_uri=storage_uri,
-        config_filename=str(_SLOWAPI_CONFIG_FILE),
+        config_filename=config_filename,
     )
 
 

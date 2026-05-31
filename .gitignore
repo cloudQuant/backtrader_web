@@ -109,6 +109,11 @@ src/backend/data/auto_trading_config.json
 src/backend/data/live_trading_instances.json
 src/backend/data/quote_custom_symbols.json
 src/backend/data/reqdocs_source_files/
+# slowapi optional runtime config-override file (iteration 179 §A). Written by
+# the rate limiter at runtime; not a secret today but is runtime state that
+# should never be tracked. The limiter only loads it when present.
+src/backend/.slowapi.env
+**/.slowapi.env
 workspace_units/
 scripts/diag_*.txt
 src/clientportal.gw/.vertx/
