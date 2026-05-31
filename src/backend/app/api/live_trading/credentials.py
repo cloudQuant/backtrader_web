@@ -11,17 +11,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.services import manual_gateway_service
+from app.services.gateway import manual as manual_gateway_service
 
 
-def _first_non_empty(*values):
+def _first_non_empty(*values: Any) -> Any:
     for v in values:
         if v not in (None, "", 0):
             return v
     return values[-1] if values else None
 
 
-def _env_or_default(value, *fallbacks):
+def _env_or_default(value: Any, *fallbacks: Any) -> Any:
     if value not in (None, ""):
         return value
     for fallback in fallbacks:

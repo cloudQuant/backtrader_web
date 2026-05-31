@@ -8,9 +8,9 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
+from app.services.live_trading.manager import LiveTradingManager, get_live_trading_manager
 from app.services.log_parser_service import find_latest_log_dir
-from app.services.strategy_service import get_strategy_dir
+from app.services.strategy.core import get_strategy_dir
 
 
 def get_live_trading_manager_dep() -> LiveTradingManager:

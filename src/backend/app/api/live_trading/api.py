@@ -8,10 +8,11 @@ including starting, stopping, and monitoring live trading operations.
 import asyncio
 import logging
 from pathlib import Path
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import get_current_user
+from app.api._dependencies import get_current_user
 from app.api.live_trading.credentials import build_gateway_credentials_payload
 from app.schemas.analytics import (
     BacktestDetailResponse,
@@ -19,6 +20,7 @@ from app.schemas.analytics import (
     MonthlyReturnsResponse,
     PerformanceMetrics,
 )
+from app.schemas.auth import TokenPayload
 from app.schemas.live_trading_instance import (
     GatewayConnectRequest,
     GatewayConnectResponse,
@@ -28,8 +30,8 @@ from app.schemas.live_trading_instance import (
     LiveInstanceInfo,
     LiveInstanceListResponse,
 )
-from app.services import manual_gateway_service
-from app.services.live_trading_manager import LiveTradingManager, get_live_trading_manager
+from app.services.gateway import manual as manual_gateway_service
+from app.services.live_trading.manager import LiveTradingManager, get_live_trading_manager
 from app.services.log_parser_service import (
     find_latest_log_dir,
     parse_all_logs,
@@ -37,7 +39,15 @@ from app.services.log_parser_service import (
     parse_trade_log,
     parse_value_log,
 )
-from app.services.strategy_service import get_strategy_dir
+from app.services.strategy.core import get_strategy_dir
+from app.types.live_trading import (
+    ConnectResult,
+    GatewayCredentials,
+    InstanceData,
+    OperationResult,
+    StartResult,
+    StopResult,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -55,9 +65,9 @@ def _get_manager() -> LiveTradingManager:
 
 @router.get("/", response_model=LiveInstanceListResponse, summary="List live trading instances")
 async def list_instances(
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, Any]:
     """List all live trading instances for the current user.
 
     Args:
@@ -77,9 +87,9 @@ async def list_instances(
     summary="List live trading gateway presets",
 )
 async def list_gateway_presets(
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, Any]:
     presets = mgr.get_gateway_presets()
     return {"total": len(presets), "presets": presets}
 
@@ -89,8 +99,8 @@ async def list_gateway_presets(
     summary="Get saved gateway credentials for form pre-fill",
 )
 async def get_gateway_credentials(
-    current_user=Depends(get_current_user),
-):
+    current_user: TokenPayload = Depends(get_current_user),
+) -> dict[str, Any]:
     """Return credentials from .env for pre-filling the connect form.
 
     All fields are returned as-is; the frontend can override any value.
@@ -104,9 +114,9 @@ async def get_gateway_credentials(
     summary="Get health status of all active gateways",
 )
 async def get_gateway_health(
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, Any]:
     """Return health snapshots for all active gateway runtimes.
 
     Returns:
@@ -131,9 +141,9 @@ async def get_gateway_health(
 )
 def connect_gateway(
     req: GatewayConnectRequest,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> ConnectResult:
     """Manually connect a gateway with provided credentials.
 
     Supports CTP, IB_WEB, BINANCE, MT5, and OKX exchange types.
@@ -141,7 +151,7 @@ def connect_gateway(
     runs in a thread-pool instead of stalling the event loop.
     """
     try:
-        result = mgr.connect_gateway(req.exchange_type, req.credentials)
+        result = mgr.connect_gateway(req.exchange_type, cast(GatewayCredentials, req.credentials))
     except Exception as exc:
         _logger.exception("Unhandled error in connect_gateway")
         raise HTTPException(
@@ -160,9 +170,9 @@ def connect_gateway(
 )
 async def disconnect_gateway(
     gateway_key: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> OperationResult:
     """Disconnect a manually-started gateway by its key."""
     result = await asyncio.to_thread(mgr.disconnect_gateway, gateway_key)
     if result["status"] == "error":
@@ -175,9 +185,9 @@ async def disconnect_gateway(
     summary="List manually connected gateways",
 )
 async def list_connected_gateways(
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, Any]:
     """List all manually connected gateways with basic info."""
     gateways = mgr.list_connected_gateways()
     return {"total": len(gateways), "gateways": gateways}
@@ -189,9 +199,9 @@ async def list_connected_gateways(
 )
 async def query_gateway_account(
     gateway_key: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, Any]:
     """Query account info from a connected gateway."""
     result = await asyncio.to_thread(mgr.query_gateway_account, gateway_key)
     if result is None:
@@ -208,9 +218,9 @@ async def query_gateway_account(
 )
 async def query_gateway_positions(
     gateway_key: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, Any]:
     """Query positions from a connected gateway."""
     positions = await asyncio.to_thread(mgr.query_gateway_positions, gateway_key)
     return {"total": len(positions), "positions": positions}
@@ -219,9 +229,9 @@ async def query_gateway_positions(
 @router.post("/", response_model=LiveInstanceInfo, summary="Add live trading instance")
 async def add_instance(
     req: LiveInstanceCreate,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> InstanceData:
     """Add a new live trading instance.
 
     Args:
@@ -244,9 +254,9 @@ async def add_instance(
 @router.delete("/{instance_id}", summary="Delete live trading instance")
 async def remove_instance(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, str]:
     """Delete a live trading instance.
 
     Args:
@@ -270,9 +280,9 @@ async def remove_instance(
 )
 async def get_instance(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> InstanceData:
     """Get details of a specific live trading instance.
 
     Args:
@@ -297,9 +307,9 @@ async def get_instance(
 )
 async def start_instance(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> StartResult:
     """Start a live trading instance.
 
     Args:
@@ -324,9 +334,9 @@ async def start_instance(
 )
 async def stop_instance(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> StopResult:
     """Stop a live trading instance.
 
     Args:
@@ -350,9 +360,9 @@ async def stop_instance(
     "/start-all", response_model=LiveBatchResponse, summary="Start all live trading instances"
 )
 async def start_all(
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, StartResult]:
     """Start all live trading instances.
 
     Args:
@@ -369,9 +379,9 @@ async def start_all(
     "/stop-all", response_model=LiveBatchResponse, summary="Stop all live trading instances"
 )
 async def stop_all(
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> dict[str, StopResult]:
     """Stop all live trading instances.
 
     Args:
@@ -423,9 +433,9 @@ def _get_strategy_log_dir(mgr: LiveTradingManager, instance_id: str, user_id: st
 )
 async def get_live_detail(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> BacktestDetailResponse:
     """Get detailed analysis for a live trading instance.
 
     Args:
@@ -540,9 +550,9 @@ async def get_live_detail(
 )
 async def get_live_kline(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> KlineWithSignalsResponse:
     """Get K-line data with trading signals for a live trading instance.
 
     Args:
@@ -632,9 +642,9 @@ async def get_live_kline(
 )
 async def get_live_monthly_returns(
     instance_id: str,
-    current_user=Depends(get_current_user),
+    current_user: TokenPayload = Depends(get_current_user),
     mgr: LiveTradingManager = Depends(_get_manager),
-):
+) -> MonthlyReturnsResponse:
     """Get monthly returns for a live trading instance.
 
     Args:
