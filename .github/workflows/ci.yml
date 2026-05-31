@@ -528,32 +528,46 @@ jobs:
           sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version
 
-      # Iteration 177 §D — ADVISORY (non-blocking) for now.
+      # Iteration 177 §D — ADVISORY by default; gated blocking flip (178 §A).
       #
       # The full-history scan currently reports ~114 findings, the bulk of which
-      # are REAL credentials that were committed to runtime files before this
-      # iteration untracked them (manual_gateways/*, sync_config.json, ...). See
+      # are REAL credentials that were committed to runtime files before they
+      # were untracked (manual_gateways/*, sync_config.json, ...). See
       # docs/iterations/迭代177-质量门禁修复与安全纵深/CLOSURE.md.
       #
-      # Those leaks live in git *history*, so this scan will keep flagging them
-      # until two ops actions land (tracked as P0 follow-up, out of scope here):
+      # Those leaks live in git *history*, so this scan keeps flagging them until
+      # two ops actions land (see docs/iterations/迭代178-安全纵深收口与质量债治理/
+      # ROTATION_RUNBOOK.md):
       #   1. Rotate every exposed key/password at the provider.
-      #   2. Purge history (git filter-repo / BFG) + force-push, coordinated
-      #      with all collaborators.
-      # Only after the purge can `|| echo ...` below be replaced by a hard fail.
+      #   2. Purge history (scripts/ops/purge_secret_history.sh) + force-push,
+      #      coordinated with all collaborators.
+      #
+      # Once history is clean, set the repo/org variable
+      # SECRET_SCAN_HISTORY_BLOCKING=true to flip this step to a hard fail —
+      # no code change or redeploy needed. Until then it stays advisory so the
+      # known historical leaks don't false-fail every build.
       #
       # The allowlist in .gitleaks.toml covers the project's intentional
       # placeholders so the gate stays signal-rich.
-      - name: Scan full history for secrets (advisory)
+      - name: Scan full history for secrets (advisory unless SECRET_SCAN_HISTORY_BLOCKING=true)
+        env:
+          HISTORY_BLOCKING: ${{ vars.SECRET_SCAN_HISTORY_BLOCKING }}
         run: |
-          gitleaks detect \
+          if gitleaks detect \
             --config .gitleaks.toml \
             --report-format sarif \
             --report-path gitleaks-report.sarif \
             --redact \
             --no-banner \
-            --exit-code 1 \
-          || echo "::warning::gitleaks reported potential secrets (advisory; see gitleaks-report.sarif artifact)"
+            --exit-code 1; then
+            echo "gitleaks full-history scan: no findings."
+          else
+            if [ "${HISTORY_BLOCKING}" = "true" ]; then
+              echo "::error::gitleaks reported secrets in history and SECRET_SCAN_HISTORY_BLOCKING=true (blocking)."
+              exit 1
+            fi
+            echo "::warning::gitleaks reported potential secrets (advisory; see gitleaks-report.sarif artifact). Set SECRET_SCAN_HISTORY_BLOCKING=true after the history purge to make this blocking."
+          fi
 
       - name: Upload gitleaks report
         uses: actions/upload-artifact@v4

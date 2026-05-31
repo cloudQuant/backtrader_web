@@ -67,6 +67,17 @@ first slice.
      collaborators to re-clone.
   3. After history is clean, flip the `secret-scan` full-history step from
      advisory to blocking.
+- **Code-side prep done (178 §A)**: the ops actions above now have ready-to-run
+  tooling so the owner can execute without improvising:
+  - `scripts/ops/purge_secret_history.sh` — `git filter-repo` wrapper with a
+    `--dry-run` (lists the 7 leaked paths) and a guarded `--execute`
+    (refuses unless rotation + collaborator coordination are confirmed).
+  - `docs/iterations/迭代178-安全纵深收口与质量债治理/ROTATION_RUNBOOK.md` — per-provider
+    rotation checklist + history-purge + force-push + collaborator re-clone steps.
+  - CI flip is now gated by a single repo variable: set
+    `SECRET_SCAN_HISTORY_BLOCKING=true` after the purge to make the full-history
+    `secret-scan` step blocking (no code change needed). See
+    `.github/workflows/ci.yml`.
 - **Effort**: 2–4 hours of rotations + a coordinated history rewrite (ops,
   outside this repo).
 
