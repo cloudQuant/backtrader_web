@@ -653,14 +653,21 @@ jobs:
       - name: TypeScript type check
         run: npx vue-tsc --noEmit --skipLibCheck
 
-      - name: 'Iteration 175 §4.7 — PR template i18n manifest (advisory)'
+      - name: 'Iteration 175 §4.7 — PR template i18n manifest (blocking, diff-aware since 179 §D)'
         if: github.event_name == 'pull_request'
-        continue-on-error: true
+        working-directory: ${{ github.workspace }}
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          python3 ../../scripts/ci/check_pr_template.py || \
-            echo "::warning::PR description i18n change manifest incomplete (175 §4.7) — non-blocking until 176"
+          # Only require the i18n manifest when locale files actually changed.
+          # 179 §D made check_pr_template.py diff-aware via CHANGED_FILES, so
+          # this is now blocking without nagging PRs that touch no translations.
+          git fetch origin "$BASE_SHA" --depth=1 2>/dev/null || true
+          CHANGED_FILES="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
+          export CHANGED_FILES
+          python3 scripts/ci/check_pr_template.py
 
   frontend-test:
     name: Frontend - Unit Tests
