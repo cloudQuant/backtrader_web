@@ -78,6 +78,13 @@ first slice.
     `SECRET_SCAN_HISTORY_BLOCKING=true` after the purge to make the full-history
     `secret-scan` step blocking (no code change needed). See
     `.github/workflows/ci.yml`.
+- **Re-verified (179 §A, 2026-05-31)**: still OPEN. `git log --all --
+  src/backend/data/manual_gateways.json` still resolves the pre-untrack commits
+  `f575cce6` / `b6d3097a`, so the plaintext credentials remain extractable from
+  history. The 178 tooling is intact (`scripts/ops/purge_secret_history.sh` has
+  the `--dry-run`/guarded `--execute` flags; RUNBOOK present). No new code-side
+  work is possible here — the owner rotation + history rewrite is the only
+  remaining action.
 - **Effort**: 2–4 hours of rotations + a coordinated history rewrite (ops,
   outside this repo).
 

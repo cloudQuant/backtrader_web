@@ -22,7 +22,9 @@
 | 迭代174 | 结构精简与工程债接续（仓库骨架 + API/Service 子包化 + 大文件切片续作 + 文档 Diátaxis 治理 + 173 残项收口） | 进行中（当前聚焦主线 A：仓库骨架精简与低风险工程治理） |
 | 迭代175 | 质量加固与可观测性纵深（mypy services 扩盘 + 覆盖率 60→75 + a11y/i18n + OTel 全链路 + e2e smoke + bundle ratchet + DB 守护 + uv workspace） | 已完成（部分降级；详见 `迭代175-质量加固与可观测性纵深/RETROSPECTIVE.md`） |
 | 迭代176 | 工程债接续与基础设施收尾（mypy strict 扩盘 + i18n CJK 清零 + a11y + 覆盖率 75 + OTel 性能基线 + 大文件切片 + logs↔traces 关联） | 已完成（代码侧债务清零；详见 `迭代176-工程债接续与基础设施收尾/DEBT_CLEARANCE.md`） |
-| 迭代177 | 质量门禁修复与安全纵深（CI 触发分支修复 + lint/format 债清零 + pip-audit + secret 扫描 + mypy 仓库棘轮） | 规划中（计划见 `迭代177-质量门禁修复与安全纵深/PLAN.md`） |
+| 迭代177 | 质量门禁修复与安全纵深（CI 触发分支修复 + lint/format 债清零 + pip-audit + secret 扫描 + mypy 仓库棘轮） | 已完成（详见 `迭代177-质量门禁修复与安全纵深/CLOSURE.md`） |
+| 迭代178 | 安全纵深收口与质量债治理（git 历史凭据清除工具 + 实盘阻塞 I/O `to_thread` + pip-audit flip blocking + 吞异常留痕 + mypy 1065→1017） | 已完成（代码侧收口；G1 历史重写待 owner；详见 `迭代178-安全纵深收口与质量债治理/CLOSURE.md`） |
+| 迭代179 | 质量债棘轮续拧与安全收尾（`.slowapi.env` untrack + `gateway/manual.py` 切片/psutil 化 + mypy 1017 续拧 + advisory 门禁 flip 决策） | 规划中（计划见 `迭代179-质量债棘轮续拧与安全收尾/PLAN.md`） |
 
 > **路线总览**: 迭代 166-169 隶属同一跃迁路线
 > 「世界一流 AI+量化投研平台跃迁」，
