@@ -16,7 +16,7 @@ class TestStrategyExplainerApi:
 
     async def test_explain_strategy_from_code(self, client: AsyncClient, auth_headers: dict):
         with patch(
-            "app.api.strategy_explainer.StrategyExplainerService.explain",
+            "app.api.strategy.explainer.StrategyExplainerService.explain",
             new_callable=AsyncMock,
         ) as mock_explain:
             mock_explain.return_value = {
@@ -60,7 +60,7 @@ class TestStrategyExplainerApi:
 
     async def test_get_cached_explanation(self, client: AsyncClient, auth_headers: dict):
         with patch(
-            "app.api.strategy_explainer.StrategyExplainerService.get_cached_explanation",
+            "app.api.strategy.explainer.StrategyExplainerService.get_cached_explanation",
             new_callable=AsyncMock,
         ) as mock_get:
             mock_get.return_value = {

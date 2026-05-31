@@ -31,7 +31,7 @@ class TestStrategyVersionPermissionErrors:
 
     async def test_create_version_permission_error(self, client: AsyncClient, auth_headers: dict):
         """Cover line 85: PermissionError in create_strategy_version."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_cls:
+        with patch("app.api.strategy.version.VersionControlService") as mock_cls:
             mock_svc = AsyncMock()
             mock_svc.create_version = AsyncMock(side_effect=PermissionError("no access"))
             mock_cls.return_value = mock_svc
@@ -54,7 +54,7 @@ class TestStrategyVersionPermissionErrors:
 
     async def test_compare_versions_permission_error(self, client: AsyncClient, auth_headers: dict):
         """Cover line 308: PermissionError in compare_strategy_versions."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_cls:
+        with patch("app.api.strategy.version.VersionControlService") as mock_cls:
             mock_svc = AsyncMock()
             mock_svc.compare_versions = AsyncMock(side_effect=PermissionError("no access"))
             mock_cls.return_value = mock_svc
@@ -73,7 +73,7 @@ class TestStrategyVersionPermissionErrors:
 
     async def test_rollback_version_permission_error(self, client: AsyncClient, auth_headers: dict):
         """Cover line 364: PermissionError in rollback_strategy_version."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_cls:
+        with patch("app.api.strategy.version.VersionControlService") as mock_cls:
             mock_svc = AsyncMock()
             mock_svc.rollback_version = AsyncMock(side_effect=PermissionError("no access"))
             mock_cls.return_value = mock_svc
@@ -91,7 +91,7 @@ class TestStrategyVersionPermissionErrors:
 
     async def test_create_branch_permission_error(self, client: AsyncClient, auth_headers: dict):
         """Cover lines 415-416: PermissionError in create_strategy_branch."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_cls:
+        with patch("app.api.strategy.version.VersionControlService") as mock_cls:
             mock_svc = AsyncMock()
             mock_svc.create_branch = AsyncMock(side_effect=PermissionError("no access"))
             mock_cls.return_value = mock_svc
@@ -109,7 +109,7 @@ class TestStrategyVersionPermissionErrors:
 
     async def test_create_branch_value_error(self, client: AsyncClient, auth_headers: dict):
         """Cover lines 417-418: ValueError in create_strategy_branch."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_cls:
+        with patch("app.api.strategy.version.VersionControlService") as mock_cls:
             mock_svc = AsyncMock()
             mock_svc.create_branch = AsyncMock(side_effect=ValueError("strategy not found"))
             mock_cls.return_value = mock_svc
@@ -127,7 +127,7 @@ class TestStrategyVersionPermissionErrors:
 
     async def test_list_branches_permission_error(self, client: AsyncClient, auth_headers: dict):
         """Cover lines 453-454: PermissionError in list_strategy_branches."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_cls:
+        with patch("app.api.strategy.version.VersionControlService") as mock_cls:
             mock_svc = AsyncMock()
             mock_svc.list_branches = AsyncMock(side_effect=PermissionError("no access"))
             mock_cls.return_value = mock_svc
@@ -140,7 +140,7 @@ class TestStrategyVersionPermissionErrors:
 
     async def test_list_branches_value_error(self, client: AsyncClient, auth_headers: dict):
         """Cover lines 455-456: ValueError in list_strategy_branches."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_cls:
+        with patch("app.api.strategy.version.VersionControlService") as mock_cls:
             mock_svc = AsyncMock()
             mock_svc.list_branches = AsyncMock(side_effect=ValueError("strategy not found"))
             mock_cls.return_value = mock_svc

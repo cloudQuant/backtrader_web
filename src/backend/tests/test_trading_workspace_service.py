@@ -6,6 +6,24 @@ from app.services import workspace_unit_runtime
 from app.services.trading_workspace_service import TradingWorkspaceService
 
 
+def _make_strategy_template(tmp_path, strategy_id: str, module_basename: str):
+    """Create a self-contained strategy template dir.
+
+    The runtime sync copies every ``*.py`` from the template dir resolved via
+    ``get_strategy_dir``. The real templates live under the gitignored
+    ``src/strategies/`` tree, so tests must not depend on them being present;
+    we build a minimal template on disk and point ``get_strategy_dir`` at it.
+    """
+    template_dir = tmp_path / "templates" / strategy_id.replace("/", "__")
+    template_dir.mkdir(parents=True, exist_ok=True)
+    (template_dir / "run.py").write_text("# runtime entrypoint\n", encoding="utf-8")
+    (template_dir / f"{module_basename}.py").write_text(
+        "import backtrader as bt\n\n\nclass S(bt.Strategy):\n    pass\n",
+        encoding="utf-8",
+    )
+    return template_dir
+
+
 def test_build_instance_params_keeps_explicit_gateway_for_paper_units():
     unit = SimpleNamespace(
         workspace_id="ws-1",
@@ -48,6 +66,10 @@ def test_build_instance_params_keeps_explicit_gateway_for_paper_units():
 
 def test_sync_trading_unit_runtime_copies_template_and_merges_unit_config(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
+    template_dir = _make_strategy_template(
+        tmp_path, "simulate/gateway_boll_breakout", "strategy_gateway_boll_breakout"
+    )
+    monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda _sid: template_dir)
     unit = SimpleNamespace(
         workspace_id="ws-1",
         id="unit-1",
@@ -92,6 +114,10 @@ def test_sync_trading_unit_runtime_copies_template_and_merges_unit_config(tmp_pa
 
 def test_sync_trading_unit_runtime_normalizes_futures_data_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(workspace_unit_runtime, "_WORKSPACE_UNITS_ROOT", tmp_path)
+    template_dir = _make_strategy_template(
+        tmp_path, "simulate/gateway_dual_ma", "strategy_gateway_dual_ma"
+    )
+    monkeypatch.setattr(workspace_unit_runtime, "get_strategy_dir", lambda _sid: template_dir)
     unit = SimpleNamespace(
         workspace_id="ws-ctp",
         id="unit-ctp",

@@ -18,7 +18,7 @@ class TestStrategyScoreApi:
         self, client: AsyncClient, auth_headers: dict
     ):
         with patch(
-            "app.api.strategy_score.StrategyScoreService.score_backtest",
+            "app.api.strategy.score.StrategyScoreService.score_backtest",
             new_callable=AsyncMock,
         ) as mock_score:
             mock_score.return_value = {
@@ -99,7 +99,7 @@ class TestStrategyScoreApi:
 
     async def test_get_strategy_score_history(self, client: AsyncClient, auth_headers: dict):
         with patch(
-            "app.api.strategy_score.StrategyScoreService.get_score_by_backtest_id",
+            "app.api.strategy.score.StrategyScoreService.get_score_by_backtest_id",
             new_callable=AsyncMock,
         ) as mock_get:
             mock_get.return_value = {

@@ -530,10 +530,9 @@ def test_strategy_service_to_response_paramspec_and_inference():
 @pytest.mark.asyncio
 async def test_strategy_version_service_missing_branches(monkeypatch):
     """Cover strategy_version_service: parent_version_id, update_dict fields, changelog set, get_current, unset default/active loops."""
-    from app.services.strategy_version_service import VersionControlService
-
     from app.models.strategy_version import VersionStatus
     from app.schemas.strategy_version import VersionUpdate
+    from app.services.strategy.version import VersionControlService
 
     svc = _new_service_without_init(VersionControlService)
     svc.strategy_repo = SimpleNamespace(
@@ -578,7 +577,7 @@ async def test_strategy_version_service_missing_branches(monkeypatch):
     )
     svc.version_repo.get_by_id = AsyncMock(return_value=version_obj)
     svc.version_repo.update = AsyncMock(return_value=version_obj)
-    from app.services.strategy_version_service import ws_manager
+    from app.services.strategy.version import ws_manager
 
     monkeypatch.setattr(ws_manager, "send_to_task", AsyncMock())
 
@@ -706,7 +705,7 @@ def test_live_trading_service_import_and_run_branches(tmp_path: Path, monkeypatc
         monkeypatch.setitem(sys.modules, name, mod)
 
     # Reload module to execute import-time branches.
-    mod = importlib.reload(importlib.import_module("app.services.live_trading_service"))
+    mod = importlib.reload(importlib.import_module("app.services.live_trading.service"))
 
     svc = mod.LiveTradingService()
 

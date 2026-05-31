@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 import textwrap
 from copy import deepcopy
@@ -11,6 +12,8 @@ import yaml
 
 from app.models.workspace import StrategyUnit
 from app.services.strategy_service import get_strategy_dir
+
+logger = logging.getLogger(__name__)
 
 _WORKSPACE_UNITS_ROOT = Path(__file__).resolve().parents[4] / "workspace_units"
 _ASSET_TYPE_ALIASES = {
@@ -355,9 +358,14 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def _strategy_module_name(template_dir: Path) -> str:
+    if not template_dir.is_dir():
+        # Template tree may be absent (see _sync_trading_runtime_sources).
+        # Return empty so config generation degrades gracefully instead of
+        # raising and 500-ing unit creation.
+        return ""
     candidates = sorted(template_dir.glob("strategy_*.py"))
     if not candidates:
-        raise FileNotFoundError(f"No strategy_*.py found under {template_dir}")
+        return ""
     return candidates[0].name
 
 
@@ -602,6 +610,17 @@ def _build_trading_unit_config(
 
 
 def _sync_trading_runtime_sources(template_dir: Path, target_dir: Path) -> None:
+    if not template_dir.is_dir():
+        # The strategy template tree (src/strategies/) is developer-local and
+        # not always present (e.g. fresh checkout, CI). Unit creation has
+        # already persisted the unit; a missing template must not abort the
+        # request with a 500. Skip copying and let the runtime fall back to
+        # defaults — the unit can be re-synced once the template is available.
+        logger.warning(
+            "Strategy template dir not found, skipping runtime source sync: %s",
+            template_dir,
+        )
+        return
     for source in template_dir.iterdir():
         if not source.is_file():
             continue

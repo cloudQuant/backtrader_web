@@ -32,13 +32,17 @@ async def test_health_check_exception_branch(client: AsyncClient, monkeypatch):
     assert resp.json()["status"] == "degraded"
 
 
-def test_deps_permissions_get_current_user_delegates(monkeypatch):
-    import app.api.deps_permissions as deps_perm_module
+def test_deps_get_current_user_delegates():
+    """`app.api.deps` is a shim that re-exports from `app.api._dependencies`.
 
+    The former `app.api.deps_permissions` shim was removed in 6e391f69; the
+    surviving delegation is deps -> _dependencies, which we assert here.
+    """
+    import app.api._dependencies as dependencies_module
     import app.api.deps as deps_module
 
-    monkeypatch.setattr(deps_module, "get_current_user", lambda: "ok", raising=True)
-    assert deps_perm_module.get_current_user() == "ok"
+    assert deps_module is dependencies_module
+    assert deps_module.get_current_user is dependencies_module.get_current_user
 
 
 @pytest.mark.skip(reason="Requires backtrader strategy context - pre-existing issue")

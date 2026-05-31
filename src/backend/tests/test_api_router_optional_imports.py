@@ -15,7 +15,7 @@ def test_api_router_handles_optional_import_errors():
         "app.api.paper_trading",
         "app.api.comparison",
         "app.api.strategy.version",
-        "app.api.realtime_data",
+        "app.api.data.realtime",
         "app.api.monitoring",
         "app.api.data",
         "app.api.risk_control",

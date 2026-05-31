@@ -372,56 +372,87 @@ async def test_trading_workspace_runtime_endpoints_expose_runtime_files(
     client: AsyncClient,
     auth_headers: dict[str, str],
 ):
+    import shutil
+
     from app.services import workspace_unit_runtime
+    from app.services.strategy_service import get_strategy_dir
 
-    workspace_response = await client.post(
-        "/api/v1/workspace/",
-        headers=auth_headers,
-        json={"name": "运行文件测试", "workspace_type": "trading"},
-    )
-    assert workspace_response.status_code == 201
-    workspace_id = workspace_response.json()["id"]
+    # The strategy template tree (src/strategies/) is developer-local and not
+    # tracked in git, so provision a minimal template on disk for this
+    # integration test (and clean it up afterwards) instead of depending on a
+    # checkout-specific directory.
+    template_dir = get_strategy_dir("simulate/gateway_dual_ma")
+    created_template = not template_dir.exists()
+    template_dir.mkdir(parents=True, exist_ok=True)
+    run_py = template_dir / "run.py"
+    strategy_py = template_dir / "strategy_gateway_dual_ma.py"
+    created_run = not run_py.exists()
+    created_strategy = not strategy_py.exists()
+    if created_run:
+        run_py.write_text("# runtime entrypoint\n", encoding="utf-8")
+    if created_strategy:
+        strategy_py.write_text(
+            "import backtrader as bt\n\n\nclass S(bt.Strategy):\n    pass\n",
+            encoding="utf-8",
+        )
 
-    unit_response = await client.post(
-        f"/api/v1/workspace/{workspace_id}/units",
-        headers=auth_headers,
-        json={
-            "group_name": "交易组",
-            "strategy_id": "simulate/gateway_dual_ma",
-            "strategy_name": "Runtime Unit",
-            "symbol": "XAUUSD",
-            "symbol_name": "黄金/美元",
-            "timeframe": "1m",
-            "category": "外汇",
-            "trading_mode": "paper",
-        },
-    )
-    assert unit_response.status_code == 201
-    unit_id = unit_response.json()["id"]
+    try:
+        workspace_response = await client.post(
+            "/api/v1/workspace/",
+            headers=auth_headers,
+            json={"name": "运行文件测试", "workspace_type": "trading"},
+        )
+        assert workspace_response.status_code == 201
+        workspace_id = workspace_response.json()["id"]
 
-    runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
-    assert runtime_dir.is_dir()
-    log_dir = runtime_dir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    (log_dir / "system.log").write_text("line-1\nline-2\n", encoding="utf-8")
+        unit_response = await client.post(
+            f"/api/v1/workspace/{workspace_id}/units",
+            headers=auth_headers,
+            json={
+                "group_name": "交易组",
+                "strategy_id": "simulate/gateway_dual_ma",
+                "strategy_name": "Runtime Unit",
+                "symbol": "XAUUSD",
+                "symbol_name": "黄金/美元",
+                "timeframe": "1m",
+                "category": "外汇",
+                "trading_mode": "paper",
+            },
+        )
+        assert unit_response.status_code == 201
+        unit_id = unit_response.json()["id"]
 
-    info_response = await client.get(
-        f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime",
-        headers=auth_headers,
-    )
-    assert info_response.status_code == 200
-    payload = info_response.json()
-    assert Path(payload["runtime_dir"]) == runtime_dir
-    assert Path(payload["log_dir"]) == log_dir
-    relative_paths = {item["relative_path"] for item in payload["files"]}
-    assert "config.yaml" in relative_paths
-    assert "run.py" in relative_paths
-    assert "logs/system.log" in relative_paths
+        runtime_dir = workspace_unit_runtime.unit_dir(workspace_id, unit_id)
+        assert runtime_dir.is_dir()
+        log_dir = runtime_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "system.log").write_text("line-1\nline-2\n", encoding="utf-8")
 
-    log_response = await client.get(
-        f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime/files/logs/system.log",
-        headers=auth_headers,
-        params={"tail": 1},
-    )
-    assert log_response.status_code == 200
-    assert log_response.text == "line-2"
+        info_response = await client.get(
+            f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime",
+            headers=auth_headers,
+        )
+        assert info_response.status_code == 200
+        payload = info_response.json()
+        assert Path(payload["runtime_dir"]) == runtime_dir
+        assert Path(payload["log_dir"]) == log_dir
+        relative_paths = {item["relative_path"] for item in payload["files"]}
+        assert "config.yaml" in relative_paths
+        assert "run.py" in relative_paths
+        assert "logs/system.log" in relative_paths
+
+        log_response = await client.get(
+            f"/api/v1/workspace/{workspace_id}/units/{unit_id}/runtime/files/logs/system.log",
+            headers=auth_headers,
+            params={"tail": 1},
+        )
+        assert log_response.status_code == 200
+        assert log_response.text == "line-2"
+    finally:
+        # Clean up only what we created so we don't disturb a real local tree.
+        if created_run and run_py.exists():
+            run_py.unlink()
+        if created_strategy and strategy_py.exists():
+            strategy_py.unlink()
+        if created_template and template_dir.exists():
+            shutil.rmtree(template_dir, ignore_errors=True)

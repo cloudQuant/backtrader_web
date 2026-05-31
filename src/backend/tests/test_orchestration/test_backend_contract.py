@@ -31,14 +31,14 @@ class _FakeAkshareScheduler:
 
 
 async def test_apscheduler_backend_implements_orchestrator_contract():
-    with patch("app.services.akshare_scheduler.AkshareScheduler", _FakeAkshareScheduler):
+    with patch("app.services.akshare.scheduler.AkshareScheduler", _FakeAkshareScheduler):
         backend = APSchedulerBackend()
 
     assert isinstance(backend, OrchestratorBackend)
 
 
 async def test_apscheduler_backend_delegates_all_contract_methods():
-    with patch("app.services.akshare_scheduler.AkshareScheduler", _FakeAkshareScheduler):
+    with patch("app.services.akshare.scheduler.AkshareScheduler", _FakeAkshareScheduler):
         backend = APSchedulerBackend()
 
     fake_scheduler = backend._scheduler

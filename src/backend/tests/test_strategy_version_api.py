@@ -56,7 +56,7 @@ class TestCreateStrategyVersion:
 
     async def test_create_version_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful version creation."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_version = MagicMock(id="ver123")
             mock_service.create_version = AsyncMock(return_value=mock_version)
@@ -80,7 +80,7 @@ class TestCreateStrategyVersion:
             )
             mock_service_class.return_value = mock_service
 
-            with patch("app.api.strategy_version.ws_manager") as mock_ws_mgr:
+            with patch("app.api.strategy.version.ws_manager") as mock_ws_mgr:
                 mock_ws_mgr.send_to_task = AsyncMock()
                 resp = await client.post(
                     "/api/v1/strategy-versions/versions",
@@ -113,7 +113,7 @@ class TestListStrategyVersions:
 
     async def test_list_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful list."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_versions = AsyncMock(return_value=([], 0))
             mock_service_class.return_value = mock_service
@@ -125,7 +125,7 @@ class TestListStrategyVersions:
 
     async def test_list_with_branch_filter(self, client: AsyncClient, auth_headers: dict):
         """Test branch filter."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_versions = AsyncMock(return_value=([], 0))
             mock_service_class.return_value = mock_service
@@ -138,7 +138,7 @@ class TestListStrategyVersions:
 
     async def test_list_with_status_filter(self, client: AsyncClient, auth_headers: dict):
         """Test status filter."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_versions = AsyncMock(return_value=([], 0))
             mock_service_class.return_value = mock_service
@@ -151,7 +151,7 @@ class TestListStrategyVersions:
 
     async def test_list_with_pagination(self, client: AsyncClient, auth_headers: dict):
         """Test pagination."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.list_versions = AsyncMock(return_value=([], 0))
             mock_service_class.return_value = mock_service
@@ -182,7 +182,7 @@ class TestGetStrategyVersion:
 
     async def test_get_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test version not found."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.get_version = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -194,7 +194,7 @@ class TestGetStrategyVersion:
 
     async def test_get_forbidden(self, client: AsyncClient, auth_headers: dict):
         """Test forbidden access."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_version = MagicMock()
             mock_version.strategy_id = "other_user_id"  # Different user
@@ -208,7 +208,7 @@ class TestGetStrategyVersion:
 
     async def test_get_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful get."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_version = MagicMock(created_by="owner-id")
             mock_service.get_version = AsyncMock(return_value=mock_version)
@@ -254,7 +254,7 @@ class TestUpdateStrategyVersion:
 
     async def test_update_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test version not found."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.update_version = AsyncMock(return_value=None)
             mock_service_class.return_value = mock_service
@@ -268,7 +268,7 @@ class TestUpdateStrategyVersion:
 
     async def test_update_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful update."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_version = MagicMock()
             mock_service.update_version = AsyncMock(return_value=mock_version)
@@ -314,7 +314,7 @@ class TestSetVersionDefault:
 
     async def test_set_default_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test version not found."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.set_version_default = AsyncMock(return_value=False)
             mock_service_class.return_value = mock_service
@@ -326,7 +326,7 @@ class TestSetVersionDefault:
 
     async def test_set_default_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful set default."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.set_version_default = AsyncMock(return_value=True)
             mock_service_class.return_value = mock_service
@@ -348,7 +348,7 @@ class TestActivateVersion:
 
     async def test_activate_not_found(self, client: AsyncClient, auth_headers: dict):
         """Test version not found."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.activate_version = AsyncMock(return_value=False)
             mock_service_class.return_value = mock_service
@@ -360,7 +360,7 @@ class TestActivateVersion:
 
     async def test_activate_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful activation."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_service.activate_version = AsyncMock(return_value=True)
             mock_service_class.return_value = mock_service
@@ -384,7 +384,7 @@ class TestCompareVersions:
 
     async def test_compare_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful comparison."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_comparison = MagicMock(
                 id="cmp123",
@@ -399,7 +399,7 @@ class TestCompareVersions:
             mock_service.compare_versions = AsyncMock(return_value=mock_comparison)
             mock_service_class.return_value = mock_service
 
-            with patch("app.api.strategy_version.ws_manager") as mock_ws_mgr:
+            with patch("app.api.strategy.version.ws_manager") as mock_ws_mgr:
                 mock_ws_mgr.send_to_task = AsyncMock()
                 resp = await client.post(
                     "/api/v1/strategy-versions/versions/compare",
@@ -434,7 +434,7 @@ class TestRollbackVersion:
 
     async def test_rollback_success(self, client: AsyncClient, auth_headers: dict):
         """Test successful rollback."""
-        with patch("app.api.strategy_version.VersionControlService") as mock_service_class:
+        with patch("app.api.strategy.version.VersionControlService") as mock_service_class:
             mock_service = AsyncMock()
             mock_version = MagicMock(id="ver124")
             mock_service.rollback_version = AsyncMock(return_value=mock_version)
@@ -458,7 +458,7 @@ class TestRollbackVersion:
             )
             mock_service_class.return_value = mock_service
 
-            with patch("app.api.strategy_version.ws_manager") as mock_ws_mgr:
+            with patch("app.api.strategy.version.ws_manager") as mock_ws_mgr:
                 mock_ws_mgr.send_to_task = AsyncMock()
                 resp = await client.post(
                     "/api/v1/strategy-versions/versions/rollback",
@@ -567,7 +567,7 @@ class TestStrategyVersionWebSocket:
         mock_ws.accept = AsyncMock()
 
         # Mock WebSocket manager
-        with patch("app.api.strategy_version.ws_manager") as mock_mgr:
+        with patch("app.api.strategy.version.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()
@@ -609,7 +609,7 @@ class TestStrategyVersionWebSocket:
         mock_ws = MagicMock()
 
         # Mock WebSocket manager
-        with patch("app.api.strategy_version.ws_manager") as mock_mgr:
+        with patch("app.api.strategy.version.ws_manager") as mock_mgr:
             mock_mgr.connect = AsyncMock()
             mock_mgr.disconnect = MagicMock()
             mock_mgr.send_to_task = AsyncMock()

@@ -44,7 +44,7 @@ class TestSubmitLiveStrategy:
         """
         service = LiveTradingService()
 
-        with patch("app.services.live_trading_service.BACKTRADER_AVAILABLE", False):
+        with patch("app.services.live_trading.service.BACKTRADER_AVAILABLE", False):
             with pytest.raises(ImportError, match="backtrader not available"):
                 await service.submit_live_strategy(
                     user_id="user123",
@@ -76,7 +76,7 @@ class TestSubmitLiveStrategy:
         mock_bt.Strategy = type("Strategy", (), {})
 
         # Need to mock the imports at module level
-        with patch("app.services.live_trading_service.BACKTRADER_AVAILABLE", True):
+        with patch("app.services.live_trading.service.BACKTRADER_AVAILABLE", True):
             # Mock the imports that happen at function execution time
             with patch.dict(
                 "sys.modules",
@@ -133,7 +133,7 @@ class TestSubmitLiveStrategy:
         mock_bt.Cerebro = MagicMock(return_value=mock_cerebro)
         mock_bt.Strategy = type("Strategy", (), {})
 
-        with patch("app.services.live_trading_service.BACKTRADER_AVAILABLE", True):
+        with patch("app.services.live_trading.service.BACKTRADER_AVAILABLE", True):
             with patch.dict(
                 "sys.modules",
                 {
@@ -519,7 +519,7 @@ class TestErrorHandling:
 
         # This test verifies that errors in the background thread
         # are properly caught and stored
-        with patch("app.services.live_trading_service.BACKTRADER_AVAILABLE", True):
+        with patch("app.services.live_trading.service.BACKTRADER_AVAILABLE", True):
             with patch.dict(
                 "sys.modules",
                 {
