@@ -2,7 +2,7 @@
 
 **关闭日期**: 2026-05-31
 **起点**: 迭代 176 收口（commit `2c4db6cb`）
-**终点**: 本迭代 §A–§D 全部收口
+**终点**: 本迭代 §A–§E 收口 + 门禁开启后暴露的真实 bug 修复（§F）
 **性质**: 质量加固 / 安全纵深 / CI 门禁修复（非新产品特性）
 
 ---
@@ -28,6 +28,8 @@ lint/format 债（§B），把弃用的 `safety` 换成 `pip-audit`（§C），�
 | §D Secret 扫描 | pre-commit + CI gitleaks | hook + 2 个 CI job（advisory 全史 + blocking PR diff） | ✅ |
 | §D 泄露凭据处置 | （PLAN 未预见） | 9 类运行时文件 untrack + ignore | ✅ |
 | §E mypy 仓库级棘轮 | stretch / 可选 | 实现棘轮脚本 + baseline，修复 backend-lint 的隐性红 | ✅ |
+| §F 门禁开启后暴露的真实 bug | （PLAN 未预见） | 修复 akshare 导入链断裂 + 6 个 rot 测试 | ✅ |
+| §F' 既有测试欠债盘点 | （PLAN 未预见） | 发现大量先于 177 存在的红测试，登记跟进 | ⚠️ |
 
 ---
 
@@ -133,6 +135,57 @@ pin mypy 1.20.2）：
 
 验收：本地 `python scripts/ci/mypy_ratchet.py` → `errors=1055 baseline=1055 delta=+0`
 （exit 0）；人为把 baseline 调低 5 → exit 1 并打印 `::error::`，证明棘轮有牙齿。
+
+---
+
+## 6.5 §F — 门禁开启后暴露的真实 bug 与既有测试欠债（commit `22fef8d9`）
+
+§A 把 CI 在 `dev` 打开后，跑后端测试立即暴露了一批"门禁从不运行 → 静默腐烂"的问题。
+逐一核实它们**均先于 177 存在**（在起点 commit `2c4db6cb` 上同样失败），即非本迭代引入。
+
+### 6.5.1 真实生产 bug：akshare 导入链断裂
+
+176 之前的 `e96834fb`「remove 31 sys.modules shim files」把 akshare 模块重构进包，但
+遗漏了 **14 处内部 import** 仍指向已删除的扁平 `app.services.akshare_*` shim。后果：
+`import app.api.akshare` 直接失败 → akshare 可选路由（interfaces/tables/scripts/tasks/
+executions）与 `/data/interfaces` 旧端点静默降级为 404。因 CI 从不在 dev 跑，无人发现。
+
+修复：把所有引用改到新包路径（`akshare.execution` / `akshare.scheduler` /
+`akshare.scheduler_service` / `akshare.script` / `akshare.data` / `akshare.interface` /
+`akshare.interface_loader`）。验证：所有相关模块 import OK，`test_data_governance_compat`
+转绿。
+
+### 6.5.2 测试 rot（6 个，均为引用了被移动的符号/路径）
+
+| 测试 | 问题 | 修复 |
+|------|------|------|
+| `test_smoke_ctp_gateway_script` | 脚本 reorg 后路径失效 | `scripts/` → `scripts/diagnostics/` |
+| `test_api_router_optional_imports` | blocked 集用了旧 `strategy_version` 路径 | → `app.api.strategy.version` |
+| `test_api_edge_cases_113`（realtime） | `app.api.realtime_data` 已移动 | → `app.api.data.realtime` |
+| `test_api_edge_cases_113`（strategy_version） | 同上 | → `app.api.strategy.version` |
+| `test_api_edge_cases_113`（templates） | patch `api.get_template_by_id` 不在包命名空间 | import `app.api.strategy.base` |
+| `test_akshare_management_api` fixture | 旧扁平模块 | → `app.services.akshare.data` |
+
+mypy 棘轮 baseline 1055 → **1065**：修好导入后，原先因 import 失败而无法分析的 akshare
+`data_fetch` 代码变得可被 mypy 看见，暴露了既有的 Optional-cursor 等隐性告警（非新 bug）。
+按棘轮纪律 `--update` 收录为新基线并在 commit 说明记录原因。
+
+### 6.5.3 ⚠️ 既有测试欠债盘点（先于 177，未在本迭代清完）
+
+抽样运行发现还有**相当数量先于 177 存在的红测试**（例如 `test_realtime_data.py` 约 16 个、
+`test_orchestration/test_backend_contract.py`、`test_monitoring_strategy_version_edge_cases.py`
+等），在起点 commit 上同样失败。它们是"CI 从不在 dev 跑"长期积累的结果。
+
+- 本迭代**只修了被 §A/§B/§D/§E 直接牵连、且为明确 rot 的那批**（上表 6 个 + akshare 链）。
+- **完整清债是一项独立的、规模可观的工作**，不宜在单次会话里无检查点地一把梭——强行
+  mass-`xfail` 会掩盖真实问题，违背"绿色 CI = 健康代码"的初衷。
+- **影响**：§A 生效后 `backend-test` 在 dev 上短期内仍会红（因这批欠债）。
+- **建议（需团队决策其一）**：
+  1. 开一个专门的"测试欠债清零"迭代，按文件 burn-down；或
+  2. 在清完前，把 `backend-test` 暂设为 advisory（`continue-on-error`），其余门禁保持
+     blocking——但需明确这是临时措施并设清零期限。
+
+> 这一盘点本身就是 177 的价值：门禁修好后，长期被掩盖的欠债第一次变得可见、可度量。
 
 ---
 
