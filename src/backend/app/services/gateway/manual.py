@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import socket
 import subprocess
 import sys
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from app.services.gateway import net_probe
 from app.services.gateway.launch_builder import (
     build_gateway_session_key,
     build_gateway_session_key_from_runtime_kwargs,
@@ -74,38 +74,13 @@ def _kill_process_on_port(port: int) -> None:
         _logger.debug("lsof-based port release failed for port %d", port, exc_info=True)
 
 
-def _extract_port_from_zmq_error(err_msg: str) -> int | None:
-    """Parse port number from ZMQ 'Address already in use' error string."""
-    m = re.search(r":(\d{4,5})['\"]?\s*\)", err_msg)
-    if m:
-        return int(m.group(1))
-    return None
-
-
-def _extract_err_msg_from_error_entry(entry: Any) -> str:
-    """Extract a plain string error message from a health snapshot error entry.
-    The entry may be a plain string or a dict with a 'message' key."""
-    if isinstance(entry, dict):
-        return str(entry.get("message") or entry).strip()
-    return str(entry).strip()
-
-
-def _is_address_in_use_error(err_msg: str) -> bool:
-    normalized = str(err_msg or "").lower()
-    return "address already in use" in normalized or "address in use" in normalized
-
-
-def _find_recent_bind_error(snapshot: dict[str, Any] | None) -> str:
-    if not isinstance(snapshot, dict):
-        return ""
-    recent_errors = snapshot.get("recent_errors")
-    if not isinstance(recent_errors, list):
-        return ""
-    for item in reversed(recent_errors):
-        message = _extract_err_msg_from_error_entry(item)
-        if _is_address_in_use_error(message):
-            return message
-    return ""
+# ZMQ bind-error parsing helpers live in ``gateway/net_probe.py`` (179 §B,
+# P1#4 slice 1). Re-exported here under their original private names so call
+# sites and tests that reference ``manual._extract_*`` keep working unchanged.
+_extract_port_from_zmq_error = net_probe.extract_port_from_zmq_error
+_extract_err_msg_from_error_entry = net_probe.extract_err_msg_from_error_entry
+_is_address_in_use_error = net_probe.is_address_in_use_error
+_find_recent_bind_error = net_probe.find_recent_bind_error
 
 
 def _release_gateway_zmq_ports(runtime: Any) -> None:
@@ -976,12 +951,7 @@ def _resolve_startup_timeout_sec(credentials: dict[str, Any], default: float) ->
 
 
 def _parse_tcp_front_endpoint(front: str) -> tuple[str, int] | tuple[None, None]:
-    parsed = urlparse(front or "")
-    host = parsed.hostname
-    port = parsed.port
-    if not host or port is None:
-        return None, None
-    return host.lower(), port
+    return net_probe.parse_tcp_front_endpoint(front)
 
 
 def _resolve_ctp_front_pair(td_front: str, md_front: str, logger: Any) -> tuple[str, str]:
@@ -1034,10 +1004,23 @@ def _resolve_ctp_front_pair(td_front: str, md_front: str, logger: Any) -> tuple[
     raise ConnectionError("CTP SimNow当前三组前置均不可达: " + "; ".join(status_messages))
 
 
-def _is_macos_tun_proxy_active() -> bool:
-    """Detect if macOS has an active TUN transparent proxy (Clash/Surge/V2Ray etc.)."""
-    if sys.platform != "darwin":
-        return False
+def _count_utun_interfaces() -> int | None:
+    """Count active ``utun*`` interfaces, preferring psutil over ``ifconfig``.
+
+    Returns the utun count, or ``None`` if neither psutil nor ``ifconfig`` could
+    be used (caller treats ``None`` as "cannot determine"). 179 §B slice 4:
+    avoids shelling out to ``ifconfig`` when psutil is available so the probe
+    works in minimal containers without the BSD net-tools binary.
+    """
+    try:
+        import psutil
+
+        return sum(1 for name in psutil.net_if_addrs() if name.startswith("utun"))
+    except ImportError:
+        pass
+    except Exception:
+        _logger.debug("psutil-based utun interface count failed", exc_info=True)
+    # Fallback: parse ``ifconfig`` output (macOS / Linux net-tools).
     try:
         ifconfig = subprocess.run(
             ["ifconfig"],
@@ -1045,8 +1028,19 @@ def _is_macos_tun_proxy_active() -> bool:
             text=True,
             timeout=5,
         )
-        utun_count = ifconfig.stdout.count("utun")
-        if utun_count < 5:
+        return ifconfig.stdout.count("utun")
+    except Exception:
+        _logger.debug("ifconfig-based utun interface count failed", exc_info=True)
+        return None
+
+
+def _is_macos_tun_proxy_active() -> bool:
+    """Detect if macOS has an active TUN transparent proxy (Clash/Surge/V2Ray etc.)."""
+    if sys.platform != "darwin":
+        return False
+    try:
+        utun_count = _count_utun_interfaces()
+        if utun_count is None or utun_count < 5:
             return False
         scutil = subprocess.run(
             ["scutil", "--proxy"],
@@ -1161,18 +1155,7 @@ def _add_direct_route_for_ip(ip: str, gateway: str, interface: str, logger: Any)
 
 def _extract_ips_from_fronts(*fronts: str) -> list[str]:
     """Extract unique IP addresses from CTP front address strings like tcp://1.2.3.4:1234."""
-    seen: set[str] = set()
-    result: list[str] = []
-    for front in fronts:
-        host, _ = _parse_tcp_front_endpoint(front)
-        if host and host not in seen and not host.startswith("127."):
-            try:
-                socket.inet_aton(host)
-                seen.add(host)
-                result.append(host)
-            except OSError:
-                pass
-    return result
+    return net_probe.extract_ips_from_fronts(*fronts)
 
 
 def _add_ips_to_proxy_bypass_file(ips: list[str], logger: Any) -> bool:

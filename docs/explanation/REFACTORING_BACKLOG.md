@@ -113,13 +113,30 @@ the code-side of §H (logs↔traces correlation, OTel/Prometheus metrics) shippe
 - **Recommended slices** (each independently shippable):
   1. Extract pure helpers (port discovery, error parsing, env autodetection)
      into a new `manual_gateway/utils.py`. Pure functions, no behavioural change.
+     **Status (2026-05-31, iteration 179 §B)**: started. ZMQ bind-error parsing
+     (`extract_port_from_zmq_error`, `extract_err_msg_from_error_entry`,
+     `is_address_in_use_error`, `find_recent_bind_error`) and CTP front-endpoint
+     parsing (`parse_tcp_front_endpoint`, `extract_ips_from_fronts`) moved to
+     `app/services/gateway/net_probe.py` with unit tests
+     (`tests/test_gateway_net_probe.py`); `manual.py` re-exports them. Credential
+     merge/env-coercion helpers already live in `manual_gateway/utils.py` (prior
+     pass). `manual.py` 2061 → 2044 lines.
   2. Wrap blocking calls in `asyncio.to_thread(...)` at the *callers* in
-     async handlers; keep the service synchronous internally.
+     async handlers; keep the service synchronous internally. **DONE (178 §B)**:
+     7 async live-trading endpoints wrapped; see iteration-178 CLOSURE §2.
   3. Split the file by gateway family: `ib_clientportal.py`, `ctp.py`,
      `ccxt.py`, `mt5.py`, with a thin facade preserving the existing API.
+     **STILL OPEN**: touches the live order-routing path; needs a dedicated
+     branch + manual paper-trading verification.
   4. Replace `subprocess.run(["lsof", ...])` with a documented `psutil`
      fallback chain that doesn't require a non-Python tool to be installed.
-- **Effort**: M-L per slice; full split is L (1–2 weeks).
+     **Status (2026-05-31, iteration 179 §B)**: `_kill_process_on_port` was
+     already psutil-first (prior pass); `_is_macos_tun_proxy_active` now counts
+     `utun*` interfaces via `psutil.net_if_addrs()` (new `_count_utun_interfaces`
+     helper) and only falls back to `ifconfig` when psutil is unavailable. The
+     `scutil --proxy` and `route` probes (macOS-only) remain shell-based — no
+     clean psutil/stdlib equivalent — and stay as documented fallbacks.
+- **Effort**: M-L per slice; full split (slice 3) is L (1–2 weeks).
 
 ### 6. `workspace_service.py` (~2560 lines → 726 lines after slices)
 
