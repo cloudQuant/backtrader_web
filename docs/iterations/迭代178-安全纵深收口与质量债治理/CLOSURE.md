@@ -11,9 +11,10 @@
 
 收口了 177 留下的两条最硬尾巴：① 把实盘网关层阻塞 I/O 从事件循环上移走（§B，P1 正确性），
 ② 为 git 历史凭据清除备好了可执行的 runbook + 脚本 + 门控 CI flip（§A，P0 安全的代码侧
-闭环，破坏性运维动作交 owner）。同时把 16 处静默吞异常全部加上可观测日志（§D），并实测把
-mypy 仓库级 baseline 从 1065 下拧到 1017（§E，证明棘轮能双向工作）。§C（pip-audit flip）
-因本地环境无法访问 PyPI 顺延到 CI 执行。
+闭环，破坏性运维动作交 owner）。同时把 16 处静默吞异常全部加上可观测日志（§D），实测把
+mypy 仓库级 baseline 从 1065 下拧到 1017（§E），并修复了一个真实依赖漏洞（§C：starlette
+CVE-2026-48710 "BadHost"，1.0.0→1.0.1）后把 `pip-audit` flip 成 blocking。本迭代 §A–§F 全部
+代码侧收口。
 
 ---
 
@@ -25,8 +26,8 @@ mypy 仓库级 baseline 从 1065 下拧到 1017（§E，证明棘轮能双向工
 | §D 吞异常留痕 | 16 处加日志 | 16 处全部 `logger.debug(exc_info=True)`，实盘/隧道路径 100% | ✅ |
 | §E mypy 棘轮下行 | baseline 实测下降 | `app/api/live_trading` strict 清零，1065→**1017**（-48） | ✅ |
 | §A git 历史清除收口 | runbook + 脚本 + 门控 flip | 全部就绪并验证；轮换/重写交 owner | ✅（代码侧） |
-| §C pip-audit flip | 基线入库 + flip blocking | **顺延**：本地无法访问 PyPI，需 CI 干净网络 | ⏭️ |
-| §F advisory flip 决策 | 决策清单 | §A/§C 已门控/顺延，其余记录理由 | ✅ |
+| §C pip-audit flip | 基线入库 + flip blocking | starlette CVE 修复（1.0.0→1.0.1），基线清零，CI 已 blocking | ✅ |
+| §F advisory flip 决策 | 决策清单 | §A 门控 / §C 已 flip，其余记录理由 | ✅ |
 | 质量基线 | ruff 0 / format 全过 / 测试绿 | 全部通过；mypy 棘轮稳定 1017 | ✅ |
 
 ---
@@ -121,17 +122,33 @@ quote_custom_symbols.json）。清除需 force-push 重写历史，属破坏性�
 
 ---
 
-## 6. §C — pip-audit flip（顺延）
+## 6. §C — pip-audit 基线与 flip blocking（commit `bd4e3fa`）
 
-PLAN 计划在 CI 拿 `pip-audit` 漏洞基线后 flip blocking。**本地环境无法访问 PyPI**
-（`pip-audit` 对 `pypi.org` 的 HTTPS 握手 `SSL: UNEXPECTED_EOF`，并最终超时），无法产出
-可信的漏洞基线。按"不臆造验证结果"的纪律，本项**顺延到 CI 干净网络执行**：
+PLAN 原把 §C 标为顺延，理由是本地 pip-audit 跑不动。复查发现：`pypi.org` 其实**可达，
+只是极慢**（单请求 ~13s，逐包查询数百个依赖必然超时），而 OSV.dev 快且可批量。改用两条
+更快路径交叉验证拿到可信基线：
 
-- 当前 CI `ci.yml:493` 仍 `pip-audit ... || true`（advisory），不阻塞。
-- 后续步骤（在 CI 或可访问 PyPI 的环境）：跑 `pip-audit --format json` 拿基线 → 逐条
-  升级或 `--ignore-vuln <ID>` + 记录理由 → 去掉 `|| true` flip blocking。
+1. **OSV 批量查询**（`/v1/querybatch`）：把锁文件已 pin 的 188 个 `name==version` 一次性查 OSV。
+2. **`pip-audit --requirement <lock> --no-deps`**：`--no-deps` 跳过依赖解析（锁已全 pin），
+   只做漏洞查询，prod lock 实测秒级完成。
 
-> 这是诚实的"未完成"标注，而非假装通过。基线一旦在 CI 产出即可在下一个小迭代收口。
+**发现 1 个真实漏洞**：
+
+| 包 | 版本 | 漏洞 | 说明 |
+| --- | --- | --- | --- |
+| starlette | 1.0.0 | PYSEC-2026-161 / **CVE-2026-48710** "BadHost" | 缺 Host 头校验，`request.url.path` 可被污染，绕过基于路径的鉴权。2026-05-22 披露，fixed 1.0.1。 |
+
+**处置**：starlette 是 FastAPI 0.136.1 的传递依赖（要求 `starlette>=0.46.0`，1.0.1 满足）；
+1.0.0 与 1.0.1 依赖元数据完全一致，单行 bump 无传递影响。把 4 个锁文件
+（config/ + src/backend/ 的 prod + dev）`starlette==1.0.0`→`1.0.1`。
+
+**验证**：`pip install starlette==1.0.1` 干净；`app.main` 正常 import；auth/middleware/
+main 路由测试 66 passed（确认 Host 头处理变化不破坏请求/路由）；处置后 OSV 批量 + pip-audit
+均报 **0 漏洞**。
+
+**flip**：`ci.yml` `backend-security` 的 pip-audit 从 `|| true`（advisory）改为审计 pin 的
+prod lock（`--no-deps`，结果确定、与部署镜像一致）的 **blocking** 步骤。基线与方法见
+`pip-audit-baseline.md`。
 
 ---
 
@@ -140,7 +157,7 @@ PLAN 计划在 CI 拿 `pip-audit` 漏洞基线后 flip blocking。**本地环境
 | 门禁 | 当前 | 178 处置 |
 | --- | --- | --- |
 | `secret-scan` 全史 | advisory | §A：已门控，历史清除后设 `SECRET_SCAN_HISTORY_BLOCKING=true` 即 blocking |
-| `pip-audit` | advisory | §C：顺延，待 CI 拿基线 |
+| `pip-audit` | advisory | §C：**已 flip blocking**（starlette CVE 修复后基线清零） |
 | i18n 全量 strict / e2e i18n | advisory | 未在本迭代收敛，沿用 177 顺延理由（需 baseline 清中文泄露） |
 | `monorepo-check` | advisory | 团队策略项，不在本迭代 flip |
 
@@ -148,12 +165,13 @@ PLAN 计划在 CI 拿 `pip-audit` 漏洞基线后 flip blocking。**本地环境
 
 ## 8. 未完成 / 顺延项
 
-- **§C pip-audit flip**：环境网络受限，顺延到 CI 执行（见 §6）。
 - **§A 轮换 + 历史重写**：P0 owner 运维动作，代码侧已备好全部工具（见 §5）。
 - **P1#4 网关家族拆分（slice 3）**：本迭代只做了 slice 2（to_thread），按文件拆分仍需独立
   分支 + 纸面验证。
 - **F5 超大文件拆分**：standing 规则，滚动推进。
 - **前端**：本迭代未触前端，沿用 177 终态（vue-tsc 0 / vitest 全绿）。
+
+> §C 已收口（不再顺延）：见 §6。
 
 ---
 
@@ -165,6 +183,7 @@ PLAN 计划在 CI 拿 `pip-audit` 漏洞基线后 flip blocking。**本地环境
 | `3b140bc` | refactor(observability): log swallowed exceptions on live/tunnel/sync paths (§D) |
 | `3fa20cf` | ci(types): strict-clean app/api/live_trading, ratchet 1065→1017 (§E) |
 | `4d512051` | ops(security): history-purge runbook + gated secret-scan blocking flip (§A) |
+| `bd4e3fa` | ci(security): fix starlette CVE-2026-48710, flip pip-audit to blocking (§C) |
 
 ---
 
@@ -185,6 +204,10 @@ python scripts/ci/mypy_ratchet.py                           # errors=1017 baseli
 # §A 历史清除工具
 scripts/ops/purge_secret_history.sh --dry-run               # 列出 7 类待清路径
 python -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"  # CI YAML OK
+
+# §C 依赖漏洞基线（处置后清零）
+pip-audit --requirement config/requirements-prod.lock --no-deps --desc     # No known vulnerabilities found
+grep -n "starlette" config/requirements-prod.lock          # starlette==1.0.1
 
 # 质量基线
 ruff check src/backend                                      # 0

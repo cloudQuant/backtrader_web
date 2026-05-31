@@ -294,8 +294,8 @@ async def get_gateway_health(...):
       P0#3 backlog 证据链更新（仍 OPEN，待 owner 执行轮换/重写）。
 - [x] §B：三个 async 网关端点改 `to_thread`（实际扩展到 7 个阻塞端点）；并发不阻塞测试通过；
       实盘相关测试全绿。
-- [ ] §C：`pip-audit` 基线入库、每条 CVE 有处置、CI flip blocking。**顺延**：本地环境无法访问
-      PyPI（SSL 握手失败），无法产出可信基线；需在 CI 干净网络执行，见 CLOSURE §C。
+- [x] §C：`pip-audit` 基线入库、命中漏洞已处置（starlette CVE-2026-48710 → 1.0.1）、
+      CI flip blocking。基线通过 OSV 批量 + `pip-audit --no-deps` 交叉验证（绕开本地 PyPI 慢链路）。
 - [x] §D：16 处吞异常全部留痕；实盘/隧道路径 100% 覆盖。
 - [x] §E：mypy baseline 实测下降 1065→1017 并 `--update` 收紧；棘轮牙齿验证通过。
 - [x] `ruff check src/backend` = 0；`ruff format --check` 全通过；后端相关测试全绿。
