@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import shlex
 import shutil
@@ -26,6 +27,8 @@ from app.services.sync import progress as sync_progress
 from app.services.sync import schema_diff as sync_schema
 from app.services.sync import transport as sync_transport
 from app.utils.backend_data_paths import get_backend_data_path
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -535,7 +538,11 @@ class SyncService:
                     timeout=self._connect_timeout,
                 )
             except Exception:
-                pass
+                logger.debug(
+                    "Failed to clean up remote temp dump for %s (best-effort)",
+                    database,
+                    exc_info=True,
+                )
 
     async def _dump_local_database(
         self,

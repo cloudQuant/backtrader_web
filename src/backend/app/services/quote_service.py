@@ -612,7 +612,7 @@ class QuoteService:
             if preferred:
                 return preferred[0]
         except Exception:
-            pass
+            logger.debug("Failed to probe gateway readiness via ping", exc_info=True)
         return None
 
     def _hydrate_snapshot_ticks(

@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
 
         get_quote_service().shutdown()
     except Exception:
-        pass
+        logger.debug("Failed to shut down quote service cleanly", exc_info=True)
 
     # Reset the feature-flags cache so a subsequent in-process startup (e.g.
     # tests, ASGI reload) recomputes flags after router registration rather
@@ -86,7 +86,7 @@ async def lifespan(app: FastAPI):
         try:
             reset_feature_flags()
         except Exception:
-            pass
+            logger.debug("Failed to reset feature-flags cache on shutdown", exc_info=True)
 
 
 app = FastAPI(

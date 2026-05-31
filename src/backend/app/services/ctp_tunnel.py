@@ -49,7 +49,7 @@ def _get_http_proxy() -> tuple[str, int] | tuple[None, None]:
         if enabled and host and port:
             return host, port
     except Exception:
-        pass
+        logger.debug("Failed to parse HTTP proxy config from scutil output", exc_info=True)
     return None, None
 
 
@@ -110,7 +110,7 @@ class _CTPTunnel:
             try:
                 self._server_sock.close()
             except Exception:
-                pass
+                logger.debug("Failed to close CTP tunnel server socket", exc_info=True)
         if self._thread:
             self._thread.join(timeout=3.0)
         logger.info("CTP tunnel stopped: port %d", self._local_port)
@@ -208,13 +208,13 @@ class _CTPTunnel:
                 try:
                     sel.close()
                 except Exception:
-                    pass
+                    logger.debug("Failed to close CTP tunnel selector", exc_info=True)
             for s in (client_sock, remote_sock):
                 if s:
                     try:
                         s.close()
                     except Exception:
-                        pass
+                        logger.debug("Failed to close CTP tunnel socket", exc_info=True)
 
 
 def is_proxy_tunnel_needed() -> bool:

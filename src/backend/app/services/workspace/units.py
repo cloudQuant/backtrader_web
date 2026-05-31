@@ -247,7 +247,9 @@ async def list_units(
                     if opt_info:
                         opt_progress_map[task_id] = opt_info
                 except Exception:
-                    pass
+                    logger.debug(
+                        "Failed to load optimization progress for task %s", task_id, exc_info=True
+                    )
 
         return [
             WorkspaceService._unit_to_dict(

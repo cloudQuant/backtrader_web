@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,8 @@ from sqlalchemy import select
 from app.db.database import async_session_maker
 from app.models.knowledge_base import ChatConversation, ChatMessage, KBDocument, KnowledgeBase
 from app.utils.backend_data_paths import get_backend_data_path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -465,7 +468,7 @@ class ReqDocsMigrationService:
                 if client is not None:
                     client.close()
             except Exception:
-                pass
+                logger.debug("Failed to close MongoDB client (best-effort)", exc_info=True)
 
         return {
             "projects": projects,

@@ -49,7 +49,7 @@ def _kill_process_on_port(port: int) -> None:
     except ImportError:
         pass
     except Exception:
-        pass
+        _logger.debug("psutil-based port release failed for port %d", port, exc_info=True)
     # Fallback: lsof (macOS / Linux)
     try:
         result = subprocess.run(
@@ -71,7 +71,7 @@ def _kill_process_on_port(port: int) -> None:
                     except (OSError, ProcessLookupError):
                         pass
     except Exception:
-        pass
+        _logger.debug("lsof-based port release failed for port %d", port, exc_info=True)
 
 
 def _extract_port_from_zmq_error(err_msg: str) -> int | None:
@@ -183,7 +183,7 @@ def _start_runtime_with_retry(
                     try:
                         runtime.stop()
                     except Exception:
-                        pass
+                        _logger.debug("Failed to stop gateway runtime before retry", exc_info=True)
                     time.sleep(1.0)
                     last_exc = RuntimeError(err_msg)
                     continue
@@ -493,7 +493,7 @@ def _load_backend_gateway_env_values() -> dict[str, str]:
                 if value not in {None, ""}:
                     values[key] = str(value).strip()
     except Exception:
-        pass
+        _logger.debug("dotenv-based gateway env load failed; using parsed fallback", exc_info=True)
 
     for key, value in os.environ.items():
         if value not in {None, ""}:
@@ -1097,7 +1097,7 @@ def _check_route_goes_through_tun(ip: str) -> bool:
                 iface = stripped.split(":", 1)[1].strip()
                 return iface.startswith("utun")
     except Exception:
-        pass
+        _logger.debug("Route lookup for %s failed; assuming no TUN route", ip, exc_info=True)
     return False
 
 

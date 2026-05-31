@@ -356,7 +356,9 @@ class WorkspaceRunOpsMixin:
                         if opt_info:
                             opt_progress_map[tid] = opt_info
                     except Exception:
-                        pass
+                        logger.debug(
+                            "Failed to load optimization progress for task %s", tid, exc_info=True
+                        )
 
             responses: list[UnitStatusResponse] = []
             for u in units:
