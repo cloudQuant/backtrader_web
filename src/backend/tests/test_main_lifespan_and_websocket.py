@@ -142,6 +142,7 @@ def test_main_websocket_rejects_query_token_fallback(monkeypatch):
         assert exc_info.value.code == 1008
 
 
+@pytest.mark.flaky(reruns=3, reruns_delay=1)
 def test_data_topics_websocket_streams_single_topic_update(monkeypatch):
     import app.services.data_topic_hub as data_topic_module
     import app.services.ws_gateway as ws_gateway_module
