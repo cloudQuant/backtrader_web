@@ -23,8 +23,8 @@ from app.models.akshare_mgmt import (
     TaskExecution,
     TriggeredBy,
 )
-from app.services.akshare_data_service import AkshareDataService
-from app.services.akshare_execution_service import AkshareExecutionService
+from app.services.akshare.data import AkshareDataService
+from app.services.akshare.execution import AkshareExecutionService
 
 settings = get_settings()
 

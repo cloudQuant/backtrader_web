@@ -4,7 +4,9 @@ import json
 import subprocess
 from pathlib import Path
 
-SCRIPT_PATH = Path(__file__).resolve().parents[3] / "scripts" / "smoke_ctp_gateway.py"
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[3] / "scripts" / "diagnostics" / "smoke_ctp_gateway.py"
+)
 SPEC = importlib.util.spec_from_file_location("smoke_ctp_gateway_script", SCRIPT_PATH)
 smoke_ctp_gateway = importlib.util.module_from_spec(SPEC)
 assert SPEC is not None and SPEC.loader is not None

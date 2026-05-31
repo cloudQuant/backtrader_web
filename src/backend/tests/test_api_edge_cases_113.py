@@ -166,7 +166,7 @@ async def test_portfolio_api_overview_positions_equity_missing_branches(tmp_path
 @pytest.mark.asyncio
 async def test_realtime_data_websocket_disconnect_on_exception(monkeypatch):
     """Cover realtime_data websocket connect/send/exception/disconnect branch."""
-    from app.api import realtime_data as api
+    from app.api.data import realtime as api
 
     ws = object()
     monkeypatch.setattr(api.ws_manager, "connect", AsyncMock())
@@ -190,7 +190,7 @@ async def test_realtime_data_websocket_disconnect_on_exception(monkeypatch):
 @pytest.mark.asyncio
 async def test_strategy_templates_and_config_missing_branches(tmp_path: Path):
     """Cover strategy API missing branches: template filtering, 404s, config read."""
-    from app.api import strategy as api
+    from app.api.strategy import base as api
 
     # get_templates: category filter
     tpl1 = SimpleNamespace(id="t1", name="T1", category="c1")
@@ -240,7 +240,7 @@ async def test_strategy_templates_and_config_missing_branches(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_strategy_version_api_ws_notifications_and_returns(monkeypatch):
     """Cover strategy_version API missing ws notification lines and return statements."""
-    from app.api import strategy_version as api
+    from app.api.strategy import version as api
     from app.schemas.strategy_version import (
         VersionComparisonRequest,
         VersionCreate,

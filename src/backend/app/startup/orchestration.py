@@ -33,7 +33,7 @@ async def register(app: FastAPI, settings: Any) -> None:
     except Exception:
         startup_logger.exception("Failed to start orchestration backend")
         try:
-            from app.services.akshare_scheduler_service import get_akshare_scheduler_service
+            from app.services.akshare.scheduler_service import get_akshare_scheduler_service
 
             akshare_scheduler_service = get_akshare_scheduler_service()
             app.state.akshare_scheduler_service = akshare_scheduler_service

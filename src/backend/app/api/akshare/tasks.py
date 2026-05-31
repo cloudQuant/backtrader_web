@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.data.deps import get_current_db_user, require_data_admin_user
 from app.db.database import get_db
 from app.schemas.akshare_mgmt import ScheduledTaskCreate, ScheduledTaskUpdate
-from app.services.akshare_scheduler_service import get_akshare_scheduler_service
+from app.services.akshare.scheduler_service import get_akshare_scheduler_service
 
 router = APIRouter()
 

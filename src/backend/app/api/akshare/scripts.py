@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.data.deps import get_current_db_user, require_data_admin_user
 from app.db.database import get_db
 from app.schemas.akshare_mgmt import DataScriptCreate, DataScriptUpdate, ScriptRunRequest
-from app.services.akshare_script_service import AkshareScriptService
+from app.services.akshare.script import AkshareScriptService
 
 router = APIRouter()
 

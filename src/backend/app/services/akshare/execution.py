@@ -215,7 +215,7 @@ class AkshareExecutionService:
         if execution.task_id is None:
             raise ValueError("Only task-linked executions can be retried")
 
-        from app.services.akshare_scheduler_service import get_akshare_scheduler_service
+        from app.services.akshare.scheduler_service import get_akshare_scheduler_service
 
         service = get_akshare_scheduler_service()
         new_execution = await service.run_task_now(execution.task_id, operator_id=operator_id)

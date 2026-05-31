@@ -11,8 +11,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.akshare_mgmt import DataScript, ScheduledTask
-from app.services.akshare_execution_service import AkshareExecutionService
-from app.services.akshare_scheduler import AkshareScheduler
+from app.services.akshare.execution import AkshareExecutionService
+from app.services.akshare.scheduler import AkshareScheduler
 
 if TYPE_CHECKING:
     from app.models.akshare_mgmt import TaskExecution

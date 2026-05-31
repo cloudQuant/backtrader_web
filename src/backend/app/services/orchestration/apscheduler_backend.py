@@ -17,7 +17,7 @@ class APSchedulerBackend(OrchestratorBackend):
     """
 
     def __init__(self) -> None:
-        from app.services.akshare_scheduler import AkshareScheduler
+        from app.services.akshare.scheduler import AkshareScheduler
 
         self._scheduler = AkshareScheduler()
 

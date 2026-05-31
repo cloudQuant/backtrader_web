@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.data.deps import get_current_db_user, require_data_admin_user
 from app.db.database import get_db
-from app.services.akshare_execution_service import AkshareExecutionService
+from app.services.akshare.execution import AkshareExecutionService
 
 router = APIRouter()
 

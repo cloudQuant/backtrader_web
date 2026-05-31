@@ -11,8 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.data.deps import require_data_admin_user
 from app.db.database import get_db
 from app.schemas.akshare_mgmt import DataInterfaceCreate, DataInterfaceUpdate
-from app.services.akshare_interface_loader import AkshareInterfaceLoader
-from app.services.akshare_interface_service import AkshareInterfaceService
+from app.services.akshare.interface import AkshareInterfaceService
+from app.services.akshare.interface_loader import AkshareInterfaceLoader
 
 router = APIRouter()
 

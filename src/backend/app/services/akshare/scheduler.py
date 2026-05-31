@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.db.database import async_session_maker
 from app.models.akshare_mgmt import ScheduledTask, ScheduleType, TriggeredBy
-from app.services.akshare_script_service import AkshareScriptService
+from app.services.akshare.script import AkshareScriptService
 
 if TYPE_CHECKING:
     from app.models.akshare_mgmt import TaskExecution
