@@ -2,7 +2,7 @@
 
 **关闭日期**: 2026-05-31
 **起点**: 迭代 176 收口（commit `2c4db6cb`）
-**终点**: 本迭代 §A–§E 收口 + 门禁开启后暴露的真实 bug 修复（§F）
+**终点**: 本迭代 §A–§E 收口 + 门禁开启后暴露的真实 bug 修复（§F）+ 既有测试欠债清零（§G）
 **性质**: 质量加固 / 安全纵深 / CI 门禁修复（非新产品特性）
 
 ---
@@ -29,7 +29,7 @@ lint/format 债（§B），把弃用的 `safety` 换成 `pip-audit`（§C），�
 | §D 泄露凭据处置 | （PLAN 未预见） | 9 类运行时文件 untrack + ignore | ✅ |
 | §E mypy 仓库级棘轮 | stretch / 可选 | 实现棘轮脚本 + baseline，修复 backend-lint 的隐性红 | ✅ |
 | §F 门禁开启后暴露的真实 bug | （PLAN 未预见） | 修复 akshare 导入链断裂 + 6 个 rot 测试 | ✅ |
-| §F' 既有测试欠债盘点 | （PLAN 未预见） | 发现大量先于 177 存在的红测试，登记跟进 | ⚠️ |
+| §G 既有测试欠债清零 | （PLAN 未预见） | 87 个确定性失败 → 0；2 个并行 flake 加 rerun | ✅ |
 
 ---
 
@@ -170,22 +170,57 @@ mypy 棘轮 baseline 1055 → **1065**：修好导入后，原先因 import 失�
 `data_fetch` 代码变得可被 mypy 看见，暴露了既有的 Optional-cursor 等隐性告警（非新 bug）。
 按棘轮纪律 `--update` 收录为新基线并在 commit 说明记录原因。
 
-### 6.5.3 ⚠️ 既有测试欠债盘点（先于 177，未在本迭代清完）
+### 6.5.3 既有测试欠债盘点（先于 177）→ 已在 §G 清零
 
-抽样运行发现还有**相当数量先于 177 存在的红测试**（例如 `test_realtime_data.py` 约 16 个、
-`test_orchestration/test_backend_contract.py`、`test_monitoring_strategy_version_edge_cases.py`
-等），在起点 commit 上同样失败。它们是"CI 从不在 dev 跑"长期积累的结果。
+门禁开启后，全量 `pytest -n auto`（非 e2e/perf）首跑暴露 **87 个确定性失败**（先于 177，
+在起点 commit 上同样失败，"CI 从不在 dev 跑"长期积累所致）。这批欠债已在 **§G 全部清零**
+（见下）。本节保留作为问题发现的记录。
 
-- 本迭代**只修了被 §A/§B/§D/§E 直接牵连、且为明确 rot 的那批**（上表 6 个 + akshare 链）。
-- **完整清债是一项独立的、规模可观的工作**，不宜在单次会话里无检查点地一把梭——强行
-  mass-`xfail` 会掩盖真实问题，违背"绿色 CI = 健康代码"的初衷。
-- **影响**：§A 生效后 `backend-test` 在 dev 上短期内仍会红（因这批欠债）。
-- **建议（需团队决策其一）**：
-  1. 开一个专门的"测试欠债清零"迭代，按文件 burn-down；或
-  2. 在清完前，把 `backend-test` 暂设为 advisory（`continue-on-error`），其余门禁保持
-     blocking——但需明确这是临时措施并设清零期限。
+> 这一盘点本身就是 177 的价值：门禁修好后，长期被掩盖的欠债第一次变得可见、可度量、并清零。
 
-> 这一盘点本身就是 177 的价值：门禁修好后，长期被掩盖的欠债第一次变得可见、可度量。
+---
+
+## 6.6 §G — 既有测试欠债清零（commits `0eaa56dc`, `dd7cf29f`）
+
+全量首跑：**87 failed / 3010 passed**。逐一定位根因后，终态 **0 个确定性失败**
+（3097 passed），过程零行为回归。绝大多数是历史重构搬走模块/符号但未更新调用点或测试。
+
+### 6.6.1 生产 bug（门禁开启才暴露，真实影响线上）
+
+| # | 文件 | 问题 | 修复 |
+|---|------|------|------|
+| 1 | `app/api/router.py` | 可选路由 `realtime_data` 指向已删除的扁平 `app.api.realtime_data`，导致整个 `/api/v1/realtime/*` API 静默 404 | 改指 `app.api.data.realtime` |
+| 2 | `app/services/workspace_unit_runtime.py` | 策略模板目录缺失时 `sync_trading_unit_runtime` 抛 `FileNotFoundError`，使建单接口 500（`src/strategies/` 是开发机本地、未入库） | `_sync_trading_runtime_sources` 缺失即跳过+告警；`_strategy_module_name` 返回 `""` 不再抛；补模块级 logger |
+
+### 6.6.2 测试 rot（引用了被重构搬走的模块/符号路径）
+
+| 测试文件 | 旧路径 → 新路径 |
+|----------|----------------|
+| `test_strategy_version_service/api`、`test_service_edge_cases_113`、`test_param_optimization_service_branches`、`test_monitoring_strategy_version_edge_cases`、`test_misc_edge_cases` | `app.services.strategy_version_service` → `app.services.strategy.version`；`app.api.strategy_version` → `app.api.strategy.version` |
+| `test_live_trading_service`、`test_service_edge_cases_113` | `app.services.live_trading_service` → `app.services.live_trading.service` |
+| `test_strategy_score_api` / `test_strategy_explainer_api` | patch 目标 → `app.api.strategy.score` / `app.api.strategy.explainer` |
+| `test_orchestration/test_backend_contract` | patch 目标 → `app.services.akshare.scheduler` |
+| `test_api_router_optional_imports` | blocked 集 → `app.api.strategy.version` / `app.api.data.realtime` |
+| `test_misc_branch_fixes` | 已删除的 `app.api.deps_permissions` shim → 改测 `deps` → `_dependencies` 现存委托 |
+| `test_news_classifier` | 还原被误删的 `data/news_labelled_200.csv` 黄金集 |
+
+### 6.6.3 测试对未入库模板目录的依赖（自包含化）
+
+`test_trading_workspace_service`（2）与 `test_workspace_trading_api`（4）依赖
+`src/strategies/simulate/gateway_*` 模板（gitignore、未入库）。改为测试内自建最小模板
+（`run.py` + `strategy_*.py`）并用完清理，不再依赖 checkout 特定目录。
+
+### 6.6.4 并行 flake（非确定性，非回归）
+
+`test_login_rate_limit` 与 `test_data_topics_websocket_streams_single_topic_update` 在
+**单独/小并行**下稳定通过，仅在 ~3100 全量 `-n auto` 高负载下偶发（共享内存限流器时间窗 /
+websocket 异步投递时序）。断言本身正确、非回归，故用 `@pytest.mark.flaky(reruns=3)`
+（pytest-rerunfailures）隔离，而非弱化断言。CI 用 `-n auto`，此举保门禁绿且不掩盖真实 bug。
+
+### 6.6.5 mypy 棘轮
+
+§G 的导入修复让原先因 import 失败而无法分析的 akshare `data_fetch` 代码可被 mypy 看见，
+baseline 1055 → **1065**（见 §F；非新 bug，是类型覆盖扩大）。后续 §G 改动 baseline 稳定 1065。
 
 ---
 
