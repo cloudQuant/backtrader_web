@@ -487,13 +487,28 @@ jobs:
 
       # Iteration 177 §C — replace the deprecated `safety check` CLI (Safety
       # 3.x removed `check` in favour of an account-gated `safety scan`) with
-      # pip-audit (PyPA, OSV-backed, no account required). Advisory for one
-      # iteration to establish a baseline; flip to blocking (drop the `|| true`)
-      # once the baseline is clean. See docs/iterations/迭代177-*/PLAN.md §C.
-      - name: Audit Python dependencies (pip-audit, advisory)
+      # pip-audit (PyPA, OSV-backed, no account required).
+      #
+      # Iteration 178 §C — flipped to BLOCKING. The baseline was taken against
+      # the pinned locks via OSV (see docs/iterations/迭代178-安全纵深收口与质量债治理/
+      # pip-audit-baseline.md): the only finding was starlette 1.0.0
+      # (CVE-2026-48710 "BadHost"), bumped to 1.0.1 in the lock files. The
+      # baseline is now clean, so a new vulnerability fails the build.
+      #
+      # Audits the pinned production lock (the deployable dependency set) so the
+      # result is deterministic and matches what ships in the image.
+      - name: Audit Python dependencies (pip-audit, blocking)
         run: |
-          pip-audit --desc --format json --output pip-audit-report.json || true
-          pip-audit --desc || echo "::warning::pip-audit reported vulnerabilities (advisory; see pip-audit-report.json)"
+          pip-audit \
+            --requirement ../../config/requirements-prod.lock \
+            --no-deps \
+            --desc \
+            --format json \
+            --output pip-audit-report.json
+          pip-audit \
+            --requirement ../../config/requirements-prod.lock \
+            --no-deps \
+            --desc
 
       - name: Upload security reports
         uses: actions/upload-artifact@v4
