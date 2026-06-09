@@ -3,19 +3,23 @@
     trigger="click"
     @command="handleChange"
   >
-    <span class="language-switcher">
+    <button
+      type="button"
+      class="language-switcher"
+      :aria-label="t('nav.languageSwitcher')"
+    >
       <el-icon><Promotion /></el-icon>
       <span class="language-label">{{ currentLabel }}</span>
-    </span>
+    </button>
     <template #dropdown>
       <el-dropdown-menu>
-        <el-dropdown-item 
-          v-for="loc in locales" 
-          :key="loc.value" 
-          :command="loc.value"
-          :class="{ 'is-active': currentLocale === loc.value }"
+        <el-dropdown-item
+          v-for="entry in LOCALE_ENTRIES"
+          :key="entry.code"
+          :command="entry.code"
+          :class="{ 'is-active': currentLocale === entry.code }"
         >
-          {{ loc.label }}
+          {{ entry.label }}
         </el-dropdown-item>
       </el-dropdown-menu>
     </template>
@@ -25,25 +29,23 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Promotion } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { setLocale, getLocaleLabel } from '@/i18n'
+import { LOCALE_ENTRIES } from '@/i18n/locales/registry'
 
-const { locale } = useI18n()
-
-const locales = [
-  // i18n-ignore-next-line
-  // i18n-reason: native-script self-label by convention; switching to t() would defeat the purpose of a language picker.
-  { value: 'zh-CN', label: '中文' },
-  { value: 'en-US', label: 'English' },
-]
+const { t, locale } = useI18n()
 
 const currentLocale = computed(() => locale.value)
-
 const currentLabel = computed(() => getLocaleLabel(currentLocale.value))
 
-function handleChange(lang: string): void {
-  if (locale.value !== lang) {
-    setLocale(lang)
+function handleChange(code: string): void {
+  if (locale.value === code) {
+    return
+  }
+  const result = setLocale(code)
+  if (result.ok && result.reason === 'persist-failed') {
+    ElMessage.warning(t('common.localePersistFailed'))
   }
 }
 </script>
@@ -56,11 +58,20 @@ function handleChange(lang: string): void {
   cursor: pointer;
   padding: 8px 12px;
   border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   transition: background-color 0.2s;
 }
 
 .language-switcher:hover {
   background-color: var(--el-fill-color-light);
+}
+
+.language-switcher:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
 }
 
 .language-label {

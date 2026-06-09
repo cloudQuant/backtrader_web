@@ -1,53 +1,101 @@
 import { createI18n } from 'vue-i18n'
-import zhCN from './locales/zh-CN'
-import enUS from './locales/en-US'
 
-// 获取存储的语言设置，默认为中文
-function getStoredLocale(): string {
-  const stored = localStorage.getItem('locale')
-  if (stored && ['zh-CN', 'en-US'].includes(stored)) {
-    return stored
+import {
+  DEFAULT_LOCALE,
+  MESSAGES,
+  SUPPORTED_LOCALES,
+  getEntry,
+  isSupportedLocale,
+  type LocaleCode,
+} from './locales/registry'
+
+const STORAGE_KEY = 'locale'
+
+/**
+ * Infer a supported locale from the browser language by matching the language
+ * subtag (the part before the first hyphen), case-insensitively. Falls back to
+ * the default locale when there is no match.
+ */
+function inferFromBrowser(): LocaleCode {
+  const raw = (typeof navigator !== 'undefined' && navigator.language) || ''
+  const sub = raw.split('-')[0]?.toLowerCase()
+  if (sub) {
+    const hit = SUPPORTED_LOCALES.find(
+      (code) => code.split('-')[0].toLowerCase() === sub,
+    )
+    if (hit) return hit
   }
-  // 根据浏览器语言自动选择
-  const browserLang = navigator.language
-  if (browserLang.startsWith('zh')) {
-    return 'zh-CN'
+  return DEFAULT_LOCALE
+}
+
+/**
+ * Resolve the initial locale: a valid persisted value wins; otherwise infer
+ * from the browser language; otherwise the default locale.
+ */
+export function getStoredLocale(): LocaleCode {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored && isSupportedLocale(stored)) {
+      return stored
+    }
+  } catch {
+    // localStorage unavailable (e.g. private mode) — fall through to inference.
   }
-  return 'en-US'
+  return inferFromBrowser()
 }
 
 const i18n = createI18n({
-  legacy: false, // 使用 Composition API 模式
+  legacy: false, // Composition API mode
   locale: getStoredLocale(),
-  fallbackLocale: 'en-US',
-  messages: {
-    'zh-CN': zhCN,
-    'en-US': enUS,
-  },
+  fallbackLocale: DEFAULT_LOCALE,
+  messages: MESSAGES,
 })
 
-// 切换语言并持久化
-export function setLocale(locale: string): void {
-  if (['zh-CN', 'en-US'].includes(locale)) {
-    i18n.global.locale.value = locale as 'zh-CN' | 'en-US'
-    localStorage.setItem('locale', locale)
-    // 更新 HTML lang 属性
-    document.documentElement.lang = locale === 'zh-CN' ? 'zh' : 'en'
+/** Set `<html lang>` to the full BCP 47 code for the given locale. */
+function applyHtmlLang(code: LocaleCode): void {
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = getEntry(code).code
   }
 }
 
-// 获取当前语言
-export function getLocale(): string {
-  return i18n.global.locale.value
+// Apply initial document language.
+applyHtmlLang(i18n.global.locale.value as LocaleCode)
+
+export interface SetLocaleResult {
+  ok: boolean
+  reason?: 'unsupported' | 'persist-failed'
 }
 
-// 获取语言标签
-export function getLocaleLabel(locale: string): string {
-  const labels: Record<string, string> = {
-    'zh-CN': '中文',
-    'en-US': 'English',
+/**
+ * Switch the active locale and persist the choice.
+ *
+ * - Rejects unsupported codes without changing any state.
+ * - On success, updates vue-i18n, `<html lang>`, and localStorage.
+ * - If persistence fails, the locale still switches and the result flags
+ *   `persist-failed` so callers can surface a warning.
+ */
+export function setLocale(code: string): SetLocaleResult {
+  if (!isSupportedLocale(code)) {
+    return { ok: false, reason: 'unsupported' }
   }
-  return labels[locale] || locale
+  i18n.global.locale.value = code
+  applyHtmlLang(code)
+  try {
+    localStorage.setItem(STORAGE_KEY, code)
+  } catch {
+    return { ok: true, reason: 'persist-failed' }
+  }
+  return { ok: true }
+}
+
+/** Current active locale. */
+export function getLocale(): LocaleCode {
+  return i18n.global.locale.value as LocaleCode
+}
+
+/** Native label for a locale; returns the raw code for unknown values. */
+export function getLocaleLabel(code: string): string {
+  return isSupportedLocale(code) ? getEntry(code).label : code
 }
 
 export default i18n

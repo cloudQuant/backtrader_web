@@ -24,6 +24,7 @@ export default {
     yes: 'Yes',
     no: 'No',
     subtitle: 'Quantitative Trading Backtest Platform',
+    localePersistFailed: 'Failed to save language preference; it may reset after reload.',
   },
 
   // Navigation
@@ -59,6 +60,7 @@ export default {
     closeMenu: 'Close navigation menu',
     userMenu: 'User menu',
     primary: 'Primary navigation',
+    languageSwitcher: 'Language',
   },
 
   // Auth

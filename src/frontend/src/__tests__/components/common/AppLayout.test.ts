@@ -44,6 +44,7 @@ vi.mock('@element-plus/icons-vue', () => ({
   Fold: { template: '<span>Fold</span>' },
   Close: { template: '<span>Close</span>' },
   Check: { template: '<span>Check</span>' },
+  Promotion: { template: '<span>Promotion</span>' },
 }))
 
 // Mock Element Plus ElMessage
@@ -353,6 +354,26 @@ describe('AppLayout', () => {
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       const avatar = wrapper.find('.el-avatar')
       expect(avatar.exists()).toBe(true)
+    })
+  })
+
+  describe('语言切换控件', () => {
+    it('应该在 header 渲染语言切换控件', async () => {
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      expect(wrapper.find('.el-header button.language-switcher').exists()).toBe(true)
+    })
+
+    it('header 右侧顺序应为 主题切换 → 语言切换 → 用户菜单', async () => {
+      const AppLayout = (await import('@/components/common/AppLayout.vue')).default
+      const wrapper = mount(AppLayout, { global: getGlobalConfig() })
+      const html = wrapper.find('.el-header').html()
+      const themeIdx = html.indexOf('theme-icon')
+      const langIdx = html.indexOf('language-switcher')
+      const userIdx = html.indexOf('el-avatar')
+      expect(themeIdx).toBeGreaterThan(-1)
+      expect(langIdx).toBeGreaterThan(themeIdx)
+      expect(userIdx).toBeGreaterThan(langIdx)
     })
   })
 })

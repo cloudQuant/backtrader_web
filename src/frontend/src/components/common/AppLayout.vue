@@ -291,6 +291,7 @@
         
         <div class="flex items-center gap-4 shrink-0">
           <ThemeSwitcher />
+          <LanguageSwitcher />
           <el-dropdown @command="handleCommand">
             <button
               type="button"
@@ -344,6 +345,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import { useThemeStore } from '@/stores/theme'
 import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
+import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 import {
   Aim,
   ChatDotRound,

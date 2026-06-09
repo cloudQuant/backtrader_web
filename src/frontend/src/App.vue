@@ -9,15 +9,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
-import en from 'element-plus/dist/locale/en.mjs'
+import {
+  DEFAULT_LOCALE,
+  getEntry,
+  isSupportedLocale,
+} from '@/i18n/locales/registry'
 import ErrorBoundary from './components/common/ErrorBoundary.vue'
 
 const { locale } = useI18n()
 
-// 根据当前语言返回对应的Element Plus locale
+// Map the active i18n locale to the matching Element Plus locale bundle.
 const elementLocale = computed(() => {
-  return locale.value === 'zh-CN' ? zhCn : en
+  const code = isSupportedLocale(locale.value) ? locale.value : DEFAULT_LOCALE
+  return getEntry(code).elementLocale
 })
 </script>
 

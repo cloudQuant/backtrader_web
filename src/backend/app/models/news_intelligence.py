@@ -55,7 +55,10 @@ class NewsArticleModel(Base):
     source = Column(String(120), nullable=False, default="unknown")
     headline = Column(String(1000), nullable=False)
     url = Column(String(2000), nullable=False)
-    canonical_url = Column(String(2000), nullable=False, index=True)
+    # NOTE: canonical_url participates in a unique index (owner_id, canonical_url)
+    # and a standalone index. MySQL/utf8mb4 caps index keys at 3072 bytes
+    # (768 chars), so keep this column short enough to be indexable.
+    canonical_url = Column(String(512), nullable=False, index=True)
     tickers = Column(JSON, nullable=False, default=list)
     priority = Column(String(10), nullable=False, default="P2")
     tier = Column(Integer, nullable=False, default=2)

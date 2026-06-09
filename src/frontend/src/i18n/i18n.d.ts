@@ -25,6 +25,7 @@ declare module 'vue-i18n' {
       disable: string
       yes: string
       no: string
+      localePersistFailed: string
     }
     nav: {
       dashboard: string
@@ -36,6 +37,7 @@ declare module 'vue-i18n' {
       data: string
       settings: string
       comparison: string
+      languageSwitcher: string
     }
     auth: {
       login: string

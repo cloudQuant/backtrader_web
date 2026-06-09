@@ -24,6 +24,7 @@ export default {
     yes: '是',
     no: '否',
     subtitle: '量化交易回测平台',
+    localePersistFailed: '语言偏好保存失败，刷新后可能恢复默认。',
   },
 
   // 导航菜单
@@ -59,6 +60,7 @@ export default {
     closeMenu: '关闭导航菜单',
     userMenu: '用户菜单',
     primary: '主导航',
+    languageSwitcher: '语言',
   },
 
   // 认证

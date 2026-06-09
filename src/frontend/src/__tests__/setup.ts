@@ -66,6 +66,9 @@ vi.mock('@/i18n', () => ({
       locale: { value: 'zh-CN' },
     },
   },
+  setLocale: vi.fn(() => ({ ok: true })),
+  getLocale: vi.fn(() => 'zh-CN'),
+  getLocaleLabel: (code: string) => code,
 }))
 
 config.global.stubs = {
