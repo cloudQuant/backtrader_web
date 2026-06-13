@@ -1,7 +1,4 @@
 import api from './index'
-import axios from 'axios'
-
-import { getAccessToken } from '@/utils/session'
 
 export type KnowledgeBaseRetrievalProfile = 'quant_research' | 'precision' | 'exploration'
 export type KnowledgeBaseSearchMode = 'hybrid' | 'keyword'
@@ -55,11 +52,10 @@ export interface KnowledgeBaseUpdateRequest {
   settings?: Partial<KnowledgeBaseSettings>
 }
 
-export interface KBDocumentItem {
+export interface KBDocumentSummaryItem {
   id: string
   knowledge_base_id: string
   title: string
-  content?: string | null
   content_type: string
   file_path?: string | null
   is_folder: boolean
@@ -69,13 +65,19 @@ export interface KBDocumentItem {
   index_status: string
   indexed_at?: string | null
   metadata?: Record<string, unknown> | null
+  has_content?: boolean
+  content_length?: number
   created_at: string
   updated_at: string
 }
 
+export interface KBDocumentItem extends KBDocumentSummaryItem {
+  content?: string | null
+}
+
 export interface KBDocumentListResponse {
   total: number
-  items: KBDocumentItem[]
+  items: KBDocumentSummaryItem[]
 }
 
 export interface KBDocumentCreateRequest {
@@ -113,12 +115,9 @@ export const knowledgeBaseApi = {
     return api.get<KBDocumentItem>(`/knowledge-base/${knowledgeBaseId}/documents/${documentId}`)
   },
   getDocumentSourceFile(knowledgeBaseId: string, documentId: string) {
-    return axios.get(`/api/v1/knowledge-base/${knowledgeBaseId}/documents/${documentId}/source-file`, {
+    return api.get<Blob>(`/knowledge-base/${knowledgeBaseId}/documents/${documentId}/source-file`, {
       responseType: 'blob',
-      headers: {
-        Authorization: `Bearer ${getAccessToken() || ''}`,
-      },
-    }).then(response => response.data as Blob)
+    })
   },
   createDocument(knowledgeBaseId: string, data: KBDocumentCreateRequest) {
     return api.post<KBDocumentItem>(`/knowledge-base/${knowledgeBaseId}/documents/`, data)

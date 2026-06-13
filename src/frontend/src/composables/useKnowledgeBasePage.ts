@@ -160,8 +160,24 @@ export function useKnowledgeBasePage() {
     const start = (currentPage.value - 1) * pageSize.value
     return displayRows.value.slice(start, start + pageSize.value)
   })
-  const selectedDocument = computed(() => displayRows.value.find(doc => doc.id === selectedDocumentId.value) ?? visibleRows.value[0] ?? null)
+  const selectedDocumentSummary = computed(() => displayRows.value.find(doc => doc.id === selectedDocumentId.value) ?? visibleRows.value[0] ?? null)
+  const selectedDocument = computed(() => {
+    const summary = selectedDocumentSummary.value
+    if (!summary) return null
+    if (store.currentDocument?.id === summary.id) {
+      return { ...summary, ...store.currentDocument }
+    }
+    return summary
+  })
   const formattedMetadata = computed(() => (selectedDocument.value?.metadata ? JSON.stringify(selectedDocument.value.metadata, null, 2) : ''))
+  const selectedDocumentContent = computed(() => {
+    const doc = selectedDocument.value
+    if (!doc) return ''
+    if (store.documentDetailLoading && store.currentDocument?.id !== doc.id) {
+      return t('loading')
+    }
+    return doc.content || t('kb.emptyContent')
+  })
   const allVisibleSelected = computed(() => visibleRows.value.length > 0 && visibleRows.value.every(doc => selectedDocumentIds.value.has(doc.id)))
   const bulkDialogMessage = computed(() => {
     const count = selectedDocumentIds.value.size
@@ -197,17 +213,18 @@ export function useKnowledgeBasePage() {
 
   function documentInsight(doc: KBDocumentItem) {
     if (doc.is_folder) return t('kb.statFolders')
-    const length = (doc.content ?? '').length
+    const length = doc.content != null ? doc.content.length : (doc.content_length ?? 0)
     if (length > 4000) return t('kb.msgLongDoc')
-    if (length > 0) return t('kb.msgBodyMigrated')
+    if (length > 0 || doc.has_content) return t('kb.msgBodyMigrated')
     return t('kb.msgPendingContent')
   }
 
   function insightChip(doc: KBDocumentItem) {
     if (doc.is_folder) return '📁 ' + t('kb.msgStructure')
     if (doc.index_status === 'indexed') return '✨ ' + t('kb.statIndexed')
-    if ((doc.content ?? '').length > 4000) return '📚 ' + t('kb.msgLongText')
-    if ((doc.content ?? '').length > 0) return '📝 ' + t('kb.msgBody')
+    const length = doc.content != null ? doc.content.length : (doc.content_length ?? 0)
+    if (length > 4000) return '📚 ' + t('kb.msgLongText')
+    if (length > 0 || doc.has_content) return '📝 ' + t('kb.msgBody')
     return '⏳ ' + t('kb.msgPlaceholder')
   }
 
@@ -577,6 +594,26 @@ export function useKnowledgeBasePage() {
     { immediate: true },
   )
 
+  let documentDetailRequestId = 0
+  watch(
+    () => [store.currentKnowledgeBase?.id, selectedDocumentId.value] as const,
+    async ([kbId, docId]) => {
+      const requestId = ++documentDetailRequestId
+      if (!kbId || !docId) {
+        store.clearCurrentDocument()
+        return
+      }
+      try {
+        await store.fetchDocumentDetail(docId)
+      } catch {
+        if (requestId === documentDetailRequestId) {
+          store.clearCurrentDocument()
+          ElMessage.error(t('kbDoc.msgLoadDocFailed'))
+        }
+      }
+    },
+  )
+
   onMounted(async () => {
     await store.fetchKnowledgeBases()
     const requestedKbId = typeof route.query.kbId === 'string' ? route.query.kbId : undefined
@@ -622,6 +659,7 @@ export function useKnowledgeBasePage() {
     visibleRows,
     selectedDocument,
     formattedMetadata,
+    selectedDocumentContent,
     allVisibleSelected,
     bulkDialogMessage,
     // Functions

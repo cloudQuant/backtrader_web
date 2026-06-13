@@ -126,6 +126,34 @@ def _ensure_index_if_missing(bind, table_name: str, index_name: str, column_name
     logger.warning("Added missing database index %s on %s(%s)", index_name, table_name, column_name)
 
 
+def _modify_mysql_column_type_if_needed(
+    bind,
+    table_name: str,
+    column_name: str,
+    ddl: str,
+    expected_type_fragment: str,
+) -> None:
+    if bind.dialect.name != "mysql" or not _has_table(bind, table_name):
+        return
+
+    columns = {column["name"]: column for column in sa.inspect(bind).get_columns(table_name)}
+    column = columns.get(column_name)
+    if column is None:
+        return
+
+    current_type = str(column["type"]).upper()
+    if expected_type_fragment.upper() in current_type:
+        return
+
+    bind.execute(text(f"ALTER TABLE {table_name} MODIFY COLUMN {column_name} {ddl}"))
+    logger.warning(
+        "Modified MySQL column %s.%s to %s during startup schema sync",
+        table_name,
+        column_name,
+        ddl,
+    )
+
+
 def _ensure_workspace_schema_compatibility_sync(bind) -> None:
     dialect_name = bind.dialect.name
     false_literal = "FALSE" if dialect_name == "postgresql" else "0"
@@ -279,6 +307,19 @@ def _ensure_knowledge_base_schema_compatibility_sync(bind) -> None:
         _add_column_if_missing(bind, "chat_messages", "model_id", "model_id VARCHAR(200)")
         _add_column_if_missing(bind, "chat_messages", "reasoning", "reasoning TEXT")
         _add_column_if_missing(bind, "chat_messages", "created_at", f"created_at {datetime_type}")
+
+    _modify_mysql_column_type_if_needed(
+        bind, "kb_documents", "content", "LONGTEXT NULL", "LONGTEXT"
+    )
+    _modify_mysql_column_type_if_needed(
+        bind, "document_chunks", "content", "LONGTEXT NOT NULL", "LONGTEXT"
+    )
+    _modify_mysql_column_type_if_needed(
+        bind, "chat_messages", "content", "LONGTEXT NOT NULL", "LONGTEXT"
+    )
+    _modify_mysql_column_type_if_needed(
+        bind, "chat_messages", "reasoning", "LONGTEXT NULL", "LONGTEXT"
+    )
 
 
 def _ensure_airflow_schema_compatibility_sync(bind) -> None:

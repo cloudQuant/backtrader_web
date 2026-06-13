@@ -12,6 +12,7 @@ from app.schemas.knowledge_base import (
     KBDocumentCreate,
     KBDocumentListResponse,
     KBDocumentResponse,
+    KBDocumentSummaryResponse,
     KBDocumentUpdate,
     KnowledgeBaseCreate,
     KnowledgeBaseListResponse,
@@ -139,7 +140,7 @@ async def list_documents(
         )
     return KBDocumentListResponse(
         total=len(items),
-        items=[KBDocumentResponse.model_validate(item) for item in items],
+        items=[KBDocumentSummaryResponse.model_validate(item) for item in items],
     )
 
 

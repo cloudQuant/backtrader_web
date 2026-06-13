@@ -742,7 +742,7 @@
               {{ t('kb.contentPreview') }}
             </div>
             <div class="max-h-[640px] overflow-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
-              {{ selectedDocument.content || t('kb.emptyContent') }}
+              {{ selectedDocumentContent }}
             </div>
           </div>
         </div>
@@ -1233,6 +1233,7 @@ const {
   visibleRows,
   selectedDocument,
   formattedMetadata,
+  selectedDocumentContent,
   allVisibleSelected,
   bulkDialogMessage,
   statusClass,

@@ -8,6 +8,7 @@ vi.mock('@/api/knowledgeBase', () => ({
   knowledgeBaseApi: {
     list: vi.fn(),
     listDocuments: vi.fn(),
+    getDocument: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
     createDocument: vi.fn(),
@@ -45,6 +46,25 @@ const baseDoc = {
   updated_at: '2026-04-23T00:00:00Z',
 }
 
+const baseDocSummary = {
+  id: 'doc-1',
+  knowledge_base_id: 'kb-1',
+  title: '文档1',
+  content_type: 'markdown' as const,
+  file_path: null,
+  is_folder: false,
+  parent_id: null,
+  sort_order: 0,
+  status: 'draft' as const,
+  index_status: 'not_indexed' as const,
+  indexed_at: null,
+  metadata: null,
+  has_content: true,
+  content_length: 2,
+  created_at: '2026-04-23T00:00:00Z',
+  updated_at: '2026-04-23T00:00:00Z',
+}
+
 describe('useKnowledgeBaseStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -53,6 +73,7 @@ describe('useKnowledgeBaseStore', () => {
     // mockImplementation() which persists across vi.clearAllMocks().
     vi.mocked(knowledgeBaseApi.list).mockReset()
     vi.mocked(knowledgeBaseApi.listDocuments).mockReset()
+    vi.mocked(knowledgeBaseApi.getDocument).mockReset()
     vi.mocked(knowledgeBaseApi.update).mockReset()
     vi.mocked(knowledgeBaseApi.delete).mockReset()
     vi.mocked(knowledgeBaseApi.createDocument).mockReset()
@@ -82,6 +103,7 @@ describe('useKnowledgeBaseStore', () => {
     const store = useKnowledgeBaseStore()
     await store.fetchKnowledgeBases()
 
+    expect(knowledgeBaseApi.list).toHaveBeenCalledWith({ limit: 100 })
     expect(store.knowledgeBases).toHaveLength(1)
     expect(store.knowledgeBases[0].id).toBe('kb-1')
   })
@@ -108,21 +130,7 @@ describe('useKnowledgeBaseStore', () => {
       total: 1,
       items: [
         {
-          id: 'doc-1',
-          knowledge_base_id: 'kb-1',
-          title: '文档1',
-          content: '内容',
-          content_type: 'markdown',
-          file_path: null,
-          is_folder: false,
-          parent_id: null,
-          sort_order: 0,
-          status: 'draft',
-          index_status: 'not_indexed',
-          indexed_at: null,
-          metadata: null,
-          created_at: '2026-04-23T00:00:00Z',
-          updated_at: '2026-04-23T00:00:00Z',
+          ...baseDocSummary,
         },
       ],
     })
@@ -134,6 +142,30 @@ describe('useKnowledgeBaseStore', () => {
     expect(store.currentKnowledgeBase?.id).toBe('kb-1')
     expect(store.documents).toHaveLength(1)
     expect(store.documents[0].id).toBe('doc-1')
+  })
+
+  it('fetchDocumentDetail should load and cache the selected document body', async () => {
+    vi.mocked(knowledgeBaseApi.list).mockResolvedValue({
+      total: 1,
+      skip: 0,
+      limit: 20,
+      items: [{ ...baseKb }],
+    })
+    vi.mocked(knowledgeBaseApi.listDocuments).mockResolvedValue({
+      total: 1,
+      items: [{ ...baseDocSummary }],
+    })
+    vi.mocked(knowledgeBaseApi.getDocument).mockResolvedValue({ ...baseDoc, content: '完整正文' })
+
+    const store = useKnowledgeBaseStore()
+    await store.fetchKnowledgeBases()
+    await store.selectKnowledgeBase('kb-1')
+    const detail = await store.fetchDocumentDetail('doc-1')
+
+    expect(knowledgeBaseApi.getDocument).toHaveBeenCalledWith('kb-1', 'doc-1')
+    expect(detail?.content).toBe('完整正文')
+    expect(store.currentDocument?.content).toBe('完整正文')
+    expect(store.documents[0].content).toBe('完整正文')
   })
 
   it('createDocument should create and refresh current knowledge base documents', async () => {
@@ -158,38 +190,14 @@ describe('useKnowledgeBaseStore', () => {
       total: 2,
       items: [
         {
-          id: 'doc-1',
-          knowledge_base_id: 'kb-1',
-          title: '文档1',
-          content: '内容',
-          content_type: 'markdown',
-          file_path: null,
-          is_folder: false,
-          parent_id: null,
-          sort_order: 0,
-          status: 'draft',
-          index_status: 'not_indexed',
-          indexed_at: null,
-          metadata: null,
-          created_at: '2026-04-23T00:00:00Z',
-          updated_at: '2026-04-23T00:00:00Z',
+          ...baseDocSummary,
         },
         {
+          ...baseDocSummary,
           id: 'doc-2',
-          knowledge_base_id: 'kb-1',
           title: '新文档',
-          content: '新内容',
-          content_type: 'markdown',
-          file_path: null,
-          is_folder: false,
-          parent_id: null,
           sort_order: 1,
-          status: 'draft',
-          index_status: 'not_indexed',
-          indexed_at: null,
-          metadata: null,
-          created_at: '2026-04-23T00:00:00Z',
-          updated_at: '2026-04-23T00:00:00Z',
+          content_length: 3,
         },
       ],
     })
@@ -308,7 +316,7 @@ describe('useKnowledgeBaseStore', () => {
     })
     vi.mocked(knowledgeBaseApi.listDocuments).mockResolvedValue({
       total: 1,
-      items: [{ ...baseDoc }],
+      items: [{ ...baseDocSummary }],
     })
     vi.mocked(knowledgeBaseApi.delete).mockResolvedValue(undefined as never)
 
@@ -364,7 +372,7 @@ describe('useKnowledgeBaseStore', () => {
     })
     vi.mocked(knowledgeBaseApi.listDocuments).mockResolvedValue({
       total: 1,
-      items: [{ ...baseDoc, title: '已更新' }],
+      items: [{ ...baseDocSummary, title: '已更新' }],
     })
     vi.mocked(knowledgeBaseApi.updateDocument).mockResolvedValue({
       ...baseDoc,
@@ -391,7 +399,7 @@ describe('useKnowledgeBaseStore', () => {
       total: 1, skip: 0, limit: 20, items: [{ ...baseKb }],
     })
     vi.mocked(knowledgeBaseApi.listDocuments)
-      .mockResolvedValueOnce({ total: 1, items: [{ ...baseDoc }] })
+      .mockResolvedValueOnce({ total: 1, items: [{ ...baseDocSummary }] })
       .mockResolvedValueOnce({ total: 0, items: [] })
     vi.mocked(knowledgeBaseApi.deleteDocument).mockResolvedValue(undefined as never)
 

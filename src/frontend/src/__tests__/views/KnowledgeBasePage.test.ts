@@ -20,6 +20,8 @@ vi.mock('vue-router', () => ({
 const mocks = vi.hoisted(() => ({
   fetchKnowledgeBases: vi.fn().mockResolvedValue(undefined),
   selectKnowledgeBase: vi.fn().mockResolvedValue(undefined),
+  fetchDocumentDetail: vi.fn().mockResolvedValue(undefined),
+  clearCurrentDocument: vi.fn(),
   updateKnowledgeBase: vi.fn().mockResolvedValue(undefined),
   deleteKnowledgeBase: vi.fn().mockResolvedValue(true),
   knowledgeBases: [
@@ -60,9 +62,13 @@ vi.mock('@/stores/knowledgeBase', () => ({
     knowledgeBases: mocks.knowledgeBases,
     currentKnowledgeBase: mocks.knowledgeBases[0],
     documents: mocks.documents,
+    currentDocument: mocks.documents[0],
     loading: false,
+    documentDetailLoading: false,
     fetchKnowledgeBases: mocks.fetchKnowledgeBases,
     selectKnowledgeBase: mocks.selectKnowledgeBase,
+    fetchDocumentDetail: mocks.fetchDocumentDetail,
+    clearCurrentDocument: mocks.clearCurrentDocument,
     updateKnowledgeBase: mocks.updateKnowledgeBase,
     deleteKnowledgeBase: mocks.deleteKnowledgeBase,
   }),
@@ -74,6 +80,8 @@ describe('KnowledgeBasePage', () => {
     vi.clearAllMocks()
     mocks.fetchKnowledgeBases.mockResolvedValue(undefined)
     mocks.selectKnowledgeBase.mockResolvedValue(undefined)
+    mocks.fetchDocumentDetail.mockResolvedValue(undefined)
+    mocks.clearCurrentDocument.mockClear()
     mocks.updateKnowledgeBase.mockResolvedValue(undefined)
     mocks.deleteKnowledgeBase.mockResolvedValue(true)
   })

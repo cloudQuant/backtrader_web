@@ -95,6 +95,7 @@ class TestReqDocsMigrationService:
             )
 
             assert kb.name == "用户手册"
+            assert kb.is_public is True
             assert doc.knowledge_base_id == kb.id
             assert conv.knowledge_base_id == kb.id
             assert len(messages) == 2
@@ -171,6 +172,71 @@ class TestReqDocsMigrationService:
             source_path = doc.metadata_json["reqdocs_source_file_path"]
             assert source_path is not None
             assert tmp_path.joinpath("9001_mongo-content.pdf").read_bytes() == b"PDFDATA"
+
+    @pytest.mark.asyncio
+    async def test_migrate_reuses_existing_source_file_without_loading_blob(
+        self, tmp_path, monkeypatch
+    ):
+        from sqlalchemy import select
+
+        from app.db.database import async_session_maker
+        from app.models.knowledge_base import KBDocument
+        from app.services.reqdocs_migration_service import ReqDocsMigrationService
+
+        monkeypatch.setattr(ReqDocsMigrationService, "SOURCE_FILE_DIR", tmp_path)
+        existing_file = tmp_path / "9101_existing.pdf"
+        existing_file.write_bytes(b"EXISTING")
+        service = ReqDocsMigrationService()
+        payload = {
+            "projects": [
+                {
+                    "id": 91,
+                    "name": "本地源文件复用库",
+                    "description": None,
+                    "created_at": None,
+                    "updated_at": None,
+                    "current_version": "1.0.0",
+                }
+            ],
+            "documents": [
+                {
+                    "id": 9101,
+                    "project_id": 91,
+                    "title": "已有本地源文件",
+                    "status": "draft",
+                    "is_folder": 0,
+                    "parent_id": None,
+                    "sort_order": 0,
+                    "path": "/docs/existing.md",
+                    "current_version": "1.0.0",
+                    "type": "requirement",
+                    "created_at": None,
+                    "updated_at": None,
+                    "content": "正文",
+                }
+            ],
+            "kb_conversations": [],
+            "kb_chat_messages": [],
+            "source_files": {
+                9101: {
+                    "filename": "existing.pdf",
+                    "mime_type": "application/pdf",
+                    "file_size": 8,
+                    "storage_type": "gridfs",
+                }
+            },
+        }
+
+        await service.migrate_from_structured_data("owner-existing-file", payload)
+
+        async with async_session_maker() as session:
+            doc = (
+                await session.execute(
+                    select(KBDocument).where(KBDocument.title == "已有本地源文件")
+                )
+            ).scalar_one()
+            assert doc.metadata_json["reqdocs_source_file_path"] == str(existing_file)
+            assert existing_file.read_bytes() == b"EXISTING"
 
     @pytest.mark.asyncio
     async def test_migration_is_idempotent_by_reqdocs_source_ids(self):

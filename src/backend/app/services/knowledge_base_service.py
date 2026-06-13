@@ -1,6 +1,8 @@
 """Knowledge base service for iteration 129."""
 
-from sqlalchemy import delete, func, select
+from typing import Any
+
+from sqlalchemy import delete, func, or_, select
 
 from app.db.database import async_session_maker
 from app.models.knowledge_base import (
@@ -105,7 +107,7 @@ class KnowledgeBaseService:
         self, owner_id: str, skip: int = 0, limit: int = 20, search: str | None = None
     ) -> tuple[int, list[KnowledgeBase]]:
         async with async_session_maker() as session:
-            filters = [KnowledgeBase.owner_id == owner_id]
+            filters = [or_(KnowledgeBase.owner_id == owner_id, KnowledgeBase.is_public.is_(True))]
             if search:
                 filters.append(KnowledgeBase.name.ilike(f"%{search}%"))
 
@@ -135,7 +137,10 @@ class KnowledgeBaseService:
                 await session.execute(
                     select(KnowledgeBase).where(
                         KnowledgeBase.id == kb_id,
-                        KnowledgeBase.owner_id == owner_id,
+                        or_(
+                            KnowledgeBase.owner_id == owner_id,
+                            KnowledgeBase.is_public.is_(True),
+                        ),
                     )
                 )
             ).scalar_one_or_none()
@@ -203,30 +208,52 @@ class KnowledgeBaseService:
             await session.commit()
             return True
 
-    async def list_documents(self, kb_id: str, owner_id: str) -> list[KBDocument] | None:
+    async def list_documents(self, kb_id: str, owner_id: str) -> list[dict[str, Any]] | None:
         async with async_session_maker() as session:
             kb = (
                 await session.execute(
                     select(KnowledgeBase).where(
-                        KnowledgeBase.id == kb_id, KnowledgeBase.owner_id == owner_id
+                        KnowledgeBase.id == kb_id,
+                        or_(
+                            KnowledgeBase.owner_id == owner_id,
+                            KnowledgeBase.is_public.is_(True),
+                        ),
                     )
                 )
             ).scalar_one_or_none()
             if kb is None:
                 return None
             self._hydrate_settings(kb)
-            items = (
-                (
-                    await session.execute(
-                        select(KBDocument)
-                        .where(KBDocument.knowledge_base_id == kb_id)
-                        .order_by(KBDocument.sort_order.asc(), KBDocument.created_at.asc())
+            rows = (
+                await session.execute(
+                    select(
+                        KBDocument.id,
+                        KBDocument.knowledge_base_id,
+                        KBDocument.title,
+                        KBDocument.content_type,
+                        KBDocument.file_path,
+                        KBDocument.is_folder,
+                        KBDocument.parent_id,
+                        KBDocument.sort_order,
+                        KBDocument.status,
+                        KBDocument.index_status,
+                        KBDocument.indexed_at,
+                        KBDocument.metadata_json.label("metadata_json"),
+                        KBDocument.created_at,
+                        KBDocument.updated_at,
                     )
+                    .where(KBDocument.knowledge_base_id == kb_id)
+                    .order_by(KBDocument.sort_order.asc(), KBDocument.created_at.asc())
                 )
-                .scalars()
-                .all()
-            )
-            return list(items)
+            ).mappings()
+
+            items: list[dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                item["content_length"] = 0
+                item["has_content"] = False
+                items.append(item)
+            return items
 
     async def create_document(
         self, kb_id: str, owner_id: str, data: KBDocumentCreate
@@ -266,7 +293,10 @@ class KnowledgeBaseService:
                     .where(
                         KBDocument.id == doc_id,
                         KBDocument.knowledge_base_id == kb_id,
-                        KnowledgeBase.owner_id == owner_id,
+                        or_(
+                            KnowledgeBase.owner_id == owner_id,
+                            KnowledgeBase.is_public.is_(True),
+                        ),
                     )
                 )
             ).scalar_one_or_none()

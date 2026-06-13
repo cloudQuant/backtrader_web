@@ -211,6 +211,7 @@ async def test_list_documents_success():
     svc = _MockService()
     result = await list_documents(kb_id="kb-1", current_user=_USER, service=svc)
     assert result.total == 1
+    assert "content" not in result.items[0].model_dump()
 
 
 @pytest.mark.asyncio

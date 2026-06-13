@@ -116,6 +116,16 @@ class TestIteration129KnowledgeBaseAPI:
         payload = list_resp.json()
         assert payload["total"] == 1
         assert payload["items"][0]["id"] == created_doc["id"]
+        assert "content" not in payload["items"][0]
+        assert payload["items"][0]["has_content"] is False
+        assert payload["items"][0]["content_length"] == 0
+
+        detail_resp = await client.get(
+            f"/api/v1/knowledge-base/{kb_id}/documents/{created_doc['id']}",
+            headers=auth_headers,
+        )
+        assert detail_resp.status_code == 200, detail_resp.text
+        assert detail_resp.json()["content"] == "# 双均线策略\n\n策略说明"
 
         kb_detail = await client.get(f"/api/v1/knowledge-base/{kb_id}", headers=auth_headers)
         assert kb_detail.status_code == 200, kb_detail.text
@@ -265,6 +275,47 @@ class TestIteration129KnowledgeBaseAPI:
             headers=other_headers,
         )
         assert resp.status_code == 404
+
+    async def test_public_knowledge_base_is_readable_by_non_owner(
+        self, client: AsyncClient, auth_headers: dict
+    ):
+        other_headers = await _register_and_login(client)
+        kb = await client.post(
+            "/api/v1/knowledge-base/",
+            headers=auth_headers,
+            json={"name": "公开库", "description": None, "is_public": True},
+        )
+        assert kb.status_code == 201, kb.text
+        kb_id = kb.json()["id"]
+        doc = await client.post(
+            f"/api/v1/knowledge-base/{kb_id}/documents/",
+            headers=auth_headers,
+            json={
+                "title": "公开文档",
+                "content": "public content",
+                "content_type": "markdown",
+                "is_folder": False,
+            },
+        )
+        assert doc.status_code == 201, doc.text
+
+        list_resp = await client.get("/api/v1/knowledge-base/", headers=other_headers)
+        assert list_resp.status_code == 200, list_resp.text
+        assert any(item["id"] == kb_id for item in list_resp.json()["items"])
+
+        doc_resp = await client.get(
+            f"/api/v1/knowledge-base/{kb_id}/documents/{doc.json()['id']}",
+            headers=other_headers,
+        )
+        assert doc_resp.status_code == 200, doc_resp.text
+        assert doc_resp.json()["title"] == "公开文档"
+
+        update_resp = await client.put(
+            f"/api/v1/knowledge-base/{kb_id}",
+            headers=other_headers,
+            json={"name": "非 owner 不可改"},
+        )
+        assert update_resp.status_code == 404
 
     async def test_delete_knowledge_base_cascades_chat_and_chunks(
         self, client: AsyncClient, auth_headers: dict

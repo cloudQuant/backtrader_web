@@ -272,11 +272,34 @@ class KBDocumentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class KBDocumentSummaryResponse(BaseModel):
+    """Document list response without heavyweight body content."""
+
+    id: str
+    knowledge_base_id: str
+    title: str
+    content_type: str
+    file_path: str | None = None
+    is_folder: bool = False
+    parent_id: str | None = None
+    sort_order: int = 0
+    status: str = "draft"
+    index_status: str = "not_indexed"
+    indexed_at: datetime | None = None
+    metadata: dict[str, Any] | None = Field(None, validation_alias="metadata_json")
+    has_content: bool = False
+    content_length: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class KBDocumentListResponse(BaseModel):
     """Document list response."""
 
     total: int
-    items: list[KBDocumentResponse]
+    items: list[KBDocumentSummaryResponse]
 
 
 class ReqDocsImportDocument(BaseModel):
