@@ -1,6 +1,6 @@
 # Installation Guide
 
-This guide covers the supported local development setup for Backtrader Web.
+This guide covers the supported local development setup for AI for Trader.
 
 ## Prerequisites
 
@@ -12,8 +12,8 @@ This guide covers the supported local development setup for Backtrader Web.
 ## 1. Clone the Repository
 
 ```bash
-git clone https://github.com/cloudQuant/backtrader_web.git
-cd backtrader_web
+git clone https://github.com/cloudQuant/ai-for-trader.git
+cd ai-for-trader
 ```
 
 ## 2. Run Preinstall Checks

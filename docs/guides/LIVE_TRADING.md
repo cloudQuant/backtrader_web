@@ -1,6 +1,6 @@
 # 实盘交易指南
 
-本文档介绍 Backtrader Web 的实盘交易功能。
+本文档介绍 AI for Trader 的实盘交易功能。
 
 ## 1. 概述
 

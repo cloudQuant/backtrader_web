@@ -26,6 +26,83 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/DashboardPage.vue'),
       },
       {
+        path: 'research',
+        redirect: { name: 'ResearchWorkspaces' },
+      },
+      {
+        path: 'research/strategies',
+        name: 'ResearchStrategies',
+        component: () => import('@/views/StrategyPage.vue'),
+      },
+      {
+        path: 'research/workspaces',
+        name: 'ResearchWorkspaces',
+        component: () => import('@/views/workspace/WorkspaceListPage.vue'),
+        meta: { workspaceType: 'research' },
+      },
+      {
+        path: 'research/workspaces/:id',
+        name: 'ResearchWorkspaceDetail',
+        component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
+        meta: { workspaceType: 'research' },
+      },
+      {
+        path: 'research/backtests/legacy',
+        name: 'ResearchBacktestLegacy',
+        component: () => import('@/views/BacktestPage.vue'),
+      },
+      {
+        path: 'research/backtests/:id',
+        name: 'ResearchBacktestResult',
+        component: () => import('@/views/BacktestResultPage.vue'),
+      },
+      {
+        path: 'research/tools',
+        name: 'ResearchQuantTools',
+        component: () => import('@/views/QuantToolsPage.vue'),
+      },
+      {
+        path: 'ai',
+        redirect: { name: 'AIChatCanonical' },
+      },
+      {
+        path: 'ai/chat',
+        name: 'AIChatCanonical',
+        component: () => import('@/views/AIChatPage.vue'),
+      },
+      {
+        path: 'ai/knowledge-base',
+        name: 'AIKnowledgeBase',
+        component: () => import('@/views/KnowledgeBasePage.vue'),
+      },
+      {
+        path: 'ai/knowledge-base/:id',
+        name: 'AIKnowledgeBaseDetail',
+        component: () => import('@/views/KnowledgeBasePage.vue'),
+      },
+      {
+        path: 'ai/knowledge-base/:kbId/documents/:docId',
+        name: 'AIKnowledgeBaseDocument',
+        component: () => import('@/views/KnowledgeBaseDocumentPage.vue'),
+      },
+      {
+        path: 'ai/observability',
+        name: 'AIObservabilityCanonical',
+        component: () => import('@/views/AIObservabilityPage.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'ai/prompt-governance',
+        name: 'PromptTemplatesCanonical',
+        component: () => import('@/views/PromptTemplatesPage.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'admin',
+        redirect: { name: 'AdminSettings' },
+        meta: { requiresAdmin: true },
+      },
+      {
         path: 'ai-chat',
         name: 'AIChat',
         component: () => import('@/views/AIChatPage.vue'),
@@ -92,6 +169,31 @@ const routes: RouteRecordRaw[] = [
             path: 'market',
             name: 'DataMarket',
             component: () => import('@/views/data/DataMarketPage.vue'),
+          },
+          {
+            path: 'quote',
+            name: 'DataQuote',
+            component: () => import('@/views/QuotePage.vue'),
+          },
+          {
+            path: 'intelligence/equity',
+            name: 'DataEquityResearch',
+            component: () => import('@/views/EquityResearchPage.vue'),
+          },
+          {
+            path: 'intelligence/news',
+            name: 'DataNewsIntelligence',
+            component: () => import('@/views/NewsIntelligencePage.vue'),
+          },
+          {
+            path: 'intelligence/options',
+            name: 'DataOptionsChain',
+            component: () => import('@/views/OptionsChainPage.vue'),
+          },
+          {
+            path: 'intelligence/scanners',
+            name: 'DataScanners',
+            component: () => import('@/views/ScannerPage.vue'),
           },
           {
             path: 'scripts',
@@ -199,6 +301,27 @@ const routes: RouteRecordRaw[] = [
         meta: { workspaceType: 'trading' },
       },
       {
+        path: 'trading/workspaces',
+        name: 'TradingOperationsWorkspaces',
+        component: () => import('@/views/workspace/WorkspaceListPage.vue'),
+        meta: { workspaceType: 'trading' },
+      },
+      {
+        path: 'trading/brokers',
+        name: 'TradingBrokerProfiles',
+        component: () => import('@/views/BrokerProfilesPage.vue'),
+      },
+      {
+        path: 'trading/gateways',
+        name: 'TradingGateways',
+        component: () => import('@/views/GatewayStatusPage.vue'),
+      },
+      {
+        path: 'trading/ai',
+        name: 'TradingAI',
+        component: () => import('@/views/AITradingPage.vue'),
+      },
+      {
         path: 'trading/:id',
         name: 'TradingWorkspaceDetail',
         component: () => import('@/views/workspace/WorkspaceDetailPage.vue'),
@@ -210,6 +333,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/PortfolioPage.vue'),
       },
       {
+        path: 'portfolio/overview',
+        name: 'PortfolioOverview',
+        component: () => import('@/views/PortfolioPage.vue'),
+      },
+      {
         path: 'brokers',
         name: 'BrokerProfiles',
         component: () => import('@/views/BrokerProfilesPage.vue'),
@@ -217,6 +345,11 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'portfolio-ledger',
         name: 'PortfolioLedger',
+        component: () => import('@/views/PortfolioLedgerPage.vue'),
+      },
+      {
+        path: 'portfolio/ledger',
+        name: 'PortfolioLedgerCanonical',
         component: () => import('@/views/PortfolioLedgerPage.vue'),
       },
       {
@@ -263,6 +396,12 @@ const routes: RouteRecordRaw[] = [
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/SettingsPage.vue'),
+      },
+      {
+        path: 'admin/settings',
+        name: 'AdminSettings',
+        component: () => import('@/views/SettingsPage.vue'),
+        meta: { requiresAdmin: true },
       },
     ]
   },

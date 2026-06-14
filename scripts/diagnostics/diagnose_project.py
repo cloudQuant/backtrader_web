@@ -494,7 +494,7 @@ def generate_summary():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Backtrader Web 项目诊断报告")
+    print("AI for Trader 项目诊断报告")
     print(f"时间: {__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
     

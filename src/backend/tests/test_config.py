@@ -14,7 +14,7 @@ class TestConfig:
 
     def test_default_values(self):
         settings = get_settings()
-        assert settings.APP_NAME == "backtrader_web"
+        assert settings.APP_NAME == "ai-for-trader"
         assert settings.JWT_ALGORITHM == "HS256"
         assert settings.JWT_EXPIRE_MINUTES > 0
         assert settings.PORT == 8000
@@ -22,6 +22,8 @@ class TestConfig:
         assert settings.DB_AUTO_CREATE_DEFAULT_ADMIN is False
         assert "openai" in settings.AI_PROVIDERS
         assert "ollama" in settings.AI_PROVIDERS
+        assert "volcengine_ark" in settings.AI_PROVIDERS
+        assert "siliconflow" in settings.AI_PROVIDERS
 
     def test_settings_singleton(self):
         s1 = get_settings()

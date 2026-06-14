@@ -1,10 +1,10 @@
 """
-Backtrader Web - Quantitative backtest visualization framework.
+AI for Trader - Quantitative backtest visualization framework.
 
 This package provides web-based visualization for backtrader backtest results.
 
 Usage:
-    >>> from backtrader_web import WebServer
+    >>> from ai_for_trader import WebServer
     >>> import backtrader as bt
     >>>
     >>> cerebro = bt.Cerebro()

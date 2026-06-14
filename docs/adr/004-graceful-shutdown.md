@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-05-20
-**Deciders:** Backtrader Web Team
+**Deciders:** AI for Trader Team
 
 ## Context
 

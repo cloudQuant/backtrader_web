@@ -1,13 +1,13 @@
-# MkDocs Configuration for Backtrader Web
+# MkDocs Configuration for AI for Trader
 # https://www.mkdocs.org
 
-site_name: Backtrader Web
-site_url: https://backtrader-web.github.io/backtrader_web/
+site_name: AI for Trader
+site_url: https://cloudquant.github.io/ai-for-trader/
 site_description: 基于 Backtrader 的现代化量化交易全栈管理平台 | Modern Quantitative Trading Platform based on Backtrader
-site_author: Backtrader Web Team
+site_author: AI for Trader Team
 
-repo_name: cloudQuant/backtrader_web
-repo_url: https://github.com/cloudQuant/backtrader_web
+repo_name: cloudQuant/ai-for-trader
+repo_url: https://github.com/cloudQuant/ai-for-trader
 
 theme:
   name: material
@@ -88,7 +88,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/cloudQuant/backtrader_web
+      link: https://github.com/cloudQuant/ai-for-trader
   generator: false
   alternate:
     - name: English

@@ -3,7 +3,7 @@ from typing import Any
 
 import yaml
 
-_BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 _FLAT_LOG_FILENAMES = frozenset(
     {
@@ -69,11 +69,11 @@ def load_strategy_config(strategy_dir: Path) -> dict[str, Any]:
 
 def load_strategy_env(
     strategy_dir: Path,
-    backtrader_web_dir: Path | None = None,
+    project_dir: Path | None = None,
 ) -> dict[str, str]:
-    project_dir = backtrader_web_dir or _BACKTRADER_WEB_DIR
+    project_root = project_dir or _PROJECT_ROOT
     result: dict[str, str] = {}
-    for candidate in (strategy_dir / ".env", project_dir / ".env"):
+    for candidate in (strategy_dir / ".env", project_root / ".env"):
         if not candidate.is_file():
             continue
         with candidate.open("r", encoding="utf-8") as handle:

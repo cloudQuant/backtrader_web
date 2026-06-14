@@ -1,6 +1,6 @@
-# Backtrader Web
+# AI for Trader
 
-基于 Backtrader 的现代化量化交易全栈管理平台
+AI 驱动的量化研究、策略生成、回测验证与交易辅助平台
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-green.svg)](https://vuejs.org)
@@ -9,14 +9,14 @@
 
 ## 项目简介
 
-Backtrader Web 是一个为量化交易开发者打造的**全功能量化交易管理平台**，提供从策略开发、数据管理、回测分析、参数优化到模拟交易、实盘监控和 AI 辅助研究的全流程解决方案：
+AI for Trader 是一个面向量化交易者和投研团队的 **AI + 量化** MVP 产品，围绕“自然语言研究 → 知识库问答 → 策略生成 → 回测验证 → 工作区沉淀”的闭环，提供从策略开发、数据管理、回测分析、参数优化到模拟交易、实盘监控和 AI 辅助研究的全流程解决方案：
 
 - 🚀 **开箱即用** - 5分钟完成首次回测
 - 📊 **专业图表** - Echarts K线图 + 10+ 分析图表
 - 🔌 **API优先** - 核心路由 + 可选路由按模块注册，支持可观测降级
 - 💾 **多数据库** - 支持 SQLite / PostgreSQL / MySQL
 - 🎯 **策略管理** - 策略版本控制 + 代码编辑器 + 118 内置模板
-- 🤖 **AI策略 Copilot** - 知识库问答 + 自然语言策略构思 + Backtrader 策略草案生成 + 保存到策略中心/添加到研究工作区/一键回测/自动报告/自动复盘建议
+- 🤖 **AI 量化 Copilot** - 知识库问答 + 自然语言策略构思 + Backtrader 策略草案生成 + 保存到策略中心/添加到研究工作区/一键回测/自动报告/自动复盘建议
 - 🧠 **知识库/RAG** - 文档管理、自动索引、引用跳转、AI 配置诊断、降级原因提示
 - 🗃️ **数据管理** - Akshare 接口、脚本、任务、执行记录、数据表浏览与 MySQL 同步
 -  **模拟交易** - 研究/交易工作区与模拟交易环境
@@ -74,8 +74,8 @@ Backtrader Web 是一个为量化交易开发者打造的**全功能量化交易
 
 ```bash
 # 克隆项目
-git clone https://github.com/cloudQuant/backtrader_web.git
-cd backtrader_web
+git clone https://github.com/cloudQuant/ai-for-trader.git
+cd ai-for-trader
 
 # 步骤 1：安装前环境检查
 ./scripts/dev/verify-dev-env.sh --preinstall
@@ -135,7 +135,7 @@ AI 调用可观测、多模型路由、VaR/CVaR、因子分析、绩效归因和
 ## 项目结构
 
 ```
-backtrader_web/
+ai-for-trader/
 ├── src/
 │   ├── backend/             # FastAPI 后端
 │   │   ├── app/

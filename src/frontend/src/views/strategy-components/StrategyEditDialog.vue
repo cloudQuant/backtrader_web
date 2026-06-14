@@ -14,22 +14,25 @@
         required
       >
         <el-input
-          v-model="form.name"
+          :model-value="form.name"
           :placeholder="t('strategy.strategyName')"
+          @update:model-value="(value: string) => updateFormField('name', value)"
         />
       </el-form-item>
       <el-form-item :label="t('strategy.description')">
         <el-input
-          v-model="form.description"
+          :model-value="form.description"
           type="textarea"
           :rows="2"
           :placeholder="t('strategy.description')"
+          @update:model-value="(value: string) => updateFormField('description', value)"
         />
       </el-form-item>
       <el-form-item :label="t('strategy.title')">
         <el-select
-          v-model="form.category"
+          :model-value="form.category"
           class="w-full"
+          @update:model-value="(value: string) => updateFormField('category', value)"
         >
           <el-option
             :label="t('strategy.categoryTrend')"
@@ -62,10 +65,11 @@
         required
       >
         <MonacoEditor
-          v-model="form.code"
+          :model-value="form.code"
           language="python"
           :height="400"
           theme="vs"
+          @update:model-value="(value: string) => updateFormField('code', value)"
         />
       </el-form-item>
     </el-form>
@@ -97,9 +101,7 @@ interface StrategyEditForm {
   category: string
 }
 
-// ``form`` is a reactive object owned by the parent (pass-by-reference), so
-// ``v-model="form.x"`` mutates the same object the parent submits on save.
-defineProps<{
+const props = defineProps<{
   visible: boolean
   isEdit: boolean
   saving: boolean
@@ -108,6 +110,14 @@ defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
+  (e: 'update:form', value: StrategyEditForm): void
   (e: 'save'): void
 }>()
+
+function updateFormField<K extends keyof StrategyEditForm>(
+  field: K,
+  value: StrategyEditForm[K]
+) {
+  emit('update:form', { ...props.form, [field]: value })
+}
 </script>

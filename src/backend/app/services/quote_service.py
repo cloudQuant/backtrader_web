@@ -8,7 +8,7 @@ bt_api_py  GatewayRuntime  (per exchange)
    ├─ event_socket   (ZMQ PUB)
    └─ command_socket (ZMQ ROUTER) → accepts subscribe / health / …
 
-backtrader_web  QuoteService
+AI for Trader QuoteService
    ├─ discovers active gateways via LiveTradingManager._gateways
    ├─ connects ZMQ SUB to each gateway's market_endpoint
    ├─ sends "subscribe" commands via ZMQ DEALER to command_endpoint

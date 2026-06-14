@@ -1,14 +1,14 @@
-# Backtrader Web — Project Context
+# AI for Trader — Project Context
 
 > LLM-optimized project context for AI agent consistency.
 > Last updated: 2026-05-20
 
 ## Identity
 
-**Name**: Backtrader Web
+**Name**: AI for Trader
 **Type**: Full-stack quantitative trading platform (open-source)
 **License**: MIT
-**Repo**: github.com/cloudQuant/backtrader_web
+**Repo**: github.com/cloudQuant/ai-for-trader
 **Stage**: v0.1.0 (initial public release)
 
 ## Tech Stack

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from dataclasses import asdict, dataclass, field
 
 from app.services.ai_router.ollama_adapter import check_ollama_health
-from app.services.ai_router.providers import AIProviderSpec, get_default_provider_specs
+from app.services.ai_router.providers import (
+    AIProviderSpec,
+    get_default_provider_specs,
+    is_provider_configured,
+)
 
 
 @dataclass(frozen=True)
@@ -51,11 +54,12 @@ class AIProviderHealthService:
         )
 
     def _check_configured_provider(self, spec: AIProviderSpec) -> ProviderHealth:
-        configured = True
         error = None
-        if spec.api_key_env and not os.getenv(spec.api_key_env):
-            configured = False
+        configured = is_provider_configured(spec)
+        if spec.api_key_env and not configured:
             error = f"{spec.api_key_env} not configured"
+        elif spec.provider_type == "openai_compatible" and not spec.base_url:
+            error = "base_url not configured"
         return ProviderHealth(
             name=spec.name,
             display_name=spec.display_name,

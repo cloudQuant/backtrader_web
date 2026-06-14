@@ -99,7 +99,10 @@ describe('StrategyPage.vue', () => {
           'el-radio-button': { template: '<label class="el-radio-button"><slot /></label>' },
           'el-tag': { template: '<span class="el-tag"><slot /></span>' },
           'el-icon': { template: '<i class="el-icon"><slot /></i>' },
-          'el-dialog': { template: '<div class="el-dialog" v-if="modelValue"><slot /></div>' },
+          'el-dialog': {
+            props: ['modelValue'],
+            template: '<div class="el-dialog" v-if="modelValue"><slot /></div>',
+          },
           'el-form': { template: '<form class="el-form"><slot /></form>' },
           'el-form-item': { template: '<div class="el-form-item"><slot /></div>' },
           'el-pagination': { template: '<div class="el-pagination"></div>' },
@@ -116,9 +119,9 @@ describe('StrategyPage.vue', () => {
       expect(wrapper.exists()).toBe(true)
     })
 
-    it('should display page title', async () => {
+    it('should display primary create action', async () => {
       const wrapper = await mountComponent()
-      expect(wrapper.text()).toContain('策略中心')
+      expect(wrapper.text()).toContain('strategy.createStrategy')
     })
   })
 
@@ -151,7 +154,7 @@ describe('StrategyPage.vue', () => {
     it('should have create strategy button', async () => {
       const wrapper = await mountComponent()
       const buttons = wrapper.findAll('.el-button')
-      const createButton = buttons.find(b => b.text().includes('创建策略'))
+      const createButton = buttons.find(b => b.text().includes('strategy.createStrategy'))
       expect(createButton).toBeDefined()
     })
   })

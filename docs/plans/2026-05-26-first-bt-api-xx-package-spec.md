@@ -145,8 +145,8 @@ bt_api_alpaca/
 
 外部包不应直接依赖：
 
-- `backtrader_web`
-- `backtrader_web` 的任何 service / API / model
+- `ai-for-trader`
+- `ai-for-trader` 的任何 service / API / model
 - `bt_api_py` 内部未声明为公共接口的私有实现细节
 - 其他 `bt_api_xx` 包
 
@@ -265,7 +265,7 @@ class AlpacaRequestDataStock(Feed):
 
 - 不要把订单、行情、持仓映射塞进 `auth.py`
 - 不要在这里写 `RequestData` / container 主体逻辑
-- 不要依赖 `backtrader_web` secrets 逻辑
+- 不要依赖 `ai-for-trader` secrets 逻辑
 
 ---
 
@@ -453,9 +453,9 @@ dev = [
 
 ---
 
-## 14. 与 `backtrader_web` 的关系
+## 14. 与 `ai-for-trader` 的关系
 
-`backtrader_web` 对 `bt_api_xx` 的角色必须保持克制：
+`ai-for-trader` 对 `bt_api_xx` 的角色必须保持克制：
 
 - 可以记录文档边界
 - 可以消费 `bt_api_py` 稳定接口
@@ -483,7 +483,7 @@ dev = [
 - 至少有 plugin / runtime / gateway / auth / mapping 基本单测
 - 至少有一个 `BtApi` 消费 smoke test
 - README 可指导安装和使用
-- 不依赖 `backtrader_web` 私有实现
+- 不依赖 `ai-for-trader` 私有实现
 
 补充说明：
 

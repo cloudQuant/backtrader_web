@@ -1,11 +1,11 @@
 # Development
 
-This section covers development guidelines for Backtrader Web.
+This section covers development guidelines for AI for Trader.
 
 ## Project Structure
 
 ```
-backtrader_web/
+ai-for-trader/
 ├── src/
 │   ├── backend/              # FastAPI Backend
 │   │   ├── app/

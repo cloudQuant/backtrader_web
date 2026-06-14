@@ -1,6 +1,6 @@
 # 功能介绍
 
-Backtrader Web 提供全面的量化交易功能。
+AI for Trader 提供全面的量化交易功能。
 
 ## 核心模块
 

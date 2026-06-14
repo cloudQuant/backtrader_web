@@ -64,7 +64,7 @@ def main() -> int:
         or os.environ.get("MYSQL_ROOT_PASSWORD")
         or env_values.get("MYSQL_ROOT_PASSWORD", "")
     )
-    args.database = args.database or os.environ.get("DB_NAME") or env_values.get("DB_NAME") or "backtrader_web"
+    args.database = args.database or os.environ.get("DB_NAME") or env_values.get("DB_NAME") or "ai_for_trader"
 
     if not args.password:
         print("Missing MySQL password. Pass --password or set DB_PASSWORD/MYSQL_ROOT_PASSWORD.", file=sys.stderr)

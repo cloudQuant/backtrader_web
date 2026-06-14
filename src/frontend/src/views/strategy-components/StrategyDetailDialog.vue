@@ -82,7 +82,7 @@
           name="code"
         >
           <MonacoEditor
-            v-model="template.code"
+            :model-value="template.code"
             language="python"
             :height="450"
             :read-only="true"

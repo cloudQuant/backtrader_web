@@ -160,7 +160,7 @@
       </template>
       
       <div class="space-y-2 text-gray-600">
-        <p><strong>Backtrader Web</strong> v1.0.0</p>
+        <p><strong>AI for Trader</strong> v1.0.0</p>
         <p>{{ t('userSettings.aboutDesc') }}</p>
         <p>{{ t('userSettings.aboutTechStack') }}</p>
       </div>

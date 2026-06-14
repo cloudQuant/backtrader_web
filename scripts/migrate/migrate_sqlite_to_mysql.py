@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Migrate legacy SQLite business data into the backtrader_web MySQL database.
+Migrate legacy SQLite business data into the ai_for_trader MySQL database.
 
 This script copies the current application's non-akshare business tables from
 ``LEGACY_SQLITE_DATABASE_URL`` into ``DATABASE_URL``. Akshare management tables

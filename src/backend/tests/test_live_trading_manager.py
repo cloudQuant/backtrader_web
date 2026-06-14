@@ -24,6 +24,7 @@ from app.services.live_trading_manager import (
     _is_pid_alive,
     _load_instances,
     _save_instances,
+    _should_restore_manual_gateways,
     get_live_trading_manager,
 )
 
@@ -203,6 +204,20 @@ class TestLiveTradingManagerInitialization:
             LiveTradingManager()
 
         mock_start_restore.assert_called_once()
+
+    def test_initialization_can_disable_manual_gateway_restore(self, monkeypatch):
+        monkeypatch.setenv("LIVE_TRADING_RESTORE_MANUAL_GATEWAYS", "false")
+        with (
+            patch("app.services.live_trading_manager._load_instances", return_value={}),
+            patch.object(
+                LiveTradingManager,
+                "_start_restore_manual_gateways_background",
+            ) as mock_start_restore,
+        ):
+            LiveTradingManager()
+
+        assert _should_restore_manual_gateways() is False
+        mock_start_restore.assert_not_called()
 
 
 class TestGatewayLifecycle:

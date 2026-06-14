@@ -59,63 +59,100 @@
       </div>
     </section>
 
-    <div class="workspace-grid">
-      <aside class="ai-panel conversation-panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title">
-              {{ t('aiChat.conversations') }}
+    <div
+      class="workspace-grid"
+      :class="{
+        'left-collapsed': leftPanelCollapsed,
+        'right-collapsed': rightPanelCollapsed,
+      }"
+    >
+      <aside
+        class="ai-panel conversation-panel"
+        :class="{ collapsed: leftPanelCollapsed }"
+      >
+        <button
+          v-if="leftPanelCollapsed"
+          type="button"
+          class="collapsed-panel-toggle"
+          :aria-label="t('aiChat.expandConversations')"
+          @click="toggleLeftPanel"
+        >
+          <el-icon aria-hidden="true">
+            <Expand />
+          </el-icon>
+          <span>{{ t('aiChat.conversations') }}</span>
+        </button>
+
+        <template v-else>
+          <div class="panel-header">
+            <div>
+              <div class="panel-title">
+                {{ t('aiChat.conversations') }}
+              </div>
+              <div class="panel-subtitle">
+                {{ chatStore.conversations.length }} {{ t('aiChat.counter') }}
+              </div>
             </div>
-            <div class="panel-subtitle">
-              {{ chatStore.conversations.length }} {{ t('aiChat.counter') }}
+            <div class="panel-header-actions">
+              <el-button
+                circle
+                size="small"
+                :title="t('aiChat.newConversation')"
+                :aria-label="t('aiChat.newConversation')"
+                @click="handleNewConversation"
+              >
+                <el-icon aria-hidden="true">
+                  <Plus />
+                </el-icon>
+              </el-button>
+              <el-button
+                circle
+                size="small"
+                :title="t('aiChat.collapseConversations')"
+                :aria-label="t('aiChat.collapseConversations')"
+                @click="toggleLeftPanel"
+              >
+                <el-icon aria-hidden="true">
+                  <Fold />
+                </el-icon>
+              </el-button>
             </div>
           </div>
-          <el-button
-            circle
-            size="small"
-            :title="t('aiChat.newConversation')"
-            :aria-label="t('aiChat.newConversation')"
-            @click="handleNewConversation"
+
+          <el-input
+            v-model="conversationSearch"
+            :placeholder="t('aiChat.searchConversations')"
+            :aria-label="t('aiChat.searchConversations')"
+            :prefix-icon="Search"
+            clearable
+            class="conversation-search"
+          />
+
+          <div
+            v-if="filteredConversations.length === 0"
+            class="empty-rail"
           >
-            <el-icon aria-hidden="true">
-              <Plus />
-            </el-icon>
-          </el-button>
-        </div>
+            <el-icon><ChatDotRound /></el-icon>
+            <span>{{ t('aiChat.noConversations') }}</span>
+          </div>
 
-        <el-input
-          v-model="conversationSearch"
-          :placeholder="t('aiChat.searchConversations')"
-          :aria-label="t('aiChat.searchConversations')"
-          :prefix-icon="Search"
-          clearable
-          class="conversation-search"
-        />
-
-        <div
-          v-if="filteredConversations.length === 0"
-          class="empty-rail"
-        >
-          <el-icon><ChatDotRound /></el-icon>
-          <span>{{ t('aiChat.noConversations') }}</span>
-        </div>
-
-        <div
-          v-else
-          class="conversation-list"
-        >
-          <button
-            v-for="conversation in filteredConversations"
-            :key="conversation.id"
-            type="button"
-            class="conversation-item"
-            :class="{ active: conversation.id === chatStore.currentConversationId }"
-            @click="handleSelectConversation(conversation.id)"
+          <div
+            v-else
+            class="conversation-list"
           >
-            <span class="conversation-title">{{ conversation.title }}</span>
-            <span class="conversation-meta">{{ formatDate(conversation.updated_at) }}</span>
-          </button>
-        </div>
+            <button
+              v-for="conversation in filteredConversations"
+              :key="conversation.id"
+              type="button"
+              class="conversation-item"
+              :class="{ active: conversation.id === chatStore.currentConversationId }"
+              @click="handleSelectConversation(conversation.id)"
+            >
+              <span class="conversation-title">{{ conversation.title }}</span>
+              <span class="conversation-meta">{{ formatDate(conversation.updated_at) }}</span>
+            </button>
+          </div>
+        </template>
       </aside>
 
       <main class="chat-shell">
@@ -259,95 +296,126 @@
         </div>
       </main>
 
-      <aside class="ai-panel insight-panel">
-        <div class="panel-header">
-          <div>
-            <div class="panel-title">
-              {{ t('aiChat.contextPanel') }}
-            </div>
-            <div class="panel-subtitle">
-              {{ currentModeMeta.label }}
-            </div>
-          </div>
-          <span
-            class="status-dot"
-            :class="{ active: Boolean(selectedKnowledgeBaseId) }"
-          />
-        </div>
+      <aside
+        class="ai-panel insight-panel"
+        :class="{ collapsed: rightPanelCollapsed }"
+      >
+        <button
+          v-if="rightPanelCollapsed"
+          type="button"
+          class="collapsed-panel-toggle"
+          :aria-label="t('aiChat.expandContextPanel')"
+          @click="toggleRightPanel"
+        >
+          <el-icon aria-hidden="true">
+            <Expand />
+          </el-icon>
+          <span>{{ t('aiChat.contextPanel') }}</span>
+        </button>
 
-        <div class="kb-card">
-          <div class="kb-name">
-            {{ currentKnowledgeBaseName || t('aiChat.noKnowledgeBaseSelected') }}
-          </div>
-          <div class="kb-desc">
-            {{ currentKnowledgeBase?.description || t('aiChat.startQAPrompt') }}
-          </div>
-          <div class="metric-grid">
+        <template v-else>
+          <div class="panel-header">
             <div>
-              <span>{{ t('aiChat.documentsLabel') }}</span>
-              <strong>{{ currentKnowledgeBase?.document_count ?? 0 }}</strong>
+              <div class="panel-title">
+                {{ t('aiChat.contextPanel') }}
+              </div>
+              <div class="panel-subtitle">
+                {{ currentModeMeta.label }}
+              </div>
             </div>
-            <div>
-              <span>{{ t('aiChat.loaded') }}</span>
-              <strong>{{ knowledgeBaseDocuments.length }}</strong>
-            </div>
-            <div>
-              <span>{{ t('aiChat.indexed') }}</span>
-              <strong>{{ indexedDocumentCount }}</strong>
+            <div class="panel-header-actions">
+              <span
+                class="status-dot"
+                :class="{ active: Boolean(selectedKnowledgeBaseId) }"
+              />
+              <el-button
+                circle
+                size="small"
+                :title="t('aiChat.collapseContextPanel')"
+                :aria-label="t('aiChat.collapseContextPanel')"
+                @click="toggleRightPanel"
+              >
+                <el-icon aria-hidden="true">
+                  <Fold />
+                </el-icon>
+              </el-button>
             </div>
           </div>
-          <div class="kb-settings">
-            <span>{{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</span>
-            <span>{{ currentKnowledgeBaseSettings.search_mode }}</span>
-            <span>top_k {{ currentKnowledgeBaseSettings.default_top_k }}</span>
-            <span v-if="currentKnowledgeBaseSettings.use_conversation_memory">{{ t('aiChat.sessionMemoryOn') }}</span>
+
+          <div class="kb-card">
+            <div class="kb-name">
+              {{ currentKnowledgeBaseName || t('aiChat.noKnowledgeBaseSelected') }}
+            </div>
+            <div class="kb-desc">
+              {{ currentKnowledgeBase?.description || t('aiChat.startQAPrompt') }}
+            </div>
+            <div class="metric-grid">
+              <div>
+                <span>{{ t('aiChat.documentsLabel') }}</span>
+                <strong>{{ currentKnowledgeBase?.document_count ?? 0 }}</strong>
+              </div>
+              <div>
+                <span>{{ t('aiChat.loaded') }}</span>
+                <strong>{{ knowledgeBaseDocuments.length }}</strong>
+              </div>
+              <div>
+                <span>{{ t('aiChat.indexed') }}</span>
+                <strong>{{ indexedDocumentCount }}</strong>
+              </div>
+            </div>
+            <div class="kb-settings">
+              <span>{{ retrievalProfileLabel(currentKnowledgeBaseSettings.retrieval_profile) }}</span>
+              <span>{{ currentKnowledgeBaseSettings.search_mode }}</span>
+              <span>top_k {{ currentKnowledgeBaseSettings.default_top_k }}</span>
+              <span v-if="currentKnowledgeBaseSettings.use_conversation_memory">{{ t('aiChat.sessionMemoryOn') }}</span>
+            </div>
+            <div
+              v-if="hasUnindexedDocuments"
+              class="kb-index-warning"
+            >
+              <div>
+                {{ t('aiChat.indexIncomplete') }}{{ t('aiChat.indexResultIncomplete') }}
+                <span>{{ indexedDocumentCount }}/{{ knowledgeBaseDocuments.length }} {{ t('aiChat.indexed') }}</span>
+              </div>
+              <button
+                type="button"
+                class="inline-link"
+                @click="goToReindex"
+              >
+                {{ t('aiChat.rebuildIndex') }}
+              </button>
+            </div>
+            <el-button
+              class="w-full mt-3"
+              :disabled="!currentKnowledgeBaseId"
+              @click="goToKnowledgeBase"
+            >
+              <el-icon aria-hidden="true">
+                <Reading />
+              </el-icon>
+              {{ t('aiChat.openKnowledgeBase') }}
+            </el-button>
           </div>
-          <div
-            v-if="hasUnindexedDocuments"
-            class="kb-index-warning"
-          >
-            <div>
-              {{ t('aiChat.indexIncomplete') }}{{ t('aiChat.indexResultIncomplete') }}
-              <span>{{ indexedDocumentCount }}/{{ knowledgeBaseDocuments.length }} {{ t('aiChat.indexed') }}</span>
+
+          <div class="tool-section">
+            <div class="section-kicker">
+              {{ t('aiChat.quickTools') }}
             </div>
             <button
+              v-for="tool in quickTools"
+              :key="tool.title"
               type="button"
-              class="inline-link"
-              @click="goToReindex"
+              class="tool-item"
+              @click="applyPrompt(tool.prompt)"
             >
-              {{ t('aiChat.rebuildIndex') }}
+              <el-icon><Compass /></el-icon>
+              <span>
+                <strong>{{ tool.title }}</strong>
+                <small>{{ tool.description }}</small>
+              </span>
             </button>
           </div>
-          <el-button
-            class="w-full mt-3"
-            :disabled="!currentKnowledgeBaseId"
-            @click="goToKnowledgeBase"
-          >
-            <el-icon aria-hidden="true">
-              <Reading />
-            </el-icon>
-            {{ t('aiChat.openKnowledgeBase') }}
-          </el-button>
-        </div>
-
-        <div class="tool-section">
-          <div class="section-kicker">
-            {{ t('aiChat.quickTools') }}
-          </div>
-          <button
-            v-for="tool in quickTools"
-            :key="tool.title"
-            type="button"
-            class="tool-item"
-            @click="applyPrompt(tool.prompt)"
-          >
-            <el-icon><Compass /></el-icon>
-            <span>
-              <strong>{{ tool.title }}</strong>
-              <small>{{ tool.description }}</small>
-            </span>
-          </button>
-        </div>
+        </template>
       </aside>
     </div>
 
@@ -478,6 +546,8 @@ import {
   Compass,
   CopyDocument,
   Delete,
+  Expand,
+  Fold,
   MagicStick,
   Plus,
   Promotion,
@@ -496,6 +566,8 @@ const {
   selectedKnowledgeBaseId,
   selectedAssistantMode,
   thinkingMode,
+  leftPanelCollapsed,
+  rightPanelCollapsed,
   conversationSearch,
   question,
   selectedSessionModelKey,
@@ -527,6 +599,8 @@ const {
   formatDate,
   retrievalProfileLabel,
   applyPrompt,
+  toggleLeftPanel,
+  toggleRightPanel,
   copyMessage,
   copyConversation,
   resetWorkspaceDraftState,

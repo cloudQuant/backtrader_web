@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 英镑布林带回归策略"
   description: "基于布林带的均值回归策略，价格突破下轨买入，突破上轨平仓。适用于GBPUSD M30周期。"
-  author: "backtrader_web"
+  author: "ai-for-trader"
   category: "simulate"
 
 # ============================================================

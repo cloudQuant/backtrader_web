@@ -1,6 +1,6 @@
 # Production Deployment Guide
 
-This guide covers deploying the Backtrader Web platform to a production server.
+This guide covers deploying the AI for Trader platform to a production server.
 
 ## System Requirements
 
@@ -53,9 +53,9 @@ sudo su - backtrader
 
 # Clone repository
 cd /opt
-sudo git clone https://github.com/cloudQuant/backtrader_web.git
-sudo chown -R backtrader:backtrader backtrader_web
-cd backtrader_web
+sudo git clone https://github.com/cloudQuant/ai-for-trader.git
+sudo chown -R backtrader:backtrader ai-for-trader
+cd ai-for-trader
 
 # Create virtual environment
 python3 -m venv venv
@@ -106,16 +106,16 @@ Create `/etc/systemd/system/backtrader.service`:
 
 ```ini
 [Unit]
-Description=Backtrader Web Backend
+Description=AI for Trader Backend
 After=network.target postgresql.service
 
 [Service]
 Type=simple
 User=backtrader
 Group=backtrader
-WorkingDirectory=/opt/backtrader_web/src/backend
-Environment="PATH=/opt/backtrader_web/venv/bin"
-ExecStart=/opt/backtrader_web/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=/opt/ai-for-trader/src/backend
+Environment="PATH=/opt/ai-for-trader/venv/bin"
+ExecStart=/opt/ai-for-trader/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -140,8 +140,8 @@ Create `/etc/supervisor/conf.d/backtrader.conf`:
 
 ```ini
 [program:backtrader]
-command=/opt/backtrader_web/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-directory=/opt/backtrader_web/src/backend
+command=/opt/ai-for-trader/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+directory=/opt/ai-for-trader/src/backend
 user=backtrader
 autostart=true
 autorestart=true
@@ -338,8 +338,8 @@ crontab -e
 ```bash
 # Backup strategy files and configurations
 tar -czf /backups/backtrader-config-$(date +%Y%m%d).tar.gz \
-    /opt/backtrader_web/.env \
-    /opt/backtrader_web/src/strategies/
+    /opt/ai-for-trader/.env \
+    /opt/ai-for-trader/src/strategies/
 ```
 
 ## Troubleshooting

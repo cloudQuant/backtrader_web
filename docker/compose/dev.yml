@@ -19,13 +19,13 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-backtrader}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-backtrader_dev}
-      POSTGRES_DB: ${POSTGRES_DB:-backtrader_web}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_for_trader}
     ports:
       - "${LOCAL_DB_PORT:-5432}:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-backtrader} -d ${POSTGRES_DB:-backtrader_web}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-backtrader} -d ${POSTGRES_DB:-ai_for_trader}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -40,14 +40,14 @@ services:
     container_name: backtrader_backend_dev
     restart: unless-stopped
     environment:
-      APP_NAME: backtrader_web
+      APP_NAME: ai-for-trader
       DEBUG: "true"
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-jwt-secret-key-change-in-production}
       JWT_ALGORITHM: HS256
       JWT_EXPIRE_MINUTES: "10080"
       DATABASE_TYPE: postgresql
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-backtrader}:${POSTGRES_PASSWORD:-backtrader_dev}@postgres:5432/${POSTGRES_DB:-backtrader_web}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-backtrader}:${POSTGRES_PASSWORD:-backtrader_dev}@postgres:5432/${POSTGRES_DB:-ai_for_trader}
       HOST: "0.0.0.0"
       PORT: "8000"
       CORS_ORIGINS: "http://localhost:${LOCAL_FRONTEND_PORT:-3000},http://127.0.0.1:${LOCAL_FRONTEND_PORT:-3000}"
@@ -64,10 +64,10 @@ services:
     ports:
       - "${LOCAL_BACKEND_PORT:-8000}:8000"
     volumes:
-      - ./src/backend:/opt/workspace/backtrader_web/src/backend
-      - ./strategies:/opt/workspace/backtrader_web/strategies
-      - ./datas:/opt/workspace/backtrader_web/datas
-      - ./scripts:/opt/workspace/backtrader_web/scripts
+      - ./src/backend:/opt/workspace/ai-for-trader/src/backend
+      - ./strategies:/opt/workspace/ai-for-trader/strategies
+      - ./datas:/opt/workspace/ai-for-trader/datas
+      - ./scripts:/opt/workspace/ai-for-trader/scripts
     depends_on:
       postgres:
         condition: service_healthy

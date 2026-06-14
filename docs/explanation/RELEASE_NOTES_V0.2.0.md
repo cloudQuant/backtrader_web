@@ -1,4 +1,4 @@
-# Backtrader Web v0.2.0 RC1 Release Notes
+# AI for Trader v0.2.0 RC1 Release Notes
 
 > Release candidate: `v0.2.0-rc1`
 > Status: candidate build for validation, not the final v0.2.0 production release
@@ -66,10 +66,10 @@ git push origin v0.2.0-rc1
 Expected images:
 
 ```text
-docker.io/$DOCKERHUB_USERNAME/backtrader-web-backend:v0.2.0-rc1
-docker.io/$DOCKERHUB_USERNAME/backtrader-web-frontend:v0.2.0-rc1
-docker.io/$DOCKERHUB_USERNAME/backtrader-web-backend:sha-<commit>
-docker.io/$DOCKERHUB_USERNAME/backtrader-web-frontend:sha-<commit>
+docker.io/$DOCKERHUB_USERNAME/ai-for-trader-backend:v0.2.0-rc1
+docker.io/$DOCKERHUB_USERNAME/ai-for-trader-frontend:v0.2.0-rc1
+docker.io/$DOCKERHUB_USERNAME/ai-for-trader-backend:sha-<commit>
+docker.io/$DOCKERHUB_USERNAME/ai-for-trader-frontend:sha-<commit>
 ```
 
 ## Validation checklist
@@ -100,8 +100,8 @@ python scripts/check_doc_links.py
 Docker dry-run build, without pushing:
 
 ```bash
-docker build -f src/backend/Dockerfile -t backtrader-web-backend:v0.2.0-rc1-dryrun .
-docker build -f src/frontend/Dockerfile -t backtrader-web-frontend:v0.2.0-rc1-dryrun src/frontend
+docker build -f src/backend/Dockerfile -t ai-for-trader-backend:v0.2.0-rc1-dryrun .
+docker build -f src/frontend/Dockerfile -t ai-for-trader-frontend:v0.2.0-rc1-dryrun src/frontend
 ```
 
 ## Known boundaries

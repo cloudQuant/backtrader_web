@@ -1,10 +1,10 @@
-# Backtrader Web：开源量化交易全栈平台
+# AI for Trader：开源量化交易全栈平台
 
 ## 写在前面
 
 在量化交易领域，Backtrader 作为 Python 生态中最受欢迎的回测框架之一，以其灵活性和强大的功能深受开发者喜爱。然而，传统的 Backtrader 使用方式需要编写大量代码，缺乏可视化界面，对于策略管理、版本控制、参数优化等工程化需求支持不足。
 
-**Backtrader Web** 正是为了解决这些痛点而生——一个基于 Backtrader 的现代化量化交易管理平台，将专业的回测引擎与现代 Web 技术完美结合，为量化交易者提供从策略开发、回测分析到模拟交易、实盘监控的全流程解决方案。
+**AI for Trader** 正是为了解决这些痛点而生——一个基于 Backtrader 的现代化量化交易管理平台，将专业的回测引擎与现代 Web 技术完美结合，为量化交易者提供从策略开发、回测分析到模拟交易、实盘监控的全流程解决方案。
 
 ## 项目亮点
 
@@ -213,8 +213,8 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/cloudQuant/backtrader_web.git
-cd backtrader_web
+git clone https://github.com/cloudQuant/ai-for-trader.git
+cd ai-for-trader
 
 # 2. 后端安装
 cd src/backend
@@ -331,9 +331,9 @@ MIT License - 自由使用、修改、商业化
 
 ## 总结
 
-**Backtrader Web** 不仅仅是一个回测工具，更是一个完整的量化交易工作台。它将 Backtrader 的强大功能与现代 Web 技术完美融合，提供了从策略开发到实盘交易的全流程解决方案。
+**AI for Trader** 不仅仅是一个回测工具，更是一个完整的量化交易工作台。它将 Backtrader 的强大功能与现代 Web 技术完美融合，提供了从策略开发到实盘交易的全流程解决方案。
 
-无论你是量化交易新手还是资深玩家，无论是个人交易者还是专业团队，Backtrader Web 都能为你提供专业、高效、易用的量化交易体验。
+无论你是量化交易新手还是资深玩家，无论是个人交易者还是专业团队，AI for Trader 都能为你提供专业、高效、易用的量化交易体验。
 
 **立即开始你的量化交易之旅！**
 
@@ -341,7 +341,7 @@ MIT License - 自由使用、修改、商业化
 
 ## 相关链接
 
-- **项目地址**：https://github.com/cloudQuant/backtrader_web
+- **项目地址**：https://github.com/cloudQuant/ai-for-trader
 - **在线文档**：查看 `docs/INDEX.md`
 - **问题反馈**：GitHub Issues
 - **技术交流**：欢迎提交 PR

@@ -1,6 +1,6 @@
-# Contributing to Backtrader Web
+# Contributing to AI for Trader
 
-Thank you for your interest in contributing to Backtrader Web! This document provides guidelines and instructions for contributors.
+Thank you for your interest in contributing to AI for Trader! This document provides guidelines and instructions for contributors.
 
 ## Table of Contents
 
@@ -18,8 +18,8 @@ Thank you for your interest in contributing to Backtrader Web! This document pro
 
 ```bash
 # Fork the repository on GitHub
-git clone https://github.com/YOUR_USERNAME/backtrader_web.git
-cd backtrader_web
+git clone https://github.com/YOUR_USERNAME/ai-for-trader.git
+cd ai-for-trader
 ```
 
 ### 2. Create a Feature Branch

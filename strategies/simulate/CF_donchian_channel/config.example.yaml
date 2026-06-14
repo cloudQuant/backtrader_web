@@ -4,7 +4,7 @@
 strategy:
   name: "棉花唐奇安通道策略"
   description: "基于唐奇安通道的突破策略 - 棉花期货"
-  author: "backtrader_web"
+  author: "ai-for-trader"
   category: "simulate"
   
 # ============================================================

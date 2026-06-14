@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-import os
 from dataclasses import asdict, dataclass
 
 from app.db.session_provider import unit_of_work
 from app.models.user import User
-from app.services.ai_router.providers import AIProviderSpec, get_default_provider_specs
+from app.services.ai_router.providers import (
+    AIProviderSpec,
+    get_default_provider_specs,
+    get_provider_api_key,
+    is_provider_configured,
+)
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,7 @@ class ResolvedAIModelPreference:
     model: str
     base_url: str | None = None
     api_key: str | None = None
+    configured: bool = True
 
 
 class AIModelPreferenceService:
@@ -79,12 +84,13 @@ class AIModelPreferenceService:
         spec = self._find_provider(str(provider))
         if spec is None:
             return None
-        api_key = os.getenv(spec.api_key_env) if spec.api_key_env else None
+        api_key = get_provider_api_key(spec)
         return ResolvedAIModelPreference(
             provider=spec.provider_type,
             model=str(model),
             base_url=spec.base_url,
             api_key=api_key,
+            configured=is_provider_configured(spec),
         )
 
     def resolve_model_key(self, model_key: str | None) -> ResolvedAIModelPreference | None:
@@ -96,12 +102,13 @@ class AIModelPreferenceService:
         spec = self._find_provider(provider)
         if spec is None:
             return None
-        api_key = os.getenv(spec.api_key_env) if spec.api_key_env else None
+        api_key = get_provider_api_key(spec)
         return ResolvedAIModelPreference(
             provider=spec.provider_type,
             model=model,
             base_url=spec.base_url,
             api_key=api_key,
+            configured=is_provider_configured(spec),
         )
 
     def _provider_option(self, spec: AIProviderSpec) -> AIProviderOption:
@@ -116,6 +123,8 @@ class AIModelPreferenceService:
     def _model_options(self) -> list[AIModelOption]:
         options: list[AIModelOption] = []
         for spec in self.provider_specs:
+            if not spec.enabled:
+                continue
             for model in spec.models:
                 options.append(
                     AIModelOption(

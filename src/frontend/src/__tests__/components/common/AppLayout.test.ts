@@ -139,11 +139,15 @@ describe('AppLayout', () => {
         { path: '/', component: { template: '<div>Home</div>' } },
         { path: '/backtest', component: { template: '<div>Backtest</div>' } },
         { path: '/strategy', component: { template: '<div>Strategy</div>' } },
+        { path: '/research/strategies', component: { template: '<div>Strategy</div>' } },
         { path: '/data', component: { template: '<div>Data</div>' } },
         { path: '/trading', component: { template: '<div>Trading</div>' } },
         { path: '/portfolio', component: { template: '<div>Portfolio</div>' } },
         { path: '/brokers', component: { template: '<div>Brokers</div>' } },
         { path: '/ai-chat', component: { template: '<div>AIChat</div>' } },
+        { path: '/ai/observability', component: { template: '<div>AIObservability</div>' } },
+        { path: '/ai/prompt-governance', component: { template: '<div>PromptTemplates</div>' } },
+        { path: '/ai/knowledge-base', component: { template: '<div>KnowledgeBase</div>' } },
         { path: '/admin/ai-observability', component: { template: '<div>AIObservability</div>' } },
         { path: '/admin/prompt-templates', component: { template: '<div>PromptTemplates</div>' } },
         { path: '/knowledge-base', component: { template: '<div>KnowledgeBase</div>' } },
@@ -216,7 +220,7 @@ describe('AppLayout', () => {
     it('应该显示应用标题', async () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
-      expect(wrapper.text()).toContain('Backtrader Web')
+      expect(wrapper.text()).toContain('AI for Trader')
     })
   })
 
@@ -225,13 +229,13 @@ describe('AppLayout', () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('首页')
-      expect(wrapper.text()).toContain('AI助手')
-      expect(wrapper.text()).toContain('AI成本')
-      expect(wrapper.text()).toContain('Prompt治理')
-      expect(wrapper.text()).toContain('知识库')
-      expect(wrapper.text()).toContain('Broker配置')
+      expect(wrapper.text()).toContain('市场数据')
       expect(wrapper.text()).toContain('策略研究')
-      expect(wrapper.text()).toContain('策略管理')
+      expect(wrapper.text()).toContain('交易运营')
+      expect(wrapper.text()).toContain('组合风控')
+      expect(wrapper.text()).toContain('AI助手')
+      expect(wrapper.text()).not.toContain('AI知识')
+      expect(wrapper.text()).toContain('平台治理')
     })
 
     it('应该包含首页菜单项', async () => {
@@ -247,30 +251,35 @@ describe('AppLayout', () => {
     })
 
     it('应该包含策略管理菜单项', async () => {
+      await router.push('/research/strategies')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('策略管理')
     })
 
     it('应该包含AI助手菜单项', async () => {
+      await router.push('/ai-chat')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('AI助手')
     })
 
     it('管理员应该看到AI成本菜单项', async () => {
+      await router.push('/ai/observability')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('AI成本')
     })
 
     it('管理员应该看到Prompt治理菜单项', async () => {
+      await router.push('/ai/prompt-governance')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('Prompt治理')
     })
 
     it('应该包含知识库菜单项', async () => {
+      await router.push('/ai/knowledge-base')
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('知识库')

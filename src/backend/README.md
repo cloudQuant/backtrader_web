@@ -1,6 +1,6 @@
-# Backtrader Web Backend
+# AI for Trader Backend
 
-FastAPI-based backend service for the Backtrader Web quantitative backtesting platform.
+FastAPI-based backend service for the AI for Trader quantitative backtesting platform.
 
 ## Features
 

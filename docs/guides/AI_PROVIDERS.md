@@ -1,6 +1,6 @@
 # AI Providers 配置指南
 
-这份指南说明 Backtrader Web 如何配置多 AI provider、如何接入 Ollama 本地模型，以及用户如何在 Settings 和 AI Chat 中选择模型。
+这份指南说明 AI for Trader 如何配置多 AI provider、如何接入 Ollama 本地模型，以及用户如何在 Settings 和 AI Chat 中选择模型。
 
 ## 支持范围
 
@@ -11,6 +11,8 @@
 | `openai` | `gpt-4o`、`gpt-4o-mini` | `OPENAI_API_KEY` | 通过 LiteLLM 路由 |
 | `anthropic` | `claude-3-5-sonnet-latest`、`claude-3-5-haiku-latest` | `ANTHROPIC_API_KEY` | 通过 LiteLLM 路由 |
 | `ollama` | `ollama/qwen2.5-coder:7b`、`ollama/llama3.1:8b` | 本地 `base_url` | 默认 `http://localhost:11434` |
+| `volcengine_ark` | `doubao-seed-2.0-code`、`doubao-seed-2.0-pro`、`minimax-m3`、`glm-5.1`、`deepseek-v4-pro`、`kimi-k2.6` | `VOLCENGINE_ARK_API_KEY` | 通过 OpenAI-compatible 路由，默认 `https://ark.cn-beijing.volces.com/api/coding/v3` |
+| `siliconflow` | `deepseek-ai/DeepSeek-V4-Pro`、`deepseek-ai/DeepSeek-V4-Flash`、`moonshotai/Kimi-K2.6`、`zai-org/GLM-5.1` | `SILICONFLOW_API_KEY` | 通过 OpenAI-compatible 路由，默认 `https://api.siliconflow.cn/v1` |
 | `together` | `together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo` | `TOGETHER_API_KEY` | 通过 LiteLLM 路由 |
 | `groq` | `groq/llama-3.3-70b-versatile` | `GROQ_API_KEY` | 通过 LiteLLM 路由 |
 
@@ -41,6 +43,16 @@ AI_PROVIDERS='{"ollama":{"base_url":"http://localhost:11434","api_key_env":null,
 AI_PROVIDERS='{"openai":{"base_url":null,"api_key_env":"OPENAI_API_KEY","models":["gpt-4o-mini"]},"ollama":{"base_url":"http://localhost:11434","api_key_env":null,"models":["ollama/qwen2.5-coder:7b"]}}'
 OPENAI_API_KEY=replace-with-openai-key
 ```
+
+火山方舟和硅基流动示例：
+
+```bash
+VOLCENGINE_ARK_API_KEY=replace-with-volcengine-ark-key
+SILICONFLOW_API_KEY=replace-with-siliconflow-key
+AI_PROVIDERS='{"volcengine_ark":{"display_name":"火山方舟","provider_type":"openai_compatible","base_url":"https://ark.cn-beijing.volces.com/api/coding/v3","api_key_env":"VOLCENGINE_ARK_API_KEY","models":["doubao-seed-2.0-code","doubao-seed-2.0-pro","doubao-seed-2.0-lite","doubao-seed-code","minimax-m2.7","minimax-m3","glm-5.1","deepseek-v4-flash","deepseek-v4-pro","kimi-k2.6"]},"siliconflow":{"display_name":"硅基流动","provider_type":"openai_compatible","base_url":"https://api.siliconflow.cn/v1","api_key_env":"SILICONFLOW_API_KEY","models":["deepseek-ai/DeepSeek-V4-Pro","deepseek-ai/DeepSeek-V4-Flash","moonshotai/Kimi-K2.6","zai-org/GLM-5.1"]}}'
+```
+
+如果火山方舟控制台里使用的是专属 Endpoint ID，也可以直接把 Endpoint ID 放入 `models` 列表中，前端会按 `volcengine_ark::模型或Endpoint` 传给后端。
 
 字段说明：
 
@@ -85,7 +97,7 @@ GET /api/v1/admin/ai/providers/health
 
 ```json
 {
-  "summary": {"total": 5, "available": 1, "unavailable": 4},
+  "summary": {"total": 7, "available": 1, "unavailable": 6},
   "providers": [
     {
       "name": "ollama",
@@ -168,7 +180,7 @@ AI_BUDGET_MODE=soft
 
 ### 健康检查显示云端 provider 不可用
 
-检查对应 API key 环境变量是否存在，例如 `OPENAI_API_KEY`。
+检查对应 API key 环境变量是否存在，例如 `OPENAI_API_KEY`、`VOLCENGINE_ARK_API_KEY` 或 `SILICONFLOW_API_KEY`。
 
 ### Ollama 能 curl，但后端不可用
 

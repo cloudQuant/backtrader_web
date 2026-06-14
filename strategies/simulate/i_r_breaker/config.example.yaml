@@ -4,7 +4,7 @@
 strategy:
   name: "铁矿石R-Breaker策略"
   description: "日内突破反转策略 - 铁矿石期货"
-  author: "backtrader_web"
+  author: "ai-for-trader"
   category: "simulate"
   
 # ============================================================

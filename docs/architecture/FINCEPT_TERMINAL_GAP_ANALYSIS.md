@@ -2,7 +2,7 @@
 
 本文档用于回答一个更精确的问题：
 
-- **哪些 FinceptTerminal 能力已经在 backtrader_web 中完成 Web 化迁移？**
+- **哪些 FinceptTerminal 能力已经在 ai-for-trader 中完成 Web 化迁移？**
 - **哪些只是 MVP，尚未产品化？**
 - **哪些明确不属于当前项目应迁范围？**
 
@@ -36,7 +36,7 @@
 - Qt 桌面端 UI/打包/C++ 运行时
 - Fincept 全量脚本逐文件复制
 - 全量 native broker 一次性铺开
-- 在 `backtrader_web` 内继续扩 broker registry / adapter / native integration 平台
+- 在 `ai-for-trader` 内继续扩 broker registry / adapter / native integration 平台
 - 完整 AI Quant Lab / 训练与 RL/HFT 工作流
 
 ---
@@ -49,7 +49,7 @@
 | DataTopicHub | 已迁移（MVP） | `app/services/data_topic_hub.py`、`app/api/data_topics.py`、`app/services/ws_gateway/*` | Topic/TTL/refresh/WS 已有，但现有旧 WS 路由尚未全面迁移 |
 | WebSocket Gateway | 部分迁移 | `app/services/ws_gateway/*`、`app/api/data_topics.py` | 新网关已可用，但历史 WS 入口尚未统一切换 |
 | Instrument / RiskFreeRate | 已迁移（底座） | `app/services/instruments/*`、`app/services/risk_free_rate/*` | 已形成共享底座，可继续扩展 |
-| Broker Contract (`bt_api_py`) | 跨仓迁移项 | 独立 `bt_api_py/bt_api_py/brokers/*` | broker 统一能力继续沉淀在 `bt_api_py`，后续按交易所/券商拆到独立 `bt_api_xx` 包；不在 `backtrader_web` 内继续产品化 |
+| Broker Contract (`bt_api_py`) | 跨仓迁移项 | 独立 `bt_api_py/bt_api_py/brokers/*` | broker 统一能力继续沉淀在 `bt_api_py`，后续按交易所/券商拆到独立 `bt_api_xx` 包；不在 `ai-for-trader` 内继续产品化 |
 | Broker Profiles | 存量兼容能力 | `app/models/broker_profile.py`、`app/services/broker_profiles.py`、`app/api/brokers.py` | 当前仅作为 170 存量 MVP / 兼容入口，171 不再把它扩成 web 内 broker 平台 |
 | Portfolio Ledger | 部分迁移 | `app/services/portfolio_ledger.py`、`app/api/portfolio_ledger.py` | 账本 API 已在，但当前实现为 in-memory MVP |
 | Equity Research | 部分迁移 | `app/services/equity_research.py`、`app/api/equity_research.py` | 有 search/quote/history/technicals，但无 info/financials/peers，且数据偏示例 |
@@ -93,12 +93,12 @@
 
 ## 4. 结论
 
-backtrader_web **已经完成了适合 Web 架构的 FinceptTerminal 核心能力迁移第一阶段**，但还**没有完成所有应迁能力的完整产品化迁移**。
+ai-for-trader **已经完成了适合 Web 架构的 FinceptTerminal 核心能力迁移第一阶段**，但还**没有完成所有应迁能力的完整产品化迁移**。
 
 因此：
 
 - 迭代 170 应被视为 **MVP 收口完成**
 - 迭代 171 应被视为 **产品化深化与迁移缺口收口**
-- 其中 broker 相关深化迁移不在 `backtrader_web` 仓内继续展开，而是转由 `bt_api_py / bt_api_xx` 生态承接
+- 其中 broker 相关深化迁移不在 `ai-for-trader` 仓内继续展开，而是转由 `bt_api_py / bt_api_xx` 生态承接
 
 后续所有与 FinceptTerminal 相关的新工作，应默认优先对照本清单，避免重复造方向或误判“已经迁完”。

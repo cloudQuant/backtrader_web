@@ -30,9 +30,10 @@
       </template>
 
       <DataSyncConfigForm
-        :config="configForm"
         v-model:sync-mode="syncMode"
         v-model:sync-databases-input="syncDatabasesInput"
+        :config="configForm"
+        @update:config="updateConfigForm"
       />
 
       <div class="tips-grid">
@@ -210,12 +211,12 @@ const configForm = reactive<SyncConfig>({
   remote_user: 'root',
   remote_ssh_key: '~/.ssh/id_rsa',
   remote_container: 'backtrader_mysql',
-  remote_install_dir: '/opt/backtrader_web',
+  remote_install_dir: '/opt/ai-for-trader',
   remote_mysql_host: '',
   remote_mysql_port: 3306,
   remote_mysql_user: 'root',
   remote_mysql_password: '',
-  sync_databases: ['backtrader_web', 'akshare_data'],
+  sync_databases: ['ai_for_trader', 'akshare_data'],
 })
 
 const connectionStatus = ref<SyncConnectionStatus | null>(null)
@@ -223,7 +224,7 @@ const databaseRows = ref<DatabaseSyncInfo[]>([])
 const history = ref<SyncTaskStatus[]>([])
 const activeTaskMap = ref<Record<string, SyncTaskStatus>>({})
 const pollers = new Map<string, number>()
-const syncDatabasesInput = ref('backtrader_web, akshare_data')
+const syncDatabasesInput = ref('ai_for_trader, akshare_data')
 
 const loadingDatabases = ref(false)
 const loadingHistory = ref(false)
@@ -289,6 +290,10 @@ function buildConfigPayload(): SyncConfig {
     connection_mode: 'direct_mysql',
     sync_databases: normalizeDatabaseNames(syncDatabasesInput.value),
   }
+}
+
+function updateConfigForm(nextConfig: SyncConfig) {
+  Object.assign(configForm, nextConfig)
 }
 
 async function loadConfig() {

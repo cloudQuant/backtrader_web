@@ -1,5 +1,5 @@
 ###############################################################################
-# Backtrader Web - Production Docker Compose
+# AI for Trader - Production Docker Compose
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker/compose/prod.yml up -d
@@ -22,7 +22,7 @@ services:
     ports:
       - "3306:3306"
     environment:
-      MYSQL_DATABASE: ${DB_NAME:-backtrader_web}
+      MYSQL_DATABASE: ${DB_NAME:-ai_for_trader}
       MYSQL_USER: ${DB_USER:-backtrader}
       MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
@@ -62,12 +62,12 @@ services:
     restart: unless-stopped
     environment:
       # App
-      APP_NAME: backtrader_web
+      APP_NAME: ai-for-trader
       DEBUG: "false"
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY is required}
       # Database
       DATABASE_TYPE: mysql
-      DATABASE_URL: mysql+aiomysql://${DB_USER:-backtrader}:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-backtrader_web}
+      DATABASE_URL: mysql+aiomysql://${DB_USER:-backtrader}:${DB_PASSWORD:?DB_PASSWORD is required}@${DB_HOST:-mysql}:${DB_PORT:-3306}/${DB_NAME:-ai_for_trader}
       # Redis
       REDIS_URL: redis://redis:6379/0
       # JWT
@@ -96,11 +96,11 @@ services:
       # Timezone
       TZ: Asia/Shanghai
     volumes:
-      - ./datas:/opt/workspace/backtrader_web/datas
-      - ./strategies:/opt/workspace/backtrader_web/strategies
-      - ./workspace_units:/opt/workspace/backtrader_web/workspace_units
-      - ${BACKEND_LOGS_DIR:-./runtime/backend/logs}:/opt/workspace/backtrader_web/src/backend/logs
-      - ${BACKEND_APP_DATA_DIR:-./runtime/backend/data}:/opt/workspace/backtrader_web/src/backend/data
+      - ./datas:/opt/workspace/ai-for-trader/datas
+      - ./strategies:/opt/workspace/ai-for-trader/strategies
+      - ./workspace_units:/opt/workspace/ai-for-trader/workspace_units
+      - ${BACKEND_LOGS_DIR:-./runtime/backend/logs}:/opt/workspace/ai-for-trader/src/backend/logs
+      - ${BACKEND_APP_DATA_DIR:-./runtime/backend/data}:/opt/workspace/ai-for-trader/src/backend/data
     depends_on:
       mysql:
         condition: service_healthy

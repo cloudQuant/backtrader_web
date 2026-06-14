@@ -55,12 +55,17 @@ const isAdmin = computed(() => authStore.user?.is_admin ?? false)
 
 const tabs = computed<DataTab[]>(() => {
   const items: DataTab[] = [
+    { label: t('nav.quote'), path: '/data/quote' },
     { label: t('dataPages.layoutTabMarket'), path: '/data/market' },
     { label: t('dataPages.layoutTabTopics'), path: '/data/topics' },
     { label: t('dataPages.layoutTabScripts'), path: '/data/scripts' },
     { label: t('dataPages.layoutTabTasks'), path: '/data/tasks' },
     { label: t('dataPages.layoutTabExecutions'), path: '/data/executions' },
     { label: t('dataPages.layoutTabTables'), path: '/data/tables' },
+    { label: t('nav.equityResearch'), path: '/data/intelligence/equity' },
+    { label: t('nav.newsIntelligence'), path: '/data/intelligence/news' },
+    { label: t('nav.optionsChain'), path: '/data/intelligence/options' },
+    { label: t('nav.scanners'), path: '/data/intelligence/scanners' },
   ]
 
   if (isAdmin.value) {

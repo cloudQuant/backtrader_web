@@ -4,7 +4,7 @@
       <template #header>
         <div class="text-center">
           <h1 class="text-2xl font-bold text-gray-800">
-            Backtrader Web
+            AI for Trader
           </h1>
           <p class="text-gray-500 mt-2">
             {{ t('common.subtitle') }}
@@ -80,7 +80,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
+import type { ElInput, FormInstance, FormRules } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 
@@ -91,7 +91,7 @@ const authStore = useAuthStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-const usernameInputRef = ref<InstanceType<typeof import('element-plus').ElInput> | null>(null)
+const usernameInputRef = ref<InstanceType<typeof ElInput> | null>(null)
 
 const form = reactive({
   username: '',

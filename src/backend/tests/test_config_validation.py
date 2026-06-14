@@ -19,7 +19,7 @@ class TestSettingsValidation:
     def test_default_settings_load(self):
         """Test that default settings can be loaded."""
         settings = Settings()
-        assert settings.APP_NAME == "backtrader_web"
+        assert settings.APP_NAME == "ai-for-trader"
         assert settings.DEBUG is False
         assert settings.DATABASE_TYPE == "sqlite"
         assert settings.DB_AUTO_CREATE_SCHEMA is False
@@ -139,6 +139,31 @@ class TestSettingsValidation:
             Settings(CORS_ORIGINS="example.com")
 
         assert "start with http:// or https://" in str(exc_info.value)
+
+    def test_production_rejects_wildcard_cors_origins(self):
+        """Test that wildcard CORS origins are blocked in production."""
+        with pytest.raises(ValidationError) as exc_info:
+            Settings(
+                DEBUG=False,
+                SECRET_KEY="a" * 32,
+                JWT_SECRET_KEY="b" * 32,
+                ADMIN_PASSWORD="SecurePass@123!",
+                CORS_ORIGINS="*",
+            )
+
+        assert "Wildcard CORS origin is not allowed in production" in str(exc_info.value)
+
+    def test_production_accepts_explicit_cors_origins(self):
+        """Test that explicit CORS origins are accepted in production."""
+        settings = Settings(
+            DEBUG=False,
+            SECRET_KEY="a" * 32,
+            JWT_SECRET_KEY="b" * 32,
+            ADMIN_PASSWORD="SecurePass@123!",
+            CORS_ORIGINS="https://example.com,https://app.example.com",
+        )
+
+        assert settings.CORS_ORIGINS == "https://example.com,https://app.example.com"
 
     def test_admin_password_warning(self):
         """Test that using default admin password triggers warning."""

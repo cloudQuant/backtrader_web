@@ -16,4 +16,4 @@ members = ["src/backend", "src/bt_api_py"]
 # Iteration 175 — explicitly NOT a top-level project. The `[project]` section is
 # absent on purpose: tools that walk the repo from the root must descend into
 # the member packages to find package metadata. This avoids accidentally
-# building / publishing a "backtrader-web-monorepo" wheel.
+# building / publishing an "ai-for-trader-monorepo" wheel.

@@ -26,7 +26,7 @@ set "ASYNC_LOG=%LOG_DIR%\start_app.%RUN_TOKEN%.async.log"
 type nul > "%ASYNC_LOG%"
 
 echo ======================================
-echo   Backtrader Web - 后台启动中
+echo   AI for Trader - 后台启动中
 echo ======================================
 echo.
 echo [INFO] 已提交到后台执行
@@ -41,7 +41,7 @@ exit /b 0
 :run
 
 echo ======================================
-echo   Backtrader Web - 启动项目
+echo   AI for Trader - 启动项目
 echo ======================================
 echo.
 

@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-PROJECT_ROOT = Path('/Users/yunjinqi/Documents/new_projects/backtrader_web')
+PROJECT_ROOT = Path('/Users/yunjinqi/Documents/new_projects/ai-for-trader')
 BT_API_ROOT = Path('/Users/yunjinqi/Documents/new_projects/bt_api_py')
 BACKEND_ENV = PROJECT_ROOT / 'src' / 'backend' / '.env'
 

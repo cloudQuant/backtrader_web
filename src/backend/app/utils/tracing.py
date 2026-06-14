@@ -56,7 +56,7 @@ def _otel_enabled() -> bool:
     return val.strip().lower() in _TRUTHY
 
 
-_TRACER = trace.get_tracer("backtrader-web")
+_TRACER = trace.get_tracer("ai-for-trader")
 
 # Map readable kwarg names to the formal OTel attribute key.
 _KNOWN_ATTRS: dict[str, str] = {

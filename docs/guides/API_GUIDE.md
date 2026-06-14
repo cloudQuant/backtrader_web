@@ -1,6 +1,6 @@
-# Backtrader Web - API 使用指南
+# AI for Trader - API 使用指南
 
-> 本文档提供 Backtrader Web API 的详细使用指南、常见用例和最佳实践。
+> 本文档提供 AI for Trader API 的详细使用指南、常见用例和最佳实践。
 
 **API 基础 URL**: `http://localhost:8000/api/v1`  
 **Swagger 文档**: `http://localhost:8000/docs`  
@@ -949,4 +949,4 @@ monitor.start()
 
 **最后更新**: 2026-03-07  
 **版本**: 1.0.0  
-**作者**: Backtrader Web Team
+**作者**: AI for Trader Team

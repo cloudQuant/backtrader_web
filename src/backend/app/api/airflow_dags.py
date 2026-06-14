@@ -2,7 +2,7 @@
 Airflow DAG management API endpoints.
 
 Provides DAG listing, triggering, status querying, and log viewing
-through the backtrader_web interface. Only available when Airflow backend is active.
+through the AI for Trader interface. Only available when Airflow backend is active.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status

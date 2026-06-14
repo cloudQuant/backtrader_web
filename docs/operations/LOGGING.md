@@ -2,7 +2,7 @@
 
 ## Overview
 
-The backtrader_web framework includes a comprehensive logging system built on top of [loguru](https://github.com/Delgan/loguru), providing structured logging, sensitive data filtering, and multiple log outputs.
+The AI for Trader framework includes a comprehensive logging system built on top of [loguru](https://github.com/Delgan/loguru), providing structured logging, sensitive data filtering, and multiple log outputs.
 
 ## Features
 

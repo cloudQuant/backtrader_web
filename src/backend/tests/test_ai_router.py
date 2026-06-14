@@ -27,12 +27,68 @@ def test_default_provider_specs_include_core_providers() -> None:
         "openai",
         "anthropic",
         "ollama",
+        "volcengine_ark",
+        "siliconflow",
         "together",
         "groq",
     }
     assert next(provider for provider in providers if provider.name == "ollama").base_url == (
         "http://localhost:11434"
     )
+    assert next(provider for provider in providers if provider.name == "volcengine_ark").base_url == (
+        "https://ark.cn-beijing.volces.com/api/coding/v3"
+    )
+    volcengine_ark = next(provider for provider in providers if provider.name == "volcengine_ark")
+    assert "doubao-seed-2.0-code" in volcengine_ark.models
+    assert "doubao-seed-2.0-pro" in volcengine_ark.models
+    assert "doubao-seed-2.0-lite" in volcengine_ark.models
+    assert "doubao-seed-code" in volcengine_ark.models
+    assert "minimax-m2.7" in volcengine_ark.models
+    assert "minimax-m3" in volcengine_ark.models
+    assert "glm-5.1" in volcengine_ark.models
+    assert "deepseek-v4-flash" in volcengine_ark.models
+    assert "deepseek-v4-pro" in volcengine_ark.models
+    assert "kimi-k2.6" in volcengine_ark.models
+    assert len(volcengine_ark.models) == 10
+    assert "doubao-seed-1-8-251228" not in volcengine_ark.models
+    assert "doubao-seed-2-0-pro-260215" not in volcengine_ark.models
+    assert "doubao-seed-1-6-250615" not in volcengine_ark.models
+    assert "doubao-seed-1-6-thinking-250615" not in volcengine_ark.models
+    assert "doubao-seed-1-6-flash-250615" not in volcengine_ark.models
+    siliconflow = next(provider for provider in providers if provider.name == "siliconflow")
+    assert siliconflow.provider_type == "openai_compatible"
+    assert siliconflow.base_url == "https://api.siliconflow.cn/v1"
+    assert "deepseek-ai/DeepSeek-V4-Pro" in siliconflow.models
+    assert "zai-org/GLM-5.1" in siliconflow.models
+
+
+def test_provider_api_key_can_be_loaded_from_env_file(tmp_path, monkeypatch) -> None:
+    from app.services.ai_router.providers import (
+        AIProviderSpec,
+        _read_env_file_values,
+        get_provider_api_key,
+        is_provider_configured,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("SILICONFLOW_TEST_API_KEY", raising=False)
+    (tmp_path / ".env").write_text("SILICONFLOW_TEST_API_KEY=sk-local-test\n", encoding="utf-8")
+    _read_env_file_values.cache_clear()
+
+    spec = AIProviderSpec(
+        name="siliconflow",
+        display_name="硅基流动",
+        provider_type="openai_compatible",
+        base_url="https://api.siliconflow.cn/v1",
+        api_key_env="SILICONFLOW_TEST_API_KEY",
+        models=("deepseek-ai/DeepSeek-V4-Flash",),
+    )
+
+    try:
+        assert get_provider_api_key(spec) == "sk-local-test"
+        assert is_provider_configured(spec) is True
+    finally:
+        _read_env_file_values.cache_clear()
 
 
 def test_ollama_health_check_reads_local_tags() -> None:

@@ -10,8 +10,8 @@ This guide takes you from zero to running your first strategy backtest.
 
 ```bash
 # Clone the project
-git clone https://github.com/cloudQuant/backtrader_web.git
-cd backtrader_web
+git clone https://github.com/cloudQuant/ai-for-trader.git
+cd ai-for-trader
 
 # Backend setup
 cd src/backend

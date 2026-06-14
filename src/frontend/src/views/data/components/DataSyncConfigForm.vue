@@ -35,10 +35,13 @@
       </el-form-item>
       <el-form-item :label="t('dataPages.syncFormParallel')">
         <el-input-number
-          v-model="config.sync_parallel_workers"
+          :model-value="config.sync_parallel_workers"
           class="full-width"
           :min="1"
           :max="16"
+          @update:model-value="
+            (value: number | undefined) => updateConfigField('sync_parallel_workers', value ?? 1)
+          "
         />
       </el-form-item>
     </div>
@@ -49,29 +52,37 @@
     <div class="form-grid">
       <el-form-item :label="t('dataPages.syncFormLocalHost')">
         <el-input
-          v-model="config.local_mysql_host"
+          :model-value="config.local_mysql_host"
           placeholder="127.0.0.1"
+          @update:model-value="(value: string) => updateConfigField('local_mysql_host', value)"
         />
       </el-form-item>
       <el-form-item :label="t('dataPages.syncFormLocalPort')">
         <el-input-number
-          v-model="config.local_mysql_port"
+          :model-value="config.local_mysql_port"
           class="full-width"
           :min="1"
           :max="65535"
+          @update:model-value="
+            (value: number | undefined) => updateConfigField('local_mysql_port', value ?? 1)
+          "
         />
       </el-form-item>
       <el-form-item :label="t('dataPages.syncFormLocalUser')">
         <el-input
-          v-model="config.local_mysql_user"
+          :model-value="config.local_mysql_user"
           placeholder="root"
+          @update:model-value="(value: string) => updateConfigField('local_mysql_user', value)"
         />
       </el-form-item>
       <el-form-item :label="t('dataPages.syncFormLocalPwd')">
         <el-input
-          v-model="config.local_mysql_password"
+          :model-value="config.local_mysql_password"
           show-password
           :placeholder="t('dataPages.syncLocalPwdPh')"
+          @update:model-value="
+            (value: string) => updateConfigField('local_mysql_password', value)
+          "
         />
       </el-form-item>
     </div>
@@ -82,29 +93,37 @@
     <div class="form-grid">
       <el-form-item :label="t('dataPages.syncFormRemoteHost')">
         <el-input
-          v-model="config.remote_mysql_host"
+          :model-value="config.remote_mysql_host"
           placeholder="43.167.221.188"
+          @update:model-value="(value: string) => updateConfigField('remote_mysql_host', value)"
         />
       </el-form-item>
       <el-form-item :label="t('dataPages.syncFormRemotePort')">
         <el-input-number
-          v-model="config.remote_mysql_port"
+          :model-value="config.remote_mysql_port"
           class="full-width"
           :min="1"
           :max="65535"
+          @update:model-value="
+            (value: number | undefined) => updateConfigField('remote_mysql_port', value ?? 1)
+          "
         />
       </el-form-item>
       <el-form-item :label="t('dataPages.syncFormRemoteUser')">
         <el-input
-          v-model="config.remote_mysql_user"
+          :model-value="config.remote_mysql_user"
           placeholder="root"
+          @update:model-value="(value: string) => updateConfigField('remote_mysql_user', value)"
         />
       </el-form-item>
       <el-form-item :label="t('dataPages.syncFormRemotePwd')">
         <el-input
-          v-model="config.remote_mysql_password"
+          :model-value="config.remote_mysql_password"
           show-password
           :placeholder="t('dataPages.syncRemotePwdPh')"
+          @update:model-value="
+            (value: string) => updateConfigField('remote_mysql_password', value)
+          "
         />
       </el-form-item>
     </div>
@@ -132,17 +151,22 @@ import type { SyncConfig, SyncMode } from '@/types'
 
 const { t } = useI18n()
 
-// ``config`` is a reactive object owned by the parent; Vue 3 passes it by
-// reference so ``v-model="config.x"`` mutates the same object the parent reads.
-// ``syncMode`` / ``syncDatabasesInput`` are parent refs, surfaced as v-model props.
-defineProps<{
+const props = defineProps<{
   config: SyncConfig
   syncMode: SyncMode
   syncDatabasesInput: string
 }>()
 
 const emit = defineEmits<{
+  (e: 'update:config', value: SyncConfig): void
   (e: 'update:syncMode', value: SyncMode): void
   (e: 'update:syncDatabasesInput', value: string): void
 }>()
+
+function updateConfigField<K extends keyof SyncConfig>(
+  field: K,
+  value: SyncConfig[K]
+) {
+  emit('update:config', { ...props.config, [field]: value })
+}
 </script>

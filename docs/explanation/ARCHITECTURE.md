@@ -1,6 +1,6 @@
 # 系统架构
 
-本文档描述 Backtrader Web 的整体架构设计。
+本文档描述 AI for Trader 的整体架构设计。
 
 ## 架构概览
 

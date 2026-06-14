@@ -113,7 +113,7 @@ class TestLoadStrategyEnv:
 
     def test_returns_empty_dict_when_no_env_file(self, tmp_path: Path):
         """Test returns empty dict when no .env file exists."""
-        result = load_strategy_env(tmp_path, backtrader_web_dir=tmp_path / "project")
+        result = load_strategy_env(tmp_path, project_dir=tmp_path / "project")
         assert result == {}
 
     def test_loads_env_from_strategy_dir(self, tmp_path: Path):
@@ -121,7 +121,7 @@ class TestLoadStrategyEnv:
         env_path = tmp_path / ".env"
         env_path.write_text("API_KEY=secret123\nDEBUG=true\n")
 
-        result = load_strategy_env(tmp_path, backtrader_web_dir=tmp_path / "project")
+        result = load_strategy_env(tmp_path, project_dir=tmp_path / "project")
         assert result == {"API_KEY": "secret123", "DEBUG": "true"}
 
     def test_skips_comments_and_empty_lines(self, tmp_path: Path):
@@ -129,7 +129,7 @@ class TestLoadStrategyEnv:
         env_path = tmp_path / ".env"
         env_path.write_text("# Comment\n\nAPI_KEY=secret\n# Another comment\n")
 
-        result = load_strategy_env(tmp_path, backtrader_web_dir=tmp_path / "project")
+        result = load_strategy_env(tmp_path, project_dir=tmp_path / "project")
         assert result == {"API_KEY": "secret"}
 
     def test_strips_quotes_from_values(self, tmp_path: Path):
@@ -137,7 +137,7 @@ class TestLoadStrategyEnv:
         env_path = tmp_path / ".env"
         env_path.write_text("KEY1=\"value1\"\nKEY2='value2'\n")
 
-        result = load_strategy_env(tmp_path, backtrader_web_dir=tmp_path / "project")
+        result = load_strategy_env(tmp_path, project_dir=tmp_path / "project")
         assert result == {"KEY1": "value1", "KEY2": "value2"}
 
     def test_merges_multiple_env_files(self, tmp_path: Path):
@@ -150,7 +150,7 @@ class TestLoadStrategyEnv:
         project_env = project_dir / ".env"
         project_env.write_text("KEY2=overridden\nKEY3=value3\n")
 
-        result = load_strategy_env(tmp_path, backtrader_web_dir=project_dir)
+        result = load_strategy_env(tmp_path, project_dir=project_dir)
         # Strategy dir env takes precedence
         assert result == {"KEY1": "value1", "KEY2": "value2", "KEY3": "value3"}
 

@@ -125,7 +125,7 @@ CONTINUE_PROMPT="$TASK_FILE"
 
 # ---- Print config ----
 echo "╔════════════════════════════════════════════════════════════════╗"
-echo "║  claude_night_runner.sh — Overnight Mode (backtrader_web)    ║"
+echo "║  claude_night_runner.sh — Overnight Mode (ai-for-trader)    ║"
 echo "╠════════════════════════════════════════════════════════════════╣"
 printf "║ %-20s %s\n" "Workdir:"          "$WORKDIR"
 printf "║ %-20s %s\n" "Task file:"        "$TASK_FILE"

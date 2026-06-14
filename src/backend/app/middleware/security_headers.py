@@ -109,7 +109,7 @@ class SecurityHeadersMiddleware:
                     headers["Cache-Control"] = "no-cache"
 
                 if self.settings.DEBUG:
-                    headers.append("X-Powered-By", "Backtrader Web")
+                    headers.append("X-Powered-By", "AI for Trader")
 
             await send(message)
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 ###############################################################################
-# Backtrader Web - 一键服务器部署脚本
+# AI for Trader - 一键服务器部署脚本
 #
 # 适用于全新的 Ubuntu 22.04 / 24.04 LTS 服务器
 # 用法:
@@ -26,11 +26,11 @@ set -euo pipefail
 # ========================= 用户配置区 (部署前请修改) =========================
 
 # 项目 Git 仓库地址
-GIT_REPO="${GIT_REPO:-https://github.com/cloudQuant/backtrader_web.git}"
+GIT_REPO="${GIT_REPO:-https://github.com/cloudQuant/ai-for-trader.git}"
 GIT_BRANCH="${GIT_BRANCH:-dev}"
 
 # 安装目录
-INSTALL_DIR="${INSTALL_DIR:-/opt/backtrader_web}"
+INSTALL_DIR="${INSTALL_DIR:-/opt/ai-for-trader}"
 
 # 运行项目的系统用户
 APP_USER="${APP_USER:-backtrader}"
@@ -39,7 +39,7 @@ APP_USER="${APP_USER:-backtrader}"
 MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-}"  # 留空则自动生成
 MYSQL_APP_USER="${MYSQL_APP_USER:-backtrader}"
 MYSQL_APP_PASSWORD="${MYSQL_APP_PASSWORD:-}"    # 留空则自动生成
-MYSQL_DB_MAIN="${MYSQL_DB_MAIN:-backtrader_web}"
+MYSQL_DB_MAIN="${MYSQL_DB_MAIN:-ai_for_trader}"
 MYSQL_DB_DATA="${MYSQL_DB_DATA:-akshare_data}"
 
 # 后端配置
@@ -97,7 +97,7 @@ SECRET_KEY=$(gen_password)
 JWT_SECRET_KEY=$(gen_password)
 
 # 保存所有密码到文件
-CREDENTIALS_FILE="/root/.backtrader_web_credentials"
+CREDENTIALS_FILE="/root/.ai-for-trader_credentials"
 
 ###############################################################################
 # 1. 系统依赖
@@ -204,7 +204,7 @@ ENV_FILE="${INSTALL_DIR}/src/backend/.env"
 
 cat > "${ENV_FILE}" <<EOF
 # ===== 自动生成于 $(date '+%Y-%m-%d %H:%M:%S') =====
-APP_NAME=backtrader_web
+APP_NAME=ai-for-trader
 DEBUG=false
 SECRET_KEY=${SECRET_KEY}
 
@@ -283,9 +283,9 @@ fi
 ###############################################################################
 log_step "8/10 配置 systemd 后端服务"
 
-cat > /etc/systemd/system/backtrader-web.service <<EOF
+cat > /etc/systemd/system/ai-for-trader.service <<EOF
 [Unit]
-Description=Backtrader Web API
+Description=AI for Trader API
 After=network.target mysql.service
 Wants=mysql.service
 
@@ -317,15 +317,15 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable backtrader-web
-log_info "systemd 服务 backtrader-web 已注册"
+systemctl enable ai-for-trader
+log_info "systemd 服务 ai-for-trader 已注册"
 
 ###############################################################################
 # 9. 配置 Nginx
 ###############################################################################
 log_step "9/10 配置 Nginx 反向代理"
 
-cat > /etc/nginx/sites-available/backtrader-web <<EOF
+cat > /etc/nginx/sites-available/ai-for-trader <<EOF
 server {
     listen 80;
     server_name ${SERVER_DOMAIN};
@@ -386,7 +386,7 @@ server {
 }
 EOF
 
-ln -sf /etc/nginx/sites-available/backtrader-web /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/ai-for-trader /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
 nginx -t
@@ -399,7 +399,7 @@ log_info "Nginx 已配置并重启"
 ###############################################################################
 log_step "10/10 启动服务"
 
-systemctl start backtrader-web
+systemctl start ai-for-trader
 
 # 等待后端就绪
 log_info "等待后端启动..."
@@ -419,7 +419,7 @@ DB_STATUS=$(echo "$HEALTH" | python3 -c "import sys,json;print(json.load(sys.std
 # 保存凭据
 ###############################################################################
 cat > "${CREDENTIALS_FILE}" <<EOF
-# Backtrader Web 部署凭据 - 请妥善保管！
+# AI for Trader 部署凭据 - 请妥善保管！
 # 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
 
 MySQL root 密码:     ${MYSQL_ROOT_PASSWORD}
@@ -452,13 +452,13 @@ echo ""
 echo -e "  ${YELLOW}所有凭据已保存到: ${CREDENTIALS_FILE}${NC}"
 echo ""
 echo -e "  常用命令:"
-echo -e "    查看后端状态:  systemctl status backtrader-web"
-echo -e "    查看后端日志:  journalctl -u backtrader-web -f"
-echo -e "    重启后端:      systemctl restart backtrader-web"
+echo -e "    查看后端状态:  systemctl status ai-for-trader"
+echo -e "    查看后端日志:  journalctl -u ai-for-trader -f"
+echo -e "    重启后端:      systemctl restart ai-for-trader"
 echo -e "    重启 Nginx:    systemctl restart nginx"
 echo ""
 echo -e "  更新部署:"
 echo -e "    cd ${INSTALL_DIR} && git pull"
 echo -e "    cd src/frontend && npm run build"
-echo -e "    systemctl restart backtrader-web"
+echo -e "    systemctl restart ai-for-trader"
 echo ""

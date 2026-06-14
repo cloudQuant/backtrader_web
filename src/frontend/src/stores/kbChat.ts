@@ -18,6 +18,20 @@ function tt(key: string): string {
   return i18n.global.t(key)
 }
 
+function isTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { code?: unknown; message?: unknown }
+  if (candidate.code === 'ECONNABORTED') return true
+  return typeof candidate.message === 'string' && /timeout.*exceeded/i.test(candidate.message)
+}
+
+function getChatErrorMessage(error: unknown): string {
+  if (isTimeoutError(error)) {
+    return tt('kbChatStore.msgRequestTimeout')
+  }
+  return getErrorMessage(error, tt('kbChatStore.msgRequestFailed'))
+}
+
 export interface KBChatMessage {
   role: 'user' | 'assistant'
   content: string
@@ -111,7 +125,7 @@ export const useKBChatStore = defineStore('kbChat', () => {
     } catch (error) {
       messages.value.push({
         role: 'assistant',
-        content: getErrorMessage(error, tt('kbChatStore.msgRequestFailed')),
+        content: getChatErrorMessage(error),
       })
       throw error
     } finally {

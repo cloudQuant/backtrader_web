@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Backtrader Web Backend Dev Entrypoint ==="
+echo "=== AI for Trader Backend Dev Entrypoint ==="
 
 # Wait for database to be ready
 MAX_RETRIES=30
@@ -81,8 +81,8 @@ fi
 # Run seed data script if enabled
 if [ "${SEED_DATA:-false}" = "true" ]; then
     echo "SEED_DATA=true: Checking if seed data is needed..."
-    if [ -f "/opt/workspace/backtrader_web/scripts/seed_dev_data.py" ]; then
-        python /opt/workspace/backtrader_web/scripts/seed_dev_data.py || \
+    if [ -f "/opt/workspace/ai-for-trader/scripts/seed_dev_data.py" ]; then
+        python /opt/workspace/ai-for-trader/scripts/seed_dev_data.py || \
             echo "WARNING: Seed data script failed, continuing anyway..."
     else
         echo "INFO: Seed script not found, skipping. (Will be available after task 5.5)"

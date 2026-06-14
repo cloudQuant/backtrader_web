@@ -95,7 +95,7 @@ def _patch_gateway_client_compat() -> None:
     except ImportError:
         return
 
-    if getattr(GatewayClient, "_backtrader_web_compat_patched", False):
+    if getattr(GatewayClient, "_ai_for_trader_compat_patched", False):
         return
 
     def _compat_subscribe(self, symbols):
@@ -163,7 +163,7 @@ def _patch_gateway_client_compat() -> None:
 
     GatewayClient.subscribe = _compat_subscribe
     GatewayClient._wait_for_adapter_ready = _compat_wait_for_adapter_ready
-    GatewayClient._backtrader_web_compat_patched = True
+    GatewayClient._ai_for_trader_compat_patched = True
 
 
 def _resolve_provider(config: dict) -> str:

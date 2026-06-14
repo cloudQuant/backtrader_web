@@ -158,7 +158,7 @@ describe('BacktestPage.vue', () => {
     it('should have run backtest button', async () => {
       const wrapper = await mountComponent()
       const buttons = wrapper.findAll('.el-button')
-      const runButton = buttons.find(b => b.text().includes('运行回测'))
+      const runButton = buttons.find(b => b.text().includes('backtestPg.btnRun'))
       expect(runButton).toBeDefined()
     })
   })

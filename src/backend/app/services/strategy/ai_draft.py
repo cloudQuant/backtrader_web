@@ -66,7 +66,7 @@ def build_ai_strategy_draft(prompt: str, references: list[str] | None = None) ->
 
 class {class_name}(bt.Strategy):
     """
-    Auto-generated draft from Backtrader Web AI Copilot.
+    Auto-generated draft from AI for Trader AI Copilot.
     Original prompt: {prompt_comment}
     """
 

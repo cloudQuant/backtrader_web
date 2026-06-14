@@ -86,6 +86,64 @@ class TestAIChatServiceIsEnabled:
             assert service.is_enabled() is False
 
 
+class TestAIChatServiceCanGenerate:
+    """Test model-aware AI generation availability."""
+
+    @pytest.mark.asyncio
+    async def test_can_generate_with_configured_session_model_when_fallback_empty(self):
+        from app.services.ai_router.preferences import ResolvedAIModelPreference
+
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = ""
+            settings.AI_CHAT_API_KEY = ""
+            settings.AI_CHAT_MODEL = ""
+            mock_settings.return_value = settings
+            service = AIChatService()
+            service.model_preference_service.resolve_model_key = MagicMock(
+                return_value=ResolvedAIModelPreference(
+                    provider="openai_compatible",
+                    model="deepseek-ai/DeepSeek-V4-Flash",
+                    base_url="https://api.siliconflow.cn/v1",
+                    api_key="sk-test",
+                    configured=True,
+                )
+            )
+            service.model_preference_service.resolve_for_user = AsyncMock()
+
+            assert await service.can_generate(model_id="siliconflow::deepseek-ai/DeepSeek-V4-Flash")
+
+        service.model_preference_service.resolve_for_user.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_can_generate_rejects_unconfigured_selected_model(self):
+        from app.services.ai_router.preferences import ResolvedAIModelPreference
+
+        with patch("app.services.ai_chat_service.get_settings") as mock_settings:
+            settings = MagicMock()
+            settings.AI_CHAT_ENABLED = True
+            settings.AI_CHAT_BASE_URL = "http://fallback.invalid"
+            settings.AI_CHAT_API_KEY = "sk-fallback"
+            settings.AI_CHAT_MODEL = "fallback-model"
+            mock_settings.return_value = settings
+            service = AIChatService()
+            service.model_preference_service.resolve_model_key = MagicMock(
+                return_value=ResolvedAIModelPreference(
+                    provider="openai_compatible",
+                    model="deepseek-ai/DeepSeek-V4-Flash",
+                    base_url="https://api.siliconflow.cn/v1",
+                    api_key=None,
+                    configured=False,
+                )
+            )
+
+            assert (
+                await service.can_generate(model_id="siliconflow::deepseek-ai/DeepSeek-V4-Flash")
+                is False
+            )
+
+
 class TestAIChatServiceBuildMessages:
     """Test message building logic."""
 

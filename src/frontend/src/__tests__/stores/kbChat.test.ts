@@ -223,4 +223,15 @@ describe('useKBChatStore', () => {
     expect(store.messages.at(-1)?.role).toBe('assistant')
     expect(store.messages.at(-1)?.content).toContain('boom')
   })
+
+  it('sendMessage should append friendly assistant error when request times out', async () => {
+    vi.mocked(kbChatApi.send).mockRejectedValue(
+      Object.assign(new Error('timeout of 120000ms exceeded'), { code: 'ECONNABORTED' }),
+    )
+    const store = useKBChatStore()
+
+    await expect(store.sendMessage('kb-1', '测试超时')).rejects.toThrow('timeout')
+    expect(store.messages.at(-1)?.role).toBe('assistant')
+    expect(store.messages.at(-1)?.content).toContain('超时')
+  })
 })

@@ -1,4 +1,4 @@
-# Backtrader Web 敏捷开发文档
+# AI for Trader 敏捷开发文档
 
 > 基于迭代100需求，按照行业最佳实践构建的敏捷开发文档
 
@@ -428,7 +428,7 @@ US-5.3 YAML策略配置
 ### 5.2 项目目录结构
 
 ```
-backtrader_web/
+ai-for-trader/
 ├── backend/                      # 后端项目
 │   ├── app/
 │   │   ├── __init__.py
@@ -693,7 +693,7 @@ npm run dev
 
 ```bash
 # 应用配置
-APP_NAME=backtrader_web
+APP_NAME=ai-for-trader
 DEBUG=true
 SECRET_KEY=your-secret-key-change-in-production
 

@@ -1,10 +1,6 @@
-/**
- * Smoke tests for src/api/aiTrading.ts (raw axios client).
- * Covers all 5 exported functions.
- */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('axios', () => ({
+vi.mock('@/api/index', () => ({
   default: {
     get: vi.fn(),
     post: vi.fn(),
@@ -17,13 +13,13 @@ describe('aiTrading API', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
   it('executeTrade POSTs with default dry_run=true and auto_confirm=false', async () => {
-    const axios = (await import('axios')).default
-    const post = vi.mocked(axios.post).mockResolvedValue({ data: { trade_id: 't-1' } } as never)
+    const request = (await import('@/api/index')).default
+    const post = vi.mocked(request.post).mockResolvedValue({ trade_id: 't-1' } as never)
     const { executeTrade } = await import('@/api/aiTrading')
 
     const result = await executeTrade({ message: 'buy 100 AAPL' })
 
-    expect(post).toHaveBeenCalledWith('/api/v1/ai-trading/execute', {
+    expect(post).toHaveBeenCalledWith('/ai-trading/execute', {
       message: 'buy 100 AAPL',
       gateway_id: null,
       account_id: null,
@@ -34,8 +30,8 @@ describe('aiTrading API', () => {
   })
 
   it('executeTrade respects custom gateway/account/dry_run/auto_confirm', async () => {
-    const axios = (await import('axios')).default
-    const post = vi.mocked(axios.post).mockResolvedValue({ data: {} } as never)
+    const request = (await import('@/api/index')).default
+    const post = vi.mocked(request.post).mockResolvedValue({} as never)
     const { executeTrade } = await import('@/api/aiTrading')
 
     await executeTrade({
@@ -46,7 +42,7 @@ describe('aiTrading API', () => {
       auto_confirm: true,
     })
 
-    expect(post).toHaveBeenCalledWith('/api/v1/ai-trading/execute', {
+    expect(post).toHaveBeenCalledWith('/ai-trading/execute', {
       message: 'sell',
       gateway_id: 'gw-1',
       account_id: 'acc-1',
@@ -56,50 +52,50 @@ describe('aiTrading API', () => {
   })
 
   it('confirmTrade POSTs the params verbatim', async () => {
-    const axios = (await import('axios')).default
-    const post = vi.mocked(axios.post).mockResolvedValue({ data: {} } as never)
+    const request = (await import('@/api/index')).default
+    const post = vi.mocked(request.post).mockResolvedValue({} as never)
     const { confirmTrade } = await import('@/api/aiTrading')
 
     await confirmTrade({ trade_id: 't-1', confirmed: true, user_note: 'looks ok' })
-    expect(post).toHaveBeenCalledWith('/api/v1/ai-trading/confirm', {
+    expect(post).toHaveBeenCalledWith('/ai-trading/confirm', {
       trade_id: 't-1', confirmed: true, user_note: 'looks ok',
     })
   })
 
   it('getTradingConfig GETs /config', async () => {
-    const axios = (await import('axios')).default
-    const get = vi.mocked(axios.get).mockResolvedValue({ data: { enabled: true } } as never)
+    const request = (await import('@/api/index')).default
+    const get = vi.mocked(request.get).mockResolvedValue({ enabled: true } as never)
     const { getTradingConfig } = await import('@/api/aiTrading')
 
     const result = await getTradingConfig()
-    expect(get).toHaveBeenCalledWith('/api/v1/ai-trading/config')
+    expect(get).toHaveBeenCalledWith('/ai-trading/config')
     expect(result).toEqual({ enabled: true })
   })
 
   it('getTradingHistory GETs /history with default limit', async () => {
-    const axios = (await import('axios')).default
-    const get = vi.mocked(axios.get).mockResolvedValue({ data: { total: 0, items: [] } } as never)
+    const request = (await import('@/api/index')).default
+    const get = vi.mocked(request.get).mockResolvedValue({ total: 0, items: [] } as never)
     const { getTradingHistory } = await import('@/api/aiTrading')
 
     await getTradingHistory()
-    expect(get).toHaveBeenCalledWith('/api/v1/ai-trading/history', { params: { limit: 20 } })
+    expect(get).toHaveBeenCalledWith('/ai-trading/history', { params: { limit: 20 } })
   })
 
   it('getTradingHistory GETs with custom limit', async () => {
-    const axios = (await import('axios')).default
-    const get = vi.mocked(axios.get).mockResolvedValue({ data: {} } as never)
+    const request = (await import('@/api/index')).default
+    const get = vi.mocked(request.get).mockResolvedValue({} as never)
     const { getTradingHistory } = await import('@/api/aiTrading')
 
     await getTradingHistory(50)
-    expect(get).toHaveBeenCalledWith('/api/v1/ai-trading/history', { params: { limit: 50 } })
+    expect(get).toHaveBeenCalledWith('/ai-trading/history', { params: { limit: 50 } })
   })
 
   it('reflectOnTrade POSTs to the reflect endpoint with trade id in path', async () => {
-    const axios = (await import('axios')).default
-    const post = vi.mocked(axios.post).mockResolvedValue({ data: { success: true } } as never)
+    const request = (await import('@/api/index')).default
+    const post = vi.mocked(request.post).mockResolvedValue({ success: true } as never)
     const { reflectOnTrade } = await import('@/api/aiTrading')
 
     await reflectOnTrade('t-1')
-    expect(post).toHaveBeenCalledWith('/api/v1/ai-trading/reflect/t-1')
+    expect(post).toHaveBeenCalledWith('/ai-trading/reflect/t-1')
   })
 })

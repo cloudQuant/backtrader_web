@@ -191,4 +191,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-For detailed commit history, see [GitHub Releases](https://github.com/user/backtrader_web/releases).
+For detailed commit history, see [GitHub Releases](https://github.com/user/ai-for-trader/releases).

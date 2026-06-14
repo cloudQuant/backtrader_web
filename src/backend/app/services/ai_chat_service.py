@@ -24,7 +24,7 @@ _BudgetChecker = Callable[..., Awaitable[None]]
 
 _MODE_INSTRUCTIONS = {
     "knowledge_qa": """
-你是 Backtrader Web 的知识库助手。回答必须优先引用知识库中的平台事实、接口约束、配置项和限制。
+你是 AI for Trader 的知识库助手。回答必须优先引用知识库中的平台事实、接口约束、配置项和限制。
 输出结构固定为：
 1. 直接结论
 2. 依据与引用
@@ -42,7 +42,7 @@ _MODE_INSTRUCTIONS = {
 7. 下一步建议
 """.strip(),
     "backtrader_strategy": """
-你是 Backtrader 策略 Copilot。请把用户需求转换成面向 Backtrader / Backtrader Web 的实现草案。
+你是 Backtrader 策略 Copilot。请把用户需求转换成面向 Backtrader / AI for Trader 的实现草案。
 你必须返回一个 JSON 对象，不要使用 Markdown 代码块，不要输出 JSON 以外的内容。
 JSON 结构：
 {
@@ -138,7 +138,7 @@ _QUANT_FOCUS_HINTS = {
     "general": "保持回答通用，但仍需显式指出金融/量化场景下的不确定性与风险。",
     "strategy_research": "优先把回答组织为研究流程，显式写出假设、信号、风险、样本外验证与回测约束。",
     "strategy_review": "优先识别未来函数、数据泄露、样本偏差、过拟合和执行假设缺口。",
-    "implementation": "优先说明如何在 Backtrader Web 中落地，包括策略代码、参数、数据源和执行步骤。",
+    "implementation": "优先说明如何在 AI for Trader 中落地，包括策略代码、参数、数据源和执行步骤。",
 }
 
 
@@ -164,6 +164,22 @@ class AIChatService:
             and self.settings.AI_CHAT_MODEL.strip()
         )
 
+    async def can_generate(
+        self,
+        *,
+        user_id: str | None = None,
+        model_id: str | None = None,
+    ) -> bool:
+        """Return whether any configured model can be used for this request."""
+        if not self.settings.AI_CHAT_ENABLED:
+            return False
+        preference = self.model_preference_service.resolve_model_key(model_id)
+        if preference is None:
+            preference = await self.model_preference_service.resolve_for_user(user_id)
+        if preference is not None:
+            return preference.configured
+        return self.is_enabled()
+
     async def generate_answer(
         self,
         *,
@@ -182,6 +198,8 @@ class AIChatService:
         preference = self.model_preference_service.resolve_model_key(model_id)
         if preference is None:
             preference = await self.model_preference_service.resolve_for_user(user_id)
+        if preference is not None and not preference.configured:
+            return None
         if not self.is_enabled() and preference is None:
             return None
 
@@ -328,7 +346,7 @@ class AIChatService:
             )
         system_prompt = "\n".join(
             [
-                "你是 Backtrader Web 的 AI Copilot。",
+                "你是 AI for Trader 的 AI Copilot。",
                 "你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。",
                 "如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。",
                 "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
@@ -371,7 +389,7 @@ class AIChatService:
         )
         system_prompt = "\n".join(
             [
-                "你是 Backtrader Web 的 AI Copilot。",
+                "你是 AI for Trader 的 AI Copilot。",
                 "你需要严格基于给定知识库上下文回答，帮助用户完成量化研究、策略设计与平台落地。",
                 "如果上下文无法支撑某个实现细节，要明确说明这是推断或需要补充信息。",
                 "不要把研究建议表述成收益保证，不要给出带有确定性的投资承诺。",
@@ -493,6 +511,8 @@ class AIChatService:
     ) -> dict[str, Any]:
         if preference is None:
             preference = await self.model_preference_service.resolve_for_user(user_id)
+        if preference is not None and not preference.configured:
+            raise ValueError("Selected AI provider is not configured")
         response = await self.ai_router.chat_completion(
             messages=messages,
             model=preference.model if preference else self.settings.AI_CHAT_MODEL,

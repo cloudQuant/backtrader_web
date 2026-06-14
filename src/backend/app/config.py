@@ -11,6 +11,8 @@ from typing import Any
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.ai_provider_registry import get_default_provider_registry
+
 _DEFAULT_SECRETS = frozenset(
     {
         "your-secret-key-change-in-production",
@@ -79,7 +81,7 @@ class Settings(BaseSettings):
     """
 
     # App settings
-    APP_NAME: str = "backtrader_web"
+    APP_NAME: str = "ai-for-trader"
     DEBUG: bool = Field(default=False, description="Debug mode (must remain False in production)")
     SECRET_KEY: str = Field(
         default="your-secret-key-change-in-production",
@@ -157,7 +159,7 @@ class Settings(BaseSettings):
     AI_CHAT_API_KEY: str = Field(default="", description="API key for AI chat provider")
     AI_CHAT_MODEL: str = Field(default="", description="Model name for AI chat provider")
     AI_CHAT_TIMEOUT: float = Field(
-        default=60.0, description="Timeout for AI chat provider requests in seconds"
+        default=120.0, description="Timeout for AI chat provider requests in seconds"
     )
     AI_CHAT_TEMPERATURE: float = Field(
         default=0.2, description="Sampling temperature for AI chat provider requests"
@@ -167,33 +169,7 @@ class Settings(BaseSettings):
     )
     AI_BUDGET_MODE: str = Field(default="soft", description="AI budget mode: soft or hard")
     AI_PROVIDERS: dict[str, dict[str, Any]] = Field(
-        default_factory=lambda: {
-            "openai": {
-                "base_url": None,
-                "api_key_env": "OPENAI_API_KEY",
-                "models": ["gpt-4o", "gpt-4o-mini"],
-            },
-            "anthropic": {
-                "base_url": None,
-                "api_key_env": "ANTHROPIC_API_KEY",
-                "models": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
-            },
-            "ollama": {
-                "base_url": "http://localhost:11434",
-                "api_key_env": None,
-                "models": ["ollama/qwen2.5-coder:7b", "ollama/llama3.1:8b"],
-            },
-            "together": {
-                "base_url": None,
-                "api_key_env": "TOGETHER_API_KEY",
-                "models": ["together_ai/meta-llama/Llama-3.3-70B-Instruct-Turbo"],
-            },
-            "groq": {
-                "base_url": None,
-                "api_key_env": "GROQ_API_KEY",
-                "models": ["groq/llama-3.3-70b-versatile"],
-            },
-        },
+        default_factory=get_default_provider_registry,
         description="AI provider registry keyed by provider name",
     )
     STRATEGY_SCORE_MODEL_VERSION: str = Field(
@@ -288,7 +264,7 @@ class Settings(BaseSettings):
     )
     AIRFLOW_CALLBACK_BASE_URL: str = Field(
         default="http://localhost:8000",
-        description="Base URL for Airflow task callbacks to backtrader_web",
+        description="Base URL for Airflow task callbacks to ai-for-trader",
     )
 
     # SQL logging (independent of DEBUG to avoid too much noise)
@@ -415,6 +391,14 @@ class Settings(BaseSettings):
     def validate_runtime_security_guards(self) -> "Settings":
         """Validate production-only secret and admin-password guards."""
         if _is_production(self.DEBUG, debug_was_explicit="DEBUG" in self.model_fields_set):
+            cors_origins = {
+                origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()
+            }
+            if "*" in cors_origins:
+                raise ValueError(
+                    "Wildcard CORS origin is not allowed in production when credentials are enabled. "
+                    "Set CORS_ORIGINS to explicit http:// or https:// origins."
+                )
             for field_name in ("SECRET_KEY", "JWT_SECRET_KEY"):
                 if getattr(self, field_name) in _DEFAULT_SECRETS:
                     raise ValueError(

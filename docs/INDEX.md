@@ -1,9 +1,9 @@
-# Backtrader Web Documentation
+# AI for Trader Documentation
 
 ## Documentation Sites
 
-- **English**: https://backtrader-web.github.io/backtrader_web/en/
-- **中文**: https://backtrader-web.github.io/backtrader_web/zh/
+- **English**: https://cloudquant.github.io/ai-for-trader/en/
+- **中文**: https://cloudquant.github.io/ai-for-trader/zh/
 
 ## Internal Docs Layout
 

@@ -1,6 +1,8 @@
 import api from './index'
 import type { ParamSpec } from '@/types'
 
+export const KB_CHAT_SEND_TIMEOUT_MS = 120000
+
 export type KBAssistantMode =
   | 'knowledge_qa'
   | 'strategy_idea'
@@ -155,6 +157,8 @@ export const kbChatApi = {
       model_id: data.model_id,
       assistant_mode: data.assistant_mode,
       thinking_mode: data.thinking_mode,
+    }, {
+      timeout: KB_CHAT_SEND_TIMEOUT_MS,
     })
   },
 }

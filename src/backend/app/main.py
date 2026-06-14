@@ -34,11 +34,11 @@ settings = get_settings()
 logger = setup_logger(__name__)
 
 APP_DESCRIPTION = """
-# Backtrader Web API
+# AI for Trader API
 
-Backtrader Web provides authenticated REST endpoints and WebSocket streams for
+AI for Trader provides authenticated REST endpoints and WebSocket streams for
 strategy management, backtests, optimization, portfolio workflows, and
-monitoring.
+monitoring, with AI-assisted quantitative research workflows.
 
 ## Runtime Notes
 
@@ -59,13 +59,13 @@ monitoring.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    logger.info("Starting Backtrader Web API...")
+    logger.info("Starting AI for Trader API...")
     app.state.startup_logger = logger
     app.state.ensure_database_ready = ensure_database_ready
     await run_startup(app, settings)
     logger.info("Application ready - accepting requests")
     yield
-    logger.info("Shutting down Backtrader Web API...")
+    logger.info("Shutting down AI for Trader API...")
 
     shutdown_mgr = GracefulShutdownManager()
     await shutdown_mgr.initiate(app)
@@ -90,7 +90,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Backtrader Web API",
+    title="AI for Trader API",
     description=APP_DESCRIPTION,
     version="2.0.0",
     docs_url="/docs",

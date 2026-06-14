@@ -1,6 +1,6 @@
 # 安全指南
 
-本文档介绍 Backtrader Web 的安全最佳实践。
+本文档介绍 AI for Trader 的安全最佳实践。
 
 ## 认证安全
 

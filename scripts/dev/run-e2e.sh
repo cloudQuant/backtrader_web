@@ -11,7 +11,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FRONTEND_DIR="$PROJECT_ROOT/src/frontend"
 BACKEND_DIR="$PROJECT_ROOT/src/backend"
 
@@ -82,7 +82,8 @@ check_frontend() {
 start_backend() {
     echo "Starting backend server..."
     cd "$BACKEND_DIR"
-    python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/backend.log 2>&1 &
+    LIVE_TRADING_RESTORE_MANUAL_GATEWAYS=false \
+        python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > /tmp/backend.log 2>&1 &
     BACKEND_PID=$!
     echo "Backend PID: $BACKEND_PID"
 

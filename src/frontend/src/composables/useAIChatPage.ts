@@ -32,6 +32,8 @@ export function useAIChatPage() {
   const selectedKnowledgeBaseId = ref('')
   const selectedAssistantMode = ref<KBAssistantMode>('knowledge_qa')
   const thinkingMode = ref(false)
+  const leftPanelCollapsed = ref(false)
+  const rightPanelCollapsed = ref(false)
   const conversationSearch = ref('')
   const question = ref('')
   const selectedSessionModelKey = ref('')
@@ -144,6 +146,14 @@ export function useAIChatPage() {
 
   function applyPrompt(prompt: string) {
     question.value = prompt
+  }
+
+  function toggleLeftPanel() {
+    leftPanelCollapsed.value = !leftPanelCollapsed.value
+  }
+
+  function toggleRightPanel() {
+    rightPanelCollapsed.value = !rightPanelCollapsed.value
   }
 
   function copyMessage(content: string) {
@@ -420,6 +430,8 @@ export function useAIChatPage() {
     selectedKnowledgeBaseId,
     selectedAssistantMode,
     thinkingMode,
+    leftPanelCollapsed,
+    rightPanelCollapsed,
     conversationSearch,
     question,
     selectedSessionModelKey,
@@ -455,6 +467,8 @@ export function useAIChatPage() {
     retrievalProfileLabel,
     // Functions
     applyPrompt,
+    toggleLeftPanel,
+    toggleRightPanel,
     copyMessage,
     copyConversation,
     resetWorkspaceDraftState,

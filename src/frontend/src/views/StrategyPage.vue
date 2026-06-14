@@ -198,6 +198,7 @@
       :is-edit="isEdit"
       :saving="saving"
       :form="form"
+      @update:form="updateStrategyForm"
       @save="saveStrategy"
     />
 
@@ -408,6 +409,10 @@ function useTemplate(template: StrategyTemplate) {
   })
   activeTab.value = 'my'
   dialogVisible.value = true
+}
+
+function updateStrategyForm(nextForm: typeof form) {
+  Object.assign(form, nextForm)
 }
 
 async function saveStrategy() {

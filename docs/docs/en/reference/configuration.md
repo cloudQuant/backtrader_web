@@ -6,7 +6,7 @@
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `APP_NAME` | backtrader_web | Application name |
+| `APP_NAME` | ai-for-trader | Application name |
 | `DEBUG` | false | Debug mode |
 | `SECRET_KEY` | (required) | Flask secret key |
 | `TZ` | Asia/Shanghai | Timezone |

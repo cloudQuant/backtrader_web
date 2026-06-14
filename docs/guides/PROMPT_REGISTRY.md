@@ -67,7 +67,7 @@ POST   /api/v1/admin/prompt-templates/{id}/test
 示例模板：
 
 ```text
-你是 Backtrader Web 的知识库助手。
+你是 AI for Trader 的知识库助手。
 
 当前问题：
 {{question}}

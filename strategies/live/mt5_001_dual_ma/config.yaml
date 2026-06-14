@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 双均线交叉策略"
   description: "经典双均线交叉策略，适用于MT5外汇品种。短期均线上穿长期均线买入，下穿卖出。"
-  author: "backtrader_web"
+  author: "ai-for-trader"
 
 # ============================================================
 # 策略参数

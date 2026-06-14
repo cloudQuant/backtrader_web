@@ -1,6 +1,6 @@
 # 数据库设计
 
-本文档描述 Backtrader Web 的数据库模型设计。
+本文档描述 AI for Trader 的数据库模型设计。
 
 ## 数据库选择
 
@@ -276,10 +276,10 @@ cp backtrader.db.backup backtrader.db
 
 ```bash
 # 备份
-pg_dump backtrader_web > backup.sql
+pg_dump ai_for_trader > backup.sql
 
 # 恢复
-psql backtrader_web < backup.sql
+psql ai_for_trader < backup.sql
 ```
 
 ## 性能优化

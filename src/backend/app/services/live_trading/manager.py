@@ -51,7 +51,7 @@ try:
 except ImportError:
     logger = logging.getLogger(__name__)  # type: ignore[assignment]
 
-_BACKTRADER_WEB_DIR = Path(__file__).resolve().parents[4]
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
 _DATA_DIR = get_backend_data_path()
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
 _MANUAL_GATEWAYS_FILE = _DATA_DIR / "manual_gateways.json"
@@ -61,6 +61,13 @@ except Exception:
     _BT_API_PY_DIR = Path()
 
 _DEFAULT_TRANSPORT = "tcp" if sys.platform == "win32" else "ipc"
+_FALSE_ENV_VALUES = {"0", "false", "no", "off"}
+
+
+def _should_restore_manual_gateways() -> bool:
+    """Return whether persisted manual gateways should auto-restore on boot."""
+    raw = os.getenv("LIVE_TRADING_RESTORE_MANUAL_GATEWAYS", "true").strip().lower()
+    return raw not in _FALSE_ENV_VALUES
 
 
 def _load_instances() -> dict[str, dict]:
@@ -200,7 +207,10 @@ class LiveTradingManager:
         self._restore_thread: threading.Thread | None = None
         # Sync process status on startup
         self._sync_status_on_boot()
-        self._start_restore_manual_gateways_background()
+        if _should_restore_manual_gateways():
+            self._start_restore_manual_gateways_background()
+        else:
+            logger.info("Manual gateway auto-restore disabled by environment")
 
     def _sync_status_on_boot(self) -> None:
         live_instance_service.sync_status_on_boot(
@@ -797,7 +807,7 @@ class LiveTradingManager:
         return strategy_runtime_support.load_strategy_config(strategy_dir)
 
     def _load_strategy_env(self, strategy_dir: Path) -> dict[str, str]:
-        return strategy_runtime_support.load_strategy_env(strategy_dir, _BACKTRADER_WEB_DIR)
+        return strategy_runtime_support.load_strategy_env(strategy_dir, _PROJECT_ROOT)
 
     def _resolve_strategy_dir(self, strategy_id: str) -> Path:
         return strategy_runtime_support.resolve_strategy_dir(strategy_id, STRATEGIES_DIR)

@@ -1,6 +1,6 @@
 # 过拟合检测方法说明
 
-> 适用范围：Backtrader Web 迭代 166 的 Walk-forward、样本外验证与 Monte Carlo 检测。检测结果仅供研究参考，不构成投资建议。
+> 适用范围：AI for Trader 迭代 166 的 Walk-forward、样本外验证与 Monte Carlo 检测。检测结果仅供研究参考，不构成投资建议。
 
 ## 1. 总体目标
 

@@ -22,7 +22,7 @@ vi.mock('vue-i18n', () => ({
 describe('LoginPage', () => {
   it('renders login form', () => {
     const wrapper = mountWithPlugins(LoginPage)
-    expect(wrapper.text()).toContain('Backtrader Web')
+    expect(wrapper.text()).toContain('AI for Trader')
     // i18n mock returns keys
     expect(wrapper.text()).toContain('auth.login')
     expect(wrapper.text()).toContain('auth.registerNow')

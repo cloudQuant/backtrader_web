@@ -18,7 +18,7 @@ class TestAuthPages:
         page.wait_for_load_state("networkidle")
         
         # 检查页面标题
-        expect(page.locator("h1")).to_contain_text("Backtrader Web")
+        expect(page.locator("h1")).to_contain_text("AI for Trader")
         
         # 检查表单元素
         expect(page.locator('input[placeholder="用户名"]')).to_be_visible()

@@ -4,7 +4,7 @@
 strategy:
   name: "MT5 澳美RSI回调入场策略"
   description: "基于RSI超买超卖的回调入场策略，RSI低于超卖线买入，高于超买线平仓。适用于AUDUSD M15周期。"
-  author: "backtrader_web"
+  author: "ai-for-trader"
   category: "simulate"
 
 # ============================================================

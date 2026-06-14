@@ -4,7 +4,7 @@
 strategy:
   name: "豆粕一目均衡表策略"
   description: "基于一目均衡表的趋势策略 - 豆粕期货"
-  author: "backtrader_web"
+  author: "ai-for-trader"
   category: "simulate"
   
 # ============================================================

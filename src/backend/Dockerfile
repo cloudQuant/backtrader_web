@@ -7,14 +7,14 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-WORKDIR /opt/workspace/backtrader_web/src/backend
+WORKDIR /opt/workspace/ai-for-trader/src/backend
 
 # 安装系统依赖
 RUN true
 
-COPY src/backend /opt/workspace/backtrader_web/src/backend
+COPY src/backend /opt/workspace/ai-for-trader/src/backend
 COPY src/bt_api_py /opt/workspace/bt_api_py
-COPY strategies /opt/workspace/backtrader_web/strategies
+COPY strategies /opt/workspace/ai-for-trader/strategies
 
 # 使用锁文件安装精确版本依赖（可复现构建）
 # 如果锁文件不存在则回退到 pyproject.toml 安装
@@ -26,10 +26,10 @@ RUN if [ -f requirements-prod.lock ]; then \
     fi
 
 RUN mkdir -p \
-    /opt/workspace/backtrader_web/datas \
-    /opt/workspace/backtrader_web/workspace_units \
-    /opt/workspace/backtrader_web/src/backend/data \
-    /opt/workspace/backtrader_web/src/backend/logs
+    /opt/workspace/ai-for-trader/datas \
+    /opt/workspace/ai-for-trader/workspace_units \
+    /opt/workspace/ai-for-trader/src/backend/data \
+    /opt/workspace/ai-for-trader/src/backend/logs
 
 # 创建非 root 用户 (用于生产环境)
 RUN useradd -m -u 1000 appuser && \

@@ -48,7 +48,7 @@ class TestSettingsPage:
         
         # 检查关于区域
         expect(page.locator("text=关于").first).to_be_visible()
-        expect(page.locator("text=Backtrader Web").first).to_be_visible()
+        expect(page.locator("text=AI for Trader").first).to_be_visible()
     
     def test_change_password_button(self, authenticated_page: Page):
         """测试修改密码按钮存在"""

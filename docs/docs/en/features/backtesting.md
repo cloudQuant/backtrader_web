@@ -2,7 +2,7 @@
 
 ## Overview
 
-Backtrader Web's backtesting engine is built on **Backtrader** with **fincore** for standardized financial metrics.
+AI for Trader's backtesting engine is built on **Backtrader** with **fincore** for standardized financial metrics.
 
 ## Key Features
 

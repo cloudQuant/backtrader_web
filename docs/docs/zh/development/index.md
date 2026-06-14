@@ -1,11 +1,11 @@
 # 开发指南
 
-本节涵盖 Backtrader Web 的开发指南。
+本节涵盖 AI for Trader 的开发指南。
 
 ## 项目结构
 
 ```
-backtrader_web/
+ai-for-trader/
 ├── src/
 │   ├── backend/              # FastAPI 后端
 │   │   ├── app/

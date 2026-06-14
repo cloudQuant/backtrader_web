@@ -5,9 +5,9 @@
  * trade confirmation, configuration, and history.
  */
 
-import axios from 'axios'
+import request from './index'
 
-const API_BASE = '/api/v1/ai-trading'
+const API_BASE = '/ai-trading'
 
 export interface TradingIntent {
   action: string
@@ -101,14 +101,13 @@ export async function executeTrade(params: {
   dry_run?: boolean
   auto_confirm?: boolean
 }): Promise<AITradingResponse> {
-  const { data } = await axios.post<AITradingResponse>(`${API_BASE}/execute`, {
+  return request.post<AITradingResponse>(`${API_BASE}/execute`, {
     message: params.message,
     gateway_id: params.gateway_id || null,
     account_id: params.account_id || null,
     dry_run: params.dry_run ?? true,
     auto_confirm: params.auto_confirm ?? false,
   })
-  return data
 }
 
 /**
@@ -119,16 +118,14 @@ export async function confirmTrade(params: {
   confirmed: boolean
   user_note?: string
 }): Promise<{ trade_id: string; status: string; message: string }> {
-  const { data } = await axios.post(`${API_BASE}/confirm`, params)
-  return data
+  return request.post(`${API_BASE}/confirm`, params)
 }
 
 /**
  * Get AI trading configuration.
  */
 export async function getTradingConfig(): Promise<AITradingConfig> {
-  const { data } = await axios.get<AITradingConfig>(`${API_BASE}/config`)
-  return data
+  return request.get<AITradingConfig>(`${API_BASE}/config`)
 }
 
 /**
@@ -138,8 +135,7 @@ export async function getTradingHistory(limit = 20): Promise<{
   total: number
   items: TradeHistoryItem[]
 }> {
-  const { data } = await axios.get(`${API_BASE}/history`, { params: { limit } })
-  return data
+  return request.get(`${API_BASE}/history`, { params: { limit } })
 }
 
 
@@ -152,6 +148,5 @@ export async function reflectOnTrade(tradeId: string): Promise<{
   reflection?: string
   message?: string
 }> {
-  const { data } = await axios.post(`${API_BASE}/reflect/${tradeId}`)
-  return data
+  return request.post(`${API_BASE}/reflect/${tradeId}`)
 }

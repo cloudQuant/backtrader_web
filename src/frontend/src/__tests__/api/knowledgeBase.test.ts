@@ -12,16 +12,6 @@ vi.mock('@/api/index', () => ({
   },
 }))
 
-vi.mock('axios', () => ({
-  default: {
-    get: vi.fn(),
-  },
-}))
-
-vi.mock('@/utils/session', () => ({
-  getAccessToken: vi.fn(() => 'mock-token'),
-}))
-
 describe('knowledgeBaseApi', () => {
   beforeEach(() => { vi.clearAllMocks() })
 
@@ -101,30 +91,17 @@ describe('knowledgeBaseApi', () => {
     expect(del).toHaveBeenCalledWith('/knowledge-base/kb-1/documents/doc-1')
   })
 
-  it('getDocumentSourceFile GETs the blob and adds Authorization header', async () => {
+  it('getDocumentSourceFile GETs the blob through the unified API client', async () => {
     const { knowledgeBaseApi } = await import('@/api/knowledgeBase')
-    const axiosModule = (await import('axios')).default
-    const get = vi.mocked(axiosModule.get).mockResolvedValue({ data: new Blob(['hello']) } as never)
+    const apiModule = (await import('@/api/index')).default
+    const blob = new Blob(['hello'])
+    const get = vi.mocked(apiModule.get).mockResolvedValue(blob as never)
 
     const result = await knowledgeBaseApi.getDocumentSourceFile('kb-1', 'doc-1')
     expect(get).toHaveBeenCalledWith(
-      '/api/v1/knowledge-base/kb-1/documents/doc-1/source-file',
-      { responseType: 'blob', headers: { Authorization: 'Bearer mock-token' } },
+      '/knowledge-base/kb-1/documents/doc-1/source-file',
+      { responseType: 'blob' },
     )
-    expect(result).toBeInstanceOf(Blob)
-  })
-
-  it('getDocumentSourceFile uses empty bearer when token is missing', async () => {
-    const { knowledgeBaseApi } = await import('@/api/knowledgeBase')
-    const axiosModule = (await import('axios')).default
-    const sessionUtils = await import('@/utils/session')
-    vi.mocked(sessionUtils.getAccessToken).mockReturnValueOnce(null)
-    const get = vi.mocked(axiosModule.get).mockResolvedValue({ data: new Blob() } as never)
-
-    await knowledgeBaseApi.getDocumentSourceFile('kb-1', 'doc-1')
-    expect(get).toHaveBeenCalledWith(
-      '/api/v1/knowledge-base/kb-1/documents/doc-1/source-file',
-      { responseType: 'blob', headers: { Authorization: 'Bearer ' } },
-    )
+    expect(result).toBe(blob)
   })
 })

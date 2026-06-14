@@ -14,6 +14,7 @@ vi.mock('@/views/BacktestPage.vue', () => ({ default: { template: '<div>Backtest
 vi.mock('@/views/BacktestResultPage.vue', () => ({ default: { template: '<div>Result</div>' } }))
 vi.mock('@/views/StrategyPage.vue', () => ({ default: { template: '<div>Strategy</div>' } }))
 vi.mock('@/views/DataPage.vue', () => ({ default: { template: '<div>Data</div>' } }))
+vi.mock('@/views/QuotePage.vue', () => ({ default: { template: '<div>Quote</div>' } }))
 vi.mock('@/views/data/DataLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
 vi.mock('@/views/data/DataMarketPage.vue', () => ({ default: { template: '<div>Data Market</div>' } }))
 vi.mock('@/views/data/DataScriptsPage.vue', () => ({ default: { template: '<div>Data Scripts</div>' } }))
@@ -28,6 +29,10 @@ vi.mock('@/views/data/DataGovernancePage.vue', () => ({ default: { template: '<d
 vi.mock('@/views/PortfolioPage.vue', () => ({ default: { template: '<div>Portfolio</div>' } }))
 vi.mock('@/views/BrokerProfilesPage.vue', () => ({ default: { template: '<div>Broker Profiles</div>' } }))
 vi.mock('@/views/PortfolioLedgerPage.vue', () => ({ default: { template: '<div>Portfolio Ledger</div>' } }))
+vi.mock('@/views/GatewayStatusPage.vue', () => ({ default: { template: '<div>Gateways</div>' } }))
+vi.mock('@/views/AITradingPage.vue', () => ({ default: { template: '<div>AI Trading</div>' } }))
+vi.mock('@/views/workspace/WorkspaceListPage.vue', () => ({ default: { template: '<div>Workspace List</div>' } }))
+vi.mock('@/views/workspace/WorkspaceDetailPage.vue', () => ({ default: { template: '<div>Workspace Detail</div>' } }))
 vi.mock('@/views/EquityResearchPage.vue', () => ({ default: { template: '<div>Equity Research</div>' } }))
 vi.mock('@/views/NewsIntelligencePage.vue', () => ({ default: { template: '<div>News Intelligence</div>' } }))
 vi.mock('@/views/OptionsChainPage.vue', () => ({ default: { template: '<div>Options Chain</div>' } }))
@@ -84,10 +89,21 @@ describe('router', () => {
     expect(names).toContain('DataTopics')
     expect(names).toContain('DataGovernance')
     expect(names).toContain('AIChat')
+    expect(names).toContain('AIChatCanonical')
     expect(names).toContain('AIObservability')
+    expect(names).toContain('AIObservabilityCanonical')
     expect(names).toContain('PromptTemplates')
+    expect(names).toContain('PromptTemplatesCanonical')
     expect(names).toContain('KnowledgeBase')
+    expect(names).toContain('AIKnowledgeBase')
     expect(names).toContain('KnowledgeBaseDocument')
+    expect(names).toContain('ResearchStrategies')
+    expect(names).toContain('ResearchWorkspaces')
+    expect(names).toContain('ResearchBacktestResult')
+    expect(names).toContain('DataQuote')
+    expect(names).toContain('TradingBrokerProfiles')
+    expect(names).toContain('PortfolioOverview')
+    expect(names).toContain('PortfolioLedgerCanonical')
   })
 
   it('guard redirects unauthenticated user to Login', async () => {
@@ -160,6 +176,41 @@ describe('router', () => {
     expect(router.currentRoute.value.name).toBe('KnowledgeBase')
   })
 
+  it('guard allows authenticated user on canonical /research/strategies', async () => {
+    mockAuthStore(true)
+    await router.push('/research/strategies')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ResearchStrategies')
+  })
+
+  it('guard allows authenticated user on canonical /data/quote', async () => {
+    mockAuthStore(true)
+    await router.push('/data/quote')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataQuote')
+  })
+
+  it('guard allows authenticated user on canonical /trading/brokers', async () => {
+    mockAuthStore(true)
+    await router.push('/trading/brokers')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('TradingBrokerProfiles')
+  })
+
+  it('guard allows authenticated user on canonical /ai/chat', async () => {
+    mockAuthStore(true)
+    await router.push('/ai/chat')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('AIChatCanonical')
+  })
+
+  it('guard allows authenticated user on canonical /ai/knowledge-base', async () => {
+    mockAuthStore(true)
+    await router.push('/ai/knowledge-base')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('AIKnowledgeBase')
+  })
+
   it('guard passes redirect query for protected routes', async () => {
     mockAuthStore(false)
     await router.push('/backtest')
@@ -215,6 +266,20 @@ describe('router', () => {
     await router.push('/admin/ai-observability')
     await router.isReady()
     expect(router.currentRoute.value.name).toBe('AIObservability')
+  })
+
+  it('guard redirects non-admin user away from canonical /ai/observability', async () => {
+    mockAuthStore(true, false)
+    await router.push('/ai/observability')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataMarket')
+  })
+
+  it('guard allows admin user to access canonical /ai/observability', async () => {
+    mockAuthStore(true, true)
+    await router.push('/ai/observability')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('AIObservabilityCanonical')
   })
 
   it('guard redirects non-admin user away from /admin/prompt-templates', async () => {

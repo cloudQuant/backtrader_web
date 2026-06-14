@@ -137,7 +137,7 @@ describe('tradingUnitTransfer', () => {
     })
 
     it('uses filename prefix with current date', () => {
-      let capturedHref = ''
+      const capturedHref = ''
       document.createElement = vi.fn((tag: string) => {
         const el = createElementOriginal.call(document, tag) as HTMLAnchorElement
         if (tag === 'a') {

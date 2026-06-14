@@ -17,7 +17,7 @@
 
 1. 当前 PR / 工作区中，没有直接复制 FinceptTerminal 的 C++ / Python 源码片段。
 2. 当前实现仅借鉴能力边界、接口分层与产品组织方式。
-3. `bt_api_py` broker contract 的代码实现位于独立第三方包目录中，未把 broker SDK 细节重新塞回 `backtrader_web` 内部壳目录。
+3. `bt_api_py` broker contract 的代码实现位于独立第三方包目录中，未把 broker SDK 细节重新塞回 `ai-for-trader` 内部壳目录。
 4. 当前文档中的字段命名、接口说明和 guide 内容，均以当前项目实际代码为准，而不是上游源码逐字转写。
 5. 真实 secrets 仍通过 `.env` 占位和环境变量引用管理，没有在文档中记录真实 key。
 

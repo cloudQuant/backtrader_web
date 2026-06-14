@@ -2,7 +2,7 @@
 
 ## Overview
 
-Connect to real brokers for live trading with Backtrader Web.
+Connect to real brokers for live trading with AI for Trader.
 
 ## Supported Brokers
 

@@ -75,7 +75,7 @@ describe('SettingsPage', () => {
     expect(wrapper.text()).toContain('修改密码')
     expect(wrapper.text()).toContain('我的 AI 用量')
     expect(wrapper.text()).toContain('关于')
-    expect(wrapper.text()).toContain('Backtrader Web')
+    expect(wrapper.text()).toContain('AI for Trader')
   })
 
   it('loads current user AI usage on mount', async () => {

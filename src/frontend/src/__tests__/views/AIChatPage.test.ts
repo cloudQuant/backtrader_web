@@ -299,6 +299,34 @@ describe('AIChatPage', () => {
     expect(wrapper.text()).toContain('保存为策略')
   })
 
+  it('can collapse and expand the conversation panel', async () => {
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    const vm = wrapper.vm as any
+
+    vm.toggleLeftPanel()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.conversation-panel.collapsed').exists()).toBe(true)
+    expect(wrapper.find('.conversation-panel .collapsed-panel-toggle').text()).toContain('会话')
+
+    await wrapper.find('.conversation-panel .collapsed-panel-toggle').trigger('click')
+    expect(wrapper.find('.conversation-panel.collapsed').exists()).toBe(false)
+  })
+
+  it('can collapse and expand the context panel', async () => {
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    const vm = wrapper.vm as any
+
+    vm.toggleRightPanel()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.insight-panel.collapsed').exists()).toBe(true)
+    expect(wrapper.find('.insight-panel .collapsed-panel-toggle').text()).toContain('上下文')
+
+    await wrapper.find('.insight-panel .collapsed-panel-toggle').trigger('click')
+    expect(wrapper.find('.insight-panel.collapsed').exists()).toBe(false)
+  })
+
   it('renders conversation title in sidebar', () => {
     mocks.conversations.splice(0, mocks.conversations.length, {
       id: 'conv-1',

@@ -3,7 +3,7 @@ import sys
 import os
 import traceback
 
-OUT = r"D:\new_projects\backtrader_web\scripts\diag_result.txt"
+OUT = r"D:\new_projects\ai-for-trader\scripts\diag_result.txt"
 sys.path.insert(0, r"D:\new_projects\bt_api_py")
 
 for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY"):

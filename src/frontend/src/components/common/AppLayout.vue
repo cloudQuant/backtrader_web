@@ -12,7 +12,7 @@
           <el-icon aria-hidden="true">
             <TrendCharts />
           </el-icon>
-          Backtrader Web
+          AI for Trader
         </h1>
       </div>
       
@@ -21,91 +21,15 @@
         class="!border-none bg-transparent sidebar-menu"
         router
       >
-        <el-menu-item index="/">
-          <el-icon><HomeFilled /></el-icon>
-          <span>{{ t('nav.home') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/ai-chat">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>{{ t('nav.aiChat') }}</span>
-        </el-menu-item>
         <el-menu-item
-          v-if="user?.is_admin"
-          index="/admin/ai-observability"
+          v-for="domain in visibleDomains"
+          :key="domain.id"
+          :index="domain.path"
         >
-          <el-icon><ChatDotRound /></el-icon>
-          <span>{{ t('nav.aiCost') }}</span>
-        </el-menu-item>
-        <el-menu-item
-          v-if="user?.is_admin"
-          index="/admin/prompt-templates"
-        >
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.promptGovernance') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/data">
-          <el-icon><Grid /></el-icon>
-          <span>{{ t('nav.data') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/quote">
-          <el-icon><Stopwatch /></el-icon>
-          <span>{{ t('nav.quote') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/workspace">
-          <el-icon><Aim /></el-icon>
-          <span>{{ t('nav.workspace') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/trading">
-          <el-icon><TrendCharts /></el-icon>
-          <span>{{ t('nav.trading') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/strategy">
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.strategy') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/portfolio">
-          <el-icon><TrendCharts /></el-icon>
-          <span>{{ t('nav.portfolio') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/brokers">
-          <el-icon><Monitor /></el-icon>
-          <span>{{ t('nav.brokers') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/portfolio-ledger">
-          <el-icon><TrendCharts /></el-icon>
-          <span>{{ t('nav.portfolioLedger') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/equity-research">
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.equityResearch') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/news-intelligence">
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.newsIntelligence') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/options-chain">
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.optionsChain') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/scanners">
-          <el-icon><Aim /></el-icon>
-          <span>{{ t('nav.scanners') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/quant-tools">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>{{ t('nav.quantTools') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/gateways">
-          <el-icon><Monitor /></el-icon>
-          <span>{{ t('nav.gateways') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/knowledge-base">
-          <el-icon><Collection /></el-icon>
-          <span>{{ t('nav.knowledgeBase') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/settings">
-          <el-icon><Setting /></el-icon>
-          <span>{{ t('nav.settings') }}</span>
+          <el-icon>
+            <component :is="resolveIcon(domain.icon)" />
+          </el-icon>
+          <span>{{ t(domain.labelKey) }}</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
@@ -129,7 +53,7 @@
             <el-icon aria-hidden="true">
               <TrendCharts />
             </el-icon>
-            Backtrader Web
+            AI for Trader
           </h1>
           <button
             type="button"
@@ -148,91 +72,15 @@
         class="!border-none bg-transparent sidebar-menu mobile-sidebar-menu"
         @select="handleMobileMenuSelect"
       >
-        <el-menu-item index="/">
-          <el-icon><HomeFilled /></el-icon>
-          <span>{{ t('nav.home') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/ai-chat">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>{{ t('nav.aiChat') }}</span>
-        </el-menu-item>
         <el-menu-item
-          v-if="user?.is_admin"
-          index="/admin/ai-observability"
+          v-for="domain in visibleDomains"
+          :key="domain.id"
+          :index="domain.path"
         >
-          <el-icon><ChatDotRound /></el-icon>
-          <span>{{ t('nav.aiCost') }}</span>
-        </el-menu-item>
-        <el-menu-item
-          v-if="user?.is_admin"
-          index="/admin/prompt-templates"
-        >
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.promptGovernance') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/data">
-          <el-icon><Grid /></el-icon>
-          <span>{{ t('nav.data') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/quote">
-          <el-icon><Stopwatch /></el-icon>
-          <span>{{ t('nav.quote') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/workspace">
-          <el-icon><Aim /></el-icon>
-          <span>{{ t('nav.workspace') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/trading">
-          <el-icon><TrendCharts /></el-icon>
-          <span>{{ t('nav.trading') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/strategy">
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.strategy') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/portfolio">
-          <el-icon><TrendCharts /></el-icon>
-          <span>{{ t('nav.portfolio') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/brokers">
-          <el-icon><Monitor /></el-icon>
-          <span>{{ t('nav.brokers') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/portfolio-ledger">
-          <el-icon><TrendCharts /></el-icon>
-          <span>{{ t('nav.portfolioLedger') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/equity-research">
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.equityResearch') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/news-intelligence">
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.newsIntelligence') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/options-chain">
-          <el-icon><Document /></el-icon>
-          <span>{{ t('nav.optionsChain') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/scanners">
-          <el-icon><Aim /></el-icon>
-          <span>{{ t('nav.scanners') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/quant-tools">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>{{ t('nav.quantTools') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/gateways">
-          <el-icon><Monitor /></el-icon>
-          <span>{{ t('nav.gateways') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/knowledge-base">
-          <el-icon><Collection /></el-icon>
-          <span>{{ t('nav.knowledgeBase') }}</span>
-        </el-menu-item>
-        <el-menu-item index="/settings">
-          <el-icon><Setting /></el-icon>
-          <span>{{ t('nav.settings') }}</span>
+          <el-icon>
+            <component :is="resolveIcon(domain.icon)" />
+          </el-icon>
+          <span>{{ t(domain.labelKey) }}</span>
         </el-menu-item>
       </el-menu>
     </el-drawer>
@@ -262,6 +110,25 @@
             <div class="text-lg font-medium shrink-0">
               {{ pageTitle }}
             </div>
+            <nav
+              v-if="currentDomainCapabilities.length > 0"
+              class="domain-subnav"
+              :aria-label="`${currentDomainLabel} ${t('nav.primary')}`"
+            >
+              <button
+                v-for="capability in currentDomainCapabilities"
+                :key="capability.id"
+                type="button"
+                class="domain-subnav-item"
+                :class="{ 'domain-subnav-item-active': isCapabilityActive(capability.id) }"
+                @click="goToCapability(capability.path)"
+              >
+                <el-icon aria-hidden="true">
+                  <component :is="resolveIcon(capability.icon)" />
+                </el-icon>
+                <span>{{ capabilityLabel(capability) }}</span>
+              </button>
+            </nav>
             <div
               id="page-header-title-extra"
               class="app-header-extras flex items-center gap-2 min-w-0 flex-wrap"
@@ -272,7 +139,7 @@
             class="app-header-extras flex items-center gap-3 flex-wrap"
           />
           <div
-            v-if="route.path === '/portfolio'"
+            v-if="route.path.startsWith('/portfolio')"
             class="app-header-portfolio-toggle"
           >
             <el-radio-group
@@ -338,7 +205,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -346,6 +213,13 @@ import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import { useThemeStore } from '@/stores/theme'
 import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import {
+  findCapabilityByPath,
+  getCapabilitiesForDomain,
+  getDomainByPath,
+  getVisibleDomains,
+  type Capability,
+} from '@/navigation/capabilities'
 import {
   Aim,
   ChatDotRound,
@@ -361,6 +235,19 @@ import {
   Monitor,
   Stopwatch,
 } from '@element-plus/icons-vue'
+
+const iconComponents: Record<string, Component> = {
+  Aim,
+  ChatDotRound,
+  Collection,
+  Document,
+  Grid,
+  HomeFilled,
+  Monitor,
+  Setting,
+  Stopwatch,
+  TrendCharts,
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -398,45 +285,42 @@ function handleMobileMenuSelect(index: string) {
   mobileMenuOpen.value = false
 }
 
-const currentRoute = computed(() => {
-  const p = route.path
-  if (p === '/backtest' || p.startsWith('/backtest/')) {
-    return '/workspace'
-  }
-  // Match top-level menu items for nested routes
-  const prefixes = ['/ai-chat', '/admin/ai-observability', '/admin/prompt-templates', '/workspace', '/trading', '/strategy', '/data', '/gateways', '/knowledge-base', '/quote', '/portfolio', '/portfolio-ledger', '/equity-research', '/news-intelligence', '/options-chain', '/scanners', '/quant-tools', '/settings']
-  for (const prefix of prefixes) {
-    if (p.startsWith(prefix + '/') || p === prefix) return prefix
-  }
-  return p
-})
 const user = computed(() => authStore.user)
+const isAdmin = computed(() => user.value?.is_admin ?? false)
+const visibleDomains = computed(() => getVisibleDomains(isAdmin.value))
+const activeDomain = computed(() => getDomainByPath(route.path))
+const activeCapability = computed(() => findCapabilityByPath(route.path))
+const currentRoute = computed(() => activeDomain.value.path)
+const currentDomainCapabilities = computed(() =>
+  getCapabilitiesForDomain(activeDomain.value.id, isAdmin.value),
+)
+const currentDomainLabel = computed(() => t(activeDomain.value.labelKey))
 
 const pageTitle = computed(() => {
-  const titles: Record<string, string> = {
-    '/': t('nav.dashboard'),
-    '/ai-chat': t('nav.aiChat'),
-    '/admin/ai-observability': t('nav.aiCost'),
-    '/admin/prompt-templates': t('nav.promptGovernance'),
-    '/strategy': t('nav.strategy'),
-    '/data': t('nav.data'),
-    '/gateways': t('nav.gateways'),
-    '/knowledge-base': t('nav.knowledgeBase'),
-    '/quote': t('nav.quote'),
-    '/workspace': t('nav.workspace'),
-    '/trading': t('nav.trading'),
-    '/portfolio': t('nav.portfolio'),
-    '/portfolio-ledger': t('nav.portfolioLedger'),
-    '/equity-research': t('nav.equityResearch'),
-    '/news-intelligence': t('nav.newsIntelligence'),
-    '/options-chain': t('nav.optionsChain'),
-    '/scanners': t('nav.scanners'),
-    '/quant-tools': t('nav.quantTools'),
-    '/settings': t('nav.settings'),
+  if (activeCapability.value) {
+    return capabilityLabel(activeCapability.value)
   }
-  // Use prefix matching for nested routes (Bug-11 fix)
-  return titles[route.path] || titles[currentRoute.value] || 'Backtrader Web'
+  return currentDomainLabel.value || 'AI for Trader'
 })
+
+function resolveIcon(name: string): Component {
+  return iconComponents[name] ?? Document
+}
+
+function capabilityLabel(capability: Capability): string {
+  if (capability.labelKey) {
+    return t(capability.labelKey)
+  }
+  return capability.label ?? capability.id
+}
+
+function isCapabilityActive(capabilityId: string): boolean {
+  return activeCapability.value?.id === capabilityId
+}
+
+function goToCapability(path: string) {
+  void router.push(path)
+}
 
 function handleCommand(command: string) {
   if (command === 'logout') {
@@ -489,5 +373,60 @@ function handleCommand(command: string) {
   padding: 0;
   color: inherit;
   font: inherit;
+}
+
+.domain-subnav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.domain-subnav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  max-width: 180px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-color-card);
+  color: var(--text-color-regular);
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+}
+
+.domain-subnav-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.domain-subnav-item:hover,
+.domain-subnav-item:focus-visible,
+.domain-subnav-item-active {
+  border-color: var(--el-color-primary, #409eff);
+  color: var(--el-color-primary, #409eff);
+  background: var(--el-color-primary-light-9, #ecf5ff);
+}
+
+.domain-subnav-item:focus-visible {
+  outline: 2px solid var(--el-color-primary, #409eff);
+  outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  .domain-subnav {
+    width: 100%;
+  }
+
+  .domain-subnav-item {
+    max-width: 44vw;
+  }
 }
 </style>

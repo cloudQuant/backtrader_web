@@ -4,7 +4,7 @@
 strategy:
   name: "焦炭Dual Thrust策略"
   description: "区间突破策略 - 焦炭期货"
-  author: "backtrader_web"
+  author: "ai-for-trader"
   category: "simulate"
   
 # ============================================================

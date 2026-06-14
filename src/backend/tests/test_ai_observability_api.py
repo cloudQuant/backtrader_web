@@ -247,9 +247,19 @@ async def test_my_ai_available_models_returns_models_and_current_preferences(cli
     assert response.status_code == 200
     data = response.json()
     provider_names = {provider["name"] for provider in data["providers"]}
-    assert {"openai", "ollama"}.issubset(provider_names)
+    assert {"openai", "ollama", "volcengine_ark", "siliconflow"}.issubset(provider_names)
     assert any(model["model"] == "gpt-4o-mini" for model in data["models"])
     assert any(model["provider"] == "ollama" for model in data["models"])
+    assert any(
+        model["provider"] == "volcengine_ark" and model["model"] == "doubao-seed-2.0-code"
+        for model in data["models"]
+    )
+    assert any(
+        model["provider"] == "volcengine_ark" and model["model"] == "deepseek-v4-pro"
+        for model in data["models"]
+    )
+    assert any(model["model"] == "deepseek-ai/DeepSeek-V4-Pro" for model in data["models"])
+    assert any(model["model"] == "zai-org/GLM-5.1" for model in data["models"])
     assert data["preferences"]["provider"] is None
     assert data["preferences"]["model"] is None
 

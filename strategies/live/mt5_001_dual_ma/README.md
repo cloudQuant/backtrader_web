@@ -22,4 +22,4 @@ EURUSD、GBPUSD、USDJPY 等主流外汇品种。
 ## 使用方式
 
 1. 在 `config.yaml` 中填写 MT5 账号信息
-2. 通过 backtrader_web 实盘管理页面启动
+2. 通过 AI for Trader 实盘管理页面启动

@@ -1,23 +1,23 @@
-# Backtrader Web
+# AI for Trader
 
-**The open-source quantitative trading platform that takes you from idea to live trading.**
+**An AI + quant platform that takes traders from research questions to strategy drafts, backtests, and trading workflows.**
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![Vue 3](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg?logo=vuedotjs&logoColor=white)](https://vuejs.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://img.shields.io/github/actions/workflow/status/cloudQuant/backtrader_web/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/cloudQuant/backtrader_web/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/cloudQuant/ai-for-trader/ci.yml?branch=master&label=CI&logo=githubactions&logoColor=white)](https://github.com/cloudQuant/ai-for-trader/actions)
 
 [中文文档](README.md) | **English**
 
 ---
 
-Backtrader Web is a full-stack quantitative trading management platform built for developers and traders who want professional-grade tools without vendor lock-in. Strategy development, backtesting, parameter optimization, paper trading, live trading, and AI-assisted research — all in one open-source package.
+AI for Trader is an AI + quantitative trading MVP for developers, traders, and small research teams who want to turn market knowledge and natural-language strategy ideas into executable research workflows. Strategy development, backtesting, parameter optimization, paper trading, live trading, knowledge-base Q&A, and AI-assisted research are integrated in one product.
 
 ## Highlights
 
 - 🚀 **5-Minute Quick Start** — Clone, install, run your first backtest
-- 🤖 **AI Strategy Copilot** — Natural language → strategy code → auto-backtest → performance report
+- 🤖 **AI Quant Copilot** — Knowledge Q&A → natural language strategy idea → strategy code → auto-backtest → performance report
 - 📊 **Professional Charts** — ECharts K-line charts with 10+ analytical visualizations
 - 🎯 **118 Built-in Strategies** — Ready-to-use templates covering momentum, mean-reversion, ML, and more
 - 🔌 **API-First Design** — Every feature accessible via REST API; modular route registration with observable degradation
@@ -75,8 +75,8 @@ Backtrader Web is a full-stack quantitative trading management platform built fo
 
 ```bash
 # Clone
-git clone https://github.com/cloudQuant/backtrader_web.git
-cd backtrader_web
+git clone https://github.com/cloudQuant/ai-for-trader.git
+cd ai-for-trader
 
 # Backend
 cd src/backend
@@ -247,7 +247,7 @@ Frontend coverage thresholds are tightened gradually from measured baselines:
 ## Project Structure
 
 ```
-backtrader_web/
+ai-for-trader/
 ├── src/
 │   ├── backend/              # FastAPI backend
 │   │   ├── app/
@@ -334,7 +334,7 @@ See [docs/STRATEGIC_ROADMAP.md](docs/STRATEGIC_ROADMAP.md) for the full strategi
 
 <p align="center">
   Built with ❤️ for the quantitative trading community<br>
-  <a href="https://github.com/cloudQuant/backtrader_web">GitHub</a> ·
-  <a href="https://github.com/cloudQuant/backtrader_web/issues">Issues</a> ·
-  <a href="https://github.com/cloudQuant/backtrader_web/discussions">Discussions</a>
+  <a href="https://github.com/cloudQuant/ai-for-trader">GitHub</a> ·
+  <a href="https://github.com/cloudQuant/ai-for-trader/issues">Issues</a> ·
+  <a href="https://github.com/cloudQuant/ai-for-trader/discussions">Discussions</a>
 </p>

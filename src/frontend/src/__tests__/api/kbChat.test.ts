@@ -38,8 +38,8 @@ describe('kbChatApi', () => {
     expect(get).toHaveBeenCalledWith('/kb-chat/history/conv-1')
   })
 
-  it('send POSTs to /kb-chat/send with the request body', async () => {
-    const { kbChatApi } = await import('@/api/kbChat')
+  it('send POSTs to /kb-chat/send with the request body and extended timeout', async () => {
+    const { KB_CHAT_SEND_TIMEOUT_MS, kbChatApi } = await import('@/api/kbChat')
     const apiModule = (await import('@/api/index')).default
     const post = vi.mocked(apiModule.post).mockResolvedValue({} as never)
 
@@ -58,6 +58,8 @@ describe('kbChatApi', () => {
       model_id: 'gpt-4',
       assistant_mode: 'knowledge_qa',
       thinking_mode: true,
+    }, {
+      timeout: KB_CHAT_SEND_TIMEOUT_MS,
     })
   })
 })

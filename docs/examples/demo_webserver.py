@@ -14,8 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))
 
 import backtrader as bt
-from backtrader_web import WebServer
-from backtrader_web.data import get_stock_data
+from ai_for_trader import WebServer
+from ai_for_trader.data import get_stock_data
 
 
 # Define strategy

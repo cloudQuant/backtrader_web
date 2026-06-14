@@ -321,7 +321,7 @@ class TestStrategyRuntimeSupport:
         app_dir.mkdir()
         (strategy_dir / ".env").write_text("A=1\n", encoding="utf-8")
         (app_dir / ".env").write_text("B=2\n", encoding="utf-8")
-        monkeypatch.setattr(strategy_runtime_support, "_BACKTRADER_WEB_DIR", app_dir)
+        monkeypatch.setattr(strategy_runtime_support, "_PROJECT_ROOT", app_dir)
 
         result = strategy_runtime_support.load_strategy_env(strategy_dir)
 

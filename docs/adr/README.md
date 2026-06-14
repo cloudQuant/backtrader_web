@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory contains Architecture Decision Records (ADRs) for the Backtrader Web project.
+This directory contains Architecture Decision Records (ADRs) for the AI for Trader project.
 
 ADRs document significant architectural decisions made during the project's development.
 They provide context for future developers about why certain choices were made.

@@ -1,7 +1,7 @@
 {
-  "name": "backtrader-web-frontend",
+  "name": "ai-for-trader-frontend",
   "version": "0.1.0",
-  "description": "Backtrader Web 前端应用",
+  "description": "AI for Trader 前端应用",
   "type": "module",
   "engines": {
     "node": ">=20 <25"

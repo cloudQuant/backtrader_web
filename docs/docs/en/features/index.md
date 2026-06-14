@@ -1,6 +1,6 @@
 # Features Overview
 
-Backtrader Web provides comprehensive quantitative trading functionality.
+AI for Trader provides comprehensive quantitative trading functionality.
 
 ## Core Modules
 

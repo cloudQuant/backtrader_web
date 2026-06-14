@@ -1,4 +1,4 @@
-"""One-time structured data migration from ReqDocs into backtrader_web."""
+"""One-time structured data migration from ReqDocs into AI for Trader."""
 
 from __future__ import annotations
 

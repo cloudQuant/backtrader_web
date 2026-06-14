@@ -1,10 +1,10 @@
 # Getting Started
 
-Welcome to Backtrader Web! This section will help you get started with the platform.
+Welcome to AI for Trader! This section will help you get started with the platform.
 
-## What is Backtrader Web?
+## What is AI for Trader?
 
-Backtrader Web is a **full-featured quantitative trading management platform** that provides a complete workflow from strategy development, backtesting, paper trading to live trading monitoring.
+AI for Trader is a **full-featured quantitative trading management platform** that provides a complete workflow from strategy development, backtesting, paper trading to live trading monitoring.
 
 ## Supported Features
 

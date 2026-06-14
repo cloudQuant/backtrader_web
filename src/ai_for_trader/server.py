@@ -295,7 +295,7 @@ class WebServer:
             HTTPServer instance if blocking=False, None otherwise.
         """
         print("=" * 60)
-        print("🚀 Backtrader Web - Backtest Visualization")
+        print("🚀 AI for Trader - Backtest Visualization")
         print("=" * 60)
 
         # Run backtest

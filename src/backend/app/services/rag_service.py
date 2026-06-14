@@ -649,7 +649,7 @@ class RAGService:
         max_context_chunks = int(settings.get("max_context_chunks") or len(results))
         context_results = results[:max_context_chunks]
         citations = context_results[:3]
-        ai_enabled = self.ai_chat_service.is_enabled()
+        ai_enabled = await self.ai_chat_service.can_generate(user_id=owner_id, model_id=model_id)
         generated = await self.ai_chat_service.generate_answer(
             question=question,
             citations=context_results,
