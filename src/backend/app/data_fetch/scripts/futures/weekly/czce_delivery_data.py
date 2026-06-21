@@ -39,7 +39,7 @@ class FuturesDeliveryCzce(AkshareToMySql):
 
                                 """
 
-    def run(self, start_date=None, end_date=None):
+    def run(self, start_date=None, end_date=None, sleep_seconds=0):
         """
         更新郑州商品交易所交割统计数据
         Args:
@@ -53,15 +53,16 @@ class FuturesDeliveryCzce(AkshareToMySql):
         table_name = "FUTURES_DELIVERY_CZCE"
 
         try:
+            sleep_seconds = float(sleep_seconds or 0)
             if end_date is None:
-                end_date = self.get_previous_date().replace("-", "")
+                end_date = self.get_current_date().replace("-", "")
 
             if start_date is None:
                 start_date = self.get_latest_date(self.table_name, "TRADE_DATE")
                 if start_date is None:
                     start_date = "20100101"
                 else:
-                    start_date = self.get_next_date(start_date).replace("-", "")
+                    start_date = start_date.replace("-", "")
 
             start_date_dt = datetime.strptime(start_date, "%Y%m%d").date()
             end_date_dt = datetime.strptime(end_date, "%Y%m%d").date()
@@ -96,7 +97,8 @@ class FuturesDeliveryCzce(AkshareToMySql):
 
                     if df is None or df.empty:
                         self.logger.warning(f"未获取到 {date_str} 的郑商所交割统计数据")
-                        time.sleep(1)
+                        if sleep_seconds > 0:
+                            time.sleep(sleep_seconds)
                         continue
 
                     df.rename(
@@ -147,7 +149,8 @@ class FuturesDeliveryCzce(AkshareToMySql):
                     self.logger.error(f"处理 {date_str} 郑商所交割统计数据时出错: {str(e)}")
                     failed_dates.append(date_str)
 
-                time.sleep(1)
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
 
             if success_count > 0:
                 self.logger.info(f"成功更新 {success_count} 个交易日的郑商所交割统计数据")

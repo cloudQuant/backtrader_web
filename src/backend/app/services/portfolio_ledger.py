@@ -55,6 +55,22 @@ class PortfolioLedgerService:
             transaction_count=await self._transaction_count(portfolio_id),
         )
 
+    async def list_portfolios(self, user_id: str) -> dict[str, Any]:
+        result = await self.db.execute(
+            select(PortfolioLedgerModel)
+            .where(PortfolioLedgerModel.owner_id == user_id)
+            .order_by(PortfolioLedgerModel.updated_at.desc(), PortfolioLedgerModel.created_at.desc())
+        )
+        portfolios = list(result.scalars().all())
+        items = [
+            self._serialize_portfolio(
+                portfolio,
+                transaction_count=await self._transaction_count(portfolio.id),
+            )
+            for portfolio in portfolios
+        ]
+        return {"items": items, "total": len(items)}
+
     async def list_transactions(self, user_id: str, portfolio_id: str) -> dict[str, Any] | None:
         portfolio = await self._get_portfolio(user_id, portfolio_id)
         if portfolio is None:

@@ -23,6 +23,42 @@ _CTP_FUTURES: dict[str, Any] = {
             "input_type": "string",
             "placeholder": "请输入期货账户",
         },
+        {
+            "key": "ctp_env",
+            "label": "CTP环境",
+            "input_type": "string",
+            "placeholder": "auto / set1 / set2",
+        },
+        {
+            "key": "set1_group",
+            "label": "普通SimNow组",
+            "input_type": "string",
+            "placeholder": "1 / 2 / 3",
+        },
+        {
+            "key": "td_front",
+            "label": "交易前置",
+            "input_type": "string",
+            "placeholder": "auto模式可留空",
+        },
+        {
+            "key": "md_front",
+            "label": "行情前置",
+            "input_type": "string",
+            "placeholder": "auto模式可留空",
+        },
+        {
+            "key": "startup_timeout_sec",
+            "label": "启动超时秒",
+            "input_type": "string",
+            "placeholder": "60",
+        },
+        {
+            "key": "command_timeout_sec",
+            "label": "命令超时秒",
+            "input_type": "string",
+            "placeholder": "20",
+        },
     ],
     "params": {
         "gateway": {
@@ -31,6 +67,12 @@ _CTP_FUTURES: dict[str, Any] = {
             "exchange_type": "CTP",
             "asset_type": "FUTURE",
             "account_id": "",
+            "ctp_env": "auto",
+            "set1_group": "1",
+            "td_front": "",
+            "md_front": "",
+            "startup_timeout_sec": "60",
+            "command_timeout_sec": "20",
         }
     },
 }

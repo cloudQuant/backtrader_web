@@ -43,52 +43,91 @@
               {{ t('portfolio.cardPositionValue') }}
             </div>
             <div class="text-2xl font-bold text-blue-600">
-              {{ formatMoney(overview.total_position_value) }}
+              {{ formatMoney(selectedPositionValue || overview.total_position_value) }}
             </div>
           </div>
         </el-card>
         <el-card shadow="hover">
           <div class="text-center">
             <div class="text-gray-500 text-sm mb-1">
-              {{ t('portfolio.cardStrategyRunning') }}
+              {{ t('portfolio.cardWorkspaceRunning') }}
             </div>
             <div class="text-3xl font-bold">
-              <span class="text-gray-700">{{ overview.strategy_count }}</span>
+              <span class="text-gray-700">{{ selectedWorkspaceIds.length }}</span>
               <span class="text-gray-400 mx-1">/</span>
-              <span class="text-green-600">{{ overview.running_count }}</span>
+              <span class="text-green-600">{{ runningWorkspaces.length }}</span>
             </div>
           </div>
         </el-card>
       </div>
 
+      <el-card>
+        <div class="flex items-start justify-between gap-4 mb-4">
+          <div>
+            <h3 class="text-base font-semibold text-gray-900">
+              {{ t('portfolio.workspaceSelectorTitle') }}
+            </h3>
+            <p class="text-sm text-gray-500 mt-1">
+              {{ t('portfolio.workspaceSelectorDesc') }}
+            </p>
+          </div>
+          <el-button
+            size="small"
+            @click="loadData"
+          >
+            {{ t('portfolio.btnRefresh') }}
+          </el-button>
+        </div>
+        <div
+          v-if="runningWorkspaces.length === 0"
+          class="text-center text-gray-400 py-6"
+        >
+          {{ t('portfolio.emptyRunningWorkspaces') }}
+        </div>
+        <div
+          v-else
+          class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
+        >
+          <label
+            v-for="workspace in runningWorkspaces"
+            :key="workspace.id"
+            class="flex items-start gap-3 rounded border border-gray-200 p-3 hover:border-blue-300"
+          >
+            <input
+              type="checkbox"
+              class="mt-1"
+              :checked="selectedWorkspaceIds.includes(workspace.id)"
+              @change="toggleWorkspace(workspace.id, ($event.target as HTMLInputElement).checked)"
+            >
+            <span>
+              <span class="block font-medium text-gray-900">{{ workspace.name }}</span>
+              <span class="block text-xs text-gray-500">
+                {{ workspace.unit_count }} {{ t('portfolio.workspaceUnitSuffix') }} · {{ workspaceStatusLabel(workspace.status) }}
+              </span>
+            </span>
+          </label>
+        </div>
+      </el-card>
+
       <!-- Main content -->
       <el-tabs v-model="activeTab">
-        <!-- Strategies tab -->
+        <!-- Workspaces tab -->
         <el-tab-pane
-          :label="t('portfolio.tabStrategies')"
-          name="strategies"
+          :label="t('portfolio.tabWorkspaces')"
+          name="workspaces"
         >
           <el-card>
             <el-table
-              :data="overview.strategies"
+              :data="runningWorkspaces"
               stripe
               size="small"
               class="w-full"
             >
               <el-table-column
-                prop="strategy_name"
-                :label="t('portfolio.colStrategyName')"
+                prop="name"
+                :label="t('portfolio.colWorkspaceName')"
                 min-width="140"
-              >
-                <template #default="{ row }">
-                  <router-link
-                    :to="`/${tradingType}/${row.id}`"
-                    class="text-blue-600 hover:underline"
-                  >
-                    {{ row.strategy_name }}
-                  </router-link>
-                </template>
-              </el-table-column>
+              />
               <el-table-column
                 :label="t('portfolio.colStatus')"
                 width="80"
@@ -99,63 +138,28 @@
                     :type="row.status === 'running' ? 'success' : row.status === 'error' ? 'danger' : 'info'"
                     size="small"
                   >
-                    {{ row.status === 'running' ? t('portfolio.statusRunning') : row.status === 'error' ? t('portfolio.statusError') : t('portfolio.statusStopped') }}
+                    {{ workspaceStatusLabel(row.status) }}
                   </el-tag>
                 </template>
               </el-table-column>
               <el-table-column
-                :label="t('portfolio.colCurrentAssets')"
-                width="130"
+                prop="unit_count"
+                :label="t('portfolio.colWorkspaceUnits')"
+                width="110"
                 align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatMoney(row.total_assets) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colInitialCapital')"
-                width="130"
-                align="right"
-              >
-                <template #default="{ row }">
-                  {{ formatMoney(row.initial_capital) }}
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colPnl')"
-                width="130"
-                align="right"
-              >
-                <template #default="{ row }">
-                  <span :class="row.pnl >= 0 ? 'text-green-600' : 'text-red-600'">
-                    {{ row.pnl >= 0 ? '+' : '' }}{{ formatMoney(row.pnl) }}
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colPnlPct')"
-                width="90"
-                align="right"
-              >
-                <template #default="{ row }">
-                  <span :class="row.pnl_pct >= 0 ? 'text-green-600' : 'text-red-600'">
-                    {{ row.pnl_pct >= 0 ? '+' : '' }}{{ row.pnl_pct.toFixed(2) }}%
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column
-                :label="t('portfolio.colTradeCount')"
-                prop="total_trades"
-                width="80"
-                align="center"
               />
               <el-table-column
-                :label="t('portfolio.colWinRate')"
-                width="70"
+                :label="t('portfolio.colSelected')"
+                width="90"
                 align="center"
               >
                 <template #default="{ row }">
-                  {{ row.win_rate.toFixed(1) }}%
+                  <el-tag
+                    :type="selectedWorkspaceIds.includes(row.id) ? 'success' : 'info'"
+                    size="small"
+                  >
+                    {{ selectedWorkspaceIds.includes(row.id) ? t('portfolio.selected') : t('portfolio.notSelected') }}
+                  </el-tag>
                 </template>
               </el-table-column>
             </el-table>
@@ -378,6 +382,7 @@ import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { getErrorMessage } from '@/api'
 import { portfolioApi } from '@/api/portfolio'
+import { workspaceApi } from '@/api/workspace'
 import type {
   PortfolioOverview,
   PositionItem,
@@ -385,15 +390,17 @@ import type {
   PortfolioEquity,
   AllocationItem,
 } from '@/api/portfolio'
-import { usePortfolioUiStore } from '@/stores/portfolioUi'
+import type {
+  TradingDailySummaryItem,
+  TradingPositionManagerItem,
+  Workspace,
+} from '@/types/workspace'
 import { PORTFOLIO_DRAWDOWN_AREA_COLOR, PORTFOLIO_DRAWDOWN_COLOR, PORTFOLIO_EQUITY_COLOR } from '@/constants/chartColors'
 
 const { t } = useI18n()
-const portfolioUiStore = usePortfolioUiStore()
 
 const loading = ref(true)
-const tradingType = computed(() => portfolioUiStore.tradingType)
-const activeTab = ref('strategies')
+const activeTab = ref('workspaces')
 
 const overview = ref<PortfolioOverview>({
   total_assets: 0, total_cash: 0, total_position_value: 0,
@@ -404,6 +411,8 @@ const positions = ref<PositionItem[]>([])
 const trades = ref<TradeItem[]>([])
 const equityData = ref<PortfolioEquity | null>(null)
 const allocationItems = ref<AllocationItem[]>([])
+const runningWorkspaces = ref<Workspace[]>([])
+const selectedWorkspaceIds = ref<string[]>([])
 
 // Chart refs
 const equityChartRef = ref<HTMLElement | null>(null)
@@ -419,17 +428,36 @@ function formatMoney(v: number) {
   return v.toFixed(2)
 }
 
-const loadedTabs = ref<Set<string>>(new Set(['strategies']))
+const loadedTabs = ref<Set<string>>(new Set(['workspaces']))
+const selectedWorkspaces = computed(() => (
+  runningWorkspaces.value.filter(workspace => selectedWorkspaceIds.value.includes(workspace.id))
+))
+const selectedPositionValue = computed(() => (
+  positions.value.reduce((sum, item) => sum + (Number(item.market_value) || 0), 0)
+))
+
+function workspaceStatusLabel(status: string) {
+  const map: Record<string, string> = {
+    running: t('portfolio.statusRunning'),
+    error: t('portfolio.statusError'),
+    idle: t('portfolio.statusStopped'),
+    completed: t('portfolio.statusStopped'),
+  }
+  return map[status] || status
+}
 
 async function loadData() {
   loading.value = true
-  loadedTabs.value = new Set(['strategies'])
+  loadedTabs.value = new Set(['workspaces'])
   try {
-    if (tradingType.value === 'live') {
-      overview.value = await portfolioApi.getOverview()
-    } else {
-      overview.value = await portfolioApi.getSimulationOverview()
-    }
+    const [dashboard, workspaceList] = await Promise.all([
+      portfolioApi.getOverview(),
+      workspaceApi.list(0, 100, 'trading'),
+    ])
+    overview.value = dashboard
+    runningWorkspaces.value = workspaceList.items.filter(workspace => workspace.status === 'running')
+    selectedWorkspaceIds.value = runningWorkspaces.value.map(workspace => workspace.id)
+    await loadWorkspaceAggregates()
   } catch (e: unknown) {
     ElMessage.error(getErrorMessage(e, t('portfolio.msgLoadFailed')))
   } finally {
@@ -440,35 +468,91 @@ async function loadData() {
 async function loadTabData(tab: string) {
   if (loadedTabs.value.has(tab)) return
   try {
-    if (tradingType.value === 'live') {
-      if (tab === 'positions') {
-        const pos = await portfolioApi.getPositions()
-        positions.value = pos.positions
-      } else if (tab === 'trades') {
-        const trd = await portfolioApi.getTrades()
-        trades.value = trd.trades
-      } else if (tab === 'equity') {
-        equityData.value = await portfolioApi.getEquity()
-      } else if (tab === 'allocation') {
-        allocationItems.value = (await portfolioApi.getAllocation()).items
-      }
-    } else {
-      if (tab === 'positions') {
-        const pos = await portfolioApi.getSimulationPositions()
-        positions.value = pos.positions
-      } else if (tab === 'trades') {
-        const trd = await portfolioApi.getSimulationTrades()
-        trades.value = trd.trades
-      } else if (tab === 'equity') {
-        equityData.value = await portfolioApi.getSimulationEquity()
-      } else if (tab === 'allocation') {
-        allocationItems.value = (await portfolioApi.getSimulationAllocation()).items
-      }
+    if (tab === 'positions' || tab === 'trades') {
+      await loadWorkspaceAggregates()
+    } else if (tab === 'equity') {
+      equityData.value = await portfolioApi.getEquity()
+    } else if (tab === 'allocation') {
+      allocationItems.value = (await portfolioApi.getAllocation()).items
     }
     loadedTabs.value.add(tab)
   } catch (e: unknown) {
     ElMessage.error(getErrorMessage(e, t('portfolio.msgLoadTabFailed')))
   }
+}
+
+async function loadWorkspaceAggregates() {
+  const workspaces = selectedWorkspaces.value
+  if (workspaces.length === 0) {
+    positions.value = []
+    trades.value = []
+    return
+  }
+
+  const [positionResults, summaryResults] = await Promise.all([
+    Promise.all(workspaces.map(workspace => workspaceApi.getTradingPositions(workspace.id))),
+    Promise.all(workspaces.map(workspace => workspaceApi.getTradingDailySummary(workspace.id))),
+  ])
+
+  positions.value = positionResults.flatMap((result, index) => (
+    result.positions.map(item => mapWorkspacePosition(workspaces[index], item))
+  ))
+  trades.value = summaryResults.flatMap((result, index) => (
+    result.summaries.map((item, summaryIndex) => mapWorkspaceSummary(workspaces[index], item, summaryIndex))
+  ))
+}
+
+function mapWorkspacePosition(
+  workspace: Workspace,
+  item: TradingPositionManagerItem,
+): PositionItem {
+  const netSize = Number(item.long_position || 0) - Number(item.short_position || 0)
+  return {
+    strategy_id: item.unit_id,
+    strategy_name: `${workspace.name} / ${item.unit_name}`,
+    instance_id: item.unit_id,
+    data_name: item.symbol,
+    size: netSize,
+    price: Number(item.avg_price ?? item.latest_price ?? 0),
+    market_value: Number(item.market_value ?? 0),
+    direction: netSize > 0 ? 'long' : netSize < 0 ? 'short' : 'flat',
+  }
+}
+
+function mapWorkspaceSummary(
+  workspace: Workspace,
+  item: TradingDailySummaryItem,
+  index: number,
+): TradeItem {
+  const dailyPnl = Number(item.daily_pnl || 0)
+  return {
+    strategy_id: workspace.id,
+    strategy_name: workspace.name,
+    instance_id: workspace.id,
+    ref: index + 1,
+    datetime: item.trading_date,
+    dtopen: item.trading_date,
+    dtclose: item.trading_date,
+    data_name: t('portfolio.dailySummarySymbol'),
+    direction: dailyPnl >= 0 ? 'long' : 'short',
+    size: Number(item.trade_count || 0),
+    price: 0,
+    value: Number(item.cumulative_pnl || 0),
+    commission: 0,
+    pnl: dailyPnl,
+    pnlcomm: dailyPnl,
+    barlen: 1,
+  }
+}
+
+async function toggleWorkspace(workspaceId: string, checked: boolean) {
+  if (checked) {
+    selectedWorkspaceIds.value = Array.from(new Set([...selectedWorkspaceIds.value, workspaceId]))
+  } else {
+    selectedWorkspaceIds.value = selectedWorkspaceIds.value.filter(id => id !== workspaceId)
+  }
+  loadedTabs.value = new Set(['workspaces'])
+  await loadWorkspaceAggregates()
 }
 
 // ---- Charts ----
@@ -579,12 +663,6 @@ watch(activeTab, async (tab) => {
   } else if (tab === 'allocation') {
     nextTick(() => renderAllocationChart())
   }
-})
-
-// 当头部的交易类型切换时，自动重新加载数据
-watch(tradingType, async () => {
-  activeTab.value = 'strategies'
-  await loadData()
 })
 
 onMounted(() => {

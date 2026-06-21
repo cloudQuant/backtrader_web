@@ -108,6 +108,7 @@ src/backend/data/sync_config.json
 src/backend/data/sync_history.json
 src/backend/data/auto_trading_config.json
 src/backend/data/live_trading_instances.json
+src/backend/data/ai_provider_config.json
 src/backend/data/quote_custom_symbols.json
 src/backend/data/reqdocs_source_files/
 # slowapi optional runtime config-override file (iteration 179 §A). Written by

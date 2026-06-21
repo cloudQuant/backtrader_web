@@ -40,7 +40,14 @@ class TestGetGatewayHealth:
 
     def test_gateway_with_runtime(self):
         health_mock = MagicMock()
-        health_mock.snapshot.return_value = _make_health_snap()
+        health_mock.snapshot.return_value = _make_health_snap(
+            selected_ctp_env="set2_7x24",
+            auth_state="authenticated",
+            login_state="logged_in",
+            front_id=3,
+            session_id=18472,
+            trading_day="20260618",
+        )
         runtime_mock = MagicMock()
         runtime_mock.health = health_mock
 
@@ -64,6 +71,12 @@ class TestGetGatewayHealth:
         assert results[0]["gateway_key"] == "binance:spot:acc1"
         assert results[0]["ref_count"] == 2
         assert sorted(results[0]["instances"]) == ["inst-1", "inst-2"]
+        assert results[0]["selected_ctp_env"] == "set2_7x24"
+        assert results[0]["auth_state"] == "authenticated"
+        assert results[0]["login_state"] == "logged_in"
+        assert results[0]["front_id"] == "3"
+        assert results[0]["session_id"] == "18472"
+        assert results[0]["trading_day"] == "20260618"
 
     def test_gateway_with_runtime_connected_market_normalizes_trade_connection(self):
         health_mock = MagicMock()

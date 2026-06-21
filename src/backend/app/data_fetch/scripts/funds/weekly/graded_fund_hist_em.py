@@ -92,7 +92,7 @@ class GradedFundHistEm(AkshareToMySql):
             self.logger.warning(f"解析净值失败: {e}, 原始值: {value}")
             return None
 
-    def fetch_fund_hist_data(self, fund_code):
+    def fetch_fund_hist_data(self, fund_code, max_pages=None):
         """
         获取分级基金历史数据
 
@@ -106,7 +106,9 @@ class GradedFundHistEm(AkshareToMySql):
             self.logger.info(f"开始获取分级基金[{fund_code}]历史数据...")
 
             # 获取数据
-            df = self.fetch_ak_data("fund_graded_fund_info_em", symbol=fund_code)
+            df = self.fetch_ak_data(
+                "fund_graded_fund_info_em", symbol=fund_code, max_pages=max_pages
+            )
 
             if df is None or df.empty:
                 self.logger.warning(f"未获取到分级基金[{fund_code}]历史数据")
@@ -231,7 +233,7 @@ class GradedFundHistEm(AkshareToMySql):
             self.logger.error(f"获取已存在数据日期失败: {e}")
             return set()
 
-    def run(self, fund_codes=None):
+    def run(self, fund_codes=None, max_codes=None, max_pages=None):
         """
         执行数据获取和保存
 
@@ -254,6 +256,9 @@ class GradedFundHistEm(AkshareToMySql):
                 if not fund_codes:
                     self.logger.error("未获取到分级基金代码")
                     return False
+            if max_codes is not None and len(fund_codes) > int(max_codes):
+                fund_codes = fund_codes[: int(max_codes)]
+                self.logger.info(f"限制处理分级基金数量为{int(max_codes)}个")
 
             total_success = True
             total_count = 0
@@ -262,7 +267,7 @@ class GradedFundHistEm(AkshareToMySql):
             for fund_code in fund_codes:
                 try:
                     # 获取数据
-                    df = self.fetch_fund_hist_data(fund_code)
+                    df = self.fetch_fund_hist_data(fund_code, max_pages=max_pages)
 
                     if df is None or df.empty:
                         continue

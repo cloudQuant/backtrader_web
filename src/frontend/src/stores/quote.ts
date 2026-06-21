@@ -1,5 +1,5 @@
 /**
- * 行情报价 Pinia Store
+ * 实时数据 Pinia Store
  *
  * Manages data-source selection, quote data, custom symbols,
  * search/filter/sort state, and auto-refresh lifecycle.

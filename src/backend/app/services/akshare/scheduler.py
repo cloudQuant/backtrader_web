@@ -138,6 +138,7 @@ class AkshareScheduler:
                 operator_id=operator_id,
                 task_id=task.id,
                 triggered_by=TriggeredBy.MANUAL if operator_id else TriggeredBy.SCHEDULER,
+                timeout_seconds=task.timeout,
             )
             scheduler = self._ensure_scheduler()
             job = scheduler.get_job(f"ak_task_{task.id}")

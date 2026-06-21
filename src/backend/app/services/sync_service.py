@@ -625,28 +625,43 @@ class SyncService:
         remote_password: str,
     ) -> None:
         steps: list[str] = ["set -euo pipefail"]
+        remote_defaults_path = f"/tmp/backtrader_sync_mysql_{uuid.uuid4().hex}.cnf"
+        cleanup = "; ".join(
+            [
+                (
+                    f"docker exec {shlex.quote(config.remote_container)} rm -f "
+                    f"{shlex.quote(remote_defaults_path)} >/dev/null 2>&1 || true"
+                ),
+                f"rm -f {shlex.quote(remote_input_path)}",
+            ]
+        )
+        steps.append(f"trap {shlex.quote(cleanup)} EXIT")
         if request.sync_mode != "data_only":
             recreate_sql = self._build_ensure_database_sql(database)
-            recreate_inner = self._join_command(
-                [
-                    "sh",
-                    "-lc",
+            steps.append(
+                sync_transport.compose_docker_shell_command(
+                    config.remote_container,
                     self._build_remote_mysql_query_command(config, recreate_sql, remote_password),
-                ]
+                )
             )
-            steps.append(f"docker exec {shlex.quote(config.remote_container)} {recreate_inner}")
-        import_inner = self._join_command(
-            [
-                "sh",
-                "-lc",
-                self._build_remote_mysql_import_command(config, database, remote_password),
-            ]
+        steps.append(
+            sync_transport.compose_docker_write_mysql_defaults_command(
+                config.remote_container,
+                remote_defaults_path,
+                remote_password,
+            )
+        )
+        import_command = self._join_command(
+            sync_transport.mysql_args_with_defaults_file(
+                self._build_remote_mysql_import_args(config, database, remote_password),
+                remote_defaults_path,
+            )
         )
         cat_command = "gunzip -c" if request.compress else "cat"
         steps.append(
-            f"{cat_command} {shlex.quote(remote_input_path)} | docker exec -i {shlex.quote(config.remote_container)} {import_inner}"
+            f"{cat_command} {shlex.quote(remote_input_path)} "
+            f"| docker exec -i {shlex.quote(config.remote_container)} {import_command}"
         )
-        steps.append(f"rm -f {shlex.quote(remote_input_path)}")
         await self._run_ssh(config, "; ".join(steps), timeout=self._timeout_seconds)
 
     async def _import_remote_database_direct(
@@ -1373,7 +1388,11 @@ class SyncService:
             self._build_local_mysql_query_args(config, sql, password),
             timeout=self._connect_timeout,
         )
-        return [line.strip() for line in stdout.splitlines() if line.strip()]
+        return [
+            sync_schema.validate_mysql_identifier(line.strip(), "table")
+            for line in stdout.splitlines()
+            if line.strip()
+        ]
 
     async def _list_remote_tables_direct(
         self,
@@ -1386,7 +1405,11 @@ class SyncService:
             self._build_remote_mysql_query_args(config, sql, password),
             timeout=self._connect_timeout,
         )
-        return [line.strip() for line in stdout.splitlines() if line.strip()]
+        return [
+            sync_schema.validate_mysql_identifier(line.strip(), "table")
+            for line in stdout.splitlines()
+            if line.strip()
+        ]
 
     async def _get_local_incremental_key_columns(
         self,
@@ -1615,9 +1638,9 @@ class SyncService:
                 timeout=self._connect_timeout,
             )
         else:
-            remote_cmd = (
-                f"docker exec {shlex.quote(config.remote_container)} sh -lc "
-                f"{shlex.quote(self._build_remote_mysql_query_command(config, sql, password))}"
+            remote_cmd = sync_transport.compose_docker_shell_command(
+                config.remote_container,
+                self._build_remote_mysql_query_command(config, sql, password),
             )
             stdout = await self._run_ssh(config, remote_cmd, timeout=self._connect_timeout)
         return self._parse_database_info(databases, stdout)
@@ -1714,7 +1737,11 @@ class SyncService:
         payload.remote_mysql_port = int(payload.remote_mysql_port or 3306)
         payload.remote_mysql_user = payload.remote_mysql_user.strip() or "root"
         payload.remote_mysql_password = str(payload.remote_mysql_password or "").strip()
-        payload.sync_databases = [name.strip() for name in payload.sync_databases if name.strip()]
+        payload.sync_databases = [
+            sync_schema.validate_mysql_identifier(name.strip(), "database")
+            for name in payload.sync_databases
+            if name.strip()
+        ]
         if not payload.sync_databases:
             payload.sync_databases = ["ai_for_trader", "akshare_data"]
         return payload
@@ -1807,15 +1834,19 @@ class SyncService:
         self,
         key_columns: tuple[str, ...],
         key_rows: list[tuple[str | None, ...]],
-    ) -> str:
-        return sync_schema.build_missing_keys_where_sql(key_columns, key_rows)
+    ) -> sync_transport.InternalWhereSql:
+        return sync_transport.internal_where_sql(
+            sync_schema.build_missing_keys_where_sql(key_columns, key_rows)
+        )
 
     def _build_missing_row_hashes_where_sql(
         self,
         key_columns: tuple[str, ...],
         key_rows: list[tuple[str | None, ...]],
-    ) -> str:
-        return sync_schema.build_missing_row_hashes_where_sql(key_columns, key_rows)
+    ) -> sync_transport.InternalWhereSql:
+        return sync_transport.internal_where_sql(
+            sync_schema.build_missing_row_hashes_where_sql(key_columns, key_rows)
+        )
 
     def _build_ensure_database_sql(self, database: str) -> str:
         return sync_schema.build_ensure_database_sql(database)
@@ -1862,7 +1893,7 @@ class SyncService:
         database: str,
         table: str,
         password: str,
-        where_sql: str,
+        where_sql: sync_transport.InternalWhereSql,
     ) -> list[str]:
         return sync_transport.build_local_incremental_table_dump_args(
             config, database, table, password, where_sql
@@ -1985,7 +2016,7 @@ class SyncService:
         database: str,
         table: str,
         password: str,
-        where_sql: str,
+        where_sql: sync_transport.InternalWhereSql,
     ) -> list[str]:
         return sync_transport.build_remote_incremental_table_dump_args(
             config, database, table, password, where_sql
@@ -2124,13 +2155,15 @@ class SyncService:
         return sync_transport.build_scp_base_args(config, self._connect_timeout)
 
     async def _run_ssh(self, config: SyncConfig, command: str, timeout: int) -> str:
-        remote_command = self._join_command(["bash", "-lc", command])
-        return await self._run_exec(
-            self._build_ssh_base_args(config) + [remote_command], timeout=timeout
+        return await sync_transport.run_ssh(
+            config,
+            command,
+            timeout=timeout,
+            connect_timeout=self._connect_timeout,
         )
 
     async def _run_bash(self, command: str, timeout: int) -> str:
-        return await self._run_exec(["bash", "-lc", command], timeout=timeout)
+        return await sync_transport.run_bash(command, timeout=timeout)
 
     async def _run_exec(self, args: list[str], timeout: int) -> str:
         return await sync_transport.run_exec(args, timeout)
@@ -2164,8 +2197,8 @@ class SyncService:
             name=name, size_bytes=0, size_display="0 B", table_count=0, exists=False
         )
 
-    def _join_command(self, args: list[str]) -> str:
-        return sync_transport.join_command(args)
+    def _join_command(self, command_args: list[str]) -> str:
+        return sync_transport.join_command(command_args)
 
     def _quote_sql_string(self, value: str) -> str:
         return sync_schema.quote_sql_string(value)
@@ -2196,6 +2229,7 @@ class SyncService:
         object_name: str,
         password: str,
     ) -> list[str]:
+        object_name = sync_schema.validate_mysql_identifier(object_name, "object")
         args = self._build_local_mysqldump_args(config, database, "schema_only", password)
         args.append(object_name)
         return args
@@ -2207,6 +2241,7 @@ class SyncService:
         object_name: str,
         password: str,
     ) -> list[str]:
+        object_name = sync_schema.validate_mysql_identifier(object_name, "object")
         args = self._build_remote_mysqldump_args(config, database, "schema_only", password)
         args.append(object_name)
         return args

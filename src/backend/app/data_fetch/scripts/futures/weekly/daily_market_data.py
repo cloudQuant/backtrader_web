@@ -60,7 +60,7 @@ class FuturesDailyMarket(AkshareToMySql):
 
                                 """
 
-    def run(self):
+    def run(self, markets=None, lookback_days=None, max_windows=None):
         """
         Fetches and stores historical daily market data for all domestic futures exchanges.
         """
@@ -70,7 +70,14 @@ class FuturesDailyMarket(AkshareToMySql):
 
         self.logger.info("Starting futures daily market data update for all exchanges.")
         table_name = "FUTURES_DAILY_MARKET"
-        exchanges = ["CFFEX", "INE", "CZCE", "DCE", "SHFE", "GFEX"]
+        if markets is None:
+            exchanges = ["CFFEX", "INE", "CZCE", "DCE", "SHFE", "GFEX"]
+        elif isinstance(markets, str):
+            exchanges = [item.strip().upper() for item in markets.split(",") if item.strip()]
+        else:
+            exchanges = [str(item).strip().upper() for item in markets if str(item).strip()]
+        max_windows = int(max_windows) if max_windows is not None else None
+        lookback_days = int(lookback_days) if lookback_days is not None else None
 
         for market in exchanges:
             try:
@@ -82,9 +89,7 @@ class FuturesDailyMarket(AkshareToMySql):
                 )
 
                 if latest_date_in_db:
-                    start_date = (
-                        datetime.strptime(latest_date_in_db, "%Y-%m-%d") + timedelta(days=1)
-                    ).strftime("%Y-%m-%d")
+                    start_date = latest_date_in_db
                     self.logger.info(
                         f"Latest data for {market} is from {latest_date_in_db}. Starting update from {start_date}."
                     )
@@ -93,8 +98,19 @@ class FuturesDailyMarket(AkshareToMySql):
                     self.logger.info(
                         f"No existing data for {market} found. Starting update from {start_date}."
                     )
+                if lookback_days is not None:
+                    lookback_start = (datetime.now() - timedelta(days=lookback_days)).strftime(
+                        "%Y-%m-%d"
+                    )
+                    if datetime.strptime(start_date, "%Y-%m-%d") < datetime.strptime(
+                        lookback_start, "%Y-%m-%d"
+                    ):
+                        start_date = lookback_start
+                        self.logger.info(
+                            f"Limiting {market} update to last {lookback_days} days from {start_date}."
+                        )
 
-                end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                end_date = datetime.now().strftime("%Y-%m-%d")
 
                 if datetime.strptime(start_date, "%Y-%m-%d") > datetime.strptime(
                     end_date, "%Y-%m-%d"
@@ -105,8 +121,14 @@ class FuturesDailyMarket(AkshareToMySql):
                 # 2. Fetch data in monthly intervals
                 current_start = datetime.strptime(start_date, "%Y-%m-%d")
                 final_end = datetime.strptime(end_date, "%Y-%m-%d")
+                windows_processed = 0
 
                 while current_start <= final_end:
+                    if max_windows is not None and windows_processed >= max_windows:
+                        self.logger.info(
+                            f"Reached max_windows={max_windows} for {market}; stopping this market."
+                        )
+                        break
                     current_end = current_start + relativedelta(days=7) - timedelta(days=1)
                     if current_end > final_end:
                         current_end = final_end
@@ -130,7 +152,6 @@ class FuturesDailyMarket(AkshareToMySql):
                             self.logger.warning(
                                 f"No data returned for {market} in range {start_str}-{end_str}."
                             )
-                            current_start += relativedelta(days=7)
                             continue
 
                         # 3. Data Transformation
@@ -240,6 +261,7 @@ class FuturesDailyMarket(AkshareToMySql):
                                     self.save_data(
                                         df,
                                         table_name,
+                                        on_duplicate_update=True,
                                         unique_keys=["SYMBOL", "TRADE_DATE"],
                                     )
                                     self.logger.info("Data saved successfully")
@@ -252,15 +274,15 @@ class FuturesDailyMarket(AkshareToMySql):
                                 raise
                         else:
                             self.logger.warning("No data to save after processing")
-
-                        current_start += relativedelta(days=7)
                     except Exception as e:
                         self.logger.error(
                             f"Failed to process data for {market} in range {start_str}-{end_str}: {e}",
                             exc_info=True,
                         )
-                        # Move to next period if there's an error
+                    finally:
+                        # Move to next period even if the exchange endpoint returns an error.
                         current_start += relativedelta(days=7)
+                        windows_processed += 1
 
             except Exception as e:
                 self.logger.error(

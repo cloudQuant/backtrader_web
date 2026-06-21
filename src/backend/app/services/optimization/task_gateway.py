@@ -121,19 +121,16 @@ def persist_optimization_task(
 
     try:
         mgr = get_manager()
-        # Narrow `task` for mypy: task is only None when the early-return guard above
-        # already returned. If we reach here with task is None, then completed/failed/
-        # results are all explicitly provided and the `task.get(...) if ... is None`
-        # branches will never be evaluated; assert for type narrowing.
-        assert task is not None or (
-            completed is not None and failed is not None and results is not None
-        )
+        task_values = task or {}
+        completed_value = task_values.get("completed", 0) if completed is None else completed
+        failed_value = task_values.get("failed", 0) if failed is None else failed
+        results_value = task_values.get("results", []) if results is None else results
         return run_async(
             mgr.update_progress(
                 task_id,
-                completed=task.get("completed", 0) if completed is None else completed,  # type: ignore[union-attr]
-                failed=task.get("failed", 0) if failed is None else failed,  # type: ignore[union-attr]
-                results=task.get("results", []) if results is None else results,  # type: ignore[union-attr]
+                completed=completed_value,
+                failed=failed_value,
+                results=results_value,
                 status=status,
                 error_message=error_message,
             )

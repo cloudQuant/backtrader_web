@@ -1,5 +1,6 @@
 """Tests for gateway_preset_service and gateway_launch_builder modules."""
 
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,6 +20,7 @@ from app.services.gateway.launch_builder import (
     normalize_gateway_asset_type,
     normalize_gateway_exchange_type,
     parse_json_dict,
+    resolve_ctp_front_selection,
 )
 from app.services.gateway.preset import get_gateway_presets
 
@@ -47,6 +49,9 @@ class TestGetGatewayPresets:
         assert "ctp_futures_gateway" in presets
         ctp = presets["ctp_futures_gateway"]
         assert ctp["params"]["gateway"]["exchange_type"] == "CTP"
+        assert ctp["params"]["gateway"]["ctp_env"] == "auto"
+        field_keys = {item["key"] for item in ctp["editable_fields"]}
+        assert {"ctp_env", "set1_group", "td_front", "md_front"} <= field_keys
 
     def test_binance_preset_exists(self):
         presets = {p["id"]: p for p in get_gateway_presets()}
@@ -182,6 +187,59 @@ class TestGetGatewayParams:
 
 
 class TestBuildCtpGatewayRuntimeKwargs:
+    def test_resolve_ctp_front_selection_auto_regular_session(self):
+        result = resolve_ctp_front_selection(
+            gateway_params={"ctp_env": "auto", "set1_group": "2"},
+            env_data={
+                "CTP_SET1_TD_FRONT_2": "tcp://set1-td",
+                "CTP_SET1_MD_FRONT_2": "tcp://set1-md",
+            },
+            now=datetime(2026, 6, 18, 10, 0, 0),
+        )
+
+        assert result["selected_ctp_env"] == "set1_group2"
+        assert result["td_front"] == "tcp://set1-td"
+        assert result["selection_reason"] == "auto_regular_trading_session"
+
+    def test_resolve_ctp_front_selection_auto_after_hours(self):
+        result = resolve_ctp_front_selection(
+            gateway_params={"ctp_env": "auto"},
+            env_data={
+                "CTP_SET2_TD_FRONT": "tcp://set2-td",
+                "CTP_SET2_MD_FRONT": "tcp://set2-md",
+            },
+            now=datetime(2026, 6, 20, 10, 0, 0),
+        )
+
+        assert result["selected_ctp_env"] == "set2_7x24"
+        assert result["md_front"] == "tcp://set2-md"
+        assert result["selection_reason"] == "auto_outside_regular_session"
+
+    def test_resolve_ctp_front_selection_auto_falls_back_when_set1_unreachable(self):
+        checked_fronts = []
+
+        def fronts_reachable(td_front: str, md_front: str) -> bool:
+            checked_fronts.append((td_front, md_front))
+            return td_front != "tcp://set1-td"
+
+        result = resolve_ctp_front_selection(
+            gateway_params={"ctp_env": "auto"},
+            env_data={
+                "CTP_SET1_TD_FRONT_1": "tcp://set1-td",
+                "CTP_SET1_MD_FRONT_1": "tcp://set1-md",
+                "CTP_SET2_TD_FRONT": "tcp://set2-td",
+                "CTP_SET2_MD_FRONT": "tcp://set2-md",
+            },
+            now=datetime(2026, 6, 18, 10, 0, 0),
+            fronts_reachable=fronts_reachable,
+        )
+
+        assert checked_fronts == [("tcp://set1-td", "tcp://set1-md")]
+        assert result["selected_ctp_env"] == "set2_7x24"
+        assert result["td_front"] == "tcp://set2-td"
+        assert result["md_front"] == "tcp://set2-md"
+        assert result["selection_reason"] == "auto_regular_session_set1_unreachable"
+
     def test_complete_ctp_config(self):
         config = {
             "ctp": {
@@ -207,6 +265,7 @@ class TestBuildCtpGatewayRuntimeKwargs:
         assert result["account_id"] == "acc1"
         assert result["exchange_type"] == "CTP"
         assert result["transport"] == "tcp"
+        assert result["selected_ctp_env"] == "custom_front"
 
     def test_raises_on_missing_credentials(self):
         with pytest.raises(ValueError, match="CTP gateway requires"):
@@ -265,6 +324,22 @@ class TestBuildCtpGatewayRuntimeKwargs:
         )
         assert result["gateway_startup_timeout_sec"] == 60.0
         assert result["gateway_command_timeout_sec"] == 20.0
+
+    def test_ctp_auto_env_runtime_kwargs_include_selected_fronts(self):
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data={"ctp": {"investor_id": "inv001", "broker_id": "9999", "password": "secret"}},
+            env_data={
+                "CTP_SET2_TD_FRONT": "tcp://set2-td",
+                "CTP_SET2_MD_FRONT": "tcp://set2-md",
+            },
+            gateway_params={"ctp_env": "set2", "account_id": "acc1"},
+            default_transport="tcp",
+        )
+
+        assert result["td_address"] == "tcp://set2-td"
+        assert result["md_address"] == "tcp://set2-md"
+        assert result["selected_ctp_env"] == "set2_7x24"
+        assert result["selection_reason"] == "forced_set2"
 
 
 # ---- IB Web builder tests ----

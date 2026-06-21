@@ -1,5 +1,6 @@
 """KB chat service for iteration 129."""
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -9,6 +10,7 @@ from app.db.database import async_session_maker
 from app.models.knowledge_base import ChatConversation, ChatMessage, KnowledgeBase
 from app.schemas.kb_chat import ConversationCreate, KBChatRequest
 from app.services.rag_service import RAGService
+from app.services.stock_analysis.tasks import StockAnalysisTaskService
 from app.utils.knowledge_base_settings import merge_knowledge_base_settings
 
 
@@ -162,6 +164,9 @@ class KBChatService:
             return True
 
     async def send(self, user_id: str, data: KBChatRequest) -> dict | None:
+        if data.assistant_mode == "stock_analysis":
+            return await self._send_stock_analysis(user_id, data)
+
         conversation_history: list[dict] = []
         kb_settings: dict = {}
         async with async_session_maker() as session:
@@ -283,6 +288,103 @@ class KBChatService:
                 "diagnostics": rag_result.get("diagnostics"),
             }
 
+    async def _send_stock_analysis(self, user_id: str, data: KBChatRequest) -> dict | None:
+        async with async_session_maker() as session:
+            kb = (
+                await session.execute(
+                    select(KnowledgeBase).where(
+                        KnowledgeBase.id == data.knowledge_base_id,
+                        KnowledgeBase.owner_id == user_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if kb is None:
+                return None
+
+            conversation_id = data.conversation_id or str(uuid.uuid4())
+            if data.conversation_id:
+                conversation = (
+                    await session.execute(
+                        select(ChatConversation).where(
+                            ChatConversation.id == data.conversation_id,
+                            ChatConversation.user_id == user_id,
+                            ChatConversation.knowledge_base_id == data.knowledge_base_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if conversation is None:
+                    return None
+                conversation.updated_at = datetime.now(timezone.utc)
+            else:
+                conversation = ChatConversation(
+                    id=conversation_id,
+                    knowledge_base_id=data.knowledge_base_id,
+                    user_id=user_id,
+                    title=self._build_conversation_title(data.assistant_mode, data.question),
+                    model_id=data.model_id,
+                )
+                session.add(conversation)
+
+            user_message = ChatMessage(
+                conversation_id=conversation_id,
+                role="user",
+                content=data.question,
+                model_id=data.model_id,
+            )
+            session.add(user_message)
+            await session.flush()
+
+            params = data.stock_analysis_params or StockAnalysisTaskService.parse_params_from_question(
+                data.question
+            )
+            task_service = StockAnalysisTaskService(session)
+            task = await task_service.create_pending(
+                user_id=user_id,
+                params=params,
+                request_text=data.question,
+                conversation_id=conversation_id,
+            )
+            task_card = task_service.task_to_card(task)
+            metadata = {
+                "stock_analysis_task": task_card,
+                "stock_analysis_report": None,
+            }
+            answer = f"已创建 {task.symbol} 的股票分析任务，正在后台执行兼容阶段分析。"
+            assistant_message = ChatMessage(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=answer,
+                citations=[],
+                tokens_used=0,
+                model_id=data.model_id,
+                reasoning="股票分析通过原生兼容流水线生成，保留阶段顺序、报告字段和决策语义。",
+                metadata_json=metadata,
+            )
+            session.add(assistant_message)
+            await session.flush()
+            task.assistant_message_id = assistant_message.id
+            await session.commit()
+            asyncio.create_task(
+                StockAnalysisTaskService.run_pending_task(task_id=task.id, user_id=user_id)
+            )
+
+            return {
+                "conversation_id": conversation_id,
+                "answer": answer,
+                "citations": [],
+                "context_chunks_used": 0,
+                "tokens_used": 0,
+                "model_id": data.model_id,
+                "assistant_mode": data.assistant_mode,
+                "strategy_draft": None,
+                "stock_analysis_task": task_card,
+                "stock_analysis_report": None,
+                "reasoning": assistant_message.reasoning,
+                "reason_code": None,
+                "diagnostic_message": None,
+                "diagnostics": None,
+            }
+
     @staticmethod
     def _build_conversation_title(assistant_mode: str, question: str) -> str:
         prefixes = {
@@ -290,6 +392,7 @@ class KBChatService:
             "strategy_idea": "策略构思",
             "backtrader_strategy": "策略生成",
             "strategy_review": "策略审查",
+            "stock_analysis": "股票分析",
         }
         prefix = prefixes.get(assistant_mode, "AI对话")
         normalized_question = " ".join(str(question or "").split())

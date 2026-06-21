@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -45,13 +45,14 @@ class FuturesCzceWarehouseReceipt(AkshareToMySql):
                                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='郑州商品交易所仓单日报';
                                 """
 
-    def run(self, start_date=None, end_date=None):
+    def run(self, start_date=None, end_date=None, lookback_days=7):
         """
         更新郑州商品交易所仓单日报数据
 
         Args:
-            start_date (str, optional): 开始日期，格式为'YYYYMMDD'，如果为None则从数据库最新日期或最早可用日期开始
+            start_date (str, optional): 开始日期，格式为'YYYYMMDD'，如果为None则从数据库最新日期或近期窗口开始
             end_date (str, optional): 结束日期，格式为'YYYYMMDD'，如果为None则为当前日期前一天
+            lookback_days (int, optional): 空表时默认回看的自然日数量
         """
         if not self.table_exists(self.table_name):
             self.create_table(self.create_table_sql)
@@ -59,16 +60,21 @@ class FuturesCzceWarehouseReceipt(AkshareToMySql):
             # 连接数据库
             self.connect_db()
 
-            # 获取当前日期前一天作为默认结束日期
             if end_date is None:
-                end_date = self.get_previous_date().replace("-", "")
+                end_date = self.get_current_date().replace("-", "")
             else:
                 # 确保日期格式正确
                 datetime.strptime(end_date, "%Y%m%d")
 
             if start_date is None:
                 latest_date = self.get_latest_date(self.table_name)
-                start_date = end_date if latest_date is None else latest_date
+                if latest_date is None:
+                    end_date_dt_for_default = datetime.strptime(end_date, "%Y%m%d").date()
+                    start_date = (
+                        end_date_dt_for_default - timedelta(days=int(lookback_days or 0))
+                    ).strftime("%Y%m%d")
+                else:
+                    start_date = latest_date
             if "-" in start_date:
                 start_date_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
             else:
@@ -107,8 +113,7 @@ class FuturesCzceWarehouseReceipt(AkshareToMySql):
                     self.logger.info(f"正在获取 {date_str} 仓单日报数据")
 
                     # 获取数据
-                    # data = ak.futures_czce_warehouse_receipt(date=date_yyyymmdd)
-                    data = self.fetch_ak_data("futures_czce_warehouse_receipt", date_yyyymmdd)
+                    data = self.fetch_ak_data("futures_warehouse_receipt_czce", date_yyyymmdd)
 
                     if not data:
                         self.logger.warning(f"未获取到 {date_str} 仓单日报数据")

@@ -58,7 +58,7 @@ class FundDetailInfoXq(AkshareToMySql):
 
                                 """
 
-    def run(self):
+    def run(self, max_codes=None):
         """
         Fetches and stores detailed information for funds that are not yet in the detail table.
         """
@@ -95,6 +95,9 @@ class FundDetailInfoXq(AkshareToMySql):
             codes_to_fetch = list(codes_to_fetch)
             count = 0
             random.shuffle(codes_to_fetch)
+            if max_codes is not None and len(codes_to_fetch) > int(max_codes):
+                codes_to_fetch = codes_to_fetch[: int(max_codes)]
+                self.logger.info(f"限制处理基金详情数量为{int(max_codes)}个")
             for symbol in codes_to_fetch:
                 if symbol in lost_codes:
                     self.logger.info(f"Skipping {symbol} as it failed before.")

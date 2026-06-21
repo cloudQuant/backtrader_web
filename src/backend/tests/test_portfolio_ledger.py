@@ -74,6 +74,7 @@ async def test_portfolio_ledger_create_import_holdings_and_snapshots(client: Asy
         json={"format": "json", "idempotency_key": "sha256-demo", "transactions": []},
     )
     detail = await client.get(f"/api/v1/portfolio-ledger/{portfolio_id}", headers=headers)
+    listed = await client.get("/api/v1/portfolio-ledger", headers=headers)
     holdings = await client.get(
         f"/api/v1/portfolio-ledger/{portfolio_id}/holdings",
         headers=headers,
@@ -101,6 +102,10 @@ async def test_portfolio_ledger_create_import_holdings_and_snapshots(client: Asy
     assert detail.json()["benchmark_symbol"] == "000300.SH"
     assert detail.json()["tags"] == ["swing", "futures"]
     assert detail.json()["notes"] == "iteration171"
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["items"][0]["id"] == portfolio_id
+    assert listed.json()["items"][0]["transaction_count"] == 4
     assert holdings.status_code == 200
     assert holdings.json()["items"][0]["quantity"] == 1
     assert transactions.status_code == 200

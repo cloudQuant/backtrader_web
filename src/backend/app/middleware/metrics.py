@@ -11,7 +11,7 @@ Provides Prometheus-compatible metrics for:
 import time
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Protocol
+from typing import Any, Protocol
 
 from loguru import logger
 
@@ -45,29 +45,16 @@ MetricCounter = CounterProtocol | None
 MetricGauge = GaugeProtocol | None
 MetricHistogram = HistogramProtocol | None
 
-# Try to import prometheus_client, fall back to no-op if not available
+_prometheus_client: Any
 try:
-    from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
-    from prometheus_client import CollectorRegistry as RegistryType
-    from prometheus_client import Counter as CounterType
-    from prometheus_client import Gauge as GaugeType
-    from prometheus_client import Histogram as HistogramType
-
+    import prometheus_client as _prometheus_client
     PROMETHEUS_AVAILABLE = True
 except ImportError:
+    _prometheus_client = None
     PROMETHEUS_AVAILABLE = False
-    Counter = None
-    Histogram = None
-    Gauge = None
-    CollectorRegistry = None
-    generate_latest = None
-    CounterType = None  # type: ignore[misc,assignment]
-    HistogramType = None  # type: ignore[misc,assignment]
-    GaugeType = None  # type: ignore[misc,assignment]
-    RegistryType = None  # type: ignore[misc,assignment]
 
 # Create a custom registry to avoid conflicts
-_registry: RegistryType = CollectorRegistry() if PROMETHEUS_AVAILABLE else None
+_registry: Any = _prometheus_client.CollectorRegistry() if PROMETHEUS_AVAILABLE else None
 
 # ==================== Business Metrics ====================
 
@@ -107,14 +94,14 @@ def _init_metrics() -> None:
         return
 
     # Backtest metrics
-    BACKTEST_TOTAL = Counter(
+    BACKTEST_TOTAL = _prometheus_client.Counter(
         "backtest_total",
         "Total number of backtest tasks",
         ["status"],  # pending, running, completed, failed, cancelled
         registry=_registry,
     )
 
-    BACKTEST_DURATION = Histogram(
+    BACKTEST_DURATION = _prometheus_client.Histogram(
         "backtest_duration_seconds",
         "Duration of backtest execution in seconds",
         ["strategy_id"],
@@ -122,27 +109,27 @@ def _init_metrics() -> None:
         registry=_registry,
     )
 
-    BACKTEST_SUCCESS = Counter(
+    BACKTEST_SUCCESS = _prometheus_client.Counter(
         "backtest_success_total",
         "Number of successful backtests",
         registry=_registry,
     )
 
-    BACKTEST_FAILURE = Counter(
+    BACKTEST_FAILURE = _prometheus_client.Counter(
         "backtest_failure_total",
         "Number of failed backtests",
         registry=_registry,
     )
 
     # Live trading metrics
-    LIVE_TRADING_ACTIVE_INSTANCES = Gauge(
+    LIVE_TRADING_ACTIVE_INSTANCES = _prometheus_client.Gauge(
         "live_trading_active_instances",
         "Number of active live trading instances",
         ["broker"],
         registry=_registry,
     )
 
-    LIVE_TRADING_TOTAL_TRADES = Counter(
+    LIVE_TRADING_TOTAL_TRADES = _prometheus_client.Counter(
         "live_trading_total_trades",
         "Total number of live trading trades executed",
         ["broker", "symbol"],
@@ -150,14 +137,14 @@ def _init_metrics() -> None:
     )
 
     # API metrics
-    API_REQUEST_TOTAL = Counter(
+    API_REQUEST_TOTAL = _prometheus_client.Counter(
         "api_request_total",
         "Total number of API requests",
         ["method", "endpoint", "status_code"],
         registry=_registry,
     )
 
-    API_REQUEST_DURATION = Histogram(
+    API_REQUEST_DURATION = _prometheus_client.Histogram(
         "api_request_duration_seconds",
         "Duration of API request processing in seconds",
         ["method", "endpoint"],
@@ -165,7 +152,7 @@ def _init_metrics() -> None:
         registry=_registry,
     )
 
-    API_REQUEST_ERRORS = Counter(
+    API_REQUEST_ERRORS = _prometheus_client.Counter(
         "api_request_errors_total",
         "Total number of API request errors",
         ["method", "endpoint", "error_type"],
@@ -173,7 +160,7 @@ def _init_metrics() -> None:
     )
 
     # Database metrics
-    DB_QUERY_DURATION = Histogram(
+    DB_QUERY_DURATION = _prometheus_client.Histogram(
         "db_query_duration_seconds",
         "Duration of database queries in seconds",
         ["operation"],  # select, insert, update, delete
@@ -181,7 +168,7 @@ def _init_metrics() -> None:
         registry=_registry,
     )
 
-    DB_QUERY_TOTAL = Counter(
+    DB_QUERY_TOTAL = _prometheus_client.Counter(
         "db_query_total",
         "Total number of database queries",
         ["operation", "table"],
@@ -189,7 +176,7 @@ def _init_metrics() -> None:
     )
 
     # Error metrics
-    ERROR_TOTAL = Counter(
+    ERROR_TOTAL = _prometheus_client.Counter(
         "error_total",
         "Total number of errors",
         ["type", "module"],
@@ -220,7 +207,7 @@ def get_metrics_output() -> str:
     if BACKTEST_TOTAL is None:
         _init_metrics()
 
-    return generate_latest(_registry).decode("utf-8")
+    return _prometheus_client.generate_latest(_registry).decode("utf-8")
 
 
 # ==================== Helper Functions ====================

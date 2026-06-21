@@ -422,6 +422,78 @@ describe('AIChatPage', () => {
     })
   })
 
+  it('submits stock analysis params from the context panel', async () => {
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await flushPromises()
+    const vm = wrapper.vm as any
+    vm.selectedAssistantMode = 'stock_analysis'
+    vm.selectedSessionModelKey = 'ollama::ollama/llama3.1:8b'
+    vm.stockAnalysisForm = {
+      symbol: '600519.SH',
+      marketType: 'cn_a',
+      analysisDate: '2026-06-15',
+      researchDepth: 'deep',
+      modules: ['market', 'fundamentals', 'news', 'risk'],
+    }
+    await wrapper.vm.$nextTick()
+
+    const startButton = wrapper.findAll('button').find(button => button.text().includes('开始分析'))
+    expect(startButton).toBeTruthy()
+    await startButton!.trigger('click')
+
+    expect(mocks.sendMessage).toHaveBeenCalledWith(
+      'kb-1',
+      '分析 600519.SH，A股，深度研究，重点看技术面、基本面、新闻、风险和交易建议',
+      {
+        assistantMode: 'stock_analysis',
+        thinkingMode: false,
+        modelId: 'ollama::ollama/llama3.1:8b',
+        stockAnalysisParams: {
+          symbol: '600519.SH',
+          market_type: 'A股',
+          analysis_date: '2026-06-15',
+          research_depth: '深度',
+          selected_modules: ['market', 'fundamentals', 'news', 'risk'],
+          include_sentiment: false,
+          include_risk: true,
+          language: 'zh-CN',
+          model_id: 'ollama::ollama/llama3.1:8b',
+        },
+      },
+    )
+  })
+
+  it('prefills a Backtrader request from a stock analysis report', async () => {
+    const originalMessages = [...mocks.messages]
+    mocks.messages.splice(0, mocks.messages.length, {
+      role: 'assistant',
+      content: '股票分析已完成。',
+      stockAnalysisReport: {
+        report_id: 'report-1',
+        symbol: '600519.SH',
+        summary: '趋势较强，但估值和回撤风险需要控制。',
+        decision_label: '谨慎持有',
+        risk_level: '中等',
+        confidence_score: 0.72,
+        export_formats: ['markdown', 'html', 'docx', 'pdf'],
+      },
+    } as any)
+
+    const wrapper = mount(AIChatPage, { global: { stubs: { ...elStubs } } })
+    await flushPromises()
+
+    const backtraderButton = wrapper.findAll('button').find(button => button.text().includes('生成Backtrader策略'))
+    expect(backtraderButton).toBeTruthy()
+    await backtraderButton!.trigger('click')
+
+    const vm = wrapper.vm as any
+    expect(vm.selectedAssistantMode).toBe('backtrader_strategy')
+    expect(vm.question).toContain('基于 600519.SH 股票分析报告')
+    expect(vm.question).toContain('Backtrader 策略草案')
+
+    mocks.messages.splice(0, mocks.messages.length, ...originalMessages)
+  })
+
   it('creates a strategy from assistant draft', async () => {
     strategyApiMocks.create.mockResolvedValue({
       id: 'strategy-1',

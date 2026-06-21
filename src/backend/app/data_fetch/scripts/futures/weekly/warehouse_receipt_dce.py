@@ -50,7 +50,7 @@ class FuturesDceWarehouseReceipt(AkshareToMySql):
         try:
             # 1. Date Handling
             if end_date is None:
-                end_date = self.get_previous_date().replace("-", "")
+                end_date = self.get_current_date().replace("-", "")
 
             if start_date is None:
                 latest_date = self.get_latest_date(self.table_name)

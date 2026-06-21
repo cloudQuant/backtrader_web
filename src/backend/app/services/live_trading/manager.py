@@ -46,12 +46,15 @@ from app.types.live_trading import (
 )
 from app.utils.backend_data_paths import get_backend_data_path
 
+_logger: Any
 try:
-    from loguru import logger
+    from loguru import logger as _logger
 except ImportError:
-    logger = logging.getLogger(__name__)  # type: ignore[assignment]
+    _logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+logger: Any = _logger
+
+_PROJECT_ROOT = Path(__file__).resolve().parents[5]
 _DATA_DIR = get_backend_data_path()
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
 _MANUAL_GATEWAYS_FILE = _DATA_DIR / "manual_gateways.json"

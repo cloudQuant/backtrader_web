@@ -2,6 +2,7 @@
 import argparse
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
@@ -76,7 +77,37 @@ class SWIndexMinute(AkshareToMySql):
         df = self.get_data_by_columns("SW_INDEX_REALTIME", ["INDEX_CODE"])
         return list(df["INDEX_CODE"].unique())
 
-    def run(self, symbol=None, update_all=False):
+    def _save_minute_data(self, symbol, df):
+        if not df.empty:
+            self.save_data(
+                df=df.replace({np.nan: None}),
+                table_name=self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["INDEX_CODE", "TRADE_DATE", "TRADE_TIME"],
+            )
+            self.logger.info(f"Updated {len(df)} minute records for index {symbol}")
+
+    def _fetch_minute_jobs(self, symbol_list, max_workers):
+        worker_count = max(1, min(max_workers, len(symbol_list)))
+        if worker_count == 1:
+            for symbol in symbol_list:
+                yield symbol, self.fetch_minute_data(symbol)
+            return
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(self.fetch_minute_data, symbol): symbol
+                for symbol in symbol_list
+            }
+            for future in as_completed(future_map):
+                symbol = future_map[future]
+                try:
+                    yield symbol, future.result()
+                except Exception as exc:
+                    self.logger.error(f"Error fetching minute data for {symbol}: {exc}")
+                    yield symbol, pd.DataFrame()
+
+    def run(self, symbol=None, update_all=False, max_workers=8):
         """Run the Shenwan Index minute data update"""
         try:
             if not self.table_exists(self.table_name):
@@ -85,17 +116,8 @@ class SWIndexMinute(AkshareToMySql):
 
             symbol_list = self.get_symbol_list() if symbol is None else [symbol]
 
-            for symbol in symbol_list:
-                df = self.fetch_minute_data(symbol)
-                if not df.empty:
-                    # Save data
-                    self.save_data(
-                        df=df.replace({np.nan: None}),
-                        table_name=self.table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["INDEX_CODE", "TRADE_DATE", "TRADE_TIME"],
-                    )
-                    self.logger.info(f"Updated {len(df)} minute records for index {symbol}")
+            for symbol, df in self._fetch_minute_jobs(symbol_list, int(max_workers or 1)):
+                self._save_minute_data(symbol, df)
             return True
 
         except Exception as e:

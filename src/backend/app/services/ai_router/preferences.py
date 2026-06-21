@@ -48,7 +48,7 @@ class AIModelPreferenceService:
         self.provider_specs = provider_specs or get_default_provider_specs()
 
     def get_available_models_payload(self, user: User) -> dict:
-        providers = [self._provider_option(spec).model_dump() for spec in self.provider_specs]
+        providers = [self._provider_option(spec).model_dump() for spec in self._enabled_provider_specs()]
         models = [option.model_dump() for option in self._model_options()]
         return {
             "providers": providers,
@@ -122,9 +122,7 @@ class AIModelPreferenceService:
 
     def _model_options(self) -> list[AIModelOption]:
         options: list[AIModelOption] = []
-        for spec in self.provider_specs:
-            if not spec.enabled:
-                continue
+        for spec in self._enabled_provider_specs():
             for model in spec.models:
                 options.append(
                     AIModelOption(
@@ -136,4 +134,7 @@ class AIModelPreferenceService:
         return options
 
     def _find_provider(self, name: str) -> AIProviderSpec | None:
-        return next((spec for spec in self.provider_specs if spec.name == name), None)
+        return next((spec for spec in self._enabled_provider_specs() if spec.name == name), None)
+
+    def _enabled_provider_specs(self) -> list[AIProviderSpec]:
+        return [spec for spec in self.provider_specs if spec.enabled]

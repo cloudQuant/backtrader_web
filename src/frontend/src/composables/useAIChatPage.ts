@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 
 import { getErrorMessage } from '@/api'
 import { aiObservabilityApi, type AIModelOption } from '@/api/aiObservability'
-import type { KBAssistantMode, KBStrategyDraft } from '@/api/kbChat'
+import type { KBAssistantMode, KBStockAnalysisParams, KBStrategyDraft } from '@/api/kbChat'
 import type { KnowledgeBaseSettings } from '@/api/knowledgeBase'
 import {
   assistantModeMetaMap,
@@ -22,6 +22,23 @@ import { useKnowledgeBaseStore } from '@/stores/knowledgeBase'
 import { useKBChatStore } from '@/stores/kbChat'
 import type { Workspace } from '@/types/workspace'
 
+type StockMarketCode = 'cn_a' | 'hk' | 'us'
+type StockResearchDepthCode = 'quick' | 'basic' | 'standard' | 'deep' | 'full'
+
+// i18n-ignore-next-line
+// i18n-reason: Internal API value map encoded with unicode escapes, not user-facing literals.
+const STOCK_MARKET_VALUES: Record<StockMarketCode, string> = { cn_a: 'A\u80a1', hk: '\u6e2f\u80a1', us: '\u7f8e\u80a1' }
+// i18n-ignore-next-line
+// i18n-reason: Internal API value map encoded with unicode escapes, not user-facing literals.
+const STOCK_DEPTH_VALUES: Record<StockResearchDepthCode, string> = { quick: '\u5feb\u901f', basic: '\u57fa\u7840', standard: '\u6807\u51c6', deep: '\u6df1\u5ea6', full: '\u5168\u9762' }
+// i18n-ignore-next-line
+// i18n-reason: Internal prompt map encoded with unicode escapes, not user-facing literals.
+const STOCK_MODULE_PROMPT_LABELS: Record<string, string> = { market: '\u6280\u672f\u9762', social: '\u60c5\u7eea', news: '\u65b0\u95fb', fundamentals: '\u57fa\u672c\u9762', risk: '\u98ce\u9669' }
+// i18n-ignore-next-line
+// i18n-reason: Internal prompt map encoded with unicode escapes, not user-facing literals.
+const STOCK_DEPTH_PROMPT_LABELS: Record<string, string> = { quick: '\u5feb\u901f\u5206\u6790', basic: '\u57fa\u7840\u6df1\u5ea6', standard: '\u6807\u51c6\u6df1\u5ea6', deep: '\u6df1\u5ea6\u7814\u7a76', full: '\u5168\u9762\u7814\u7a76' }
+const STOCK_PROMPT_DEFAULT_FOCUS = '\u6280\u672f\u9762\u3001\u57fa\u672c\u9762\u3001\u65b0\u95fb\u98ce\u9669'
+
 export function useAIChatPage() {
   const { t } = useI18n()
   const router = useRouter()
@@ -37,6 +54,13 @@ export function useAIChatPage() {
   const conversationSearch = ref('')
   const question = ref('')
   const selectedSessionModelKey = ref('')
+  const stockAnalysisForm = ref({
+    symbol: '000001.SZ',
+    marketType: 'cn_a' as StockMarketCode,
+    analysisDate: new Date().toISOString().slice(0, 10),
+    researchDepth: 'standard' as StockResearchDepthCode,
+    modules: ['market', 'social', 'news', 'fundamentals', 'risk'],
+  })
   const sessionModelOptions = ref<AIModelOption[]>([])
   const savingStrategyIndex = ref<number | null>(null)
   const savedStrategyIds = ref<Record<number, string>>({})
@@ -146,6 +170,38 @@ export function useAIChatPage() {
 
   function applyPrompt(prompt: string) {
     question.value = prompt
+  }
+
+  function handleContinueFromStockAnalysis(mode: 'strategy_idea' | 'backtrader_strategy', prompt: string) {
+    selectedAssistantMode.value = mode
+    question.value = prompt
+  }
+
+  function buildStockAnalysisParams(): KBStockAnalysisParams {
+    const modules = stockAnalysisForm.value.modules.length > 0
+      ? stockAnalysisForm.value.modules
+      : ['market', 'social', 'news', 'fundamentals', 'risk']
+    return {
+      symbol: stockAnalysisForm.value.symbol.trim().toUpperCase(),
+      market_type: STOCK_MARKET_VALUES[stockAnalysisForm.value.marketType] ?? STOCK_MARKET_VALUES.cn_a,
+      analysis_date: stockAnalysisForm.value.analysisDate || undefined,
+      research_depth: STOCK_DEPTH_VALUES[stockAnalysisForm.value.researchDepth] ?? STOCK_DEPTH_VALUES.standard,
+      selected_modules: modules,
+      include_sentiment: modules.includes('social'),
+      include_risk: modules.includes('risk'),
+      language: 'zh-CN',
+      model_id: selectedSessionModelKey.value || undefined,
+    }
+  }
+
+  function buildStockAnalysisQuestion(params: KBStockAnalysisParams): string {
+    const focus = (params.selected_modules ?? [])
+      .map(module => STOCK_MODULE_PROMPT_LABELS[module] ?? module)
+      .join('\u3001')
+    const depth = Object.values(STOCK_DEPTH_PROMPT_LABELS).includes(String(params.research_depth))
+      ? String(params.research_depth)
+      : STOCK_DEPTH_PROMPT_LABELS[stockAnalysisForm.value.researchDepth] ?? STOCK_DEPTH_PROMPT_LABELS.standard
+    return `\u5206\u6790 ${params.symbol}\uff0c${params.market_type ?? STOCK_MARKET_VALUES.cn_a}\uff0c${depth}\uff0c\u91cd\u70b9\u770b${focus || STOCK_PROMPT_DEFAULT_FOCUS}\u548c\u4ea4\u6613\u5efa\u8bae`
   }
 
   function toggleLeftPanel() {
@@ -336,19 +392,44 @@ export function useAIChatPage() {
     await generateReport(index, draft)
   }
 
-  async function handleAsk() {
-    if (!selectedKnowledgeBaseId.value || !question.value.trim()) return
-    const q = question.value.trim()
+  async function sendQuestion(q: string, stockAnalysisParams?: KBStockAnalysisParams) {
+    if (!selectedKnowledgeBaseId.value || !q.trim()) return
     question.value = ''
     try {
-      await chatStore.sendMessage(selectedKnowledgeBaseId.value, q, {
+      const options: {
+        assistantMode?: KBAssistantMode
+        thinkingMode?: boolean
+        modelId?: string
+        stockAnalysisParams?: KBStockAnalysisParams
+      } = {
         assistantMode: selectedAssistantMode.value,
         thinkingMode: thinkingMode.value,
         modelId: selectedSessionModelKey.value || undefined,
-      })
+      }
+      if (stockAnalysisParams) {
+        options.stockAnalysisParams = stockAnalysisParams
+      }
+      await chatStore.sendMessage(selectedKnowledgeBaseId.value, q, options)
     } catch (error) {
       ElMessage.error(getErrorMessage(error, t('aiChat.msgSendFailedKbOrModel')))
     }
+  }
+
+  async function handleAsk() {
+    if (!selectedKnowledgeBaseId.value || !question.value.trim()) return
+    const stockAnalysisParams = selectedAssistantMode.value === 'stock_analysis'
+      ? buildStockAnalysisParams()
+      : undefined
+    await sendQuestion(question.value.trim(), stockAnalysisParams)
+  }
+
+  async function handleStockAnalysisSubmit() {
+    if (!stockAnalysisForm.value.symbol.trim()) {
+      ElMessage.warning(t('aiChat.stockSymbolRequired'))
+      return
+    }
+    const params = buildStockAnalysisParams()
+    await sendQuestion(buildStockAnalysisQuestion(params), params)
   }
 
   async function handleSelectConversation(conversationId: string) {
@@ -435,6 +516,7 @@ export function useAIChatPage() {
     conversationSearch,
     question,
     selectedSessionModelKey,
+    stockAnalysisForm,
     sessionModelOptions,
     savingStrategyIndex,
     savedStrategyIds,
@@ -467,10 +549,12 @@ export function useAIChatPage() {
     retrievalProfileLabel,
     // Functions
     applyPrompt,
+    handleContinueFromStockAnalysis,
     toggleLeftPanel,
     toggleRightPanel,
     copyMessage,
     copyConversation,
+    handleStockAnalysisSubmit,
     resetWorkspaceDraftState,
     handleSaveStrategyDraft,
     openAddToWorkspaceDialog,

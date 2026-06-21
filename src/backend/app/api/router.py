@@ -137,6 +137,7 @@ _OPTIONAL_ROUTERS = [
     ("knowledge_base", "app.api.knowledge_base", "/knowledge-base", ["Knowledge Base"]),
     ("rag", "app.api.rag", "/rag", ["RAG"]),
     ("kb_chat", "app.api.kb_chat", "/kb-chat", ["KB Chat"]),
+    ("stock_analysis", "app.api.stock_analysis", "/stock-analysis", ["Stock Analysis"]),
     ("ai_trading", "app.api.ai_trading", "/ai-trading", ["AI Trading"]),
 ]
 

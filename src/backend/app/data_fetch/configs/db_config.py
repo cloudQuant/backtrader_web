@@ -2,7 +2,7 @@
 Database configuration for data fetch module
 """
 
-from urllib.parse import urlparse
+from sqlalchemy.engine import make_url
 
 from app.config import get_settings
 
@@ -10,14 +10,23 @@ settings = get_settings()
 
 
 def _build_db_config() -> dict[str, str | int]:
-    if settings.AKSHARE_DATA_DATABASE_URL:
-        parsed = urlparse(settings.AKSHARE_DATA_DATABASE_URL)
-        if parsed.scheme.startswith("mysql"):
+    configured_urls = [
+        (settings.AKSHARE_DATA_DATABASE_URL or "").strip(),
+        (settings.DATABASE_URL or "").strip(),
+    ]
+    for database_url in configured_urls:
+        if not database_url:
+            continue
+        try:
+            parsed = make_url(database_url)
+        except Exception:
+            continue
+        if parsed.drivername.startswith("mysql"):
             return {
-                "host": parsed.hostname or settings.SYNC_LOCAL_MYSQL_HOST,
+                "host": parsed.host or settings.SYNC_LOCAL_MYSQL_HOST,
                 "user": parsed.username or settings.SYNC_LOCAL_MYSQL_USER,
                 "password": parsed.password or settings.SYNC_LOCAL_MYSQL_PASSWORD,
-                "database": parsed.path.lstrip("/") or "akshare_data",
+                "database": "akshare_data",
                 "port": parsed.port or settings.SYNC_LOCAL_MYSQL_PORT,
             }
 

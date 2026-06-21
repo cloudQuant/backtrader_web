@@ -48,11 +48,14 @@ class FuturesCzceToSpot(AkshareToMySql):
 
         try:
             if end_date is None:
-                end_date = self.get_previous_date().replace("-", "")
+                end_date = self.get_current_date().replace("-", "")
 
             if start_date is None:
-                start_date = self.get_latest_date(self.table_name, "CONVERSION_DATE")
-                start_date = self.get_next_date(start_date)
+                latest_date_in_db = self.get_latest_date(self.table_name, "CONVERSION_DATE")
+                if latest_date_in_db:
+                    start_date = latest_date_in_db
+                else:
+                    start_date = "20100101"
             if "-" in start_date:
                 start_date_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
             else:
@@ -126,6 +129,7 @@ class FuturesCzceToSpot(AkshareToMySql):
                     df["UPDATEDATE"] = self.get_current_datetime()
                     df["UPDATEUSER"] = "system"
                     df = df.replace(np.nan, None)
+                    self.delete_data(table_name, {"CONVERSION_DATE": date_str})
                     self.save_data(
                         df,
                         table_name,

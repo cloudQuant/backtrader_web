@@ -67,6 +67,67 @@ async def test_broker_profiles_create_and_list_masked_credentials(client):
 
 
 @pytest.mark.asyncio
+async def test_broker_profiles_roadshow_demo_returns_readonly_simulated_data(client):
+    _, headers = await register_and_login(client, username="broker_profile_roadshow_user")
+
+    created = await client.post(
+        "/api/v1/brokers/profiles",
+        headers=headers,
+        json={
+            "broker_id": "roadshow_demo",
+            "account_alias": "roadshow-paper-readonly",
+            "runtime_gateway_key": "roadshow:paper:readonly",
+            "runtime_account_id": "ROADSHOW-PAPER-001",
+            "capabilities": ["health", "accounts", "positions", "orders", "quotes"],
+            "credentials_ref": {"mode": "roadshow_demo"},
+            "credentials_rotated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    assert created.status_code == 201
+    profile_id = created.json()["id"]
+
+    health = await client.get(f"/api/v1/brokers/profiles/{profile_id}/health", headers=headers)
+    accounts = await client.get(f"/api/v1/brokers/profiles/{profile_id}/accounts", headers=headers)
+    positions = await client.get(
+        f"/api/v1/brokers/profiles/{profile_id}/positions", headers=headers
+    )
+    orders = await client.get(f"/api/v1/brokers/profiles/{profile_id}/orders", headers=headers)
+    quote = await client.get(
+        f"/api/v1/brokers/profiles/{profile_id}/quotes?symbol=510300.SH",
+        headers=headers,
+    )
+    listed = await client.get("/api/v1/brokers/profiles", headers=headers)
+
+    assert health.status_code == 200
+    assert health.json()["mode"] == "paper_readonly"
+    assert health.json()["trade_connection"] == "readonly"
+    assert health.json()["gateway_key"] == "roadshow:paper:readonly"
+
+    assert accounts.status_code == 200
+    assert accounts.json()["items"][0]["account_id"] == "ROADSHOW-PAPER-001"
+    assert accounts.json()["items"][0]["mode"] == "paper_readonly"
+
+    assert positions.status_code == 200
+    assert positions.json()["total"] == 2
+    assert positions.json()["items"][0]["symbol"] == "510300.SH"
+
+    assert orders.status_code == 200
+    assert orders.json()["total"] == 2
+    assert orders.json()["items"][0]["mode"] == "paper_readonly"
+
+    assert quote.status_code == 200
+    assert quote.json()["symbol"] == "510300.SH"
+    assert quote.json()["source"] == "roadshow_demo"
+    assert quote.json()["mode"] == "paper_readonly"
+
+    assert listed.status_code == 200
+    item = listed.json()["items"][0]
+    assert item["broker_id"] == "roadshow_demo"
+    assert item["is_destructive_enabled"] is False
+    assert item["last_health"]["trade_connection"] == "readonly"
+
+
+@pytest.mark.asyncio
 async def test_broker_profiles_runtime_reads_and_enable_write_requires_admin(client):
     _, headers = await register_and_login(client, username="broker_profile_runtime_user")
 

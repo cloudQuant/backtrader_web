@@ -173,9 +173,45 @@ class MysqlBase(Database):
                     else:
                         unknown.append(c)
                 if unknown:
-                    self.logger.warning(
-                        f"表 {table_name} 将忽略 {len(unknown)} 个不存在的列: {unknown[:10]}"
-                    )
+                    added_columns: list[str] = []
+                    for c in unknown:
+                        col_name = str(c).strip()
+                        if not col_name or len(col_name) > 64 or "\x00" in col_name:
+                            continue
+                        try:
+                            series = df[c]
+                            if pd.api.types.is_bool_dtype(series):
+                                sql_type = "TINYINT(1)"
+                            elif pd.api.types.is_integer_dtype(series):
+                                sql_type = "BIGINT"
+                            elif pd.api.types.is_float_dtype(series):
+                                sql_type = "DOUBLE"
+                            elif pd.api.types.is_datetime64_any_dtype(series):
+                                sql_type = "DATETIME"
+                            else:
+                                sql_type = "TEXT"
+                            escaped_col = col_name.replace("`", "``")
+                            self.cursor.execute(
+                                f"ALTER TABLE `{safe_table}` ADD COLUMN `{escaped_col}` {sql_type} NULL"
+                            )
+                            self.connection.commit()
+                            table_cols_ci[col_name.lower()] = col_name
+                            column_mapping[c] = col_name
+                            added_columns.append(col_name)
+                        except Exception as err:
+                            self.logger.warning(
+                                "表 %s 自动补列失败，列=%s，错误=%s", table_name, col_name, err
+                            )
+                    still_unknown = [c for c in unknown if c not in column_mapping]
+                    if added_columns:
+                        self._columns_cache.pop(safe_table, None)
+                        self.logger.info(
+                            f"表 {table_name} 自动补充 {len(added_columns)} 个新列: {added_columns[:10]}"
+                        )
+                    if still_unknown:
+                        self.logger.warning(
+                            f"表 {table_name} 将忽略 {len(still_unknown)} 个不存在的列: {still_unknown[:10]}"
+                        )
                 if not column_mapping:
                     self.logger.warning(
                         f"表 {table_name} 无可写入的有效列（df列都不在表结构中），跳过保存"
@@ -558,12 +594,15 @@ class MysqlBase(Database):
                 return self.save_data(df, table_name)
 
             # Build INSERT statement
-            cols_str = ", ".join(columns)
+            safe_table = str(table_name).replace("`", "``")
+            cols_str = ", ".join(f"`{str(column).replace('`', '``')}`" for column in columns)
             placeholders = ", ".join(["%s"] * len(columns))
-            insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"  # nosec B608
+            insert_sql = f"INSERT INTO `{safe_table}` ({cols_str}) VALUES ({placeholders})"  # nosec B608
 
-            # Prepare data
-            data = df[columns].values.tolist()
+            # mysql-connector may serialize NaN/NaT/NA as bare tokens such as `nan`.
+            # Convert pandas missing values to SQL NULL before building row values.
+            data_df = df[columns].astype(object).where(pd.notnull(df[columns]), None)
+            data = data_df.values.tolist()
 
             self.connect_db()
             self.cursor.executemany(insert_sql, data)

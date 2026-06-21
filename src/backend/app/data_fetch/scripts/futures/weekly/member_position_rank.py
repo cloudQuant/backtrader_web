@@ -1,5 +1,6 @@
 import re
 import time
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -105,10 +106,10 @@ class FuturesMemberPositionRank(AkshareToMySql):
             return df
 
     def _update_czce_rank_table(self, begin_date):
-        now_date = self.get_previous_date()
+        now_date = self.get_current_date()
         if begin_date is None:
             begin_date = "2015-10-08"
-        if begin_date >= now_date:
+        if begin_date > now_date:
             return
         trading_day_list = self.get_trading_day_list(start_date=begin_date, end_date=now_date)
         # print(trading_day_list)
@@ -162,15 +163,19 @@ class FuturesMemberPositionRank(AkshareToMySql):
                     self.logger.info(f"czce中{name}获取到的数据为空")
             if len(all_df_list) > 0:
                 all_df = pd.concat(all_df_list, ignore_index=True)
-                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK", ignore_duplicates=True)
+                self.delete_data(
+                    "FUTURES_MEMBER_POSITION_RANK",
+                    {"BASEDATE": trading_day, "EXCHANGE_CODE": "CZCE"},
+                )
+                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK")
             else:
                 self.logger.info(f"中金所中{trading_day} 获取到的数据为空")
 
     def _update_cffex_rank_table(self, begin_date):
-        now_date = self.get_previous_date()
+        now_date = self.get_current_date()
         if begin_date is None:
             begin_date = "2010-04-16"
-        if begin_date >= now_date:
+        if begin_date > now_date:
             return
         trading_day_list = self.get_trading_day_list(start_date=begin_date, end_date=now_date)
         # print(trading_day_list)
@@ -225,15 +230,19 @@ class FuturesMemberPositionRank(AkshareToMySql):
                     self.logger.info(f"中金所中{name}获取到的数据为空")
             if len(all_df_list) > 0:
                 all_df = pd.concat(all_df_list, ignore_index=True)
-                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK", ignore_duplicates=True)
+                self.delete_data(
+                    "FUTURES_MEMBER_POSITION_RANK",
+                    {"BASEDATE": trading_day, "EXCHANGE_CODE": "CFFEX"},
+                )
+                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK")
             else:
                 self.logger.info(f"中金所中{trading_day} 获取到的数据为空")
 
     def _update_dce_rank_table(self, begin_date):
-        now_date = self.get_previous_date()
+        now_date = self.get_current_date()
         if begin_date is None:
             begin_date = "2010-01-04"
-        if begin_date >= now_date:
+        if begin_date > now_date:
             return
         trading_day_list = self.get_trading_day_list(start_date=begin_date, end_date=now_date)
         # print(trading_day_list)
@@ -285,13 +294,19 @@ class FuturesMemberPositionRank(AkshareToMySql):
                     self.logger.info(f"大商所中{name}获取到的数据为空")
             if len(all_df_list) > 0:
                 all_df = pd.concat(all_df_list, ignore_index=True)
-                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK", ignore_duplicates=True)
+                self.delete_data(
+                    "FUTURES_MEMBER_POSITION_RANK",
+                    {"BASEDATE": trading_day, "EXCHANGE_CODE": "DCE"},
+                )
+                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK")
             else:
                 self.logger.info(f"中金所中{trading_day} 获取到的数据为空")
 
     def _update_gfex_rank_table(self, begin_date):
-        now_date = self.get_previous_date()
-        if begin_date >= now_date:
+        now_date = self.get_current_date()
+        if begin_date is None:
+            begin_date = "2023-11-10"
+        if begin_date > now_date:
             return
         trading_day_list = self.get_trading_day_list(start_date=begin_date, end_date=now_date)
         # print(trading_day_list)
@@ -344,15 +359,19 @@ class FuturesMemberPositionRank(AkshareToMySql):
                     # self.save_data(df, "FUTURES_MEMBER_POSITION_RANK")
             if len(all_df_list) > 0:
                 all_df = pd.concat(all_df_list, ignore_index=True)
-                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK", ignore_duplicates=True)
+                self.delete_data(
+                    "FUTURES_MEMBER_POSITION_RANK",
+                    {"BASEDATE": trading_day, "EXCHANGE_CODE": "GFEX"},
+                )
+                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK")
             else:
                 self.logger.info(f"中金所中{trading_day} 获取到的数据为空")
 
     def _update_shfe_rank_table(self, begin_date):
-        now_date = self.get_previous_date()
+        now_date = self.get_current_date()
         if begin_date is None:
             begin_date = "2002-01-07"
-        if begin_date >= now_date:
+        if begin_date > now_date:
             return
         trading_day_list = self.get_trading_day_list(start_date=begin_date, end_date=now_date)
         # print(trading_day_list)
@@ -362,6 +381,7 @@ class FuturesMemberPositionRank(AkshareToMySql):
             # content = ak.futures_dce_position_rank(date=new_trading_day)
             content = self.fetch_ak_data("get_shfe_rank_table", new_trading_day)
             time.sleep(1)
+            all_df_list = []
             for name, df in content.items():
                 if df is not None and not df.empty:
                     df.columns = [
@@ -386,8 +406,8 @@ class FuturesMemberPositionRank(AkshareToMySql):
                     df["CREATEUSER"] = "system"
                     df["UPDATEDATE"] = self.get_current_datetime()
                     df["UPDATEUSER"] = "system"
-                    df["EXCHANGE_CODE"] = "GFEX"
-                    df["EXCHANGE_NAME"] = "广期所"
+                    df["EXCHANGE_CODE"] = "SHFE"
+                    df["EXCHANGE_NAME"] = "上期所"
                     col_list = [
                         "RANK_NUM",
                         "VOL",
@@ -398,30 +418,60 @@ class FuturesMemberPositionRank(AkshareToMySql):
                         "SHORT_OPEN_INTEREST_CHG",
                     ]
                     df = self.clean_numeric_columns(df, col_list)
-                    self.save_data(df, "FUTURES_MEMBER_POSITION_RANK", ignore_duplicates=True)
+                    all_df_list.append(df)
                 else:
                     self.logger.info(f"中金所中{name}获取到的数据为空")
+            if len(all_df_list) > 0:
+                all_df = pd.concat(all_df_list, ignore_index=True)
+                self.delete_data(
+                    "FUTURES_MEMBER_POSITION_RANK",
+                    {"BASEDATE": trading_day, "EXCHANGE_CODE": "SHFE"},
+                )
+                self.save_data(all_df, "FUTURES_MEMBER_POSITION_RANK")
+            else:
+                self.logger.info(f"上期所中{trading_day} 获取到的数据为空")
 
-    def run(self):
+    def run(self, exchanges=None, lookback_days=None, max_exchanges=None):
         if not self.table_exists(self.table_name):
             self.create_table(self.create_table_sql)
         self.logger.info("正在获取期货会员持仓表数据")
         table_name = "FUTURES_MEMBER_POSITION_RANK"
-        exchange_list = ["郑商所", "中金所", "大商所", "广期所", "上期所"]
+        if exchanges is None:
+            exchange_list = ["郑商所", "中金所", "大商所", "广期所", "上期所"]
+        elif isinstance(exchanges, str):
+            exchange_list = [item.strip() for item in exchanges.split(",") if item.strip()]
+        else:
+            exchange_list = [str(item).strip() for item in exchanges if str(item).strip()]
+        max_exchanges = int(max_exchanges) if max_exchanges is not None else None
+        lookback_days = int(lookback_days) if lookback_days is not None else None
+        if max_exchanges is not None and len(exchange_list) > max_exchanges:
+            exchange_list = exchange_list[:max_exchanges]
+            self.logger.info(f"限制处理交易所数量为{max_exchanges}个")
         for exchange in exchange_list:
-            begin_date = self.get_latest_date(
-                table_name, "BASEDATE", conditions={"EXCHANGE_NAME": exchange}
-            )
-            if exchange == "郑商所":
-                self._update_czce_rank_table(begin_date)
-            if exchange == "广期货":
-                self._update_gfex_rank_table(begin_date)
-            if exchange == "大商所":
-                self._update_dce_rank_table(begin_date)
-            if exchange == "中金所":
-                self._update_cffex_rank_table(begin_date)
-            if exchange == "上期所":
-                self._update_shfe_rank_table(begin_date)
+            try:
+                begin_date = self.get_latest_date(
+                    table_name, "BASEDATE", conditions={"EXCHANGE_NAME": exchange}
+                )
+                if lookback_days is not None:
+                    lookback_start = (datetime.now() - timedelta(days=lookback_days)).strftime(
+                        "%Y-%m-%d"
+                    )
+                    if begin_date is None or begin_date < lookback_start:
+                        begin_date = lookback_start
+                        self.logger.info(f"{exchange}: 限制为最近{lookback_days}天")
+                if exchange == "郑商所":
+                    self._update_czce_rank_table(begin_date)
+                if exchange == "广期所":
+                    self._update_gfex_rank_table(begin_date)
+                if exchange == "大商所":
+                    self._update_dce_rank_table(begin_date)
+                if exchange == "中金所":
+                    self._update_cffex_rank_table(begin_date)
+                if exchange == "上期所":
+                    self._update_shfe_rank_table(begin_date)
+            except Exception as e:
+                self.logger.error(f"{exchange}: 会员持仓排名处理失败 - {e}", exc_info=True)
+                continue
 
 
 if __name__ == "__main__":

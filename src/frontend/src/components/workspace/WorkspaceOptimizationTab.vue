@@ -598,7 +598,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, type CSSProperties } from 'vue'
 import 'echarts-gl'
 import { useRouter } from 'vue-router'
 import {
@@ -653,6 +653,23 @@ interface ColDef {
   key: string; label: string; width?: number; align?: string;
   sortable?: boolean; money?: boolean; int?: boolean;
 }
+
+interface OptimizationDisplayConfig {
+  sort_key?: string
+  sort_dir?: 'asc' | 'desc'
+  view_mode?: 'analysis' | 'table'
+  calc_method?: string
+  annual_days?: number
+  stat_time_range?: [string | null, string | null]
+  visible_fields?: string[]
+  analysis_params?: string[]
+  analysis_metric?: string
+}
+
+interface WorkspaceSettingsWithOptimization {
+  optimization_config?: OptimizationDisplayConfig
+}
+
 const allColumnDefs: ColDef[] = [
   { key: 'initial_cash', label: t('optimization.initialCash'), width: 100, money: true },
   { key: 'net_value', label: t('optimization.netValue'), width: 80 },
@@ -756,7 +773,8 @@ const bestSharpe = computed(() => {
 
 // --- Bug-11 fix: restore saved optimization display config on mount ---
 function _restoreOptDefaults() {
-  const oc = (store.currentWorkspace?.settings as Record<string, any>)?.optimization_config
+  const settings = store.currentWorkspace?.settings as WorkspaceSettingsWithOptimization | undefined
+  const oc = settings?.optimization_config
   if (!oc) return
   if (oc.sort_key) sortKey.value = oc.sort_key
   if (oc.sort_dir) sortDir.value = oc.sort_dir
@@ -941,6 +959,7 @@ async function handleApplyBestAndOpen() {
 function handleTestReport() {
   if (!displayRows.value.length) return
   const best = displayRows.value[0]
+  const reportDialogStyle: CSSProperties = { whiteSpace: 'pre-wrap', fontFamily: 'monospace' }
   const lines = [
     '=== ' + t('optimization.paramReportTitle') + ' ===',
     t('optimization.parameterUnit') + `: ${selectedUnitId.value}`,
@@ -955,7 +974,7 @@ function handleTestReport() {
   ]
   ElMessageBox.alert(lines.join('\n'), t('optimization.paramReportTitle'), {
     confirmButtonText: t('optimization.close'),
-    customStyle: { whiteSpace: 'pre-wrap', fontFamily: 'monospace' } as any,
+    customStyle: reportDialogStyle,
   })
 }
 

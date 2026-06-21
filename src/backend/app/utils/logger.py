@@ -14,9 +14,11 @@ Features:
 import json
 import logging
 import sys
+import traceback
 from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
+from types import FrameType
 from typing import Any
 
 from loguru import logger
@@ -42,9 +44,10 @@ class InterceptHandler(logging.Handler):
             level = record.levelno
 
         # Walk the call stack to find the *real* caller (skip logging internals)
-        frame, depth = sys._getframe(6), 6
+        frame: FrameType | None = sys._getframe(6)
+        depth = 6
         while frame and frame.f_code.co_filename == logging.__file__:
-            frame = frame.f_back  # type: ignore[assignment]
+            frame = frame.f_back
             depth += 1
 
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
@@ -204,12 +207,19 @@ def _serialize_log(record: dict[str, Any]) -> str:
 
     # Add exception info if present
     if record["exception"]:
+        exception = record["exception"]
         log_entry["exception"] = {
-            "type": record["exception"].type.__name__,
-            "message": str(record["exception"].value),
-            "traceback": record["exception"].traceback
-            if not record["exception"].type.__name__ == "KeyboardInterrupt"
-            else " interrupted",
+            "type": exception.type.__name__,
+            "message": str(exception.value),
+            "traceback": " interrupted"
+            if exception.type.__name__ == "KeyboardInterrupt"
+            else "".join(
+                traceback.format_exception(
+                    exception.type,
+                    exception.value,
+                    exception.traceback,
+                )
+            ),
         }
 
     # Add extra context if present (excluding tracked fields)

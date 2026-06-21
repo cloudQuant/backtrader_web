@@ -72,9 +72,9 @@ describe('session utils', () => {
   })
 
   describe('setAccessToken', () => {
-    it('writes the token to legacy localStorage', () => {
+    it('does not write new tokens to legacy localStorage', () => {
       setAccessToken('my-token')
-      expect(window.localStorage.getItem('token')).toBe('my-token')
+      expect(window.localStorage.getItem('token')).toBeNull()
     })
   })
 

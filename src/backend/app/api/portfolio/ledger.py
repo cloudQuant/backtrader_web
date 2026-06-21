@@ -35,6 +35,14 @@ async def create_portfolio(
     )
 
 
+@router.get("")
+async def list_portfolios(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await get_portfolio_ledger_service(db).list_portfolios(current_user.sub)
+
+
 @router.get("/{portfolio_id}")
 async def get_portfolio(
     portfolio_id: str,

@@ -170,7 +170,20 @@ def _scan_file(path: Path) -> list[Violation]:
     return violations
 
 
-def cmd_strict(cjk_only: bool = False) -> int:
+def _load_baseline_threshold(path: Path, *, cjk_only: bool) -> int:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    key = "baseline_cjk_violations" if cjk_only else "baseline_violations"
+    value = payload.get(key)
+    if not isinstance(value, int):
+        raise ValueError(f"{path} missing integer {key}")
+    return value
+
+
+def cmd_strict(
+    cjk_only: bool = False,
+    baseline_file: Path | None = None,
+    max_output: int | None = None,
+) -> int:
     candidates = sorted(
         list(FRONTEND_SRC.rglob("*.vue")) + list(FRONTEND_SRC.rglob("*.ts"))
     )
@@ -190,7 +203,8 @@ def cmd_strict(cjk_only: bool = False) -> int:
     if cjk_only:
         total = [v for v in total if v.kind == "cjk"]
 
-    for v in total:
+    visible = total if max_output is None else total[:max(max_output, 0)]
+    for v in visible:
         rel = v.path.relative_to(REPO_ROOT)
         print(
             json.dumps(
@@ -203,8 +217,22 @@ def cmd_strict(cjk_only: bool = False) -> int:
                 }
             )
         )
+    if max_output is not None and len(total) > max_output:
+        print(f"... omitted {len(total) - max_output} additional violation(s)")
     label = "CJK violations" if cjk_only else "violations"
     print(f"summary: {len(total)} {label}", flush=True)
+
+    if baseline_file is not None:
+        threshold = _load_baseline_threshold(baseline_file, cjk_only=cjk_only)
+        if len(total) > threshold:
+            print(
+                f"baseline gate failed: {len(total)} {label} > baseline {threshold}",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"baseline gate passed: {len(total)} {label} <= baseline {threshold}")
+        return 0
+
     return 0 if not total else 1
 
 
@@ -340,6 +368,16 @@ def main() -> int:
         action="store_true",
         help="restrict --strict output to CJK violations only (used as blocking CI gate)",
     )
+    p.add_argument(
+        "--baseline-file",
+        type=Path,
+        help="allow --strict to pass when current violations are <= the JSON baseline",
+    )
+    p.add_argument(
+        "--max-output",
+        type=int,
+        help="print at most this many strict-scan violations before the summary",
+    )
     p.add_argument("--check-parity", action="store_true", help="run parity mode")
     args = p.parse_args()
 
@@ -349,7 +387,11 @@ def main() -> int:
 
     rc = 0
     if args.strict:
-        rc |= cmd_strict(cjk_only=args.cjk_only)
+        rc |= cmd_strict(
+            cjk_only=args.cjk_only,
+            baseline_file=args.baseline_file,
+            max_output=args.max_output,
+        )
     if args.check_parity:
         rc |= cmd_check_parity()
     return rc

@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 
 import akshare as ak
@@ -44,6 +45,30 @@ class StockZhIndexDailyEm(AkshareToMySql):
         df = self.get_data_by_columns(table_name, ["INDEX_CODE"])
         return list(df["INDEX_CODE"].unique())
 
+    def normalize_index_symbol(self, symbol):
+        symbol = str(symbol)
+        if symbol.startswith(("sz", "sh", "csi", "bj")):
+            return symbol
+        return ak.stock_a_code_to_symbol(symbol)
+
+    def normalize_date_arg(self, value):
+        if value is None:
+            return None
+        if isinstance(value, date):
+            return value.strftime("%Y%m%d")
+        return str(value).replace("-", "").replace("/", "").replace(".", "")
+
+    def get_default_start_date(self, symbol):
+        latest_date = self.get_latest_date(
+            self.table_name, "TRADE_DATE", {"INDEX_CODE": symbol}
+        )
+        if latest_date is None:
+            return "19900101"
+        return self.normalize_date_arg(latest_date)
+
+    def get_default_end_date(self):
+        return self.get_current_date().replace("-", "")
+
     def fetch_index_daily(self, symbol, start_date=None, end_date=None):
         """Fetch daily index data from East Money and process it.
 
@@ -61,7 +86,7 @@ class StockZhIndexDailyEm(AkshareToMySql):
                 start_date = "19900101"  # Default start from 1990
             if end_date is None:
                 end_date = date.today().strftime("%Y%m%d")
-            symbol = ak.stock_a_code_to_symbol(symbol)
+            symbol = self.normalize_index_symbol(symbol)
             # print(f"symbol: {symbol}, start_date: {start_date}, end_date: {end_date}")
             # 2. Fetch data from AKShare
             df = self.fetch_ak_data(
@@ -133,7 +158,55 @@ class StockZhIndexDailyEm(AkshareToMySql):
             )
             return pd.DataFrame()
 
-    def run(self, symbol=None, start_date=None, end_date=None):
+    def save_index_daily(self, symbol, df):
+        if not df.empty:
+            df = df.replace(np.nan, None)
+            success = self.save_data(
+                df=df,
+                table_name=self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["INDEX_CODE", "TRADE_DATE"],
+            )
+
+            if success:
+                self.logger.info(
+                    f"Successfully updated {len(df)} records for index {symbol} in {self.table_name}"
+                )
+                return True
+
+            self.logger.error(f"Failed to save data for index {symbol}")
+            return False
+
+        self.logger.warning(f"No data found for index {symbol}")
+        return True
+
+    def fetch_jobs(self, jobs, max_workers):
+        worker_count = max(1, min(max_workers, len(jobs)))
+        if worker_count == 1:
+            for symbol, start_date, end_date in jobs:
+                yield symbol, self.fetch_index_daily(symbol, start_date, end_date)
+            return
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(self.fetch_index_daily, symbol, start_date, end_date): (
+                    symbol,
+                    start_date,
+                    end_date,
+                )
+                for symbol, start_date, end_date in jobs
+            }
+            for future in as_completed(future_map):
+                symbol, start_date, end_date = future_map[future]
+                try:
+                    yield symbol, future.result()
+                except Exception as exc:
+                    self.logger.error(
+                        f"Error fetching daily data for index {symbol} from {start_date} to {end_date}: {exc}"
+                    )
+                    yield symbol, pd.DataFrame()
+
+    def run(self, symbol=None, start_date=None, end_date=None, max_workers=8):
         """Main method to run the data fetching and saving process.
 
         Args:
@@ -159,42 +232,25 @@ class StockZhIndexDailyEm(AkshareToMySql):
             else:
                 symbol_list = [symbol]
 
+            explicit_start_date = self.normalize_date_arg(start_date)
+            resolved_end_date = self.normalize_date_arg(end_date) or self.get_default_end_date()
+            jobs = []
+            for raw_symbol in symbol_list:
+                normalized_symbol = self.normalize_index_symbol(raw_symbol)
+                resolved_start_date = explicit_start_date or self.get_default_start_date(
+                    normalized_symbol
+                )
+                if resolved_start_date > resolved_end_date:
+                    self.logger.info(
+                        f"Index {normalized_symbol} is already up to date through {resolved_end_date}"
+                    )
+                    continue
+                jobs.append((normalized_symbol, resolved_start_date, resolved_end_date))
+
             all_success = True
-            for symbol in symbol_list:
+            for symbol, df in self.fetch_jobs(jobs, int(max_workers or 1)):
                 try:
-                    if start_date is None:
-                        start_date = self.get_latest_date(
-                            self.table_name, "TRADE_DATE", {"INDEX_CODE": symbol}
-                        )
-                        if start_date is None:
-                            start_date = "19900101"
-                    if end_date is None:
-                        end_date = self.get_previous_date().replace("-", "")
-                    # print(f"symbol: {symbol}, start_date: {start_date}, end_date: {end_date}")
-                    # 获取数据
-                    df = self.fetch_index_daily(symbol, start_date, end_date)
-
-                    if not df.empty:
-                        # 处理NaN值
-                        df = df.replace(np.nan, None)
-
-                        # 保存数据，使用INSERT ... ON DUPLICATE KEY UPDATE
-                        success = self.save_data(
-                            df=df,
-                            table_name=self.table_name,
-                            on_duplicate_update=True,
-                            unique_keys=["INDEX_CODE", "TRADE_DATE"],
-                        )
-
-                        if success:
-                            self.logger.info(
-                                f"Successfully updated {len(df)} records for index {symbol} in {self.table_name}"
-                            )
-                        else:
-                            all_success = False
-                            self.logger.error(f"Failed to save data for index {symbol}")
-                    else:
-                        self.logger.warning(f"No data found for index {symbol}")
+                    all_success = self.save_index_daily(symbol, df) and all_success
 
                 except Exception as e:
                     all_success = False

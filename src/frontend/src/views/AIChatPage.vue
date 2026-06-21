@@ -227,6 +227,7 @@
               :refreshing-status="refreshingStatusIndex === index"
               :generating-report="generatingReportIndex === index"
               :execution="workspaceExecutions[index]"
+              :knowledge-base-id="selectedKnowledgeBaseId"
               @copy-message="copyMessage"
               @save-strategy="handleSaveStrategyDraft(message, index)"
               @add-to-workspace="openAddToWorkspaceDialog(message, index)"
@@ -235,6 +236,8 @@
               @generate-report="handleGenerateWorkspaceReport(message, index)"
               @copy-code="copyMessage(message.strategyDraft?.code || '')"
               @jump-citation="handleJumpToCitation"
+              @continue-strategy-idea="prompt => handleContinueFromStockAnalysis('strategy_idea', prompt)"
+              @continue-backtrader-strategy="prompt => handleContinueFromStockAnalysis('backtrader_strategy', prompt)"
             />
 
             <div
@@ -394,6 +397,114 @@
                 <Reading />
               </el-icon>
               {{ t('aiChat.openKnowledgeBase') }}
+            </el-button>
+          </div>
+
+          <div
+            v-if="selectedAssistantMode === 'stock_analysis'"
+            class="stock-analysis-panel"
+          >
+            <div class="section-kicker">
+              {{ t('aiChat.stockPanelTitle') }}
+            </div>
+            <div class="stock-form-grid">
+              <label>
+                <span>{{ t('aiChat.symbolCode') }}</span>
+                <el-input
+                  v-model="stockAnalysisForm.symbol"
+                  size="small"
+                  placeholder="000001.SZ"
+                />
+              </label>
+              <label>
+                <span>{{ t('aiChat.stockMarketType') }}</span>
+                <el-select
+                  v-model="stockAnalysisForm.marketType"
+                  size="small"
+                  class="w-full"
+                >
+                  <el-option
+                    :label="t('aiChat.stockMarketA')"
+                    value="cn_a"
+                  />
+                  <el-option
+                    :label="t('aiChat.stockMarketHK')"
+                    value="hk"
+                  />
+                  <el-option
+                    :label="t('aiChat.stockMarketUS')"
+                    value="us"
+                  />
+                </el-select>
+              </label>
+              <label>
+                <span>{{ t('aiChat.stockAnalysisDate') }}</span>
+                <el-date-picker
+                  v-model="stockAnalysisForm.analysisDate"
+                  type="date"
+                  value-format="YYYY-MM-DD"
+                  size="small"
+                  class="w-full"
+                />
+              </label>
+              <label>
+                <span>{{ t('aiChat.stockResearchDepth') }}</span>
+                <el-select
+                  v-model="stockAnalysisForm.researchDepth"
+                  size="small"
+                  class="w-full"
+                >
+                  <el-option
+                    :label="t('aiChat.stockDepthQuick')"
+                    value="quick"
+                  />
+                  <el-option
+                    :label="t('aiChat.stockDepthBasic')"
+                    value="basic"
+                  />
+                  <el-option
+                    :label="t('aiChat.stockDepthStandard')"
+                    value="standard"
+                  />
+                  <el-option
+                    :label="t('aiChat.stockDepthDeep')"
+                    value="deep"
+                  />
+                  <el-option
+                    :label="t('aiChat.stockDepthFull')"
+                    value="full"
+                  />
+                </el-select>
+              </label>
+            </div>
+            <el-checkbox-group
+              v-model="stockAnalysisForm.modules"
+              class="stock-module-grid"
+            >
+              <el-checkbox label="market">
+                {{ t('aiChat.stockModuleMarket') }}
+              </el-checkbox>
+              <el-checkbox label="fundamentals">
+                {{ t('aiChat.stockModuleFundamentals') }}
+              </el-checkbox>
+              <el-checkbox label="news">
+                {{ t('aiChat.stockModuleNews') }}
+              </el-checkbox>
+              <el-checkbox label="social">
+                {{ t('aiChat.stockModuleSentiment') }}
+              </el-checkbox>
+              <el-checkbox label="risk">
+                {{ t('aiChat.stockModuleRisk') }}
+              </el-checkbox>
+            </el-checkbox-group>
+            <el-button
+              class="w-full"
+              type="primary"
+              :disabled="!currentKnowledgeBaseId || chatStore.loading"
+              @click="handleStockAnalysisSubmit"
+            >
+              <el-icon><Promotion /></el-icon>
+              {{ t('aiChat.stockStartAnalysis') }}
             </el-button>
           </div>
 
@@ -571,6 +682,7 @@ const {
   conversationSearch,
   question,
   selectedSessionModelKey,
+  stockAnalysisForm,
   sessionModelOptions,
   savingStrategyIndex,
   savedStrategyIds,
@@ -599,10 +711,12 @@ const {
   formatDate,
   retrievalProfileLabel,
   applyPrompt,
+  handleContinueFromStockAnalysis,
   toggleLeftPanel,
   toggleRightPanel,
   copyMessage,
   copyConversation,
+  handleStockAnalysisSubmit,
   resetWorkspaceDraftState,
   handleSaveStrategyDraft,
   openAddToWorkspaceDialog,

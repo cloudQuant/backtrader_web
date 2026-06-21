@@ -16,6 +16,9 @@ if [ -n "$TRACKED_GENERATED_FILES" ]; then
     ERRORS=$((ERRORS + 1))
 fi
 
+echo "检查敏感候选文件是否有分类说明..."
+python3 scripts/ci/check_sensitive_tracked_files.py
+
 if [ "$ERRORS" -gt 0 ]; then
     echo ""
     echo "❌ 检查失败: 发现 $ERRORS 个问题"

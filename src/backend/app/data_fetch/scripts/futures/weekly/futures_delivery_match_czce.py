@@ -60,14 +60,12 @@ class FuturesDeliveryMatchCzce(AkshareToMySql):
         try:
             # 1. Date Handling
             if end_date is None:
-                end_date = self.get_previous_date()
+                end_date = self.get_current_date()
 
             if start_date is None:
                 latest_date_in_db = self.get_latest_date(table_name, "TRADE_DATE")
                 if latest_date_in_db:
-                    start_date = (
-                        datetime.strptime(latest_date_in_db, "%Y-%m-%d") + timedelta(days=1)
-                    ).strftime("%Y-%m-%d")
+                    start_date = latest_date_in_db
                     self.logger.info(f"最新数据日期: {latest_date_in_db}，从 {start_date} 开始更新")
                 else:
                     start_date = "2025-07-01"  # Earliest data found in example
@@ -176,6 +174,7 @@ class FuturesDeliveryMatchCzce(AkshareToMySql):
                     df = df[required_columns]
                     df = df.replace(np.nan, None)
                     # Save to database
+                    self.delete_data(table_name, {"TRADE_DATE": date_str})
                     self.save_data(df, table_name)
                     success_count += 1
                     self.logger.info(f"成功保存 {date_str} 的交割配对数据，共 {len(df)} 条记录")

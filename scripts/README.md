@@ -25,6 +25,13 @@ Project scripts organised by purpose.
 # Verify dev environment
 ./scripts/dev/verify-dev-env.sh --postinstall
 
+# Seed and verify investor roadshow demo data
+python scripts/dev/seed_roadshow_demo.py
+python scripts/dev/verify_roadshow_demo.py
+
+# Verify native stock-analysis AI assistant flow
+python scripts/dev/verify_stock_analysis_ai_assistant.py
+
 # Run E2E tests
 ./scripts/dev/run-e2e.sh
 ```

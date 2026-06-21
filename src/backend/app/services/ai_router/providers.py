@@ -13,6 +13,7 @@ from app.ai_provider_registry import (
 from app.ai_provider_registry import (
     get_default_provider_registry as _get_default_provider_registry,
 )
+from app.services.ai_router.provider_config_store import get_effective_provider_registry
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class AIProviderSpec:
     provider_type: str
     base_url: str | None = None
     api_key_env: str | None = None
+    api_key: str | None = None
     models: tuple[str, ...] = field(default_factory=tuple)
     enabled: bool = True
 
@@ -33,7 +35,7 @@ def get_default_provider_registry() -> dict[str, dict[str, Any]]:
 def build_provider_specs(
     provider_registry: Mapping[str, Mapping[str, Any]] | None,
 ) -> list[AIProviderSpec]:
-    registry = provider_registry or DEFAULT_PROVIDER_REGISTRY
+    registry = get_effective_provider_registry(provider_registry or DEFAULT_PROVIDER_REGISTRY)
     specs: list[AIProviderSpec] = []
     for name, raw_config in registry.items():
         enabled = _coerce_enabled(raw_config.get("enabled", True))
@@ -55,6 +57,7 @@ def build_provider_specs(
                 ),
                 base_url=_optional_str(raw_config.get("base_url")),
                 api_key_env=_optional_str(raw_config.get("api_key_env")),
+                api_key=_optional_str(raw_config.get("api_key")),
                 models=tuple(models),
                 enabled=enabled,
             )
@@ -73,6 +76,8 @@ def get_default_provider_specs() -> list[AIProviderSpec]:
 
 
 def get_provider_api_key(spec: AIProviderSpec) -> str | None:
+    if spec.api_key:
+        return spec.api_key
     if not spec.api_key_env:
         return None
     return get_secret_value(spec.api_key_env)

@@ -1,5 +1,7 @@
 import logging
-from datetime import datetime
+import re
+from datetime import date, datetime
+from typing import Any
 
 import akshare as ak
 import pandas as pd
@@ -40,10 +42,92 @@ class FundManagerEm(AkshareToMySql):
 
     def extract_fund_code(self, fund_name):
         """从基金名称中提取基金代码"""
-        import re
-
         match = re.search(r"\d{6}", fund_name)
         return match.group(0) if match else ""
+
+    @staticmethod
+    def _parse_number(value: Any) -> float | None:
+        if value is None or pd.isna(value):
+            return None
+        if isinstance(value, int | float):
+            return float(value)
+        raw = str(value).strip()
+        if not raw or raw in {"--", "-", "暂无"}:
+            return None
+        cleaned = raw.replace(",", "").replace("%", "").replace("亿元", "").replace("天", "")
+        match = re.search(r"-?\d+(?:\.\d+)?", cleaned)
+        return float(match.group(0)) if match else None
+
+    @classmethod
+    def _parse_work_days(cls, value: Any) -> int | None:
+        if value is None or pd.isna(value):
+            return None
+        if isinstance(value, int):
+            return int(value)
+        if isinstance(value, float):
+            return int(value) if pd.notna(value) else None
+        raw = str(value).strip()
+        if not raw or raw in {"--", "-", "暂无"}:
+            return None
+        year_match = re.search(r"(\d+)\s*年", raw)
+        day_match = re.search(r"(\d+)\s*天", raw)
+        if year_match or day_match:
+            years = int(year_match.group(1)) if year_match else 0
+            days = int(day_match.group(1)) if day_match else 0
+            return years * 365 + days
+        number = cls._parse_number(raw)
+        return int(number) if number is not None else None
+
+    @classmethod
+    def normalize_manager_data(
+        cls, df: pd.DataFrame, update_date: date | None = None
+    ) -> pd.DataFrame:
+        """Normalize Eastmoney fund manager data to the MySQL table schema."""
+        columns = [
+            "R_ID",
+            "MANAGER_ID",
+            "MANAGER_NAME",
+            "COMPANY",
+            "FUND_CODE",
+            "FUND_NAME",
+            "WORK_DAYS",
+            "TOTAL_ASSETS",
+            "BEST_RETURN",
+            "UPDATE_DATE",
+        ]
+        if df is None or df.empty:
+            return pd.DataFrame(columns=columns)
+
+        normalized = df.rename(
+            columns={
+                "序号": "MANAGER_ID",
+                "姓名": "MANAGER_NAME",
+                "所属公司": "COMPANY",
+                "现任基金": "FUND_NAME",
+                "现任基金代码": "FUND_CODE",
+                "累计从业时间": "WORK_DAYS",
+                "现任基金资产总规模": "TOTAL_ASSETS",
+                "现任基金最佳回报": "BEST_RETURN",
+            }
+        ).copy()
+
+        if "FUND_CODE" not in normalized.columns:
+            normalized["FUND_CODE"] = normalized.get("FUND_NAME", pd.Series(dtype=str)).apply(
+                cls.extract_fund_code
+            )
+
+        normalized["WORK_DAYS"] = normalized["WORK_DAYS"].apply(cls._parse_work_days)
+        normalized["TOTAL_ASSETS"] = normalized["TOTAL_ASSETS"].apply(cls._parse_number)
+        normalized["BEST_RETURN"] = normalized["BEST_RETURN"].apply(cls._parse_number)
+        normalized["UPDATE_DATE"] = update_date or datetime.now().date()
+        normalized["R_ID"] = (
+            "FME_"
+            + normalized["MANAGER_ID"].astype(str)
+            + "_"
+            + normalized["FUND_CODE"].fillna("").astype(str)
+        )
+
+        return normalized[[column for column in columns if column in normalized.columns]]
 
     def fetch_manager_data(self):
         try:
@@ -54,46 +138,7 @@ class FundManagerEm(AkshareToMySql):
                 self.logger.warning("No fund manager data found")
                 return pd.DataFrame()
 
-            # 重命名列 (use uppercase to match database schema)
-            df = df.rename(
-                columns={
-                    "序号": "MANAGER_ID",
-                    "姓名": "MANAGER_NAME",
-                    "所属公司": "COMPANY",
-                    "现任基金": "FUND_NAME",
-                    "现任基金代码": "FUND_CODE",  # Use the fund code column directly
-                    "累计从业时间": "WORK_DAYS",
-                    "现任基金资产总规模": "TOTAL_ASSETS",
-                    "现任基金最佳回报": "BEST_RETURN",
-                }
-            )
-
-            # If FUND_CODE column doesn't exist (API change), try to extract from fund name
-            if "FUND_CODE" not in df.columns:
-                df["FUND_CODE"] = df["FUND_NAME"].apply(self.extract_fund_code)
-
-            # 添加系统字段
-            df["UPDATE_DATE"] = datetime.now().date()
-            df["R_ID"] = (
-                "FME_" + df["MANAGER_ID"].astype(str) + "_" + df["FUND_CODE"].fillna("").astype(str)
-            )
-
-            # 选择需要的列并重新排序
-            columns = [
-                "R_ID",
-                "MANAGER_ID",
-                "MANAGER_NAME",
-                "COMPANY",
-                "FUND_CODE",
-                "FUND_NAME",
-                "WORK_DAYS",
-                "TOTAL_ASSETS",
-                "BEST_RETURN",
-                "UPDATE_DATE",
-            ]
-            # Only keep columns that exist
-            available_columns = [c for c in columns if c in df.columns]
-            return df[available_columns]
+            return self.normalize_manager_data(df)
 
         except Exception as e:
             self.logger.error(f"Error fetching fund manager data: {e}")

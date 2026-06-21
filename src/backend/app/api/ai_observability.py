@@ -4,15 +4,21 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.data.deps import get_current_db_user, require_data_admin_user
+from app.config import get_settings
 from app.db.database import get_db
 from app.models.user import User
 from app.services.ai_observability.stats import AICallStatsService
 from app.services.ai_router.health import AIProviderHealthService, build_provider_health_payload
 from app.services.ai_router.preferences import AIModelPreferenceService
+from app.services.ai_router.provider_config_store import (
+    delete_provider_config,
+    list_provider_configs,
+    save_provider_config,
+)
 
 router = APIRouter()
 
@@ -20,6 +26,16 @@ router = APIRouter()
 class AIModelPreferenceUpdate(BaseModel):
     provider: str | None = None
     model: str | None = None
+
+
+class AIProviderConfigUpdate(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+    provider_type: str = Field(pattern="^(litellm|openai_compatible)$")
+    base_url: str | None = Field(default=None, max_length=500)
+    api_key: str | None = Field(default=None, max_length=4096)
+    api_key_env: str | None = Field(default=None, max_length=120)
+    models: list[str] = Field(min_length=1, max_length=100)
+    enabled: bool = True
 
 
 @router.get("/admin/ai/usage")
@@ -86,6 +102,40 @@ async def get_admin_ai_provider_health(
 ) -> dict[str, Any]:
     providers = await AIProviderHealthService().check_all()
     return build_provider_health_payload(providers)
+
+
+@router.get("/admin/ai/provider-configs")
+async def list_admin_ai_provider_configs(
+    current_user: User = Depends(require_data_admin_user),
+) -> dict[str, Any]:
+    return {"items": list_provider_configs(get_settings().AI_PROVIDERS)}
+
+
+@router.put("/admin/ai/provider-configs/{provider_key}")
+async def update_admin_ai_provider_config(
+    provider_key: str,
+    payload: AIProviderConfigUpdate,
+    current_user: User = Depends(require_data_admin_user),
+) -> dict[str, Any]:
+    try:
+        return save_provider_config(
+            provider_key,
+            payload.model_dump(),
+            base_registry=get_settings().AI_PROVIDERS,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.delete("/admin/ai/provider-configs/{provider_key}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_admin_ai_provider_config(
+    provider_key: str,
+    current_user: User = Depends(require_data_admin_user),
+) -> None:
+    try:
+        delete_provider_config(provider_key, base_registry=get_settings().AI_PROVIDERS)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("/me/ai/usage")

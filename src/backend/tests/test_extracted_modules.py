@@ -2538,6 +2538,39 @@ class TestGatewayRuntimeService:
         assert state1["ref_count"] == 2
         assert instance_gateways == {"inst1": "ctp-future-acc-1", "inst2": "ctp-future-acc-1"}
 
+    def test_acquire_gateway_for_instance_raises_when_runtime_start_fails(self):
+        logger = Mock()
+        config = Mock(
+            runtime_name="ctp-future-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+        runtime = Mock()
+        runtime.start_in_thread.side_effect = RuntimeError("ctp market not ready")
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(return_value=runtime),
+            "runtime_kwargs": {"account_id": "acc-1"},
+        }
+        gateways: dict[str, dict] = {}
+        instance_gateways: dict[str, str] = {}
+
+        with pytest.raises(RuntimeError, match="ctp market not ready"):
+            gateway_runtime_service.acquire_gateway_for_instance(
+                instance_id="inst1",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=Path("/tmp/strategy"),
+                get_gateway_params=lambda instance: {"enabled": True},
+                build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+                gateways=gateways,
+                instance_gateways=instance_gateways,
+                logger=logger,
+            )
+
+        assert gateways == {}
+        assert instance_gateways == {}
+
     def test_acquire_gateway_for_instance_reuses_existing_manual_session(self):
         logger = Mock()
         runtime = Mock()

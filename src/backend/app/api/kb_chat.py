@@ -16,6 +16,7 @@ from app.schemas.kb_chat import (
     KBChatResponse,
 )
 from app.services.kb_chat_service import KBChatService
+from app.services.stock_analysis.tasks import StockAnalysisConcurrencyLimitExceeded
 
 router = APIRouter()
 
@@ -95,7 +96,17 @@ async def send_message(
     current_user: TokenPayload = Depends(get_current_user),
     service: KBChatService = Depends(get_kb_chat_service),
 ):
-    result = await service.send(current_user.sub, data)
+    try:
+        result = await service.send(current_user.sub, data)
+    except StockAnalysisConcurrencyLimitExceeded as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "reason_code": "stock_analysis_concurrency_limit",
+                "active_count": exc.active_count,
+                "limit": exc.limit,
+            },
+        ) from exc
     if result is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base or conversation not found"

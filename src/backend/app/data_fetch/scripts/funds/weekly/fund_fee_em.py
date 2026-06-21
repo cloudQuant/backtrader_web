@@ -6,6 +6,11 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.funds.weekly._fund_codes import (
+    DEFAULT_FUND_CODE_LIMIT,
+    get_codes_from_table,
+    normalize_fund_codes,
+)
 
 
 class FundFeeEm(AkshareToMySql):
@@ -60,6 +65,41 @@ class FundFeeEm(AkshareToMySql):
             "赎回费率",
         ]
 
+    @staticmethod
+    def normalize_fee_frame(df: pd.DataFrame, fee_type: str) -> pd.DataFrame:
+        def limit_text(value, max_length: int):
+            if value is None:
+                return None
+            text = str(value)
+            return text[:max_length]
+
+        rows = []
+        for _, row in df.iterrows():
+            values = [None if pd.isna(value) else value for value in row.tolist()]
+            if len(values) >= 4 and fee_type in {"认购费率", "申购费率", "赎回费率"}:
+                condition, term, original_rate, promotion_rate = values[:4]
+            elif len(values) >= 2:
+                condition = values[0]
+                term = None
+                original_rate = " | ".join(str(value) for value in values[1:] if value is not None)
+                promotion_rate = None
+            else:
+                condition = fee_type
+                term = None
+                original_rate = str(values[0]) if values and values[0] is not None else None
+                promotion_rate = None
+
+            rows.append(
+                {
+                    "condition": limit_text(condition, 200),
+                    "term": limit_text(term, 50),
+                    "original_rate": limit_text(original_rate, 50),
+                    "promotion_rate": limit_text(promotion_rate, 50),
+                }
+            )
+
+        return pd.DataFrame(rows, columns=["condition", "term", "original_rate", "promotion_rate"])
+
     def fetch_fee_data(self, fund_code: str, fee_type: str = None) -> pd.DataFrame:
         """
         获取基金费率数据
@@ -81,32 +121,9 @@ class FundFeeEm(AkshareToMySql):
                     df = ak.fund_fee_em(symbol=fund_code, indicator=ft)
 
                     if df is not None and not df.empty:
-                        # 重命名列
-                        if len(df.columns) >= 2:
-                            # 处理不同费率类型的数据结构
-                            if ft in ["交易状态", "交易确认日"] or ft == "申购与赎回金额":
-                                df.columns = ["condition", "value"]
-                                df["original_rate"] = df["value"]
-                                df["promotion_rate"] = None
-                            elif ft == "运作费用":
-                                df.columns = ["fee_name", "original_rate"]
-                                df["condition"] = None
-                                df["promotion_rate"] = None
-                            else:  # 认购费率、申购费率、赎回费率
-                                if len(df.columns) >= 4:
-                                    df.columns = [
-                                        "condition",
-                                        "term",
-                                        "original_rate",
-                                        "promotion_rate",
-                                    ]
-                                else:
-                                    df["term"] = None
-                                    df["promotion_rate"] = None
-
-                            # 添加费率类型
-                            df["fee_type"] = ft
-                            all_data.append(df)
+                        normalized_df = self.normalize_fee_frame(df, ft)
+                        normalized_df["fee_type"] = ft
+                        all_data.append(normalized_df)
 
                 except Exception as e:
                     self.logger.warning(f"获取基金 {fund_code} 的{ft}数据失败: {e}")
@@ -211,7 +228,13 @@ class FundFeeEm(AkshareToMySql):
             self.logger.error(f"获取已存在数据ID失败: {e}")
             return set()
 
-    def run(self, fund_code: str = None, fee_type: str = None):
+    def run(
+        self,
+        fund_code: str = None,
+        fee_type: str = None,
+        fund_codes=None,
+        limit: int = DEFAULT_FUND_CODE_LIMIT,
+    ):
         """
         执行数据获取和保存
 
@@ -231,22 +254,30 @@ class FundFeeEm(AkshareToMySql):
             # 创建表（如果不存在）
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
 
-            # 获取数据
-            df = self.fetch_fee_data(fund_code, fee_type)
-
-            if df is None or df.empty:
-                self.logger.warning(f"未获取到基金 {fund_code} 的费率数据")
+            codes = normalize_fund_codes(fund_code=fund_code, fund_codes=fund_codes)
+            if not codes:
+                codes = get_codes_from_table(self, "OPEN_FUND_DAILY_EM", "FUND_CODE", limit)
+            if not codes:
+                self.logger.warning("未获取到默认基金代码")
                 return False
 
-            # 保存数据
-            success = self.save_fee_data(df)
+            total_success = True
+            total_count = 0
+            for code in codes:
+                df = self.fetch_fee_data(code, fee_type)
+                if df is None or df.empty:
+                    continue
 
-            if success:
-                self.logger.info(f"基金 {fund_code} 费率数据更新完成")
-            else:
-                self.logger.warning(f"基金 {fund_code} 费率数据更新失败")
+                success = self.save_fee_data(df)
+                if success:
+                    total_count += len(df)
+                    self.logger.info(f"基金 {code} 费率数据更新完成")
+                else:
+                    total_success = False
+                    self.logger.warning(f"基金 {code} 费率数据更新失败")
 
-            return success
+            self.logger.info(f"基金费率数据更新完成，共处理{total_count}条数据")
+            return total_success and total_count > 0
 
         except Exception as e:
             self.logger.error(f"执行基金费率数据更新失败: {e}", exc_info=True)

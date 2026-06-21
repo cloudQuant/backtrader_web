@@ -138,22 +138,6 @@
             id="page-header-actions"
             class="app-header-extras flex items-center gap-3 flex-wrap"
           />
-          <div
-            v-if="route.path.startsWith('/portfolio')"
-            class="app-header-portfolio-toggle"
-          >
-            <el-radio-group
-              v-model="portfolioUiStore.tradingType"
-              size="large"
-            >
-              <el-radio-button value="simulate">
-                {{ t('nav.paperTrading') }}
-              </el-radio-button>
-              <el-radio-button value="live">
-                {{ t('nav.liveTrading') }}
-              </el-radio-button>
-            </el-radio-group>
-          </div>
         </div>
         
         <div class="flex items-center gap-4 shrink-0">
@@ -209,7 +193,6 @@ import { computed, ref, onMounted, onUnmounted, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
-import { usePortfolioUiStore } from '@/stores/portfolioUi'
 import { useThemeStore } from '@/stores/theme'
 import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
@@ -253,7 +236,6 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-const portfolioUiStore = usePortfolioUiStore()
 const themeStore = useThemeStore()
 
 // Mobile sidebar state

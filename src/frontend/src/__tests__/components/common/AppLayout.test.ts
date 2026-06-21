@@ -225,7 +225,7 @@ describe('AppLayout', () => {
   })
 
   describe('导航菜单', () => {
-    it('应该包含所有菜单项', async () => {
+    it('应该包含主导航菜单项且不展示平台治理', async () => {
       const AppLayout = (await import('@/components/common/AppLayout.vue')).default
       const wrapper = mount(AppLayout, { global: getGlobalConfig() })
       expect(wrapper.text()).toContain('首页')
@@ -235,7 +235,7 @@ describe('AppLayout', () => {
       expect(wrapper.text()).toContain('组合风控')
       expect(wrapper.text()).toContain('AI助手')
       expect(wrapper.text()).not.toContain('AI知识')
-      expect(wrapper.text()).toContain('平台治理')
+      expect(wrapper.text()).not.toContain('平台治理')
     })
 
     it('应该包含首页菜单项', async () => {

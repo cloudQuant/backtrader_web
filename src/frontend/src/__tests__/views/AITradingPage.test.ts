@@ -94,10 +94,22 @@ describe('AITradingPage', () => {
       available_accounts: [
         {
           account_id: 'paper-1',
-          name: '模拟账户A',
+          name: '账户A',
           total_equity: 100000,
           current_cash: 80000,
           is_active: true,
+          source: 'paper',
+        },
+        {
+          account_id: 'live-1',
+          name: 'binance · live-1',
+          total_equity: null,
+          current_cash: null,
+          is_active: true,
+          source: 'gateway',
+          gateway_id: 'gw-1',
+          exchange_type: 'binance',
+          connected: true,
         },
       ],
     })
@@ -145,6 +157,8 @@ describe('AITradingPage', () => {
     expect(apiMocks.getTradingHistory).toHaveBeenCalledWith(20)
     expect(wrapper.text()).toContain('自然语言交易')
     expect(wrapper.text()).toContain('买入 1 手 RB2510')
+    expect(wrapper.text()).toContain('账户A')
+    expect(wrapper.text()).not.toContain('模拟账户')
 
     const vm = wrapper.vm as any
     vm.message = '买入1手螺纹钢主力合约'
@@ -161,6 +175,37 @@ describe('AITradingPage', () => {
     })
     expect(vm.currentResponse.trade_id).toBe('trade-1')
     expect(vm.responses).toHaveLength(1)
+  })
+
+  it('uses connected account selections for live trading', async () => {
+    const wrapper = mountWithPlugins(AITradingPage, {
+      customStubs: {
+        Promotion: true,
+        Warning: true,
+        Document: true,
+      },
+    })
+
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.dryRun = false
+    await flushPromises()
+
+    expect(vm.selectedAccountId).toBe('live-1')
+    expect(wrapper.text()).toContain('binance · live-1')
+
+    vm.message = '帮我在币安买入0.1个BTC'
+    await vm.handleSend()
+    await flushPromises()
+
+    expect(apiMocks.executeTrade).toHaveBeenCalledWith({
+      message: '帮我在币安买入0.1个BTC',
+      gateway_id: 'gw-1',
+      account_id: undefined,
+      dry_run: false,
+      auto_confirm: false,
+    })
   })
 
   it('confirms and cancels pending trades through the dialog flow', async () => {

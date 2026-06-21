@@ -38,6 +38,7 @@ export default buildLocale({
   nav: {
     dashboard: 'ダッシュボード',
     home: 'ホーム',
+    investmentResearch: '投資リサーチ',
     aiChat: 'AIアシスタント',
     aiCost: 'AIコスト',
     promptGovernance: 'プロンプト管理',
@@ -55,6 +56,7 @@ export default buildLocale({
     portfolioLedger: 'ポートフォリオ台帳',
     equityResearch: 'エクイティリサーチ',
     newsIntelligence: 'ニュースインテリジェンス',
+    stockAnalysis: '個別株分析',
     optionsChain: 'オプションチェーン',
     scanners: 'スキャナー',
     quantTools: 'クオンツツール',

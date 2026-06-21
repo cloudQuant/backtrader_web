@@ -5,6 +5,7 @@ Storage and query service for akshare data warehouse tables.
 from __future__ import annotations
 
 import re
+import json
 from datetime import datetime
 from typing import Any
 
@@ -16,6 +17,9 @@ from app.db.akshare_data_database import _get_akshare_data_engine
 from app.models.akshare_mgmt import DataScript, DataTable
 
 _VALID_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_MYSQL_COMPACT_TABLE_COLUMN_THRESHOLD = 250
+_COMPACT_ROW_COLUMN = "_akshare_row"
+_COMPACT_PAYLOAD_COLUMN = "_akshare_payload"
 
 
 class AkshareDataService:
@@ -44,6 +48,64 @@ class AkshareDataService:
     def _quote_identifier(identifier: str) -> str:
         return f"`{AkshareDataService._validate_table_name(identifier)}`"
 
+    @staticmethod
+    def _quote_mysql_identifier(identifier: str) -> str:
+        return f"`{identifier.replace('`', '``')}`"
+
+    @classmethod
+    def _mysql_column_type(cls, series: pd.Series) -> str:
+        if pd.api.types.is_bool_dtype(series):
+            return "BOOLEAN"
+        if pd.api.types.is_integer_dtype(series):
+            return "BIGINT"
+        if pd.api.types.is_float_dtype(series):
+            return "DOUBLE"
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return "DATETIME"
+        return "LONGTEXT"
+
+    @classmethod
+    def _create_mysql_table_for_dataframe(
+        cls,
+        sync_conn: Any,
+        table_name: str,
+        dataframe: pd.DataFrame,
+    ) -> None:
+        """Create a MySQL table with a row format that can handle wide AkShare frames."""
+        quoted_name = cls._quote_identifier(table_name)
+        column_definitions = [
+            f"{cls._quote_mysql_identifier(str(column))} {cls._mysql_column_type(dataframe[column])} NULL"
+            for column in dataframe.columns
+        ]
+        sync_conn.exec_driver_sql(
+            f"CREATE TABLE {quoted_name} ("
+            + ", ".join(column_definitions)
+            + ") ENGINE=InnoDB ROW_FORMAT=DYNAMIC"
+        )
+
+    @classmethod
+    def _create_mysql_compact_table(cls, sync_conn: Any, table_name: str) -> None:
+        quoted_name = cls._quote_identifier(table_name)
+        sync_conn.exec_driver_sql(
+            f"CREATE TABLE {quoted_name} ("
+            f"{cls._quote_mysql_identifier(_COMPACT_ROW_COLUMN)} BIGINT NULL, "
+            f"{cls._quote_mysql_identifier(_COMPACT_PAYLOAD_COLUMN)} LONGTEXT NULL"
+            ") ENGINE=InnoDB ROW_FORMAT=DYNAMIC"
+        )
+
+    @staticmethod
+    def _compact_dataframe_for_mysql(dataframe: pd.DataFrame) -> pd.DataFrame:
+        payloads = [
+            json.dumps(row, ensure_ascii=False, default=str)
+            for row in dataframe.to_dict(orient="records")
+        ]
+        return pd.DataFrame(
+            {
+                _COMPACT_ROW_COLUMN: range(1, len(payloads) + 1),
+                _COMPACT_PAYLOAD_COLUMN: payloads,
+            }
+        )
+
     def build_table_name(self, script: DataScript, parameters: dict[str, Any]) -> str:
         """Build the physical warehouse table name for one script execution."""
         base_name = str(script.target_table or script.script_id)
@@ -56,11 +118,36 @@ class AkshareDataService:
     def normalize_dataframe(self, dataframe: pd.DataFrame) -> pd.DataFrame:
         """Normalize column names and cell values before persistence."""
         normalized = dataframe.copy()
-        normalized.columns = [
-            self._normalize_identifier(str(column)) for column in normalized.columns
-        ]
+        used_columns: set[str] = set()
+        suffix_counters: dict[str, int] = {}
+        normalized_columns: list[str] = []
+        for index, column in enumerate(normalized.columns, start=1):
+            raw_column = str(column)
+            base_column_name = self._normalize_identifier(raw_column)
+            if base_column_name == "data" and raw_column.strip() and not re.search(
+                r"[A-Za-z0-9_]", raw_column
+            ):
+                base_column_name = f"col_{index}"
+
+            column_name = base_column_name
+            while column_name in used_columns:
+                suffix_counters[base_column_name] = (
+                    suffix_counters.get(base_column_name, 1) + 1
+                )
+                column_name = f"{base_column_name}_{suffix_counters[base_column_name]}"
+            used_columns.add(column_name)
+            normalized_columns.append(column_name)
+
+        normalized.columns = normalized_columns
         normalized = normalized.where(pd.notnull(normalized), None)
+        normalized = normalized.map(self._normalize_cell_value)
         return normalized
+
+    @staticmethod
+    def _normalize_cell_value(value: Any) -> Any:
+        if isinstance(value, (dict, list, tuple, set)):
+            return json.dumps(value, ensure_ascii=False, default=str)
+        return value
 
     async def get_row_count(self, table_name: str) -> int:
         """Return the current row count of a warehouse table."""
@@ -74,6 +161,21 @@ class AkshareDataService:
             except Exception:
                 return 0
         return int(result.scalar() or 0)
+
+    @staticmethod
+    def _is_historical_script(script: DataScript) -> bool:
+        name = f"{script.script_id} {script.target_table or ''}".lower()
+        return any(
+            token in name
+            for token in (
+                "hist",
+                "history",
+                "kline",
+                "minute",
+                "_daily",
+                "daily_",
+            )
+        )
 
     def _infer_date_range(self, dataframe: pd.DataFrame) -> tuple[datetime | None, datetime | None]:
         date_like_columns = [
@@ -201,15 +303,84 @@ class AkshareDataService:
         row_count = len(normalized_df.index)
         data_start, data_end = self._infer_date_range(normalized_df)
 
-        async with _get_akshare_data_engine().begin() as conn:
-            await conn.run_sync(
-                lambda sync_conn: normalized_df.to_sql(
-                    table_name,
-                    con=sync_conn,
-                    if_exists="replace",
-                    index=False,
-                )
+        if normalized_df.empty:
+            try:
+                existing_row_count = await self.get_row_count(table_name)
+            except Exception:
+                existing_row_count = 0
+            try:
+                existing_schema = await self.get_table_schema(table_name)
+                existing_columns = [column["name"] for column in existing_schema]
+            except Exception:
+                existing_columns = []
+            return await self._upsert_table_metadata(
+                script=script,
+                table_name=table_name,
+                row_count=existing_row_count,
+                parameters=parameters,
+                status=status,
+                columns=existing_columns or list(normalized_df.columns),
+                data_start=None,
+                data_end=None,
             )
+
+        if len(normalized_df.columns) > 0:
+            quoted_name = self._quote_identifier(table_name)
+            existing_row_count = await self.get_row_count(table_name)
+            if (
+                existing_row_count > 0
+                and row_count < existing_row_count
+                and self._is_historical_script(script)
+            ):
+                try:
+                    existing_schema = await self.get_table_schema(table_name)
+                    existing_columns = [column["name"] for column in existing_schema]
+                except Exception:
+                    existing_columns = []
+                return await self._upsert_table_metadata(
+                    script=script,
+                    table_name=table_name,
+                    row_count=existing_row_count,
+                    parameters=parameters,
+                    status=status,
+                    columns=existing_columns or list(normalized_df.columns),
+                    data_start=None,
+                    data_end=None,
+                )
+
+            def replace_table(sync_conn: Any) -> None:
+                sync_conn.exec_driver_sql(f"DROP TABLE IF EXISTS {quoted_name}")
+                if sync_conn.dialect.name == "mysql":
+                    if len(normalized_df.columns) > _MYSQL_COMPACT_TABLE_COLUMN_THRESHOLD:
+                        self._create_mysql_compact_table(sync_conn, table_name)
+                        self._compact_dataframe_for_mysql(normalized_df).to_sql(
+                            table_name,
+                            con=sync_conn,
+                            if_exists="append",
+                            index=False,
+                        )
+                    else:
+                        self._create_mysql_table_for_dataframe(
+                            sync_conn,
+                            table_name,
+                            normalized_df,
+                        )
+                        normalized_df.to_sql(
+                            table_name,
+                            con=sync_conn,
+                            if_exists="append",
+                            index=False,
+                        )
+                else:
+                    normalized_df.to_sql(
+                        table_name,
+                        con=sync_conn,
+                        if_exists="fail",
+                        index=False,
+                    )
+
+            async with _get_akshare_data_engine().begin() as conn:
+                await conn.run_sync(replace_table)
 
         return await self._upsert_table_metadata(
             script=script,
@@ -297,5 +468,14 @@ class AkshareDataService:
             mappings = result.mappings().all()
 
         rows = [dict(row) for row in mappings]
+        if rows and set(rows[0]) == {_COMPACT_ROW_COLUMN, _COMPACT_PAYLOAD_COLUMN}:
+            expanded_rows = [
+                json.loads(str(row[_COMPACT_PAYLOAD_COLUMN]))
+                for row in rows
+                if row.get(_COMPACT_PAYLOAD_COLUMN)
+            ]
+            columns = list(expanded_rows[0].keys()) if expanded_rows else []
+            return columns, expanded_rows, total
+
         columns = list(rows[0].keys()) if rows else []
         return columns, rows, total

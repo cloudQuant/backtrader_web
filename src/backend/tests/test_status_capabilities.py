@@ -13,6 +13,13 @@ async def test_capability_status_returns_product_domains(client):
     research = next(domain for domain in payload["domains"] if domain["id"] == "research")
     assert research["status"] == "available"
     assert any(capability["id"] == "research.backtests" for capability in research["capabilities"])
+    capability_ids = {
+        capability["id"]
+        for domain in payload["domains"]
+        for capability in domain["capabilities"]
+    }
+    assert "trading.brokers" not in capability_ids
+    assert "portfolio.ledger" not in capability_ids
 
 
 @pytest.mark.asyncio

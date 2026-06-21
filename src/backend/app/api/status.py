@@ -83,7 +83,6 @@ CAPABILITY_DOMAINS: list[dict[str, Any]] = [
                 "api_prefixes": ["/api/v1/simulation", "/api/v1/paper-trading"],
                 "optional": ["paper_trading"],
             },
-            {"id": "trading.brokers", "api_prefixes": ["/api/v1/brokers"], "optional": []},
             {
                 "id": "trading.monitoring",
                 "api_prefixes": ["/api/v1/monitoring"],
@@ -101,11 +100,6 @@ CAPABILITY_DOMAINS: list[dict[str, Any]] = [
         "label": "Portfolio & Risk",
         "capabilities": [
             {"id": "portfolio.overview", "api_prefixes": ["/api/v1/portfolio"], "optional": []},
-            {
-                "id": "portfolio.ledger",
-                "api_prefixes": ["/api/v1/portfolio-ledger"],
-                "optional": [],
-            },
             {
                 "id": "portfolio.risk",
                 "api_prefixes": ["/api/v1/risk-analytics"],

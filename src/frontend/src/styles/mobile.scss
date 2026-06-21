@@ -189,13 +189,6 @@
   }
 }
 
-/* 移动端 portfolio radio group 适配 */
-.app-header-portfolio-toggle {
-  @include respond-to('sm') {
-    display: none !important;
-  }
-}
-
 /* 移动端导航栏 */
 .mobile-nav {
   display: none;

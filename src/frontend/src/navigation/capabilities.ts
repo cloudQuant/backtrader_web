@@ -1,10 +1,12 @@
 export type ProductDomainId =
   | 'home'
   | 'data'
+  | 'investment'
   | 'research'
   | 'trading'
   | 'portfolio'
   | 'ai'
+  | 'config'
   | 'admin'
 
 export type CapabilityStatus = 'stable' | 'beta' | 'admin' | 'legacy' | 'hidden'
@@ -33,14 +35,15 @@ export interface Capability {
 export const productDomains: ProductDomain[] = [
   { id: 'home', path: '/', labelKey: 'nav.home', icon: 'HomeFilled' },
   { id: 'data', path: '/data', labelKey: 'nav.marketData', icon: 'Grid' },
+  { id: 'investment', path: '/investment', labelKey: 'nav.investmentResearch', icon: 'Document' },
   { id: 'research', path: '/research', labelKey: 'nav.strategyResearch', icon: 'Aim' },
   { id: 'trading', path: '/trading', labelKey: 'nav.tradingOperations', icon: 'TrendCharts' },
   { id: 'portfolio', path: '/portfolio', labelKey: 'nav.portfolioRisk', icon: 'TrendCharts' },
   { id: 'ai', path: '/ai', labelKey: 'nav.aiKnowledge', icon: 'ChatDotRound' },
   {
-    id: 'admin',
-    path: '/admin',
-    labelKey: 'nav.platformAdmin',
+    id: 'config',
+    path: '/config',
+    labelKey: 'nav.configCenter',
     icon: 'Setting',
     requiresAdmin: true,
   },
@@ -77,70 +80,7 @@ export const capabilities: Capability[] = [
     path: '/data/topics',
     labelKey: 'dataPages.layoutTabTopics',
     icon: 'Collection',
-  },
-  {
-    id: 'data.scripts',
-    domainId: 'data',
-    path: '/data/scripts',
-    labelKey: 'dataPages.layoutTabScripts',
-    icon: 'Document',
-  },
-  {
-    id: 'data.tasks',
-    domainId: 'data',
-    path: '/data/tasks',
-    labelKey: 'dataPages.layoutTabTasks',
-    icon: 'Document',
-  },
-  {
-    id: 'data.executions',
-    domainId: 'data',
-    path: '/data/executions',
-    labelKey: 'dataPages.layoutTabExecutions',
-    icon: 'Monitor',
-  },
-  {
-    id: 'data.tables',
-    domainId: 'data',
-    path: '/data/tables',
-    labelKey: 'dataPages.layoutTabTables',
-    icon: 'Grid',
-  },
-  {
-    id: 'data.sync',
-    domainId: 'data',
-    path: '/data/sync',
-    labelKey: 'dataPages.layoutTabSync',
-    icon: 'Monitor',
-    requiresAdmin: true,
-    status: 'admin',
-  },
-  {
-    id: 'data.interfaces',
-    domainId: 'data',
-    path: '/data/interfaces',
-    labelKey: 'dataPages.layoutTabInterfaces',
-    icon: 'Document',
-    requiresAdmin: true,
-    status: 'admin',
-  },
-  {
-    id: 'data.governance',
-    domainId: 'data',
-    path: '/data/governance',
-    labelKey: 'dataPages.layoutTabGovernance',
-    icon: 'Setting',
-    requiresAdmin: true,
-    status: 'admin',
-  },
-  {
-    id: 'data.airflow',
-    domainId: 'data',
-    path: '/data/airflow',
-    label: 'Airflow',
-    icon: 'Monitor',
-    requiresAdmin: true,
-    status: 'admin',
+    visibleInSubnav: false,
   },
   {
     id: 'data.equityResearch',
@@ -159,20 +99,20 @@ export const capabilities: Capability[] = [
     legacyPaths: ['/news-intelligence'],
   },
   {
-    id: 'data.optionsChain',
-    domainId: 'data',
-    path: '/data/intelligence/options',
-    labelKey: 'nav.optionsChain',
-    icon: 'Document',
-    legacyPaths: ['/options-chain'],
-  },
-  {
     id: 'data.scanners',
     domainId: 'data',
     path: '/data/intelligence/scanners',
     labelKey: 'nav.scanners',
     icon: 'Aim',
     legacyPaths: ['/scanners'],
+  },
+
+  {
+    id: 'investment.stockAnalysis',
+    domainId: 'investment',
+    path: '/investment/stock-analysis',
+    labelKey: 'nav.stockAnalysis',
+    icon: 'Document',
   },
 
   {
@@ -228,22 +168,6 @@ export const capabilities: Capability[] = [
     legacyPaths: ['/trading', '/simulate', '/live-trading'],
   },
   {
-    id: 'trading.brokers',
-    domainId: 'trading',
-    path: '/trading/brokers',
-    labelKey: 'nav.brokers',
-    icon: 'Monitor',
-    legacyPaths: ['/brokers'],
-  },
-  {
-    id: 'trading.gateways',
-    domainId: 'trading',
-    path: '/trading/gateways',
-    labelKey: 'nav.gateways',
-    icon: 'Monitor',
-    legacyPaths: ['/gateways'],
-  },
-  {
     id: 'trading.ai',
     domainId: 'trading',
     path: '/trading/ai',
@@ -260,15 +184,6 @@ export const capabilities: Capability[] = [
     icon: 'TrendCharts',
     legacyPaths: ['/portfolio'],
   },
-  {
-    id: 'portfolio.ledger',
-    domainId: 'portfolio',
-    path: '/portfolio/ledger',
-    labelKey: 'nav.portfolioLedger',
-    icon: 'Document',
-    legacyPaths: ['/portfolio-ledger'],
-  },
-
   {
     id: 'ai.chat',
     domainId: 'ai',
@@ -304,6 +219,140 @@ export const capabilities: Capability[] = [
     legacyPaths: ['/admin/ai-observability'],
     requiresAdmin: true,
     status: 'admin',
+  },
+
+  {
+    id: 'config.data',
+    domainId: 'config',
+    path: '/config/data',
+    labelKey: 'nav.dataManagement',
+    icon: 'Grid',
+    requiresAdmin: true,
+    status: 'admin',
+  },
+  {
+    id: 'config.ai',
+    domainId: 'config',
+    path: '/config/ai/providers',
+    labelKey: 'nav.aiConfig',
+    icon: 'Setting',
+    requiresAdmin: true,
+    status: 'admin',
+  },
+  {
+    id: 'config.gateways',
+    domainId: 'config',
+    path: '/config/gateways',
+    labelKey: 'nav.gateways',
+    icon: 'Monitor',
+    legacyPaths: ['/gateways', '/trading/gateways'],
+    requiresAdmin: true,
+    status: 'admin',
+  },
+  {
+    id: 'config.data.scripts',
+    domainId: 'config',
+    path: '/config/data/scripts',
+    labelKey: 'dataPages.layoutTabScripts',
+    icon: 'Document',
+    legacyPaths: ['/data/scripts'],
+    requiresAdmin: true,
+    status: 'admin',
+    visibleInSubnav: false,
+  },
+  {
+    id: 'config.data.scriptDetail',
+    domainId: 'config',
+    path: '/config/data/scripts/:id',
+    labelKey: 'dataPages.layoutTabScripts',
+    icon: 'Document',
+    legacyPaths: ['/data/scripts/:id'],
+    requiresAdmin: true,
+    status: 'admin',
+    visibleInSubnav: false,
+  },
+  {
+    id: 'config.data.tasks',
+    domainId: 'config',
+    path: '/config/data/tasks',
+    labelKey: 'dataPages.layoutTabTasks',
+    icon: 'Document',
+    legacyPaths: ['/data/tasks'],
+    requiresAdmin: true,
+    status: 'admin',
+    visibleInSubnav: false,
+  },
+  {
+    id: 'config.data.executions',
+    domainId: 'config',
+    path: '/config/data/executions',
+    labelKey: 'dataPages.layoutTabExecutions',
+    icon: 'Monitor',
+    legacyPaths: ['/data/executions'],
+    requiresAdmin: true,
+    status: 'admin',
+    visibleInSubnav: false,
+  },
+  {
+    id: 'data.tables',
+    domainId: 'data',
+    path: '/data/tables',
+    labelKey: 'dataPages.layoutTabTables',
+    icon: 'Grid',
+    legacyPaths: ['/config/data/tables'],
+  },
+  {
+    id: 'data.tableDetail',
+    domainId: 'data',
+    path: '/data/tables/:id',
+    labelKey: 'dataPages.layoutTabTables',
+    icon: 'Grid',
+    legacyPaths: ['/config/data/tables/:id'],
+    visibleInSubnav: false,
+  },
+  {
+    id: 'config.data.sync',
+    domainId: 'config',
+    path: '/config/data/sync',
+    labelKey: 'dataPages.layoutTabSync',
+    icon: 'Monitor',
+    legacyPaths: ['/data/sync'],
+    requiresAdmin: true,
+    status: 'admin',
+    visibleInSubnav: false,
+  },
+  {
+    id: 'config.data.interfaces',
+    domainId: 'config',
+    path: '/config/data/interfaces',
+    labelKey: 'dataPages.layoutTabInterfaces',
+    icon: 'Document',
+    legacyPaths: ['/data/interfaces'],
+    requiresAdmin: true,
+    status: 'admin',
+    visibleInSubnav: false,
+  },
+  {
+    id: 'config.data.governance',
+    domainId: 'config',
+    path: '/config/data/governance',
+    labelKey: 'dataPages.layoutTabGovernance',
+    icon: 'Setting',
+    legacyPaths: ['/data/governance'],
+    requiresAdmin: true,
+    status: 'admin',
+    visibleInSubnav: false,
+  },
+  {
+    id: 'config.data.airflow',
+    domainId: 'config',
+    path: '/config/data/airflow',
+    label: 'Airflow',
+    icon: 'Monitor',
+    legacyPaths: ['/data/airflow'],
+    requiresAdmin: true,
+    status: 'admin',
+    visibleInSubnav: false,
   },
 
   {
@@ -392,4 +441,3 @@ export function getCapabilitiesForDomain(
 export function getVisibleDomains(isAdmin: boolean): ProductDomain[] {
   return productDomains.filter((domain) => !domain.requiresAdmin || isAdmin)
 }
-

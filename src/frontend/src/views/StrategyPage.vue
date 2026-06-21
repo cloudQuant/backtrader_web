@@ -75,7 +75,7 @@
           class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
         >
           <StrategyTemplateCard
-            v-for="tpl in paginatedTemplates"
+            v-for="tpl in displayedTemplates"
             :key="tpl.id"
             :tpl="tpl"
             @detail="openTemplateDetail"
@@ -87,19 +87,6 @@
           v-else
           :description="t('strategy.noMatch')"
         />
-
-        <!-- Pagination -->
-        <div
-          v-if="filteredTemplates.length > pageSize"
-          class="flex justify-center mt-6"
-        >
-          <el-pagination
-            v-model:current-page="currentPage"
-            :page-size="pageSize"
-            :total="filteredTemplates.length"
-            layout="prev, pager, next"
-          />
-        </div>
       </el-tab-pane>
 
       <!-- ========== My strategies ========== -->
@@ -186,7 +173,6 @@
       :param-table-data="paramTableData"
       :readme-loading="readmeLoading"
       :readme-content="readmeContent"
-      :rendered-readme="renderedReadme"
       :strip-meta="stripStrategyMeta"
       @use="useTemplate"
       @backtest="goBacktest"
@@ -250,7 +236,6 @@ import StrategyEditDialog from './strategy-components/StrategyEditDialog.vue'
 import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue'
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
-import DOMPurify from 'dompurify'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -260,8 +245,6 @@ const strategyStore = useStrategyStore()
 const activeTab = ref('gallery')
 const searchKeyword = ref('')
 const categoryFilter = ref('')
-const currentPage = ref(1)
-const pageSize = 12
 
 const dialogVisible = ref(false)
 const viewDialogVisible = ref(false)
@@ -304,10 +287,7 @@ const filteredTemplates = computed(() => {
   return list
 })
 
-const paginatedTemplates = computed(() => {
-  const start = (currentPage.value - 1) * pageSize
-  return filteredTemplates.value.slice(start, start + pageSize)
-})
+const displayedTemplates = computed(() => filteredTemplates.value)
 
 const paramTableData = computed(() => {
   if (!detailTemplate.value) return []
@@ -317,38 +297,6 @@ const paramTableData = computed(() => {
     type: spec.type ?? '-',
     description: spec.description ?? name,
   }))
-})
-
-const renderedReadme = computed(() => {
-  // Simple markdown to HTML - headings, bold, code blocks, tables, lists
-  if (!readmeContent.value) return ''
-  let md = readmeContent.value
-  // Code blocks
-  md = md.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="bg-gray-100 p-3 rounded overflow-auto text-sm"><code>$2</code></pre>')
-  // Headings
-  md = md.replace(/^#### (.+)$/gm, '<h4 class="font-bold text-base mt-4 mb-1">$1</h4>')
-  md = md.replace(/^### (.+)$/gm, '<h3 class="font-bold text-lg mt-5 mb-1">$1</h3>')
-  md = md.replace(/^## (.+)$/gm, '<h2 class="font-bold text-xl mt-6 mb-2">$1</h2>')
-  md = md.replace(/^# (.+)$/gm, '<h1 class="font-bold text-2xl mt-6 mb-3">$1</h1>')
-  // Bold
-  md = md.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  // Inline code
-  md = md.replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1 rounded text-sm">$1</code>')
-  // Tables
-  md = md.replace(/^\|(.+)\|$/gm, (match) => {
-    const cells = match.split('|').filter(Boolean).map(c => c.trim())
-    if (cells.every(c => /^[-:]+$/.test(c))) return '' // separator row
-    const tag = 'td'
-    return '<tr>' + cells.map(c => `<${tag} class="border px-2 py-1">${c}</${tag}>`).join('') + '</tr>'
-  })
-  md = md.replace(/((<tr>.*<\/tr>\s*)+)/g, '<table class="w-full border-collapse border text-sm my-2">$1</table>')
-  // Lists
-  md = md.replace(/^- (.+)$/gm, '<li class="ml-4 list-disc">$1</li>')
-  md = md.replace(/^\d+\. (.+)$/gm, '<li class="ml-4 list-decimal">$1</li>')
-  // Paragraphs
-  md = md.replace(/\n\n/g, '</p><p class="my-2">')
-  md = '<p class="my-2">' + md + '</p>'
-  return DOMPurify.sanitize(md)
 })
 
 // ---- Methods ----

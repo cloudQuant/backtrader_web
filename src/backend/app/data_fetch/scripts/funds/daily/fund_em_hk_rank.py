@@ -31,6 +31,30 @@ class FundEmHkRank(AkshareToMySql):
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Fund Em Hk Rank'
     """
 
+    @staticmethod
+    def normalize_rank_data(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame(columns=["symbol", "name", "data_date"])
+
+        required_columns = {"基金代码", "基金简称", "日期"}
+        if not required_columns.issubset(df.columns):
+            return pd.DataFrame(columns=["symbol", "name", "data_date"])
+
+        normalized = df[["基金代码", "基金简称", "日期"]].copy()
+        normalized.rename(
+            columns={
+                "基金代码": "symbol",
+                "基金简称": "name",
+                "日期": "data_date",
+            },
+            inplace=True,
+        )
+        normalized["data_date"] = pd.to_datetime(
+            normalized["data_date"], errors="coerce"
+        ).dt.date
+        normalized.dropna(subset=["symbol", "data_date"], inplace=True)
+        return normalized
+
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
 
@@ -48,14 +72,19 @@ class FundEmHkRank(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+            df = self.normalize_rank_data(df)
+            if df.empty:
+                self.logger.warning("No normalized Hong Kong fund rank data found")
+                return pd.DataFrame()
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

@@ -107,14 +107,12 @@ class FuturesContractInfoCzce(AkshareToMySql):
         try:
             # 1. Determine date range
             if end_date is None:
-                end_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                end_date = datetime.now().strftime("%Y-%m-%d")
 
             if start_date is None:
                 latest_date_in_db = self.get_latest_date(table_name, "TRADE_DATE")
                 if latest_date_in_db:
-                    start_date = (
-                        datetime.strptime(latest_date_in_db, "%Y-%m-%d") + timedelta(days=1)
-                    ).strftime("%Y-%m-%d")
+                    start_date = latest_date_in_db
                     self.logger.info(
                         f"Latest data is from {latest_date_in_db}. Starting update from {start_date}."
                     )
@@ -291,7 +289,12 @@ class FuturesContractInfoCzce(AkshareToMySql):
                     df = df[required_columns]
                     df = df.replace(np.nan, None)
                     # 4. Save to DB
-                    self.save_data(df, table_name, unique_keys=["CONTRACT_CODE", "TRADE_DATE"])
+                    self.save_data(
+                        df,
+                        table_name,
+                        on_duplicate_update=True,
+                        unique_keys=["CONTRACT_CODE", "TRADE_DATE"],
+                    )
 
                 except Exception as e:
                     self.logger.error(

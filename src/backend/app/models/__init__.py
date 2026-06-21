@@ -47,6 +47,12 @@ from app.models.portfolio_ledger import (
     PortfolioLedgerTransactionModel,
 )
 from app.models.prompt_template import PromptTemplate
+from app.models.scanner_plan import ScannerPlanModel, ScannerPlanRunModel
+from app.models.stock_analysis import (
+    StockAnalysisExportModel,
+    StockAnalysisReportModel,
+    StockAnalysisTaskModel,
+)
 from app.models.strategy import Strategy
 from app.models.strategy_explanation import StrategyExplanationModel
 from app.models.strategy_score import StrategyScoreModel
@@ -104,10 +110,15 @@ __all__ = [
     "RefreshToken",
     "Role",
     "PromptTemplate",
+    "ScannerPlanModel",
+    "ScannerPlanRunModel",
     "ScheduledTask",
     "Strategy",
     "StrategyExplanationModel",
     "StrategyScoreModel",
+    "StockAnalysisExportModel",
+    "StockAnalysisReportModel",
+    "StockAnalysisTaskModel",
     "StrategyVersion",
     "TaskExecution",
     "User",

@@ -948,14 +948,11 @@ jobs:
       - name: i18n CJK strict scan (blocking)
         run: python scripts/dev/check_i18n_coverage.py --strict --cjk-only
 
-      # Iteration 175 §4 — full strict scan (CJK + English) remains advisory.
-      # The remaining ~14k violations are scanner over-reach on legitimate
-      # English placeholders, abbreviations, and config-style strings; they
-      # are not user-visible bare strings. Promoting this to blocking would
-      # require additional scanner heuristics (see PROGRESS.md §4 "尾巴清单").
-      - name: Strict scan full (advisory; CJK + English over-reach)
-        continue-on-error: true
-        run: python scripts/dev/check_i18n_coverage.py --strict | tail -50
+      # Iteration 181 §E — full strict scan is baseline-gated instead of advisory.
+      # The remaining findings are mostly English over-reach, but new findings
+      # must not increase beyond scripts/dev/check_i18n_coverage_baseline.json.
+      - name: Strict scan full (baseline-gated; CJK + English)
+        run: python scripts/dev/check_i18n_coverage.py --strict --baseline-file scripts/dev/check_i18n_coverage_baseline.json --max-output 50
 
       - name: Install frontend dependencies
         working-directory: src/frontend

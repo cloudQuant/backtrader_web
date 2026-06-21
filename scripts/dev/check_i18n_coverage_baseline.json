@@ -1,9 +1,9 @@
 {
-  "_comment": "Iteration 176 §C complete. CJK violations: 0 (blocking gate via --strict --cjk-only). Full strict scan finds 13986 violations (English placeholder/attribute over-reach; advisory only). The CI flow has two i18n strict steps: (1) CJK-only blocking on 0 (introduced 2026-05-29); (2) full strict advisory.",
-  "baseline_violations": 13986,
+  "_comment": "Iteration 181 §E baseline-gated. CJK violations: 0 (blocking gate via --strict --cjk-only). Full strict scan remains noisy due English placeholder/attribute over-reach, but CI now blocks increases above baseline_violations.",
+  "baseline_violations": 15076,
   "baseline_cjk_violations": 0,
-  "baseline_commit": "176-c-pass-41",
-  "baseline_date": "2026-05-29",
+  "baseline_commit": "181-e-baseline-gate",
+  "baseline_date": "2026-06-16",
   "blocking_threshold": 0,
   "advisory_until_blocking": false,
   "_cjk_blocking_since": "176-c-pass-41 (2026-05-29)",
@@ -51,6 +51,7 @@
     {"commit": "176-c-pass-38", "violations": 13985, "cjk": 20, "note": "BrokerProfilesPage(6)+BacktestResultPage(6 HTML comments) -> brokerProfiles.* namespace (+13 keys, parity 2616/2616). BacktestResultPage 6 CJK comments translated in-place. Deleted dead useBacktestRuntime.spec.ts (vitest config only matches *.test.ts; file was never run, contributing 196 strict + 18 CJK after mock-add backfire). Strict -196; CJK -17."},
     {"commit": "176-c-pass-39", "violations": 13987, "cjk": 1, "note": "Long-tail final cleanup: 7 HTML comments translated (BacktestPage L3 / DashboardPage L3+L105 / PortfolioPage L3 / PerformancePanel L7+L36+L67) + 6 real-text refactors (TradingGatewaySelect / UnitRunStatusBadge / optimizationChartHelpers / kbChat store / PortfolioLedgerPage / data utils.ts) -> workspaceComp.*+optChart.*+kbChatStore.*+portfolioLedger.*+dataUtils.* namespaces (+13 keys, parity 2629/2629). Only remaining CJK is LanguageSwitcher 中文 (native-language self-label, intentional permanent residual). Strict +2; CJK -19."},
     {"commit": "176-c-pass-40", "violations": 13986, "cjk": 0, "note": "MILESTONE: CJK reaches 0. LanguageSwitcher 中文 self-label exempted with i18n-ignore-next-line + i18n-reason annotation (native-script self-label by convention; switching to t() would defeat the purpose of a language picker). Iteration 176 §C i18n cleanup goal achieved: 1188 -> 0 CJK across 22 commits (passes 17-40)."},
-    {"commit": "176-c-pass-41", "violations": 13986, "cjk": 0, "note": "GATE FLIP: Add --cjk-only flag to check_i18n_coverage.py (filters violations to kind='cjk' only); split CI step into 'i18n CJK strict scan (blocking)' + 'Strict scan full (advisory; CJK + English over-reach)'. Future PRs introducing CJK literals in template/Element-Plus prop/ElMessage* call positions will fail CI. Full-strict step retained as advisory due to 13986 English over-reach false-positives. Makefile target `make i18n-cjk` exposed for local pre-push checks."}
+    {"commit": "176-c-pass-41", "violations": 13986, "cjk": 0, "note": "GATE FLIP: Add --cjk-only flag to check_i18n_coverage.py (filters violations to kind='cjk' only); split CI step into 'i18n CJK strict scan (blocking)' + 'Strict scan full (advisory; CJK + English over-reach)'. Future PRs introducing CJK literals in template/Element-Plus prop/ElMessage* call positions will fail CI. Full-strict step retained as advisory due to 13986 English over-reach false-positives. Makefile target `make i18n-cjk` exposed for local pre-push checks."},
+    {"commit": "181-e-baseline-gate", "violations": 15076, "cjk": 0, "note": "Iteration 181 §E: convert full strict from advisory to baseline-gated. Current worktree includes stock-analysis/chat UI additions that raise English scanner over-reach; CJK remains 0. Future increases above 15076 now fail CI."}
   ]
 }

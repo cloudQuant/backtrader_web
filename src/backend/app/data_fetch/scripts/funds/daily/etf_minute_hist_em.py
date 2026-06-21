@@ -245,15 +245,15 @@ class EtfMinuteHistEm(AkshareToMySql):
             self.logger.error(f"处理 {etf_code} {period}分钟数据时发生错误: {e}")
             return pd.DataFrame()
 
-    def update_etf_minute_data(self, etf_codes=None):
+    def update_etf_minute_data(self, etf_codes=None, max_codes=None):
         """更新ETF分钟数据"""
         if not etf_codes:
             etf_codes = self.get_etf_codes()
 
         # 限制处理数量，避免过长时间运行
-        if len(etf_codes) > 50:
-            etf_codes = etf_codes[:50]
-            self.logger.info("限制处理ETF数量为50个")
+        if max_codes is not None and len(etf_codes) > max_codes:
+            etf_codes = etf_codes[:max_codes]
+            self.logger.info(f"限制处理ETF数量为{max_codes}个")
 
         success_count = 0
         total_count = len(etf_codes)
@@ -357,7 +357,7 @@ class EtfMinuteHistEm(AkshareToMySql):
 
         self.logger.info(f"ETF分钟数据更新完成，成功处理 {success_count}/{total_count} 个ETF")
 
-    def run(self):
+    def run(self, max_codes=None):
         """主运行方法"""
         try:
             # 创建表
@@ -366,7 +366,7 @@ class EtfMinuteHistEm(AkshareToMySql):
                 self.logger.info(f"创建表 {self.table_name}")
 
             # 更新数据
-            self.update_etf_minute_data()
+            self.update_etf_minute_data(max_codes=max_codes)
 
         except Exception as e:
             self.logger.error(f"ETF分钟数据更新失败: {e}")

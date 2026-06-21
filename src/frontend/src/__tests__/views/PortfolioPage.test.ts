@@ -49,29 +49,79 @@ vi.mock('@/api/portfolio', () => ({
         { strategy_id: 's1', strategy_name: 'SMA', status: 'running', assets: 60000, pnl: 10000, pnl_pct: 20 },
       ],
     }),
-    getSimulationOverview: vi.fn().mockResolvedValue({
-      total_assets: 100000, total_cash: 50000, total_position_value: 50000,
-      total_initial_capital: 80000, total_pnl: 20000, total_pnl_pct: 25,
-      strategy_count: 2, running_count: 1, strategies: [
-        { strategy_id: 's1', strategy_name: 'SMA', status: 'running', assets: 60000, pnl: 10000, pnl_pct: 20 },
+    getPositions: vi.fn().mockResolvedValue({ total: 0, positions: [] }),
+    getTrades: vi.fn().mockResolvedValue({ total: 0, trades: [] }),
+    getEquity: vi.fn().mockResolvedValue({ dates: ['2024-01-01'], total_equity: [100000], drawdown: [0], strategies: [] }),
+    getAllocation: vi.fn().mockResolvedValue({ total: 1, items: [{ name: 'BTC', value: 50000, pct: 50 }] }),
+  },
+}))
+
+vi.mock('@/api/workspace', () => ({
+  workspaceApi: {
+    list: vi.fn().mockResolvedValue({
+      total: 2,
+      items: [
+        {
+          id: 'ws-running',
+          user_id: 'u1',
+          name: 'CTA 交易工作区',
+          description: null,
+          workspace_type: 'trading',
+          settings: {},
+          trading_config: {},
+          unit_count: 2,
+          completed_count: 0,
+          status: 'running',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z',
+        },
+        {
+          id: 'ws-idle',
+          user_id: 'u1',
+          name: '暂停工作区',
+          description: null,
+          workspace_type: 'trading',
+          settings: {},
+          trading_config: {},
+          unit_count: 1,
+          completed_count: 0,
+          status: 'idle',
+          created_at: '2026-01-01T00:00:00Z',
+          updated_at: '2026-01-02T00:00:00Z',
+        },
       ],
     }),
-    getPositions: vi.fn().mockResolvedValue({ total: 1, positions: [
-      { strategy_name: 'SMA', data_name: 'BTC', direction: 'long', size: 10, price: 100, market_value: 1000 },
-    ] }),
-    getSimulationPositions: vi.fn().mockResolvedValue({ total: 1, positions: [
-      { strategy_name: 'SMA', data_name: 'BTC', direction: 'long', size: 10, price: 100, market_value: 1000 },
-    ] }),
-    getTrades: vi.fn().mockResolvedValue({ total: 1, trades: [
-      { strategy_name: 'SMA', data_name: 'BTC', direction: 'long', dtopen: '2024-01-01', dtclose: '2024-02-01', price: 100, size: 10, commission: 1, pnlcomm: 50, barlen: 30 },
-    ] }),
-    getSimulationTrades: vi.fn().mockResolvedValue({ total: 1, trades: [
-      { strategy_name: 'SMA', data_name: 'BTC', direction: 'long', dtopen: '2024-01-01', dtclose: '2024-02-01', price: 100, size: 10, commission: 1, pnlcomm: 50, barlen: 30 },
-    ] }),
-    getEquity: vi.fn().mockResolvedValue({ dates: ['2024-01-01'], total_equity: [100000], drawdown: [0], strategies: [] }),
-    getSimulationEquity: vi.fn().mockResolvedValue({ dates: ['2024-01-01'], total_equity: [100000], drawdown: [0], strategies: [] }),
-    getAllocation: vi.fn().mockResolvedValue({ total: 1, items: [{ name: 'BTC', value: 50000, pct: 50 }] }),
-    getSimulationAllocation: vi.fn().mockResolvedValue({ total: 1, items: [{ name: 'BTC', value: 50000, pct: 50 }] }),
+    getTradingPositions: vi.fn().mockResolvedValue({
+      positions: [
+        {
+          unit_id: 'unit-1',
+          unit_name: 'RB 趋势',
+          symbol: 'RB2510',
+          symbol_name: '螺纹钢',
+          trading_mode: 'live',
+          long_position: 2,
+          short_position: 0,
+          avg_price: 3500,
+          latest_price: 3600,
+          position_pnl: 200,
+          market_value: 7200,
+        },
+      ],
+      total_long_value: 7200,
+      total_short_value: 0,
+      total_pnl: 200,
+    }),
+    getTradingDailySummary: vi.fn().mockResolvedValue({
+      summaries: [
+        {
+          trading_date: '2026-06-19',
+          daily_pnl: 200,
+          trade_count: 3,
+          cumulative_pnl: 1200,
+          max_drawdown: 0.02,
+        },
+      ],
+    }),
   },
 }))
 
@@ -99,23 +149,31 @@ describe('PortfolioPage', () => {
     expect(vm.formatMoney(99.5)).toBe('99.50')
   })
 
-  it('loadData loads overview', async () => {
+  it('loadData loads dashboard and running trading workspaces', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
     expect(vm.overview.total_assets).toBe(100000)
+    expect(vm.runningWorkspaces).toHaveLength(1)
+    expect(vm.selectedWorkspaceIds).toEqual(['ws-running'])
     expect(vm.loading).toBe(false)
   })
 
-  it('loadTabData loads positions', async () => {
+  it('loadTabData loads selected workspace positions', async () => {
     const vm = doMount().vm as any
+    await vm.loadData()
     await vm.loadTabData('positions')
     expect(vm.positions.length).toBe(1)
+    expect(vm.positions[0].strategy_name).toContain('CTA 交易工作区')
+    expect(vm.positions[0].data_name).toBe('RB2510')
   })
 
-  it('loadTabData loads trades', async () => {
+  it('loadTabData loads selected workspace trading summaries as trade rows', async () => {
     const vm = doMount().vm as any
+    await vm.loadData()
     await vm.loadTabData('trades')
     expect(vm.trades.length).toBe(1)
+    expect(vm.trades[0].strategy_name).toBe('CTA 交易工作区')
+    expect(vm.trades[0].size).toBe(3)
   })
 
   it('loadTabData loads equity', async () => {
@@ -137,9 +195,9 @@ describe('PortfolioPage', () => {
     // Second call should be a no-op (already in loadedTabs set)
   })
 
-  it('activeTab defaults to strategies', () => {
+  it('activeTab defaults to workspaces', () => {
     const vm = doMount().vm as any
-    expect(vm.activeTab).toBe('strategies')
+    expect(vm.activeTab).toBe('workspaces')
   })
 
   it('renderEquityChart does nothing without equityData', () => {

@@ -1,5 +1,5 @@
 /**
- * 行情报价 API
+ * 实时数据 API
  */
 import request from './index'
 

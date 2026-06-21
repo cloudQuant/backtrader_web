@@ -5,7 +5,7 @@
  * Allows users to describe trades in natural language, review AI-parsed
  * intents, confirm or reject trades, and view execution history.
  */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -19,7 +19,12 @@ import {
   getTradingConfig,
   getTradingHistory,
 } from '@/api/aiTrading'
-import type { AITradingResponse, AITradingConfig, TradeHistoryItem } from '@/api/aiTrading'
+import type {
+  AITradingAccountOption,
+  AITradingResponse,
+  AITradingConfig,
+  TradeHistoryItem,
+} from '@/api/aiTrading'
 
 const { t } = useI18n()
 
@@ -33,24 +38,31 @@ const history = ref<TradeHistoryItem[]>([])
 const currentResponse = ref<AITradingResponse | null>(null)
 const responses = ref<AITradingResponse[]>([])
 const selectedAccountId = ref('')
-const selectedGatewayId = ref('')
 
 // Computed
 const canSend = computed(() => message.value.trim().length > 0 && !loading.value)
 const modeLabel = computed(() => dryRun.value ? t('aiTrading.modePaper') : t('aiTrading.modeLive'))
 const modeClass = computed(() => dryRun.value ? 'mode-paper' : 'mode-live')
 const availableAccounts = computed(() => config.value?.available_accounts ?? [])
-const availableGateways = computed(() => config.value?.available_gateways ?? [])
+const selectableAccounts = computed(() => {
+  if (dryRun.value) {
+    return availableAccounts.value.filter(account => account.source !== 'gateway')
+  }
+  return availableAccounts.value.filter(account => account.source === 'gateway' && account.gateway_id)
+})
+const selectedAccount = computed(() => (
+  selectableAccounts.value.find(account => account.account_id === selectedAccountId.value) ?? null
+))
 
 // Methods
 async function handleSend() {
   if (!canSend.value) return
 
-  if (dryRun.value && !selectedAccountId.value) {
+  if (!selectedAccount.value) {
     ElMessage.warning(t('aiTrading.msgPickPaperAccount'))
     return
   }
-  if (!dryRun.value && !selectedGatewayId.value) {
+  if (!dryRun.value && !selectedAccount.value.gateway_id) {
     ElMessage.warning(t('aiTrading.msgPickLiveGateway'))
     return
   }
@@ -63,8 +75,8 @@ async function handleSend() {
   try {
     const result = await executeTrade({
       message: input,
-      gateway_id: dryRun.value ? undefined : selectedGatewayId.value,
-      account_id: dryRun.value ? selectedAccountId.value : undefined,
+      gateway_id: dryRun.value ? undefined : selectedAccount.value.gateway_id ?? undefined,
+      account_id: dryRun.value ? selectedAccount.value.account_id : undefined,
       dry_run: dryRun.value,
       auto_confirm: autoConfirm.value,
     })
@@ -114,18 +126,34 @@ async function handleConfirmDialog(response: AITradingResponse) {
 async function loadConfig() {
   try {
     config.value = await getTradingConfig()
-    if (!selectedAccountId.value && config.value.available_accounts.length > 0) {
-      selectedAccountId.value = config.value.available_accounts[0].account_id
-    }
-    if (!selectedGatewayId.value) {
-      const connectedGateway = config.value.available_gateways.find(item => item.connected)
-      if (connectedGateway) {
-        selectedGatewayId.value = connectedGateway.gateway_id
-      }
-    }
+    selectDefaultAccountForMode()
   } catch {
     // Config load failure is non-critical
   }
+}
+
+function selectDefaultAccountForMode() {
+  const firstAccount = selectableAccounts.value[0]
+  selectedAccountId.value = firstAccount?.account_id ?? ''
+}
+
+function formatAccountNumber(value: number | null | undefined): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '--'
+  }
+  return value.toFixed(2)
+}
+
+function accountOptionLabel(account: AITradingAccountOption): string {
+  const parts = [account.name || account.account_id]
+  if (account.exchange_type && !parts[0].includes(account.exchange_type)) {
+    parts.push(account.exchange_type)
+  }
+  parts.push(`${t('aiTrading.accountTotalEquity')} ${formatAccountNumber(account.total_equity)}`)
+  if (account.source === 'gateway' && account.connected === false) {
+    parts.push(t('aiTrading.notConnectedSuffix').trim())
+  }
+  return parts.filter(Boolean).join(' · ')
 }
 
 async function loadHistory() {
@@ -184,6 +212,10 @@ function getActionLabel(action: string): string {
   return labels[action] || action
 }
 
+watch(dryRun, () => {
+  selectDefaultAccountForMode()
+})
+
 // Lifecycle
 onMounted(async () => {
   await Promise.all([loadConfig(), loadHistory()])
@@ -232,54 +264,30 @@ onMounted(async () => {
             <span>{{ t('aiTrading.inputHints') }}</span>
           </div>
           <div class="context-row">
-            <label
-              v-if="dryRun"
-              class="context-field"
-            >
+            <label class="context-field">
               <span>{{ t('aiTrading.fieldPaperAccount') }}</span>
               <select
                 v-model="selectedAccountId"
-                :disabled="loading || availableAccounts.length === 0"
+                :disabled="loading || selectableAccounts.length === 0"
               >
                 <option value="">
-                  {{ t('aiTrading.pickPaperAccount') }}
+                  {{ dryRun ? t('aiTrading.pickPaperAccount') : t('aiTrading.pickLiveGateway') }}
                 </option>
                 <option
-                  v-for="account in availableAccounts"
+                  v-for="account in selectableAccounts"
                   :key="account.account_id"
                   :value="account.account_id"
                 >
-                  {{ account.name }} · {{ t('aiTrading.accountTotalEquity') }} {{ account.total_equity.toFixed(2) }}
-                </option>
-              </select>
-            </label>
-            <label
-              v-else
-              class="context-field"
-            >
-              <span>{{ t('aiTrading.fieldLiveGateway') }}</span>
-              <select
-                v-model="selectedGatewayId"
-                :disabled="loading || availableGateways.length === 0"
-              >
-                <option value="">
-                  {{ t('aiTrading.pickLiveGateway') }}
-                </option>
-                <option
-                  v-for="gateway in availableGateways"
-                  :key="gateway.gateway_id"
-                  :value="gateway.gateway_id"
-                >
-                  {{ gateway.exchange_type }} · {{ gateway.account_id || gateway.gateway_id }}{{ gateway.connected ? '' : t('aiTrading.notConnectedSuffix') }}
+                  {{ accountOptionLabel(account) }}
                 </option>
               </select>
             </label>
             <span
-              v-if="dryRun && availableAccounts.length === 0"
+              v-if="dryRun && selectableAccounts.length === 0"
               class="context-hint"
             >{{ t('aiTrading.hintNoPaperAccount') }}</span>
             <span
-              v-else-if="!dryRun && availableGateways.length === 0"
+              v-else-if="!dryRun && selectableAccounts.length === 0"
               class="context-hint"
             >{{ t('aiTrading.hintNoLiveGateway') }}</span>
           </div>

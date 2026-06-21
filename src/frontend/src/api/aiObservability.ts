@@ -136,6 +136,28 @@ export interface AIModelPreferenceTestResponse {
   error?: string | null
 }
 
+export interface AIProviderConfig {
+  provider: string
+  display_name: string
+  provider_type: 'litellm' | 'openai_compatible' | string
+  base_url?: string | null
+  api_key_env?: string | null
+  api_key_configured: boolean
+  models: string[]
+  enabled: boolean
+  source: 'default' | 'override' | string
+}
+
+export interface AIProviderConfigUpdate {
+  display_name: string
+  provider_type: 'litellm' | 'openai_compatible'
+  base_url?: string | null
+  api_key?: string | null
+  api_key_env?: string | null
+  models: string[]
+  enabled: boolean
+}
+
 function cleanParams(params: AIObservabilityQuery = {}): Record<string, string | number> {
   return Object.fromEntries(
     Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')
@@ -151,6 +173,15 @@ export const aiObservabilityApi = {
   },
   getAdminSlowCalls(params: AIObservabilityQuery = {}) {
     return request.get<AISlowCallStats>('/admin/ai/slow-calls', { params: cleanParams(params) })
+  },
+  getAdminAIProviderConfigs() {
+    return request.get<{ items: AIProviderConfig[] }>('/admin/ai/provider-configs')
+  },
+  updateAdminAIProviderConfig(provider: string, payload: AIProviderConfigUpdate) {
+    return request.put<AIProviderConfig>(`/admin/ai/provider-configs/${provider}`, payload)
+  },
+  deleteAdminAIProviderConfig(provider: string) {
+    return request.delete(`/admin/ai/provider-configs/${provider}`)
   },
   getMyUsage(params: AIObservabilityQuery = {}) {
     return request.get<AIUsageStats>('/me/ai/usage', { params: cleanParams(params) })

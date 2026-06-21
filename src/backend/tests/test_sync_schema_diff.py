@@ -21,6 +21,28 @@ class TestQuoting:
         assert sd.quote_identifier("a`b") == "`a``b`"
 
 
+class TestIdentifierValidation:
+    def test_validate_mysql_identifier_accepts_expected_names(self):
+        assert sd.validate_mysql_identifier("ai_for_trader_01", "database") == "ai_for_trader_01"
+
+    def test_validate_mysql_identifier_rejects_shell_sql_metacharacters(self):
+        with pytest.raises(ValueError, match="非法 MySQL database"):
+            sd.validate_mysql_identifier("prod;DROP_TABLE", "database")
+
+    def test_sql_builders_reject_invalid_database_name(self):
+        with pytest.raises(ValueError):
+            sd.build_database_exists_sql("bad`name")
+
+    def test_metadata_parser_rejects_invalid_table_name(self):
+        payload = _summary([["TABLE", "bad;table", "BASE TABLE", "InnoDB", ""]])
+        with pytest.raises(ValueError):
+            sd.parse_schema_summary(payload)
+
+    def test_missing_where_builder_rejects_invalid_column_name(self):
+        with pytest.raises(ValueError):
+            sd.build_missing_keys_where_sql(("id;DROP",), [("1",)])
+
+
 class TestSummarySql:
     def test_database_info_sql_in_clause(self):
         sql = sd.build_database_info_sql(["a", "b"])

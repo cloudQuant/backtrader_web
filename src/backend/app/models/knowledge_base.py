@@ -134,6 +134,7 @@ class ChatMessage(Base):
     tokens_used = Column(Integer, nullable=True)
     model_id = Column(String(200), nullable=True)
     reasoning = Column(Text, nullable=True)
+    metadata_json = Column("metadata", JSON, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     conversation = relationship("ChatConversation", back_populates="messages")

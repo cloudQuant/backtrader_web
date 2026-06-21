@@ -46,15 +46,14 @@ export function getAccessToken(): string | null {
 }
 
 /**
- * Set access token in legacy localStorage.
- * Note: The primary storage is now sessionStorage via Pinia persist.
- * This is kept for backward compatibility during migration.
+ * Deprecated compatibility shim.
+ *
+ * Tokens are persisted by the auth store in sessionStorage. Do not write new
+ * credentials to legacy localStorage; keep this no-op only so older imports do
+ * not reintroduce persistent browser token storage.
  */
-export function setAccessToken(token: string): void {
-  if (!hasWindow()) {
-    return
-  }
-  window.localStorage.setItem(LEGACY_TOKEN_KEY, token)
+export function setAccessToken(_token: string): void {
+  return
 }
 
 /**

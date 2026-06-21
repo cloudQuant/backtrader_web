@@ -148,6 +148,97 @@ describe('useKBChatStore', () => {
     })
   })
 
+  it('sendMessage should keep stock analysis cards', async () => {
+    vi.mocked(kbChatApi.send).mockResolvedValue({
+      conversation_id: 'conv-stock',
+      answer: '已完成 000001.SZ 的股票分析',
+      citations: [],
+      context_chunks_used: 0,
+      tokens_used: 0,
+      model_id: null,
+      assistant_mode: 'stock_analysis',
+      stock_analysis_task: {
+        task_id: 'task-1',
+        symbol: '000001.SZ',
+        status: 'completed',
+        progress: 100,
+        current_step: 'completed',
+        message: '股票分析已完成',
+      },
+      stock_analysis_report: {
+        report_id: 'report-1',
+        symbol: '000001.SZ',
+        summary: '风险经理终审摘要',
+        decision_label: '持有',
+        risk_level: '中等',
+        confidence_score: 0.68,
+        export_formats: ['markdown', 'html', 'docx', 'pdf'],
+      },
+    } as any)
+
+    const store = useKBChatStore()
+    await store.sendMessage('kb-1', '分析 000001.SZ', {
+      assistantMode: 'stock_analysis',
+    })
+
+    expect(store.messages[1].assistantMode).toBe('stock_analysis')
+    expect(store.messages[1].stockAnalysisTask?.task_id).toBe('task-1')
+    expect(store.messages[1].stockAnalysisReport?.report_id).toBe('report-1')
+  })
+
+  it('sendMessage should pass stock analysis params', async () => {
+    vi.mocked(kbChatApi.send).mockResolvedValue({
+      conversation_id: 'conv-stock',
+      answer: '已创建股票分析任务',
+      citations: [],
+      context_chunks_used: 0,
+      tokens_used: 0,
+      model_id: null,
+      assistant_mode: 'stock_analysis',
+      stock_analysis_task: {
+        task_id: 'task-1',
+        symbol: '000001.SZ',
+        status: 'running',
+        progress: 30,
+      },
+      stock_analysis_report: null,
+    } as any)
+
+    const store = useKBChatStore()
+    await store.sendMessage('kb-1', '分析 000001.SZ', {
+      assistantMode: 'stock_analysis',
+      stockAnalysisParams: {
+        symbol: '000001.SZ',
+        market_type: 'A股',
+        analysis_date: '2026-06-15',
+        research_depth: '标准',
+        selected_modules: ['market', 'news', 'fundamentals', 'risk'],
+        include_sentiment: false,
+        include_risk: true,
+        language: 'zh-CN',
+      },
+    })
+
+    expect(kbChatApi.send).toHaveBeenCalledWith({
+      knowledge_base_id: 'kb-1',
+      question: '分析 000001.SZ',
+      conversation_id: null,
+      model_id: undefined,
+      assistant_mode: 'stock_analysis',
+      thinking_mode: undefined,
+      stock_analysis_params: {
+        symbol: '000001.SZ',
+        market_type: 'A股',
+        analysis_date: '2026-06-15',
+        research_depth: '标准',
+        selected_modules: ['market', 'news', 'fundamentals', 'risk'],
+        include_sentiment: false,
+        include_risk: true,
+        language: 'zh-CN',
+      },
+    })
+  })
+
   it('fetchHistory should populate messages and current conversation id', async () => {
     vi.mocked(kbChatApi.getHistory).mockResolvedValue({
       conversation_id: 'conv-1',
@@ -161,6 +252,8 @@ describe('useKBChatStore', () => {
           tokens_used: null,
           model_id: null,
           reasoning: null,
+          stock_analysis_task: null,
+          stock_analysis_report: null,
           created_at: '2026-04-23T00:00:00Z',
         },
         {
@@ -172,6 +265,20 @@ describe('useKBChatStore', () => {
           tokens_used: 8,
           model_id: null,
           reasoning: null,
+          stock_analysis_task: {
+            task_id: 'task-1',
+            symbol: '000001.SZ',
+            status: 'completed',
+            progress: 100,
+          },
+          stock_analysis_report: {
+            report_id: 'report-1',
+            symbol: '000001.SZ',
+            summary: '历史股票分析',
+            decision_label: '持有',
+            risk_level: '中等',
+            export_formats: ['markdown', 'html', 'docx', 'pdf'],
+          },
           created_at: '2026-04-23T00:00:01Z',
         },
       ],
@@ -183,6 +290,7 @@ describe('useKBChatStore', () => {
     expect(store.currentConversationId).toBe('conv-1')
     expect(store.messages).toHaveLength(2)
     expect(store.messages[1].content).toBe('历史回答')
+    expect(store.messages[1].stockAnalysisReport?.report_id).toBe('report-1')
   })
 
   it('fetchHistory should tolerate missing messages array', async () => {

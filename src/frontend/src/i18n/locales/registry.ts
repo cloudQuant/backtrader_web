@@ -38,7 +38,7 @@ export interface LocaleEntry {
 }
 
 /** Default locale and fallback. */
-export const DEFAULT_LOCALE: LocaleCode = 'en-US'
+export const DEFAULT_LOCALE: LocaleCode = 'zh-CN'
 
 /**
  * Single source of truth for supported locales. Registration order is also the

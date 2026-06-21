@@ -10,10 +10,16 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.common.scalar_result import normalize_scalar_result
+
+
+PREFER_LOCAL_SCRIPT = True
 
 
 class NlpAnswer(AkshareToMySql):
     """Nlp Answer"""
+
+    normalize_scalar_result = staticmethod(normalize_scalar_result)
 
     def __init__(self, db_config=DB_CONFIG, logger=None):
         super().__init__(db_config, logger)
@@ -41,17 +47,13 @@ class NlpAnswer(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("nlp_answer", **kwargs)
+            source_symbol = str(kwargs.get("question", kwargs.get("symbol", "人工智能")))
+            result = self.fetch_ak_data("nlp_answer", **kwargs)
+            df = self.normalize_scalar_result(result, source_symbol=source_symbol)
 
             if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
-
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)

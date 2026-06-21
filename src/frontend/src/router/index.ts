@@ -26,6 +26,15 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/DashboardPage.vue'),
       },
       {
+        path: 'investment',
+        redirect: { name: 'InvestmentStockAnalysis' },
+      },
+      {
+        path: 'investment/stock-analysis',
+        name: 'InvestmentStockAnalysis',
+        component: () => import('@/views/investment/StockAnalysisPage.vue'),
+      },
+      {
         path: 'research',
         redirect: { name: 'ResearchWorkspaces' },
       },
@@ -95,6 +104,89 @@ const routes: RouteRecordRaw[] = [
         path: 'ai/prompt-governance',
         name: 'PromptTemplatesCanonical',
         component: () => import('@/views/PromptTemplatesPage.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'config',
+        redirect: { name: 'ConfigDataScripts' },
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'config/data',
+        component: () => import('@/views/config/ConfigDataLayout.vue'),
+        meta: { requiresAdmin: true },
+        children: [
+          {
+            path: '',
+            redirect: { name: 'ConfigDataScripts' },
+          },
+          {
+            path: 'scripts',
+            name: 'ConfigDataScripts',
+            component: () => import('@/views/data/DataScriptsPage.vue'),
+          },
+          {
+            path: 'scripts/:id',
+            name: 'ConfigDataScriptDetail',
+            component: () => import('@/views/data/DataScriptDetailPage.vue'),
+          },
+          {
+            path: 'tasks',
+            name: 'ConfigDataTasks',
+            component: () => import('@/views/data/DataTasksPage.vue'),
+          },
+          {
+            path: 'executions',
+            name: 'ConfigDataExecutions',
+            component: () => import('@/views/data/DataExecutionsPage.vue'),
+          },
+          {
+            path: 'tables',
+            name: 'ConfigDataTablesLegacy',
+            redirect: { name: 'DataTables' },
+          },
+          {
+            path: 'tables/:id',
+            name: 'ConfigDataTableDetailLegacy',
+            redirect: to => ({ name: 'DataTableDetail', params: { id: String(to.params.id ?? '') } }),
+          },
+          {
+            path: 'sync',
+            name: 'ConfigDataSync',
+            component: () => import('@/views/data/DataSyncPage.vue'),
+          },
+          {
+            path: 'interfaces',
+            name: 'ConfigDataInterfaces',
+            component: () => import('@/views/data/DataInterfacesPage.vue'),
+          },
+          {
+            path: 'governance',
+            name: 'ConfigDataGovernance',
+            component: () => import('@/views/data/DataGovernancePage.vue'),
+          },
+          {
+            path: 'airflow',
+            name: 'ConfigDataAirflow',
+            component: () => import('@/views/data/AirflowDagsPage.vue'),
+          },
+        ],
+      },
+      {
+        path: 'config/ai',
+        redirect: { name: 'ConfigAIProviders' },
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'config/ai/providers',
+        name: 'ConfigAIProviders',
+        component: () => import('@/views/config/AIProviderConfigPage.vue'),
+        meta: { requiresAdmin: true },
+      },
+      {
+        path: 'config/gateways',
+        name: 'ConfigGateways',
+        component: () => import('@/views/GatewayStatusPage.vue'),
         meta: { requiresAdmin: true },
       },
       {
@@ -187,8 +279,7 @@ const routes: RouteRecordRaw[] = [
           },
           {
             path: 'intelligence/options',
-            name: 'DataOptionsChain',
-            component: () => import('@/views/OptionsChainPage.vue'),
+            redirect: { name: 'DataMarket', query: { tab: 'options' } },
           },
           {
             path: 'intelligence/scanners',
@@ -198,22 +289,22 @@ const routes: RouteRecordRaw[] = [
           {
             path: 'scripts',
             name: 'DataScripts',
-            component: () => import('@/views/data/DataScriptsPage.vue'),
+            redirect: { name: 'ConfigDataScripts' },
           },
           {
             path: 'scripts/:id',
             name: 'DataScriptDetail',
-            component: () => import('@/views/data/DataScriptDetailPage.vue'),
+            redirect: to => ({ name: 'ConfigDataScriptDetail', params: { id: String(to.params.id ?? '') } }),
           },
           {
             path: 'tasks',
             name: 'DataTasks',
-            component: () => import('@/views/data/DataTasksPage.vue'),
+            redirect: { name: 'ConfigDataTasks' },
           },
           {
             path: 'executions',
             name: 'DataExecutions',
-            component: () => import('@/views/data/DataExecutionsPage.vue'),
+            redirect: { name: 'ConfigDataExecutions' },
           },
           {
             path: 'tables',
@@ -233,25 +324,25 @@ const routes: RouteRecordRaw[] = [
           {
             path: 'sync',
             name: 'DataSync',
-            component: () => import('@/views/data/DataSyncPage.vue'),
+            redirect: { name: 'ConfigDataSync' },
             meta: { requiresAdmin: true },
           },
           {
             path: 'interfaces',
             name: 'DataInterfaces',
-            component: () => import('@/views/data/DataInterfacesPage.vue'),
+            redirect: { name: 'ConfigDataInterfaces' },
             meta: { requiresAdmin: true },
           },
           {
             path: 'governance',
             name: 'DataGovernance',
-            component: () => import('@/views/data/DataGovernancePage.vue'),
+            redirect: { name: 'ConfigDataGovernance' },
             meta: { requiresAdmin: true },
           },
           {
             path: 'airflow',
             name: 'DataAirflow',
-            component: () => import('@/views/data/AirflowDagsPage.vue'),
+            redirect: { name: 'ConfigDataAirflow' },
             meta: { requiresAdmin: true },
           },
         ],
@@ -274,8 +365,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'gateways',
-        name: 'Gateways',
-        component: () => import('@/views/GatewayStatusPage.vue'),
+        redirect: { name: 'ConfigGateways' },
       },
       {
         path: 'quote',
@@ -308,13 +398,11 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'trading/brokers',
-        name: 'TradingBrokerProfiles',
-        component: () => import('@/views/BrokerProfilesPage.vue'),
+        redirect: { name: 'TradingWorkspaceList' },
       },
       {
         path: 'trading/gateways',
-        name: 'TradingGateways',
-        component: () => import('@/views/GatewayStatusPage.vue'),
+        redirect: { name: 'ConfigGateways' },
       },
       {
         path: 'trading/ai',
@@ -339,18 +427,15 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'brokers',
-        name: 'BrokerProfiles',
-        component: () => import('@/views/BrokerProfilesPage.vue'),
+        redirect: { name: 'TradingWorkspaceList' },
       },
       {
         path: 'portfolio-ledger',
-        name: 'PortfolioLedger',
-        component: () => import('@/views/PortfolioLedgerPage.vue'),
+        redirect: { name: 'PortfolioOverview' },
       },
       {
         path: 'portfolio/ledger',
-        name: 'PortfolioLedgerCanonical',
-        component: () => import('@/views/PortfolioLedgerPage.vue'),
+        redirect: { name: 'PortfolioOverview' },
       },
       {
         path: 'equity-research',
@@ -364,8 +449,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'options-chain',
-        name: 'OptionsChain',
-        component: () => import('@/views/OptionsChainPage.vue'),
+        redirect: { name: 'DataMarket', query: { tab: 'options' } },
       },
       {
         path: 'scanners',

@@ -33,6 +33,7 @@ export const assistantModeOptions: ComputedRef<Array<{ value: KBAssistantMode; l
   { value: 'backtrader_strategy', label: t('aiChat.modeBacktraderStrategy') },
   { value: 'strategy_review', label: t('aiChat.modeStrategyReview') },
   { value: 'trading_execution', label: t('aiChat.modeTradingExecution') },
+  { value: 'stock_analysis', label: t('aiChat.modeStockAnalysis') },
 ])
 
 // Reactive computed map — locale changes update labels automatically.
@@ -196,6 +197,38 @@ export const assistantModeMetaMap: ComputedRef<Record<KBAssistantMode, Assistant
         title: t('aiChat.tradeToolCloseTitle'),
         description: t('aiChat.tradeToolCloseDesc'),
         prompt: t('aiChat.tradeToolClosePrompt'),
+      },
+    ],
+  },
+  stock_analysis: {
+    label: t('aiChat.modeStockAnalysis'),
+    emptyTitle: t('aiChat.stockEmptyTitle'),
+    emptyDescription: t('aiChat.stockEmptyDesc'),
+    inputHint: t('aiChat.stockInputHint'),
+    inputPlaceholder: t('aiChat.stockInputPh'),
+    suggestedPrompts: [
+      t('aiChat.stockPrompt1'),
+      t('aiChat.stockPrompt2'),
+      t('aiChat.stockPrompt3'),
+    ],
+    quickTools: [
+      {
+        icon: 'stock',
+        title: t('aiChat.stockToolSingleTitle'),
+        description: t('aiChat.stockToolSingleDesc'),
+        prompt: t('aiChat.stockToolSinglePrompt'),
+      },
+      {
+        icon: 'risk',
+        title: t('aiChat.stockToolRiskTitle'),
+        description: t('aiChat.stockToolRiskDesc'),
+        prompt: t('aiChat.stockToolRiskPrompt'),
+      },
+      {
+        icon: 'summary',
+        title: t('aiChat.stockToolReportTitle'),
+        description: t('aiChat.stockToolReportDesc'),
+        prompt: t('aiChat.stockToolReportPrompt'),
       },
     ],
   },

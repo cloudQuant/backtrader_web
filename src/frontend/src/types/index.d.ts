@@ -430,6 +430,8 @@ export interface DataTableSchemaResponse {
   columns: DataTableSchemaColumn[]
   row_count: number
   last_update_time: string | null
+  data_available?: boolean
+  error?: string | null
 }
 
 export interface DataTableRowsResponse {
@@ -439,6 +441,8 @@ export interface DataTableRowsResponse {
   page: number
   page_size: number
   total: number
+  data_available?: boolean
+  error?: string | null
 }
 
 export interface InterfaceCategory {

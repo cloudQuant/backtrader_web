@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -36,7 +36,7 @@ class FuturesDeliveryShfe(AkshareToMySql):
                                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上海期货交易所交割统计';
                                 """
 
-    def run(self, start_month: str = None, end_month: str = None):
+    def run(self, start_month: str = None, end_month: str = None, sleep_seconds=0):
         """
         更新上海商品交易所交割统计数据
         Args:
@@ -48,9 +48,10 @@ class FuturesDeliveryShfe(AkshareToMySql):
             self.create_table(self.create_table_sql)
 
         self.logger.info("正在获取上海商品交易所交割统计数据")
-        table_name = "FUTURES_DELIVERY_DCE"
+        table_name = self.table_name
 
         try:
+            sleep_seconds = float(sleep_seconds or 0)
             if end_month is None:
                 end_month = self.get_previous_month()
 
@@ -85,7 +86,8 @@ class FuturesDeliveryShfe(AkshareToMySql):
                             )
                         else:
                             current_month = current_month.replace(month=current_month.month + 1)
-                        time.sleep(1)
+                        if sleep_seconds > 0:
+                            time.sleep(sleep_seconds)
                         continue
                     # print(df)
                     # print(df.columns)
@@ -112,12 +114,43 @@ class FuturesDeliveryShfe(AkshareToMySql):
                     df["YOY_PERCENT"] = pd.to_numeric(df["YOY_PERCENT"], errors="coerce")
 
                     df["TRADE_MONTH"] = month_str
+                    month_start = datetime.strptime(month_str, "%Y%m")
+                    previous_month_end = month_start.replace(day=1) - timedelta(days=1)
+                    df["STAT_START_DATE"] = previous_month_end.replace(day=16).date()
+                    df["STAT_END_DATE"] = month_start.replace(day=15).date()
+                    df["R_ID"] = [self.get_uuid() for _ in range(len(df))]
+                    df["REFERENCE_CODE"] = "SHFE_DELIVERY"
+                    df["REFERENCE_NAME"] = "上海期货交易所交割统计"
+                    df["CREATEDATE"] = self.get_current_datetime()
+                    df["CREATEUSER"] = "system"
+                    df["UPDATEDATE"] = self.get_current_datetime()
+                    df["UPDATEUSER"] = "system"
 
+                    columns = [
+                        "R_ID",
+                        "REFERENCE_CODE",
+                        "REFERENCE_NAME",
+                        "PRODUCT_NAME",
+                        "DELIVERY_VOLUME",
+                        "DELIVERY_PERCENT",
+                        "YTD_DELIVERY_VOLUME",
+                        "YOY_PERCENT",
+                        "TRADE_MONTH",
+                        "STAT_START_DATE",
+                        "STAT_END_DATE",
+                        "CREATEDATE",
+                        "CREATEUSER",
+                        "UPDATEDATE",
+                        "UPDATEUSER",
+                    ]
+                    for col in columns:
+                        if col not in df.columns:
+                            df[col] = None
+
+                    self.delete_data(table_name, {"TRADE_MONTH": month_str})
                     self.save_data(
-                        df,
+                        df[columns],
                         table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["CONTRACT_CODE", "TRADE_MONTH"],
                     )
                     success_count += 1
                     self.logger.info(
@@ -136,7 +169,8 @@ class FuturesDeliveryShfe(AkshareToMySql):
                     current_month = current_month.replace(year=current_month.year + 1, month=1)
                 else:
                     current_month = current_month.replace(month=current_month.month + 1)
-                time.sleep(1)
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
 
             if success_count > 0:
                 self.logger.info(f"成功更新 {success_count} 个月份的上海商品交易所交割统计数据")

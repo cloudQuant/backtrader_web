@@ -147,11 +147,11 @@ def acquire_gateway_for_instance(
             runtime.start_in_thread()
         except (KeyError, TypeError, OSError, RuntimeError) as exc:
             logger.warning(
-                "Gateway runtime failed to start for {}, falling back to direct mode: {}",
+                "Gateway runtime failed to start for {}: {}",
                 instance_id,
                 exc,
             )
-            return None
+            raise
         state = {
             "config": launch["config"],
             "runtime": runtime,
@@ -162,6 +162,14 @@ def acquire_gateway_for_instance(
             "exchange_type": launch["runtime_kwargs"].get("exchange_type", ""),
             "asset_type": launch["runtime_kwargs"].get("asset_type", ""),
             "account_id": launch["runtime_kwargs"].get("account_id", ""),
+            "selected_ctp_env": launch["runtime_kwargs"].get("selected_ctp_env", ""),
+            "td_front": launch["runtime_kwargs"].get("td_front")
+            or launch["runtime_kwargs"].get("td_address", ""),
+            "md_front": launch["runtime_kwargs"].get("md_front")
+            or launch["runtime_kwargs"].get("md_address", ""),
+            "selection_reason": launch["runtime_kwargs"].get("selection_reason", ""),
+            "auth_state": launch["runtime_kwargs"].get("auth_state", "unknown"),
+            "login_state": launch["runtime_kwargs"].get("login_state", "unknown"),
             "session_key": session_key,
         }
         gateways[key] = state

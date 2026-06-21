@@ -9,6 +9,7 @@ export type KBAssistantMode =
   | 'backtrader_strategy'
   | 'strategy_review'
   | 'trading_execution'
+  | 'stock_analysis'
 
 export type KBReasonCode =
   | 'no_context_found'
@@ -67,6 +68,37 @@ export interface KBConversation {
   updated_at: string
 }
 
+export interface KBStockAnalysisParams {
+  symbol: string
+  market_type?: string
+  analysis_date?: string
+  research_depth?: string
+  selected_modules?: string[]
+  include_sentiment?: boolean
+  include_risk?: boolean
+  language?: string
+  model_id?: string
+}
+
+export interface KBStockAnalysisTask {
+  task_id: string
+  symbol: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress: number
+  current_step?: string | null
+  message?: string | null
+}
+
+export interface KBStockAnalysisReport {
+  report_id: string
+  symbol: string
+  summary: string
+  decision_label: string
+  risk_level: string
+  confidence_score?: number | null
+  export_formats: Array<'markdown' | 'html' | 'docx' | 'pdf'>
+}
+
 export interface KBConversationListResponse {
   total: number
   items: KBConversation[]
@@ -107,6 +139,8 @@ export interface KBHistoryMessage {
   reason_code?: KBReasonCode | null
   diagnostic_message?: string | null
   diagnostics?: KBRetrievalDiagnostics | null
+  stock_analysis_task?: KBStockAnalysisTask | null
+  stock_analysis_report?: KBStockAnalysisReport | null
   created_at: string
 }
 
@@ -124,6 +158,8 @@ export interface KBAskResponse {
   model_id?: string | null
   assistant_mode?: KBAssistantMode
   strategy_draft?: KBStrategyDraft | null
+  stock_analysis_task?: KBStockAnalysisTask | null
+  stock_analysis_report?: KBStockAnalysisReport | null
   reasoning?: string | null
   reason_code?: KBReasonCode | null
   diagnostic_message?: string | null
@@ -149,15 +185,20 @@ export const kbChatApi = {
     model_id?: string
     assistant_mode?: KBAssistantMode
     thinking_mode?: boolean
+    stock_analysis_params?: KBStockAnalysisParams
   }) {
-    return api.post<KBAskResponse>('/kb-chat/send', {
+    const payload: Record<string, unknown> = {
       knowledge_base_id: data.knowledge_base_id,
       question: data.question,
       conversation_id: data.conversation_id,
       model_id: data.model_id,
       assistant_mode: data.assistant_mode,
       thinking_mode: data.thinking_mode,
-    }, {
+    }
+    if (data.stock_analysis_params) {
+      payload.stock_analysis_params = data.stock_analysis_params
+    }
+    return api.post<KBAskResponse>('/kb-chat/send', payload, {
       timeout: KB_CHAT_SEND_TIMEOUT_MS,
     })
   },

@@ -245,15 +245,15 @@ class LofMinuteHistEm(AkshareToMySql):
             self.logger.error(f"处理 {lof_code} {period}分钟数据时发生错误: {e}")
             return pd.DataFrame()
 
-    def update_lof_minute_data(self, lof_codes=None):
+    def update_lof_minute_data(self, lof_codes=None, max_codes=None):
         """更新LOF分钟数据"""
         if not lof_codes:
             lof_codes = self.get_lof_codes()
 
         # 限制处理数量，避免过长时间运行
-        if len(lof_codes) > 50:
-            lof_codes = lof_codes[:50]
-            self.logger.info("限制处理LOF数量为50个")
+        if max_codes is not None and len(lof_codes) > int(max_codes):
+            lof_codes = lof_codes[: int(max_codes)]
+            self.logger.info(f"限制处理LOF数量为{int(max_codes)}个")
 
         success_count = 0
         total_count = len(lof_codes)
@@ -357,7 +357,7 @@ class LofMinuteHistEm(AkshareToMySql):
 
         self.logger.info(f"LOF分钟数据更新完成，成功处理 {success_count}/{total_count} 个LOF")
 
-    def run(self):
+    def run(self, max_codes=None):
         """主运行方法"""
         try:
             # 创建表
@@ -366,7 +366,7 @@ class LofMinuteHistEm(AkshareToMySql):
                 self.logger.info(f"创建表 {self.table_name}")
 
             # 更新数据
-            self.update_lof_minute_data()
+            self.update_lof_minute_data(max_codes=max_codes)
 
         except Exception as e:
             self.logger.error(f"LOF分钟数据更新失败: {e}")

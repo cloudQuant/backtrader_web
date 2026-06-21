@@ -8,6 +8,7 @@ import pytest
 import yaml
 
 from app.services import workspace_unit_runtime
+from app.services.strategy import runtime_support as runtime_support_module
 from app.services.strategy.runtime_support import (
     _FLAT_LOG_FILENAMES,
     find_latest_log_dir,
@@ -110,6 +111,10 @@ class TestLoadStrategyConfig:
 
 class TestLoadStrategyEnv:
     """Tests for load_strategy_env function."""
+
+    def test_default_project_root_points_to_repository_root(self):
+        assert runtime_support_module._PROJECT_ROOT.name == "backtrader_web"
+        assert (runtime_support_module._PROJECT_ROOT / "scripts" / "diagnostics").is_dir()
 
     def test_returns_empty_dict_when_no_env_file(self, tmp_path: Path):
         """Test returns empty dict when no .env file exists."""

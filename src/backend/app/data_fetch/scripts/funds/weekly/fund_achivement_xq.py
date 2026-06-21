@@ -4,6 +4,11 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.funds.weekly._fund_codes import (
+    DEFAULT_FUND_CODE_LIMIT,
+    get_codes_from_table,
+    normalize_fund_codes,
+)
 
 
 class FundAchievementXq(AkshareToMySql):
@@ -201,7 +206,12 @@ class FundAchievementXq(AkshareToMySql):
             self.logger.error(f"获取已存在数据ID失败: {e}")
             return set()
 
-    def run(self, fund_code: str = None):
+    def run(
+        self,
+        fund_code: str = None,
+        fund_codes=None,
+        limit: int = DEFAULT_FUND_CODE_LIMIT,
+    ):
         """
         执行数据获取和保存
 
@@ -218,31 +228,36 @@ class FundAchievementXq(AkshareToMySql):
             # 创建表（如果不存在）
             self.create_table_if_not_exists()
 
-            # 获取数据
-            df = self.fetch_achievement_data(fund_code)
-
-            if df is None or df.empty:
-                self.logger.error(f"未获取到有效的基金业绩数据，基金代码: {fund_code}")
+            codes = normalize_fund_codes(fund_code=fund_code, fund_codes=fund_codes)
+            if not codes:
+                codes = get_codes_from_table(self, "OPEN_FUND_DAILY_EM", "FUND_CODE", limit)
+            if not codes:
+                self.logger.error("未获取到默认基金代码")
                 return False
 
-            # 处理数据
-            processed_df = self.process_achievement_data(df)
+            total_success = True
+            total_count = 0
+            for code in codes:
+                df = self.fetch_achievement_data(code)
+                if df is None or df.empty:
+                    continue
 
-            if processed_df is None or processed_df.empty:
-                self.logger.error(f"处理基金业绩数据失败，基金代码: {fund_code}")
-                return False
+                processed_df = self.process_achievement_data(df)
+                if processed_df is None or processed_df.empty:
+                    self.logger.error(f"处理基金业绩数据失败，基金代码: {code}")
+                    total_success = False
+                    continue
 
-            # 保存数据
-            success = self.save_achievement_data(processed_df)
+                success = self.save_achievement_data(processed_df)
+                if success:
+                    total_count += len(processed_df)
+                    self.logger.info(f"成功保存{len(processed_df)}条基金业绩数据，基金代码: {code}")
+                else:
+                    total_success = False
+                    self.logger.error(f"保存基金业绩数据失败，基金代码: {code}")
 
-            if success:
-                self.logger.info(
-                    f"成功保存{len(processed_df)}条基金业绩数据，基金代码: {fund_code}"
-                )
-            else:
-                self.logger.error(f"保存基金业绩数据失败，基金代码: {fund_code}")
-
-            return success
+            self.logger.info(f"基金业绩数据更新完成，共处理{total_count}条数据")
+            return total_success and total_count > 0
 
         except Exception as e:
             self.logger.error(f"执行失败，基金代码: {fund_code}, 错误: {e}", exc_info=True)

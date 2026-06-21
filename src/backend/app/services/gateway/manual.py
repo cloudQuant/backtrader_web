@@ -12,11 +12,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from app.services.gateway import net_probe
+from app.services.gateway import manual_ctp_proxy, manual_ports, net_probe
 from app.services.gateway.launch_builder import (
     build_gateway_session_key,
     build_gateway_session_key_from_runtime_kwargs,
     normalize_gateway_asset_type,
+    resolve_ctp_front_selection,
     resolve_gateway_transport,
 )
 
@@ -26,52 +27,13 @@ _ib_clientportal_process: subprocess.Popen | None = None
 
 
 def _kill_process_on_port(port: int) -> None:
-    """Kill any process holding *port* so ZMQ can rebind on retry.
-
-    Uses psutil when available, falls back to lsof (macOS/Linux).
-    """
-    try:
-        import psutil
-
-        for conn in psutil.net_connections(kind="tcp"):
-            status = str(getattr(conn, "status", "") or "").upper()
-            laddr = conn.laddr
-            laddr_port = getattr(laddr, "port", None)
-            if laddr_port == port and conn.pid and status == "LISTEN":
-                try:
-                    proc = psutil.Process(conn.pid)
-                    if proc.pid != os.getpid():
-                        proc.kill()
-                        _logger.warning("Killed process PID=%d holding port %d", proc.pid, port)
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    pass
-        return
-    except ImportError:
-        pass
-    except Exception:
-        _logger.debug("psutil-based port release failed for port %d", port, exc_info=True)
-    # Fallback: lsof (macOS / Linux)
-    try:
-        result = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for pid_str in result.stdout.splitlines():
-            pid_str = pid_str.strip()
-            if pid_str and pid_str.isdigit():
-                pid = int(pid_str)
-                if pid != os.getpid():
-                    try:
-                        os.kill(pid, 9)
-                        _logger.warning(
-                            "Killed process PID=%d holding port %d (via lsof)", pid, port
-                        )
-                    except (OSError, ProcessLookupError):
-                        pass
-    except Exception:
-        _logger.debug("lsof-based port release failed for port %d", port, exc_info=True)
+    return manual_ports.kill_process_on_port(
+        port,
+        current_pid=os.getpid,
+        run_command=subprocess.run,
+        kill_pid=os.kill,
+        logger=_logger,
+    )
 
 
 # ZMQ bind-error parsing helpers live in ``gateway/net_probe.py`` (179 §B,
@@ -167,20 +129,8 @@ def _start_runtime_with_retry(
     raise last_exc or RuntimeError("Failed to start gateway runtime")
 
 
-# ---------------------------------------------------------------------------
-# Proxy auto-detection for exchange gateways (Binance / OKX / MT5)
-# ---------------------------------------------------------------------------
-# The .env file may contain HTTPS_PROXY / HTTP_PROXY pointing to a local
-# proxy (e.g. Clash, V2Ray).  If that proxy is not running, ALL network
-# libraries (httpx, websocket-client, requests …) that honour these env vars
-# will fail with WinError 10061 "Connection refused".
-#
-# Strategy:
-#   1. On first gateway connect, TCP-probe the proxy host:port.
-#   2. Proxy alive  → keep env vars, return proxy URL for explicit use.
-#   3. Proxy dead   → **remove** env vars from os.environ so every library
-#      in this process falls back to direct connections automatically.
-# ---------------------------------------------------------------------------
+# Exchange gateway proxy auto-detection keeps dead local proxy env vars from
+# poisoning downstream HTTP/WebSocket clients.
 
 _PROXY_ENV_KEYS = (
     "HTTPS_PROXY",
@@ -555,6 +505,25 @@ def _normalize_manual_gateway_credentials(
     return dict(credentials)
 
 
+def _resolve_manual_ctp_env_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
+    resolved = dict(credentials)
+    selection = resolve_ctp_front_selection(
+        gateway_params=resolved,
+        env_data=_load_backend_gateway_env_values(),
+        front=None,
+    )
+    if selection.get("td_front"):
+        resolved["td_front"] = selection["td_front"]
+    if selection.get("md_front"):
+        resolved["md_front"] = selection["md_front"]
+    resolved["selected_ctp_env"] = selection.get("selected_ctp_env", "")
+    resolved["selection_reason"] = selection.get("selection_reason", "")
+    resolved["ctp_env_selected_at"] = selection.get("selected_at", "")
+    resolved["requested_ctp_env"] = selection.get("requested_ctp_env", "")
+    resolved["set1_group"] = selection.get("set1_group", resolved.get("set1_group", ""))
+    return resolved
+
+
 def _pick_explicit_or_setting(
     explicit_value: Any,
     settings: Any,
@@ -647,13 +616,7 @@ def _load_ib_web_session_state(
 
 
 def _parse_base_url_endpoint(base_url: str) -> tuple[str, int]:
-    parsed = urlparse(base_url or "https://localhost:5000")
-    host = (parsed.hostname or "localhost").lower()
-    if parsed.port is not None:
-        return host, parsed.port
-    if parsed.scheme == "http":
-        return host, 80
-    return host, 443
+    return manual_ports.parse_base_url_endpoint(base_url)
 
 
 def _should_manage_ib_clientportal(base_url: str) -> bool:
@@ -662,20 +625,23 @@ def _should_manage_ib_clientportal(base_url: str) -> bool:
 
 
 def _is_tcp_endpoint_reachable(host: str, port: int, timeout: float = 1.0) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
+    return manual_ports.is_tcp_endpoint_reachable(
+        host,
+        port,
+        timeout=timeout,
+        create_connection=socket.create_connection,
+    )
 
 
 def _wait_for_tcp_endpoint(host: str, port: int, timeout_sec: float) -> bool:
-    deadline = time.monotonic() + max(timeout_sec, 0.0)
-    while time.monotonic() < deadline:
-        if _is_tcp_endpoint_reachable(host, port, timeout=0.5):
-            return True
-        time.sleep(0.5)
-    return _is_tcp_endpoint_reachable(host, port, timeout=0.5)
+    return manual_ports.wait_for_tcp_endpoint(
+        host,
+        port,
+        timeout_sec,
+        is_reachable=_is_tcp_endpoint_reachable,
+        monotonic=time.monotonic,
+        sleep=time.sleep,
+    )
 
 
 def _resolve_ib_web_base_url(
@@ -1005,395 +971,102 @@ def _resolve_ctp_front_pair(td_front: str, md_front: str, logger: Any) -> tuple[
 
 
 def _count_utun_interfaces() -> int | None:
-    """Count active ``utun*`` interfaces, preferring psutil over ``ifconfig``.
-
-    Returns the utun count, or ``None`` if neither psutil nor ``ifconfig`` could
-    be used (caller treats ``None`` as "cannot determine"). 179 §B slice 4:
-    avoids shelling out to ``ifconfig`` when psutil is available so the probe
-    works in minimal containers without the BSD net-tools binary.
-    """
-    try:
-        import psutil
-
-        return sum(1 for name in psutil.net_if_addrs() if name.startswith("utun"))
-    except ImportError:
-        pass
-    except Exception:
-        _logger.debug("psutil-based utun interface count failed", exc_info=True)
-    # Fallback: parse ``ifconfig`` output (macOS / Linux net-tools).
-    try:
-        ifconfig = subprocess.run(
-            ["ifconfig"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return ifconfig.stdout.count("utun")
-    except Exception:
-        _logger.debug("ifconfig-based utun interface count failed", exc_info=True)
-        return None
+    return manual_ctp_proxy.count_utun_interfaces(
+        run_command=subprocess.run,
+        logger=_logger,
+    )
 
 
 def _is_macos_tun_proxy_active() -> bool:
-    """Detect if macOS has an active TUN transparent proxy (Clash/Surge/V2Ray etc.)."""
-    if sys.platform != "darwin":
-        return False
-    try:
-        utun_count = _count_utun_interfaces()
-        if utun_count is None or utun_count < 5:
-            return False
-        scutil = subprocess.run(
-            ["scutil", "--proxy"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return "HTTPEnable : 1" in scutil.stdout or "SOCKSEnable : 1" in scutil.stdout
-    except Exception:
-        return False
+    return manual_ctp_proxy.is_macos_tun_proxy_active(
+        platform=sys.platform,
+        count_interfaces=_count_utun_interfaces,
+        run_command=subprocess.run,
+    )
 
 
 def _get_macos_default_gateway() -> tuple[str, str] | tuple[None, None]:
-    """Return (gateway_ip, interface) for the default route on macOS."""
-    try:
-        result = subprocess.run(
-            ["route", "-n", "get", "default"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        gateway = interface = None
-        for line in result.stdout.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("gateway:"):
-                gateway = stripped.split(":", 1)[1].strip()
-            elif stripped.startswith("interface:"):
-                interface = stripped.split(":", 1)[1].strip()
-        if gateway is not None and interface is not None:
-            return gateway, interface
-        return None, None
-    except Exception:
-        return None, None
+    return manual_ctp_proxy.get_macos_default_gateway(run_command=subprocess.run)
 
 
 def _check_route_goes_through_tun(ip: str) -> bool:
-    """Check if a specific IP is routed through a TUN interface (proxy)."""
-    try:
-        result = subprocess.run(
-            ["route", "-n", "get", ip],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for line in result.stdout.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("interface:"):
-                iface = stripped.split(":", 1)[1].strip()
-                return iface.startswith("utun")
-    except Exception:
-        _logger.debug("Route lookup for %s failed; assuming no TUN route", ip, exc_info=True)
-    return False
+    return manual_ctp_proxy.check_route_goes_through_tun(
+        ip,
+        run_command=subprocess.run,
+        logger=_logger,
+    )
 
 
 def _has_host_route(ip: str, expected_iface: str) -> bool:
-    """Check if a host-specific route already exists for *ip* through *expected_iface*."""
-    try:
-        r = subprocess.run(
-            ["route", "-n", "get", ip],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        iface = None
-        is_host = False
-        for line in r.stdout.splitlines():
-            s = line.strip()
-            if s.startswith("interface:"):
-                iface = s.split(":", 1)[1].strip()
-            if s.startswith("destination:") and ip in s:
-                is_host = True
-        return is_host and iface == expected_iface
-    except Exception:
-        return False
+    return manual_ctp_proxy.has_host_route(
+        ip,
+        expected_iface,
+        run_command=subprocess.run,
+    )
 
 
 def _add_direct_route_for_ip(ip: str, gateway: str, interface: str, logger: Any) -> bool:
-    """Add a host route so *ip* bypasses TUN and goes through the physical gateway.
-
-    Tries in order:
-      1. Check if a matching host route already exists
-      2. ``sudo -n`` (no password prompt, works if user recently used sudo)
-      3. ``osascript`` to prompt admin password via macOS GUI dialog
-      4. Plain ``route add`` (usually fails without root)
-
-    Returns True if the route is confirmed usable.
-    """
-    if _has_host_route(ip, interface):
-        logger.debug("Host route for %s via %s already exists", ip, interface)
-        return True
-
-    strategies = [
-        ["sudo", "-n", "route", "-n", "add", "-host", ip, gateway],
-        [
-            "osascript",
-            "-e",
-            f'do shell script "route -n add -host {ip} {gateway}" with administrator privileges',
-        ],
-        ["route", "-n", "add", "-host", ip, gateway],
-    ]
-    for cmd in strategies:
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            output = (r.stdout or "") + (r.stderr or "")
-            if r.returncode == 0 or "already in table" in output.lower():
-                logger.info("Added direct route for %s via %s", ip, gateway)
-                return True
-        except Exception:
-            continue
-    return False
+    return manual_ctp_proxy.add_direct_route_for_ip(
+        ip,
+        gateway,
+        interface,
+        logger,
+        has_route=_has_host_route,
+        run_command=subprocess.run,
+    )
 
 
 def _extract_ips_from_fronts(*fronts: str) -> list[str]:
-    """Extract unique IP addresses from CTP front address strings like tcp://1.2.3.4:1234."""
-    return net_probe.extract_ips_from_fronts(*fronts)
+    return manual_ctp_proxy.extract_ips_from_fronts(*fronts)
 
 
 def _add_ips_to_proxy_bypass_file(ips: list[str], logger: Any) -> bool:
-    """Add IPs to proxy app's user-defined direct/local bypass list.
-
-    Supports ViewTurbo (user_local.txt) and similar proxy apps.
-    Returns True if any IPs were successfully added.
-    """
-    home = os.path.expanduser("~")
-    bypass_files = [
-        os.path.join(home, "Library", "Application Support", "ViewTurbo", "user_local.txt"),
-        os.path.join(home, "Library", "Application Support", "Clash Verge", "user_local.txt"),
-    ]
-
-    for fpath in bypass_files:
-        if not os.path.isfile(fpath):
-            continue
-        try:
-            existing = set()
-            with open(fpath, encoding="utf-8") as fh:
-                for line in fh:
-                    stripped = line.strip()
-                    if stripped:
-                        existing.add(stripped)
-
-            to_add = [ip for ip in ips if ip not in existing]
-            if not to_add:
-                logger.debug("CTP IPs already in %s", fpath)
-                return True
-
-            with open(fpath, "a", encoding="utf-8") as fh:
-                for ip in to_add:
-                    fh.write(f"{ip}\n")
-            logger.info("已将CTP服务器IP写入代理直连列表 %s: %s", fpath, to_add)
-            return True
-        except Exception as exc:
-            logger.debug("Failed to update %s: %s", fpath, exc)
-    return False
+    return manual_ctp_proxy.add_ips_to_proxy_bypass_file(ips, logger)
 
 
 def _find_clash_external_controller() -> tuple[str, str] | tuple[None, None]:
-    """Find Clash external controller (host:port) and secret from config files.
-
-    Searches common Clash Verge / Clash Meta / mihomo config locations.
-    Returns (base_url, secret) or (None, None).
-    """
-    home = os.path.expanduser("~")
-    config_dirs = [
-        os.path.join(home, ".config", "clash"),
-        os.path.join(home, ".config", "mihomo"),
-    ]
-    app_support = os.path.join(home, "Library", "Application Support")
-    try:
-        for entry in os.listdir(app_support):
-            if "clash" in entry.lower() or "mihomo" in entry.lower():
-                config_dirs.append(os.path.join(app_support, entry))
-    except OSError:
-        pass
-
-    for d in config_dirs:
-        for fname in ("config.yaml", "verge.yaml", "clash.yaml"):
-            fpath = os.path.join(d, fname)
-            if not os.path.isfile(fpath):
-                continue
-            try:
-                with open(fpath, encoding="utf-8") as fh:
-                    content = fh.read(16384)
-                port = secret = None
-                for line in content.splitlines():
-                    stripped = line.strip()
-                    if stripped.startswith("external-controller:"):
-                        port = stripped.split(":", 2)[-1].strip().strip("'\"")
-                    elif stripped.startswith("secret:"):
-                        secret = stripped.split(":", 1)[1].strip().strip("'\"")
-                if port:
-                    host_port = port if ":" in port else f"127.0.0.1:{port}"
-                    return f"http://{host_port}", secret or ""
-            except Exception:
-                continue
-
-    for probe_port in (9090, 9097, 19090):
-        try:
-            import urllib.request
-
-            req = urllib.request.Request(
-                f"http://127.0.0.1:{probe_port}/version",
-                headers={"User-Agent": "ai-for-trader"},
-            )
-            resp = urllib.request.urlopen(req, timeout=2)
-            if resp.status == 200:
-                return f"http://127.0.0.1:{probe_port}", ""
-        except Exception:
-            continue
-    return None, None
+    return manual_ctp_proxy.find_clash_external_controller()
 
 
 def _clash_api_add_direct_rules(ips: list[str], logger: Any) -> bool:
-    """Try to add DIRECT rules for IPs via Clash external controller API."""
-    base_url, secret = _find_clash_external_controller()
-    if not base_url:
-        return False
-
-    import json as _json
-    import urllib.request
-
-    headers = {"Content-Type": "application/json", "User-Agent": "ai-for-trader"}
-    if secret:
-        headers["Authorization"] = f"Bearer {secret}"
-
-    for ip in ips:
-        payload = _json.dumps({"payload": f"IP-CIDR,{ip}/32,DIRECT,no-resolve"}).encode()
-        try:
-            req = urllib.request.Request(
-                f"{base_url}/rules/prepend",
-                data=payload,
-                headers=headers,
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=3)
-            logger.info("Clash API: added DIRECT rule for %s", ip)
-        except Exception:
-            try:
-                req = urllib.request.Request(
-                    f"{base_url}/rules",
-                    data=_json.dumps(
-                        {
-                            "prepend": [f"IP-CIDR,{ip}/32,DIRECT,no-resolve"],
-                        }
-                    ).encode(),
-                    headers=headers,
-                    method="PATCH",
-                )
-                urllib.request.urlopen(req, timeout=3)
-                logger.info("Clash API (PATCH): added DIRECT rule for %s", ip)
-            except Exception as exc:
-                logger.debug("Clash API rule add failed for %s: %s", ip, exc)
-                return False
-    return True
+    return manual_ctp_proxy.clash_api_add_direct_rules(
+        ips,
+        logger,
+        find_controller=_find_clash_external_controller,
+    )
 
 
 def _ensure_ctp_direct_routes(td_front: str, md_front: str, logger: Any) -> None:
-    """If a TUN proxy is active, bypass it for CTP server IPs.
-
-    CTP uses native C++ TCP sockets which get intercepted by transparent proxies
-    (Clash TUN / Surge Enhanced Mode / V2Ray tun2socks). The proxy cannot parse
-    the CTP binary protocol and drops connections.
-
-    Strategy (tried in order):
-      1. Clash external controller API — add DIRECT rules
-      2. Explicit host routes via ``route add`` (needs sudo)
-      3. Log manual instructions as fallback
-    """
-    if not _is_macos_tun_proxy_active():
-        return
-
-    ips = _extract_ips_from_fronts(td_front, md_front)
-    if not ips:
-        return
-
-    logger.info("检测到TUN代理(Clash/Surge/ViewTurbo等)，尝试为CTP服务器IP绕过代理: %s", ips)
-
-    if _add_ips_to_proxy_bypass_file(ips, logger):
-        logger.info("已将CTP IP写入代理直连列表（可能需要重启代理软件生效）")
-
-    if _clash_api_add_direct_rules(ips, logger):
-        logger.info("已通过Clash API为CTP添加DIRECT规则")
-        return
-
-    gateway, interface = _get_macos_default_gateway()
-    if not gateway:
-        logger.warning(
-            "检测到TUN代理拦截CTP流量，但无法获取默认网关。请手动运行: %s",
-            " && ".join(f"sudo route add -host {ip} <网关IP>" for ip in ips),
-        )
-        return
-
-    logger.info("Clash API不可用，尝试添加直连路由: %s -> %s (%s)", ips, gateway, interface)
-    failed_ips: list[str] = []
-    for ip in ips:
-        if not _add_direct_route_for_ip(ip, gateway, interface or "en0", logger):
-            failed_ips.append(ip)
-
-    if failed_ips:
-        cmds = " && ".join(f"sudo route add -host {ip} {gateway}" for ip in failed_ips)
-        logger.warning(
-            "无法自动添加CTP直连路由(需要sudo权限)。请手动执行: %s",
-            cmds,
-        )
+    return manual_ctp_proxy.ensure_ctp_direct_routes(
+        td_front,
+        md_front,
+        logger,
+        is_tun_proxy_active=_is_macos_tun_proxy_active,
+        extract_ips=_extract_ips_from_fronts,
+        add_bypass_file=_add_ips_to_proxy_bypass_file,
+        add_clash_rules=_clash_api_add_direct_rules,
+        get_default_gateway=_get_macos_default_gateway,
+        add_direct_route=_add_direct_route_for_ip,
+    )
 
 
 def _maybe_tunnel_ctp_fronts(td_front: str, md_front: str, logger: Any) -> tuple[str, str]:
-    """If a system HTTP proxy is active, create HTTP CONNECT tunnels for CTP fronts.
-
-    CTP uses native C++ TCP sockets that get intercepted by transparent proxies
-    which can't parse CTP's binary protocol. By tunneling through HTTP CONNECT,
-    the proxy establishes a transparent byte pipe that CTP can use normally.
-
-    Returns (td_front, md_front) — possibly rewritten to ``tcp://127.0.0.1:<port>``.
-    """
     from app.services.ctp_tunnel import ensure_tunnel, is_proxy_tunnel_needed
 
-    if not is_proxy_tunnel_needed():
-        return td_front, md_front
-
-    logger.info("检测到系统HTTP代理，创建HTTP CONNECT隧道以绕过CTP流量拦截")
-
-    def _rewrite(front: str) -> str:
-        host, port = _parse_tcp_front_endpoint(front)
-        if not host or not port:
-            return front
-        try:
-            local_port = ensure_tunnel(host, port)
-            rewritten = f"tcp://127.0.0.1:{local_port}"
-            logger.info(
-                "CTP隧道: %s -> CONNECT %s:%d via proxy -> %s",
-                rewritten,
-                host,
-                port,
-                front,
-            )
-            return rewritten
-        except Exception as exc:
-            logger.warning("创建CTP隧道失败(%s:%d): %s, 使用原始地址", host, port, exc)
-            return front
-
-    return _rewrite(td_front), _rewrite(md_front)
+    return manual_ctp_proxy.maybe_tunnel_ctp_fronts(
+        td_front,
+        md_front,
+        logger,
+        parse_front=_parse_tcp_front_endpoint,
+        ensure_tunnel=ensure_tunnel,
+        is_proxy_tunnel_needed=is_proxy_tunnel_needed,
+    )
 
 
 def _detect_system_tun_proxy() -> str | None:
-    """Return a user-facing hint if TUN proxy is active, else None."""
-    if _is_macos_tun_proxy_active():
-        return (
-            "检测到系统代理(Clash/Surge/ViewTurbo等)可能拦截了CTP的TCP流量。"
-            "CTP使用原生TCP连接，透明代理无法解析其二进制协议。"
-            "系统已自动通过HTTP CONNECT隧道转发CTP流量。"
-            "如仍无法连接，请检查代理软件是否允许CONNECT方法。"
-        )
-    return None
+    return manual_ctp_proxy.detect_system_tun_proxy(
+        is_tun_proxy_active=_is_macos_tun_proxy_active,
+    )
 
 
 def _format_ctp_connect_error(exc: Exception) -> str:
@@ -1470,6 +1143,8 @@ def connect_gateway(
 
     exchange_type = normalize_exchange_type(exchange_type)
     credentials = _normalize_manual_gateway_credentials(exchange_type, dict(credentials))
+    if exchange_type == "CTP":
+        credentials = _resolve_manual_ctp_env_credentials(credentials)
     account_id = _resolve_manual_account_id(exchange_type, credentials)
     asset_type = normalize_gateway_asset_type(exchange_type, credentials.get("asset_type"))
     session_key = _build_manual_gateway_session_key(exchange_type, credentials)
@@ -1598,6 +1273,11 @@ def connect_ctp_gateway(
             "auth_code": credentials.get("auth_code", "0000000000000000"),
             "startup_timeout_sec": startup_timeout_sec,
             "gateway_startup_timeout_sec": startup_timeout_sec,
+            "selected_ctp_env": credentials.get("selected_ctp_env", ""),
+            "selection_reason": credentials.get("selection_reason", ""),
+            "ctp_env_selected_at": credentials.get("ctp_env_selected_at", ""),
+            "requested_ctp_env": credentials.get("requested_ctp_env", ""),
+            "set1_group": credentials.get("set1_group", ""),
         }
         ready_timeout = max(startup_timeout_sec * 3.0 + 4.0, 8.0)
 
@@ -1606,6 +1286,8 @@ def connect_ctp_gateway(
             attempt_kwargs = dict(base_kwargs)
             attempt_kwargs["td_address"] = td_front
             attempt_kwargs["md_address"] = md_front
+            attempt_kwargs["td_front"] = td_front
+            attempt_kwargs["md_front"] = md_front
             config, runtime = _start_runtime_with_retry(
                 gateway_config_cls,
                 gateway_runtime_cls,
@@ -1653,6 +1335,12 @@ def connect_ctp_gateway(
             "exchange_type": "CTP",
             "asset_type": kwargs["asset_type"],
             "account_id": kwargs["account_id"],
+            "selected_ctp_env": kwargs.get("selected_ctp_env", ""),
+            "td_front": kwargs.get("td_front") or kwargs.get("td_address", ""),
+            "md_front": kwargs.get("md_front") or kwargs.get("md_address", ""),
+            "selection_reason": kwargs.get("selection_reason", ""),
+            "auth_state": kwargs.get("auth_state", "unknown"),
+            "login_state": kwargs.get("login_state", "unknown"),
             "session_key": build_gateway_session_key_from_runtime_kwargs(kwargs),
         }
         return {

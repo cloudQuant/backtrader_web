@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import pandas as pd
 
@@ -112,8 +112,18 @@ class EtfFundHistEm(AkshareToMySql):
             if end_date is None:
                 end_date = datetime.now().strftime("%Y%m%d")
             if start_date is None:
-                ten_years_ago = (datetime.now() - timedelta(days=365 * 10)).strftime("%Y%m%d")
-                start_date = ten_years_ago
+                existing_dates = self._get_existing_dates(fund_code)
+                if existing_dates:
+                    latest_date = pd.to_datetime(max(existing_dates)).date()
+                    start_date = latest_date.strftime("%Y%m%d")
+                else:
+                    start_date = "20000101"
+
+            if datetime.strptime(start_date, "%Y%m%d") > datetime.strptime(
+                end_date, "%Y%m%d"
+            ):
+                self.logger.info(f"ETF基金[{fund_code}]历史数据已是最新")
+                return pd.DataFrame()
 
             # 获取数据
             df = self.fetch_ak_data(
@@ -246,7 +256,7 @@ class EtfFundHistEm(AkshareToMySql):
             self.logger.error(f"获取已存在数据日期失败: {e}")
             return set()
 
-    def run(self, fund_codes=None, start_date=None, end_date=None):
+    def run(self, fund_codes=None, start_date=None, end_date=None, max_codes=None):
         """
         执行数据获取和保存
 
@@ -271,6 +281,9 @@ class EtfFundHistEm(AkshareToMySql):
                 if not fund_codes:
                     self.logger.error("未获取到ETF基金代码")
                     return False
+            if max_codes is not None and len(fund_codes) > int(max_codes):
+                fund_codes = fund_codes[: int(max_codes)]
+                self.logger.info(f"限制处理ETF基金数量为{int(max_codes)}个")
 
             total_success = True
             total_count = 0

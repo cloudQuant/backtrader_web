@@ -44,9 +44,13 @@ export interface AITradingGatewayOption {
 export interface AITradingAccountOption {
   account_id: string
   name: string
-  total_equity: number
-  current_cash: number
+  total_equity?: number | null
+  current_cash?: number | null
   is_active: boolean
+  source?: 'paper' | 'gateway' | string
+  gateway_id?: string | null
+  exchange_type?: string | null
+  connected?: boolean
 }
 
 export interface AITradingResponse {

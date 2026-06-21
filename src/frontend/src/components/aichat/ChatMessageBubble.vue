@@ -32,6 +32,12 @@
           >
             {{ getStrategyDraftIssue(message.strategyDraft) ? t('aiChat.draftPending') : t('aiChat.canSaveAsStrategy') }}
           </span>
+          <span
+            v-if="message.role === 'assistant' && displayStockReport"
+            class="message-badge success"
+          >
+            {{ t('aiChat.stockAnalysisReport') }}
+          </span>
         </div>
         <el-button
           circle
@@ -102,6 +108,22 @@
         @copy-code="emit('copyCode')"
       />
 
+      <StockAnalysisTaskCard
+        v-if="message.role === 'assistant' && displayStockTask"
+        :key="displayStockTask.task_id"
+        :task="displayStockTask"
+        @task-updated="handleStockTaskUpdated"
+        @result-loaded="handleStockResultLoaded"
+      />
+
+      <StockAnalysisReportCard
+        v-if="message.role === 'assistant' && displayStockReport"
+        :report="displayStockReport"
+        :knowledge-base-id="knowledgeBaseId"
+        @continue-strategy-idea="prompt => emit('continueStrategyIdea', prompt)"
+        @continue-backtrader-strategy="prompt => emit('continueBacktraderStrategy', prompt)"
+      />
+
       <section
         v-if="message.role === 'assistant' && message.reasoning"
         class="reasoning-box"
@@ -122,11 +144,14 @@
 </template>
 
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
 import { CopyDocument, Cpu, UserFilled } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 
 import type { DraftWorkspaceExecutionState } from '@/composables/useStrategyDraftWorkspaceExecution'
 import type { KBChatMessage } from '@/stores/kbChat'
+import type { KBStockAnalysisReport, KBStockAnalysisTask } from '@/api/kbChat'
+import type { StockAnalysisTask } from '@/api/stockAnalysis'
 import {
   getDiagnosticTitle,
   getStrategyDraftIssue,
@@ -134,10 +159,12 @@ import {
 } from '@/composables/useAIChatRendering'
 import CitationList from './CitationList.vue'
 import StrategyDraftCard from './StrategyDraftCard.vue'
+import StockAnalysisReportCard from './StockAnalysisReportCard.vue'
+import StockAnalysisTaskCard from './StockAnalysisTaskCard.vue'
 
 const { t } = useI18n()
 
-defineProps<{
+const props = defineProps<{
   message: KBChatMessage
   saving: boolean
   saved: boolean
@@ -146,7 +173,50 @@ defineProps<{
   refreshingStatus: boolean
   generatingReport: boolean
   execution?: DraftWorkspaceExecutionState
+  knowledgeBaseId?: string | null
 }>()
+
+type DisplayStockTask = KBStockAnalysisTask & { error_message?: string | null }
+
+const localStockTask = ref<DisplayStockTask | null>(props.message.stockAnalysisTask ?? null)
+const localStockReport = ref<KBStockAnalysisReport | null>(props.message.stockAnalysisReport ?? null)
+
+const displayStockTask = computed<DisplayStockTask | null>(() => localStockTask.value)
+const displayStockReport = computed<KBStockAnalysisReport | null>(() => localStockReport.value)
+
+watch(
+  () => props.message.stockAnalysisTask,
+  (task) => {
+    localStockTask.value = task ?? null
+  },
+)
+
+watch(
+  () => props.message.stockAnalysisReport,
+  (report) => {
+    localStockReport.value = report ?? null
+  },
+)
+
+function normalizeStockTask(task: StockAnalysisTask): DisplayStockTask {
+  return {
+    task_id: task.task_id,
+    symbol: task.symbol,
+    status: task.status,
+    progress: task.progress,
+    current_step: task.current_step,
+    message: task.message,
+    error_message: task.error_message,
+  }
+}
+
+function handleStockTaskUpdated(task: StockAnalysisTask) {
+  localStockTask.value = normalizeStockTask(task)
+}
+
+function handleStockResultLoaded(report: KBStockAnalysisReport) {
+  localStockReport.value = report
+}
 
 const emit = defineEmits<{
   copyMessage: [content: string]
@@ -157,6 +227,8 @@ const emit = defineEmits<{
   generateReport: []
   copyCode: []
   jumpCitation: [documentId?: string | null]
+  continueStrategyIdea: [prompt: string]
+  continueBacktraderStrategy: [prompt: string]
 }>()
 </script>
 

@@ -19,7 +19,7 @@ from app.services.strategy.inference import infer_category
 
 logger = logging.getLogger(__name__)
 
-STRATEGIES_DIR = Path(__file__).resolve().parents[4] / "strategies"
+STRATEGIES_DIR = Path(__file__).resolve().parents[5] / "strategies"
 
 
 def get_strategy_dir(strategy_id: str) -> Path:

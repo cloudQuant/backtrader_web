@@ -16,6 +16,8 @@ vi.mock('@/views/StrategyPage.vue', () => ({ default: { template: '<div>Strategy
 vi.mock('@/views/DataPage.vue', () => ({ default: { template: '<div>Data</div>' } }))
 vi.mock('@/views/QuotePage.vue', () => ({ default: { template: '<div>Quote</div>' } }))
 vi.mock('@/views/data/DataLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
+vi.mock('@/views/config/ConfigDataLayout.vue', () => ({ default: { template: '<div><router-view /></div>' } }))
+vi.mock('@/views/config/AIProviderConfigPage.vue', () => ({ default: { template: '<div>AI Provider Config</div>' } }))
 vi.mock('@/views/data/DataMarketPage.vue', () => ({ default: { template: '<div>Data Market</div>' } }))
 vi.mock('@/views/data/DataScriptsPage.vue', () => ({ default: { template: '<div>Data Scripts</div>' } }))
 vi.mock('@/views/data/DataScriptDetailPage.vue', () => ({ default: { template: '<div>Data Script Detail</div>' } }))
@@ -26,6 +28,7 @@ vi.mock('@/views/data/DataTableDetailPage.vue', () => ({ default: { template: '<
 vi.mock('@/views/data/DataTopicsPage.vue', () => ({ default: { template: '<div>Data Topics</div>' } }))
 vi.mock('@/views/data/DataInterfacesPage.vue', () => ({ default: { template: '<div>Data Interfaces</div>' } }))
 vi.mock('@/views/data/DataGovernancePage.vue', () => ({ default: { template: '<div>Data Governance</div>' } }))
+vi.mock('@/views/data/AirflowDagsPage.vue', () => ({ default: { template: '<div>Airflow DAGs</div>' } }))
 vi.mock('@/views/PortfolioPage.vue', () => ({ default: { template: '<div>Portfolio</div>' } }))
 vi.mock('@/views/BrokerProfilesPage.vue', () => ({ default: { template: '<div>Broker Profiles</div>' } }))
 vi.mock('@/views/PortfolioLedgerPage.vue', () => ({ default: { template: '<div>Portfolio Ledger</div>' } }))
@@ -38,6 +41,7 @@ vi.mock('@/views/NewsIntelligencePage.vue', () => ({ default: { template: '<div>
 vi.mock('@/views/OptionsChainPage.vue', () => ({ default: { template: '<div>Options Chain</div>' } }))
 vi.mock('@/views/ScannerPage.vue', () => ({ default: { template: '<div>Scanner</div>' } }))
 vi.mock('@/views/QuantToolsPage.vue', () => ({ default: { template: '<div>Quant Tools</div>' } }))
+vi.mock('@/views/investment/StockAnalysisPage.vue', () => ({ default: { template: '<div>Stock Analysis</div>' } }))
 vi.mock('@/views/SettingsPage.vue', () => ({ default: { template: '<div>Settings</div>' } }))
 vi.mock('@/views/AIChatPage.vue', () => ({ default: { template: '<div>AI Chat</div>' } }))
 vi.mock('@/views/AIObservabilityPage.vue', () => ({ default: { template: '<div>AI Observability</div>' } }))
@@ -76,18 +80,16 @@ describe('router', () => {
     expect(names).toContain('Strategy')
     expect(names).toContain('Settings')
     expect(names).toContain('Portfolio')
-    expect(names).toContain('BrokerProfiles')
-    expect(names).toContain('PortfolioLedger')
     expect(names).toContain('EquityResearch')
     expect(names).toContain('NewsIntelligence')
-    expect(names).toContain('OptionsChain')
     expect(names).toContain('Scanners')
     expect(names).toContain('QuantTools')
     expect(names).toContain('TradingWorkspaceList')
     expect(names).toContain('TradingWorkspaceDetail')
     expect(names).toContain('Data')
     expect(names).toContain('DataTopics')
-    expect(names).toContain('DataGovernance')
+    expect(names).toContain('ConfigDataGovernance')
+    expect(names).toContain('ConfigAIProviders')
     expect(names).toContain('AIChat')
     expect(names).toContain('AIChatCanonical')
     expect(names).toContain('AIObservability')
@@ -100,10 +102,16 @@ describe('router', () => {
     expect(names).toContain('ResearchStrategies')
     expect(names).toContain('ResearchWorkspaces')
     expect(names).toContain('ResearchBacktestResult')
+    expect(names).toContain('InvestmentStockAnalysis')
     expect(names).toContain('DataQuote')
-    expect(names).toContain('TradingBrokerProfiles')
+    expect(names).toContain('ConfigGateways')
     expect(names).toContain('PortfolioOverview')
-    expect(names).toContain('PortfolioLedgerCanonical')
+    expect(names).not.toContain('BrokerProfiles')
+    expect(names).not.toContain('TradingBrokerProfiles')
+    expect(names).not.toContain('PortfolioLedger')
+    expect(names).not.toContain('PortfolioLedgerCanonical')
+    expect(names).not.toContain('OptionsChain')
+    expect(names).not.toContain('DataOptionsChain')
   })
 
   it('guard redirects unauthenticated user to Login', async () => {
@@ -155,11 +163,11 @@ describe('router', () => {
     expect(router.currentRoute.value.name).toBe('Settings')
   })
 
-  it('guard allows authenticated user on /brokers', async () => {
+  it('redirects removed /brokers entry to trading workspaces', async () => {
     mockAuthStore(true)
     await router.push('/brokers')
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('BrokerProfiles')
+    expect(router.currentRoute.value.name).toBe('TradingWorkspaceList')
   })
 
   it('guard allows authenticated user on /ai-chat', async () => {
@@ -190,11 +198,66 @@ describe('router', () => {
     expect(router.currentRoute.value.name).toBe('DataQuote')
   })
 
-  it('guard allows authenticated user on canonical /trading/brokers', async () => {
+  it('guard allows authenticated user on canonical /investment/stock-analysis', async () => {
+    mockAuthStore(true)
+    await router.push('/investment/stock-analysis')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('InvestmentStockAnalysis')
+  })
+
+  it('serves data tables from market data for non-admin users', async () => {
+    mockAuthStore(true, false)
+    await router.push('/data/tables')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataTables')
+
+    await router.push('/data/tables/1292')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataTableDetail')
+    expect(router.currentRoute.value.params.id).toBe('1292')
+  })
+
+  it('redirects old config data table routes to market data', async () => {
+    mockAuthStore(true, true)
+    await router.push('/config/data/tables')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataTables')
+    expect(router.currentRoute.value.path).toBe('/data/tables')
+
+    await router.push('/config/data/tables/1292')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataTableDetail')
+    expect(router.currentRoute.value.path).toBe('/data/tables/1292')
+  })
+
+  it('redirects removed canonical /trading/brokers entry to trading workspaces', async () => {
     mockAuthStore(true)
     await router.push('/trading/brokers')
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('TradingBrokerProfiles')
+    expect(router.currentRoute.value.name).toBe('TradingWorkspaceList')
+  })
+
+  it('moves gateway management into config center', async () => {
+    mockAuthStore(true, true)
+    await router.push('/trading/gateways')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('ConfigGateways')
+    expect(router.currentRoute.value.path).toBe('/config/gateways')
+  })
+
+  it('redirects removed portfolio ledger entry to portfolio overview', async () => {
+    mockAuthStore(true)
+    await router.push('/portfolio/ledger')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('PortfolioOverview')
+  })
+
+  it('moves options chain into data query options tab', async () => {
+    mockAuthStore(true)
+    await router.push('/data/intelligence/options')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('DataMarket')
+    expect(router.currentRoute.value.query.tab).toBe('options')
   })
 
   it('guard allows authenticated user on canonical /ai/chat', async () => {
@@ -230,7 +293,7 @@ describe('router', () => {
     mockAuthStore(true, true)
     await router.push('/data/interfaces')
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('DataInterfaces')
+    expect(router.currentRoute.value.name).toBe('ConfigDataInterfaces')
   })
 
   it('guard redirects non-admin user away from /data/governance', async () => {
@@ -244,7 +307,7 @@ describe('router', () => {
     mockAuthStore(true, true)
     await router.push('/data/governance')
     await router.isReady()
-    expect(router.currentRoute.value.name).toBe('DataGovernance')
+    expect(router.currentRoute.value.name).toBe('ConfigDataGovernance')
   })
 
   it('guard allows authenticated user to access /data/topics', async () => {

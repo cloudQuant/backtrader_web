@@ -36,6 +36,7 @@ export default buildLocale({
   nav: {
     dashboard: 'Панель',
     home: 'Главная',
+    investmentResearch: 'Инвестиционный анализ',
     aiChat: 'ИИ-ассистент',
     aiCost: 'Затраты ИИ',
     promptGovernance: 'Управление промптами',
@@ -53,6 +54,7 @@ export default buildLocale({
     portfolioLedger: 'Журнал портфеля',
     equityResearch: 'Анализ акций',
     newsIntelligence: 'Новостная аналитика',
+    stockAnalysis: 'Анализ акции',
     optionsChain: 'Цепочка опционов',
     scanners: 'Сканеры',
     quantTools: 'Quant-инструменты',

@@ -306,6 +306,7 @@ def _ensure_knowledge_base_schema_compatibility_sync(bind) -> None:
         _add_column_if_missing(bind, "chat_messages", "tokens_used", "tokens_used INTEGER")
         _add_column_if_missing(bind, "chat_messages", "model_id", "model_id VARCHAR(200)")
         _add_column_if_missing(bind, "chat_messages", "reasoning", "reasoning TEXT")
+        _add_column_if_missing(bind, "chat_messages", "metadata", f"metadata {json_type}")
         _add_column_if_missing(bind, "chat_messages", "created_at", f"created_at {datetime_type}")
 
     _modify_mysql_column_type_if_needed(
@@ -426,6 +427,51 @@ def _ensure_news_intelligence_schema_compatibility_sync(bind) -> None:
         table.create(bind=bind, checkfirst=True)
 
 
+def _ensure_stock_analysis_schema_compatibility_sync(bind) -> None:
+    from app.models.stock_analysis import (
+        StockAnalysisExportModel,
+        StockAnalysisReportModel,
+        StockAnalysisTaskModel,
+    )
+
+    for table in (
+        StockAnalysisTaskModel.__table__,
+        StockAnalysisReportModel.__table__,
+        StockAnalysisExportModel.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+
+def _ensure_scanner_plan_schema_compatibility_sync(bind) -> None:
+    from app.models.scanner_plan import ScannerPlanModel, ScannerPlanRunModel
+
+    for table in (
+        ScannerPlanModel.__table__,
+        ScannerPlanRunModel.__table__,
+    ):
+        table.create(bind=bind, checkfirst=True)
+
+    if _has_table(bind, "scanner_plans"):
+        _add_column_if_missing(
+            bind,
+            "scanner_plans",
+            "result_table_name",
+            "result_table_name VARCHAR(120)",
+        )
+        _add_column_if_missing(
+            bind,
+            "scanner_plans",
+            "result_table_status",
+            "result_table_status VARCHAR(20) DEFAULT 'missing' NOT NULL",
+        )
+        _ensure_index_if_missing(
+            bind,
+            "scanner_plans",
+            "ix_scanner_plans_result_table_name",
+            "result_table_name",
+        )
+
+
 async def ensure_schema_compatibility() -> None:
     """Patch legacy databases with columns required by the current ORM schema."""
     async with engine.begin() as conn:
@@ -437,6 +483,8 @@ async def ensure_schema_compatibility() -> None:
         await conn.run_sync(_ensure_broker_profiles_schema_compatibility_sync)
         await conn.run_sync(_ensure_portfolio_ledger_schema_compatibility_sync)
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
+        await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
+        await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
 
 
 async def create_tables() -> None:
@@ -453,6 +501,8 @@ async def create_tables() -> None:
         await conn.run_sync(_ensure_broker_profiles_schema_compatibility_sync)
         await conn.run_sync(_ensure_portfolio_ledger_schema_compatibility_sync)
         await conn.run_sync(_ensure_news_intelligence_schema_compatibility_sync)
+        await conn.run_sync(_ensure_stock_analysis_schema_compatibility_sync)
+        await conn.run_sync(_ensure_scanner_plan_schema_compatibility_sync)
 
 
 async def init_db():

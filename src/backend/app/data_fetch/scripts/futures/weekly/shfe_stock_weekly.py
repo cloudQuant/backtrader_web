@@ -40,12 +40,13 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
 
                                 """
 
-    def run(self, start_date=None, end_date=None):
+    def run(self, start_date=None, end_date=None, sleep_seconds=0.5):
         """
         更新上海期货交易所库存周报数据。
 
         :param start_date: 开始日期，格式为'YYYY-MM-DD'，如果为None则从数据库最新日期或最早可用日期开始
         :param end_date: 结束日期，格式为'YYYY-MM-DD'，如果为None则为当前日期前一天
+        :param sleep_seconds: 请求间隔秒数
         """
         # 如果当前表不存在，创建一个新的表
         if not self.table_exists(self.table_name):
@@ -79,17 +80,15 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
         try:
             # 1. Date Handling
             if end_date is None:
-                end_date = self.get_previous_date()
+                end_date = self.get_current_date()
 
             if start_date is None:
                 latest_date_in_db = self.get_latest_date(table_name, "REPORT_DATE")
                 if latest_date_in_db:
-                    start_date = (
-                        datetime.strptime(latest_date_in_db, "%Y-%m-%d") + timedelta(days=1)
-                    ).strftime("%Y-%m-%d")
+                    start_date = latest_date_in_db
                     self.logger.info(f"最新数据日期: {latest_date_in_db}，从 {start_date} 开始更新")
                 else:
-                    start_date = "2016-05-06"  # Adjust as per actual earliest data available
+                    start_date = "2024-04-19"
                     self.logger.info(f"无历史数据，从 {start_date} 开始获取")
 
             start_date_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -137,7 +136,8 @@ class FuturesStockWeeklyShfe(AkshareToMySql):
 
                     # df = ak.futures_stock_shfe_js(date=date_str.replace('-', ''))
                     df = self.fetch_ak_data("futures_stock_shfe_js", date_str.replace("-", ""))
-                    time.sleep(2)  # Respectful delay
+                    if sleep_seconds and float(sleep_seconds) > 0:
+                        time.sleep(float(sleep_seconds))
 
                     if df is None or df.empty:
                         self.logger.warning(f"未获取到 {date_str} 的库存周报数据")

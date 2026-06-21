@@ -241,7 +241,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   portfolioLedgerApi,
@@ -339,6 +339,20 @@ async function refreshPortfolio() {
   benchmarkMetrics.value = benchmarkMetricsResp.status === 'fulfilled' ? benchmarkMetricsResp.value : null
 }
 
+async function loadInitialPortfolio() {
+  loading.value = true
+  try {
+    const response = await portfolioLedgerApi.list()
+    const first = response.items[0]
+    if (first) {
+      portfolioId.value = first.id
+      await refreshPortfolio()
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
 async function backfillOnly() {
   if (!portfolioId.value) return
   loading.value = true
@@ -349,4 +363,8 @@ async function backfillOnly() {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  void loadInitialPortfolio()
+})
 </script>

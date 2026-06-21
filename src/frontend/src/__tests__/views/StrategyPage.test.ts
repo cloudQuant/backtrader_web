@@ -5,6 +5,17 @@ import StrategyPage from '@/views/StrategyPage.vue'
 import { stripStrategyMeta, getStrategyParamCount } from '@/constants/strategy'
 import { elStubs } from '@/test/stubs'
 
+const strategyTemplates = vi.hoisted(() => [
+  { id: 't1', name: 'SMA', category: 'trend', description: 'test', params: {} },
+  ...Array.from({ length: 119 }, (_, index) => ({
+    id: `tool-${index + 2}`,
+    name: `Strategy Tool ${index + 2}`,
+    category: 'custom',
+    description: 'generated tool',
+    params: {},
+  })),
+])
+
 vi.mock('vue-router', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }))
@@ -21,7 +32,7 @@ vi.mock('@/stores/strategy', () => ({
     createStrategy: vi.fn().mockResolvedValue({ id: 's1' }),
     updateStrategy: vi.fn().mockResolvedValue(undefined),
     deleteStrategy: vi.fn().mockResolvedValue(undefined),
-    templates: [{ id: 't1', name: 'SMA', category: 'trend', description: 'test', params: {} }],
+    templates: strategyTemplates,
     strategies: [],
     total: 0,
     categories: [],
@@ -79,7 +90,8 @@ describe('StrategyPage', () => {
 
   it('filteredTemplates returns all when no filter', () => {
     const vm = doMount().vm as any
-    expect(vm.filteredTemplates.length).toBe(1)
+    expect(vm.filteredTemplates.length).toBe(120)
+    expect(vm.displayedTemplates.length).toBe(120)
   })
 
   it('filteredTemplates filters by category', () => {
@@ -179,25 +191,6 @@ describe('StrategyPage', () => {
     const vm = doMount().vm as any
     await vm.deleteStrategy('s1')
     expect(ElMessage.success).toHaveBeenCalledWith('删除成功')
-  })
-
-  it('renderedReadme converts markdown', () => {
-    const vm = doMount().vm as any
-    vm.readmeContent = '# Title\n\n**bold**'
-    expect(vm.renderedReadme).toContain('<h1')
-    expect(vm.renderedReadme).toContain('<strong>bold</strong>')
-  })
-
-  it('renderedReadme sanitizes dangerous html', () => {
-    const vm = doMount().vm as any
-    vm.readmeContent = '# Title\n\n<script>alert(1)</script><img src=x onerror="alert(2)">'
-    expect(vm.renderedReadme).not.toContain('<script')
-  })
-
-  it('renderedReadme returns empty for no content', () => {
-    const vm = doMount().vm as any
-    vm.readmeContent = ''
-    expect(vm.renderedReadme).toBe('')
   })
 
   it('paramTableData returns entries from detail template', () => {

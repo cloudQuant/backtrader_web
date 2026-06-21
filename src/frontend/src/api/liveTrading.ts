@@ -72,6 +72,15 @@ export interface GatewayHealthInfo {
   asset_type?: string
   account_id?: string
   strategy_name?: string
+  selected_ctp_env?: string
+  td_front?: string
+  md_front?: string
+  selection_reason?: string
+  auth_state?: string
+  login_state?: string
+  front_id?: string
+  session_id?: string
+  trading_day?: string
 }
 
 export interface GatewayHealthListResponse {

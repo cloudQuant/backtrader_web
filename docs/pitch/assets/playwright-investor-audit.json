@@ -1,0 +1,853 @@
+{
+  "auditedAt": "2026-06-14T15:51:07.099Z",
+  "baseURL": "http://127.0.0.1:3000",
+  "routes": [
+    {
+      "expectedName": "首页工作台",
+      "path": "/",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "运行回测",
+        "创建策略",
+        "查询数据"
+      ],
+      "buttons": [
+        "仪表盘",
+        "💎",
+        "中文",
+        "Aadmin",
+        "查看全部"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 仪表盘 仪表盘 💎 中文 A admin 回测次数 139 策略数量 0 平均收益率 0.28% 最佳夏普比率 -100.63 快速开始 运行回测 选择策略和数据，运行回测分析 创建策略 编写自定义交易策略 查询数据 查看和导入行情数据 最近回测 查看全部 策略 标的 收益率 夏普比率 最大回撤 状态 创建时间 backtest/097_dema_crossover AAPL 1.30% -105.32 -0.50% 已完成 2026-04-10T08:09:28 backtest/097_dema_crossover AAPL 0.22% -100.63 -0.87% 已完成 2026-04-10T07:56:13 backtest/097_dema_crossover ACHR -0.01% -758.59 -0.08% 已完成 2026-04-10T03:43:59 backtest/097_dema_crossover AAXJ -0.01% -309.74 -0.36% 已完成 2026-04-10T03:43:55 backtest/097_dema_crossover AAT -0.09% -479.18 -0.19% 已完成 2026-04-10T03:43:55"
+    },
+    {
+      "expectedName": "市场数据",
+      "path": "/data/market",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 数据管理 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 数据管理 股票数据 期货数据 股票代码 开始日期 结束日期 查询"
+    },
+    {
+      "expectedName": "行情报价",
+      "path": "/data/quote",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 行情报价 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 CTP IB MT5 Binance OKX 手动刷新 刷新中 全部分类 涨跌筛选 仅自选 高级筛选 添加品种"
+    },
+    {
+      "expectedName": "数据主题",
+      "path": "/data/topics",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "Data Topic Hub"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 主题中心 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 Data Topic Hub 查看主题缓存、刷新结果，并连接 WebSocket 观察实时 fan-out。 刷新列表 刷新主题 实时订阅 连接 WS 连接状态 0 主题总数 5 活跃缓存 4 错误数 0 ws://127.0.0.1:3000/ws/data-topics/fno%3Amax_pain%3Amock%3ARB2510 主题列表 fno:max_pain:mock:RB2510 fno:pcr:mock:RB2510 market:quote:RB2510 option:atm_iv:mock:RB2510 option:chain:mock:RB2510:2026-12-31 Topic 订阅者 有缓存 fno:max_pain:mock"
+    },
+    {
+      "expectedName": "数据脚本",
+      "path": "/data/scripts",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "数据脚本"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 数据接口 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 脚本总数 1045 启用脚本 1043 自定义脚本 0 覆盖分类 6 数据脚本 扫描内置脚本、管理自定义脚本并手动触发执行。 重新扫描 新建自定义脚本 按分类筛选 全部状态 查询 名称 脚本 ID 分类 目标表 类型 状态 更新时间 操作 Bond Buy Back Hist Em bond_buy_back_hist_em bonds BOND_BUY_BACK_HIST_EM 内置 启用 2026-02-20 00:41:35 详情 执行 停用 Bond Cash Summary Sse bond_cash_summary_sse bonds BOND_CASH_SUMMARY_SSE 内置 启用 2026-02-20 00:41:35 详情 执行 停"
+    },
+    {
+      "expectedName": "数据任务",
+      "path": "/data/tasks",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "定时任务"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 定时任务 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 定时任务 把脚本绑定成可重复执行的调度任务。 新建任务 全部状态 任务名 脚本 调度类型 调度表达式 状态 下次执行 最近执行 操作 test Fx Quote Baidu fx_quote_baidu cron 0 * * * * 启用 2026-04-16 01:00:00 - 执行记录 立即执行 停用 编辑 删除 Auto: Spot Mixed Feed Soozhu spot_mixed_feed_soozhu spot_mixed_feed_soozhu cron 0 * * * * 启用 2026-04-16 01:00:00 - 执行记录 立即执行 停用 编辑 删除 Auto: Spot Price Qh spot_price_qh spo"
+    },
+    {
+      "expectedName": "执行记录",
+      "path": "/data/executions",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "执行记录"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [
+        "失败"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 执行记录 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 总执行 12998 成功 0 失败 341 运行中 12592 执行记录 按任务、脚本和状态排查 akshare 采集执行情况。 刷新 执行状态 查询 执行 ID 脚本 任务 状态 触发方式 开始时间 耗时 数据量 错误信息 操作 ak_exec_b01abfa3ea78 spot_price_qh 1041 执行中 scheduler 2026-04-19 11:00:01 - - -> - 详情 ak_exec_6d3e62d1a104 stock_zh_a_spot 351 执行中 scheduler 2026-04-19 11:00:01 - - -> - 详情 ak_exec_76df5596640c option_finance_minute_"
+    },
+    {
+      "expectedName": "数据表",
+      "path": "/data/tables",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "数据表"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 数据表 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 数据表 查看已落盘数据表、更新状态和表详情预览。 共 1105 张 查询 表名 备注 行数 最近状态 数据起始 数据结束 更新时间 操作 FOREIGN_FUTURES_REALTIME_EM 3,100 - - - 2026-02-24 10:17:44 详情 FUTURES_MINUTE_MARKET 1,149,489 - - - 2026-02-24 10:17:44 详情 STOCK_HK_DAILY 21,561 - - - 2026-02-24 10:17:44 详情 FUTURES_HIST_TABLE_EM 2,116 - - - 2026-02-24 10:17:44 详情 MACRO_CONS_SILVER 3,110 - - - 20"
+    },
+    {
+      "expectedName": "个股研究",
+      "path": "/data/intelligence/equity",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "权益研究"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 权益研究 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 权益研究 检索标的、查看画像、财务、行情历史与因子信号。 查询 代码 名称 类型 交易所 RB2510 螺纹钢主力 futures SHFE RB2510 data_governance / SHFE 最新价 3,524 昨收 3,474 涨跌幅 0 币种 0 画像 财务 技术面 可比 历史 名称：螺纹钢主力 行业：Metals & Futures 板块：Industrials 国家：CN 说明：面向商品与指数研究的统一合约画像。"
+    },
+    {
+      "expectedName": "新闻情报",
+      "path": "/data/intelligence/news",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "新闻情报"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [
+        "暂无",
+        "无数据"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 新闻情报 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 新闻情报 聚合新闻、规则分类与实时主题分发入口。 新增来源 拉取 RSS 导入文章 分析 刷新列表 情绪过滤 应用过滤 标题 情绪 影响 Cluster 操作 暂无数据"
+    },
+    {
+      "expectedName": "期权链",
+      "path": "/data/intelligence/options",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "期权链"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 期权链 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 期权链 查看多档行权价链条、PCR、Max Pain 与 ATM IV。 Auto 查询期权链 RB2510 / mock / 2026-06-14T15:50:43.991286+00:00 PCR 0 Max Pain 3,500 ATM IV 0 Spot 3,524 Strike 数 9 Strike 间隔 50 行权价 Call OI Call Vol Call IV Put OI Put Vol 3300 380 40 0.1675 360 39 3350 465 45 0.175 440 43 3400 550 50 0.1825 520 47 3450 635 55 0.19 600 51 3500 720 60 0.1975 680 55 "
+    },
+    {
+      "expectedName": "条件扫描",
+      "path": "/data/intelligence/scanners",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "条件扫描"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 条件扫描 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 条件扫描 基于安全 DSL 的多维量化筛选器。 1d 运行 任务：e6660c95-e2f1-4331-813e-cb966ae459b8 / completed 标的 价格 成交量 指标 因子 新闻情绪 组合暴露 RB2510 3524 4200 0.77 0.71 0.65 0.18"
+    },
+    {
+      "expectedName": "数据同步",
+      "path": "/data/sync",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "数据同步",
+        "上传到服务器",
+        "从服务器拉取",
+        "同步历史"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [
+        "没有",
+        "失败"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 数据同步 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 数据同步 在本地 MySQL 与远程 MySQL 之间按表直连同步数据库。 测试连接 保存配置 同步模式 同步方式 同步模式 完整同步 并发同步数 本地 MySQL 本地主机 本地端口 本地用户 本地密码 远程 MySQL 远程 MySQL 主机 远程 MySQL 端口 远程 MySQL 用户 远程 MySQL 密码 同步范围 同步数据库 填写提示 当前页面只保留 MySQL 直连同步。只要远程 MySQL 主机、端口、用户名、密码可访问即可，不需要 SSH；数据库不存在时会自动创建，已存在时不会删除。你还可以配置并发同步数，控制同时处理的数据表数量。 增量同步规则 数据同步会优先使用数据表的主键，其次使用唯一索引；如果没有可用索引，会退化为按整行字段内容"
+    },
+    {
+      "expectedName": "数据接口",
+      "path": "/data/interfaces",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "接口管理"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 接口管理 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 接口管理 管理 akshare 接口元数据和参数定义。 从 akshare 引导 新建接口 接口分类 全部状态 查询 展示名 接口名 分类 返回类型 参数数 状态 操作 Apierror APIError 股票数据 DataFrame 2 启用 详情 编辑 删除 Akshareexception AkshareException 股票数据 DataFrame 1 启用 详情 编辑 删除 Dataparsingerror DataParsingError 股票数据 DataFrame 1 启用 详情 编辑 删除 Invalidparametererror InvalidParameterError 股票数据 DataFrame 1 启用 详情 编辑 删除 N"
+    },
+    {
+      "expectedName": "数据治理",
+      "path": "/data/governance",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心",
+        "数据连接治理"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 连接治理 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 数据连接治理 统一查看外部 Provider、连接器端点与预览结果。 刷新 Provider Provider 分类 鉴权 akshare china_market none cboe options none cftc futures none coingecko crypto none dbnomics macro none fmp fundamental api_key fred macro api_key yahoo global_market none 端点 Provider 端点 增量键 akshare air_city_table date akshare air_quality_hebei date akshare air_quality_"
+    },
+    {
+      "expectedName": "Airflow",
+      "path": "/data/airflow",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "数据治理中心"
+      ],
+      "buttons": [
+        "行情报价",
+        "数据管理",
+        "主题中心",
+        "数据接口",
+        "定时任务",
+        "执行记录",
+        "数据表",
+        "数据同步",
+        "接口管理",
+        "连接治理",
+        "Airflow",
+        "权益研究"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 Airflow 行情报价 数据管理 主题中心 数据接口 定时任务 执行记录 数据表 数据同步 接口管理 连接治理 Airflow 权益研究 新闻情报 期权链 条件扫描 💎 中文 A admin 数据治理中心 统一管理 akshare 脚本、调度任务、执行记录、数据表和接口元信息。 管理员模式 市场数据已并入 行情报价 市场数据 主题中心 数据接口 定时任务 执行记录 数据表 权益研究 新闻情报 期权链 条件扫描 数据同步 接口管理 连接治理 当前编排后端: 未初始化 Airflow 服务未连接，DAG 管理功能不可用。定时任务通过 APScheduler 执行。 Airflow 未连接，请使用数据管理中的定时任务功能"
+    },
+    {
+      "expectedName": "AI 助手",
+      "path": "/ai/chat",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "AI助手",
+        "从知识库开始提问"
+      ],
+      "buttons": [
+        "AI助手",
+        "知识库",
+        "Prompt治理",
+        "AI成本",
+        "💎",
+        "中文",
+        "Aadmin",
+        "新会话",
+        "知识问答",
+        "策略构思",
+        "Backtrader策略生成",
+        "策略审查"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 AI助手 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin AI COPILOT AI助手 围绕知识库, Backtrader 草稿和策略审查组织对话. 引用与执行动作集中在同一条回答内完成 知识库 研究报告 新会话 知识问答 策略构思 Backtrader策略生成 策略审查 交易执行 深度模式 会话 3 条记录 策略构思: 把\"均线突破 + 放量确认\"的想法扩展成完整研究方案 2026-06-14 13:55 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 13:05 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 12:21 研究报告 知识问答 / 量化研究平衡 从知识库开始提问 选择知识库后输入问题，回答会优先引用已经保存的文档内容。 这个知识库主要包含哪些内容？ 总结当前知识库的核心主题 有哪些值得重点阅读的文档？ 输入问题，AI 将结合知识库回答 0/500 默认模型 发送 上下文 知识问答 研究报告 一些积累的投研报告 文档 1130 已加载 1130 已索引 1130 量化研究平衡 hybrid top_k 8 会话记忆开 打开知识库 快捷工具 总结知识库 快速生成核心主题摘要 提取关键文档 找出最值得优先阅读的内容 生"
+    },
+    {
+      "expectedName": "知识库",
+      "path": "/ai/knowledge-base",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "知识库"
+      ],
+      "buttons": [
+        "AI助手",
+        "知识库",
+        "Prompt治理",
+        "AI成本",
+        "💎",
+        "中文",
+        "Aadmin",
+        "研究报告1130 篇一些积累的投研报告",
+        "重命名",
+        "删除",
+        "交易策略3882 篇量化交易策略思路",
+        "重命名"
+      ],
+      "emptyStates": [
+        "暂无",
+        "空"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 知识库 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin 知识库 按知识库、文档结构与索引状态浏览内容，并提供更接近 ReqDocs 的树形工作台、节点菜单、批量操作和表格管理。 知识库列表 10 个 研究报告 1130 篇 一些积累的投研报告 交易策略 3882 篇 量化交易策略思路 需求文档 52 篇 暂无描述 用户手册 49 篇 暂无描述 量化知识 16422 篇 暂无描述 量化知识库 1 篇 暂无描述 量化知识库 8291 篇 暂无描述 量化知识库 107 篇 量化相关的文章、论文和研报 backtrader 211 篇 暂无描述 测试用例 3 篇 大类资产平台的测试用例 研究报告 树视图 表格视图 按排序 按标题 按更新时间 按状态 导入文档 检索配置 新建文档 新建文件夹 文档总数 1130 已索引 1130 文件夹 0 检索策略 量化研究平衡 hybrid / top_k 8 全选当前视图 已选 0 项 清空选择 批量发布 设为草稿 移到根目录 批量复制标题 标记未索引 批量删除 · 📄 东方证券_20161221_金融工程研究对主动投资有益的量化结论 ✨ 已索引 draft indexed 正文已迁移 操作 · 📄 东方证券_20160812_A"
+    },
+    {
+      "expectedName": "Prompt 治理",
+      "path": "/ai/prompt-governance",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "Prompt 模板治理"
+      ],
+      "buttons": [
+        "AI助手",
+        "知识库",
+        "Prompt治理",
+        "AI成本",
+        "💎",
+        "中文",
+        "Aadmin",
+        "刷新",
+        "新建模板"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 Prompt治理 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin Prompt 模板治理 管理 AI Prompt 模板版本、active 激活与灰度发布比例。 刷新 新建模板版本 模板名 版本 变量 模板内容 灰度比例 当前灰度比例：0% 新建模板 模板版本列表"
+    },
+    {
+      "expectedName": "AI 可观测",
+      "path": "/ai/observability",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "AI 成本看板"
+      ],
+      "buttons": [
+        "AI助手",
+        "知识库",
+        "Prompt治理",
+        "AI成本",
+        "💎",
+        "中文",
+        "Aadmin",
+        "刷新"
+      ],
+      "emptyStates": [
+        "失败"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 AI成本 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin AI 成本看板 跟踪 AI 调用用量、失败诊断与慢调用排查。 刷新 总调用数 5 总 Token 6,132 估算成本 $0.000000 失败调用 2 用量趋势 失败诊断 慢调用排查 按服务统计 服务 调用数 Token 成本 ai_chat 5 6132 $0.000000 模型分布 模型 调用数 Token deepseek-ai/DeepSeek-V4-Flash 3 1891 deepseek-v4-flash 1 1685 deepseek-v4-pro 1 2556"
+    },
+    {
+      "expectedName": "策略中心",
+      "path": "/research/strategies",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader"
+      ],
+      "buttons": [
+        "策略管理",
+        "策略研究",
+        "量化工具",
+        "💎",
+        "中文",
+        "Aadmin",
+        "创建策略"
+      ],
+      "emptyStates": [
+        "没有"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 策略管理 策略管理 策略研究 量化工具 💎 中文 A admin 创建策略 策略库 我的策略 全部 趋势 均值回归 波动率 指标 套利 其他 共 0 个策略 没有匹配的策略"
+    },
+    {
+      "expectedName": "研究工作区",
+      "path": "/research/workspaces",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader"
+      ],
+      "buttons": [
+        "策略管理",
+        "策略研究",
+        "量化工具",
+        "新建工作区",
+        "删除工作区",
+        "💎",
+        "中文",
+        "Aadmin",
+        "编辑",
+        "删除"
+      ],
+      "emptyStates": [
+        "暂无"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 策略研究 策略管理 策略研究 量化工具 新建工作区 删除工作区 💎 中文 A admin 黄金工作区 已完成 暂无描述 策略单元: 10 已完成: 10 创建: 2026/4/2 03:24:37 更新: 2026/4/9 23:12:22 编辑 删除"
+    },
+    {
+      "expectedName": "回测验证",
+      "path": "/research/backtests/legacy",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader"
+      ],
+      "buttons": [
+        "策略管理",
+        "策略研究",
+        "量化工具",
+        "💎",
+        "中文",
+        "Aadmin",
+        "运行回测",
+        "查看",
+        "删除",
+        "查看",
+        "删除",
+        "查看"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 回测分析 策略管理 策略研究 量化工具 💎 中文 A admin 回测配置 策略 选择策略 运行回测 查看回测分析 在回测历史表格中点击\"查看\"按钮，可查看完整的回测分析可视化效果 回测历史 策略 标的 收益率 夏普 回撤 状态 创建时间 操作 backtest/097_dema_crossover AAPL 1.30% -105.32 -0.50% 完成 2026-04-10T08:09:28 查看 删除 backtest/097_dema_crossover AAPL 0.22% -100.63 -0.87% 完成 2026-04-10T07:56:13 查看 删除 backtest/097_dema_crossover ACHR -0.01% -758.59 -0.08% 完成 2026-04-10T03:43:59 查看 删除 backtest/097_dema_crossover AAON 0.34% -141.48 -0.45% 完成 2026-04-10T03:43:55 查看 删除 backtest/097_dema_crossover AAT -0.09% -479.18 -0.19% 完成 2026-04-10T03:43:55 查看 删除 backtest/097_"
+    },
+    {
+      "expectedName": "量化工具",
+      "path": "/research/tools",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "量化工具"
+      ],
+      "buttons": [
+        "策略管理",
+        "策略研究",
+        "量化工具",
+        "💎",
+        "中文",
+        "Aadmin",
+        "刷新工具",
+        "调用工具"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 量化工具 策略管理 策略研究 量化工具 💎 中文 A admin 量化工具 AI 工具注册表只读能力与调用保护面板。 刷新工具 data_governance.endpoint_preview 调用工具 data_governance.endpoint_preview / admin / 5000 / 30 / false data_topics.list / user / 5000 / 30 / false data_topics.peek / admin / 5000 / 30 / false factor.evaluate / user / 5000 / 30 / false markets.get_history / user / 5000 / 30 / false markets.get_quote / user / 5000 / 30 / false news.latest / user / 5000 / 30 / false portfolio_ledger.get_summary / user / 5000 / 30 / false portfolio_ledger.import_transactions / user / 5000 / 30 / true risk.va"
+    },
+    {
+      "expectedName": "交易工作区",
+      "path": "/trading/workspaces",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader"
+      ],
+      "buttons": [
+        "策略交易",
+        "Broker配置",
+        "账户管理",
+        "AI交易",
+        "新建工作区",
+        "删除工作区",
+        "💎",
+        "中文",
+        "Aadmin",
+        "编辑",
+        "删除",
+        "编辑"
+      ],
+      "emptyStates": [
+        "暂无",
+        "空"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 策略交易 策略交易 Broker配置 账户管理 AI交易 新建工作区 删除工作区 💎 中文 A admin MT5模拟工作区 空闲 暂无描述 策略单元: 10 已完成: 0 创建: 2026/4/13 06:48:31 更新: 2026/4/14 07:31:40 编辑 删除 okx实盘工作区 空闲 暂无描述 策略单元: 0 已完成: 0 创建: 2026/4/13 06:48:58 更新: 2026/4/13 06:48:58 编辑 删除 Binance实盘工作区 空闲 暂无描述 策略单元: 0 已完成: 0 创建: 2026/4/13 06:48:50 更新: 2026/4/13 06:48:50 编辑 删除 IB模拟工作区 空闲 暂无描述 策略单元: 10 已完成: 0 创建: 2026/4/13 06:48:19 更新: 2026/4/13 06:48:19 编辑 删除 期货模拟工作区 空闲 暂无描述 策略单元: 10 已完成: 0 创建: 2026/4/13 06:48:11 更新: 2026/4/13 06:48:11 编辑 删除"
+    },
+    {
+      "expectedName": "券商配置",
+      "path": "/trading/brokers",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "Broker Profiles"
+      ],
+      "buttons": [
+        "策略交易",
+        "Broker配置",
+        "账户管理",
+        "AI交易",
+        "💎",
+        "中文",
+        "Aadmin",
+        "刷新列表",
+        "创建示例 Profile",
+        "Enable Live Write",
+        "保存 Profile",
+        "填充示例"
+      ],
+      "emptyStates": [
+        "暂无",
+        "无数据"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 Broker配置 策略交易 Broker配置 账户管理 AI交易 💎 中文 A admin Broker Profiles 管理 broker profile、查看只读运行态，并对实盘写入权限做显式开关。 刷新列表 创建示例 Profile Enable Live Write 新建 Profile 保存 Profile 填充示例 Profiles Broker Alias 轮换提醒 Runtime 绑定 暂无数据 当前 Profile Profile 数量 0 账户数 0 持仓数 0 订单数 0 Selected: 未选择 Write Enabled: no Rotation Warning: none Runtime Binding: none Enable Write Confirmation: ENABLE profile Health: null Accounts: [] Positions: [] Orders: [] Quote: null"
+    },
+    {
+      "expectedName": "网关状态",
+      "path": "/trading/gateways",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader"
+      ],
+      "buttons": [
+        "策略交易",
+        "Broker配置",
+        "账户管理",
+        "AI交易",
+        "连接 Gateway",
+        "刷新",
+        "💎",
+        "中文",
+        "Aadmin",
+        "断开",
+        "断开"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 账户管理 策略交易 Broker配置 账户管理 AI交易 2 健康 / 2 总计 连接 Gateway 刷新 💎 中文 A admin manual:MT5:5047785364 运行中 断开 交易所 MT5 资产类型 OTC 账户 5047785364 运行时长 20m 31s 行情连接 已连接 交易连接 已连接 策略数 1 订阅品种 10 Tick数 0 订单数 0 心跳延迟 1s 引用计数 1 最近错误 (1) [adapter_connect] attempt 1/3 TypeError: info(): incompatible function arguments. The following argument types are supported: 1. (self: spdlog.Logger, arg0: str) -> None Invoked with: <spdlog.SinkLogger object at 0x16709d9f0>, 'Mt5GatewayAdapter connected (login=%s)', 5047785364 manual:BINANCE:binance-tKflsB 运行中 断开 交易所 BINANCE 资产类型 SWAP 账户"
+    },
+    {
+      "expectedName": "AI Trading",
+      "path": "/trading/ai",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "自然语言交易",
+        "交易记录"
+      ],
+      "buttons": [
+        "策略交易",
+        "Broker配置",
+        "账户管理",
+        "AI交易",
+        "💎",
+        "中文",
+        "Aadmin",
+        "发送"
+      ],
+      "emptyStates": [
+        "暂无"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 AI交易 策略交易 Broker配置 账户管理 AI交易 💎 中文 A admin AI TRADING 自然语言交易 用自然语言描述交易意图，AI 自动解析并执行。支持多交易所、多品种。 模拟模式 自动确认 \"以3500限价卖出2手铁矿石\" 模拟账户 请选择模拟账户 暂无可用模拟账户，请先在模拟交易页面创建账户。 发送 交易记录 0 条 暂无交易记录"
+    },
+    {
+      "expectedName": "组合总览",
+      "path": "/portfolio/overview",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader"
+      ],
+      "buttons": [
+        "组合管理",
+        "组合账本",
+        "💎",
+        "中文",
+        "Aadmin"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 组合管理 组合管理 组合账本 模拟交易 实盘交易 💎 中文 A admin 组合总资产 0.00 总盈亏 +0.00 (+0.00%) 持仓市值 0.00 策略 / 运行中 70/0 策略概览 当前持仓 交易记录 资金曲线 资产配置 策略名称 状态 当前资产 初始资金 盈亏 收益率 交易次数 胜率 棉花唐奇安通道策略 停止 0.00 0.00 +0.00 +0.00% 0 0.0% 甲醇TRIX指标策略 停止 0.00 0.00 +0.00 +0.00% 0 0.0% 菜籽油RSI抄底策略 停止 0.00 0.00 +0.00 +0.00% 0 0.0% 白糖肯特纳通道策略2 停止 0.00 0.00 +0.00 +0.00% 0 0.0% PTACCI指标策略 停止 0.00 0.00 +0.00 +0.00% 0 0.0% 豆一TD序列策略 停止 0.00 0.00 +0.00 +0.00% 0 0.0% 铝海龟交易策略 停止 0.00 0.00 +0.00 +0.00% 0 0.0% 黄金布林带反转策略 停止 0.00 0.00 +0.00 +0.00% 0 0.0% 玉米吊灯止损策略 停止 0.00 0.00 +0.00 +0.00% 0 0.0% 铜MACD+ATR策略 停止 "
+    },
+    {
+      "expectedName": "组合台账",
+      "path": "/portfolio/ledger",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader",
+        "组合账本",
+        "持仓",
+        "快照",
+        "风险分析",
+        "交易"
+      ],
+      "buttons": [
+        "组合管理",
+        "组合账本",
+        "💎",
+        "中文",
+        "Aadmin",
+        "创建账本",
+        "导入交易",
+        "刷新数据",
+        "回填快照"
+      ],
+      "emptyStates": [
+        "暂无",
+        "无数据"
+      ],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 组合账本 组合管理 组合账本 模拟交易 实盘交易 💎 中文 A admin 组合账本 独立于旧组合聚合接口的账本式组合管理。 账本概览 创建账本 buy 导入交易 刷新数据 回填快照 持仓 标的 数量 成本 暂无数据 快照 日期 净值 暂无数据 风险分析 VaR / CVaR 暂无数据 仓位建议 暂无数据 基准指标 暂无数据 交易 标的 方向 数量 价格 交易日 暂无数据"
+    },
+    {
+      "expectedName": "系统设置",
+      "path": "/admin/settings",
+      "title": "AI for Trader - 量化交易回测平台",
+      "headings": [
+        "AI for Trader",
+        "AI for Trader"
+      ],
+      "buttons": [
+        "系统设置",
+        "💎",
+        "中文",
+        "Aadmin",
+        "修改密码",
+        "保存 AI 模型偏好",
+        "测试连通性"
+      ],
+      "emptyStates": [],
+      "textSample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 系统设置 系统设置 💎 中文 A admin 个人信息 用户名 邮箱 注册时间 修改密码 当前密码 新密码 确认新密码 修改密码 我的 AI 用量 调用次数 5 Token 6132 估算成本 $0.000000 AI 模型偏好 默认模型 使用系统默认模型 当前选择：系统默认模型 保存 AI 模型偏好 测试连通性 关于 AI for Trader v1.0.0 基于 Backtrader 的量化交易回测平台 技术栈: Vue 3 + FastAPI + Backtrader"
+    }
+  ],
+  "apiErrors": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "readiness": {
+    "strategyEmpty": [
+      "没有"
+    ],
+    "workspaceEmpty": [
+      "暂无"
+    ],
+    "tradingWorkspaceEmpty": [
+      "暂无",
+      "空"
+    ],
+    "aiTabs": [
+      {
+        "tab": "知识问答",
+        "visible": true,
+        "sample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 AI助手 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin AI COPILOT AI助手 围绕知识库, Backtrader 草稿和策略审查组织对话. 引用与执行动作集中在同一条回答内完成 知识库 研究报告 新会话 知识问答 策略构思 Backtrader策略生成 策略审查 交易执行 深度模式 会话 3 条记录 策略构思: 把\"均线突破 + 放量确认\"的想法扩展成完整研究方案 2026-06-14 13:55 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 13:05 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 12:21 研究报告 知识问答 / 量化研究平衡 从知识库开始提问 选择知识库后输入问题，回答会优先引用已经保存的文档内容。 这个知识库主要包含哪些内容？ 总结当前知识库的核心主题 有哪些值得重点阅读的文档？ 输入问题，AI 将结合知识库回答 0/500 默认模型 发送 上下文 知识问答 研究报告 一些积累的投研报告 文档 "
+      },
+      {
+        "tab": "策略构思",
+        "visible": true,
+        "sample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 AI助手 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin AI COPILOT AI助手 围绕知识库, Backtrader 草稿和策略审查组织对话. 引用与执行动作集中在同一条回答内完成 知识库 研究报告 新会话 知识问答 策略构思 Backtrader策略生成 策略审查 交易执行 深度模式 会话 3 条记录 策略构思: 把\"均线突破 + 放量确认\"的想法扩展成完整研究方案 2026-06-14 13:55 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 13:05 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 12:21 研究报告 策略构思 / 量化研究平衡 拆解策略想法 把一句策略设想拆成信号、风控、数据需求和回测验证步骤。 把\"均线突破 + 放量确认\"的想法扩展成完整研究方案 帮我设计一个适合 A 股日线回测的低频趋势策略 把\"回撤后反弹买入\"整理成可验证的量化假设 输入一句话策略想法，AI 将生成结构化研究方案 0/500 "
+      },
+      {
+        "tab": "Backtrader策略生成",
+        "visible": true,
+        "sample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 AI助手 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin AI COPILOT AI助手 围绕知识库, Backtrader 草稿和策略审查组织对话. 引用与执行动作集中在同一条回答内完成 知识库 研究报告 新会话 知识问答 策略构思 Backtrader策略生成 策略审查 交易执行 深度模式 会话 3 条记录 策略构思: 把\"均线突破 + 放量确认\"的想法扩展成完整研究方案 2026-06-14 13:55 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 13:05 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 12:21 研究报告 Backtrader策略生成 / 量化研究平衡 生成策略实现草案 输入自然语言策略需求，生成可保存、可加入工作区的 Backtrader 草稿。 请生成一个\"双均线 + ATR 止损\"的 Backtrader 策略代码骨架 请把\"突破20日高点买入，跌破10日低点卖出\"转成 Backtrader 策略 "
+      },
+      {
+        "tab": "策略审查",
+        "visible": true,
+        "sample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 AI助手 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin AI COPILOT AI助手 围绕知识库, Backtrader 草稿和策略审查组织对话. 引用与执行动作集中在同一条回答内完成 知识库 研究报告 新会话 知识问答 策略构思 Backtrader策略生成 策略审查 交易执行 深度模式 会话 3 条记录 策略构思: 把\"均线突破 + 放量确认\"的想法扩展成完整研究方案 2026-06-14 13:55 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 13:05 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 12:21 研究报告 策略审查 / 量化研究平衡 审查策略质量 粘贴策略描述或代码片段，从逻辑、风控、数据和回测偏差角度审查。 请审查一个\"动量轮动 + 每周调仓\"策略的主要风险 请从回测偏差角度审查\"财报因子选股\"策略 请检查这个趋势策略是否存在过拟合和数据窥探风险 输入策略描述或代码，AI 将执行结构化审查 0/500 "
+      },
+      {
+        "tab": "交易执行",
+        "visible": true,
+        "sample": "AI for Trader 首页 市场数据 策略研究 交易运营 组合风控 AI助手 平台治理 AI助手 AI助手 知识库 Prompt治理 AI成本 💎 中文 A admin AI COPILOT AI助手 围绕知识库, Backtrader 草稿和策略审查组织对话. 引用与执行动作集中在同一条回答内完成 知识库 研究报告 新会话 知识问答 策略构思 Backtrader策略生成 策略审查 交易执行 深度模式 会话 3 条记录 策略构思: 把\"均线突破 + 放量确认\"的想法扩展成完整研究方案 2026-06-14 13:55 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 13:05 知识问答: 这个知识库主要包含哪些内容？ 2026-06-14 12:21 研究报告 交易执行 / 量化研究平衡 自然语言交易 用自然语言描述交易意图，AI 自动解析并执行。支持期货、加密货币等多品种。 买入1手螺纹钢主力合约 帮我在币安买入0.1个BTC 以3500限价卖出2手铁矿石 查看当前持仓 平掉所有螺纹钢仓位 描述您的交易意图 0/500 默认模型 发送 上下文 交易执行 研究"
+      }
+    ]
+  }
+}

@@ -1,4 +1,5 @@
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 import pandas as pd
@@ -145,11 +146,13 @@ class IndexConstituentWeightsCSIndex(AkshareToMySql):
         """
         try:
             if not symbol:
-                self.logger.error("Index symbol is required")
                 df = self.fetch_ak_data("index_csindex_all")
-                symbol_list = df["指数代码"].to_list()
+                if df is None or df.empty or "指数代码" not in df.columns:
+                    self.logger.warning("No CSIndex symbol list found")
+                    return True
+                symbol_list = df["指数代码"].dropna().astype(str).str.zfill(6).drop_duplicates().to_list()
             else:
-                symbol_list = [symbol]
+                symbol_list = [str(symbol).zfill(6)]
 
             trade_date = pd.to_datetime(trade_date or datetime.now()).date()
             self.logger.info(
@@ -161,18 +164,44 @@ class IndexConstituentWeightsCSIndex(AkshareToMySql):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
 
-            # Fetch and save data
-            for symbol in symbol_list:
-                df = self.fetch_constituent_weights(symbol, trade_date)
-                if not df.empty:
-                    self.save_data(
-                        df,
-                        self.table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["TRADE_DATE", "INDEX_CODE", "STOCK_CODE"],
-                    )
-                else:
-                    self.logger.warning(f"No data to process FOR {symbol}")
+            max_workers = min(8, max(1, len(symbol_list)))
+            processed_count = 0
+            saved_rows = 0
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_symbol = {
+                    executor.submit(self.fetch_constituent_weights, item, trade_date): item
+                    for item in symbol_list
+                }
+
+                for future in as_completed(future_to_symbol):
+                    item = future_to_symbol[future]
+                    processed_count += 1
+                    try:
+                        df = future.result()
+                    except Exception as exc:  # pragma: no cover - defensive guard
+                        self.logger.error(
+                            f"Error fetching constituent weights for index {item}: {exc}",
+                            exc_info=True,
+                        )
+                        continue
+
+                    if not df.empty:
+                        self.save_data(
+                            df,
+                            self.table_name,
+                            on_duplicate_update=True,
+                            unique_keys=["TRADE_DATE", "INDEX_CODE", "STOCK_CODE"],
+                        )
+                        saved_rows += len(df)
+                    else:
+                        self.logger.warning(f"No data to process for {item}")
+
+            self.logger.info(
+                "Completed constituent weights update: "
+                f"processed={processed_count}, saved_rows={saved_rows}"
+            )
+            return True
 
         except Exception as e:
             self.logger.error(f"Error in run: {str(e)}", exc_info=True)

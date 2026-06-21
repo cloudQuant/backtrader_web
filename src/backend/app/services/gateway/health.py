@@ -124,6 +124,15 @@ def _build_default_snapshot(
         "symbol_count": 0,
         "tick_count": 0,
         "order_count": 0,
+        "selected_ctp_env": _coerce_string(state.get("selected_ctp_env"), ""),
+        "td_front": _coerce_string(state.get("td_front"), ""),
+        "md_front": _coerce_string(state.get("md_front"), ""),
+        "selection_reason": _coerce_string(state.get("selection_reason"), ""),
+        "auth_state": _coerce_string(state.get("auth_state"), "unknown"),
+        "login_state": _coerce_string(state.get("login_state"), "unknown"),
+        "front_id": _coerce_string(state.get("front_id"), ""),
+        "session_id": _coerce_string(state.get("session_id"), ""),
+        "trading_day": _coerce_string(state.get("trading_day"), ""),
         "ref_count": _resolve_ref_count(state),
         "instances": _normalize_instances(state.get("instances", set())),
         "recent_errors": [],
@@ -180,6 +189,18 @@ def _normalize_runtime_snapshot(
     snap["symbol_count"] = _coerce_int(snapshot.get("symbol_count"), 0)
     snap["tick_count"] = _coerce_int(snapshot.get("tick_count"), 0)
     snap["order_count"] = _coerce_int(snapshot.get("order_count"), 0)
+    for key in (
+        "selected_ctp_env",
+        "td_front",
+        "md_front",
+        "selection_reason",
+        "auth_state",
+        "login_state",
+        "front_id",
+        "session_id",
+        "trading_day",
+    ):
+        snap[key] = _coerce_string(snapshot.get(key), _coerce_string(state.get(key), snap.get(key, "")))
     snap["ref_count"] = max(_resolve_ref_count(state), _coerce_int(snapshot.get("ref_count"), 0))
     snap["instances"] = _normalize_instances(
         snapshot.get("instances", state.get("instances", set()))

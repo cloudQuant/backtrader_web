@@ -36,6 +36,7 @@ export default buildLocale({
   nav: {
     dashboard: 'Tableau de bord',
     home: 'Accueil',
+    investmentResearch: 'Recherche investissement',
     aiChat: 'Assistant IA',
     aiCost: 'Coût IA',
     promptGovernance: 'Gouvernance des prompts',
@@ -53,6 +54,7 @@ export default buildLocale({
     portfolioLedger: 'Registre de portefeuille',
     equityResearch: 'Recherche actions',
     newsIntelligence: 'Veille d\'actualités',
+    stockAnalysis: 'Analyse action',
     optionsChain: 'Chaîne d\'options',
     scanners: 'Scanners',
     quantTools: 'Outils quant',

@@ -48,7 +48,9 @@ class HfSubscribeExchangeSymbol(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
+            if {"symbol", "code"}.issubset(df.columns):
+                df = df.rename(columns={"symbol": "name", "code": "symbol"})
+
             # Add data_date if not exists
             if "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()

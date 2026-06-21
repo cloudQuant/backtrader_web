@@ -110,6 +110,9 @@ export interface PortfolioLedgerFamaFrenchResult {
 }
 
 export const portfolioLedgerApi = {
+  list() {
+    return request.get<{ items: PortfolioLedgerSummary[]; total: number }>('/portfolio-ledger')
+  },
   create(payload: { name: string; base_currency?: string; source_type?: string }) {
     return request.post<PortfolioLedgerSummary>('/portfolio-ledger', payload)
   },

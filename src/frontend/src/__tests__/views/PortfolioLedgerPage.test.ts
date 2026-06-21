@@ -6,6 +6,7 @@ import { mountWithPlugins } from '../mountWithPlugins'
 
 const apiMocks = vi.hoisted(() => ({
   create: vi.fn(),
+  list: vi.fn(),
   importTransactions: vi.fn(),
   getDetail: vi.fn(),
   getHoldings: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('@/api/portfolioLedger', () => ({
 describe('PortfolioLedgerPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    apiMocks.list.mockResolvedValue({ items: [], total: 0 })
     apiMocks.create.mockResolvedValue({ id: 'ledger-1', name: 'demo', base_currency: 'CNY', source_type: 'manual' })
     apiMocks.importTransactions.mockResolvedValue({ duplicate: false, imported_count: 2 })
     apiMocks.getDetail.mockResolvedValue({ id: 'ledger-1', name: 'demo', base_currency: 'CNY', source_type: 'manual', transaction_count: 2 })
@@ -68,5 +70,20 @@ describe('PortfolioLedgerPage', () => {
     expect(wrapper.text()).toContain('风险分析')
     expect(wrapper.text()).toContain('VaR / CVaR')
     expect(wrapper.text()).toContain('hs300')
+  })
+
+  it('loads an existing ledger on mount', async () => {
+    apiMocks.list.mockResolvedValue({
+      items: [{ id: 'ledger-1', name: 'demo', base_currency: 'CNY', source_type: 'manual' }],
+      total: 1,
+    })
+
+    const wrapper = mountWithPlugins(PortfolioLedgerPage)
+    await flushPromises()
+
+    expect(apiMocks.list).toHaveBeenCalled()
+    expect(apiMocks.getDetail).toHaveBeenCalledWith('ledger-1')
+    expect((wrapper.vm as any).portfolioId).toBe('ledger-1')
+    expect((wrapper.vm as any).transactions).toHaveLength(2)
   })
 })

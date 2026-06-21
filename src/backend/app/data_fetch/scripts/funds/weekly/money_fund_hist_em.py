@@ -45,7 +45,7 @@ class MoneyFundHistEm(AkshareToMySql):
                             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='货币型基金历史净值表(东方财富)';
                             """
 
-    def fetch_fund_hist_data(self, fund_code):
+    def fetch_fund_hist_data(self, fund_code, max_pages=None):
         """
         获取货币型基金历史数据
 
@@ -59,7 +59,9 @@ class MoneyFundHistEm(AkshareToMySql):
             self.logger.info(f"开始获取货币型基金[{fund_code}]历史数据...")
 
             # 获取数据
-            df = self.fetch_ak_data("fund_money_fund_info_em", symbol=fund_code)
+            df = self.fetch_ak_data(
+                "fund_money_fund_info_em", symbol=fund_code, max_pages=max_pages
+            )
 
             if df is None or df.empty:
                 self.logger.warning(f"未获取到货币型基金[{fund_code}]历史数据")
@@ -175,7 +177,7 @@ class MoneyFundHistEm(AkshareToMySql):
             self.logger.error(f"获取已存在数据日期失败: {e}")
             return set()
 
-    def run(self, fund_codes=None):
+    def run(self, fund_codes=None, max_codes=None, max_pages=None):
         """
         执行数据获取和保存
 
@@ -198,6 +200,9 @@ class MoneyFundHistEm(AkshareToMySql):
                 if not fund_codes:
                     self.logger.error("未获取到货币型基金代码")
                     return False
+            if max_codes is not None and len(fund_codes) > int(max_codes):
+                fund_codes = fund_codes[: int(max_codes)]
+                self.logger.info(f"限制处理货币基金数量为{int(max_codes)}个")
 
             total_success = True
             total_count = 0
@@ -206,7 +211,7 @@ class MoneyFundHistEm(AkshareToMySql):
             for fund_code in fund_codes:
                 try:
                     # 获取数据
-                    df = self.fetch_fund_hist_data(fund_code)
+                    df = self.fetch_fund_hist_data(fund_code, max_pages=max_pages)
 
                     if df is None or df.empty:
                         continue

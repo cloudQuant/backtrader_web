@@ -44,6 +44,16 @@
           :label="t('dataPages.detailTabSchema')"
           name="schema"
         >
+          <el-alert
+            v-if="schema?.data_available === false"
+            class="detail-alert"
+            type="warning"
+            show-icon
+            :closable="false"
+            :title="t('dataPages.detailWarehouseUnavailable')"
+            :description="schema?.error || t('dataPages.detailWarehouseUnavailableDesc')"
+          />
+
           <el-table
             :data="schema?.columns || []"
             stripe
@@ -80,6 +90,16 @@
           :label="t('dataPages.detailTabRows')"
           name="rows"
         >
+          <el-alert
+            v-if="rows.data_available === false"
+            class="detail-alert"
+            type="warning"
+            show-icon
+            :closable="false"
+            :title="t('dataPages.detailWarehouseUnavailable')"
+            :description="rows.error || t('dataPages.detailWarehouseUnavailableDesc')"
+          />
+
           <el-table
             :data="rows.rows"
             stripe
@@ -139,6 +159,8 @@ const rows = reactive<DataTableRowsResponse>({
   page: 1,
   page_size: 50,
   total: 0,
+  data_available: true,
+  error: null,
 })
 
 const tableId = Number(route.params.id)
@@ -194,6 +216,10 @@ onMounted(() => {
 <style scoped>
 .detail-tabs {
   margin-top: 24px;
+}
+
+.detail-alert {
+  margin-bottom: 16px;
 }
 
 .pagination-wrap {

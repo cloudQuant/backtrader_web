@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
@@ -103,7 +104,45 @@ class IndexHistAdjustCNI(AkshareToMySql):
             )
             return pd.DataFrame()
 
-    def run(self, symbol=None):
+    def get_symbol_list(self):
+        df = self.get_data_by_columns("INDEX_ALL_CNI_DAILY", ["INDEX_CODE"])
+        return list(df["INDEX_CODE"].dropna().unique())
+
+    def _save_hist_adjust_data(self, symbol, df):
+        if not df.empty:
+            self.save_data(
+                df=df.replace(np.nan, None),
+                table_name=self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["INDEX_CODE", "STOCK_CODE", "START_DATE"],
+            )
+            self.logger.info(
+                f"Saved {len(df)} historical adjustment records for index {symbol}"
+            )
+
+    def _fetch_hist_adjust_jobs(self, symbol_list, max_workers):
+        worker_count = max(1, min(max_workers, len(symbol_list)))
+        if worker_count == 1:
+            for symbol in symbol_list:
+                yield symbol, self.fetch_hist_adjust_data(symbol)
+            return
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(self.fetch_hist_adjust_data, symbol): symbol
+                for symbol in symbol_list
+            }
+            for future in as_completed(future_map):
+                symbol = future_map[future]
+                try:
+                    yield symbol, future.result()
+                except Exception as exc:
+                    self.logger.error(
+                        f"Error fetching historical adjustment data for {symbol}: {exc}"
+                    )
+                    yield symbol, pd.DataFrame()
+
+    def run(self, symbol=None, max_workers=24):
         """
         Main method to run the historical adjustment data update
 
@@ -114,37 +153,18 @@ class IndexHistAdjustCNI(AkshareToMySql):
             bool: True if successful, False otherwise
         """
         try:
-            if not symbol:
-                # Get all index codes if not specified
-                df = self.get_data_by_columns("INDEX_ALL_CNI_DAILY", ["INDEX_CODE"])
-                symbol_list = list(df["INDEX_CODE"].unique())
-            else:
-                symbol_list = [symbol]
-
             # Create table if not exists
             if not self.table_exists(self.table_name):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
 
-            success = True
-            for symbol in symbol_list:
-                # Fetch and save data
-                df = self.fetch_hist_adjust_data(symbol)
-                if not df.empty:
-                    # Save new data
-                    self.save_data(
-                        df=df.replace(np.nan, None),
-                        table_name=self.table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["INDEX_CODE", "STOCK_CODE", "START_DATE"],
-                    )
-                    self.logger.info(
-                        f"Saved {len(df)} historical adjustment records for index {symbol}"
-                    )
-                else:
-                    self.logger.warning(f"No historical adjustment data found for index {symbol}")
+            symbol_list = self.get_symbol_list() if not symbol else [symbol]
+            for symbol, df in self._fetch_hist_adjust_jobs(
+                symbol_list, int(max_workers or 1)
+            ):
+                self._save_hist_adjust_data(symbol, df)
 
-            return success
+            return True
 
         except Exception as e:
             self.logger.error(f"Error in run: {str(e)}", exc_info=True)

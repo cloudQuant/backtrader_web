@@ -52,7 +52,10 @@
         </el-table>
       </div>
 
-      <el-tabs :model-value="detailTab" @update:model-value="(v) => emit('update:detailTab', String(v))">
+      <el-tabs
+        :model-value="detailTab"
+        @update:model-value="(v) => emit('update:detailTab', String(v))"
+      >
         <el-tab-pane
           :label="t('strategy.docs')"
           name="readme"
@@ -65,11 +68,11 @@
               <Loading />
             </el-icon>
           </div>
-          <!-- eslint-disable vue/no-v-html -- Strategy readme Markdown; consider sanitizing with DOMPurify -->
+          <!-- eslint-disable vue/no-v-html -- Strategy readme Markdown is sanitized in this component. -->
           <div
             v-else-if="readmeContent"
             class="prose prose-sm max-w-none readme-content"
-            v-html="renderedReadme"
+            v-html="sanitizedReadme"
           />
           <!-- eslint-enable vue/no-v-html -->
           <el-empty
@@ -109,10 +112,12 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import MonacoEditor from '@/components/common/MonacoEditor.vue'
 import { getCategoryLabel, getCategoryType } from '@/constants/strategy'
+import { renderMarkdown } from '@/utils/markdown-sanitizer'
 import type { StrategyTemplate } from '@/types'
 
 const { t } = useI18n()
@@ -124,16 +129,17 @@ interface ParamRow {
   description: string
 }
 
-defineProps<{
+const props = defineProps<{
   visible: boolean
   template: StrategyTemplate | null
   detailTab: string
   paramTableData: ParamRow[]
   readmeLoading: boolean
   readmeContent: string
-  renderedReadme: string
   stripMeta: (description?: string) => string
 }>()
+
+const sanitizedReadme = computed(() => renderMarkdown(props.readmeContent))
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void

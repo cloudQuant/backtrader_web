@@ -20,6 +20,7 @@ import pytest
 
 from app.services.live_trading_manager import (
     LiveTradingManager,
+    _PROJECT_ROOT,
     _find_latest_log_dir,
     _is_pid_alive,
     _load_instances,
@@ -38,6 +39,10 @@ def disable_restore_background_thread(monkeypatch):
 
 class TestUtilityFunctions:
     """Tests for utility functions."""
+
+    def test_project_root_points_to_repository_root(self):
+        assert _PROJECT_ROOT.name == "backtrader_web"
+        assert (_PROJECT_ROOT / "scripts" / "diagnostics").is_dir()
 
     def test_load_instances_from_file(self):
         """Test loading instances from file.

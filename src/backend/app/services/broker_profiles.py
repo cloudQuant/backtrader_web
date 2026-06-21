@@ -73,6 +73,12 @@ class BrokerProfileService:
         return None
 
     async def health(self, profile: BrokerConnectionProfile) -> dict[str, Any]:
+        demo_health = self._demo_health(profile)
+        if demo_health is not None:
+            profile.last_health = demo_health
+            await self.db.commit()
+            await self.db.refresh(profile)
+            return demo_health
         runtime_health = self._get_runtime_health(profile)
         if runtime_health is not None:
             profile.last_health = runtime_health
@@ -87,6 +93,9 @@ class BrokerProfileService:
         return payload
 
     async def list_accounts(self, profile: BrokerConnectionProfile) -> list[dict[str, Any]]:
+        demo_accounts = self._demo_accounts(profile)
+        if demo_accounts is not None:
+            return demo_accounts
         runtime_accounts = self._get_runtime_accounts(profile)
         if runtime_accounts is not None:
             return runtime_accounts
@@ -95,6 +104,9 @@ class BrokerProfileService:
         return [self._normalize_item(item) for item in items]
 
     async def list_positions(self, profile: BrokerConnectionProfile) -> list[dict[str, Any]]:
+        demo_positions = self._demo_positions(profile)
+        if demo_positions is not None:
+            return demo_positions
         runtime_positions = self._get_runtime_positions(profile)
         if runtime_positions is not None:
             return runtime_positions
@@ -107,6 +119,9 @@ class BrokerProfileService:
         return []
 
     async def list_orders(self, profile: BrokerConnectionProfile) -> list[dict[str, Any]]:
+        demo_orders = self._demo_orders(profile)
+        if demo_orders is not None:
+            return demo_orders
         runtime_orders = self._get_runtime_orders(profile)
         if runtime_orders is not None:
             return runtime_orders
@@ -125,6 +140,9 @@ class BrokerProfileService:
         *,
         user_id: str | None = None,
     ) -> dict[str, Any]:
+        demo_quote = self._demo_quote(profile, symbol)
+        if demo_quote is not None:
+            return demo_quote
         runtime_quote = self._get_runtime_quote(profile, symbol, user_id=user_id)
         if runtime_quote is not None:
             return runtime_quote
@@ -222,6 +240,112 @@ class BrokerProfileService:
         if not text:
             return "***"
         return f"***{text[-4:]}"
+
+    def _is_demo_profile(self, profile: BrokerConnectionProfile) -> bool:
+        credentials = dict(profile.credentials_ref or {})
+        return (
+            str(profile.broker_id or "") == "roadshow_demo"
+            or str(credentials.get("mode") or "") == "roadshow_demo"
+        )
+
+    def _demo_health(self, profile: BrokerConnectionProfile) -> dict[str, Any] | None:
+        if not self._is_demo_profile(profile):
+            return None
+        return {
+            "status": "ok",
+            "mode": "paper_readonly",
+            "gateway_key": profile.runtime_gateway_key or "roadshow:paper:readonly",
+            "account_id": profile.runtime_account_id or profile.account_alias,
+            "market_connection": "connected",
+            "trade_connection": "readonly",
+            "message": "Roadshow demo profile: simulated data only, live write disabled.",
+        }
+
+    def _demo_accounts(self, profile: BrokerConnectionProfile) -> list[dict[str, Any]] | None:
+        if not self._is_demo_profile(profile):
+            return None
+        return [
+            {
+                "account_id": profile.runtime_account_id or profile.account_alias,
+                "currency": "CNY",
+                "cash": 738500.0,
+                "equity": 1286400.0,
+                "available_cash": 612300.0,
+                "mode": "paper_readonly",
+            }
+        ]
+
+    def _demo_positions(self, profile: BrokerConnectionProfile) -> list[dict[str, Any]] | None:
+        if not self._is_demo_profile(profile):
+            return None
+        return [
+            {
+                "symbol": "510300.SH",
+                "name": "沪深300ETF",
+                "quantity": 82000,
+                "avg_cost": 3.92,
+                "last_price": 4.08,
+                "market_value": 334560.0,
+                "unrealized_pnl": 13120.0,
+            },
+            {
+                "symbol": "159915.SZ",
+                "name": "创业板ETF",
+                "quantity": 120000,
+                "avg_cost": 1.88,
+                "last_price": 1.94,
+                "market_value": 232800.0,
+                "unrealized_pnl": 7200.0,
+            },
+        ]
+
+    def _demo_orders(self, profile: BrokerConnectionProfile) -> list[dict[str, Any]] | None:
+        if not self._is_demo_profile(profile):
+            return None
+        return [
+            {
+                "order_id": "roadshow-order-001",
+                "symbol": "510300.SH",
+                "side": "buy",
+                "order_type": "limit",
+                "quantity": 20000,
+                "price": 4.02,
+                "status": "filled",
+                "mode": "paper_readonly",
+            },
+            {
+                "order_id": "roadshow-order-002",
+                "symbol": "159915.SZ",
+                "side": "sell",
+                "order_type": "limit",
+                "quantity": 10000,
+                "price": 1.96,
+                "status": "working",
+                "mode": "paper_readonly",
+            },
+        ]
+
+    def _demo_quote(
+        self,
+        profile: BrokerConnectionProfile,
+        symbol: str,
+    ) -> dict[str, Any] | None:
+        if not self._is_demo_profile(profile):
+            return None
+        normalized = str(symbol or "510300.SH").strip().upper()
+        prices = {
+            "510300.SH": 4.08,
+            "159915.SZ": 1.94,
+            "RB2510": 3568.0,
+        }
+        return {
+            "symbol": normalized,
+            "last_price": prices.get(normalized, 100.0),
+            "bid": round(prices.get(normalized, 100.0) * 0.999, 4),
+            "ask": round(prices.get(normalized, 100.0) * 1.001, 4),
+            "source": "roadshow_demo",
+            "mode": "paper_readonly",
+        }
 
     def get_enable_write_confirmation_text(self, profile: BrokerConnectionProfile) -> str:
         return f"ENABLE {profile.account_alias}"

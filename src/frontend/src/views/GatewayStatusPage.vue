@@ -1018,20 +1018,58 @@ const showConnectDialog = ref(false)
 const connecting = ref(false)
 const disconnecting = ref<string | null>(null)
 
+type GatewayCredentialScalar = string | number | boolean | null | undefined
+
+interface GatewayCredentials {
+  account_id?: string
+  access_token?: string
+  api_key?: string
+  app_id?: string
+  asset_type?: string
+  auth_code?: string
+  base_url?: string
+  broker_id?: string
+  cookie_browser?: string
+  cookie_output?: string
+  cookie_path?: string
+  cookie_source?: string
+  login?: string | number
+  login_browser?: string
+  login_headless?: boolean
+  login_mode?: string
+  login_timeout?: number
+  md_front?: string
+  passphrase?: string
+  password?: string
+  secret_key?: string
+  server?: string
+  symbol_suffix?: string
+  td_front?: string
+  testnet?: boolean
+  timeout?: number
+  user_id?: string
+  username?: string
+  verify_ssl?: boolean
+  ws_uri?: string
+  [key: string]: GatewayCredentialScalar
+}
+
+type SavedGatewayCredentials = GatewayCredentials & Record<string, GatewayCredentials | GatewayCredentialScalar>
+
 const connectForm = reactive<{
   exchange_type: string
-  credentials: Record<string, any>
+  credentials: GatewayCredentials
 }>({
   exchange_type: '',
   credentials: {},
 })
 
 // ---- Saved Credentials from .env ----
-const savedCredentials = ref<Record<string, Record<string, any>>>({})
+const savedCredentials = ref<Record<string, SavedGatewayCredentials>>({})
 
 async function fetchSavedCredentials() {
   try {
-    savedCredentials.value = await liveTradingApi.getGatewayCredentials()
+    savedCredentials.value = await liveTradingApi.getGatewayCredentials() as Record<string, SavedGatewayCredentials>
   } catch { /* ignore */ }
 }
 
@@ -1059,7 +1097,7 @@ function applyCtpPreset() {
   const key = ctpEnv.value === 'simnow' ? `simnow_${ctpGroup.value}` : ctpEnv.value
   const preset = CTP_PRESETS[key]
   if (!preset) return
-  const saved = (savedCredentials.value['CTP'] || {}) as Record<string, unknown>
+  const saved = savedCredentials.value['CTP'] || {}
   const userId = connectForm.credentials.user_id || saved.user_id || ''
   const password = connectForm.credentials.password || saved.password || ''
   connectForm.credentials = {
@@ -1080,9 +1118,16 @@ function onCtpGroupChange() {
   applyCtpPreset()
 }
 
+function toGatewayCredentials(value: GatewayCredentials | GatewayCredentialScalar): GatewayCredentials {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+  return value
+}
+
 function applyMt5Preset() {
-  const saved = (savedCredentials.value['MT5'] || {}) as Record<string, unknown>
-  const mode = (saved[mt5Env.value] || {}) as Record<string, unknown>
+  const saved = savedCredentials.value['MT5'] || {}
+  const mode = toGatewayCredentials(saved[mt5Env.value])
   connectForm.credentials = {
     login: mode.login || saved.login || '',
     password: mode.password || saved.password || '',
@@ -1098,8 +1143,8 @@ function onMt5EnvChange() {
 }
 
 function applyIbPreset() {
-  const saved = (savedCredentials.value['IB_WEB'] || {}) as Record<string, unknown>
-  const mode = (saved[ibEnv.value] || {}) as Record<string, unknown>
+  const saved = savedCredentials.value['IB_WEB'] || {}
+  const mode = toGatewayCredentials(saved[ibEnv.value])
   connectForm.credentials = {
     account_id: mode.account_id || saved.account_id || '',
     asset_type: mode.asset_type || saved.asset_type || 'STK',
@@ -1126,7 +1171,7 @@ function onIbEnvChange() {
 
 function onExchangeChange() {
   const exType = connectForm.exchange_type
-  const saved = (savedCredentials.value[exType] || {}) as Record<string, unknown>
+  const saved = savedCredentials.value[exType] || {}
   if (exType === 'CTP') {
     ctpEnv.value = 'simnow'
     ctpGroup.value = 1

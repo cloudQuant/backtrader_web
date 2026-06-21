@@ -1,8 +1,19 @@
 import json
+import socket
+from datetime import datetime, time
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 _TCP_TRANSPORT_GATEWAY_TYPES = {"CTP", "IB_WEB"}
+_SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+_CTP_TRADING_SESSIONS = (
+    (time(9, 0), time(11, 30)),
+    (time(13, 30), time(15, 0)),
+    (time(21, 0), time(23, 59, 59)),
+)
+_CTP_NIGHT_AFTER_MIDNIGHT = (time(0, 0), time(2, 30))
 
 
 def _is_local_ib_base_url(base_url: str) -> bool:
@@ -72,6 +83,140 @@ def parse_json_dict(value: Any) -> dict[str, Any] | None:
     if isinstance(parsed, dict):
         return parsed
     return None
+
+
+def _normalize_shanghai_now(now: datetime | None = None) -> datetime:
+    if now is None:
+        return datetime.now(_SHANGHAI_TZ)
+    if now.tzinfo is None:
+        return now.replace(tzinfo=_SHANGHAI_TZ)
+    return now.astimezone(_SHANGHAI_TZ)
+
+
+def _is_ctp_set1_session(now: datetime) -> bool:
+    current = now.time()
+    if _CTP_NIGHT_AFTER_MIDNIGHT[0] <= current <= _CTP_NIGHT_AFTER_MIDNIGHT[1]:
+        previous_weekday = (now.weekday() - 1) % 7
+        return previous_weekday < 5
+    if now.weekday() >= 5:
+        return False
+    return any(start <= current <= end for start, end in _CTP_TRADING_SESSIONS)
+
+
+def _parse_tcp_front(value: Any) -> tuple[str, int] | None:
+    parsed = urlparse(str(value or "").strip())
+    if parsed.scheme and parsed.scheme.lower() != "tcp":
+        return None
+    host = parsed.hostname
+    port = parsed.port
+    if host and port is not None:
+        return host, port
+    return None
+
+
+def _tcp_front_reachable(value: Any, timeout: float) -> bool:
+    endpoint = _parse_tcp_front(value)
+    if endpoint is None:
+        return False
+    try:
+        with socket.create_connection(endpoint, timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _tcp_fronts_reachable(td_front: str, md_front: str, timeout: float) -> bool:
+    return _tcp_front_reachable(td_front, timeout) and _tcp_front_reachable(
+        md_front, timeout
+    )
+
+
+def resolve_ctp_front_selection(
+    gateway_params: dict[str, Any],
+    env_data: dict[str, str],
+    front: dict[str, Any] | None = None,
+    now: datetime | None = None,
+    fronts_reachable: Callable[[str, str], bool] | None = None,
+) -> dict[str, Any]:
+    """Resolve CTP TD/MD fronts and selection metadata.
+
+    If ``ctp_env`` is omitted, the previous explicit front resolution behavior is
+    preserved.  Presets set ``ctp_env=auto`` so new UI-created CTP gateways use
+    the automatic SimNow selection path.
+    """
+
+    front = dict(front or {})
+    requested_env = str(
+        gateway_params.get("ctp_env") or env_data.get("CTP_ENV") or ""
+    ).strip().lower()
+    set1_group = str(
+        gateway_params.get("set1_group") or env_data.get("CTP_SET1_GROUP") or "1"
+    ).strip() or "1"
+    explicit_td = (
+        gateway_params.get("td_front")
+        or gateway_params.get("td_address")
+        or env_data.get("CTP_TD_ADDRESS")
+        or env_data.get("CTP_TD_FRONT")
+        or front.get("td_address", "")
+    )
+    explicit_md = (
+        gateway_params.get("md_front")
+        or gateway_params.get("md_address")
+        or env_data.get("CTP_MD_ADDRESS")
+        or env_data.get("CTP_MD_FRONT")
+        or front.get("md_address", "")
+    )
+    selected_at = _normalize_shanghai_now(now).isoformat(timespec="seconds")
+
+    if requested_env in {"", "manual", "custom"}:
+        return {
+            "td_front": str(explicit_td or ""),
+            "md_front": str(explicit_md or ""),
+            "selected_ctp_env": "custom_front" if explicit_td or explicit_md else "",
+            "selection_reason": "explicit_fronts" if explicit_td or explicit_md else "no_fronts",
+            "selected_at": selected_at,
+            "requested_ctp_env": requested_env or "manual",
+            "set1_group": set1_group,
+        }
+
+    def _set1(reason: str) -> dict[str, Any]:
+        td = env_data.get(f"CTP_SET1_TD_FRONT_{set1_group}", "tcp://182.254.243.31:30001")
+        md = env_data.get(f"CTP_SET1_MD_FRONT_{set1_group}", "tcp://182.254.243.31:30011")
+        return {
+            "td_front": td,
+            "md_front": md,
+            "selected_ctp_env": f"set1_group{set1_group}",
+            "selection_reason": reason,
+            "selected_at": selected_at,
+            "requested_ctp_env": requested_env,
+            "set1_group": set1_group,
+        }
+
+    def _set2(reason: str) -> dict[str, Any]:
+        return {
+            "td_front": env_data.get("CTP_SET2_TD_FRONT", "tcp://182.254.243.31:40001"),
+            "md_front": env_data.get("CTP_SET2_MD_FRONT", "tcp://182.254.243.31:40011"),
+            "selected_ctp_env": "set2_7x24",
+            "selection_reason": reason,
+            "selected_at": selected_at,
+            "requested_ctp_env": requested_env,
+            "set1_group": set1_group,
+        }
+
+    if requested_env == "set1":
+        return _set1("forced_set1")
+    if requested_env == "set2":
+        return _set2("forced_set2")
+    if requested_env != "auto":
+        return _set2(f"unknown_env_fallback:{requested_env}")
+    if _is_ctp_set1_session(_normalize_shanghai_now(now)):
+        selected = _set1("auto_regular_trading_session")
+        if fronts_reachable is not None and not fronts_reachable(
+            selected["td_front"], selected["md_front"]
+        ):
+            return _set2("auto_regular_session_set1_unreachable")
+        return selected
+    return _set2("auto_outside_regular_session")
 
 
 def resolve_gateway_transport(
@@ -215,6 +360,8 @@ def get_gateway_params(instance: dict[str, Any], default_transport: str) -> dict
         "access_token": str(gateway.get("access_token") or ""),
         "verify_ssl": gateway.get("verify_ssl"),
         "broker_id": str(gateway.get("broker_id") or ""),
+        "ctp_env": str(gateway.get("ctp_env") or ""),
+        "set1_group": str(gateway.get("set1_group") or ""),
         "investor_id": str(gateway.get("investor_id") or ""),
         "user_id": str(gateway.get("user_id") or ""),
         "password": str(gateway.get("password") or ""),
@@ -281,18 +428,35 @@ def build_ctp_gateway_runtime_kwargs(
         or env_data.get("CTP_AUTH_CODE")
         or ctp.get("auth_code", "0000000000000000")
     )
-    td_address = (
-        gateway_params.get("td_front")
-        or gateway_params.get("td_address")
-        or env_data.get("CTP_TD_ADDRESS")
-        or front.get("td_address", "")
+    requested_ctp_env = str(
+        gateway_params.get("ctp_env") or env_data.get("CTP_ENV") or ""
+    ).strip().lower()
+    probe_fronts = coerce_bool(
+        gateway_params.get("probe_fronts")
+        if gateway_params.get("probe_fronts") is not None
+        else env_data.get("CTP_PROBE_FRONTS"),
+        default=True,
     )
-    md_address = (
-        gateway_params.get("md_front")
-        or gateway_params.get("md_address")
-        or env_data.get("CTP_MD_ADDRESS")
-        or front.get("md_address", "")
+    front_probe_timeout_sec = coerce_float(
+        gateway_params.get("front_probe_timeout_sec")
+        or env_data.get("CTP_FRONT_PROBE_TIMEOUT_SEC"),
+        default=0.75,
     )
+    fronts_reachable = None
+    if requested_ctp_env == "auto" and probe_fronts:
+        fronts_reachable = lambda td_front, md_front: _tcp_fronts_reachable(
+            td_front,
+            md_front,
+            timeout=front_probe_timeout_sec,
+        )
+    ctp_front_selection = resolve_ctp_front_selection(
+        gateway_params=gateway_params,
+        env_data=env_data,
+        front=front,
+        fronts_reachable=fronts_reachable,
+    )
+    td_address = ctp_front_selection.get("td_front")
+    md_address = ctp_front_selection.get("md_front")
     account_id = gateway_params.get("account_id") or investor_id
     if not all([account_id, investor_id, broker_id, password, td_address, md_address]):
         raise ValueError("CTP gateway requires complete CTP credentials and front addresses")
@@ -308,6 +472,13 @@ def build_ctp_gateway_runtime_kwargs(
         "gateway_base_dir": gateway_params.get("base_dir") or "",
         "md_address": md_address,
         "td_address": td_address,
+        "md_front": md_address,
+        "td_front": td_address,
+        "selected_ctp_env": ctp_front_selection.get("selected_ctp_env", ""),
+        "selection_reason": ctp_front_selection.get("selection_reason", ""),
+        "ctp_env_selected_at": ctp_front_selection.get("selected_at", ""),
+        "requested_ctp_env": ctp_front_selection.get("requested_ctp_env", ""),
+        "set1_group": ctp_front_selection.get("set1_group", ""),
         "broker_id": broker_id,
         "investor_id": investor_id,
         "user_id": investor_id,

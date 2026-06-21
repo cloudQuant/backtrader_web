@@ -41,6 +41,15 @@ class FuturesForeignCommodityRealtime(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
+            if "symbol" not in kwargs or not kwargs.get("symbol"):
+                symbols_df = self.fetch_ak_data(
+                    "futures_foreign_commodity_subscribe_exchange_symbol"
+                )
+                if symbols_df is None or symbols_df.empty or "code" not in symbols_df.columns:
+                    self.logger.warning("No foreign commodity symbols found")
+                    return pd.DataFrame()
+                kwargs["symbol"] = symbols_df["code"].dropna().astype(str).tolist()
+
             # Fetch data from AkShare
             df = self.fetch_ak_data("futures_foreign_commodity_realtime", **kwargs)
 

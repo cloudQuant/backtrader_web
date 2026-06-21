@@ -22,6 +22,13 @@ const ALLOWED_TAGS = [
  */
 const ALLOWED_ATTR = ['href', 'src', 'alt', 'class', 'id', 'title', 'target', 'rel']
 
+const DANGEROUS_REMOTE_TAG_RE =
+  /<(script|iframe|object|embed)\b[\s\S]*?<\/\1>|<(script|iframe|object|embed)\b[^>]*\/?>/gi
+const EVENT_HANDLER_ATTR_RE = /\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi
+const UNSAFE_URI_ATTR_RE =
+  /\s+(href|src)\s*=\s*(?:"\s*(?:javascript|data):[^"]*"|'\s*(?:javascript|data):[^']*'|\s*(?:javascript|data):[^\s>]+)/gi
+const SCRIPT_PROTOCOL_RE = /javascript\s*:/gi
+
 export interface SanitizeOptions {
   /** Allow <img> tags in output. Defaults to true. */
   allowImages?: boolean
@@ -89,11 +96,22 @@ export function renderMarkdown(raw: string | null | undefined, options?: Sanitiz
     }
   }
 
+  const precleaned = html
+    .replace(DANGEROUS_REMOTE_TAG_RE, '')
+    .replace(UNSAFE_URI_ATTR_RE, '')
+    .replace(EVENT_HANDLER_ATTR_RE, '')
+    .replace(SCRIPT_PROTOCOL_RE, '')
+
   // Sanitize HTML with DOMPurify
-  const clean = DOMPurify.sanitize(html, {
+  const clean = DOMPurify.sanitize(precleaned, {
     ALLOWED_TAGS: tags,
     ALLOWED_ATTR: attrs,
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i,
   })
 
   return clean
+    .replace(UNSAFE_URI_ATTR_RE, '')
+    .replace(EVENT_HANDLER_ATTR_RE, '')
+    .replace(SCRIPT_PROTOCOL_RE, '')
 }

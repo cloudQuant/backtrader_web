@@ -4,7 +4,7 @@ import request from '@/api/index'
 import { aiObservabilityApi } from '@/api/aiObservability'
 
 vi.mock('@/api/index', () => ({
-  default: { get: vi.fn(), patch: vi.fn(), post: vi.fn() },
+  default: { delete: vi.fn(), get: vi.fn(), patch: vi.fn(), post: vi.fn(), put: vi.fn() },
 }))
 
 describe('aiObservabilityApi', () => {
@@ -56,6 +56,44 @@ describe('aiObservabilityApi', () => {
     await aiObservabilityApi.getMyAvailableModels()
 
     expect(request.get).toHaveBeenCalledWith('/me/ai/available-models')
+  })
+
+  it('loads admin AI provider configs', async () => {
+    vi.mocked(request.get).mockResolvedValue({ items: [] })
+
+    await aiObservabilityApi.getAdminAIProviderConfigs()
+
+    expect(request.get).toHaveBeenCalledWith('/admin/ai/provider-configs')
+  })
+
+  it('updates an admin AI provider config', async () => {
+    vi.mocked(request.put).mockResolvedValue({ provider: 'local_openai' })
+
+    await aiObservabilityApi.updateAdminAIProviderConfig('local_openai', {
+      display_name: 'Local OpenAI',
+      provider_type: 'openai_compatible',
+      base_url: 'https://llm.example.com/v1',
+      api_key: 'sk-test',
+      models: ['local-model'],
+      enabled: true,
+    })
+
+    expect(request.put).toHaveBeenCalledWith('/admin/ai/provider-configs/local_openai', {
+      display_name: 'Local OpenAI',
+      provider_type: 'openai_compatible',
+      base_url: 'https://llm.example.com/v1',
+      api_key: 'sk-test',
+      models: ['local-model'],
+      enabled: true,
+    })
+  })
+
+  it('deletes an admin AI provider config', async () => {
+    vi.mocked(request.delete).mockResolvedValue(undefined)
+
+    await aiObservabilityApi.deleteAdminAIProviderConfig('local_openai')
+
+    expect(request.delete).toHaveBeenCalledWith('/admin/ai/provider-configs/local_openai')
   })
 
   it('updates current user AI preferences', async () => {

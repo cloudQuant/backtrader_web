@@ -128,6 +128,14 @@ the code-side of §H (logs↔traces correlation, OTel/Prometheus metrics) shippe
      (`tests/test_gateway_net_probe.py`); `manual.py` re-exports them. Credential
      merge/env-coercion helpers already live in `manual_gateway/utils.py` (prior
      pass). `manual.py` 2061 → 2044 lines.
+     **Status (2026-06-16, iteration 181-C)**: continued. Port cleanup,
+     base URL endpoint parsing, TCP endpoint probes and wait logic moved to
+     `app/services/gateway/manual_ports.py`; CTP/TUN proxy route probes, Clash
+     DIRECT rule helpers and CONNECT tunnel decision logic moved to
+     `app/services/gateway/manual_ctp_proxy.py`. `manual.py` keeps thin `_xxx`
+     facades for compatibility. Direct helper tests added in
+     `tests/test_gateway_manual_helpers.py`; gateway/live-trading wildcard tests
+     passed. `manual.py` 2044 → 1697 lines.
   2. Wrap blocking calls in `asyncio.to_thread(...)` at the *callers* in
      async handlers; keep the service synchronous internally. **DONE (178 §B)**:
      7 async live-trading endpoints wrapped; see iteration-178 CLOSURE §2.
@@ -143,6 +151,8 @@ the code-side of §H (logs↔traces correlation, OTel/Prometheus metrics) shippe
      helper) and only falls back to `ifconfig` when psutil is unavailable. The
      `scutil --proxy` and `route` probes (macOS-only) remain shell-based — no
      clean psutil/stdlib equivalent — and stay as documented fallbacks.
+     **Status (2026-06-16, iteration 181-C)**: the psutil-first behavior now
+     lives in `manual_ports.py` / `manual_ctp_proxy.py` with focused unit tests.
 - **Effort**: M-L per slice; full split (slice 3) is L (1–2 weeks).
 
 ### 6. `workspace_service.py` (~2560 lines → 726 lines after slices)

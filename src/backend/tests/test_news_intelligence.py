@@ -101,6 +101,7 @@ async def test_news_intelligence_pull_source_and_filter_articles(
     <item>
       <title>RB2510 surges after bullish demand shock</title>
       <link>https://example.com/rss/rb2510?utm_source=test</link>
+      <description>Demand shock lifted steel-linked futures.</description>
       <category>RB2510</category>
     </item>
     <item>
@@ -164,7 +165,49 @@ async def test_news_intelligence_pull_source_and_filter_articles(
     assert rb_articles.status_code == 200
     assert rb_articles.json()["total"] == 1
     assert rb_articles.json()["items"][0]["tickers"] == ["RB2510"]
+    assert "Demand shock" in rb_articles.json()["items"][0]["summary"]
 
     assert cluster_articles.status_code == 200
     assert cluster_articles.json()["total"] == 1
     assert cluster_articles.json()["items"][0]["cluster_id"] == cluster_id
+
+
+@pytest.mark.asyncio
+async def test_news_intelligence_default_rss_fetcher_uses_financial_feed_headers(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        text = "<rss><channel></channel></rss>"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            captured["client_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args) -> None:
+            return None
+
+        async def get(self, url: str, **kwargs):
+            captured["url"] = url
+            captured["get_kwargs"] = kwargs
+            return FakeResponse()
+
+    monkeypatch.setattr("app.services.news_intelligence.httpx.AsyncClient", FakeAsyncClient)
+
+    body = await NewsIntelligenceService()._default_rss_fetcher(
+        "https://feeds.bloomberg.com/markets/news.rss"
+    )
+
+    get_kwargs = captured["get_kwargs"]
+    assert body.startswith("<rss")
+    assert captured["url"] == "https://feeds.bloomberg.com/markets/news.rss"
+    assert "headers" in get_kwargs
+    assert "Mozilla/5.0" in get_kwargs["headers"]["User-Agent"]
+    assert "application/rss+xml" in get_kwargs["headers"]["Accept"]

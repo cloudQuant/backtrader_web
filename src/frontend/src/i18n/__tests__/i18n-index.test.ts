@@ -57,11 +57,11 @@ describe('getStoredLocale', () => {
     expect(getStoredLocale()).toBe('ja-JP')
   })
 
-  it('defaults to en-US when nothing matches', async () => {
+  it('defaults to zh-CN when nothing matches', async () => {
     stubLocalStorage()
     setBrowserLanguage('xx')
     const { getStoredLocale } = await loadModule()
-    expect(getStoredLocale()).toBe('en-US')
+    expect(getStoredLocale()).toBe('zh-CN')
   })
 })
 

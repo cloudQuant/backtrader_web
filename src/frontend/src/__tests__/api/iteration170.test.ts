@@ -8,7 +8,7 @@ import { portfolioLedgerApi } from '@/api/portfolioLedger'
 import { marketIntelApi } from '@/api/marketIntel'
 
 vi.mock('@/api/index', () => ({
-  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
+  default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }))
 
 describe('iteration170 api wrappers', () => {
@@ -34,6 +34,7 @@ describe('iteration170 api wrappers', () => {
     vi.mocked(request.get).mockResolvedValue({ items: [], total: 0 })
 
     await portfolioLedgerApi.create({ name: 'ledger' })
+    await portfolioLedgerApi.list()
     await portfolioLedgerApi.importTransactions('ledger-1', { format: 'json', idempotency_key: 'abc', transactions: [] })
     await portfolioLedgerApi.getDetail('ledger-1')
     await portfolioLedgerApi.getHoldings('ledger-1')
@@ -55,18 +56,19 @@ describe('iteration170 api wrappers', () => {
     })
 
     expect(request.post).toHaveBeenNthCalledWith(1, '/portfolio-ledger', { name: 'ledger' })
+    expect(request.get).toHaveBeenNthCalledWith(1, '/portfolio-ledger')
     expect(request.post).toHaveBeenNthCalledWith(2, '/portfolio-ledger/ledger-1/import', { format: 'json', idempotency_key: 'abc', transactions: [] })
-    expect(request.get).toHaveBeenNthCalledWith(1, '/portfolio-ledger/ledger-1')
-    expect(request.get).toHaveBeenNthCalledWith(2, '/portfolio-ledger/ledger-1/holdings')
-    expect(request.get).toHaveBeenNthCalledWith(3, '/portfolio-ledger/ledger-1/transactions')
+    expect(request.get).toHaveBeenNthCalledWith(2, '/portfolio-ledger/ledger-1')
+    expect(request.get).toHaveBeenNthCalledWith(3, '/portfolio-ledger/ledger-1/holdings')
+    expect(request.get).toHaveBeenNthCalledWith(4, '/portfolio-ledger/ledger-1/transactions')
     expect(request.post).toHaveBeenNthCalledWith(3, '/portfolio-ledger/ledger-1/snapshots/backfill')
-    expect(request.get).toHaveBeenNthCalledWith(4, '/portfolio-ledger/ledger-1/snapshots')
-    expect(request.get).toHaveBeenNthCalledWith(5, '/portfolio-ledger/ledger-1/export', { params: { format: 'json' } })
-    expect(request.get).toHaveBeenNthCalledWith(6, '/portfolio-ledger/ledger-1/analytics/var-cvar', { params: { method: 'parametric' } })
-    expect(request.get).toHaveBeenNthCalledWith(7, '/portfolio-ledger/ledger-1/analytics/position-sizing', {
+    expect(request.get).toHaveBeenNthCalledWith(5, '/portfolio-ledger/ledger-1/snapshots')
+    expect(request.get).toHaveBeenNthCalledWith(6, '/portfolio-ledger/ledger-1/export', { params: { format: 'json' } })
+    expect(request.get).toHaveBeenNthCalledWith(7, '/portfolio-ledger/ledger-1/analytics/var-cvar', { params: { method: 'parametric' } })
+    expect(request.get).toHaveBeenNthCalledWith(8, '/portfolio-ledger/ledger-1/analytics/position-sizing', {
       params: { target_volatility: 0.2, max_position: 1.5 },
     })
-    expect(request.get).toHaveBeenNthCalledWith(8, '/portfolio-ledger/ledger-1/analytics/benchmark-metrics', {
+    expect(request.get).toHaveBeenNthCalledWith(9, '/portfolio-ledger/ledger-1/analytics/benchmark-metrics', {
       params: { benchmark_id: 'hs300', risk_free_rate: 0.02 },
     })
     expect(request.post).toHaveBeenNthCalledWith(4, '/portfolio-ledger/ledger-1/analytics/brinson', {
@@ -83,6 +85,8 @@ describe('iteration170 api wrappers', () => {
   it('calls market intelligence endpoints', async () => {
     vi.mocked(request.get).mockResolvedValue({ items: [], total: 0 })
     vi.mocked(request.post).mockResolvedValue({ status: 'ok' })
+    vi.mocked(request.patch).mockResolvedValue({ id: 'plan-1' })
+    vi.mocked(request.delete).mockResolvedValue({ deleted: true })
 
     await marketIntelApi.searchEquities('RB')
     await marketIntelApi.getEquityInfo('RB2510')
@@ -93,6 +97,35 @@ describe('iteration170 api wrappers', () => {
     await marketIntelApi.listArticles({ sentiment: 'BULLISH', ticker: 'RB2510' })
     await marketIntelApi.getOptionsChain('RB2510', '2026-12-31')
     await marketIntelApi.runScanner({ universe: ['RB2510'], condition: 'price > 100' })
+    await marketIntelApi.precomputeScannerUniversePool('hs300', { lookback_days: 20, timeframe: '1d' })
+    await marketIntelApi.createScannerPlan({
+      name: '沪深300动量日报',
+      universe_pool_id: 'hs300',
+      indicator_rules: [],
+      condition: 'price > 0',
+      lookback_days: 20,
+      timeframe: '1d',
+      schedule_enabled: true,
+      schedule_frequency: 'daily',
+    })
+    await marketIntelApi.listScannerPlans()
+    await marketIntelApi.updateScannerPlan('plan-1', {
+      name: '沪深300质量动量',
+      universe_pool_id: 'hs300',
+      indicator_rules: [],
+      condition: 'factor >= 0.6',
+      lookback_days: 60,
+      timeframe: '4h',
+      schedule_enabled: true,
+      schedule_frequency: 'daily',
+      status: 'active',
+    })
+    await marketIntelApi.createScannerPlanResultTable('plan-1')
+    await marketIntelApi.deleteScannerPlanResultTable('plan-1')
+    await marketIntelApi.deleteScannerPlan('plan-1')
+    await marketIntelApi.runScannerPlan('plan-1', {})
+    await marketIntelApi.runDailyScannerPlans({})
+    await marketIntelApi.listScannerPlanRuns('plan-1')
     await marketIntelApi.getScannerTask('task-1')
     await marketIntelApi.listQuantTools()
     await marketIntelApi.callQuantTool({ tool_name: 'markets.get_quote', input: { symbol: 'RB2510' } })
@@ -104,11 +137,40 @@ describe('iteration170 api wrappers', () => {
     expect(request.post).toHaveBeenNthCalledWith(1, '/news-intelligence/sources', { name: 'terminal-rss', url: 'https://example.com/rss' })
     expect(request.post).toHaveBeenNthCalledWith(2, '/news-intelligence/sources/terminal-rss/pull', undefined, { params: { limit: 10 } })
     expect(request.get).toHaveBeenNthCalledWith(5, '/news-intelligence/articles', { params: { sentiment: 'BULLISH', ticker: 'RB2510' } })
-    expect(request.get).toHaveBeenNthCalledWith(6, '/options-chain/RB2510', { params: { expiry: '2026-12-31', provider: 'auto' } })
-    expect(request.post).toHaveBeenNthCalledWith(3, '/scanners/run', { universe: ['RB2510'], condition: 'price > 100' })
-    expect(request.get).toHaveBeenNthCalledWith(7, '/scanners/tasks/task-1')
-    expect(request.get).toHaveBeenNthCalledWith(8, '/quant-tools')
-    expect(request.post).toHaveBeenNthCalledWith(4, '/quant-tools/call', { tool_name: 'markets.get_quote', input: { symbol: 'RB2510' } })
+    expect(request.get).toHaveBeenNthCalledWith(6, '/options-chain/RB2510', { params: { expiry: '2026-12-31', provider: 'data_governance' } })
+    expect(request.post).toHaveBeenNthCalledWith(3, '/scanners/run', { universe: ['RB2510'], condition: 'price > 100' }, { timeout: 300000 })
+    expect(request.post).toHaveBeenNthCalledWith(4, '/scanners/universe-pools/hs300/precompute', { lookback_days: 20, timeframe: '1d' }, { timeout: 300000 })
+    expect(request.post).toHaveBeenNthCalledWith(5, '/scanners/plans', {
+      name: '沪深300动量日报',
+      universe_pool_id: 'hs300',
+      indicator_rules: [],
+      condition: 'price > 0',
+      lookback_days: 20,
+      timeframe: '1d',
+      schedule_enabled: true,
+      schedule_frequency: 'daily',
+    })
+    expect(request.get).toHaveBeenNthCalledWith(7, '/scanners/plans')
+    expect(request.patch).toHaveBeenCalledWith('/scanners/plans/plan-1', {
+      name: '沪深300质量动量',
+      universe_pool_id: 'hs300',
+      indicator_rules: [],
+      condition: 'factor >= 0.6',
+      lookback_days: 60,
+      timeframe: '4h',
+      schedule_enabled: true,
+      schedule_frequency: 'daily',
+      status: 'active',
+    })
+    expect(request.post).toHaveBeenNthCalledWith(6, '/scanners/plans/plan-1/result-table')
+    expect(request.delete).toHaveBeenNthCalledWith(1, '/scanners/plans/plan-1/result-table')
+    expect(request.delete).toHaveBeenNthCalledWith(2, '/scanners/plans/plan-1')
+    expect(request.post).toHaveBeenNthCalledWith(7, '/scanners/plans/plan-1/runs', {}, { timeout: 300000 })
+    expect(request.post).toHaveBeenNthCalledWith(8, '/scanners/plans/daily-runs', {}, { timeout: 300000 })
+    expect(request.get).toHaveBeenNthCalledWith(8, '/scanners/plans/plan-1/runs')
+    expect(request.get).toHaveBeenNthCalledWith(9, '/scanners/tasks/task-1')
+    expect(request.get).toHaveBeenNthCalledWith(10, '/quant-tools')
+    expect(request.post).toHaveBeenNthCalledWith(9, '/quant-tools/call', { tool_name: 'markets.get_quote', input: { symbol: 'RB2510' } })
   })
 
   it('calls data topics endpoints', async () => {

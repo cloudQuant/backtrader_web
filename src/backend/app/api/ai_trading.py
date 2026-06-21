@@ -8,6 +8,7 @@ Provides endpoints for:
 """
 
 from functools import lru_cache
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -29,6 +30,52 @@ router = APIRouter()
 def get_ai_trading_service() -> AITradingService:
     """Get or create the AI trading service singleton."""
     return AITradingService()
+
+
+def _merge_selectable_accounts(
+    paper_accounts: list[dict[str, Any]],
+    gateways: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build account selector options from paper accounts and connected gateways."""
+    accounts: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    for account in paper_accounts:
+        account_id = str(account.get("account_id") or "")
+        if not account_id:
+            continue
+        item = {**account, "source": account.get("source") or "paper"}
+        key = (str(item.get("source") or "paper"), account_id, str(item.get("gateway_id") or ""))
+        if key not in seen:
+            seen.add(key)
+            accounts.append(item)
+
+    for gateway in gateways:
+        if not gateway.get("connected"):
+            continue
+        gateway_id = str(gateway.get("gateway_id") or "")
+        account_id = str(gateway.get("account_id") or gateway_id)
+        if not gateway_id or not account_id:
+            continue
+        exchange_type = str(gateway.get("exchange_type") or "")
+        name = f"{exchange_type} · {account_id}" if exchange_type else account_id
+        item = {
+            "account_id": account_id,
+            "name": name,
+            "total_equity": None,
+            "current_cash": None,
+            "is_active": True,
+            "source": "gateway",
+            "gateway_id": gateway_id,
+            "exchange_type": exchange_type,
+            "connected": True,
+        }
+        key = ("gateway", account_id, gateway_id)
+        if key not in seen:
+            seen.add(key)
+            accounts.append(item)
+
+    return accounts
 
 
 @router.post(
@@ -112,7 +159,8 @@ async def get_config(
     """
     config = service.risk_guard.config
     available_gateways = service.list_available_gateways()
-    available_accounts = await service.list_available_accounts(current_user.sub)
+    paper_accounts = await service.list_available_accounts(current_user.sub)
+    available_accounts = _merge_selectable_accounts(paper_accounts, available_gateways)
     return AITradingConfigResponse(
         enabled=True,
         default_mode="paper",

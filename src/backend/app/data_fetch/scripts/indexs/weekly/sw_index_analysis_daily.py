@@ -2,6 +2,8 @@
 import argparse
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -62,6 +64,7 @@ class SWIndexAnalysisDaily(AkshareToMySql):
                 symbol=symbol,
                 start_date=start_date,
                 end_date=end_date,
+                _call_timeout=120,
             )
 
             if df is None or df.empty:
@@ -103,31 +106,95 @@ class SWIndexAnalysisDaily(AkshareToMySql):
             self.logger.error(f"Error fetching analysis data: {str(e)}", exc_info=True)
             return pd.DataFrame()
 
-    def run(self, symbol=None, start_date=None, end_date=None, update_all=False):
+    def _normalize_date_arg(self, value) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.strftime("%Y%m%d")
+        if isinstance(value, date):
+            return value.strftime("%Y%m%d")
+        value_str = str(value).strip()
+        if not value_str:
+            return None
+        for fmt in ("%Y%m%d", "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+            try:
+                return datetime.strptime(value_str, fmt).strftime("%Y%m%d")
+            except ValueError:
+                continue
+        parsed = pd.to_datetime(value_str, errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return parsed.strftime("%Y%m%d")
+
+    def _get_default_end_date(self) -> str:
+        return self.get_current_date().replace("-", "")
+
+    def _get_default_start_date(self) -> str:
+        latest_date = self.get_latest_date(self.table_name, "TRADE_DATE")
+        if latest_date is None:
+            return "20050104"
+        return self._normalize_date_arg(latest_date) or "20050104"
+
+    def _save_analysis_data(self, symbol, df):
+        if df.empty:
+            self.logger.info(f"No new daily analysis records for {symbol}")
+            return
+        self.save_data(
+            df=df.replace({np.nan: None}),
+            table_name=self.table_name,
+            on_duplicate_update=True,
+            unique_keys=["INDEX_CODE", "TRADE_DATE", "SYMBOL_TYPE"],
+        )
+        self.logger.info(f"Updated {len(df)} daily analysis records for {symbol}")
+
+    def _fetch_analysis_jobs(self, jobs, max_workers):
+        worker_count = max(1, min(max_workers, len(jobs)))
+        if worker_count == 1:
+            for symbol, start_date, end_date in jobs:
+                yield symbol, self.fetch_analysis_data(symbol, start_date, end_date)
+            return
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(self.fetch_analysis_data, symbol, start_date, end_date): symbol
+                for symbol, start_date, end_date in jobs
+            }
+            for future in as_completed(future_map):
+                symbol = future_map[future]
+                try:
+                    yield symbol, future.result()
+                except Exception as exc:
+                    self.logger.error(f"Error fetching analysis data for {symbol}: {exc}")
+                    yield symbol, pd.DataFrame()
+
+    def run(self, symbol=None, start_date=None, end_date=None, update_all=False, max_workers=4):
         """Run the Shenwan Index daily analysis update"""
         try:
             if not self.table_exists(self.table_name):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
 
-            # Set default dates if not provided
-            if not end_date:
-                end_date = self.get_previous_date().replace("-", "")
-            if not start_date:
-                start_date = "20050104"
+            requested_end_date = self._normalize_date_arg(end_date) or self._get_default_end_date()
+            explicit_start_date = self._normalize_date_arg(start_date)
             symbol_list = self.valid_symbols if symbol is None else [symbol]
+            jobs = []
+            default_start_date = None if explicit_start_date or update_all else self._get_default_start_date()
             for symbol in symbol_list:
-                df = self.fetch_analysis_data(symbol, start_date, end_date)
-
-                if not df.empty:
-                    # Save data
-                    self.save_data(
-                        df=df.replace({np.nan: None}),
-                        table_name=self.table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["INDEX_CODE", "TRADE_DATE", "SYMBOL_TYPE"],
+                resolved_start_date = (
+                    explicit_start_date
+                    or ("20050104" if update_all else default_start_date)
+                )
+                if resolved_start_date > requested_end_date:
+                    self.logger.info(
+                        f"Daily analysis for {symbol} is already up to date through "
+                        f"{requested_end_date}"
                     )
-                    self.logger.info(f"Updated {len(df)} daily analysis records for {symbol}")
+                    continue
+                jobs.append((symbol, resolved_start_date, requested_end_date))
+
+            self.logger.info(f"Prepared {len(jobs)} Shenwan daily analysis fetch jobs")
+            for symbol, df in self._fetch_analysis_jobs(jobs, int(max_workers or 1)):
+                self._save_analysis_data(symbol, df)
 
             return True
 

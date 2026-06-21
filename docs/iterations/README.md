@@ -25,6 +25,8 @@
 | 迭代177 | 质量门禁修复与安全纵深（CI 触发分支修复 + lint/format 债清零 + pip-audit + secret 扫描 + mypy 仓库棘轮） | 已完成（详见 `迭代177-质量门禁修复与安全纵深/CLOSURE.md`） |
 | 迭代178 | 安全纵深收口与质量债治理（git 历史凭据清除工具 + 实盘阻塞 I/O `to_thread` + pip-audit flip blocking + 吞异常留痕 + mypy 1065→1017） | 已完成（代码侧收口；G1 历史重写待 owner；详见 `迭代178-安全纵深收口与质量债治理/CLOSURE.md`） |
 | 迭代179 | 质量债棘轮续拧与安全收尾（`.slowapi.env` untrack + `gateway/manual.py` 切片/psutil 化 + mypy 1017 续拧 + advisory 门禁 flip 决策） | 规划中（计划见 `迭代179-质量债棘轮续拧与安全收尾/PLAN.md`） |
+| 迭代180 | 功能域整合与产品工作台收敛（能力地图 + 导航收敛 + canonical route + 跨域工作流） | 规划中（计划见 `迭代180-功能域整合与产品工作台收敛/PLAN.md`） |
+| 迭代181 | BMAD 代码质量与安全优化（历史凭据闭环 + sync 命令安全 + gateway 切片 + 前端 HTML/Token + CI advisory 硬化 + mypy/大文件棘轮） | A/B/C/D/E 已验收，F 小棘轮部分验收；owner 历史清理、repo-wide mypy baseline、测试 `as any` 和后续大文件切片剩余（计划见 `迭代181-BMAD代码质量与安全优化计划/PLAN.md`；本轮记录见 `迭代181-BMAD代码质量与安全优化计划/ACCEPTANCE.md`） |
 
 > **路线总览**: 迭代 166-169 隶属同一跃迁路线
 > 「世界一流 AI+量化投研平台跃迁」，

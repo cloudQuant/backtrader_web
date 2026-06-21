@@ -7,6 +7,8 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
+import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
+from app.data_fetch.utils.akshare_network_proxy import configure_akshare_network_proxy
 from app.models.akshare_mgmt import (
     DataInterface,
     DataScript,
@@ -27,6 +30,10 @@ from app.services.akshare.data import AkshareDataService
 from app.services.akshare.execution import AkshareExecutionService
 
 settings = get_settings()
+
+_SCRIPT_MIN_TIMEOUT_SECONDS = {
+    "stock_us_spot_em": 600.0,
+}
 
 
 class AkshareScriptService:
@@ -327,6 +334,17 @@ class AkshareScriptService:
 
     def _resolve_module_callable(self, module: Any, func_name: str) -> Any | None:
         candidate = getattr(module, func_name, None)
+        if callable(candidate) and func_name != "main":
+            return candidate
+
+        legacy_instance = self._legacy_script_instance(module)
+        if legacy_instance is not None:
+            for name in (func_name, "fetch_data", "run"):
+                candidate = getattr(legacy_instance, name, None)
+                if callable(candidate):
+                    return candidate
+
+        candidate = getattr(module, func_name, None)
         if callable(candidate):
             return candidate
 
@@ -335,19 +353,25 @@ class AkshareScriptService:
             if callable(candidate):
                 return candidate
 
-        legacy_instance = self._legacy_script_instance(module)
-        if legacy_instance is None:
-            return None
-
-        for name in (func_name, "fetch_data", "run"):
-            candidate = getattr(legacy_instance, name, None)
-            if callable(candidate):
-                return candidate
-
         return None
 
     async def _resolve_callable(self, script: DataScript) -> Any:
         func_name = str(script.function_name or "main")
+        if script.source == "akshare" and not script.is_custom:
+            if script.module_path:
+                try:
+                    module = importlib.import_module(str(script.module_path))
+                except ModuleNotFoundError:
+                    module = None
+                if module is not None and getattr(module, "PREFER_LOCAL_SCRIPT", False):
+                    candidate = self._resolve_module_callable(module, func_name)
+                    if callable(candidate):
+                        return candidate
+
+            candidate = await self._resolve_callable_from_interface(script)
+            if callable(candidate):
+                return candidate
+
         if script.module_path:
             try:
                 module = importlib.import_module(str(script.module_path))
@@ -366,6 +390,12 @@ class AkshareScriptService:
     def _coerce_to_dataframe(self, result: Any) -> pd.DataFrame:
         if isinstance(result, pd.DataFrame):
             return result
+        if isinstance(result, pd.Series):
+            name = result.name if result.name is not None else "value"
+            dataframe = result.to_frame(name=name)
+            if result.index.name is not None or not isinstance(result.index, pd.RangeIndex):
+                return dataframe.reset_index()
+            return dataframe.reset_index(drop=True)
         if isinstance(result, list):
             return pd.DataFrame(result)
         if isinstance(result, dict):
@@ -375,6 +405,85 @@ class AkshareScriptService:
                 return pd.DataFrame(result["records"])
             return pd.DataFrame([result])
         raise TypeError("Script result cannot be converted to DataFrame")
+
+    @staticmethod
+    def _script_timeout_seconds(
+        script: DataScript | None = None,
+        timeout_seconds: int | float | None = None,
+    ) -> float:
+        script_id = getattr(script, "script_id", None) if script is not None else None
+        min_timeout = _SCRIPT_MIN_TIMEOUT_SECONDS.get(script_id, 0.0)
+        if timeout_seconds is not None and float(timeout_seconds) > 0:
+            return max(float(timeout_seconds), min_timeout)
+        script_timeout = getattr(script, "timeout", None) if script is not None else None
+        if script_timeout is not None and float(script_timeout) > 0:
+            return max(float(script_timeout), min_timeout)
+        raw_timeout = os.getenv("AKSHARE_SCRIPT_TIMEOUT") or os.getenv(
+            "AKSHARE_CALL_TIMEOUT", "60"
+        )
+        try:
+            return max(float(raw_timeout), min_timeout)
+        except ValueError:
+            return max(60.0, min_timeout)
+
+    @staticmethod
+    async def _execute_callable(
+        callable_obj: Any, params: dict[str, Any], timeout_s: float
+    ) -> Any:
+        configure_akshare_network_proxy()
+        if inspect.iscoroutinefunction(callable_obj):
+            awaitable = callable_obj(**params)
+        else:
+            awaitable = asyncio.to_thread(callable_obj, **params)
+
+        try:
+            return await asyncio.wait_for(awaitable, timeout=timeout_s)
+        except asyncio.TimeoutError as exc:
+            raise asyncio.TimeoutError(
+                f"Script call timed out after {timeout_s:g} seconds"
+            ) from exc
+
+    @staticmethod
+    def _normalize_parameters(parameters: Any) -> dict[str, Any]:
+        if parameters is None:
+            return {}
+        if isinstance(parameters, dict):
+            return parameters
+        if isinstance(parameters, str):
+            raw = parameters.strip()
+            if not raw:
+                return {}
+            parsed: Any = raw
+            for _ in range(2):
+                if isinstance(parsed, dict):
+                    return parsed
+                if not isinstance(parsed, str):
+                    break
+                parsed = json.loads(parsed)
+            if isinstance(parsed, dict):
+                return parsed
+        raise TypeError("Script parameters must be a JSON object")
+
+    @staticmethod
+    def _apply_safe_default_parameters(script_id: str, parameters: dict[str, Any]) -> dict[str, Any]:
+        safe_defaults = {
+            "stock_hold_management_detail_em": {"max_pages": 5},
+            "stock_gdfx_holding_teamwork_em": {"max_pages": 10},
+            "stock_gdfx_holding_change_em": {"max_pages": 1},
+            "stock_gdfx_free_holding_detail_em": {"max_pages": 10},
+            "stock_gdfx_holding_detail_em": {"max_pages": 20},
+            "stock_jgdy_detail_em": {"max_pages": 10},
+            "stock_zh_a_gdhs": {"max_pages": 10},
+            "stock_zh_kcb_report_em": {"to_page": 10},
+            "stock_hot_deal_xq": {"max_pages": 1},
+            "stock_share_hold_change_szse": {"max_pages": 10},
+        }
+        defaults = safe_defaults.get(script_id)
+        if defaults is None:
+            return parameters
+        merged = dict(defaults)
+        merged.update(parameters)
+        return merged
 
     @staticmethod
     def _legacy_table_name(script: DataScript) -> str | None:
@@ -403,6 +512,7 @@ class AkshareScriptService:
         operator_id: str | None = None,
         task_id: int | None = None,
         triggered_by: TriggeredBy = TriggeredBy.MANUAL,
+        timeout_seconds: int | float | None = None,
     ) -> TaskExecution:
         script = await self.get_script(script_id)
         if script is None:
@@ -410,7 +520,9 @@ class AkshareScriptService:
         if not script.is_active:
             raise ValueError("Script is not active")
 
-        params = parameters or {}
+        params = self._apply_safe_default_parameters(
+            script.script_id, self._normalize_parameters(parameters)
+        )
         execution = await self.execution_service.create_execution(
             script_id=script.script_id,
             task_id=task_id,
@@ -432,10 +544,11 @@ class AkshareScriptService:
                 if legacy_table_name and legacy_table_name != dataframe_table_name
                 else dataframe_rows_before
             )
-            if inspect.iscoroutinefunction(callable_obj):
-                result = await callable_obj(**params)
-            else:
-                result = await asyncio.to_thread(callable_obj, **params)
+            result = await self._execute_callable(
+                callable_obj,
+                params,
+                self._script_timeout_seconds(script, timeout_seconds=timeout_seconds),
+            )
 
             if self._legacy_callable_table_name(callable_obj) is not None:
                 table = await self.data_service.sync_existing_table_metadata(

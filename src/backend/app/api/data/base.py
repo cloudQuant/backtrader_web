@@ -3,13 +3,19 @@ Market data API routes.
 """
 
 import logging
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_current_user
+from app.services.market_instrument import MarketAssetType, MarketInstrumentService
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def get_market_instrument_service() -> MarketInstrumentService:
+    return MarketInstrumentService()
 
 
 @router.get("/kline", summary="Query K-line data")
@@ -104,3 +110,28 @@ async def get_kline_data(
     except Exception as e:
         logger.error(f"Failed to fetch market data: {symbol}, {e}")
         raise HTTPException(status_code=500, detail=f"Query failed: {e}") from e
+
+
+@router.get("/market-instruments/lookup", summary="Lookup aggregated market instrument data")
+async def lookup_market_instrument(
+    symbol: str = Query(..., min_length=1, description="Instrument code, e.g. 000001 or RB2510"),
+    asset_type: MarketAssetType = Query("stock", description="Instrument type"),
+    start_date: date | None = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: date | None = Query(None, description="End date YYYY-MM-DD"),
+    period: str = Query("daily", description="Period: daily/weekly/monthly"),
+    market: str | None = Query(None, description="Futures market, default CF"),
+    current_user=Depends(get_current_user),
+    service: MarketInstrumentService = Depends(get_market_instrument_service),
+):
+    """Return a normalized snapshot, historical rows, and derived indicators."""
+    try:
+        return service.lookup(
+            asset_type=asset_type,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            period=period,
+            market=market,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -36,6 +36,7 @@ export default buildLocale({
   nav: {
     dashboard: 'Dashboard',
     home: 'Startseite',
+    investmentResearch: 'Investment Research',
     aiChat: 'KI-Assistent',
     aiCost: 'KI-Kosten',
     promptGovernance: 'Prompt-Governance',
@@ -53,6 +54,7 @@ export default buildLocale({
     portfolioLedger: 'Portfolio-Buch',
     equityResearch: 'Aktienanalyse',
     newsIntelligence: 'News-Intelligence',
+    stockAnalysis: 'Aktienanalyse',
     optionsChain: 'Optionskette',
     scanners: 'Scanner',
     quantTools: 'Quant-Tools',

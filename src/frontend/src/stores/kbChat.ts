@@ -12,6 +12,9 @@ import {
   type KBRetrievalDiagnostics,
   type KBReasonCode,
   type KBStrategyDraft,
+  type KBStockAnalysisReport,
+  type KBStockAnalysisParams,
+  type KBStockAnalysisTask,
 } from '@/api/kbChat'
 
 function tt(key: string): string {
@@ -38,6 +41,8 @@ export interface KBChatMessage {
   citations?: KBCitation[]
   assistantMode?: KBAssistantMode
   strategyDraft?: KBStrategyDraft | null
+  stockAnalysisTask?: KBStockAnalysisTask | null
+  stockAnalysisReport?: KBStockAnalysisReport | null
   reasoning?: string | null
   reasonCode?: KBReasonCode | null
   diagnosticMessage?: string | null
@@ -70,6 +75,8 @@ export const useKBChatStore = defineStore('kbChat', () => {
         reasonCode: message.reason_code ?? undefined,
         diagnosticMessage: message.diagnostic_message ?? undefined,
         diagnostics: message.diagnostics ?? undefined,
+        stockAnalysisTask: message.stock_analysis_task ?? null,
+        stockAnalysisReport: message.stock_analysis_report ?? null,
       }))
       return response
     } finally {
@@ -89,19 +96,24 @@ export const useKBChatStore = defineStore('kbChat', () => {
       assistantMode?: KBAssistantMode
       thinkingMode?: boolean
       modelId?: string
+      stockAnalysisParams?: KBStockAnalysisParams
     },
   ) {
     loading.value = true
     try {
       messages.value.push({ role: 'user', content: question })
-      const response = await kbChatApi.send({
+      const request: Parameters<typeof kbChatApi.send>[0] = {
         knowledge_base_id: knowledgeBaseId,
         question,
         conversation_id: currentConversationId.value,
         model_id: options?.modelId,
         assistant_mode: options?.assistantMode,
         thinking_mode: options?.thinkingMode,
-      })
+      }
+      if (options?.stockAnalysisParams) {
+        request.stock_analysis_params = options.stockAnalysisParams
+      }
+      const response = await kbChatApi.send(request)
       currentConversationId.value = response.conversation_id ?? currentConversationId.value
       messages.value.push({
         role: 'assistant',
@@ -111,6 +123,8 @@ export const useKBChatStore = defineStore('kbChat', () => {
         citations: Array.isArray(response.citations) ? response.citations : undefined,
         assistantMode: response.assistant_mode ?? options?.assistantMode,
         strategyDraft: response.strategy_draft ?? null,
+        stockAnalysisTask: response.stock_analysis_task ?? null,
+        stockAnalysisReport: response.stock_analysis_report ?? null,
         reasoning: response.reasoning ?? undefined,
         reasonCode: response.reason_code ?? undefined,
         diagnosticMessage: response.diagnostic_message ?? undefined,

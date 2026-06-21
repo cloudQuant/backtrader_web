@@ -7,6 +7,17 @@ from unittest.mock import AsyncMock
 import pytest
 
 
+def test_default_strategy_template_scan_loads_project_strategies():
+    from app.services.strategy import templates
+
+    templates._get_templates_for_type.cache_clear()
+    items = templates.get_all_strategy_templates()
+
+    assert (templates.STRATEGIES_DIR / "backtest").is_dir()
+    assert len(items) >= 100
+    assert any(item.id.startswith("backtest/") for item in items)
+
+
 def test_scan_strategies_folder_when_dir_missing(monkeypatch, tmp_path):
     from app.schemas.strategy import StrategyType
     from app.services import strategy_service as ss

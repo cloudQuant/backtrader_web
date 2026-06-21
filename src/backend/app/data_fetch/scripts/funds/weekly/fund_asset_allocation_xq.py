@@ -6,6 +6,11 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.funds.weekly._fund_codes import (
+    DEFAULT_FUND_CODE_LIMIT,
+    get_codes_from_table,
+    normalize_fund_codes,
+)
 
 
 class FundAssetAllocationXq(AkshareToMySql):
@@ -160,7 +165,13 @@ class FundAssetAllocationXq(AkshareToMySql):
             self.logger.error(f"获取已存在数据ID失败: {e}")
             return set()
 
-    def run(self, fund_code: str = None, report_date: str = None):
+    def run(
+        self,
+        fund_code: str = None,
+        report_date: str = None,
+        fund_codes=None,
+        limit: int = DEFAULT_FUND_CODE_LIMIT,
+    ):
         """
         执行数据获取和保存
 
@@ -188,22 +199,30 @@ class FundAssetAllocationXq(AkshareToMySql):
             # 创建表（如果不存在）
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
 
-            # 获取数据
-            df = self.fetch_asset_allocation_data(fund_code, report_date)
-
-            if df is None or df.empty:
-                self.logger.warning(f"未获取到基金 {fund_code} 的资产配置数据")
+            codes = normalize_fund_codes(fund_code=fund_code, fund_codes=fund_codes)
+            if not codes:
+                codes = get_codes_from_table(self, "OPEN_FUND_DAILY_EM", "FUND_CODE", limit)
+            if not codes:
+                self.logger.warning("未获取到默认基金代码")
                 return False
 
-            # 保存数据
-            success = self.save_asset_allocation_data(df)
+            total_success = True
+            total_count = 0
+            for code in codes:
+                df = self.fetch_asset_allocation_data(code, report_date)
+                if df is None or df.empty:
+                    continue
 
-            if success:
-                self.logger.info(f"基金 {fund_code} 资产配置数据更新完成")
-            else:
-                self.logger.warning(f"基金 {fund_code} 资产配置数据更新失败")
+                success = self.save_asset_allocation_data(df)
+                if success:
+                    total_count += len(df)
+                    self.logger.info(f"基金 {code} 资产配置数据更新完成")
+                else:
+                    total_success = False
+                    self.logger.warning(f"基金 {code} 资产配置数据更新失败")
 
-            return success
+            self.logger.info(f"基金资产配置数据更新完成，共处理{total_count}条数据")
+            return total_success and total_count > 0
 
         except Exception as e:
             self.logger.error(f"执行基金资产配置数据更新失败: {e}", exc_info=True)

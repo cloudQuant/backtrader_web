@@ -20,6 +20,16 @@ class AkshareExecutionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    @staticmethod
+    def _utcnow_naive() -> datetime:
+        return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+
+    @staticmethod
+    def _duration_seconds(start_time: datetime | None, end_time: datetime) -> float | None:
+        if start_time is None:
+            return None
+        return max((end_time - start_time).total_seconds(), 0)
+
     async def create_execution(
         self,
         script_id: str,
@@ -45,7 +55,7 @@ class AkshareExecutionService:
     async def mark_running(self, execution: TaskExecution) -> TaskExecution:
         execution_row: Any = execution
         execution_row.status = TaskStatus.RUNNING
-        execution_row.start_time = datetime.now(timezone.utc)
+        execution_row.start_time = self._utcnow_naive()
         await self.db.commit()
         await self.db.refresh(execution)
         return execution
@@ -57,13 +67,11 @@ class AkshareExecutionService:
         rows_before: int | None = None,
         rows_after: int | None = None,
     ) -> TaskExecution:
-        end_time = datetime.now(timezone.utc)
+        end_time = self._utcnow_naive()
         execution_row: Any = execution
         execution_row.status = TaskStatus.COMPLETED
         execution_row.end_time = end_time
-        execution_row.duration = (
-            (end_time - execution.start_time).total_seconds() if execution.start_time else None
-        )
+        execution_row.duration = self._duration_seconds(execution.start_time, end_time)
         execution_row.result = result
         execution_row.rows_before = rows_before
         execution_row.rows_after = rows_after
@@ -83,13 +91,11 @@ class AkshareExecutionService:
         error_message: str,
         error_trace: str | None = None,
     ) -> TaskExecution:
-        end_time = datetime.now(timezone.utc)
+        end_time = self._utcnow_naive()
         execution_row: Any = execution
         execution_row.status = TaskStatus.FAILED
         execution_row.end_time = end_time
-        execution_row.duration = (
-            (end_time - execution.start_time).total_seconds() if execution.start_time else None
-        )
+        execution_row.duration = self._duration_seconds(execution.start_time, end_time)
         execution_row.error_message = error_message
         execution_row.error_trace = error_trace
         await self.db.commit()

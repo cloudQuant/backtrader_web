@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import html
+import re
 import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -15,6 +17,14 @@ from app.models.news_intelligence import (
     NewsSourceModel,
 )
 from app.services.data_topic_hub import get_shared_data_topic_hub
+
+_RSS_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+}
 
 
 class NewsIntelligenceService:
@@ -88,11 +98,13 @@ class NewsIntelligenceService:
             ).hexdigest()[:12]
             source_name = str(item.get("source") or "unknown")
             source = sources.get(source_name)
+            headline = str(item.get("headline") or "").strip()
+            article_summary = str(item.get("summary") or "").strip()
             article = NewsArticleModel(
                 owner_id=user_id,
                 source_id=source.id if source is not None else None,
                 source=source_name,
-                headline=str(item.get("headline") or "").strip(),
+                headline=headline,
                 url=str(item.get("url") or "").strip(),
                 canonical_url=canonical_url,
                 tickers=[
@@ -107,7 +119,7 @@ class NewsIntelligenceService:
                 impact=classified["impact"],
                 threat=classified["threat"],
                 cluster_id=cluster_id,
-                summary=self._build_summary(str(item.get("headline") or ""), classified),
+                summary=article_summary or self._build_summary(headline, classified),
                 status=classified["status"],
             )
             self.db.add(article)
@@ -292,7 +304,11 @@ class NewsIntelligenceService:
 
     async def _default_rss_fetcher(self, url: str) -> str:
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
-            response = await client.get(url, follow_redirects=True)
+            response = await client.get(
+                url,
+                follow_redirects=True,
+                headers=_RSS_REQUEST_HEADERS,
+            )
             response.raise_for_status()
             return response.text
 
@@ -317,6 +333,7 @@ class NewsIntelligenceService:
                 continue
             categories = self._entry_categories(entry)
             tickers = categories or default_tickers
+            summary = self._entry_summary(entry)
             items.append(
                 {
                     "headline": headline,
@@ -325,6 +342,7 @@ class NewsIntelligenceService:
                     "tickers": tickers,
                     "tier": source.tier,
                     "source_flag": "rss_pull",
+                    "summary": summary,
                 }
             )
             if len(items) >= max(limit, 1):
@@ -342,7 +360,14 @@ class NewsIntelligenceService:
     def _entry_text(self, entry: ET.Element, field_name: str) -> str:
         for child in entry:
             if self._tag_name(child.tag) == field_name:
-                return str(child.text or "").strip()
+                return " ".join(str(text).strip() for text in child.itertext() if str(text).strip())
+        return ""
+
+    def _entry_summary(self, entry: ET.Element) -> str:
+        for field_name in ("description", "summary", "encoded", "content"):
+            text = self._entry_text(entry, field_name)
+            if text:
+                return self._clean_feed_text(text)
         return ""
 
     def _entry_link(self, entry: ET.Element) -> str:
@@ -368,7 +393,12 @@ class NewsIntelligenceService:
         return categories
 
     def _tag_name(self, tag: str) -> str:
-        return str(tag).split("}")[-1]
+        return str(tag).split("}")[-1].split(":")[-1]
+
+    def _clean_feed_text(self, text: str) -> str:
+        decoded = html.unescape(str(text or "")).strip()
+        without_tags = re.sub(r"<[^>]+>", " ", decoded)
+        return " ".join(without_tags.split())
 
     def _serialize_source(self, source: NewsSourceModel) -> dict[str, Any]:
         return {

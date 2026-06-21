@@ -5,7 +5,7 @@ from tests.conftest import register_and_login
 
 
 @pytest.mark.asyncio
-async def test_equity_research_api_returns_quote_history_and_technicals(client: AsyncClient):
+async def test_equity_research_api_leaves_empty_when_no_real_data(client: AsyncClient):
     _, headers = await register_and_login(client, username="equity_user")
 
     search = await client.get("/api/v1/equity-research/search", headers=headers, params={"q": "RB"})
@@ -17,17 +17,19 @@ async def test_equity_research_api_returns_quote_history_and_technicals(client: 
     peers = await client.get("/api/v1/equity-research/peers/RB2510", headers=headers)
 
     assert search.status_code == 200
-    assert search.json()["items"]
+    assert search.json() == {"items": [], "total": 0}
     assert quote.status_code == 200
     assert quote.json()["symbol"] == "RB2510"
-    assert quote.json()["provider"] == "data_governance"
+    assert quote.json()["price"] is None
+    assert quote.json()["provider"] is None
     assert info.status_code == 200
-    assert info.json()["industry"]
+    assert info.json()["industry"] is None
     assert history.status_code == 200
-    assert len(history.json()["rows"]) >= 5
+    assert history.json()["rows"] == []
     assert financials.status_code == 200
-    assert financials.json()["annual"]
+    assert financials.json()["annual"] == []
+    assert financials.json()["quarterly"] == []
     assert technicals.status_code == 200
-    assert "momentum_5" in technicals.json()["factors"]
+    assert technicals.json()["factors"] == {}
     assert peers.status_code == 200
-    assert peers.json()["items"]
+    assert peers.json()["items"] == []

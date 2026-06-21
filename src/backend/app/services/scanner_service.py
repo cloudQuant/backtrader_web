@@ -4,9 +4,12 @@ import ast
 import uuid
 from typing import Any
 
+from app.services.scanner_universe import ScannerUniverseService
+
 _ALLOWED_NAMES = {
     "price",
     "volume",
+    "amount",
     "change_pct",
     "indicator",
     "factor",
@@ -34,8 +37,9 @@ _ALLOWED_NODES = (
 
 
 class ScannerService:
-    def __init__(self) -> None:
+    def __init__(self, universe_service: ScannerUniverseService | None = None) -> None:
         self._tasks: dict[str, dict[str, Any]] = {}
+        self.universe_service = universe_service or ScannerUniverseService()
 
     def run(
         self,
@@ -44,6 +48,8 @@ class ScannerService:
         *,
         lookback_days: int = 20,
         timeframe: str = "1d",
+        universe_pool_id: str | None = None,
+        user_id: str = "default",
     ) -> dict[str, Any]:
         parsed = ast.parse(condition, mode="eval")
         for node in ast.walk(parsed):
@@ -51,11 +57,39 @@ class ScannerService:
                 raise ValueError("unsafe_expression")
             if isinstance(node, ast.Name) and node.id not in _ALLOWED_NAMES:
                 raise ValueError("unsafe_expression")
+        instruments, resolved_pool_id = self.universe_service.get_instruments_for_scan(
+            user_id=user_id,
+            pool_id=universe_pool_id,
+            universe=universe,
+        )
         matches = []
-        for symbol in universe:
-            context = self._build_context(symbol, lookback_days=lookback_days, timeframe=timeframe)
+        factor_cache_status = "disabled"
+        if universe_pool_id:
+            contexts, factor_cache_status = self.universe_service.get_or_build_symbol_contexts(
+                user_id=user_id,
+                pool_id=resolved_pool_id or universe_pool_id,
+                instruments=instruments,
+                lookback_days=lookback_days,
+                timeframe=timeframe,
+            )
+        else:
+            contexts = [
+                {
+                    "symbol": instrument["symbol"],
+                    "name": instrument.get("name") or instrument["symbol"],
+                    "asset_type": instrument.get("asset_type") or "custom",
+                    "provider": "seed_fallback",
+                    **self._build_context(
+                        instrument["symbol"],
+                        lookback_days=lookback_days,
+                        timeframe=timeframe,
+                    ),
+                }
+                for instrument in instruments
+            ]
+        for context in contexts:
             if bool(eval(compile(parsed, "<scanner>", "eval"), {"__builtins__": {}}, context)):
-                matches.append({"symbol": symbol, **context})
+                matches.append(context)
         task_id = str(uuid.uuid4())
         payload = {
             "status": "completed",
@@ -63,6 +97,9 @@ class ScannerService:
             "condition": condition,
             "timeframe": timeframe,
             "lookback_days": lookback_days,
+            "universe_pool_id": resolved_pool_id,
+            "universe_count": len(instruments),
+            "factor_cache_status": factor_cache_status,
             "matches": matches,
         }
         self._tasks[task_id] = payload

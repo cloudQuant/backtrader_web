@@ -2,6 +2,8 @@
 import argparse
 import logging
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime
 
 import numpy as np
 import pandas as pd
@@ -38,7 +40,7 @@ class SWFundIndexHistorical(AkshareToMySql):
         """
         self.valid_periods = ["day", "week", "month"]
 
-    def fetch_historical_data(self, symbol, period):
+    def fetch_historical_data(self, symbol, period, start_after=None):
         """Fetch Shenwan Hongyuan Fund Index historical data"""
         try:
             if period not in self.valid_periods:
@@ -74,6 +76,9 @@ class SWFundIndexHistorical(AkshareToMySql):
             df["INDEX_CODE"] = symbol
             df["PERIOD"] = period
             df["TRADE_DATE"] = pd.to_datetime(df["TRADE_DATE"]).dt.date
+            start_after_date = self._normalize_date_value(start_after)
+            if start_after_date is not None:
+                df = df[df["TRADE_DATE"] >= start_after_date]
             df["IS_ACTIVE"] = 1
             df["DATA_SOURCE"] = "akshare"
 
@@ -87,40 +92,90 @@ class SWFundIndexHistorical(AkshareToMySql):
 
     def get_symbol_list(self):
         df = self.get_data_by_columns("SW_FUND_INDEX_REALTIME", ["INDEX_CODE"])
-        return df["INDEX_CODE"].tolist()
+        return list(df["INDEX_CODE"].dropna().unique())
 
-    def run(self, symbol=None, period="day", update_all=False):
+    def _normalize_date_value(self, value) -> date | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        value_str = str(value).strip()
+        if not value_str:
+            return None
+        parsed = pd.to_datetime(value_str, errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return parsed.date()
+
+    def _get_latest_trade_date(self, symbol, period):
+        latest_date = self.get_latest_date(
+            self.table_name,
+            "TRADE_DATE",
+            {"INDEX_CODE": symbol, "PERIOD": period},
+        )
+        return self._normalize_date_value(latest_date)
+
+    def _save_historical_data(self, symbol, period, df):
+        if df.empty:
+            self.logger.info(f"No new historical records for index {symbol} ({period})")
+            return
+        self.save_data(
+            df=df.replace({np.nan: None}),
+            table_name=self.table_name,
+            on_duplicate_update=True,
+            unique_keys=["INDEX_CODE", "TRADE_DATE", "PERIOD"],
+        )
+        self.logger.info(f"Updated {len(df)} historical records for index {symbol} ({period})")
+
+    def _fetch_historical_jobs(self, jobs, max_workers):
+        worker_count = max(1, min(max_workers, len(jobs)))
+        if worker_count == 1:
+            for symbol, period, start_after in jobs:
+                yield symbol, period, self.fetch_historical_data(symbol, period, start_after)
+            return
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(
+                    self.fetch_historical_data, symbol, period, start_after
+                ): (symbol, period)
+                for symbol, period, start_after in jobs
+            }
+            for future in as_completed(future_map):
+                symbol, period = future_map[future]
+                try:
+                    yield symbol, period, future.result()
+                except Exception as exc:
+                    self.logger.error(
+                        f"Error fetching historical data for {symbol} ({period}): {exc}"
+                    )
+                    yield symbol, period, pd.DataFrame()
+
+    def run(self, symbol=None, period="day", update_all=False, max_workers=8):
         """Run the Shenwan Hongyuan Fund Index historical data update"""
         try:
             if not self.table_exists(self.table_name):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
+            if period not in self.valid_periods:
+                self.logger.error(f"Invalid period: {period}. Must be one of {self.valid_periods}")
+                return False
             symbol_list = self.get_symbol_list() if symbol is None else [symbol]
+
+            jobs = []
             for symbol in symbol_list:
-                df = self.fetch_historical_data(symbol, period)
-
-                if not df.empty:
-                    # if not update_all:
-                    #     # Get the latest date from database for this index and period
-                    #     latest_date = self.get_latest_date(symbol, period)
-                    #     if latest_date:
-                    #         self.logger.info(f"Latest date in database for {symbol} ({period}): {latest_date}")
-                    #         # Filter for new records only
-                    #         df = df[df['TRADE_DATE'] > latest_date]
-                    #         if df.empty:
-                    #             self.logger.info("No new data to update")
-                    #             return True
-
-                    # Save data
-                    self.save_data(
-                        df=df.replace({np.nan: None}),
-                        table_name=self.table_name,
-                        on_duplicate_update=True,
-                        unique_keys=["INDEX_CODE", "TRADE_DATE", "PERIOD"],
-                    )
+                start_after = None if update_all else self._get_latest_trade_date(symbol, period)
+                if start_after is not None:
                     self.logger.info(
-                        f"Updated {len(df)} historical records for index {symbol} ({period})"
+                        f"Fund index {symbol} ({period}) latest stored date is {start_after}; "
+                        "re-fetching from that date"
                     )
+                jobs.append((symbol, period, start_after))
+
+            for symbol, period, df in self._fetch_historical_jobs(jobs, int(max_workers or 1)):
+                self._save_historical_data(symbol, period, df)
 
             return True
 

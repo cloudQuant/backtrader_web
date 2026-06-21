@@ -17,11 +17,25 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
+from collections.abc import Iterable
 from typing import Any
 
 # ---------------------------------------------------------------------------
 # Quoting
 # ---------------------------------------------------------------------------
+
+_MYSQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_$]{0,63}$")
+
+
+def validate_mysql_identifier(value: str, kind: str = "identifier") -> str:
+    """Validate a MySQL database/table/column identifier used by sync SQL builders."""
+    if not _MYSQL_IDENTIFIER_RE.fullmatch(value):
+        raise ValueError(f"非法 MySQL {kind}: {value!r}")
+    return value
+
+
+def validate_mysql_identifiers(values: Iterable[str], kind: str = "identifier") -> tuple[str, ...]:
+    return tuple(validate_mysql_identifier(value, kind) for value in values)
 
 
 def quote_sql_string(value: str) -> str:
@@ -38,6 +52,7 @@ def quote_identifier(value: str) -> str:
 
 
 def build_database_info_sql(databases: list[str]) -> str:
+    databases = list(validate_mysql_identifiers(databases, "database"))
     in_clause = ", ".join(quote_sql_string(name) for name in databases)
     return (
         "SELECT TABLE_SCHEMA, "
@@ -50,6 +65,7 @@ def build_database_info_sql(databases: list[str]) -> str:
 
 
 def build_table_names_sql(database: str) -> str:
+    database = validate_mysql_identifier(database, "database")
     return (
         "SELECT TABLE_NAME "
         "FROM information_schema.TABLES "
@@ -59,6 +75,8 @@ def build_table_names_sql(database: str) -> str:
 
 
 def build_table_columns_sql(database: str, table: str) -> str:
+    database = validate_mysql_identifier(database, "database")
+    table = validate_mysql_identifier(table, "table")
     return (
         "SELECT COLUMN_NAME "
         "FROM information_schema.COLUMNS "
@@ -69,6 +87,8 @@ def build_table_columns_sql(database: str, table: str) -> str:
 
 
 def build_index_metadata_sql(database: str, table: str) -> str:
+    database = validate_mysql_identifier(database, "database")
+    table = validate_mysql_identifier(table, "table")
     return (
         "SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME "
         "FROM information_schema.STATISTICS "
@@ -84,11 +104,15 @@ def build_table_key_values_sql(
     table: str,
     key_columns: tuple[str, ...],
 ) -> str:
+    database = validate_mysql_identifier(database, "database")
+    table = validate_mysql_identifier(table, "table")
+    key_columns = validate_mysql_identifiers(key_columns, "column")
     key_select = ", ".join(quote_identifier(column) for column in key_columns)
     return f"SELECT {key_select} FROM {quote_identifier(database)}.{quote_identifier(table)}"
 
 
 def build_row_hash_expression(key_columns: tuple[str, ...]) -> str:
+    key_columns = validate_mysql_identifiers(key_columns, "column")
     json_items = ", ".join(quote_identifier(column) for column in key_columns)
     return f"SHA2(CAST(JSON_ARRAY({json_items}) AS CHAR), 256)"
 
@@ -98,16 +122,20 @@ def build_table_row_hash_values_sql(
     table: str,
     key_columns: tuple[str, ...],
 ) -> str:
+    database = validate_mysql_identifier(database, "database")
+    table = validate_mysql_identifier(table, "table")
     row_hash = build_row_hash_expression(key_columns)
     return f"SELECT {row_hash} FROM {quote_identifier(database)}.{quote_identifier(table)}"
 
 
 def build_ensure_database_sql(database: str) -> str:
+    database = validate_mysql_identifier(database, "database")
     identifier = quote_identifier(database)
     return f"CREATE DATABASE IF NOT EXISTS {identifier} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
 
 
 def build_database_exists_sql(database: str) -> str:
+    database = validate_mysql_identifier(database, "database")
     return (
         "SELECT SCHEMA_NAME "
         "FROM information_schema.SCHEMATA "
@@ -117,6 +145,7 @@ def build_database_exists_sql(database: str) -> str:
 
 
 def build_schema_table_summary_sql(database: str) -> str:
+    database = validate_mysql_identifier(database, "database")
     return (
         "SELECT JSON_ARRAY("
         "'TABLE', TABLE_NAME, COALESCE(TABLE_TYPE, ''), COALESCE(ENGINE, ''), COALESCE(TABLE_COLLATION, '')"
@@ -128,6 +157,7 @@ def build_schema_table_summary_sql(database: str) -> str:
 
 
 def build_schema_column_summary_sql(database: str) -> str:
+    database = validate_mysql_identifier(database, "database")
     return (
         "SELECT JSON_ARRAY("
         "'COLUMN', TABLE_NAME, ORDINAL_POSITION, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, "
@@ -141,6 +171,7 @@ def build_schema_column_summary_sql(database: str) -> str:
 
 
 def build_schema_index_summary_sql(database: str) -> str:
+    database = validate_mysql_identifier(database, "database")
     return (
         "SELECT JSON_ARRAY("
         "'INDEX', TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME, "
@@ -153,6 +184,7 @@ def build_schema_index_summary_sql(database: str) -> str:
 
 
 def build_schema_view_summary_sql(database: str) -> str:
+    database = validate_mysql_identifier(database, "database")
     return (
         "SELECT JSON_ARRAY("
         "'VIEW', TABLE_NAME, VIEW_DEFINITION, COALESCE(CHECK_OPTION, ''), "
@@ -193,14 +225,19 @@ def select_incremental_key_columns(stdout: str) -> tuple[str, ...]:
     else:
         first_name = next(iter(indexes))
         selected = indexes[first_name]
-    return tuple(column for _, column in sorted(selected, key=lambda item: item[0]))
+    return validate_mysql_identifiers(
+        (column for _, column in sorted(selected, key=lambda item: item[0])),
+        "column",
+    )
 
 
 def parse_table_columns(stdout: str, database: str, table: str) -> tuple[str, ...]:
+    validate_mysql_identifier(database, "database")
+    validate_mysql_identifier(table, "table")
     columns = tuple(line.strip() for line in stdout.splitlines() if line.strip())
     if not columns:
         raise RuntimeError(f"数据表 {database}.{table} 未读取到可用列，无法执行增量同步")
-    return columns
+    return validate_mysql_identifiers(columns, "column")
 
 
 def build_missing_rows(
@@ -240,6 +277,7 @@ def build_missing_keys_where_sql(
     key_columns: tuple[str, ...],
     key_rows: list[tuple[str | None, ...]],
 ) -> str:
+    key_columns = validate_mysql_identifiers(key_columns, "column")
     clauses: list[str] = []
     for row in key_rows:
         parts: list[str] = []
@@ -297,7 +335,7 @@ def parse_schema_summary(payload: str) -> dict[str, Any]:
             continue
         kind = str(row[0])
         if kind == "TABLE" and len(row) >= 5:
-            table_name = str(row[1])
+            table_name = validate_mysql_identifier(str(row[1]), "table")
             summary["tables"][table_name] = {
                 "table_type": str(row[2]),
                 "engine": str(row[3]),
@@ -305,17 +343,18 @@ def parse_schema_summary(payload: str) -> dict[str, Any]:
             }
             continue
         if kind == "COLUMN" and len(row) >= 10:
-            table_name = str(row[1])
+            table_name = validate_mysql_identifier(str(row[1]), "table")
             ordinal = int(row[2])
-            column_name = str(row[3])
+            column_name = validate_mysql_identifier(str(row[3]), "column")
             summary["columns"].setdefault(table_name, {})[column_name] = {
                 "ordinal": ordinal,
                 "signature": json.dumps(row[3:], ensure_ascii=False, separators=(",", ":")),
             }
             continue
         if kind == "INDEX" and len(row) >= 9:
-            table_name = str(row[1])
-            index_name = str(row[2])
+            table_name = validate_mysql_identifier(str(row[1]), "table")
+            index_name = validate_mysql_identifier(str(row[2]), "index")
+            column_name = validate_mysql_identifier(str(row[5]), "column")
             table_indexes = summary["indexes"].setdefault(table_name, {})
             entry = table_indexes.setdefault(
                 index_name,
@@ -328,14 +367,14 @@ def parse_schema_summary(payload: str) -> dict[str, Any]:
             entry["parts"].append(
                 (
                     int(row[4]),
-                    str(row[5]),
+                    column_name,
                     int(row[6]),
                     str(row[7]),
                 )
             )
             continue
         if kind == "VIEW" and len(row) >= 6:
-            view_name = str(row[1])
+            view_name = validate_mysql_identifier(str(row[1]), "view")
             summary["views"][view_name] = json.dumps(
                 row[2:], ensure_ascii=False, separators=(",", ":")
             )
@@ -421,6 +460,7 @@ def schema_delta_is_empty(delta: dict[str, Any]) -> bool:
 
 
 def extract_create_table_statement(payload: str, table: str) -> str:
+    table = validate_mysql_identifier(table, "table")
     quoted_table = re.escape(quote_identifier(table))
     match = re.search(rf"CREATE TABLE {quoted_table} \(.*?\)[^;]*;", payload, re.S)
     if match is None:
@@ -438,6 +478,7 @@ def _extract_balanced_paren_body(payload: str, table: str) -> str:
     that appear inside backtick-quoted identifiers or single-quoted strings
     (e.g. string ``DEFAULT`` values).
     """
+    table = validate_mysql_identifier(table, "table")
     quoted_table = re.escape(quote_identifier(table))
     header = re.search(rf"CREATE TABLE {quoted_table}\s*\(", payload)
     if header is None:
@@ -473,6 +514,7 @@ def _extract_balanced_paren_body(payload: str, table: str) -> str:
 
 
 def extract_create_table_definitions(payload: str, table: str) -> dict[str, dict[str, str]]:
+    table = validate_mysql_identifier(table, "table")
     body = _extract_balanced_paren_body(payload, table)
     column_defs: dict[str, str] = {}
     index_defs: dict[str, str] = {}
@@ -481,7 +523,7 @@ def extract_create_table_definitions(payload: str, table: str) -> dict[str, dict
         if not line:
             continue
         if line.startswith("`"):
-            column_name = line.split("`", 2)[1]
+            column_name = validate_mysql_identifier(line.split("`", 2)[1], "column")
             column_defs[column_name] = line
             continue
         if line.startswith("PRIMARY KEY"):
@@ -489,7 +531,8 @@ def extract_create_table_definitions(payload: str, table: str) -> dict[str, dict
             continue
         index_match = re.match(r"(?:UNIQUE KEY|FULLTEXT KEY|SPATIAL KEY|KEY) `([^`]+)`", line)
         if index_match is not None:
-            index_defs[index_match.group(1)] = line
+            index_name = validate_mysql_identifier(index_match.group(1), "index")
+            index_defs[index_name] = line
     return {
         "columns": column_defs,
         "indexes": index_defs,
@@ -501,6 +544,9 @@ def build_column_position_clause(
     current_columns: set[str],
     column_name: str,
 ) -> str:
+    source_order = list(validate_mysql_identifiers(source_order, "column"))
+    current_columns = set(validate_mysql_identifiers(current_columns, "column"))
+    column_name = validate_mysql_identifier(column_name, "column")
     column_index = source_order.index(column_name)
     for previous_name in reversed(source_order[:column_index]):
         if previous_name in current_columns:
@@ -516,6 +562,8 @@ def build_incremental_table_alter_sql(
     target_summary: dict[str, Any],
     source_schema_sql: str,
 ) -> str | None:
+    database = validate_mysql_identifier(database, "database")
+    table = validate_mysql_identifier(table, "table")
     parsed = extract_create_table_definitions(source_schema_sql, table)
     source_columns = source_summary.get("columns", {}).get(table, {})
     target_columns = target_summary.get("columns", {}).get(table, {})
@@ -525,6 +573,7 @@ def build_incremental_table_alter_sql(
     current_columns = set(target_columns)
     clauses: list[str] = []
     for column_name in source_order:
+        column_name = validate_mysql_identifier(column_name, "column")
         if column_name in table_delta["add_columns"]:
             column_definition = parsed["columns"].get(column_name)
             if column_definition is None:
@@ -540,6 +589,7 @@ def build_incremental_table_alter_sql(
                 raise RuntimeError(f"未找到数据表 {table}.{column_name} 的字段定义")
             clauses.append(f"MODIFY COLUMN {column_definition}")
     for index_name in table_delta["rebuild_indexes"]:
+        index_name = validate_mysql_identifier(index_name, "index")
         index_definition = parsed["indexes"].get(index_name)
         if index_definition is None:
             raise RuntimeError(f"未找到数据表 {table} 索引 {index_name} 的定义")
@@ -550,6 +600,7 @@ def build_incremental_table_alter_sql(
             clauses.append(f"DROP INDEX {quote_identifier(index_name)}")
             clauses.append(f"ADD {index_definition}")
     for index_name in table_delta["add_indexes"]:
+        index_name = validate_mysql_identifier(index_name, "index")
         index_definition = parsed["indexes"].get(index_name)
         if index_definition is None:
             raise RuntimeError(f"未找到数据表 {table} 索引 {index_name} 的定义")
@@ -562,10 +613,13 @@ def build_incremental_table_alter_sql(
 
 
 def build_show_create_view_sql(database: str, view_name: str) -> str:
+    database = validate_mysql_identifier(database, "database")
+    view_name = validate_mysql_identifier(view_name, "view")
     return f"SHOW CREATE VIEW {quote_identifier(database)}.{quote_identifier(view_name)}"
 
 
 def normalize_create_view_sql(payload: str, view_name: str) -> str:
+    view_name = validate_mysql_identifier(view_name, "view")
     parts = payload.split("\t", 3)
     if len(parts) < 2:
         raise RuntimeError(f"未找到视图 {view_name} 的 CREATE VIEW 语句")
@@ -577,6 +631,7 @@ def normalize_create_view_sql(payload: str, view_name: str) -> str:
 
 
 def build_database_scoped_sql(database: str, sql: str) -> str:
+    database = validate_mysql_identifier(database, "database")
     statement = sql.strip()
     if statement.endswith(";"):
         statement = statement[:-1]

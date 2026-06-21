@@ -533,6 +533,7 @@ class AITradingService:
                     "total_equity": float(account.total_equity),
                     "current_cash": float(account.current_cash),
                     "is_active": bool(account.is_active),
+                    "source": "paper",
                 }
                 for account in accounts
             ]

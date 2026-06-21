@@ -140,7 +140,7 @@ function extractApiErrorMessage(payload: unknown): string {
   return tt('apiClient.errGenericFailure')
 }
 
-/** Extract user-friendly error message from caught unknown. Use in catch blocks instead of (e: any). */
+/** Extract user-friendly error message from caught unknown values in catch blocks. */
 export function getErrorMessage(e: unknown, fallback: string): string {
   if (e && typeof e === 'object' && 'response' in e) {
     const ax = e as { response?: { data?: unknown } }

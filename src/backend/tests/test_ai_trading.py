@@ -333,7 +333,7 @@ class TestAITradingAPI:
         assert "account_id" in error_message
 
     async def test_config_exposes_available_context_options(self, client, auth_headers):
-        """Config endpoint returns selectable gateway and paper-account options."""
+        """Config endpoint returns selectable paper and connected account options."""
         with (
             patch.object(
                 AITradingService,
@@ -344,6 +344,12 @@ class TestAITradingAPI:
                         "exchange_type": "CTP",
                         "account_id": "investor-001",
                         "connected": True,
+                    },
+                    {
+                        "gateway_id": "manual:CTP:stale",
+                        "exchange_type": "CTP",
+                        "account_id": "investor-stale",
+                        "connected": False,
                     }
                 ],
             ),
@@ -358,6 +364,7 @@ class TestAITradingAPI:
                         "total_equity": 100000.0,
                         "current_cash": 80000.0,
                         "is_active": True,
+                        "source": "paper",
                     }
                 ],
             ),
@@ -368,6 +375,18 @@ class TestAITradingAPI:
         data = response.json()
         assert data["available_gateways"][0]["gateway_id"] == "manual:CTP:test"
         assert data["available_accounts"][0]["account_id"] == "paper-001"
+        assert data["available_accounts"][1] == {
+            "account_id": "investor-001",
+            "name": "CTP · investor-001",
+            "total_equity": None,
+            "current_cash": None,
+            "is_active": True,
+            "source": "gateway",
+            "gateway_id": "manual:CTP:test",
+            "exchange_type": "CTP",
+            "connected": True,
+        }
+        assert all(item["account_id"] != "investor-stale" for item in data["available_accounts"])
 
 
 class TestTradingIntentParser:
