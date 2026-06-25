@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 import uuid
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,21 +22,31 @@ BACKEND_DIR = PROJECT_ROOT / "src" / "backend"
 WORKSPACE_ROOT = PROJECT_ROOT.parent
 BT_API_PY_DIR = WORKSPACE_ROOT / "bt_api_py"
 BT_API_BASE_SRC_DIR = BT_API_PY_DIR / "bt_api" / "bt_api_base" / "src"
+BT_API_CTP_STANDALONE_SRC_DIR = WORKSPACE_ROOT / "bt_api_ctp" / "src"
 BT_API_CTP_SRC_DIR = BT_API_PY_DIR / "bt_api" / "bt_api_ctp" / "src"
 
 
 def _prepend_python_paths(paths: list[Path]) -> None:
     valid_paths = [str(path) for path in paths if path.is_dir()]
     for path in reversed(valid_paths):
-        if path not in sys.path:
-            sys.path.insert(0, path)
+        while path in sys.path:
+            sys.path.remove(path)
+        sys.path.insert(0, path)
     existing = [part for part in os.environ.get("PYTHONPATH", "").split(os.pathsep) if part]
     merged = valid_paths + [part for part in existing if part not in valid_paths]
     if merged:
         os.environ["PYTHONPATH"] = os.pathsep.join(merged)
 
 
-_prepend_python_paths([BACKEND_DIR, BT_API_PY_DIR, BT_API_BASE_SRC_DIR, BT_API_CTP_SRC_DIR])
+_prepend_python_paths(
+    [
+        BACKEND_DIR,
+        BT_API_PY_DIR,
+        BT_API_BASE_SRC_DIR,
+        BT_API_CTP_STANDALONE_SRC_DIR,
+        BT_API_CTP_SRC_DIR,
+    ]
+)
 
 from app.services.live_trading_manager import LiveTradingManager
 from app.services.gateway import launch_builder as gateway_launch_builder
@@ -74,6 +85,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--worker-timeout-seconds", type=float, default=90.0)
     parser.add_argument("--worker-grace-seconds", type=float, default=5.0)
     parser.add_argument("--poll-interval-seconds", type=float, default=0.5)
+    parser.add_argument(
+        "--ctp-env",
+        default="manual",
+        help=(
+            "CTP front selection override. Default manual uses strategy config fronts "
+            "(SimNow telecom in simulate/p_bb_rsi); use auto/set1/set2 only when needed."
+        ),
+    )
     parser.add_argument(
         "--place-test-order",
         action="store_true",
@@ -116,33 +135,107 @@ def diff_logs(
     return result
 
 
-def _prepare_smoke_runtime(report_path: Path) -> Path:
+def _prepare_smoke_runtime(report_path: Path, source_strategy_dir: Path | None = None) -> Path:
     runtime_dir = report_path.with_suffix(report_path.suffix + ".runtime")
     if runtime_dir.exists():
         shutil.rmtree(runtime_dir)
     runtime_dir.mkdir(parents=True, exist_ok=True)
     (runtime_dir / "logs").mkdir(exist_ok=True)
+    if source_strategy_dir is not None:
+        for name in ("config.yaml", ".env"):
+            source = source_strategy_dir / name
+            if source.is_file():
+                shutil.copy2(source, runtime_dir / name)
     (runtime_dir / "run.py").write_text(_SMOKE_RUNTIME_SCRIPT, encoding="utf-8")
     return runtime_dir
 
 
+def collect_ctp_native_diagnostics() -> dict[str, Any]:
+    """Collect CTP native extension diagnostics without requiring a live connection."""
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            from bt_api_ctp.ctp._ctp_base import get_ctp_native_diagnostics
+
+            diagnostics = get_ctp_native_diagnostics()
+    except Exception as exc:
+        return {
+            "native_loaded": False,
+            "diagnostic_error": {"type": type(exc).__name__, "message": str(exc)},
+        }
+    return dict(diagnostics)
+
+
+def _probe_python_import(code: str, timeout_seconds: float = 10.0) -> dict[str, Any]:
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "timed_out": True, "returncode": None}
+    return {
+        "ok": result.returncode == 0,
+        "timed_out": False,
+        "returncode": result.returncode,
+        "stdout_tail": (result.stdout or "")[-500:],
+        "stderr_tail": (result.stderr or "")[-1000:],
+    }
+
+
+def collect_external_ctp_runtime_diagnostics() -> dict[str, Any]:
+    """Probe optional external CTP runtimes in child processes."""
+    return {
+        "ctp": _probe_python_import("import ctp; print('ctp import ok')"),
+        "openctp_ctp": _probe_python_import(
+            "from openctp_ctp import mdapi, tdapi; print('openctp_ctp import ok')"
+        ),
+    }
+
+
+def _strategy_config_front(config_data: dict[str, Any]) -> dict[str, Any]:
+    ctp = dict(config_data.get("ctp", {}) or {})
+    live = dict(config_data.get("live", {}) or {})
+    fronts = dict(ctp.get("fronts", {}) or {})
+    network = str(live.get("network") or "simnow")
+    return dict(fronts.get(network) or fronts.get("telecom") or fronts.get("simnow") or {})
+
+
 def build_instances(
-    instance_id: str, strategy_id: str, runtime_dir: Path | None = None
+    instance_id: str,
+    strategy_id: str,
+    runtime_dir: Path | None = None,
+    ctp_env: str = "manual",
 ) -> dict[str, dict[str, Any]]:
+    gateway_params = {
+        "enabled": True,
+        "provider": "ctp_gateway",
+        "exchange_type": "CTP",
+        "asset_type": "FUTURE",
+    }
+    ctp_env = str(ctp_env or "").strip()
+    if ctp_env:
+        gateway_params["ctp_env"] = ctp_env
+    if runtime_dir is not None and ctp_env.lower() in {"", "manual", "custom"}:
+        try:
+            front = _strategy_config_front(strategy_runtime_support.load_strategy_config(runtime_dir))
+        except Exception:
+            front = {}
+        td_front = str(front.get("td_address") or front.get("td_front") or "").strip()
+        md_front = str(front.get("md_address") or front.get("md_front") or "").strip()
+        if td_front:
+            gateway_params["td_front"] = td_front
+        if md_front:
+            gateway_params["md_front"] = md_front
     instance: dict[str, Any] = {
         "strategy_id": strategy_id,
         "status": "stopped",
         "pid": None,
         "error": None,
-        "params": {
-            "gateway": {
-                "enabled": True,
-                "provider": "ctp_gateway",
-                "exchange_type": "CTP",
-                "asset_type": "FUTURE",
-                "ctp_env": "auto",
-            }
-        },
+        "params": {"gateway": gateway_params},
     }
     if runtime_dir is not None:
         instance["runtime_dir"] = str(runtime_dir)
@@ -327,6 +420,18 @@ def _blocked_reason_for_report(report: dict[str, Any]) -> str:
     missing_required = prerequisites.get("missing_required_fields")
     if gateway_was_requested and gateway_was_not_acquired and missing_required:
         return "credentials_unavailable"
+    health_rows = report.get("gateway_health_after_start")
+    if gateway_was_requested and isinstance(health_rows, list) and health_rows:
+        if not any(bool(row.get("is_healthy")) for row in health_rows if isinstance(row, dict)):
+            error_text = " ".join(
+                str(error.get("message") or error)
+                for row in health_rows
+                if isinstance(row, dict)
+                for error in (row.get("recent_errors") or [])
+            ).lower()
+            if any(token in error_text for token in ("_ctp", "ctp c++ extension", "cthost")):
+                return "ctp_sdk_unavailable"
+            return "external_environment_unavailable"
     return ""
 
 
@@ -334,8 +439,13 @@ async def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
     instance_id = f"smoke-{uuid.uuid4().hex[:8]}"
     report_path = Path(args.report_file)
     strategy_dir = get_strategy_dir(args.strategy_id)
-    runtime_dir = _prepare_smoke_runtime(report_path)
-    instances = build_instances(instance_id, args.strategy_id, runtime_dir=runtime_dir)
+    runtime_dir = _prepare_smoke_runtime(report_path, strategy_dir)
+    instances = build_instances(
+        instance_id,
+        args.strategy_id,
+        runtime_dir=runtime_dir,
+        ctp_env=getattr(args, "ctp_env", "manual"),
+    )
     gateway_prerequisites = collect_gateway_prerequisites(instances[instance_id], runtime_dir)
     report: dict[str, Any] = {
         "strategy_id": args.strategy_id,
@@ -363,6 +473,8 @@ async def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
         "stopped_status": None,
         "pid": None,
         "gateway_prerequisites": gateway_prerequisites,
+        "ctp_native_diagnostics": collect_ctp_native_diagnostics(),
+        "external_ctp_runtime_diagnostics": collect_external_ctp_runtime_diagnostics(),
         "wait_seconds": args.wait_seconds,
         "report_file": str(report_path),
         "place_test_order": bool(args.place_test_order),
@@ -390,11 +502,6 @@ async def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
                     report["started_status"] = started.get("status")
                     report["pid"] = started.get("pid")
                     report["gateway_keys_after_start"] = list(manager._gateways.keys())
-                    health_after_start = manager.get_gateway_health()
-                    report["gateway_health_after_start"] = health_after_start
-                    report["gateway_health_summary_after_start"] = summarize_gateway_health(
-                        health_after_start
-                    )
                     if args.place_test_order:
                         report["test_order_result"] = {
                             "status": "blocked",
@@ -410,6 +517,11 @@ async def run_smoke(args: argparse.Namespace) -> dict[str, Any]:
                         report["e2e_status"] = "FAIL"
                 else:
                     await asyncio.sleep(args.wait_seconds)
+                    health_after_start = manager.get_gateway_health()
+                    report["gateway_health_after_start"] = health_after_start
+                    report["gateway_health_summary_after_start"] = summarize_gateway_health(
+                        health_after_start
+                    )
                     proc = manager._processes.get(instance_id)
                     report["process_present"] = proc is not None
                     if proc is not None:
@@ -467,6 +579,8 @@ def _tail_text_file(path: Path, max_chars: int = 2000) -> str:
 
 
 def _validate_report(report: dict[str, Any]) -> int:
+    if report.get("e2e_status") in {"BLOCKED", "FAIL"}:
+        return 1
     if report.get("exception"):
         return 1
     if not report.get("started"):
@@ -529,6 +643,9 @@ def _parent_main(args: argparse.Namespace) -> int:
         "--report-file",
         str(report_path),
     ]
+    ctp_env = str(getattr(args, "ctp_env", "manual") or "").strip()
+    if ctp_env:
+        cmd.extend(["--ctp-env", ctp_env])
     if getattr(args, "place_test_order", False):
         cmd.append("--place-test-order")
     worker_env = dict(os.environ)

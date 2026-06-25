@@ -48,6 +48,13 @@ class ArticleOmanRv(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
+            if isinstance(df, pd.Series):
+                series_name = df.name or kwargs.get("index", "value")
+                df = df.rename("value").reset_index()
+                df.columns = ["data_date", "value"]
+                df["symbol"] = kwargs.get("symbol", series_name)
+                df["name"] = series_name
+
             # Process data if needed
             # Add data_date if not exists
             if "data_date" not in df.columns:
@@ -68,7 +75,7 @@ def main():
     """Main function to run the data fetch"""
 
     script = ArticleOmanRv()
-    script.run()
+    script.fetch_data()
 
 
 if __name__ == "__main__":

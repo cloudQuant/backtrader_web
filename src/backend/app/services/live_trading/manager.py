@@ -6,6 +6,7 @@ in subprocesses.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -58,6 +59,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[5]
 _DATA_DIR = get_backend_data_path()
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
 _MANUAL_GATEWAYS_FILE = _DATA_DIR / "manual_gateways.json"
+_BACKTRADER_DIR = _PROJECT_ROOT.parent / "backtrader"
+if not _BACKTRADER_DIR.is_dir():
+    _BACKTRADER_DIR = Path.home() / "Documents" / "backtrader"
 try:
     _BT_API_PY_DIR = manual_gateway_service._ib_web_cookie_base_dir()
 except Exception:
@@ -95,6 +99,43 @@ def _save_instances(data: dict[str, dict]) -> None:
         Delegates to InstanceStore. Kept for backward compatibility.
     """
     InstanceStore(instances_file=_INSTANCES_FILE).save_all(data)
+
+
+def _instance_store_lock():
+    return InstanceStore(instances_file=_INSTANCES_FILE).locked()
+
+
+class _AsyncInstanceStoreLock:
+    def __init__(self, async_lock: asyncio.Lock | None = None) -> None:
+        self._async_lock = async_lock
+        self._file_lock: contextlib.AbstractContextManager | None = None
+        self._async_lock_acquired = False
+
+    async def __aenter__(self):
+        if self._async_lock is not None:
+            await self._async_lock.acquire()
+            self._async_lock_acquired = True
+        try:
+            self._file_lock = _instance_store_lock()
+            self._file_lock.__enter__()
+        except Exception:
+            self._file_lock = None
+            if self._async_lock_acquired and self._async_lock is not None:
+                self._async_lock.release()
+                self._async_lock_acquired = False
+            raise
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        try:
+            if self._file_lock is not None:
+                self._file_lock.__exit__(exc_type, exc, tb)
+        finally:
+            self._file_lock = None
+            if self._async_lock_acquired and self._async_lock is not None:
+                self._async_lock.release()
+                self._async_lock_acquired = False
+        return False
 
 
 def _load_manual_gateways() -> list[dict[str, Any]]:
@@ -207,6 +248,7 @@ class LiveTradingManager:
         self._instance_gateways: dict[str, str] = {}
         self._stopping_instances: set[str] = set()
         self._gateway_lock = threading.RLock()
+        self._instance_op_lock = asyncio.Lock()
         self._restore_thread: threading.Thread | None = None
         # Sync process status on startup
         self._sync_status_on_boot()
@@ -216,24 +258,26 @@ class LiveTradingManager:
             logger.info("Manual gateway auto-restore disabled by environment")
 
     def _sync_status_on_boot(self) -> None:
-        live_instance_service.sync_status_on_boot(
-            load_instances=_load_instances,
-            save_instances=_save_instances,
-            is_pid_alive=_is_pid_alive,
-        )
+        with _instance_store_lock():
+            live_instance_service.sync_status_on_boot(
+                load_instances=_load_instances,
+                save_instances=_save_instances,
+                is_pid_alive=_is_pid_alive,
+            )
 
     # ---- CRUD ----
 
     def list_instances(self, user_id: str | None = None) -> list[dict]:
-        return live_instance_service.list_instances(
-            user_id=user_id,
-            load_instances=_load_instances,
-            save_instances=_save_instances,
-            scan_running_strategy_pids=_scan_running_strategy_pids,
-            is_pid_alive=_is_pid_alive,
-            resolve_strategy_dir=self._resolve_strategy_dir,
-            find_latest_log_dir=_find_latest_log_dir,
-        )
+        with _instance_store_lock():
+            return live_instance_service.list_instances(
+                user_id=user_id,
+                load_instances=_load_instances,
+                save_instances=_save_instances,
+                scan_running_strategy_pids=_scan_running_strategy_pids,
+                is_pid_alive=_is_pid_alive,
+                resolve_strategy_dir=self._resolve_strategy_dir,
+                find_latest_log_dir=_find_latest_log_dir,
+            )
 
     @staticmethod
     def _subprocess_gateway_recent_errors(stderr_path: str) -> list[dict[str, str]]:
@@ -525,80 +569,88 @@ class LiveTradingManager:
         user_id: str | None = None,
         runtime_dir: str | None = None,
     ) -> InstanceData:
-        return cast(
-            InstanceData,
-            live_instance_service.add_instance(
-                strategy_id=strategy_id,
-                params=params,
-                user_id=user_id,
-                runtime_dir=runtime_dir,
-                load_instances=_load_instances,
-                save_instances=_save_instances,
-                resolve_strategy_dir=self._resolve_strategy_dir,
-                get_template_by_id=get_template_by_id,
-                infer_gateway_params=self._infer_gateway_params,
-                find_latest_log_dir=_find_latest_log_dir,
-            ),
-        )
+        with _instance_store_lock():
+            return cast(
+                InstanceData,
+                live_instance_service.add_instance(
+                    strategy_id=strategy_id,
+                    params=params,
+                    user_id=user_id,
+                    runtime_dir=runtime_dir,
+                    load_instances=_load_instances,
+                    save_instances=_save_instances,
+                    resolve_strategy_dir=self._resolve_strategy_dir,
+                    get_template_by_id=get_template_by_id,
+                    infer_gateway_params=self._infer_gateway_params,
+                    find_latest_log_dir=_find_latest_log_dir,
+                ),
+            )
 
     def remove_instance(self, instance_id: str, user_id: str | None = None) -> bool:
-        return live_instance_service.remove_instance(
-            instance_id=instance_id,
-            user_id=user_id,
-            load_instances=_load_instances,
-            save_instances=_save_instances,
-            kill_pid=self._kill_pid,
-            release_gateway_for_instance=self._release_gateway_for_instance,
-            processes=self._processes,
-        )
-
-    def get_instance(self, instance_id: str, user_id: str | None = None) -> InstanceData | None:
-        return cast(
-            "InstanceData | None",
-            live_instance_service.get_instance(
+        with _instance_store_lock():
+            return live_instance_service.remove_instance(
                 instance_id=instance_id,
                 user_id=user_id,
                 load_instances=_load_instances,
                 save_instances=_save_instances,
-                is_pid_alive=_is_pid_alive,
-                resolve_strategy_dir=self._resolve_strategy_dir,
-                find_latest_log_dir=_find_latest_log_dir,
-            ),
-        )
+                kill_pid=self._kill_pid,
+                release_gateway_for_instance=self._release_gateway_for_instance,
+                processes=self._processes,
+            )
+
+    def get_instance(self, instance_id: str, user_id: str | None = None) -> InstanceData | None:
+        with _instance_store_lock():
+            return cast(
+                "InstanceData | None",
+                live_instance_service.get_instance(
+                    instance_id=instance_id,
+                    user_id=user_id,
+                    load_instances=_load_instances,
+                    save_instances=_save_instances,
+                    is_pid_alive=_is_pid_alive,
+                    scan_running_strategy_pids=_scan_running_strategy_pids,
+                    resolve_strategy_dir=self._resolve_strategy_dir,
+                    find_latest_log_dir=_find_latest_log_dir,
+                ),
+            )
 
     # ---- Start/Stop ----
 
     async def start_instance(self, instance_id: str) -> StartResult:
-        return cast(
-            StartResult,
-            await live_execution_service.start_instance(
-                instance_id=instance_id,
-                load_instances=_load_instances,
-                save_instances=_save_instances,
-                is_pid_alive=_is_pid_alive,
-                resolve_strategy_dir=self._resolve_strategy_dir,
-                build_subprocess_env=self._build_subprocess_env,
-                release_gateway_for_instance=self._release_gateway_for_instance,
-                wait_process_callback=self._wait_process,
-                processes=self._processes,
-                stopping_instances=self._stopping_instances,
-            ),
-        )
+        async with self._instance_op_lock:
+            return cast(
+                StartResult,
+                await live_execution_service.start_instance(
+                    instance_id=instance_id,
+                    load_instances=_load_instances,
+                    save_instances=_save_instances,
+                    is_pid_alive=_is_pid_alive,
+                    resolve_strategy_dir=self._resolve_strategy_dir,
+                    build_subprocess_env=self._build_subprocess_env,
+                    release_gateway_for_instance=self._release_gateway_for_instance,
+                    wait_process_callback=self._wait_process,
+                    processes=self._processes,
+                    stopping_instances=self._stopping_instances,
+                    instance_lock=_AsyncInstanceStoreLock(),
+                ),
+            )
 
     async def stop_instance(self, instance_id: str) -> StopResult:
-        return cast(
-            StopResult,
-            await live_execution_service.stop_instance(
-                instance_id=instance_id,
-                load_instances=_load_instances,
-                save_instances=_save_instances,
-                is_pid_alive=_is_pid_alive,
-                kill_pid=self._kill_pid,
-                release_gateway_for_instance=self._release_gateway_for_instance,
-                processes=self._processes,
-                stopping_instances=self._stopping_instances,
-            ),
-        )
+        async with self._instance_op_lock:
+            return cast(
+                StopResult,
+                await live_execution_service.stop_instance(
+                    instance_id=instance_id,
+                    load_instances=_load_instances,
+                    save_instances=_save_instances,
+                    is_pid_alive=_is_pid_alive,
+                    kill_pid=self._kill_pid,
+                    release_gateway_for_instance=self._release_gateway_for_instance,
+                    processes=self._processes,
+                    stopping_instances=self._stopping_instances,
+                    instance_lock=_AsyncInstanceStoreLock(),
+                ),
+            )
 
     async def start_all(self, user_id: str | None = None) -> dict[str, StartResult]:
         return await live_execution_service.start_all(
@@ -628,6 +680,7 @@ class LiveTradingManager:
             release_gateway_for_instance=self._release_gateway_for_instance,
             processes=self._processes,
             stopping_instances=self._stopping_instances,
+            instance_lock=_AsyncInstanceStoreLock(self._instance_op_lock),
         )
 
     @staticmethod
@@ -640,7 +693,7 @@ class LiveTradingManager:
         Note:
             Delegates to process_supervisor.kill_pid.
         """
-        _kill_pid_impl(pid)
+        _kill_pid_impl(pid, force_after_seconds=1.0)
 
     def _build_subprocess_env(
         self, instance_id: str, instance: dict[str, Any], strategy_dir: Path
@@ -652,6 +705,7 @@ class LiveTradingManager:
             acquire_gateway_for_instance=self._acquire_gateway_for_instance,
             os_environ=dict(os.environ),
             bt_api_py_dir=_BT_API_PY_DIR,
+            backtrader_dir=_BACKTRADER_DIR,
         )
 
     def _acquire_gateway_for_instance(

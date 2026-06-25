@@ -108,9 +108,6 @@ class SecurityHeadersMiddleware:
                 else:
                     headers["Cache-Control"] = "no-cache"
 
-                if self.settings.DEBUG:
-                    headers.append("X-Powered-By", "AI for Trader")
-
             await send(message)
 
         await self.app(scope, receive, send_wrapper)

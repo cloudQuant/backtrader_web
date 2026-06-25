@@ -1,4 +1,7 @@
+import ast
+
 import pandas as pd
+import requests
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -110,7 +113,51 @@ class FundDividendRankEm(AkshareToMySql):
             self.logger.warning(f"解析整数失败: {e}, 原始值: {value}")
             return default
 
-    def fetch_dividend_rank_data(self):
+    def _fetch_source_frame(self, max_pages=None):
+        url = "https://fund.eastmoney.com/Data/funddataIndex_Interface.aspx"
+        params = {
+            "dt": "10",
+            "page": "1",
+            "rank": "FHFCZ",
+            "sort": "desc",
+            "gs": "",
+            "ftype": "",
+        }
+        response = requests.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        data_text = response.text
+        total_page = ast.literal_eval(data_text[data_text.find("=") + 1 : data_text.find(";")])[
+            0
+        ]
+        if max_pages is not None:
+            total_page = min(int(max_pages), int(total_page))
+
+        frames = []
+        for page in range(1, int(total_page) + 1):
+            params.update({"page": str(page)})
+            response = requests.get(url, params=params, timeout=30)
+            response.raise_for_status()
+            data_text = response.text
+            start = data_text.find("[[")
+            end = data_text.find(";var fhph_jjgs")
+            if start < 0 or end < 0:
+                continue
+            rows = ast.literal_eval(data_text[start:end])
+            if rows:
+                frames.append(pd.DataFrame(rows))
+        if not frames:
+            return pd.DataFrame(
+                columns=["序号", "基金代码", "基金简称", "累计分红", "累计次数", "成立日期"]
+            )
+
+        df = pd.concat(frames, ignore_index=True)
+        df.reset_index(inplace=True)
+        df["index"] = df.index + 1
+        df.columns = ["序号", "基金代码", "基金简称", "累计分红", "累计次数", "成立日期", "-"]
+        df = df[["序号", "基金代码", "基金简称", "累计分红", "累计次数", "成立日期"]]
+        return df
+
+    def fetch_dividend_rank_data(self, max_pages=None):
         """
         获取基金分红排行数据
 
@@ -120,8 +167,9 @@ class FundDividendRankEm(AkshareToMySql):
         try:
             self.logger.info("开始获取基金分红排行数据...")
 
-            # 获取数据
-            df = self.fetch_ak_data("fund_fh_rank_em")
+            # Parse the current Eastmoney source response directly to avoid the generic
+            # 30s AkShare thread timeout on the 77-page full ranking.
+            df = self._fetch_source_frame(max_pages=max_pages)
 
             if df is None or df.empty:
                 self.logger.warning("未获取到基金分红排行数据")
@@ -229,7 +277,7 @@ class FundDividendRankEm(AkshareToMySql):
             self.logger.error(f"获取已存在数据ID失败: {e}")
             return set()
 
-    def run(self):
+    def run(self, max_pages=None):
         """
         执行数据获取和保存
 
@@ -244,7 +292,7 @@ class FundDividendRankEm(AkshareToMySql):
             self.create_table_if_not_exists()
 
             # 获取数据
-            df = self.fetch_dividend_rank_data()
+            df = self.fetch_dividend_rank_data(max_pages=max_pages)
 
             if df is None or df.empty:
                 self.logger.error("未获取到有效的基金分红排行数据")

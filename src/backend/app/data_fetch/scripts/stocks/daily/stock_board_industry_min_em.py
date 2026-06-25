@@ -44,8 +44,26 @@ class StockBoardIndustryMinEm(AkshareToMySql):
                                     KEY idx_period (PERIOD)
                                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='东方财富-行业板块分时行情数据表';
                                 """
+        self.industry_table_name = "STOCK_BOARD_INDUSTRY_EM"
+        self.industry_table_sql = r"""
+                                CREATE TABLE IF NOT EXISTS STOCK_BOARD_INDUSTRY_EM (
+                                    R_ID VARCHAR(36) NOT NULL COMMENT 'UUID生成的唯一标识',
+                                    BOARD_CODE VARCHAR(50) NOT NULL COMMENT '行业板块代码',
+                                    BOARD_NAME VARCHAR(100) NOT NULL COMMENT '行业板块名称',
+                                    REFERENCE_CODE VARCHAR(50) COMMENT '行业板块代码',
+                                    REFERENCE_NAME VARCHAR(100) COMMENT '行业板块名称',
+                                    BASEDATE DATE COMMENT '数据日期',
+                                    CREATEDATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建日期',
+                                    CREATEUSER VARCHAR(50) DEFAULT 'system' COMMENT '创建人',
+                                    UPDATEDATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新日期',
+                                    UPDATEUSER VARCHAR(50) DEFAULT 'system' COMMENT '更新人',
+                                    PRIMARY KEY (R_ID),
+                                    UNIQUE KEY uk_board_code (BOARD_CODE),
+                                    KEY idx_basedate (BASEDATE)
+                                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='东方财富-行业板块列表';
+                                """
 
-    def run(self, period="5"):
+    def run(self, period="5", max_symbols=None):
         """
         更新东方财富行业板块分时行情数据
 
@@ -59,7 +77,7 @@ class StockBoardIndustryMinEm(AkshareToMySql):
         try:
             # 1. 获取所有行业板块代码和名称
             industry_df = self.get_data_by_columns(
-                table_name="STOCK_BOARD_INDUSTRY_EM",
+                table_name=self.industry_table_name,
                 column_list=["BOARD_CODE", "BOARD_NAME"],
             )
 
@@ -68,6 +86,8 @@ class StockBoardIndustryMinEm(AkshareToMySql):
                     "行业板块列表为空，尝试直接从 AkShare 拉取行业列表并写入 STOCK_BOARD_INDUSTRY_EM"
                 )
                 try:
+                    if not self.table_exists(self.industry_table_name):
+                        self.create_table(self.industry_table_sql)
                     seed_df = self.fetch_ak_data("stock_board_industry_name_em")
                     if seed_df is not None and not seed_df.empty:
                         seed_df.columns = [
@@ -89,13 +109,17 @@ class StockBoardIndustryMinEm(AkshareToMySql):
                         seed_df["REFERENCE_NAME"] = seed_df["BOARD_NAME"]
                         seed_df["BASEDATE"] = self.get_current_date()
 
-                        if self.table_exists("STOCK_BOARD_INDUSTRY_EM"):
-                            self.save_data(seed_df, "STOCK_BOARD_INDUSTRY_EM")
+                        self.save_data(
+                            seed_df,
+                            self.industry_table_name,
+                            on_duplicate_update=True,
+                            unique_keys=["BOARD_CODE"],
+                        )
                 except Exception as e:
                     self.logger.warning(f"拉取/落库行业板块列表失败: {e}")
 
                 industry_df = self.get_data_by_columns(
-                    table_name="STOCK_BOARD_INDUSTRY_EM",
+                    table_name=self.industry_table_name,
                     column_list=["BOARD_CODE", "BOARD_NAME"],
                 )
 
@@ -110,6 +134,8 @@ class StockBoardIndustryMinEm(AkshareToMySql):
                 .drop_duplicates(subset=["symbol"])
                 .reset_index(drop=True)
             )
+            if max_symbols is not None:
+                industry_df = industry_df.head(max(0, int(max_symbols)))
 
             self.logger.info(f"共获取到 {len(industry_df)} 个行业板块")
             self.connect_db()

@@ -167,7 +167,15 @@ class SWIndexAnalysisDaily(AkshareToMySql):
                     self.logger.error(f"Error fetching analysis data for {symbol}: {exc}")
                     yield symbol, pd.DataFrame()
 
-    def run(self, symbol=None, start_date=None, end_date=None, update_all=False, max_workers=4):
+    def run(
+        self,
+        symbol=None,
+        start_date=None,
+        end_date=None,
+        update_all=False,
+        max_workers=4,
+        lookback_days=None,
+    ):
         """Run the Shenwan Index daily analysis update"""
         try:
             if not self.table_exists(self.table_name):
@@ -178,7 +186,14 @@ class SWIndexAnalysisDaily(AkshareToMySql):
             explicit_start_date = self._normalize_date_arg(start_date)
             symbol_list = self.valid_symbols if symbol is None else [symbol]
             jobs = []
-            default_start_date = None if explicit_start_date or update_all else self._get_default_start_date()
+            default_start_date = None
+            if not explicit_start_date and not update_all:
+                default_start_date = self._get_default_start_date()
+                if lookback_days is not None:
+                    lookback_start = (
+                        pd.to_datetime(requested_end_date) - pd.Timedelta(days=int(lookback_days))
+                    ).strftime("%Y%m%d")
+                    default_start_date = max(default_start_date, lookback_start)
             for symbol in symbol_list:
                 resolved_start_date = (
                     explicit_start_date

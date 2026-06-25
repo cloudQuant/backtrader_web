@@ -16,6 +16,21 @@ from app.services.strategy_service import get_strategy_dir
 logger = logging.getLogger(__name__)
 
 _WORKSPACE_UNITS_ROOT = Path(__file__).resolve().parents[4] / "workspace_units"
+_DEFAULT_LIVE_QCHECK_SECONDS = 0.5
+_SENSITIVE_CONFIG_KEYS = {
+    "access_token",
+    "api_key",
+    "apikey",
+    "auth_code",
+    "authorization",
+    "client_secret",
+    "passphrase",
+    "password",
+    "refresh_token",
+    "secret",
+    "secret_key",
+    "token",
+}
 _ASSET_TYPE_ALIASES = {
     "外汇": "forex",
     "forex": "forex",
@@ -32,6 +47,38 @@ _ASSET_TYPE_ALIASES = {
     "options": "option",
 }
 _DEFAULT_UNIT_START_DATE = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+
+def _positive_float(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
+def _bool_value(value: Any, default: bool) -> bool:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in {"0", "false", "no", "off", ""}
+
+
+def _exactbars_value(value: Any, default: bool | int = True) -> bool | int:
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "on"}:
+        return True
+    if text in {"false", "no", "off"}:
+        return False
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return _bool_value(value, bool(default))
 
 _UNIT_RUN_PY = textwrap.dedent(
     """
@@ -491,11 +538,30 @@ def _merge_dict_section(
     target[key] = merged
 
 
+def _is_sensitive_config_key(key: Any) -> bool:
+    normalized = str(key or "").strip().lower().replace("-", "_")
+    return normalized in _SENSITIVE_CONFIG_KEYS
+
+
+def _strip_sensitive_config_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _strip_sensitive_config_values(item)
+            for key, item in value.items()
+            if not _is_sensitive_config_key(key)
+        }
+    if isinstance(value, list):
+        return [_strip_sensitive_config_values(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_sensitive_config_values(item) for item in value)
+    return deepcopy(value)
+
+
 def _apply_gateway_runtime_config(
     template_config: dict[str, Any],
     gateway_config: dict[str, Any] | None,
 ) -> None:
-    params = (
+    params = _strip_sensitive_config_values(
         dict((gateway_config or {}).get("params") or {}) if isinstance(gateway_config, dict) else {}
     )
     if not params:
@@ -584,6 +650,54 @@ def _build_trading_unit_config(
     for key in ("duration_seconds", "session_timeout"):
         if simulate_section.get(key) is not None and live_section.get(key) is None:
             live_section[key] = simulate_section[key]
+    live_qcheck = live_section.get("qcheck")
+    for key in ("qcheck", "live_qcheck", "qcheck_seconds"):
+        if unit_settings.get(key) is not None:
+            live_qcheck = unit_settings[key]
+            break
+    live_section["qcheck"] = _positive_float(live_qcheck, _DEFAULT_LIVE_QCHECK_SECONDS)
+    live_log_ticks = live_section.get("log_ticks")
+    for key in ("log_ticks", "live_log_ticks"):
+        if unit_settings.get(key) is not None:
+            live_log_ticks = unit_settings[key]
+            break
+    live_section["log_ticks"] = _bool_value(live_log_ticks, False)
+    live_log_positions = live_section.get("log_positions")
+    for key in ("log_positions", "live_log_positions"):
+        if unit_settings.get(key) is not None:
+            live_log_positions = unit_settings[key]
+            break
+    live_section["log_positions"] = _bool_value(live_log_positions, True)
+    live_log_indicators = live_section.get("log_indicators")
+    for key in ("log_indicators", "live_log_indicators"):
+        if unit_settings.get(key) is not None:
+            live_log_indicators = unit_settings[key]
+            break
+    live_section["log_indicators"] = _bool_value(live_log_indicators, False)
+    live_log_signals = live_section.get("log_signals")
+    for key in ("log_signals", "live_log_signals"):
+        if unit_settings.get(key) is not None:
+            live_log_signals = unit_settings[key]
+            break
+    live_section["log_signals"] = _bool_value(live_log_signals, True)
+    live_dispatch_ticks = live_section.get("dispatch_ticks")
+    for key in ("dispatch_ticks", "notify_ticks", "live_dispatch_ticks", "live_notify_ticks"):
+        if unit_settings.get(key) is not None:
+            live_dispatch_ticks = unit_settings[key]
+            break
+    live_section["dispatch_ticks"] = _bool_value(live_dispatch_ticks, False)
+    live_exactbars = live_section.get("exactbars")
+    for key in ("exactbars", "live_exactbars"):
+        if unit_settings.get(key) is not None:
+            live_exactbars = unit_settings[key]
+            break
+    live_section["exactbars"] = _exactbars_value(live_exactbars, True)
+    live_stdstats = live_section.get("stdstats")
+    for key in ("stdstats", "live_stdstats"):
+        if unit_settings.get(key) is not None:
+            live_stdstats = unit_settings[key]
+            break
+    live_section["stdstats"] = _bool_value(live_stdstats, False)
     if live_section:
         template_config["live"] = live_section
 

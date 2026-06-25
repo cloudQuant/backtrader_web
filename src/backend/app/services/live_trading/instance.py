@@ -1,9 +1,13 @@
 import logging
 import uuid
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from app.services.live_trading.metadata import (
+    instance_timestamp,
+    normalize_instance_metadata,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -24,15 +28,61 @@ def _resolve_instance_strategy_dir(
     return resolve_strategy_dir(inst["strategy_id"])
 
 
+def _runtime_dir_key(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return str(Path(text).expanduser().resolve())
+    except OSError:
+        return str(Path(text).expanduser())
+
+
+def _running_runtime_preference(instance_id: str, inst: dict[str, Any]) -> tuple[bool, str, str, str]:
+    return (
+        inst.get("error") in (None, ""),
+        str(inst.get("started_at") or ""),
+        str(inst.get("created_at") or ""),
+        instance_id,
+    )
+
+
+def _dedupe_running_runtime_dirs(instances: dict[str, dict[str, Any]]) -> bool:
+    by_runtime: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for instance_id, inst in instances.items():
+        if str(inst.get("status") or "").lower() != "running":
+            continue
+        key = _runtime_dir_key(inst.get("runtime_dir"))
+        if not key:
+            continue
+        by_runtime.setdefault(key, []).append((instance_id, inst))
+
+    changed = False
+    for entries in by_runtime.values():
+        if len(entries) <= 1:
+            continue
+        keep_id, _keep_inst = max(entries, key=lambda item: _running_runtime_preference(*item))
+        for instance_id, _inst in entries:
+            if instance_id == keep_id:
+                continue
+            instances.pop(instance_id, None)
+            changed = True
+    return changed
+
+
 def sync_status_on_boot(load_instances: _Cb, save_instances: _Cb, is_pid_alive: _Cb) -> None:
     instances = load_instances()
     changed = False
-    for inst in instances.values():
+    now = instance_timestamp()
+    for instance_id, inst in instances.items():
+        if normalize_instance_metadata(inst, instance_id=instance_id, now=now):
+            changed = True
         if inst.get("status") == "running":
             pid = inst.get("pid")
             if not pid or not is_pid_alive(pid):
                 inst["status"] = "stopped"
                 inst["pid"] = None
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
     if changed:
         save_instances(instances)
@@ -49,14 +99,18 @@ def list_instances(
 ) -> list[dict[str, Any]]:
     instances = load_instances()
     changed = False
+    now = instance_timestamp()
     running_pids = scan_running_strategy_pids()
     for instance_id, inst in instances.items():
         inst["id"] = instance_id
+        if normalize_instance_metadata(inst, instance_id=instance_id, now=now):
+            changed = True
         if inst.get("status") == "running":
             pid = inst.get("pid")
             if not pid or not is_pid_alive(pid):
                 inst["status"] = "stopped"
                 inst["pid"] = None
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
                 changed = True
         if inst.get("status") != "running":
             try:
@@ -65,9 +119,15 @@ def list_instances(
                 if run_py_path in running_pids:
                     inst["status"] = "running"
                     inst["pid"] = running_pids[run_py_path]
+                    inst["error"] = None
+                    normalize_instance_metadata(
+                        inst, instance_id=instance_id, now=now, touch=True
+                    )
                     changed = True
             except ValueError as e:
                 _logger.debug(f"Failed to resolve strategy dir for {inst.get('strategy_id')}: {e}")
+    if _dedupe_running_runtime_dirs(instances):
+        changed = True
     if changed:
         save_instances(instances)
 
@@ -121,7 +181,7 @@ def add_instance(
             merged_params["gateway"] = inferred
 
     instance_id = str(uuid.uuid4())[:8]
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = instance_timestamp()
     inst = {
         "id": instance_id,
         "strategy_id": strategy_id,
@@ -132,14 +192,50 @@ def add_instance(
         "error": None,
         "params": merged_params,
         "created_at": now,
+        "updated_at": now,
         "started_at": None,
         "stopped_at": None,
         "log_dir": find_latest_log_dir(strategy_dir),
     }
     if runtime_dir_text:
         inst["runtime_dir"] = runtime_dir_text
+    normalize_instance_metadata(inst, instance_id=instance_id, now=now)
 
     instances = load_instances()
+    runtime_key = _runtime_dir_key(runtime_dir_text)
+    if runtime_key:
+        matching = [
+            (instance_id, inst)
+            for instance_id, inst in instances.items()
+            if _runtime_dir_key(inst.get("runtime_dir")) == runtime_key
+            and (not user_id or not inst.get("user_id") or inst.get("user_id") == user_id)
+        ]
+        running = [
+            (instance_id, inst)
+            for instance_id, inst in matching
+            if str(inst.get("status") or "").lower() == "running" and inst.get("pid")
+        ]
+        if running:
+            keep_id, keep_inst = max(
+                running,
+                key=lambda item: _running_runtime_preference(*item),
+            )
+            dirty = False
+            for instance_id, _inst in matching:
+                if instance_id == keep_id:
+                    continue
+                instances.pop(instance_id, None)
+                dirty = True
+            keep_inst["id"] = keep_id
+            if normalize_instance_metadata(keep_inst, instance_id=keep_id, now=now):
+                instances[keep_id] = keep_inst
+                dirty = True
+            if dirty:
+                save_instances(instances)
+            return keep_inst
+        for instance_id, _inst in matching:
+            instances.pop(instance_id, None)
+
     instances[instance_id] = inst
     save_instances(instances)
     return inst
@@ -175,6 +271,7 @@ def get_instance(
     load_instances: _Cb,
     save_instances: _Cb,
     is_pid_alive: _Cb,
+    scan_running_strategy_pids: _Cb,
     resolve_strategy_dir: _Cb,
     find_latest_log_dir: _Cb,
 ) -> dict[str, Any] | None:
@@ -185,16 +282,31 @@ def get_instance(
     if user_id and inst.get("user_id") and inst["user_id"] != user_id:
         return None
     inst["id"] = instance_id
+    now = instance_timestamp()
+    changed = normalize_instance_metadata(inst, instance_id=instance_id, now=now)
     if inst.get("status") == "running":
         pid = inst.get("pid")
         if not pid or not is_pid_alive(pid):
             inst["status"] = "stopped"
             inst["pid"] = None
-            instances[instance_id] = inst
-            save_instances(instances)
+            normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+            changed = True
     try:
         strategy_dir = _resolve_instance_strategy_dir(inst, resolve_strategy_dir)
+        if inst.get("status") != "running":
+            running_pids = scan_running_strategy_pids()
+            run_py_path = str(strategy_dir / "run.py")
+            pid = running_pids.get(run_py_path)
+            if pid and is_pid_alive(pid):
+                inst["status"] = "running"
+                inst["pid"] = pid
+                inst["error"] = None
+                normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+                changed = True
         inst["log_dir"] = find_latest_log_dir(strategy_dir)
     except ValueError:
         inst["log_dir"] = None
+    if changed:
+        instances[instance_id] = inst
+        save_instances(instances)
     return inst

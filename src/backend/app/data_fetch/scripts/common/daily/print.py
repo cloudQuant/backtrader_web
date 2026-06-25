@@ -38,31 +38,23 @@ class Print(AkshareToMySql):
 
     def run(self, **kwargs):
         """
-        print
+        Persist an audit row for this scanner-generated placeholder.
 
         Returns:
             pd.DataFrame: 数据
         """
-        self.logger.info("正在获取print")
+        self.logger.info("记录 print 占位任务")
 
-        try:
-            import akshare as ak
-
-            # Call akshare function dynamically
-            ak_func = getattr(ak, "print", None)
-            if ak_func is None:
-                raise AttributeError("AkShare module does not have function 'print'")
-
-            df = ak_func(**kwargs)
-
-            if df is not None and not df.empty:
-                # Add metadata
-                df["DATA_DATE"] = pd.to_datetime(df.get("data_date", pd.Timestamp.now()))
-                self.save_to_mysql(df, self.table_name)
-                self.logger.info(f"成功获取 {len(df)} 条记录")
-            else:
-                self.logger.warning("获取的数据为空")
-
-        except Exception as e:
-            self.logger.error(f"获取数据失败: {str(e)}")
-            raise
+        data_date = pd.Timestamp.now().date()
+        df = pd.DataFrame(
+            [
+                {
+                    "R_ID": "PRINT_PLACEHOLDER",
+                    "DATA_DATE": data_date,
+                    "NOTE": "Scanner-generated placeholder; akshare has no callable named print.",
+                }
+            ]
+        )
+        self.save_data(df, self.table_name, on_duplicate_update=True, unique_keys=["R_ID"])
+        self.logger.info("print 占位任务记录完成")
+        return df

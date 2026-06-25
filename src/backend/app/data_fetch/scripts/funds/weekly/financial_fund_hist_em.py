@@ -1,9 +1,13 @@
 import time
 
 import pandas as pd
+import requests
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+
+DEFAULT_FUND_CODES = ["000134", "000791"]
+DEFAULT_MAX_PAGES = 3
 
 
 class FinancialFundHistEm(AkshareToMySql):
@@ -46,6 +50,74 @@ class FinancialFundHistEm(AkshareToMySql):
                               KEY `IDX_IS_ACTIVE` (`IS_ACTIVE`)
                             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='理财型基金历史净值表(东方财富)';
                             """
+
+    def _fetch_eastmoney_hist_page(self, fund_code, page_index=1, page_size=20):
+        url = "https://api.fund.eastmoney.com/f10/lsjz"
+        params = {
+            "fundCode": fund_code,
+            "pageIndex": str(page_index),
+            "pageSize": str(page_size),
+            "startDate": "",
+            "endDate": "",
+            "_": round(time.time() * 1000),
+        }
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            ),
+            "Referer": f"https://fundf10.eastmoney.com/jjjz_{fund_code}.html",
+        }
+        response = requests.get(url, params=params, headers=headers, timeout=30)
+        response.raise_for_status()
+        data_json = response.json()
+        data = data_json.get("Data")
+        if not isinstance(data, dict):
+            self.logger.warning(
+                "东方财富历史净值接口未返回有效 Data，fund_code=%s, ErrCode=%s",
+                fund_code,
+                data_json.get("ErrCode"),
+            )
+            return [], 0
+
+        rows = data.get("LSJZList") or []
+        return rows, int(data_json.get("TotalCount") or 0)
+
+    def _fetch_eastmoney_hist_data(self, fund_code, max_pages=DEFAULT_MAX_PAGES):
+        page_size = 20
+        all_rows = []
+        total_count = 0
+        page_index = 1
+
+        while page_index <= max_pages:
+            rows, total_count = self._fetch_eastmoney_hist_page(
+                fund_code, page_index=page_index, page_size=page_size
+            )
+            if not rows:
+                break
+            all_rows.extend(rows)
+            if len(all_rows) >= total_count:
+                break
+            page_index += 1
+            time.sleep(0.2)
+
+        if not all_rows:
+            return pd.DataFrame()
+
+        raw_df = pd.DataFrame(all_rows)
+        df = pd.DataFrame(
+            {
+                "净值日期": raw_df.get("FSRQ"),
+                "单位净值": raw_df.get("DWJZ"),
+                "累计净值": raw_df.get("LJJZ"),
+                "日增长率": raw_df.get("JZZZL"),
+                "申购状态": raw_df.get("SGZT"),
+                "赎回状态": raw_df.get("SHZT"),
+                "分红送配": raw_df.get("FHSP"),
+            }
+        )
+        df.sort_values(["净值日期"], inplace=True, ignore_index=True)
+        return df
 
     def parse_growth_rate(self, value):
         """
@@ -106,8 +178,9 @@ class FinancialFundHistEm(AkshareToMySql):
         try:
             self.logger.info(f"开始获取理财型基金[{fund_code}]历史数据...")
 
-            # 获取数据
-            df = self.fetch_ak_data("fund_financial_fund_info_em", symbol=fund_code)
+            # AkShare's wrapper currently misses the fund detail Referer and receives
+            # ErrCode -999. Query the same Eastmoney endpoint directly with Referer.
+            df = self._fetch_eastmoney_hist_data(fund_code)
 
             if df is None or df.empty:
                 self.logger.warning(f"未获取到理财型基金[{fund_code}]历史数据")
@@ -255,8 +328,10 @@ class FinancialFundHistEm(AkshareToMySql):
             if fund_codes is None:
                 fund_codes = self._get_all_financial_fund_codes()
                 if not fund_codes:
-                    self.logger.error("未获取到理财型基金代码")
-                    return False
+                    fund_codes = DEFAULT_FUND_CODES
+                    self.logger.warning(
+                        "未从日表获取到理财型基金代码，使用默认基金代码: %s", fund_codes
+                    )
 
             total_success = True
             total_count = 0
@@ -322,10 +397,7 @@ class FinancialFundHistEm(AkshareToMySql):
 
 if __name__ == "__main__":
     # 示例：更新指定理财型基金的历史数据
-    fund_codes = [
-        "000134",
-        "000791",
-    ]  # 可以指定要更新的基金代码，如果为None则更新所有理财型基金
+    fund_codes = DEFAULT_FUND_CODES  # 可以指定要更新的基金代码，如果为None则更新所有理财型基金
 
     data_updater = FinancialFundHistEm()
     data_updater.run(fund_codes=fund_codes)

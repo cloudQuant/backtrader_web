@@ -165,17 +165,15 @@ class TestSettingsValidation:
 
         assert settings.CORS_ORIGINS == "https://example.com,https://app.example.com"
 
-    def test_admin_password_warning(self):
-        """Test that using default admin password triggers warning."""
+    def test_default_admin_password_does_not_emit_python_warning_outside_production(self):
+        """Default-password notices are emitted by structured startup checks."""
         import warnings
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             Settings(ADMIN_PASSWORD="admin123")
 
-        # Should have triggered a warning
-        assert len(w) == 1
-        assert "insecure" in str(w[0].message).lower()
+        assert len(w) == 0
 
     def test_custom_admin_password_no_warning(self):
         """Test that custom admin password doesn't trigger warning."""
@@ -217,7 +215,11 @@ class TestSettingsInProduction:
 
         # Should fail with default secret
         with pytest.raises(ValidationError):
-            Settings()
+            Settings(
+                SECRET_KEY="your-secret-key-change-in-production",
+                JWT_SECRET_KEY="your-jwt-secret-change-in-production",
+                ADMIN_PASSWORD="SecurePass@123!",
+            )
 
         # Should pass with secure secret
         secure_secret = "a" * 64  # 64 character secure random key
@@ -256,13 +258,12 @@ class TestSettingsSecurityDefaults:
 
     def test_debug_mode_default(self):
         """Test that debug mode defaults to False (safe-by-default)."""
-        settings = Settings()
-        assert settings.DEBUG is False
+        assert Settings.model_fields["DEBUG"].default is False
 
     def test_debug_mode_explicit_true_overrides_env(self, monkeypatch):
         """Test that explicit DEBUG=True wins over a production-like env default."""
         monkeypatch.setenv("DEBUG", "false")
-        settings = Settings(DEBUG=True, ADMIN_PASSWORD="SecurePass@123!")
+        settings = Settings(DEBUG=True, ADMIN_PASSWORD="SecurePass@123!", _env_file=None)
         assert settings.DEBUG is True
         assert settings.SECRET_KEY == "your-secret-key-change-in-production"
 

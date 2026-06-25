@@ -27,9 +27,52 @@ from app.utils.logger import get_logger
 
 _VALID_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
-_SENSITIVE_SUBSTRINGS = ("password", "token", "secret", "api_key")
+_SENSITIVE_SUBSTRINGS = (
+    "password",
+    "token",
+    "secret",
+    "api_key",
+    "apikey",
+    "authorization",
+    "credential",
+)
+_SENSITIVE_MASK = "***"
+_MAX_SANITIZE_DEPTH = 6
 
 P = ParamSpec("P")
+
+
+def _is_sensitive_key(key: Any) -> bool:
+    """Return whether a mapping/parameter key is sensitive."""
+    return any(s in str(key).lower() for s in _SENSITIVE_SUBSTRINGS)
+
+
+def _sanitize_for_log(value: Any, *, key: Any | None = None, depth: int = 0) -> Any:
+    """Return a log-safe representation with nested secrets masked."""
+    if key is not None and _is_sensitive_key(key):
+        return _SENSITIVE_MASK
+    if depth >= _MAX_SANITIZE_DEPTH:
+        return f"<{type(value).__name__}>"
+    if isinstance(value, dict):
+        return {
+            item_key: _sanitize_for_log(item_value, key=item_key, depth=depth + 1)
+            for item_key, item_value in value.items()
+        }
+    if isinstance(value, list):
+        return [_sanitize_for_log(item, depth=depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_sanitize_for_log(item, depth=depth + 1) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return type(value)(_sanitize_for_log(item, depth=depth + 1) for item in value)
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return _sanitize_for_log(model_dump(), depth=depth + 1)
+        except Exception:
+            return f"<{type(value).__name__}>"
+
+    return value
 
 
 def _filter_args(args_dict: dict[str, Any]) -> dict[str, Any]:
@@ -41,14 +84,11 @@ def _filter_args(args_dict: dict[str, Any]) -> dict[str, Any]:
     Returns:
         Filtered dictionary with sensitive values masked.
     """
-    filtered = {}
-    for key, value in args_dict.items():
-        key_lower = key.lower()
-        if any(s in key_lower for s in _SENSITIVE_SUBSTRINGS):
-            filtered[key] = "***"
-        else:
-            filtered[key] = value
-    return filtered
+    return {
+        key: _sanitize_for_log(value, key=key)
+        for key, value in args_dict.items()
+        if key not in {"self", "cls"}
+    }
 
 
 def _truncate(value: Any, max_length: int = 200) -> str:
@@ -61,7 +101,7 @@ def _truncate(value: Any, max_length: int = 200) -> str:
     Returns:
         Truncated string representation.
     """
-    s = repr(value)
+    s = repr(_sanitize_for_log(value))
     if len(s) > max_length:
         return s[:max_length] + "..."
     return s

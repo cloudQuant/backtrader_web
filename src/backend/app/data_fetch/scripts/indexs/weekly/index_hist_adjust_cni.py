@@ -142,7 +142,7 @@ class IndexHistAdjustCNI(AkshareToMySql):
                     )
                     yield symbol, pd.DataFrame()
 
-    def run(self, symbol=None, max_workers=24):
+    def run(self, symbol=None, max_workers=24, max_symbols=None):
         """
         Main method to run the historical adjustment data update
 
@@ -159,6 +159,10 @@ class IndexHistAdjustCNI(AkshareToMySql):
                 self.logger.info(f"Created table {self.table_name}")
 
             symbol_list = self.get_symbol_list() if not symbol else [symbol]
+            max_symbols = int(max_symbols) if max_symbols is not None else None
+            if max_symbols is not None and len(symbol_list) > max_symbols:
+                symbol_list = symbol_list[:max_symbols]
+                self.logger.info(f"Limiting CNI historical adjustments to {max_symbols} symbols")
             for symbol, df in self._fetch_hist_adjust_jobs(
                 symbol_list, int(max_workers or 1)
             ):

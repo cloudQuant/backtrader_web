@@ -93,7 +93,7 @@ class FuturesContractInfoCzce(AkshareToMySql):
 
                                 """
 
-    def run(self, start_date=None, end_date=None):
+    def run(self, start_date=None, end_date=None, lookback_days=None, max_days=None, sleep_seconds=0.5):
         """
         Fetches and stores daily contract information from the Zhengzhou Commodity Exchange (CZCE).
         """
@@ -105,6 +105,9 @@ class FuturesContractInfoCzce(AkshareToMySql):
         table_name = "FUTURES_CONTRACT_INFO_CZCE"
 
         try:
+            lookback_days = int(lookback_days) if lookback_days is not None else None
+            max_days = int(max_days) if max_days is not None else None
+            sleep_seconds = float(sleep_seconds or 0)
             # 1. Determine date range
             if end_date is None:
                 end_date = datetime.now().strftime("%Y-%m-%d")
@@ -119,6 +122,15 @@ class FuturesContractInfoCzce(AkshareToMySql):
                 else:
                     start_date = "2023-01-03"  # Default start date
                     self.logger.info(f"No existing data found. Starting update from {start_date}.")
+            if lookback_days is not None:
+                lookback_start = (datetime.now() - timedelta(days=lookback_days)).strftime(
+                    "%Y-%m-%d"
+                )
+                if datetime.strptime(start_date, "%Y-%m-%d") < datetime.strptime(
+                    lookback_start, "%Y-%m-%d"
+                ):
+                    start_date = lookback_start
+                    self.logger.info(f"Limiting CZCE update to last {lookback_days} days.")
 
             if datetime.strptime(start_date, "%Y-%m-%d") > datetime.strptime(end_date, "%Y-%m-%d"):
                 self.logger.info("Data is already up to date.")
@@ -128,6 +140,9 @@ class FuturesContractInfoCzce(AkshareToMySql):
             if not trading_days:
                 self.logger.info("No trading days to update in the specified range.")
                 return
+            if max_days is not None and len(trading_days) > max_days:
+                trading_days = trading_days[-max_days:]
+                self.logger.info(f"Limiting CZCE update to {max_days} trading days.")
 
             self.logger.info(
                 f"Fetching data for {len(trading_days)} trading days from {trading_days[0]} to {trading_days[-1]}."
@@ -140,7 +155,8 @@ class FuturesContractInfoCzce(AkshareToMySql):
                     df = self.fetch_ak_data(
                         "futures_contract_info_czce", trade_date.replace("-", "")
                     )
-                    time.sleep(2)  # Be respectful
+                    if sleep_seconds > 0:
+                        time.sleep(sleep_seconds)
 
                     if df.empty:
                         self.logger.warning(f"No data returned for {trade_date}.")

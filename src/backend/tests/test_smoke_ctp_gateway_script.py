@@ -23,6 +23,7 @@ def make_args(tmp_path: Path, **overrides) -> argparse.Namespace:
         "worker_timeout_seconds": 45.0,
         "worker_grace_seconds": 0.5,
         "poll_interval_seconds": 0.1,
+        "ctp_env": "manual",
         "worker": False,
     }
     values.update(overrides)
@@ -33,6 +34,22 @@ class _IdleProc:
     returncode = None
     stdout = None
     stderr = None
+
+
+def test_build_instances_defaults_to_manual_strategy_config_fronts():
+    instance = smoke_ctp_gateway.build_instances("inst1", "simulate/p_bb_rsi")["inst1"]
+
+    gateway = instance["params"]["gateway"]
+    assert gateway["enabled"] is True
+    assert gateway["ctp_env"] == "manual"
+
+
+def test_build_instances_accepts_explicit_ctp_env():
+    instance = smoke_ctp_gateway.build_instances(
+        "inst1", "simulate/p_bb_rsi", ctp_env="auto"
+    )["inst1"]
+
+    assert instance["params"]["gateway"]["ctp_env"] == "auto"
 
 
 def test_parent_main_returns_success_when_worker_writes_valid_report(tmp_path, monkeypatch, capsys):
@@ -205,6 +222,26 @@ def test_parent_main_disables_manual_gateway_restore_for_worker(tmp_path, monkey
     assert captured_env["LIVE_TRADING_RESTORE_MANUAL_GATEWAYS"] == "false"
 
 
+def test_collect_ctp_native_diagnostics_reports_extension_state():
+    diagnostics = smoke_ctp_gateway.collect_ctp_native_diagnostics()
+
+    assert isinstance(diagnostics["native_loaded"], bool)
+    if "diagnostic_error" not in diagnostics:
+        assert isinstance(diagnostics["expected_extensions"], list)
+        assert isinstance(diagnostics["available_extensions"], list)
+        assert diagnostics["python_version"]
+
+
+def test_collect_external_ctp_runtime_diagnostics_uses_child_processes():
+    diagnostics = smoke_ctp_gateway.collect_external_ctp_runtime_diagnostics()
+
+    assert {"ctp", "openctp_ctp"} <= set(diagnostics)
+    for item in diagnostics.values():
+        assert "ok" in item
+        assert "timed_out" in item
+        assert "returncode" in item
+
+
 def test_run_smoke_marks_missing_strategy_runtime_as_blocked(tmp_path, monkeypatch):
     args = make_args(tmp_path, place_test_order=False)
 
@@ -261,6 +298,10 @@ def test_run_smoke_uses_generated_runtime_dir(tmp_path, monkeypatch):
     args = make_args(tmp_path, place_test_order=False)
     template_dir = tmp_path / "template"
     template_dir.mkdir()
+    (template_dir / "config.yaml").write_text(
+        "ctp:\n  fronts:\n    telecom:\n      td_address: tcp://td\n      md_address: tcp://md\n",
+        encoding="utf-8",
+    )
     captured_instances = {}
 
     class FakeManager:
@@ -312,6 +353,7 @@ def test_run_smoke_uses_generated_runtime_dir(tmp_path, monkeypatch):
 
     assert runtime_dir == Path(report["runtime_dir"])
     assert (runtime_dir / "run.py").is_file()
+    assert (runtime_dir / "config.yaml").is_file()
     assert report["e2e_status"] == "PASS"
 
 
@@ -335,7 +377,7 @@ def test_collect_gateway_prerequisites_uses_runtime_front_selection(tmp_path, mo
         encoding="utf-8",
     )
     instance = smoke_ctp_gateway.build_instances(
-        "inst1", "simulate/p_bb_rsi", runtime_dir=runtime_dir
+        "inst1", "simulate/p_bb_rsi", runtime_dir=runtime_dir, ctp_env="auto"
     )["inst1"]
 
     def fake_build_runtime_kwargs(*args, **kwargs):
@@ -363,6 +405,48 @@ def test_collect_gateway_prerequisites_uses_runtime_front_selection(tmp_path, mo
     assert result["selected_ctp_env"] == "set2_7x24"
     assert result["td_front"] == "tcp://set2-td"
     assert result["selection_reason"] == "auto_regular_session_set1_unreachable"
+
+
+def test_collect_gateway_prerequisites_defaults_to_strategy_simnow_fronts(tmp_path, monkeypatch):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    (runtime_dir / "config.yaml").write_text(
+        "\n".join(
+            [
+                "ctp:",
+                "  app_id: simnow_client_test",
+                "  auth_code: '0000000000000000'",
+                "  fronts:",
+                "    telecom:",
+                "      td_address: tcp://simnow-td",
+                "      md_address: tcp://simnow-md",
+                "live:",
+                "  network: telecom",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (runtime_dir / ".env").write_text(
+        "\n".join(
+            [
+                "CTP_USER_ID=089763",
+                "CTP_BROKER_ID=9999",
+                "CTP_PASSWORD=secret",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    instance = smoke_ctp_gateway.build_instances(
+        "inst1", "simulate/p_bb_rsi", runtime_dir=runtime_dir
+    )["inst1"]
+
+    result = smoke_ctp_gateway.collect_gateway_prerequisites(instance, runtime_dir)
+
+    assert result["missing_required_fields"] == []
+    assert result["selected_ctp_env"] == "custom_front"
+    assert result["requested_ctp_env"] == "manual"
+    assert result["td_front"] == "tcp://simnow-td"
+    assert result["md_front"] == "tcp://simnow-md"
 
 
 def test_run_smoke_marks_missing_ctp_credentials_as_blocked(tmp_path, monkeypatch):
@@ -394,7 +478,7 @@ def test_run_smoke_marks_missing_ctp_credentials_as_blocked(tmp_path, monkeypatc
 
     assert report["e2e_status"] == "BLOCKED"
     assert report["blocked_reason"] == "credentials_unavailable"
-    assert report["gateway_prerequisites"]["selected_ctp_env"]
+    assert report["gateway_prerequisites"]["requested_ctp_env"] == "manual"
     assert set(report["gateway_prerequisites"]["missing_required_fields"]) >= {
         "investor_id",
         "broker_id",

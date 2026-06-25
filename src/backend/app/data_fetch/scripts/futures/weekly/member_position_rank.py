@@ -54,6 +54,26 @@ class FuturesMemberPositionRank(AkshareToMySql):
                                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='期货会员持仓排名表';
                                 """
 
+    @staticmethod
+    def _rename_lowercase_rank_columns(df: pd.DataFrame) -> pd.DataFrame | None:
+        column_map = {
+            "symbol": "SYMBOL",
+            "rank": "RANK_NUM",
+            "vol_party_name": "VOL_PARTY_NAME",
+            "vol": "VOL",
+            "vol_chg": "VOL_CHG",
+            "long_party_name": "LONG_PARTY_NAME",
+            "long_open_interest": "LONG_OPEN_INTEREST",
+            "long_open_interest_chg": "LONG_OPEN_INTEREST_CHG",
+            "short_party_name": "SHORT_PARTY_NAME",
+            "short_open_interest": "SHORT_OPEN_INTEREST",
+            "short_open_interest_chg": "SHORT_OPEN_INTEREST_CHG",
+            "variety": "VARIETY",
+        }
+        if not set(column_map).issubset(set(df.columns)):
+            return None
+        return df.rename(columns=column_map)
+
     def clean_numeric_columns(
         self,
         df: pd.DataFrame,
@@ -105,8 +125,8 @@ class FuturesMemberPositionRank(AkshareToMySql):
             # print(f"数据清洗失败: {str(e)}")
             return df
 
-    def _update_czce_rank_table(self, begin_date):
-        now_date = self.get_current_date()
+    def _update_czce_rank_table(self, begin_date, end_date=None):
+        now_date = end_date or self.get_current_date()
         if begin_date is None:
             begin_date = "2015-10-08"
         if begin_date > now_date:
@@ -171,8 +191,8 @@ class FuturesMemberPositionRank(AkshareToMySql):
             else:
                 self.logger.info(f"中金所中{trading_day} 获取到的数据为空")
 
-    def _update_cffex_rank_table(self, begin_date):
-        now_date = self.get_current_date()
+    def _update_cffex_rank_table(self, begin_date, end_date=None):
+        now_date = end_date or self.get_current_date()
         if begin_date is None:
             begin_date = "2010-04-16"
         if begin_date > now_date:
@@ -238,8 +258,8 @@ class FuturesMemberPositionRank(AkshareToMySql):
             else:
                 self.logger.info(f"中金所中{trading_day} 获取到的数据为空")
 
-    def _update_dce_rank_table(self, begin_date):
-        now_date = self.get_current_date()
+    def _update_dce_rank_table(self, begin_date, end_date=None):
+        now_date = end_date or self.get_current_date()
         if begin_date is None:
             begin_date = "2010-01-04"
         if begin_date > now_date:
@@ -302,8 +322,8 @@ class FuturesMemberPositionRank(AkshareToMySql):
             else:
                 self.logger.info(f"中金所中{trading_day} 获取到的数据为空")
 
-    def _update_gfex_rank_table(self, begin_date):
-        now_date = self.get_current_date()
+    def _update_gfex_rank_table(self, begin_date, end_date=None):
+        now_date = end_date or self.get_current_date()
         if begin_date is None:
             begin_date = "2023-11-10"
         if begin_date > now_date:
@@ -367,8 +387,8 @@ class FuturesMemberPositionRank(AkshareToMySql):
             else:
                 self.logger.info(f"中金所中{trading_day} 获取到的数据为空")
 
-    def _update_shfe_rank_table(self, begin_date):
-        now_date = self.get_current_date()
+    def _update_shfe_rank_table(self, begin_date, end_date=None):
+        now_date = end_date or self.get_current_date()
         if begin_date is None:
             begin_date = "2002-01-07"
         if begin_date > now_date:
@@ -384,20 +404,24 @@ class FuturesMemberPositionRank(AkshareToMySql):
             all_df_list = []
             for name, df in content.items():
                 if df is not None and not df.empty:
-                    df.columns = [
-                        "SYMBOL",
-                        "SHORT_PARTY_NAME",
-                        "LONG_PARTY_NAME",
-                        "RANK_NUM",
-                        "VOL_PARTY_NAME",
-                        "LONG_OPEN_INTEREST",
-                        "VOL",
-                        "VOL_CHG",
-                        "SHORT_OPEN_INTEREST_CHG",
-                        "SHORT_OPEN_INTEREST",
-                        "LONG_OPEN_INTEREST_CHG",
-                        "VARIETY",
-                    ]
+                    named_df = self._rename_lowercase_rank_columns(df)
+                    if named_df is not None:
+                        df = named_df
+                    else:
+                        df.columns = [
+                            "SYMBOL",
+                            "SHORT_PARTY_NAME",
+                            "LONG_PARTY_NAME",
+                            "RANK_NUM",
+                            "VOL_PARTY_NAME",
+                            "LONG_OPEN_INTEREST",
+                            "VOL",
+                            "VOL_CHG",
+                            "SHORT_OPEN_INTEREST_CHG",
+                            "SHORT_OPEN_INTEREST",
+                            "LONG_OPEN_INTEREST_CHG",
+                            "VARIETY",
+                        ]
                     df["R_ID"] = [self.get_uuid() for i in range(len(df))]
                     df["REFERENCE_CODE"] = name
                     df["REFERENCE_NAME"] = name
@@ -431,7 +455,7 @@ class FuturesMemberPositionRank(AkshareToMySql):
             else:
                 self.logger.info(f"上期所中{trading_day} 获取到的数据为空")
 
-    def run(self, exchanges=None, lookback_days=None, max_exchanges=None):
+    def run(self, exchanges=None, lookback_days=None, max_exchanges=None, start_date=None, end_date=None):
         if not self.table_exists(self.table_name):
             self.create_table(self.create_table_sql)
         self.logger.info("正在获取期货会员持仓表数据")
@@ -447,12 +471,16 @@ class FuturesMemberPositionRank(AkshareToMySql):
         if max_exchanges is not None and len(exchange_list) > max_exchanges:
             exchange_list = exchange_list[:max_exchanges]
             self.logger.info(f"限制处理交易所数量为{max_exchanges}个")
+        end_date = end_date or self.get_current_date()
         for exchange in exchange_list:
             try:
-                begin_date = self.get_latest_date(
-                    table_name, "BASEDATE", conditions={"EXCHANGE_NAME": exchange}
-                )
-                if lookback_days is not None:
+                if start_date is not None:
+                    begin_date = start_date
+                else:
+                    begin_date = self.get_latest_date(
+                        table_name, "BASEDATE", conditions={"EXCHANGE_NAME": exchange}
+                    )
+                if lookback_days is not None and start_date is None:
                     lookback_start = (datetime.now() - timedelta(days=lookback_days)).strftime(
                         "%Y-%m-%d"
                     )
@@ -460,15 +488,15 @@ class FuturesMemberPositionRank(AkshareToMySql):
                         begin_date = lookback_start
                         self.logger.info(f"{exchange}: 限制为最近{lookback_days}天")
                 if exchange == "郑商所":
-                    self._update_czce_rank_table(begin_date)
+                    self._update_czce_rank_table(begin_date, end_date=end_date)
                 if exchange == "广期所":
-                    self._update_gfex_rank_table(begin_date)
+                    self._update_gfex_rank_table(begin_date, end_date=end_date)
                 if exchange == "大商所":
-                    self._update_dce_rank_table(begin_date)
+                    self._update_dce_rank_table(begin_date, end_date=end_date)
                 if exchange == "中金所":
-                    self._update_cffex_rank_table(begin_date)
+                    self._update_cffex_rank_table(begin_date, end_date=end_date)
                 if exchange == "上期所":
-                    self._update_shfe_rank_table(begin_date)
+                    self._update_shfe_rank_table(begin_date, end_date=end_date)
             except Exception as e:
                 self.logger.error(f"{exchange}: 会员持仓排名处理失败 - {e}", exc_info=True)
                 continue

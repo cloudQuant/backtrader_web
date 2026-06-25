@@ -1,5 +1,6 @@
 from unittest.mock import Mock, patch
 
+from app.services import ctp_tunnel
 from app.services.gateway import manual_ctp_proxy, manual_ports
 
 
@@ -94,3 +95,89 @@ class TestManualCtpProxy:
 
         assert hint is not None
         assert "CTP" in hint
+
+
+class TestCtpTunnel:
+    def test_reads_env_http_proxy_with_basic_auth(self):
+        endpoint = ctp_tunnel._get_http_proxy_endpoint(
+            environ={"CTP_TUNNEL_PROXY": "http://user:p%40ss@127.0.0.1:7890"},
+            system_getproxies=lambda: {},
+            run_scutil=None,
+        )
+
+        assert endpoint is not None
+        assert endpoint.host == "127.0.0.1"
+        assert endpoint.port == 7890
+        assert endpoint.authorization.startswith("Basic ")
+        assert endpoint.source == "env:CTP_TUNNEL_PROXY"
+
+    def test_can_disable_proxy_tunnel_detection(self):
+        endpoint = ctp_tunnel._get_http_proxy_endpoint(
+            environ={
+                "CTP_TUNNEL_ENABLED": "0",
+                "HTTP_PROXY": "http://127.0.0.1:7890",
+            },
+            system_getproxies=lambda: {"http": "http://127.0.0.1:7891"},
+            run_scutil=None,
+        )
+
+        assert endpoint is None
+
+    def test_uses_system_proxy_when_env_is_empty(self):
+        endpoint = ctp_tunnel._get_http_proxy_endpoint(
+            environ={},
+            system_getproxies=lambda: {"http": "http://localhost:7890"},
+            run_scutil=None,
+        )
+
+        assert endpoint is not None
+        assert endpoint.host == "localhost"
+        assert endpoint.port == 7890
+        assert endpoint.source == "system:http"
+
+    def test_skips_default_scutil_probe_when_not_macos(self, monkeypatch):
+        run_scutil = Mock()
+        monkeypatch.setattr(ctp_tunnel.sys, "platform", "linux")
+        monkeypatch.setattr(ctp_tunnel.shutil, "which", Mock(return_value=None))
+        monkeypatch.setattr(ctp_tunnel.subprocess, "run", run_scutil)
+
+        endpoint = ctp_tunnel._get_http_proxy_endpoint(
+            environ={},
+            system_getproxies=lambda: {},
+            run_scutil=ctp_tunnel.subprocess.run,
+        )
+
+        assert endpoint is None
+        run_scutil.assert_not_called()
+
+    def test_uses_injected_scutil_probe_on_non_macos(self, monkeypatch):
+        monkeypatch.setattr(ctp_tunnel.sys, "platform", "linux")
+        monkeypatch.setattr(ctp_tunnel.shutil, "which", Mock(return_value=None))
+        run_scutil = Mock(
+            return_value=Mock(
+                stdout="HTTPEnable : 1\nHTTPProxy : 127.0.0.1\nHTTPPort : 7890\n"
+            )
+        )
+
+        endpoint = ctp_tunnel._get_http_proxy_endpoint(
+            environ={},
+            system_getproxies=lambda: {},
+            run_scutil=run_scutil,
+        )
+
+        assert endpoint is not None
+        assert endpoint.host == "127.0.0.1"
+        assert endpoint.port == 7890
+        assert endpoint.source == "scutil"
+        run_scutil.assert_called_once()
+
+    def test_connect_request_includes_proxy_authorization(self):
+        request = ctp_tunnel._build_connect_request(
+            "182.254.243.31:40011",
+            "Basic abc123",
+        )
+
+        assert b"CONNECT 182.254.243.31:40011 HTTP/1.1\r\n" in request
+        assert b"Host: 182.254.243.31:40011\r\n" in request
+        assert b"Proxy-Authorization: Basic abc123\r\n" in request
+        assert request.endswith(b"\r\n\r\n")

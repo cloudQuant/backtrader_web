@@ -54,8 +54,8 @@ class FuturesDeliveryDce(AkshareToMySql):
                 end_month = self.get_previous_month()
 
             if start_month is None:
-                start_month = self.get_latest_date(self.table_name, "DELIVERY_DATE")
-                start_month = self.get_next_month(start_month)
+                latest_month = self.get_latest_date(self.table_name, "DELIVERY_DATE")
+                start_month = self.get_next_month(latest_month) if latest_month else end_month
 
             start_month_dt = datetime.strptime(start_month, "%Y%m").date()
             end_month_dt = datetime.strptime(end_month, "%Y%m").date()

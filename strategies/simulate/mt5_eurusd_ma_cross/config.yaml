@@ -61,7 +61,7 @@ risk:
 # ============================================================
 mt5:
   login: "5047785364"
-  password: "NyCh-i4r"
+  password: ""
   ws_uri: "wss://web.metatrader.app/terminal"
   symbol_suffix: ""
 

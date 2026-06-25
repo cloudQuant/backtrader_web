@@ -10,6 +10,10 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.common.daily._jin10_macro import (
+    add_jin10_symbol_fields,
+    fetch_jin10_list_v2,
+)
 
 
 class MacroUsaMichiganConsumerSentiment(AkshareToMySql):
@@ -41,21 +45,30 @@ class MacroUsaMichiganConsumerSentiment(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("macro_usa_michigan_consumer_sentiment", **kwargs)
+            max_pages = kwargs.pop("max_pages", None)
+            request_timeout = kwargs.pop("request_timeout", 20)
+            df = fetch_jin10_list_v2(
+                category="ec",
+                attr_id="50",
+                symbol="美国密歇根大学消费者信心指数初值报告",
+                timeout=request_timeout,
+                max_pages=max_pages,
+            )
 
             if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+            df = add_jin10_symbol_fields(df)
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

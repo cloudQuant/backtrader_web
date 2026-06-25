@@ -6,7 +6,9 @@ Stock Board Industry Hist Em
 频率: daily
 """
 
+import akshare as ak
 import pandas as pd
+from akshare.utils.request import request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -18,18 +20,201 @@ class StockBoardIndustryHistEm(AkshareToMySql):
     def __init__(self, db_config=DB_CONFIG, logger=None):
         super().__init__(db_config, logger)
         self.table_name = "STOCK_BOARD_INDUSTRY_HIST_EM"
+        self._board_code_cache = {}
         self.create_table_sql = """
     CREATE TABLE IF NOT EXISTS `STOCK_BOARD_INDUSTRY_HIST_EM` (
         `R_ID` INT AUTO_INCREMENT PRIMARY KEY,
             `symbol` VARCHAR(50) COMMENT '品种代码',
             `name` VARCHAR(100) COMMENT '品种名称',
             `data_date` DATE COMMENT '数据日期',
+            `日期` DATE COMMENT '交易日期',
+            `开盘` DOUBLE COMMENT '开盘',
+            `收盘` DOUBLE COMMENT '收盘',
+            `最高` DOUBLE COMMENT '最高',
+            `最低` DOUBLE COMMENT '最低',
+            `涨跌幅` DOUBLE COMMENT '涨跌幅',
+            `涨跌额` DOUBLE COMMENT '涨跌额',
+            `成交量` BIGINT COMMENT '成交量',
+            `成交额` DOUBLE COMMENT '成交额',
+            `振幅` DOUBLE COMMENT '振幅',
+            `换手率` DOUBLE COMMENT '换手率',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
         UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stock Board Industry Hist Em'
     """
+
+    @staticmethod
+    def _normalize_date_arg(value):
+        if value is None:
+            return None
+        parsed = pd.to_datetime(value, errors="coerce")
+        if pd.isna(parsed):
+            return None
+        return parsed
+
+    def _resolve_board_code(self, symbol):
+        symbol = str(symbol or "").strip()
+        if symbol in self._board_code_cache:
+            return self._board_code_cache[symbol]
+        if symbol.upper().startswith("BK"):
+            resolved = (symbol.upper(), symbol)
+            self._board_code_cache[symbol] = resolved
+            return resolved
+        listing = ak.stock_board_industry_name_em()
+        matched = listing[listing["板块名称"] == symbol]
+        if matched.empty:
+            raise ValueError(f"Unknown Eastmoney industry board: {symbol}")
+        row = matched.iloc[0]
+        resolved = (str(row["板块代码"]), str(row["板块名称"]))
+        self._board_code_cache[symbol] = resolved
+        self._board_code_cache[resolved[0]] = resolved
+        self._board_code_cache[resolved[1]] = resolved
+        return resolved
+
+    def _fetch_daily_from_trends(self, symbol, start_date=None, end_date=None):
+        try:
+            board_code, board_name = self._resolve_board_code(symbol)
+        except Exception as exc:
+            self.logger.warning(f"Resolve Eastmoney industry board failed: {exc}")
+            return pd.DataFrame()
+
+        url = "https://push2his.eastmoney.com/api/qt/stock/trends2/get"
+        params = {
+            "secid": f"90.{board_code}",
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+            "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+            "iscr": "0",
+            "iscca": "0",
+            "ndays": "5",
+        }
+        try:
+            data_json = request_eastmoney(url, params=params, timeout=20).json()
+        except Exception as exc:
+            self.logger.warning(f"Eastmoney industry trends2 fallback failed: {exc}")
+            return pd.DataFrame()
+
+        data = data_json.get("data") or {}
+        trends = data.get("trends") or []
+        if not trends:
+            return pd.DataFrame()
+        board_name = data.get("name") or board_name
+        df = pd.DataFrame([item.split(",") for item in trends])
+        if df.empty or df.shape[1] < 7:
+            return pd.DataFrame()
+        df = df.iloc[:, :7]
+        df.columns = ["时间", "开盘", "收盘", "最高", "最低", "成交量", "成交额"]
+        df["时间"] = pd.to_datetime(df["时间"], errors="coerce")
+        df = df.dropna(subset=["时间"])
+        if df.empty:
+            return pd.DataFrame()
+        for column in ("开盘", "收盘", "最高", "最低", "成交量", "成交额"):
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+        df["日期"] = df["时间"].dt.strftime("%Y-%m-%d")
+        grouped = (
+            df.groupby("日期", as_index=False)
+            .agg(
+                开盘=("开盘", "first"),
+                收盘=("收盘", "last"),
+                最高=("最高", "max"),
+                最低=("最低", "min"),
+                成交量=("成交量", "sum"),
+                成交额=("成交额", "sum"),
+            )
+            .sort_values("日期")
+        )
+        previous_close = pd.to_numeric(data.get("preClose"), errors="coerce")
+        changes = []
+        pct_changes = []
+        amplitudes = []
+        for _, row in grouped.iterrows():
+            close = row["收盘"]
+            high = row["最高"]
+            low = row["最低"]
+            if pd.isna(previous_close) or previous_close == 0:
+                changes.append(None)
+                pct_changes.append(None)
+                amplitudes.append(None)
+            else:
+                change = close - previous_close
+                changes.append(change)
+                pct_changes.append(change / previous_close * 100)
+                amplitudes.append((high - low) / previous_close * 100)
+            previous_close = close
+        grouped["涨跌幅"] = pct_changes
+        grouped["涨跌额"] = changes
+        grouped["振幅"] = amplitudes
+        grouped["换手率"] = None
+        grouped["symbol"] = board_name
+        grouped["name"] = board_name
+        grouped["data_date"] = grouped["日期"]
+        start = self._normalize_date_arg(start_date)
+        end = self._normalize_date_arg(end_date)
+        if start is not None:
+            grouped = grouped[pd.to_datetime(grouped["日期"]) >= start]
+        if end is not None:
+            grouped = grouped[pd.to_datetime(grouped["日期"]) <= end]
+        if not grouped.empty:
+            self.logger.warning(
+                "Eastmoney industry kline returned empty; populated "
+                "STOCK_BOARD_INDUSTRY_HIST_EM from same-source trends2 aggregation"
+            )
+        return grouped.reset_index(drop=True)
+
+    @staticmethod
+    def _period_code(period):
+        return {"日k": "D", "周k": "W", "月k": "M"}.get(str(period or ""), "D")
+
+    def _enrich_legacy_columns(self, df, symbol, period, adjust):
+        try:
+            board_code, board_name = self._resolve_board_code(symbol)
+        except Exception:
+            board_code = str(symbol or "")
+            board_name = str(symbol or "")
+        if "name" in df.columns and not df.empty:
+            value = df["name"].dropna()
+            if not value.empty:
+                board_name = str(value.iloc[0])
+        period_code = self._period_code(period)
+        enriched = df.copy()
+        enriched["data_date"] = pd.to_datetime(enriched["data_date"], errors="coerce").dt.date
+        compact_date = pd.to_datetime(enriched["data_date"], errors="coerce").dt.strftime("%Y%m%d")
+        enriched["R_ID"] = (
+            "SBIH_"
+            + board_code
+            + "_"
+            + compact_date.fillna("")
+            + "_"
+            + period_code
+            + "_"
+            + (str(adjust or "none")[:6])
+        )
+        enriched["REFERENCE_CODE"] = board_code
+        enriched["REFERENCE_NAME"] = board_name
+        enriched["BASEDATE"] = enriched["data_date"]
+        enriched["SYMBOL"] = board_code
+        enriched["PERIOD"] = period_code
+        enriched["ADJUST_TYPE"] = adjust or ""
+        column_map = {
+            "开盘": "OPEN_PRICE",
+            "收盘": "CLOSE_PRICE",
+            "最高": "HIGH_PRICE",
+            "最低": "LOW_PRICE",
+            "涨跌幅": "CHANGE_PERCENT",
+            "涨跌额": "CHANGE_AMOUNT",
+            "成交量": "VOLUME",
+            "成交额": "TURNOVER",
+            "振幅": "AMPLITUDE",
+            "换手率": "TURNOVER_RATIO",
+        }
+        for source, target in column_map.items():
+            if source in enriched.columns:
+                enriched[target] = pd.to_numeric(enriched[source], errors="coerce")
+        if "symbol" in enriched.columns:
+            enriched = enriched.drop(columns=["symbol"])
+        return enriched
 
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
@@ -41,21 +226,57 @@ class StockBoardIndustryHistEm(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
+            kwargs.setdefault("symbol", "BK1027")
+            kwargs.setdefault("period", "日k")
+            kwargs.setdefault("adjust", "")
+            kwargs.setdefault("_call_timeout", 8)
             # Fetch data from AkShare
-            df = self.fetch_ak_data("stock_board_industry_hist_em", **kwargs)
+            try:
+                df = self.fetch_ak_data("stock_board_industry_hist_em", **kwargs)
+            except Exception as fetch_exc:
+                self.logger.warning(
+                    f"Eastmoney industry kline fetch failed, trying same-source trends2 "
+                    f"aggregation: {fetch_exc}"
+                )
+                df = pd.DataFrame()
 
             if df is None or df.empty:
-                self.logger.warning("No data found")
-                return pd.DataFrame()
+                df = self._fetch_daily_from_trends(
+                    kwargs.get("symbol"),
+                    kwargs.get("start_date"),
+                    kwargs.get("end_date"),
+                )
+                if df is None or df.empty:
+                    self.logger.warning("No data found")
+                    return pd.DataFrame()
 
             # Process data if needed
             # Add data_date if not exists
-            if "data_date" not in df.columns:
+            if "日期" in df.columns:
+                df["日期"] = pd.to_datetime(df["日期"], errors="coerce").dt.strftime("%Y-%m-%d")
+                df = df.dropna(subset=["日期"]).drop_duplicates(subset=["日期"])
+                df["data_date"] = df["日期"]
+            elif "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
+            if "symbol" not in df.columns:
+                df["symbol"] = str(kwargs.get("symbol") or "BK1027")
+            if "name" not in df.columns:
+                df["name"] = str(kwargs.get("symbol") or "BK1027")
+            df = self._enrich_legacy_columns(
+                df,
+                kwargs.get("symbol"),
+                kwargs.get("period"),
+                kwargs.get("adjust"),
+            )
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["R_ID"],
+            )
 
             return df
 

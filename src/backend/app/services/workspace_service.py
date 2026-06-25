@@ -59,6 +59,10 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
 _DEFAULT_UNIT_START_DATE = datetime(2020, 1, 1, tzinfo=timezone.utc)
 _ACTIVE_OPTIMIZATION_STATUSES = {"pending", "queued", "running"}
 _TERMINAL_OPTIMIZATION_STATUSES = {
@@ -528,10 +532,29 @@ class WorkspaceService(WorkspaceRunOpsMixin):
             result = await session.execute(q)
             units = list(result.scalars().all())
 
-            changed = await self.trading_service.hydrate_units(units, user_id)
+            changed = await self.trading_service.hydrate_units(
+                units,
+                user_id,
+                full_log=False,
+            )
             if changed:
                 await session.commit()
-            response = await self.trading_service.build_positions_response(units, user_id)
+            response_units = units
+            if not unit_ids:
+                response_units = [
+                    unit
+                    for unit in units
+                    if str(unit.run_status or "").lower() in {"queued", "running"}
+                    or str(
+                        (_dict_or_empty(unit.trading_snapshot).get("instance_status") or "")
+                    ).lower()
+                    in {"queued", "running"}
+                ]
+            response = await self.trading_service.build_positions_response(
+                response_units,
+                user_id,
+                hydrate=False,
+            )
             return response.model_dump()
 
     async def get_trading_daily_summary(

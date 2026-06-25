@@ -4,6 +4,7 @@ Single-instance APScheduler wrapper for akshare tasks.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,13 @@ class AkshareScheduler:
 
     def __init__(self) -> None:
         self.scheduler = None
+        self._run_semaphore: asyncio.Semaphore | None = None
+        self._run_semaphore_limit = max(1, int(settings.AKSHARE_SCHEDULER_MAX_CONCURRENT_TASKS))
+
+    def _ensure_run_semaphore(self) -> asyncio.Semaphore:
+        if self._run_semaphore is None:
+            self._run_semaphore = asyncio.Semaphore(self._run_semaphore_limit)
+        return self._run_semaphore
 
     def _ensure_scheduler(self) -> Any:
         if self.scheduler is not None:
@@ -85,7 +93,8 @@ class AkshareScheduler:
         return DateTrigger(run_date=datetime.now())
 
     async def _run_task_job(self, task_id: int) -> None:
-        await self.run_task_now(task_id)
+        async with self._ensure_run_semaphore():
+            await self.run_task_now(task_id)
 
     async def add_or_update_task(self, task_id: int) -> None:
         scheduler = self._ensure_scheduler()

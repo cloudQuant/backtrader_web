@@ -50,8 +50,13 @@ class GetReceipt(AkshareToMySql):
 
             # Process data if needed
             # Add data_date if not exists
+            if "symbol" not in df.columns and "var" in df.columns:
+                df["symbol"] = df["var"].astype(str)
             if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+                if "date" in df.columns:
+                    df["data_date"] = pd.to_datetime(df["date"], errors="coerce").dt.date
+                else:
+                    df["data_date"] = pd.Timestamp.now().date()
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)

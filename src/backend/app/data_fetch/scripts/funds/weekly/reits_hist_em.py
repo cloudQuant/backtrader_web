@@ -3,6 +3,7 @@ import logging
 
 import akshare as ak
 import pandas as pd
+from akshare.utils.request import request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -38,14 +39,125 @@ class ReitsHistEm(AkshareToMySql):
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='REITs历史行情表(东方财富)';
         """
 
+    @staticmethod
+    def _reits_secid_candidates(symbol):
+        symbol = str(symbol or "").strip()
+        if not symbol:
+            return []
+        preferred_market = "1" if symbol.startswith(("5", "6")) else "0"
+        candidates = [f"{preferred_market}.{symbol}", f"1.{symbol}", f"0.{symbol}"]
+        return list(dict.fromkeys(candidates))
+
+    def _fetch_daily_from_trends(self, symbol, start_date=None, end_date=None):
+        url = "https://push2his.eastmoney.com/api/qt/stock/trends2/get"
+        for secid in self._reits_secid_candidates(symbol):
+            params = {
+                "secid": secid,
+                "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+                "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+                "iscr": "0",
+                "iscca": "0",
+                "ndays": "5",
+            }
+            try:
+                data_json = request_eastmoney(url, params=params, timeout=20).json()
+            except Exception as exc:
+                self.logger.warning(f"Eastmoney REIT trends2 fallback failed for {secid}: {exc}")
+                continue
+
+            data = data_json.get("data") or {}
+            trends = data.get("trends") or []
+            if not trends:
+                continue
+
+            df = pd.DataFrame([item.split(",") for item in trends])
+            if df.empty or df.shape[1] < 7:
+                continue
+            df = df.iloc[:, :7]
+            df.columns = ["time", "open", "close", "high", "low", "volume", "turnover"]
+            df["time"] = pd.to_datetime(df["time"], errors="coerce")
+            df = df.dropna(subset=["time"])
+            if df.empty:
+                continue
+            for column in ("open", "close", "high", "low", "volume", "turnover"):
+                df[column] = pd.to_numeric(df[column], errors="coerce")
+            df["trade_date"] = df["time"].dt.date
+            grouped = (
+                df.groupby("trade_date", as_index=False)
+                .agg(
+                    open=("open", "first"),
+                    close=("close", "last"),
+                    high=("high", "max"),
+                    low=("low", "min"),
+                    volume=("volume", "sum"),
+                    turnover=("turnover", "sum"),
+                )
+                .sort_values("trade_date")
+            )
+            previous_close = pd.to_numeric(data.get("preClose"), errors="coerce")
+            amplitudes = []
+            for _, row in grouped.iterrows():
+                if pd.isna(previous_close) or previous_close == 0:
+                    amplitudes.append(None)
+                else:
+                    amplitudes.append((row["high"] - row["low"]) / previous_close * 100)
+                previous_close = row["close"]
+            grouped["amplitude"] = amplitudes
+            grouped["turnover_rate"] = None
+            grouped["security_code"] = symbol
+            grouped["r_id"] = (
+                "RHE_"
+                + grouped["security_code"].astype(str)
+                + "_"
+                + pd.to_datetime(grouped["trade_date"]).dt.strftime("%Y%m%d")
+            )
+            grouped["is_active"] = 1
+            grouped["data_source"] = "东方财富"
+
+            if start_date:
+                start = pd.to_datetime(start_date, errors="coerce")
+                if not pd.isna(start):
+                    grouped = grouped[pd.to_datetime(grouped["trade_date"]) >= start]
+            if end_date:
+                end = pd.to_datetime(end_date, errors="coerce")
+                if not pd.isna(end):
+                    grouped = grouped[pd.to_datetime(grouped["trade_date"]) <= end]
+            if not grouped.empty:
+                self.logger.warning(
+                    "Eastmoney REIT kline returned empty; populated REITS_HIST_EM "
+                    "from same-source trends2 aggregation"
+                )
+                return grouped[
+                    [
+                        "r_id",
+                        "security_code",
+                        "trade_date",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "turnover",
+                        "amplitude",
+                        "turnover_rate",
+                        "is_active",
+                        "data_source",
+                    ]
+                ].reset_index(drop=True)
+        return pd.DataFrame()
+
     def fetch_reits_hist(self, symbol, start_date=None, end_date=None):
         try:
             # 获取REITs历史行情数据
             df = ak.reits_hist_em(symbol=symbol)
 
             if df is None or df.empty:
-                self.logger.warning(f"No historical data found for REIT {symbol}")
-                return pd.DataFrame()
+                df = self._fetch_daily_from_trends(symbol, start_date, end_date)
+                if df is None or df.empty:
+                    self.logger.warning(f"No historical data found for REIT {symbol}")
+                    return pd.DataFrame()
+                return df
 
             # 重命名列
             df = df.rename(
@@ -88,6 +200,8 @@ class ReitsHistEm(AkshareToMySql):
                 + "_"
                 + df["trade_date"].astype(str).str.replace("-", "")
             )
+            df["is_active"] = 1
+            df["data_source"] = "东方财富"
 
             # 选择需要的列并重新排序
             columns = [
@@ -102,6 +216,8 @@ class ReitsHistEm(AkshareToMySql):
                 "turnover",
                 "amplitude",
                 "turnover_rate",
+                "is_active",
+                "data_source",
             ]
             return df[columns]
 
@@ -195,9 +311,10 @@ class ReitsHistEm(AkshareToMySql):
             self.logger.error(f"Error fetching REITs symbol list: {e}")
         return []
 
-    def run(self, symbol=None, start_date=None, end_date=None):
+    def run(self, symbol=None, start_date=None, end_date=None, max_symbols=None):
         try:
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
+            max_symbols = int(max_symbols) if max_symbols is not None else None
 
             if symbol:
                 symbols = [symbol]
@@ -206,6 +323,9 @@ class ReitsHistEm(AkshareToMySql):
                 if not symbols:
                     self.logger.error("No REITs symbols found")
                     return False
+                if max_symbols is not None and len(symbols) > max_symbols:
+                    symbols = symbols[:max_symbols]
+                    self.logger.info(f"Limiting REITs update to {max_symbols} symbols")
 
             self.logger.info(f"Starting REITs historical data update for {len(symbols)} symbols")
             success_count = 0

@@ -42,7 +42,21 @@ class OptionSseExpireDaySina(AkshareToMySql):
         """
         try:
             # Fetch data from AkShare
-            df = self.fetch_ak_data("option_sse_expire_day_sina", **kwargs)
+            result = self.fetch_ak_data("option_sse_expire_day_sina", **kwargs)
+            if isinstance(result, pd.DataFrame):
+                df = result
+            elif isinstance(result, (list, tuple)):
+                values = list(result)
+                df = pd.DataFrame(
+                    [
+                        {
+                            "expire_date": values[0] if len(values) > 0 else None,
+                            "remaining_days": values[1] if len(values) > 1 else None,
+                        }
+                    ]
+                )
+            else:
+                df = pd.DataFrame()
 
             if df is None or df.empty:
                 self.logger.warning("No data found")

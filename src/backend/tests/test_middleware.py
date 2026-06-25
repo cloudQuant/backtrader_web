@@ -2,10 +2,13 @@
 Tests for security and exception handling middleware.
 """
 
+from unittest.mock import Mock
+
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from app.middleware import exception_handling as exception_handling_module
 from app.middleware.exception_handling import (
     ErrorResponse,
     handle_base_app_error,
@@ -20,6 +23,25 @@ from app.utils.exceptions import (
     MissingConfigError,
     UserNotFoundError,
 )
+
+
+class _LoggerSpy:
+    """Small loguru-compatible spy for handler unit tests."""
+
+    def __init__(self):
+        self.bound_contexts = []
+        self.opt_contexts = []
+        self.info = Mock()
+        self.warning = Mock()
+        self.error = Mock()
+
+    def bind(self, **context):
+        self.bound_contexts.append(context)
+        return self
+
+    def opt(self, **context):
+        self.opt_contexts.append(context)
+        return self
 
 
 class TestErrorResponse:
@@ -160,6 +182,114 @@ class TestExceptionHandling:
         content = response.body.decode()
         assert "HTTP_403" in content
         assert "test-789" in content
+
+    @pytest.mark.asyncio
+    async def test_handle_http_exception_logs_client_errors_as_warning(self, monkeypatch):
+        """Client-side HTTP exceptions should not be logged as server errors."""
+        from fastapi import HTTPException
+
+        class MockURL:
+            def __init__(self):
+                self.path = "/api/private"
+
+        class MockState:
+            def __init__(self):
+                self.request_id = "test-401"
+
+        class MockRequest:
+            def __init__(self):
+                self.url = MockURL()
+                self.state = MockState()
+
+        logger_spy = _LoggerSpy()
+        monkeypatch.setattr(exception_handling_module, "logger", logger_spy)
+
+        response = await handle_http_exception(
+            MockRequest(),
+            HTTPException(status_code=401, detail="Not authenticated"),
+        )
+
+        assert response.status_code == 401
+        logger_spy.warning.assert_called_once_with(
+            "HTTP exception: {} - {}",
+            401,
+            "Not authenticated",
+        )
+        logger_spy.error.assert_not_called()
+        assert logger_spy.bound_contexts[-1] == {
+            "request_id": "test-401",
+            "path": "/api/private",
+            "status_code": 401,
+        }
+
+    @pytest.mark.asyncio
+    async def test_handle_http_exception_logs_server_errors_as_error(self, monkeypatch):
+        """Server-side HTTP exceptions should still be easy to spot."""
+        from fastapi import HTTPException
+
+        class MockURL:
+            def __init__(self):
+                self.path = "/api/service"
+
+        class MockState:
+            def __init__(self):
+                self.request_id = "test-503"
+
+        class MockRequest:
+            def __init__(self):
+                self.url = MockURL()
+                self.state = MockState()
+
+        logger_spy = _LoggerSpy()
+        monkeypatch.setattr(exception_handling_module, "logger", logger_spy)
+
+        response = await handle_http_exception(
+            MockRequest(),
+            HTTPException(status_code=503, detail="Temporarily unavailable"),
+        )
+
+        assert response.status_code == 503
+        logger_spy.error.assert_called_once_with(
+            "HTTP exception: {} - {}",
+            503,
+            "Temporarily unavailable",
+        )
+        logger_spy.warning.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_validation_error_logs_formatted_count(self, monkeypatch):
+        """Validation logs should use loguru formatting rather than literal percent tokens."""
+        from pydantic import BaseModel, ValidationError
+
+        class MockURL:
+            def __init__(self):
+                self.path = "/api/test"
+
+        class MockState:
+            def __init__(self):
+                self.request_id = "test-validation"
+
+        class MockRequest:
+            def __init__(self):
+                self.url = MockURL()
+                self.state = MockState()
+
+        class TestModel(BaseModel):
+            username: str
+            email: str
+
+        logger_spy = _LoggerSpy()
+        monkeypatch.setattr(exception_handling_module, "logger", logger_spy)
+
+        try:
+            TestModel(email="test@example.com")
+        except ValidationError as exc:
+            response = await handle_validation_error(MockRequest(), exc)
+        else:
+            raise AssertionError("ValidationError should have been raised")
+
+        assert response.status_code == 422
+        logger_spy.info.assert_called_once_with("Validation error: {} field(s)", 1)
 
     @pytest.mark.asyncio
     async def test_handle_generic_exception(self):
@@ -303,8 +433,8 @@ class TestSecurityHeadersMiddleware:
             assert "Backtrader" not in str(server)
 
     @pytest.mark.asyncio
-    async def test_x_powered_by_in_debug_only(self):
-        """Test X-Powered-By header only present in debug mode."""
+    async def test_x_powered_by_removed(self):
+        """Test X-Powered-By header is not exposed."""
         app = FastAPI()
 
         @app.get("/test")
@@ -319,7 +449,6 @@ class TestSecurityHeadersMiddleware:
 
         response = client.get("/test")
 
-        # In debug mode (test default), should show app name
         assert response.headers.get("X-Powered-By") is None
 
 

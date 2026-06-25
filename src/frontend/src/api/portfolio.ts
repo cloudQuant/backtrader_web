@@ -20,6 +20,7 @@ export interface PortfolioOverview {
   total_assets: number
   total_cash: number
   total_position_value: number
+  net_position_value?: number
   total_initial_capital: number
   total_pnl: number
   total_pnl_pct: number
@@ -35,8 +36,27 @@ export interface PositionItem {
   data_name: string
   size: number
   price: number
+  latest_price?: number | null
   market_value: number
+  signed_market_value?: number
+  position_pnl?: number
   direction: string
+  long_position?: number
+  short_position?: number
+  trading_mode?: string
+  updated_at?: string | null
+  data_time?: string | null
+}
+
+export interface PositionSummary {
+  total_long_value: number
+  total_short_value: number
+  gross_market_value: number
+  net_market_value: number
+  total_pnl: number
+  long_count: number
+  short_count: number
+  flat_count: number
 }
 
 export interface TradeItem {
@@ -85,12 +105,15 @@ export const portfolioApi = {
     return request.get('/portfolio/overview')
   },
 
-  getPositions(): Promise<{ total: number; positions: PositionItem[] }> {
+  getPositions(): Promise<{ total: number; positions: PositionItem[]; summary?: PositionSummary }> {
     return request.get('/portfolio/positions')
   },
 
-  getTrades(limit = 200): Promise<{ total: number; trades: TradeItem[] }> {
-    return request.get('/portfolio/trades', { params: { limit } })
+  getTrades(limit = 200, workspaceIds: string[] = []): Promise<{ total: number; trades: TradeItem[] }> {
+    const ids = workspaceIds.filter(Boolean)
+    const params: { limit: number; workspace_ids?: string } = { limit }
+    if (ids.length > 0) params.workspace_ids = ids.join(',')
+    return request.get('/portfolio/trades', { params })
   },
 
   getEquity(): Promise<PortfolioEquity> {

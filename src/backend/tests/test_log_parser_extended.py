@@ -13,6 +13,7 @@ Extended test coverage for:
 """
 
 import json
+import warnings
 from pathlib import Path
 
 from app.services.log_parser_service import (
@@ -21,6 +22,7 @@ from app.services.log_parser_service import (
     parse_all_logs,
     parse_current_position,
     parse_data_log,
+    parse_log_dir,
     parse_order_log,
     parse_position_log,
     parse_run_info,
@@ -155,6 +157,31 @@ class TestParsePositionLog:
         assert positions[0]["size"] == 100
         assert positions[0]["market_value"] == 1050.0
 
+    def test_parse_json_position_preserves_small_market_value(self, tmp_path: Path):
+        """MT5 micro positions must not be rounded to cents before valuation."""
+        (tmp_path / "position.log").write_text(
+            json.dumps(
+                {
+                    "log_time": "2026-06-25T07:18:41.365+08:00",
+                    "datetime": "2026-06-24 11:02:00",
+                    "data_name": "NZDUSD",
+                    "size": -0.01,
+                    "price": 0.5666786662,
+                    "value": -0.0056649,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        positions = parse_position_log(tmp_path)
+
+        assert len(positions) == 1
+        assert positions[0]["log_time"] == "2026-06-25T07:18:41.365+08:00"
+        assert positions[0]["datetime"] == "2026-06-24 11:02:00"
+        assert positions[0]["market_value"] == -0.0056649
+        assert positions[0]["value"] == -0.0056649
+
     def test_empty_dir(self, tmp_path: Path):
         """Test parsing with empty directory."""
         assert parse_position_log(tmp_path) == []
@@ -171,6 +198,22 @@ class TestParseCurrentPosition:
         assert len(result) == 1
         assert result[0]["data_name"] == "000001"
         assert result[0]["market_value"] == 1050.0
+
+    def test_parse_json_preserves_small_market_value(self, tmp_path: Path):
+        data = [
+            {
+                "data_name": "NZDUSD",
+                "size": -0.01,
+                "price": 0.5666786662,
+                "value": -0.0056649,
+            }
+        ]
+        (tmp_path / "current_position.json").write_text(json.dumps(data), encoding="utf-8")
+
+        result = parse_current_position(tmp_path)
+
+        assert result[0]["market_value"] == -0.0056649
+        assert result[0]["value"] == -0.0056649
 
     def test_no_file(self, tmp_path: Path):
         """Test parsing when file doesn't exist."""
@@ -264,6 +307,8 @@ class TestParseTextTradeLoggerLogs:
 
         assert len(result) == 1
         assert result[0]["dt"] == "2020-01-02"
+        assert result[0]["datetime"] == "2020-01-02 00:00:00"
+        assert result[0]["log_time"] == "2026-04-10T07:57:30.133+08:00"
         assert result[0]["data_name"] == "AAPL"
         assert result[0]["value"] == 2543.0
 
@@ -338,6 +383,32 @@ class TestParseAllLogs:
         assert result["total_trades"] == 1
         assert result["win_rate"] > 0
         assert len(result["equity_curve"]) == 3
+
+    def test_parse_log_dir_skips_extreme_equity_spikes(self, tmp_path: Path):
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir()
+        (logs_dir / "value.log").write_text(
+            "\n".join(
+                [
+                    '{"datetime":"2026-06-24T20:00:00+00:00","broker_value":10000.0,"broker_cash":10000.0}',
+                    '{"datetime":"2026-06-24T20:01:00+00:00","broker_value":10005.0,"broker_cash":10000.0}',
+                    '{"datetime":"2004-05-22T09:27:07+00:00","broker_value":-5.538010572266002e201,"broker_cash":10039.85}',
+                    '{"datetime":"2026-06-24T20:02:00+00:00","broker_value":10008.0,"broker_cash":10000.0}',
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = parse_log_dir(logs_dir)
+
+        assert result is not None
+        assert not caught
+        assert result["equity_curve"] == [10000.0, 10005.0, 10008.0]
+        assert result["final_value"] == 10008.0
+        assert result["sharpe_ratio"] != 0.0
 
     def test_parse_all_logs_synthesizes_equity_for_json_simulate_logs(self, tmp_path: Path):
         strategy_dir = tmp_path / "strategy"

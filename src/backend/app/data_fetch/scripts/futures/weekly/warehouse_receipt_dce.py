@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 
@@ -34,7 +34,7 @@ class FuturesDceWarehouseReceipt(AkshareToMySql):
                                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='大商所仓单日报';
                                 """
 
-    def run(self, start_date=None, end_date=None):
+    def run(self, start_date=None, end_date=None, lookback_days=None, max_days=None):
         """
         更新大连商品交易所仓单日报数据
 
@@ -48,13 +48,19 @@ class FuturesDceWarehouseReceipt(AkshareToMySql):
         table_name = "FUTURES_DCE_WAREHOUSE_RECEIPT"
 
         try:
+            lookback_days = int(lookback_days) if lookback_days is not None else None
+            max_days = int(max_days) if max_days is not None else None
             # 1. Date Handling
             if end_date is None:
                 end_date = self.get_current_date().replace("-", "")
 
             if start_date is None:
                 latest_date = self.get_latest_date(self.table_name)
-                start_date = end_date if latest_date is None else latest_date
+                if latest_date is None:
+                    end_date_dt_for_default = datetime.strptime(end_date, "%Y%m%d").date()
+                    start_date = (end_date_dt_for_default - timedelta(days=14)).strftime("%Y%m%d")
+                else:
+                    start_date = latest_date
             if "-" in start_date:
                 start_date_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
             else:
@@ -63,6 +69,12 @@ class FuturesDceWarehouseReceipt(AkshareToMySql):
                 end_date_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
             else:
                 end_date_dt = datetime.strptime(end_date, "%Y%m%d").date()
+            if lookback_days is not None:
+                lookback_start = end_date_dt - timedelta(days=lookback_days)
+                if start_date_dt < lookback_start:
+                    start_date_dt = lookback_start
+                    start_date = start_date_dt.strftime("%Y%m%d")
+                    self.logger.info(f"限制大商所仓单日报更新为最近 {lookback_days} 天")
 
             if start_date_dt > end_date_dt:
                 self.logger.info(f"开始日期 {start_date} 不能晚于结束日期 {end_date}")
@@ -75,6 +87,9 @@ class FuturesDceWarehouseReceipt(AkshareToMySql):
             if not trading_days:
                 self.logger.info("在指定范围内没有需要更新的交易日")
                 return pd.DataFrame()
+            if max_days is not None and len(trading_days) > max_days:
+                trading_days = trading_days[-max_days:]
+                self.logger.info(f"限制大商所仓单日报更新为 {max_days} 个交易日")
 
             self.logger.info(
                 f"准备更新从 {trading_days[0]} 到 {trading_days[-1]} 的仓单数据，共 {len(trading_days)} 个交易日"
@@ -90,85 +105,68 @@ class FuturesDceWarehouseReceipt(AkshareToMySql):
                     date_yyyymmdd = date_str.replace("-", "")
                     self.logger.info(f"正在获取 {date_str} 的仓单日报数据")
 
-                    # Fetch data
-                    # data = ak.futures_dce_warehouse_receipt(date=date_yyyymmdd)
-                    data = self.fetch_ak_data("futures_dce_warehouse_receipt", date_yyyymmdd)
+                    data = self.fetch_ak_data("futures_warehouse_receipt_dce", date_yyyymmdd)
 
-                    if not data:
+                    if data is None or data.empty:
                         self.logger.warning(f"未获取到 {date_str} 的仓单日报数据")
                         continue
 
-                    date_df_list = []
+                    temp_df = data.copy()
+                    self.logger.info(f"原始列名: {list(temp_df.columns)}")
 
-                    # Process each product's DataFrame
-                    for product_name, df in data.items():
-                        if df is None or df.empty:
-                            continue
+                    column_mapping = {
+                        "品种代码": "PRODUCT_CODE",
+                        "品种名称": "PRODUCT_NAME",
+                        "仓库/分库": "WAREHOUSE_NAME",
+                        "昨日仓单量（手）": "PREVIOUS_VOLUME",
+                        "今日仓单量（手）": "CURRENT_VOLUME",
+                        "增减（手）": "DAILY_CHANGE",
+                        "可选提货地点/分库-数量": "DELIVERY_POINT_INFO",
+                    }
+                    temp_df.rename(columns=column_mapping, inplace=True)
+                    self.logger.info(f"映射后的列名: {list(temp_df.columns)}")
 
-                        temp_df = df.copy()
-
-                        # 获取原始列名用于调试
-                        self.logger.info(f"原始列名: {list(temp_df.columns)}")
-
-                        # 定义列名映射字典
-                        column_mapping = {
-                            "仓库/分库": "WAREHOUSE_NAME",
-                            "昨日仓单量": "PREVIOUS_VOLUME",
-                            "今日仓单量": "CURRENT_VOLUME",
-                            "增减": "DAILY_CHANGE",
-                            "可选提货地点/分库-数量": "DELIVERY_POINT_INFO",
-                        }
-
-                        # 重命名列
-                        temp_df.rename(column_mapping, axis="columns", inplace=True)
-
-                        # 输出映射后的列名
-                        self.logger.info(f"映射后的列名: {list(temp_df.columns)}")
-
-                        # Add Product Code
-                        temp_df["PRODUCT_CODE"] = product_name
-
-                        # Handle Subtotals
-                        temp_df["IS_SUBTOTAL"] = (
-                            temp_df["WAREHOUSE_NAME"].str.contains("小计").astype(int)
+                    required_source_columns = [
+                        "PRODUCT_CODE",
+                        "WAREHOUSE_NAME",
+                        "PREVIOUS_VOLUME",
+                        "CURRENT_VOLUME",
+                        "DAILY_CHANGE",
+                    ]
+                    missing_columns = [
+                        col for col in required_source_columns if col not in temp_df.columns
+                    ]
+                    if missing_columns:
+                        self.logger.warning(
+                            f"{date_str} 仓单日报缺少必要字段: {missing_columns}"
                         )
+                        continue
 
-                        # Clean numeric columns
-                        numeric_cols = [
-                            "PREVIOUS_VOLUME",
-                            "CURRENT_VOLUME",
-                            "DAILY_CHANGE",
-                        ]
-                        for col in numeric_cols:
-                            if col in temp_df.columns:
-                                temp_df[col] = pd.to_numeric(temp_df[col], errors="coerce").fillna(
-                                    0
-                                )
+                    temp_df["IS_SUBTOTAL"] = temp_df["WAREHOUSE_NAME"].str.contains(
+                        "小计", na=False
+                    ).astype(int)
 
-                        # Add system columns
-                        temp_df["R_ID"] = [self.get_uuid() for _ in range(len(temp_df))]
-                        temp_df["REFERENCE_CODE"] = "DCE_WAREHOUSE"
-                        temp_df["REFERENCE_NAME"] = "大连商品交易所仓单日报"
-                        temp_df["BASEDATE"] = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    for col in ["PREVIOUS_VOLUME", "CURRENT_VOLUME", "DAILY_CHANGE"]:
+                        temp_df[col] = pd.to_numeric(temp_df[col], errors="coerce").fillna(0)
 
-                        # 只保留有效的列，确保没有中文列名或特殊字符列名
-                        valid_columns = [
-                            "WAREHOUSE_NAME",
-                            "PREVIOUS_VOLUME",
-                            "CURRENT_VOLUME",
-                            "DAILY_CHANGE",
-                            "PRODUCT_CODE",
-                            "IS_SUBTOTAL",
-                            "R_ID",
-                            "REFERENCE_CODE",
-                            "REFERENCE_NAME",
-                            "BASEDATE",
-                        ]
+                    temp_df["R_ID"] = [self.get_uuid() for _ in range(len(temp_df))]
+                    temp_df["REFERENCE_CODE"] = "DCE_WAREHOUSE"
+                    temp_df["REFERENCE_NAME"] = "大连商品交易所仓单日报"
+                    temp_df["BASEDATE"] = datetime.strptime(date_str, "%Y-%m-%d").date()
 
-                        # 删除不需要的列，包括中文列和特殊字符列
-                        temp_df = temp_df[valid_columns]
-
-                        date_df_list.append(temp_df)
+                    valid_columns = [
+                        "WAREHOUSE_NAME",
+                        "PREVIOUS_VOLUME",
+                        "CURRENT_VOLUME",
+                        "DAILY_CHANGE",
+                        "PRODUCT_CODE",
+                        "IS_SUBTOTAL",
+                        "R_ID",
+                        "REFERENCE_CODE",
+                        "REFERENCE_NAME",
+                        "BASEDATE",
+                    ]
+                    date_df_list = [temp_df[valid_columns]]
 
                     if date_df_list:
                         daily_df = pd.concat(date_df_list, ignore_index=True)

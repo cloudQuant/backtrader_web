@@ -5,6 +5,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import importlib.util
+import json
 import logging
 import os
 import sys
@@ -12,10 +13,38 @@ import threading
 import time
 from pathlib import Path
 
-_BT_WEB = Path(__file__).resolve().parents[3]
+
+def _find_bt_web_root(path: Path) -> Path:
+    for candidate in (path.parent, *path.parents):
+        if (candidate / "src" / "backend").exists() and (candidate / "strategies").exists():
+            return candidate
+    return path.parents[3]
+
+
+def _path_is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _prefer_local_backtrader(project_path: Path) -> None:
+    module = sys.modules.get("backtrader")
+    module_file = getattr(module, "__file__", None) if module is not None else None
+    if module is None or (module_file and _path_is_relative_to(Path(module_file), project_path)):
+        return
+    for name in list(sys.modules):
+        if name == "backtrader" or name.startswith("backtrader."):
+            sys.modules.pop(name, None)
+
+
+_BT_WEB = _find_bt_web_root(Path(__file__).resolve())
 _BT_PROJECT = _BT_WEB.parent / "backtrader"
 if _BT_PROJECT.exists() and str(_BT_PROJECT) not in sys.path:
     sys.path.insert(0, str(_BT_PROJECT))
+if _BT_PROJECT.exists():
+    _prefer_local_backtrader(_BT_PROJECT)
 _BT_API_PY = _BT_WEB.parent / "bt_api_py"
 if _BT_API_PY.exists() and str(_BT_API_PY) not in sys.path:
     sys.path.insert(0, str(_BT_API_PY))
@@ -30,6 +59,8 @@ from backtrader.stores.btapistore import BtApiStore  # noqa: E402
 
 BASE_DIR = Path(__file__).resolve().parent
 logger = logging.getLogger(__name__)
+HEARTBEAT_FILE_NAME = "heartbeat.json"
+DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 30.0
 
 
 def _safe_bool(value, default=False):
@@ -81,6 +112,70 @@ def _safe_float(value, default=0.0):
         return default
 
 
+def _resolve_heartbeat_interval(config: dict) -> float:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    logging_cfg = dict(config.get("logging") or {})
+    gateway = dict(config.get("gateway") or {})
+    for section in (live, simulate, logging_cfg, gateway):
+        for key in ("heartbeat_interval_seconds", "heartbeat_interval"):
+            if key in section:
+                return max(_safe_float(section.get(key), DEFAULT_HEARTBEAT_INTERVAL_SECONDS), 1.0)
+    return DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+
+
+def _write_runner_heartbeat(log_dir: Path, started_at: float, status: str = "running") -> None:
+    heartbeat_path = log_dir / HEARTBEAT_FILE_NAME
+    tmp_path = log_dir / f".{HEARTBEAT_FILE_NAME}.{os.getpid()}.tmp"
+    payload = {
+        "pid": os.getpid(),
+        "status": status,
+        "timestamp": time.time(),
+        "started_at": started_at,
+    }
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=True, sort_keys=True)
+            handle.write("\n")
+        os.replace(tmp_path, heartbeat_path)
+    except OSError as exc:
+        logger.debug("Could not write runner heartbeat: %s", exc)
+        try:
+            tmp_path.unlink()
+        except OSError:
+            pass
+
+
+def _start_runner_heartbeat(
+    log_dir: Path,
+    interval_seconds: float = DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
+) -> tuple[threading.Event, threading.Thread]:
+    try:
+        interval = float(interval_seconds)
+    except (TypeError, ValueError):
+        interval = DEFAULT_HEARTBEAT_INTERVAL_SECONDS
+    interval = max(interval, 0.05)
+    stop_event = threading.Event()
+    started_at = time.time()
+
+    def _loop() -> None:
+        while not stop_event.is_set():
+            _write_runner_heartbeat(log_dir, started_at, "running")
+            stop_event.wait(interval)
+        _write_runner_heartbeat(log_dir, started_at, "stopped")
+
+    thread = threading.Thread(target=_loop, name="runner-heartbeat", daemon=True)
+    thread.start()
+    return stop_event, thread
+
+
+def _stop_runner_heartbeat(heartbeat: tuple[threading.Event, threading.Thread]) -> None:
+    stop_event, thread = heartbeat
+    stop_event.set()
+    thread.join(timeout=2.0)
+
+
 def _gateway_timeout_defaults(exchange_type: str) -> tuple[float, float]:
     if exchange_type == "CTP":
         return 60.0, 20.0
@@ -98,9 +193,15 @@ def _patch_gateway_client_compat() -> None:
     if getattr(GatewayClient, "_ai_for_trader_compat_patched", False):
         return
 
+    def _compat_command(self, command, payload=None):
+        sender = getattr(self, "_send_command", None) or getattr(self, "_command", None)
+        if sender is None:
+            raise AttributeError("GatewayClient has no command sender")
+        return sender(command, payload or {})
+
     def _compat_subscribe(self, symbols):
         values = [symbols] if isinstance(symbols, str) else list(symbols or [])
-        result = self._command("subscribe", {"symbols": values})
+        result = _compat_command(self, "subscribe", {"symbols": values})
         subscribed: list[str] = []
         if isinstance(result, dict):
             candidate = (
@@ -126,6 +227,8 @@ def _patch_gateway_client_compat() -> None:
             }
         elif result is None:
             result = {"subscribed": [], "accepted": [], "skipped": []}
+        if not hasattr(self, "subscribed"):
+            self.subscribed = set()
         self.subscribed.update(subscribed)
         return result
 
@@ -141,7 +244,7 @@ def _patch_gateway_client_compat() -> None:
         last_error: Exception | None = None
         while time.monotonic() < deadline:
             try:
-                result = self._command("ping")
+                result = _compat_command(self, "ping")
                 if isinstance(result, dict) and result.get("ready"):
                     logger.info("Gateway adapter ready")
                     return
@@ -363,13 +466,19 @@ def _build_ib_store_config(config: dict, provider: str, asset_type: str) -> dict
 def _build_mt5_store_config(config: dict, provider: str, asset_type: str) -> dict:
     gateway = dict(config.get("gateway") or {})
     mt5 = dict(config.get("mt5") or {})
-    account_id = str(
-        gateway.get("account_id")
-        or mt5.get("account_id")
-        or os.environ.get("MT5_ACCOUNT_ID")
+    login = str(
+        os.environ.get("MT5_LOGIN")
+        or os.environ.get("MT5_ACCOUNT")
+        or gateway.get("login")
         or mt5.get("login")
-        or os.environ.get("MT5_LOGIN")
         or ""
+    ).strip()
+    account_id = str(
+        os.environ.get("MT5_ACCOUNT_ID")
+        or os.environ.get("MT5_ACCOUNT")
+        or gateway.get("account_id")
+        or mt5.get("account_id")
+        or login
     ).strip()
     return {
         "provider": provider,
@@ -377,17 +486,18 @@ def _build_mt5_store_config(config: dict, provider: str, asset_type: str) -> dic
             "exchange_type": "MT5",
             "asset_type": asset_type or "OTC",
             "account_id": account_id,
-            "login": str(gateway.get("login") or mt5.get("login") or os.environ.get("MT5_LOGIN") or "").strip(),
+            "login": login,
             "password": str(
-                gateway.get("password")
+                os.environ.get("MT5_PASSWORD")
+                or os.environ.get("MT5_PASS")
+                or gateway.get("password")
                 or mt5.get("password")
-                or os.environ.get("MT5_PASSWORD")
                 or ""
             ).strip(),
             "ws_uri": str(
-                gateway.get("ws_uri")
+                os.environ.get("MT5_WS_URI")
+                or gateway.get("ws_uri")
                 or mt5.get("ws_uri")
-                or os.environ.get("MT5_WS_URI")
                 or "wss://web.metatrader.app/terminal"
             ).strip(),
             "symbol_suffix": str(
@@ -439,6 +549,89 @@ def _resolve_timeframe(config: dict):
     return bt.TimeFrame.Minutes, max(timeframe_n, 1)
 
 
+def _resolve_feed_qcheck(config: dict) -> float:
+    live = dict(config.get("live") or {})
+    data = dict(config.get("data") or {})
+    gateway = dict(config.get("gateway") or {})
+    value = (
+        live.get("qcheck")
+        or live.get("qcheck_seconds")
+        or data.get("qcheck")
+        or gateway.get("qcheck")
+    )
+    qcheck = _safe_float(value, 0.5)
+    return max(qcheck, 0.05)
+
+
+def _resolve_log_ticks(config: dict) -> bool:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    logging_cfg = dict(config.get("logging") or {})
+    value = (
+        live.get("log_ticks")
+        if live.get("log_ticks") is not None
+        else (
+            simulate.get("log_ticks")
+            if simulate.get("log_ticks") is not None
+            else logging_cfg.get("log_ticks")
+        )
+    )
+    return _safe_bool(value, default=False)
+
+
+def _resolve_trade_logger_option(config: dict, key: str, default: bool) -> bool:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    logging_cfg = dict(config.get("logging") or {})
+    for section in (live, simulate, logging_cfg):
+        if key in section:
+            return _safe_bool(section.get(key), default=default)
+    return default
+
+
+def _resolve_dispatch_ticks(config: dict) -> bool:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    gateway = dict(config.get("gateway") or {})
+    for section in (live, simulate, gateway):
+        for key in ("dispatch_ticks", "notify_ticks"):
+            if key in section:
+                return _safe_bool(section.get(key), default=False)
+    return False
+
+
+def _resolve_exactbars(config: dict):
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    cerebro_cfg = dict(config.get("cerebro") or {})
+    for section in (live, simulate, cerebro_cfg):
+        if "exactbars" not in section:
+            continue
+        value = section.get("exactbars")
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"true", "yes", "on"}:
+            return True
+        if text in {"false", "no", "off"}:
+            return False
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return _safe_bool(value, default=True)
+    return True
+
+
+def _resolve_stdstats(config: dict) -> bool:
+    live = dict(config.get("live") or {})
+    simulate = dict(config.get("simulate") or {})
+    cerebro_cfg = dict(config.get("cerebro") or {})
+    for section in (live, simulate, cerebro_cfg):
+        if "stdstats" in section:
+            return _safe_bool(section.get("stdstats"), default=False)
+    return False
+
+
 def _import_strategy_class():
     candidates = sorted(BASE_DIR.glob("strategy_*.py"))
     if not candidates:
@@ -485,9 +678,12 @@ def run():
     print(f"  Symbol: {symbol}")
     print(f"  Timeframe: {data_cfg.get('timeframe', '1m')}")
 
-    store = BtApiStore(provider=provider, **store_cfg)
-    store.start()
+    log_dir = BASE_DIR / "logs"
+    heartbeat = _start_runner_heartbeat(log_dir, _resolve_heartbeat_interval(config))
+    store = None
     try:
+        store = BtApiStore(provider=provider, **store_cfg)
+        store.start()
         bt_timeframe, compression = _resolve_timeframe(config)
         data = BtApiFeed(
             store=store,
@@ -495,13 +691,18 @@ def run():
             timeframe=bt_timeframe,
             compression=compression,
             backfill_start=True,
+            qcheck=_resolve_feed_qcheck(config),
+            dispatch_ticks=_resolve_dispatch_ticks(config),
         )
 
         strategy_class = _import_strategy_class()
-        log_dir = BASE_DIR / "logs"
         log_dir.mkdir(exist_ok=True)
 
-        cerebro = bt.Cerebro(quicknotify=True)
+        cerebro = bt.Cerebro(
+            quicknotify=True,
+            exactbars=_resolve_exactbars(config),
+            stdstats=_resolve_stdstats(config),
+        )
         cerebro.broker.setcash(_safe_float(simulate_cfg.get("initial_cash"), 100000.0))
         cerebro.broker.setcommission(commission=_safe_float(simulate_cfg.get("commission"), 0.0005))
         slippage = _safe_float(simulate_cfg.get("slippage"), 0.0)
@@ -518,9 +719,10 @@ def run():
             log_format="json",
             log_orders=True,
             log_trades=True,
-            log_positions=True,
-            log_indicators=True,
-            log_signals=True,
+            log_positions=_resolve_trade_logger_option(config, "log_positions", True),
+            log_indicators=_resolve_trade_logger_option(config, "log_indicators", False),
+            log_signals=_resolve_trade_logger_option(config, "log_signals", True),
+            log_ticks=_resolve_log_ticks(config),
         )
 
         duration_seconds = _safe_int(
@@ -541,8 +743,11 @@ def run():
         finally:
             stop_timer.cancel()
     finally:
-        if getattr(store, "is_connected", False):
-            store.stop()
+        try:
+            if store is not None and getattr(store, "is_connected", False):
+                store.stop()
+        finally:
+            _stop_runner_heartbeat(heartbeat)
 
     print("Strategy finished.")
     return results

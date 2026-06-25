@@ -6,6 +6,10 @@ from process management and gateway lifecycle concerns.
 """
 
 import json
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +17,34 @@ from app.utils.backend_data_paths import get_backend_data_path
 
 _DATA_DIR = get_backend_data_path()
 _INSTANCES_FILE = _DATA_DIR / "live_trading_instances.json"
+
+
+@contextmanager
+def _interprocess_file_lock(lock_file: Path) -> Iterator[None]:
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    with lock_file.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+
+            handle.seek(0)
+            if not handle.read(1):
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 class InstanceStore:
@@ -24,6 +56,12 @@ class InstanceStore:
 
     def __init__(self, instances_file: Path | None = None):
         self._file = instances_file or _INSTANCES_FILE
+
+    @contextmanager
+    def locked(self) -> Iterator[None]:
+        """Hold a cross-process lock for a read-modify-write sequence."""
+        with _interprocess_file_lock(self._file.with_suffix(self._file.suffix + ".lock")):
+            yield
 
     # ---- low-level I/O ----
 
@@ -46,8 +84,22 @@ class InstanceStore:
         Args:
             data: The instances dictionary to save.
         """
-        self._file.parent.mkdir(parents=True, exist_ok=True)
-        self._file.write_text(json.dumps(data, ensure_ascii=False, indent=2), "utf-8")
+        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        target = Path(self._file)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            tmp_name = handle.name
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        Path(tmp_name).replace(target)
 
     # ---- convenience helpers ----
 
@@ -69,9 +121,10 @@ class InstanceStore:
             instance_id: The instance ID.
             data: The instance data to store.
         """
-        all_instances = self.load_all()
-        all_instances[instance_id] = data
-        self.save_all(all_instances)
+        with self.locked():
+            all_instances = self.load_all()
+            all_instances[instance_id] = data
+            self.save_all(all_instances)
 
     def delete(self, instance_id: str) -> bool:
         """Remove a single instance.
@@ -82,12 +135,13 @@ class InstanceStore:
         Returns:
             True if found and removed, False otherwise.
         """
-        all_instances = self.load_all()
-        if instance_id not in all_instances:
-            return False
-        del all_instances[instance_id]
-        self.save_all(all_instances)
-        return True
+        with self.locked():
+            all_instances = self.load_all()
+            if instance_id not in all_instances:
+                return False
+            del all_instances[instance_id]
+            self.save_all(all_instances)
+            return True
 
     def update_fields(self, instance_id: str, **fields: Any) -> dict[str, Any] | None:
         """Update specific fields of an instance.
@@ -99,11 +153,12 @@ class InstanceStore:
         Returns:
             Updated instance dict or None if not found.
         """
-        all_instances = self.load_all()
-        inst = all_instances.get(instance_id)
-        if inst is None:
-            return None
-        inst.update(fields)
-        all_instances[instance_id] = inst
-        self.save_all(all_instances)
-        return inst
+        with self.locked():
+            all_instances = self.load_all()
+            inst = all_instances.get(instance_id)
+            if inst is None:
+                return None
+            inst.update(fields)
+            all_instances[instance_id] = inst
+            self.save_all(all_instances)
+            return inst

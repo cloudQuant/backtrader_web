@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import pandas as pd
+import requests
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -121,6 +122,35 @@ class FinancialFundDailyEm(AkshareToMySql):
             self.logger.warning(f"解析封闭期失败: {e}, 原始值: {value}")
             return None
 
+    def fetch_eastmoney_daily_raw(self):
+        """Fetch financial-fund daily records from the current EastMoney endpoint."""
+        url = "https://api.fund.eastmoney.com/FundNetValue/GetLCJJJZ"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+            ),
+            "Referer": "https://fund.eastmoney.com/lcjj.html",
+        }
+        params = {
+            "letter": "",
+            "jjgsid": "0",
+            "searchtext": "",
+            "sort": "ljjz,desc",
+            "page": "1,5000",
+            "AttentionCodes": "",
+            "cycle": "",
+            # EastMoney currently returns an empty list for OnlySale=1/0 and
+            # ErrCode=4 if OnlySale is omitted. An explicit empty filter returns
+            # the listed products.
+            "OnlySale": "",
+        }
+        response = requests.get(url, params=params, headers=headers, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("Data") or {}
+        return data.get("List") or [], data.get("showday") or []
+
     def fetch_financial_fund_daily_data(self):
         """
         获取理财型基金每日收益数据
@@ -131,8 +161,12 @@ class FinancialFundDailyEm(AkshareToMySql):
         try:
             self.logger.info("开始获取理财型基金每日收益数据...")
 
-            # 获取数据
-            df = self.fetch_ak_data("fund_financial_fund_daily_em")
+            records, show_day = self.fetch_eastmoney_daily_raw()
+            trade_date = datetime.now().date()
+            if show_day:
+                trade_date = pd.to_datetime(show_day[0], errors="coerce").date()
+
+            df = pd.DataFrame(records)
 
             if df is None or df.empty:
                 self.logger.warning("未获取到理财型基金每日收益数据")
@@ -140,18 +174,21 @@ class FinancialFundDailyEm(AkshareToMySql):
 
             # 重命名列
             column_mapping = {
-                "基金代码": "FUND_CODE",
-                "基金简称": "FUND_NAME",
-                "上一期年化收益率": "PREV_ANNUAL_YIELD_STR",
-                "当前交易日-万份收益": "CUR_DAY_INCOME_PER_10K_STR",
-                "当前交易日-7日年华": "CUR_DAY_ANNUAL_YIELD_STR",
-                "前一个交易日-万份收益": "PREV_DAY_INCOME_PER_10K_STR",
-                "前一个交易日-7日年华": "PREV_DAY_ANNUAL_YIELD_STR",
-                "封闭期": "LOCK_PERIOD",
-                "申购状态": "PURCHASE_STATUS",
+                "fcode": "FUND_CODE",
+                "shortname": "FUND_NAME",
+                "actualsyi": "PREV_ANNUAL_YIELD_STR",
+                "mui": "CUR_DAY_INCOME_PER_10K_STR",
+                "syi": "CUR_DAY_ANNUAL_YIELD_STR",
+                "zrmui": "PREV_DAY_INCOME_PER_10K_STR",
+                "zrsyi": "PREV_DAY_ANNUAL_YIELD_STR",
+                "cycle": "LOCK_PERIOD",
+                "kfr": "PURCHASE_STATUS",
             }
 
             df = df.rename(columns=column_mapping)
+            for column in column_mapping.values():
+                if column not in df.columns:
+                    df[column] = None
 
             # 解析数值型数据
             df["PREV_ANNUAL_YIELD"] = df["PREV_ANNUAL_YIELD_STR"].apply(self.parse_percentage)
@@ -167,9 +204,7 @@ class FinancialFundDailyEm(AkshareToMySql):
             # 处理封闭期
             df["LOCK_PERIOD"] = df["LOCK_PERIOD"].apply(self.parse_lock_period)
 
-            # 添加交易日期（当前日期）
-            current_date = datetime.now().date()
-            df["TRADE_DATE"] = current_date
+            df["TRADE_DATE"] = trade_date
 
             # 生成主键
             df["R_ID"] = df["FUND_CODE"] + "_" + df["TRADE_DATE"].astype(str)

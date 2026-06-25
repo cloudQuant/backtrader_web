@@ -106,9 +106,17 @@ class TestLiveTradingList:
         data = response.json()
         ctp = next(p for p in data["presets"] if p["id"] == "ctp_futures_gateway")
         assert ctp["description"] == "Shared CTP gateway preset for domestic futures accounts."
-        assert len(ctp["editable_fields"]) == 1
-        assert ctp["editable_fields"][0]["key"] == "account_id"
-        assert ctp["editable_fields"][0]["input_type"] == "string"
+        field_keys = [field["key"] for field in ctp["editable_fields"]]
+        assert field_keys == [
+            "account_id",
+            "ctp_env",
+            "set1_group",
+            "td_front",
+            "md_front",
+            "startup_timeout_sec",
+            "command_timeout_sec",
+        ]
+        assert all(field["input_type"] == "string" for field in ctp["editable_fields"])
         assert ctp["params"]["gateway"]["provider"] == "ctp_gateway"
         assert ctp["params"]["gateway"]["exchange_type"] == "CTP"
 

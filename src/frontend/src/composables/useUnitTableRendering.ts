@@ -99,7 +99,7 @@ export function numberClass(value: number | null | undefined): string {
 
 export function directionLabel(value: string | null | undefined): string {
   const text = String(value || '').toLowerCase()
-  if (text.includes('long')) return tt('unitRendering.dirLong')
-  if (text.includes('short')) return tt('unitRendering.dirShort')
+  if (text.includes('long') || text === 'buy') return tt('unitRendering.dirLong')
+  if (text.includes('short') || text === 'sell') return tt('unitRendering.dirShort')
   return value || '-'
 }

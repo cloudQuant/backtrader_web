@@ -5,9 +5,14 @@ import sys
 
 import numpy as np
 import pandas as pd
+import requests
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+
+
+SCREEN_API_BASE = "https://screen.zjpwq.com/pwq-index-webapi"
+SCREEN_REFERER = "https://screen.zjpwq.com/"
 
 
 class EmissionRightsIndex(AkshareToMySql):
@@ -15,7 +20,7 @@ class EmissionRightsIndex(AkshareToMySql):
         super().__init__(db_config, logger)
         self.table_name = "EMISSION_RIGHTS_INDEX"
         self.create_table_sql = """
-            CREATE TABLE `EMISSION_RIGHTS_INDEX` (
+            CREATE TABLE IF NOT EXISTS `EMISSION_RIGHTS_INDEX` (
                 `R_ID` VARCHAR(50) PRIMARY KEY,
                 `PERIOD_TYPE` ENUM('MONTHLY', 'QUARTERLY') NOT NULL COMMENT '周期类型',
                 `PERIOD_DATE` DATE NOT NULL COMMENT '日期',
@@ -33,6 +38,85 @@ class EmissionRightsIndex(AkshareToMySql):
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='浙江省排污权交易指数';
         """
 
+    @staticmethod
+    def _screen_headers() -> dict[str, str]:
+        return {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/json, text/plain, */*",
+            "Referer": SCREEN_REFERER,
+        }
+
+    def _request_screen_api(self, endpoint: str, cycle: str) -> list[dict]:
+        params = {
+            "cycle": cycle,
+            "regionId": "1",
+            "structId": "1",
+            "pageSize": "5000",
+            "indexId": "1",
+            "orderBy": "stage.publishTime",
+        }
+        response = requests.get(
+            f"{SCREEN_API_BASE}/{endpoint}",
+            params=params,
+            headers=self._screen_headers(),
+            timeout=30,
+        )
+        response.raise_for_status()
+        data_json = response.json()
+        if data_json.get("success") != 1:
+            self.logger.warning(
+                "浙江排污权指数接口返回异常: endpoint=%s cycle=%s payload=%s",
+                endpoint,
+                cycle,
+                str(data_json)[:300],
+            )
+            return []
+        return data_json.get("data") or []
+
+    def fetch_source_data(self, period_type: str) -> pd.DataFrame:
+        cycle = "MONTH" if period_type == "MONTHLY" else "QUARTER"
+        index_records = self._request_screen_api("indexData", cycle)
+        stat_records = self._request_screen_api("dataStatistics", cycle)
+        if not index_records:
+            return pd.DataFrame()
+
+        index_df = pd.DataFrame(
+            [
+                {
+                    "PERIOD_DATE": (record.get("stage") or {}).get("publishTime"),
+                    "TRADE_INDEX": record.get("indexValue"),
+                }
+                for record in index_records
+            ]
+        )
+        stat_df = pd.DataFrame(
+            [
+                {
+                    "PERIOD_DATE": (record.get("stage") or {}).get("publishTime"),
+                    "VOLUME": record.get("totalQuantity"),
+                    "TURNOVER": record.get("totalCost"),
+                }
+                for record in stat_records
+            ]
+        )
+        if stat_df.empty:
+            result = index_df
+            result["VOLUME"] = None
+            result["TURNOVER"] = None
+        else:
+            result = index_df.merge(stat_df, on="PERIOD_DATE", how="left")
+
+        result["PERIOD_DATE"] = pd.to_datetime(result["PERIOD_DATE"], errors="coerce").dt.date
+        result["TRADE_INDEX"] = pd.to_numeric(result["TRADE_INDEX"], errors="coerce")
+        result["VOLUME"] = pd.to_numeric(result["VOLUME"], errors="coerce")
+        result["TURNOVER"] = pd.to_numeric(result["TURNOVER"], errors="coerce")
+        result.dropna(subset=["PERIOD_DATE"], inplace=True)
+        result.sort_values("PERIOD_DATE", inplace=True, ignore_index=True)
+        return result
+
     def fetch_index_data(self, period_type):
         """
         Fetch Emission Rights Index data
@@ -47,28 +131,20 @@ class EmissionRightsIndex(AkshareToMySql):
             symbol = "月度" if period_type == "MONTHLY" else "季度"
             self.logger.info(f"Fetching Emission Rights Index data for {symbol}")
 
-            df = self.fetch_ak_data("index_eri", symbol=symbol)
+            # AkShare still points at zs.zjpwq.net, which no longer resolves. The
+            # same official Zhejiang emission-rights index app now exposes the
+            # original webapi path under screen.zjpwq.com.
+            df = self.fetch_source_data(period_type)
 
             if df is None or df.empty:
                 self.logger.warning(f"No data found for Emission Rights Index ({symbol})")
                 return pd.DataFrame()
 
-            # Rename and process columns
-            df = df.rename(
-                columns={
-                    "日期": "PERIOD_DATE",
-                    "交易指数": "TRADE_INDEX",
-                    "成交量": "VOLUME",
-                    "成交额": "TURNOVER",
-                }
-            )
-
             # Convert date format and add metadata
-            df["PERIOD_DATE"] = pd.to_datetime(df["PERIOD_DATE"]).dt.date
             df["PERIOD_TYPE"] = period_type
             df["R_ID"] = [self.get_uuid() for _ in range(len(df))]
             df["IS_ACTIVE"] = 1
-            df["DATA_SOURCE"] = "akshare"
+            df["DATA_SOURCE"] = "浙江省排污权交易指数"
 
             return df
 
@@ -76,11 +152,11 @@ class EmissionRightsIndex(AkshareToMySql):
             self.logger.error(f"Error fetching Emission Rights Index data: {str(e)}", exc_info=True)
             return pd.DataFrame()
 
-    def run(self, period_type="MONTHLY", update_all=False):
+    def run(self, period_type="ALL", update_all=False):
         """Run the emission rights index update"""
         try:
-            if period_type not in ["MONTHLY", "QUARTERLY"]:
-                raise ValueError("period_type must be either 'MONTHLY' or 'QUARTERLY'")
+            if period_type not in ["MONTHLY", "QUARTERLY", "ALL"]:
+                raise ValueError("period_type must be one of: MONTHLY, QUARTERLY, ALL")
 
             if not self.table_exists(self.table_name):
                 self.create_table(self.create_table_sql)
@@ -93,19 +169,23 @@ class EmissionRightsIndex(AkshareToMySql):
             #         (period_type,)
             #     )
 
-            # Fetch and save data
-            df = self.fetch_index_data(period_type)
-            if not df.empty:
+            period_types = ["MONTHLY", "QUARTERLY"] if period_type == "ALL" else [period_type]
+            frames = []
+            for current_period_type in period_types:
+                df = self.fetch_index_data(current_period_type)
+                if df.empty:
+                    continue
                 self.save_data(
                     df=df.replace({np.nan: None}),
                     table_name=self.table_name,
                     on_duplicate_update=True,
                     unique_keys=["PERIOD_TYPE", "PERIOD_DATE"],
                 )
-                period_name = "Monthly" if period_type == "MONTHLY" else "Quarterly"
+                period_name = "Monthly" if current_period_type == "MONTHLY" else "Quarterly"
                 self.logger.info(f"Updated {len(df)} {period_name} emission rights index records")
+                frames.append(df)
 
-            return True
+            return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
         except Exception as e:
             self.logger.error(f"Error in run: {str(e)}", exc_info=True)
@@ -126,9 +206,9 @@ def main():
     parser.add_argument(
         "--period",
         type=str,
-        default="MONTHLY",
-        choices=["MONTHLY", "QUARTERLY"],
-        help="Period type: MONTHLY or QUARTERLY",
+        default="ALL",
+        choices=["MONTHLY", "QUARTERLY", "ALL"],
+        help="Period type: MONTHLY, QUARTERLY, or ALL",
     )
     parser.add_argument("--update-all", action="store_true", help="Update all historical data")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")

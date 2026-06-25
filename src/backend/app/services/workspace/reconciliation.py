@@ -27,7 +27,7 @@ from sqlalchemy import select
 
 from app.db.database import async_session_maker
 from app.models.backtest import BacktestTask
-from app.models.workspace import StrategyUnit
+from app.models.workspace import StrategyUnit, Workspace
 from app.schemas.backtest import TaskStatus
 
 if TYPE_CHECKING:
@@ -60,7 +60,10 @@ async def reconcile_orphaned_run_statuses() -> int:
     """
     async with async_session_maker() as session:
         result = await session.execute(
-            select(StrategyUnit).where(StrategyUnit.run_status.in_(["queued", "running"]))
+            select(StrategyUnit)
+            .join(Workspace, StrategyUnit.workspace_id == Workspace.id)
+            .where(StrategyUnit.run_status.in_(["queued", "running"]))
+            .where(Workspace.workspace_type != "trading")
         )
         units = list(result.scalars().all())
         if not units:

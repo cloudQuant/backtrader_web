@@ -31,6 +31,22 @@ class StockConceptFundFlowHist(AkshareToMySql):
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stock Concept Fund Flow Hist'
     """
 
+    @staticmethod
+    def normalize_columns(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
+        if df.empty:
+            return df
+        df = df.copy()
+        df["symbol"] = str(symbol)
+        df["name"] = str(symbol)
+        if "日期" in df.columns:
+            df["data_date"] = pd.to_datetime(df["日期"], errors="coerce").dt.date
+        elif "data_date" not in df.columns:
+            df["data_date"] = pd.Timestamp.now().date()
+        front_columns = ["symbol", "name", "data_date"]
+        ordered = [col for col in front_columns if col in df.columns]
+        ordered.extend(col for col in df.columns if col not in ordered)
+        return df[ordered]
+
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
 
@@ -42,19 +58,22 @@ class StockConceptFundFlowHist(AkshareToMySql):
         """
         try:
             # Fetch data from AkShare
+            symbol = kwargs.get("symbol", "数据要素")
             df = self.fetch_ak_data("stock_concept_fund_flow_hist", **kwargs)
 
             if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+            df = self.normalize_columns(df, symbol)
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
+            for data_date in sorted(df["data_date"].dropna().astype(str).unique()):
+                self.delete_data(
+                    self.table_name,
+                    {"symbol": str(symbol), "data_date": data_date},
+                )
             self.save_data(df, self.table_name, ignore_duplicates=True)
 
             return df

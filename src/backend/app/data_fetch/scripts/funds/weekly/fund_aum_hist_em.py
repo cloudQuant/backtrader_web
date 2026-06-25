@@ -53,49 +53,55 @@ class FundAumHistEm(AkshareToMySql):
             # 重命名列
             df = df.rename(
                 columns={
-                    "基金公司": "company_name",
-                    "总规模": "total_aum",
-                    "股票型": "stock_aum",
-                    "混合型": "mixed_aum",
-                    "债券型": "bond_aum",
-                    "指数型": "index_aum",
-                    "QDII": "qdii_aum",
-                    "货币型": "money_aum",
+                    "基金公司": "COMPANY_NAME",
+                    "总规模": "TOTAL_AUM",
+                    "股票型": "STOCK_AUM",
+                    "混合型": "MIXED_AUM",
+                    "债券型": "BOND_AUM",
+                    "指数型": "INDEX_AUM",
+                    "QDII": "QDII_AUM",
+                    "货币型": "MONEY_AUM",
                 }
             )
 
             # 添加年份列
-            df["year"] = int(year)
+            df = df[df["COMPANY_NAME"].notna()].copy()
+            df["COMPANY_NAME"] = df["COMPANY_NAME"].astype(str).str.strip()
+            df = df[df["COMPANY_NAME"] != ""].copy()
+            df["YEAR"] = int(year)
 
             # 处理数据中的NaN值
             for col in [
-                "total_aum",
-                "stock_aum",
-                "mixed_aum",
-                "bond_aum",
-                "index_aum",
-                "qdii_aum",
-                "money_aum",
+                "TOTAL_AUM",
+                "STOCK_AUM",
+                "MIXED_AUM",
+                "BOND_AUM",
+                "INDEX_AUM",
+                "QDII_AUM",
+                "MONEY_AUM",
             ]:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
             # 生成唯一ID
-            df["r_id"] = (
-                "FAHE_" + df["year"].astype(str) + "_" + df["company_name"].str[:30].str.upper()
+            df["R_ID"] = (
+                "FAHE_"
+                + df["YEAR"].astype(str)
+                + "_"
+                + df["COMPANY_NAME"].str[:30].str.upper()
             )
 
             # 选择需要的列并重新排序
             columns = [
-                "r_id",
-                "year",
-                "company_name",
-                "total_aum",
-                "stock_aum",
-                "mixed_aum",
-                "bond_aum",
-                "index_aum",
-                "qdii_aum",
-                "money_aum",
+                "R_ID",
+                "YEAR",
+                "COMPANY_NAME",
+                "TOTAL_AUM",
+                "STOCK_AUM",
+                "MIXED_AUM",
+                "BOND_AUM",
+                "INDEX_AUM",
+                "QDII_AUM",
+                "MONEY_AUM",
             ]
             return df[columns]
 
@@ -113,53 +119,53 @@ class FundAumHistEm(AkshareToMySql):
             existing_ids = {
                 row[0]
                 for row in self.query_data(
-                    f"SELECT r_id FROM {self.table_name} WHERE is_active = 1"  # nosec B608
+                    f"SELECT R_ID FROM {self.table_name} WHERE IS_ACTIVE = 1"  # nosec B608
                 )
                 or []
             }
 
             # 插入新数据
-            new_data = df[~df["r_id"].isin(existing_ids)]
+            new_data = df[~df["R_ID"].isin(existing_ids)]
             if not new_data.empty:
                 self.insert_data(
                     new_data,
                     self.table_name,
                     [
-                        "r_id",
-                        "year",
-                        "company_name",
-                        "total_aum",
-                        "stock_aum",
-                        "mixed_aum",
-                        "bond_aum",
-                        "index_aum",
-                        "qdii_aum",
-                        "money_aum",
+                        "R_ID",
+                        "YEAR",
+                        "COMPANY_NAME",
+                        "TOTAL_AUM",
+                        "STOCK_AUM",
+                        "MIXED_AUM",
+                        "BOND_AUM",
+                        "INDEX_AUM",
+                        "QDII_AUM",
+                        "MONEY_AUM",
                     ],
                 )
                 self.logger.info(f"Inserted {len(new_data)} new records")
 
             # 更新已有数据
-            updated_data = df[df["r_id"].isin(existing_ids)]
+            updated_data = df[df["R_ID"].isin(existing_ids)]
             if not updated_data.empty:
                 for _, row in updated_data.iterrows():
                     self.execute_sql(
                         f"""  # nosec B608
                         UPDATE {self.table_name}
-                        SET total_aum=%s, stock_aum=%s, mixed_aum=%s,
-                            bond_aum=%s, index_aum=%s, qdii_aum=%s,
-                            money_aum=%s, updatedate=CURRENT_TIMESTAMP
-                        WHERE r_id=%s
+                        SET TOTAL_AUM=%s, STOCK_AUM=%s, MIXED_AUM=%s,
+                            BOND_AUM=%s, INDEX_AUM=%s, QDII_AUM=%s,
+                            MONEY_AUM=%s, UPDATEDATE=CURRENT_TIMESTAMP
+                        WHERE R_ID=%s
                         """,
                         (
-                            row["total_aum"],
-                            row["stock_aum"],
-                            row["mixed_aum"],
-                            row["bond_aum"],
-                            row["index_aum"],
-                            row["qdii_aum"],
-                            row["money_aum"],
-                            row["r_id"],
+                            row["TOTAL_AUM"],
+                            row["STOCK_AUM"],
+                            row["MIXED_AUM"],
+                            row["BOND_AUM"],
+                            row["INDEX_AUM"],
+                            row["QDII_AUM"],
+                            row["MONEY_AUM"],
+                            row["R_ID"],
                         ),
                     )
                 self.logger.info(f"Updated {len(updated_data)} records")

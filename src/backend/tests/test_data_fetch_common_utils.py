@@ -1,5 +1,6 @@
 import pytest
 import pandas as pd
+from datetime import datetime
 
 from app.data_fetch.core.mysql_base import MysqlBase
 from app.data_fetch.providers.akshare_to_mysql import FuncThread
@@ -77,6 +78,37 @@ def test_insert_data_converts_pandas_missing_values_to_none(monkeypatch):
         [[None, None, None, 1.25]],
     )
     assert connection.committed is True
+
+
+def test_insert_data_converts_pandas_timestamp_to_datetime(monkeypatch):
+    class FakeCursor:
+        def __init__(self):
+            self.executed = None
+
+        def executemany(self, sql, data):
+            self.executed = (sql, data)
+
+    class FakeConnection:
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    service = MysqlBase({})
+    cursor = FakeCursor()
+    service.cursor = cursor
+    service.connection = FakeConnection()
+    monkeypatch.setattr(service, "connect_db", lambda: None)
+    monkeypatch.setattr(service, "disconnect_db", lambda: None)
+
+    df = pd.DataFrame({"FETCHED_AT": [pd.Timestamp("2026-06-22 00:00:01")]})
+
+    assert service.insert_data(df, "SOME_TABLE", ["FETCHED_AT"]) is True
+    assert cursor.executed == (
+        "INSERT INTO `SOME_TABLE` (`FETCHED_AT`) VALUES (%s)",
+        [[datetime(2026, 6, 22, 0, 0, 1)]],
+    )
 
 
 def test_insert_data_quotes_keyword_column_names(monkeypatch):
@@ -162,4 +194,63 @@ def test_save_data_adds_missing_columns_before_insert(monkeypatch):
     assert cursor.inserted == (
         "INSERT IGNORE INTO `OPTION_SSE_CODES_SINA` (`期权代码`, `data_date`) VALUES (%s, %s)",
         [["10000001", "2026-06-21"]],
+    )
+
+
+def test_save_data_drops_columns_that_failed_auto_add(monkeypatch):
+    class FakeCursor:
+        def __init__(self):
+            self.table_columns = [("R_ID",), ("data_date",)]
+            self.fetchone_value = None
+            self.executed_sql = []
+            self.inserted = None
+
+        def execute(self, sql):
+            self.executed_sql.append(sql)
+            if sql.startswith("SHOW TABLES LIKE"):
+                self.fetchone_value = ("WIDE_TABLE",)
+            elif sql.startswith("SHOW COLUMNS FROM"):
+                self.fetchone_value = None
+            elif sql.startswith("ALTER TABLE") and "known_new" in sql:
+                self.table_columns.append(("known_new",))
+            elif sql.startswith("ALTER TABLE") and "too_wide" in sql:
+                raise RuntimeError("row size too large")
+
+        def fetchone(self):
+            value = self.fetchone_value
+            self.fetchone_value = None
+            return value
+
+        def fetchall(self):
+            return self.table_columns
+
+        def executemany(self, sql, data):
+            self.inserted = (sql, data)
+
+    class FakeConnection:
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    service = MysqlBase({})
+    cursor = FakeCursor()
+    service.cursor = cursor
+    service.connection = FakeConnection()
+    monkeypatch.setattr(service, "connect_db", lambda: None)
+    monkeypatch.setattr(service, "disconnect_db", lambda: None)
+
+    df = pd.DataFrame(
+        {
+            "known_new": ["ok"],
+            "too_wide": ["drop me"],
+            "data_date": ["2026-06-21"],
+        }
+    )
+
+    assert service.save_data(df, "WIDE_TABLE", ignore_duplicates=True) == 1
+    assert cursor.inserted == (
+        "INSERT IGNORE INTO `WIDE_TABLE` (`known_new`, `data_date`) VALUES (%s, %s)",
+        [["ok", "2026-06-21"]],
     )

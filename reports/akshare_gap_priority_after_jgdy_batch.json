@@ -1,0 +1,2285 @@
+{
+  "generated_at": "2026-06-22T10:20:39.180809+00:00",
+  "source_audit": "reports/akshare_data_completeness_audit_after_jgdy_batch.json",
+  "summary": {
+    "generated_at": "2026-06-22T10:20:33.217993+00:00",
+    "todo": {
+      "total_tasks": 1047,
+      "status_counts": {
+        "done": 1041,
+        "failed": 6
+      }
+    },
+    "metadata_scripts": 1047,
+    "execution_summary": {
+      "by_status": {
+        "RUNNING": 7,
+        "COMPLETED": 1347,
+        "FAILED": 55,
+        "CANCELLED": 2
+      },
+      "manual": {
+        "count": 1380,
+        "rows_after_zero": "1068",
+        "rows_after_null": "61",
+        "first_start": "2026-06-21T16:35:38",
+        "last_end": "2026-06-22T10:19:16"
+      }
+    },
+    "physical_tables": {
+      "total": 924,
+      "non_empty": 896,
+      "empty": 28,
+      "mapped_non_empty": 892,
+      "orphan_non_empty": 4
+    },
+    "task_data_status": {
+      "has_data": 892,
+      "rows_after_zero_but_physical_data": 671,
+      "missing_table": 127,
+      "checked_without_data": 149,
+      "empty_table": 28
+    },
+    "category_breakdown": {
+      "bonds": {
+        "has_data": 36,
+        "rows_after_zero_but_physical_data": 33,
+        "missing_table": 2,
+        "checked_without_data": 3,
+        "empty_table": 1
+      },
+      "common": {
+        "has_data": 273,
+        "rows_after_zero_but_physical_data": 249,
+        "missing_table": 71,
+        "checked_without_data": 74,
+        "empty_table": 3
+      },
+      "funds": {
+        "has_data": 113,
+        "rows_after_zero_but_physical_data": 82,
+        "missing_table": 5,
+        "checked_without_data": 12,
+        "empty_table": 7
+      },
+      "futures": {
+        "has_data": 50,
+        "rows_after_zero_but_physical_data": 37,
+        "missing_table": 6,
+        "checked_without_data": 13,
+        "empty_table": 7
+      },
+      "indexs": {
+        "has_data": 82,
+        "rows_after_zero_but_physical_data": 82,
+        "missing_table": 2,
+        "checked_without_data": 10,
+        "empty_table": 9
+      },
+      "stocks": {
+        "has_data": 338,
+        "rows_after_zero_but_physical_data": 188,
+        "missing_table": 41,
+        "checked_without_data": 37,
+        "empty_table": 1
+      }
+    }
+  },
+  "items": [
+    {
+      "priority": 110,
+      "task_id": 391,
+      "script_id": "financial_fund_daily_em",
+      "category": "funds",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FINANCIAL_FUND_DAILY_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "财务/公告/报表",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 110,
+      "task_id": 392,
+      "script_id": "financial_fund_hist_em",
+      "category": "funds",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FINANCIAL_FUND_HIST_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "财务/公告/报表",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 100,
+      "task_id": 719,
+      "script_id": "stock_concept_fund_flow_hist",
+      "category": "stocks",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_CONCEPT_FUND_FLOW_HIST",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script stock_concept_fund_flow_hist returned no data and target table stock_concept_fund_flow_hist is empty",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "资金流/持仓/榜单",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 100,
+      "task_id": 953,
+      "script_id": "stock_sector_fund_flow_hist",
+      "category": "stocks",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_SECTOR_FUND_FLOW_HIST",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script stock_sector_fund_flow_hist returned no data and target table stock_sector_fund_flow_hist is empty",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "资金流/持仓/榜单",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 80,
+      "task_id": 510,
+      "script_id": "reits_hist_em",
+      "category": "funds",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "REITS_HIST_EM",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script reits_hist_em returned no data and target table reits_hist_em is empty",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 80,
+      "task_id": 639,
+      "script_id": "index_zh_a_hist",
+      "category": "indexs",
+      "sub_category": "daily",
+      "data_status": "empty_table",
+      "target_table": "INDEX_ZH_A_HIST",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script index_zh_a_hist returned no data and target table index_zh_a_hist is empty",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 75,
+      "task_id": 788,
+      "script_id": "stock_hk_hist",
+      "category": "stocks",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HK_HIST",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script stock_hk_hist returned no data and target table stock_hk_hist is empty",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 75,
+      "task_id": 789,
+      "script_id": "stock_hk_hist_min_em",
+      "category": "stocks",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HK_HIST_MIN_EM",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script stock_hk_hist_min_em returned no data and target table stock_hk_hist_min_em is empty",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 75,
+      "task_id": 1007,
+      "script_id": "stock_zh_a_hist",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_ZH_A_HIST",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script stock_zh_a_hist returned no data and target table stock_zh_a_hist is empty",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 75,
+      "task_id": 1008,
+      "script_id": "stock_zh_a_hist_min_em",
+      "category": "stocks",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_ZH_A_HIST_MIN_EM",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script stock_zh_a_hist_min_em returned no data and target table stock_zh_a_hist_min_em is empty",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 70,
+      "task_id": 455,
+      "script_id": "graded_fund_daily_em",
+      "category": "funds",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "GRADED_FUND_DAILY_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 70,
+      "task_id": 627,
+      "script_id": "index_global_hist_em",
+      "category": "indexs",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "index_global_hist_em",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 70,
+      "task_id": 640,
+      "script_id": "index_zh_a_hist_min_em",
+      "category": "indexs",
+      "sub_category": "daily",
+      "data_status": "empty_table",
+      "target_table": "INDEX_ZH_A_HIST_MIN_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 70,
+      "task_id": 651,
+      "script_id": "stock_zh_index_daily_em",
+      "category": "indexs",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "STOCK_ZH_INDEX_DAILY_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 70,
+      "task_id": 695,
+      "script_id": "stock_board_industry_hist_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "empty_table",
+      "target_table": "STOCK_BOARD_INDUSTRY_HIST_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 427,
+      "script_id": "fund_lof_hist_em",
+      "category": "funds",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "FUND_LOF_HIST_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 488,
+      "script_id": "option_hist_dce",
+      "category": "funds",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "OPTION_HIST_DCE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 495,
+      "script_id": "option_minute_em",
+      "category": "funds",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "OPTION_MINUTE_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 504,
+      "script_id": "option_sse_minute_sina",
+      "category": "funds",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "OPTION_SSE_MINUTE_SINA",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 536,
+      "script_id": "futures_hist_em",
+      "category": "futures",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "FUTURES_HIST_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 621,
+      "script_id": "index_bloomberg_billionaires_hist",
+      "category": "indexs",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "INDEX_BLOOMBERG_BILLIONAIRES_HIST",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 687,
+      "script_id": "stock_board_concept_hist_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_BOARD_CONCEPT_HIST_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 712,
+      "script_id": "stock_comment_detail_scrd_desire_daily_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_COMMENT_DETAIL_SCRD_DESIRE_DAILY_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 819,
+      "script_id": "stock_hot_up_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HOT_UP_EM",
+      "latest_execution_status": "FAILED",
+      "latest_error": "Script stock_hot_up_em returned no data and target table stock_hot_up_em is empty",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单",
+        "最新执行已暴露失败原因"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 984,
+      "script_id": "stock_us_hist_min_em",
+      "category": "stocks",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_US_HIST_MIN_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 65,
+      "task_id": 1018,
+      "script_id": "stock_zh_a_tick_163",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_ZH_A_TICK_163",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 60,
+      "task_id": 406,
+      "script_id": "fund_dividend_rank_em",
+      "category": "funds",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FUND_DIVIDEND_RANK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 60,
+      "task_id": 425,
+      "script_id": "fund_lcx_rank_em",
+      "category": "funds",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FUND_LCX_RANK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 368,
+      "script_id": "spot_hist_sge",
+      "category": "common",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "SPOT_HIST_SGE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "行情历史/分钟/tick",
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 527,
+      "script_id": "futures_dce_position_rank",
+      "category": "futures",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "FUTURES_DCE_POSITION_RANK",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 757,
+      "script_id": "stock_gdfx_free_holding_analyse_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_GDFX_FREE_HOLDING_ANALYSE_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 758,
+      "script_id": "stock_gdfx_free_holding_change_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_GDFX_FREE_HOLDING_CHANGE_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 760,
+      "script_id": "stock_gdfx_free_holding_statistics_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_GDFX_FREE_HOLDING_STATISTICS_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 761,
+      "script_id": "stock_gdfx_free_holding_teamwork_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_GDFX_FREE_HOLDING_TEAMWORK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 766,
+      "script_id": "stock_gdfx_holding_statistics_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_GDFX_HOLDING_STATISTICS_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 792,
+      "script_id": "stock_hk_hot_rank_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HK_HOT_RANK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 810,
+      "script_id": "stock_hot_follow_xq",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HOT_FOLLOW_XQ",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 814,
+      "script_id": "stock_hot_rank_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HOT_RANK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 820,
+      "script_id": "stock_hsgt_board_rank_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HSGT_BOARD_RANK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 824,
+      "script_id": "stock_hsgt_hold_stock_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HSGT_HOLD_STOCK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 825,
+      "script_id": "stock_hsgt_individual_detail_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HSGT_INDIVIDUAL_DETAIL_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 827,
+      "script_id": "stock_hsgt_institution_statistics_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HSGT_INSTITUTION_STATISTICS_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 829,
+      "script_id": "stock_hsgt_stock_statistics_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_HSGT_STOCK_STATISTICS_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 55,
+      "task_id": 924,
+      "script_id": "stock_rank_cxd_ths",
+      "category": "stocks",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_RANK_CXD_THS",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 50,
+      "task_id": 513,
+      "script_id": "czce_to_spot",
+      "category": "futures",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FUTURES_CZCE_TO_SPOT",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "实时/池类数据",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 45,
+      "task_id": 95,
+      "script_id": "forex_hist_em",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "empty_table",
+      "target_table": "FOREX_HIST_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "行情历史/分钟/tick",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 45,
+      "task_id": 481,
+      "script_id": "option_current_em",
+      "category": "funds",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "OPTION_CURRENT_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 45,
+      "task_id": 552,
+      "script_id": "futures_spot_sys",
+      "category": "futures",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "FUTURES_SPOT_SYS",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 45,
+      "task_id": 554,
+      "script_id": "futures_to_spot_dce",
+      "category": "futures",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "FUTURES_TO_SPOT_DCE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 45,
+      "task_id": 555,
+      "script_id": "futures_to_spot_shfe",
+      "category": "futures",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "FUTURES_TO_SPOT_SHFE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 45,
+      "task_id": 987,
+      "script_id": "stock_us_spot_em",
+      "category": "stocks",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_US_SPOT_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 40,
+      "task_id": 42,
+      "script_id": "air_quality_hist",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "AIR_QUALITY_HIST",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 40,
+      "task_id": 82,
+      "script_id": "currency_history",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "CURRENCY_HISTORY",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 40,
+      "task_id": 342,
+      "script_id": "movie_boxoffice_cinema_daily",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MOVIE_BOXOFFICE_CINEMA_DAILY",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 40,
+      "task_id": 344,
+      "script_id": "movie_boxoffice_daily",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MOVIE_BOXOFFICE_DAILY",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "行情历史/分钟/tick"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 19,
+      "script_id": "bond_info_cm",
+      "category": "bonds",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "BOND_INFO_CM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 457,
+      "script_id": "hk_fund_dividend_em",
+      "category": "funds",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "HK_FUND_DIVIDEND_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 516,
+      "script_id": "dce_delivery_data",
+      "category": "futures",
+      "sub_category": "monthly",
+      "data_status": "empty_table",
+      "target_table": "FUTURES_DELIVERY_DCE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 517,
+      "script_id": "dce_delivery_match",
+      "category": "futures",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FUTURES_DELIVERY_MATCH_DCE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 563,
+      "script_id": "inventory_data",
+      "category": "futures",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FUTURES_INVENTORY_DATA",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 567,
+      "script_id": "shfe_delivery_data",
+      "category": "futures",
+      "sub_category": "monthly",
+      "data_status": "empty_table",
+      "target_table": "FUTURES_DELIVERY_SHFE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 568,
+      "script_id": "shfe_stock_weekly",
+      "category": "futures",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FUTURES_STOCK_WEEKLY_SHFE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 574,
+      "script_id": "warehouse_receipt_dce",
+      "category": "futures",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "FUTURES_DCE_WAREHOUSE_RECEIPT",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 589,
+      "script_id": "a_share_news_sentiment_index",
+      "category": "indexs",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "A_SHARE_NEWS_SENTIMENT_INDEX",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 611,
+      "script_id": "emission_rights_index",
+      "category": "indexs",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "EMISSION_RIGHTS_INDEX",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 613,
+      "script_id": "highway_logistics_index",
+      "category": "indexs",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "HIGHWAY_LOGISTICS_INDEX",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 614,
+      "script_id": "highway_logistics_volume",
+      "category": "indexs",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "HIGHWAY_LOGISTICS_VOLUME",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 35,
+      "task_id": 643,
+      "script_id": "kq_foreign_trade_index",
+      "category": "indexs",
+      "sub_category": "weekly",
+      "data_status": "empty_table",
+      "target_table": "KQ_FOREIGN_TRADE_INDEX",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别",
+        "已有空表，可能只需修保存/参数"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 34,
+      "script_id": "bond_zh_hs_cov_min",
+      "category": "bonds",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "BOND_ZH_HS_COV_MIN",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 35,
+      "script_id": "bond_zh_hs_cov_pre_min",
+      "category": "bonds",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "BOND_ZH_HS_COV_PRE_MIN",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 104,
+      "script_id": "get_dce_rank_table",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "GET_DCE_RANK_TABLE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 386,
+      "script_id": "xincaifu_rank",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "XINCAIFU_RANK",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "资金流/持仓/榜单"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 557,
+      "script_id": "futures_warehouse_receipt_dce",
+      "category": "futures",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "FUTURES_WAREHOUSE_RECEIPT_DCE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 620,
+      "script_id": "index_bloomberg_billionaires",
+      "category": "indexs",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "INDEX_BLOOMBERG_BILLIONAIRES",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 683,
+      "script_id": "stock_bid_ask_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_BID_ASK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 718,
+      "script_id": "stock_concept_cons_futu",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_CONCEPT_CONS_FUTU",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 723,
+      "script_id": "stock_dxsyl_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_DXSYL_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 731,
+      "script_id": "stock_esg_hz_sina",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_ESG_HZ_SINA",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 733,
+      "script_id": "stock_esg_rate_sina",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_ESG_RATE_SINA",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 735,
+      "script_id": "stock_esg_zd_sina",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_ESG_ZD_SINA",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 770,
+      "script_id": "stock_gpzy_distribute_statistics_bank_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_GPZY_DISTRIBUTE_STATISTICS_BANK_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 771,
+      "script_id": "stock_gpzy_distribute_statistics_company_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_GPZY_DISTRIBUTE_STATISTICS_COMPANY_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 837,
+      "script_id": "stock_individual_info_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_INDIVIDUAL_INFO_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 864,
+      "script_id": "stock_ipo_benefit_ths",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_IPO_BENEFIT_THS",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 865,
+      "script_id": "stock_ipo_declare",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_IPO_DECLARE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 871,
+      "script_id": "stock_jgdy_tj_em",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_JGDY_TJ_EM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 908,
+      "script_id": "stock_new_gh_cninfo",
+      "category": "stocks",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_NEW_GH_CNINFO",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 911,
+      "script_id": "stock_news_main_cx",
+      "category": "stocks",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "STOCK_NEWS_MAIN_CX",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 30,
+      "task_id": 967,
+      "script_id": "stock_sns_sseinfo",
+      "category": "stocks",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "STOCK_SNS_SSEINFO",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "核心资产类别"
+      ]
+    },
+    {
+      "priority": 20,
+      "task_id": 346,
+      "script_id": "movie_boxoffice_realtime",
+      "category": "common",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "MOVIE_BOXOFFICE_REALTIME",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 20,
+      "task_id": 367,
+      "script_id": "spot_golden_benchmark_sge",
+      "category": "common",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "SPOT_GOLDEN_BENCHMARK_SGE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 20,
+      "task_id": 377,
+      "script_id": "spot_quotations_sge",
+      "category": "common",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "SPOT_QUOTATIONS_SGE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 20,
+      "task_id": 378,
+      "script_id": "spot_silver_benchmark_sge",
+      "category": "common",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "SPOT_SILVER_BENCHMARK_SGE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "实时/池类数据"
+      ]
+    },
+    {
+      "priority": 5,
+      "task_id": 41,
+      "script_id": "air_quality_hebei",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "AIR_QUALITY_HEBEI",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 46,
+      "script_id": "akshare_catalog_endpoint",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "akshare_catalog_endpoint",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 48,
+      "script_id": "amac_fund_abs",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "AMAC_FUND_ABS",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 49,
+      "script_id": "amac_fund_account_info",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "AMAC_FUND_ACCOUNT_INFO",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 51,
+      "script_id": "amac_fund_sub_info",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "AMAC_FUND_SUB_INFO",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 52,
+      "script_id": "amac_futures_info",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "AMAC_FUTURES_INFO",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 53,
+      "script_id": "amac_manager_cancelled_info",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "AMAC_MANAGER_CANCELLED_INFO",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 57,
+      "script_id": "amac_member_sub_info",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "AMAC_MEMBER_SUB_INFO",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 60,
+      "script_id": "amac_securities_info",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "AMAC_SECURITIES_INFO",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 63,
+      "script_id": "article_oman_rv",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "ARTICLE_OMAN_RV",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 66,
+      "script_id": "business_value_artist",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "BUSINESS_VALUE_ARTIST",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 74,
+      "script_id": "cost_living",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "COST_LIVING",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 80,
+      "script_id": "currency_convert",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "CURRENCY_CONVERT",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 81,
+      "script_id": "currency_currencies",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "CURRENCY_CURRENCIES",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 83,
+      "script_id": "currency_latest",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "CURRENCY_LATEST",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 84,
+      "script_id": "currency_pair_map",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "CURRENCY_PAIR_MAP",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 85,
+      "script_id": "currency_time_series",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "CURRENCY_TIME_SERIES",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 86,
+      "script_id": "energy_carbon_bj",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "ENERGY_CARBON_BJ",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 87,
+      "script_id": "energy_carbon_domestic",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "ENERGY_CARBON_DOMESTIC",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 88,
+      "script_id": "energy_carbon_eu",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "ENERGY_CARBON_EU",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 89,
+      "script_id": "energy_carbon_gz",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "ENERGY_CARBON_GZ",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 90,
+      "script_id": "energy_carbon_hb",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "ENERGY_CARBON_HB",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 91,
+      "script_id": "energy_carbon_sz",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "ENERGY_CARBON_SZ",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 100,
+      "script_id": "fx_quote_baidu",
+      "category": "common",
+      "sub_category": "hourly",
+      "data_status": "missing_table",
+      "target_table": "FX_QUOTE_BAIDU",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 340,
+      "script_id": "migration_area_baidu",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MIGRATION_AREA_BAIDU",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 343,
+      "script_id": "movie_boxoffice_cinema_weekly",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "MOVIE_BOXOFFICE_CINEMA_WEEKLY",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 345,
+      "script_id": "movie_boxoffice_monthly",
+      "category": "common",
+      "sub_category": "monthly",
+      "data_status": "missing_table",
+      "target_table": "MOVIE_BOXOFFICE_MONTHLY",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 347,
+      "script_id": "movie_boxoffice_weekly",
+      "category": "common",
+      "sub_category": "weekly",
+      "data_status": "missing_table",
+      "target_table": "MOVIE_BOXOFFICE_WEEKLY",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 348,
+      "script_id": "movie_boxoffice_yearly",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MOVIE_BOXOFFICE_YEARLY",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 349,
+      "script_id": "movie_boxoffice_yearly_first_week",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MOVIE_BOXOFFICE_YEARLY_FIRST_WEEK",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 357,
+      "script_id": "online_value_artist",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "ONLINE_VALUE_ARTIST",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 384,
+      "script_id": "video_tv",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "VIDEO_TV",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 5,
+      "task_id": 385,
+      "script_id": "video_variety_show",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "VIDEO_VARIETY_SHOW",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": []
+    },
+    {
+      "priority": 0,
+      "task_id": 197,
+      "script_id": "macro_china_nbs_nation",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "empty_table",
+      "target_table": "MACRO_CHINA_NBS_NATION",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "已有空表，可能只需修保存/参数",
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": 0,
+      "task_id": 198,
+      "script_id": "macro_china_nbs_region",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "empty_table",
+      "target_table": "MACRO_CHINA_NBS_REGION",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "已有空表，可能只需修保存/参数",
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 124,
+      "script_id": "macro_bank_english_interest_rate",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_BANK_ENGLISH_INTEREST_RATE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 147,
+      "script_id": "macro_china_bond_public",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CHINA_BOND_PUBLIC",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 186,
+      "script_id": "macro_china_insurance",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CHINA_INSURANCE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 211,
+      "script_id": "macro_china_retail_price_index",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CHINA_RETAIL_PRICE_INDEX",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 216,
+      "script_id": "macro_china_society_traffic_volume",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CHINA_SOCIETY_TRAFFIC_VOLUME",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 219,
+      "script_id": "macro_china_swap_rate",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CHINA_SWAP_RATE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 221,
+      "script_id": "macro_china_urban_unemployment",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CHINA_URBAN_UNEMPLOYMENT",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 228,
+      "script_id": "macro_cons_gold",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CONS_GOLD",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 229,
+      "script_id": "macro_cons_opec_month",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CONS_OPEC_MONTH",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 230,
+      "script_id": "macro_cons_silver",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_CONS_SILVER",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 232,
+      "script_id": "macro_euro_cpi_yoy",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_EURO_CPI_YOY",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 240,
+      "script_id": "macro_euro_ppi_mom",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_EURO_PPI_MOM",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 256,
+      "script_id": "macro_global_sox_index",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_GLOBAL_SOX_INDEX",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 267,
+      "script_id": "macro_shipping_bdi",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_SHIPPING_BDI",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 268,
+      "script_id": "macro_shipping_bpi",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_SHIPPING_BPI",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 291,
+      "script_id": "macro_usa_api_crude_stock",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_API_CRUDE_STOCK",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 294,
+      "script_id": "macro_usa_cb_consumer_confidence",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_CB_CONSUMER_CONFIDENCE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 301,
+      "script_id": "macro_usa_core_pce_price",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_CORE_PCE_PRICE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 308,
+      "script_id": "macro_usa_eia_crude_rate",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_EIA_CRUDE_RATE",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 309,
+      "script_id": "macro_usa_exist_home_sales",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_EXIST_HOME_SALES",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 314,
+      "script_id": "macro_usa_house_starts",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_HOUSE_STARTS",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 316,
+      "script_id": "macro_usa_industrial_production",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_INDUSTRIAL_PRODUCTION",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 317,
+      "script_id": "macro_usa_initial_jobless",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_INITIAL_JOBLESS",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 319,
+      "script_id": "macro_usa_ism_pmi",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_ISM_PMI",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 322,
+      "script_id": "macro_usa_michigan_consumer_sentiment",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_MICHIGAN_CONSUMER_SENTIMENT",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 324,
+      "script_id": "macro_usa_new_home_sales",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_NEW_HOME_SALES",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    },
+    {
+      "priority": -5,
+      "task_id": 328,
+      "script_id": "macro_usa_personal_spending",
+      "category": "common",
+      "sub_category": "daily",
+      "data_status": "missing_table",
+      "target_table": "MACRO_USA_PERSONAL_SPENDING",
+      "latest_execution_status": "COMPLETED",
+      "latest_error": "",
+      "reasons": [
+        "宏观但非交易核心"
+      ]
+    }
+  ]
+}

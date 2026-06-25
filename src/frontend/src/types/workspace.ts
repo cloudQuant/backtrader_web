@@ -95,6 +95,22 @@ export interface TradingPosition {
   pnl: number | null
 }
 
+export interface TradingTrade {
+  id: string
+  data_name: string
+  direction: string
+  size: number
+  price: number | null
+  value: number | null
+  commission: number | null
+  pnl: number | null
+  pnlcomm: number | null
+  barlen: number | null
+  dtopen: string | null
+  dtclose: string | null
+  datetime: string | null
+}
+
 export interface TradingSnapshot {
   instance_id: string | null
   instance_status: string
@@ -118,6 +134,7 @@ export interface TradingSnapshot {
   updated_at: string | null
   detail_route: string | null
   positions: TradingPosition[]
+  trades: TradingTrade[]
 }
 
 export interface TradingAutoSession {
@@ -153,6 +170,8 @@ export interface TradingPositionManagerItem {
   latest_price: number | null
   position_pnl: number
   market_value: number
+  updated_at?: string | null
+  data_time?: string | null
 }
 
 export interface TradingPositionManagerResponse {

@@ -133,7 +133,7 @@ class IndexConstituentWeightsCSIndex(AkshareToMySql):
             )
             return pd.DataFrame()
 
-    def run(self, symbol=None, trade_date=None):
+    def run(self, symbol=None, trade_date=None, max_symbols=None, max_workers=8):
         """
         Main method to run the constituent weights update
 
@@ -153,6 +153,10 @@ class IndexConstituentWeightsCSIndex(AkshareToMySql):
                 symbol_list = df["指数代码"].dropna().astype(str).str.zfill(6).drop_duplicates().to_list()
             else:
                 symbol_list = [str(symbol).zfill(6)]
+            max_symbols = int(max_symbols) if max_symbols is not None else None
+            if max_symbols is not None and len(symbol_list) > max_symbols:
+                symbol_list = symbol_list[:max_symbols]
+                self.logger.info(f"Limiting CSIndex constituent weights to {max_symbols} symbols")
 
             trade_date = pd.to_datetime(trade_date or datetime.now()).date()
             self.logger.info(
@@ -164,7 +168,7 @@ class IndexConstituentWeightsCSIndex(AkshareToMySql):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
 
-            max_workers = min(8, max(1, len(symbol_list)))
+            max_workers = min(int(max_workers or 1), max(1, len(symbol_list)))
             processed_count = 0
             saved_rows = 0
 

@@ -301,6 +301,26 @@ class TestBuildCtpGatewayRuntimeKwargs:
         assert result["password"] == "env_pwd"
         assert result["transport"] == "tcp"
 
+    def test_env_password_overrides_gateway_params(self):
+        config = {
+            "ctp": {
+                "investor_id": "config_inv",
+                "broker_id": "9999",
+                "password": "config_pwd",
+                "fronts": {"simnow": {"td_address": "tcp://td", "md_address": "tcp://md"}},
+            },
+            "live": {"network": "simnow"},
+        }
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data=config,
+            env_data={"CTP_PASSWORD": "env_pwd", "CTP_AUTH_CODE": "env_auth"},
+            gateway_params={"password": "gateway_pwd", "auth_code": "gateway_auth"},
+            default_transport="tcp",
+        )
+
+        assert result["password"] == "env_pwd"
+        assert result["auth_code"] == "env_auth"
+
     def test_default_timeouts_are_extended_for_ctp(self):
         config = {
             "ctp": {
@@ -340,6 +360,75 @@ class TestBuildCtpGatewayRuntimeKwargs:
         assert result["md_address"] == "tcp://set2-md"
         assert result["selected_ctp_env"] == "set2_7x24"
         assert result["selection_reason"] == "forced_set2"
+
+    def test_ctp_runtime_kwargs_rewrite_fronts_when_proxy_tunnel_available(self, monkeypatch):
+        ensure_tunnel = MagicMock(side_effect=[61001, 61011])
+        monkeypatch.setattr(
+            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+            lambda: True,
+        )
+        monkeypatch.setattr("app.services.ctp_tunnel.ensure_tunnel", ensure_tunnel)
+
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data={
+                "ctp": {
+                    "investor_id": "inv001",
+                    "broker_id": "9999",
+                    "password": "secret",
+                    "fronts": {
+                        "simnow": {
+                            "td_address": "tcp://td.example:41205",
+                            "md_address": "tcp://md.example:41213",
+                        }
+                    },
+                },
+                "live": {"network": "simnow"},
+            },
+            env_data={},
+            gateway_params={"account_id": "acc1"},
+            default_transport="tcp",
+        )
+
+        assert result["td_address"] == "tcp://127.0.0.1:61001"
+        assert result["md_address"] == "tcp://127.0.0.1:61011"
+        assert result["original_td_front"] == "tcp://td.example:41205"
+        assert result["original_md_front"] == "tcp://md.example:41213"
+        assert result["ctp_proxy_tunnel"] is True
+        ensure_tunnel.assert_any_call("td.example", 41205)
+        ensure_tunnel.assert_any_call("md.example", 41213)
+
+    def test_ctp_runtime_kwargs_can_disable_proxy_tunnel(self, monkeypatch):
+        ensure_tunnel = MagicMock()
+        monkeypatch.setattr(
+            "app.services.ctp_tunnel.is_proxy_tunnel_needed",
+            lambda: True,
+        )
+        monkeypatch.setattr("app.services.ctp_tunnel.ensure_tunnel", ensure_tunnel)
+
+        result = build_ctp_gateway_runtime_kwargs(
+            config_data={
+                "ctp": {
+                    "investor_id": "inv001",
+                    "broker_id": "9999",
+                    "password": "secret",
+                    "fronts": {
+                        "simnow": {
+                            "td_address": "tcp://td.example:41205",
+                            "md_address": "tcp://md.example:41213",
+                        }
+                    },
+                },
+                "live": {"network": "simnow"},
+            },
+            env_data={},
+            gateway_params={"account_id": "acc1", "proxy_tunnel": False},
+            default_transport="tcp",
+        )
+
+        assert result["td_address"] == "tcp://td.example:41205"
+        assert result["md_address"] == "tcp://md.example:41213"
+        assert result["ctp_proxy_tunnel"] is False
+        ensure_tunnel.assert_not_called()
 
 
 # ---- IB Web builder tests ----
@@ -437,6 +526,28 @@ class TestBuildMt5GatewayRuntimeKwargs:
         )
         assert result["login"] == 789012
         assert result["password"] == "legacy-pass"
+
+    def test_env_credentials_override_mt5_config_and_gateway_params(self):
+        result = build_mt5_gateway_runtime_kwargs(
+            config_data={"mt5": {"login": "111111", "password": "config-pass", "ws_uri": "config-ws"}},
+            env_data={
+                "MT5_LOGIN": "222222",
+                "MT5_PASSWORD": "env-pass",
+                "MT5_ACCOUNT_ID": "env-account",
+                "MT5_WS_URI": "env-ws",
+            },
+            gateway_params={
+                "login": "333333",
+                "password": "gateway-pass",
+                "account_id": "gateway-account",
+                "ws_uri": "gateway-ws",
+            },
+        )
+
+        assert result["login"] == 222222
+        assert result["password"] == "env-pass"
+        assert result["account_id"] == "env-account"
+        assert result["ws_uri"] == "env-ws"
 
     def test_symbol_map_from_config(self):
         result = build_mt5_gateway_runtime_kwargs(

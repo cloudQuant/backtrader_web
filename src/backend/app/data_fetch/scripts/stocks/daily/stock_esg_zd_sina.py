@@ -26,10 +26,26 @@ class StockEsgZdSina(AkshareToMySql):
             `data_date` DATE COMMENT '数据日期',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        INDEX idx_symbol_date (`symbol`, `data_date`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stock Esg Zd Sina'
     """
+
+    @staticmethod
+    def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+        """Populate standard stock columns from Sina ZD ESG rows."""
+        if df.empty:
+            return df
+
+        df = df.copy()
+        if "股票代码" in df.columns:
+            symbol = df["股票代码"].astype(str).str.strip()
+            numeric_symbol = symbol.str.fullmatch(r"\d+")
+            symbol.loc[numeric_symbol] = symbol.loc[numeric_symbol].str.zfill(6)
+            df["symbol"] = symbol
+        if "评分日期" in df.columns:
+            df["data_date"] = pd.to_datetime(df["评分日期"], errors="coerce").dt.date
+        return df
 
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
@@ -50,6 +66,7 @@ class StockEsgZdSina(AkshareToMySql):
 
             # Process data if needed
             # Add data_date if not exists
+            df = self.normalize_columns(df)
             if "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
 

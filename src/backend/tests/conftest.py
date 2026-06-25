@@ -6,10 +6,14 @@ Uses httpx.AsyncClient + ASGITransport for direct FastAPI app testing.
 Each test uses an independent in-memory SQLite database (shared connection via StaticPool).
 """
 
+import asyncio
 import importlib
+import logging
 import os
+import tempfile
 import uuid
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
@@ -21,6 +25,11 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite://")
 os.environ.setdefault("SQL_ECHO", "false")
 os.environ.setdefault("ADMIN_PASSWORD", "TestAdmin@12345")
+_TEST_LOG_DIR = Path(tempfile.mkdtemp(prefix="backtrader_web_pytest_logs_"))
+os.environ["LOG_DIR"] = str(_TEST_LOG_DIR)
+
+for noisy_logger in ("aiosqlite", "aiosqlite.core"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 importlib.import_module("app.models")
 db_module = importlib.import_module("app.db.database")
@@ -60,9 +69,25 @@ def pytest_configure(config):
     config.inicfg["asyncio_default_fixture_loop_scope"] = "function"
 
 
+def pytest_sessionfinish(session, exitstatus):
+    """Dispose the shared async engine so aiosqlite worker threads can exit."""
+    for noisy_logger in ("aiosqlite", "aiosqlite.core"):
+        logging.getLogger(noisy_logger).disabled = True
+    asyncio.run(_test_engine.dispose())
+
+
 @pytest.fixture(autouse=True)
-def disable_live_gateway_restore(monkeypatch):
+def disable_live_gateway_restore(monkeypatch, tmp_path):
     live_trading_manager = importlib.import_module("app.services.live_trading_manager")
+    instance_store = importlib.import_module("app.services.instance_store")
+    data_dir = tmp_path / "backend_data"
+    instances_file = data_dir / "live_trading_instances.json"
+    manual_gateways_file = data_dir / "manual_gateways.json"
+    monkeypatch.setattr(live_trading_manager, "_DATA_DIR", data_dir)
+    monkeypatch.setattr(live_trading_manager, "_INSTANCES_FILE", instances_file)
+    monkeypatch.setattr(live_trading_manager, "_MANUAL_GATEWAYS_FILE", manual_gateways_file)
+    monkeypatch.setattr(instance_store, "_DATA_DIR", data_dir)
+    monkeypatch.setattr(instance_store, "_INSTANCES_FILE", instances_file)
     monkeypatch.setattr(
         live_trading_manager.LiveTradingManager,
         "_start_restore_manual_gateways_background",

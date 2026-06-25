@@ -13,17 +13,37 @@ Features:
 
 import json
 import logging
+import re
 import sys
 import traceback
 from collections.abc import Callable
+from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
 from types import FrameType
 from typing import Any
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from loguru import logger
 
 from app.config import get_settings
+
+
+_NOISY_THIRD_PARTY_LOGGERS = (
+    "aiomysql",
+    "aiomysql.connection",
+    "aiosqlite",
+    "aiosqlite.core",
+    "asyncio",
+    "faker",
+    "faker.factory",
+    "slowapi",
+    "slowapi.extension",
+)
+_DATED_LOG_RE = re.compile(
+    r"^(app|errors|audit|backtest)_(?P<date>\d{4}-\d{2}-\d{2})\.log$"
+)
+_STALE_LOG_ARCHIVE_MIN_AGE_SECONDS = 60
 
 
 class InterceptHandler(logging.Handler):
@@ -51,6 +71,97 @@ class InterceptHandler(logging.Handler):
             depth += 1
 
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+def _configure_third_party_log_levels() -> None:
+    """Keep known noisy dependencies from flooding application log files."""
+    for logger_name in _NOISY_THIRD_PARTY_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def _date_from_dated_log_name(filename: str) -> date | None:
+    match = _DATED_LOG_RE.match(filename)
+    if not match:
+        return None
+    try:
+        return date.fromisoformat(match.group("date"))
+    except ValueError:
+        return None
+
+
+def _next_archive_path(log_file: Path) -> Path:
+    archive_path = log_file.with_name(f"{log_file.name}.zip")
+    if not archive_path.exists():
+        return archive_path
+
+    for index in range(1, 1000):
+        candidate = log_file.with_name(f"{log_file.name}.{index}.zip")
+        if not candidate.exists():
+            return candidate
+
+    raise RuntimeError(f"Could not find available archive path for {log_file}")
+
+
+def _archive_stale_dated_logs(
+    logs_path: Path,
+    *,
+    current_date: date | None = None,
+    min_age_seconds: int = _STALE_LOG_ARCHIVE_MIN_AGE_SECONDS,
+) -> list[Path]:
+    """Compress inactive dated logs left behind before loguru could rotate them."""
+
+    today = current_date or datetime.now().date()
+    archived: list[Path] = []
+    now_ts = datetime.now().timestamp()
+
+    for log_file in sorted(logs_path.glob("*.log")):
+        log_date = _date_from_dated_log_name(log_file.name)
+        if log_date is None or log_date >= today:
+            continue
+
+        try:
+            stat = log_file.stat()
+        except OSError:
+            continue
+
+        if stat.st_size <= 0 or now_ts - stat.st_mtime < min_age_seconds:
+            continue
+
+        archive_path = _next_archive_path(log_file)
+        try:
+            with ZipFile(archive_path, "w", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+                archive.write(log_file, arcname=log_file.name)
+            log_file.unlink()
+            archived.append(archive_path)
+        except OSError:
+            archive_path.unlink(missing_ok=True)
+
+    return archived
+
+
+def _build_daily_or_size_rotation(max_bytes: int) -> str | Callable[[Any, Any], bool]:
+    """Return a loguru rotation policy for daily files plus an optional size cap."""
+
+    if max_bytes <= 0:
+        return "00:00"
+
+    def _should_rotate(message: Any, file: Any) -> bool:
+        try:
+            message_date = message.record["time"].date()
+            file_date = _date_from_dated_log_name(Path(file.name).name)
+            if file_date is not None and file_date < message_date:
+                return True
+        except Exception:
+            pass
+
+        try:
+            file.seek(0, 2)
+            message_size = len(str(message).encode("utf-8", errors="replace"))
+            return file.tell() + message_size > max_bytes
+        except Exception:
+            return False
+
+    return _should_rotate
 
 
 # Sensitive data patterns to filter from logs
@@ -305,6 +416,7 @@ def _add_file_handler(
     fmt_override: str | None = None,
     tag_filter: str | None = None,
     backtrace: bool = False,
+    rotation: str | Callable[[Any, Any], bool] = "00:00",
 ) -> None:
     """Add a rotating file handler with common defaults."""
 
@@ -320,7 +432,7 @@ def _add_file_handler(
         # which writes the record as-is without format interpolation.
         logger.add(
             logs_path / filename,
-            rotation="00:00",
+            rotation=rotation,
             retention=retention,
             compression="zip",
             format="{message}",
@@ -336,7 +448,7 @@ def _add_file_handler(
         fmt = fmt_override or _PLAIN_FORMAT
         logger.add(
             logs_path / filename,
-            rotation="00:00",
+            rotation=rotation,
             retention=retention,
             compression="zip",
             format=fmt,
@@ -444,10 +556,12 @@ def setup_logger(
     logs_path.mkdir(parents=True, exist_ok=True)
 
     logger.remove()
+    _archive_stale_dated_logs(logs_path)
 
     # Intercept stdlib logging → loguru so that modules using
     # ``logging.getLogger(__name__)`` are automatically routed through loguru.
     logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
+    _configure_third_party_log_levels()
 
     _add_console_handler(console_level, use_color)
 
@@ -455,6 +569,8 @@ def setup_logger(
     app_retention = f"{_resolve_int_setting(settings, 'LOG_RETENTION_APP_DAYS', 30)} days"
     error_retention = f"{_resolve_int_setting(settings, 'LOG_RETENTION_ERROR_DAYS', 90)} days"
     audit_retention = f"{_resolve_int_setting(settings, 'LOG_RETENTION_AUDIT_DAYS', 365)} days"
+    max_log_file_mb = _resolve_int_setting(settings, "LOG_ROTATION_MAX_MB", 100)
+    file_rotation = _build_daily_or_size_rotation(max_log_file_mb * 1024 * 1024)
 
     _add_file_handler(
         logs_path,
@@ -462,6 +578,7 @@ def setup_logger(
         use_json,
         level=file_level,
         retention=app_retention,
+        rotation=file_rotation,
     )
 
     _add_file_handler(
@@ -472,6 +589,7 @@ def setup_logger(
         retention=error_retention,
         fmt_override=_PLAIN_FORMAT + "\n{exception}",
         backtrace=True,
+        rotation=file_rotation,
     )
 
     _add_file_handler(
@@ -485,6 +603,7 @@ def setup_logger(
             "{name}:{function}:{line} | user:{extra[user_id]:<12} | {message}"
         ),
         tag_filter="audit",
+        rotation=file_rotation,
     )
 
     _add_file_handler(
@@ -498,6 +617,7 @@ def setup_logger(
             "task:{extra[task_id]:<12} | user:{extra[user_id]:<12} | {message}"
         ),
         tag_filter="backtest",
+        rotation=file_rotation,
     )
 
     return logger

@@ -42,7 +42,13 @@ class OptionSseListSina(AkshareToMySql):
         """
         try:
             # Fetch data from AkShare
-            df = self.fetch_ak_data("option_sse_list_sina", **kwargs)
+            result = self.fetch_ak_data("option_sse_list_sina", **kwargs)
+            if isinstance(result, pd.DataFrame):
+                df = result
+            elif isinstance(result, (list, tuple, set)):
+                df = pd.DataFrame({"trade_date": [str(item) for item in result if item]})
+            else:
+                df = pd.DataFrame()
 
             if df is None or df.empty:
                 self.logger.warning("No data found")

@@ -84,6 +84,61 @@ class TestLoggingMiddleware:
         assert response.headers["X-Request-ID"]
         assert any(kwargs.get("user_id") == "test_user_123" for kwargs in call_kwargs)
 
+    @pytest.mark.asyncio
+    async def test_asgi_call_stores_request_id_in_scope_state(self, monkeypatch):
+        """Test ASGI middleware exposes the response request ID to downstream handlers."""
+        from app.middleware.logging import LoggingMiddleware
+
+        class StubLogger:
+            def info(self, _message, **_kwargs):
+                return None
+
+            def error(self, _message, **_kwargs):
+                return None
+
+        monkeypatch.setattr(
+            "app.middleware.logging.bind_request_context",
+            lambda **_kwargs: StubLogger(),
+            raising=True,
+        )
+
+        observed_state = {}
+
+        async def app(scope, receive, send):
+            del receive
+            observed_state.update(scope.get("state", {}))
+            await send({"type": "http.response.start", "status": 204, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        middleware = LoggingMiddleware(app)
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/auth/me",
+            "headers": [],
+            "query_string": b"",
+            "client": ("127.0.0.1", 12345),
+            "scheme": "http",
+        }
+        messages = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            messages.append(message)
+
+        await middleware(scope, receive, send)
+
+        response_start = next(
+            message for message in messages if message["type"] == "http.response.start"
+        )
+        headers = dict(response_start["headers"])
+        request_id = headers[b"x-request-id"].decode()
+
+        assert len(request_id) == 8
+        assert observed_state["request_id"] == request_id
+
 
 class TestAuditLoggingMiddleware:
     """Tests for AuditLoggingMiddleware."""

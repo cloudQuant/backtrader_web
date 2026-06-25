@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
+from akshare.utils.request import request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -45,7 +46,69 @@ class IndexZhAHistMinEm(AkshareToMySql):
         df = self.get_data_by_columns(table_name, ["INDEX_CODE"])
         return list(df["INDEX_CODE"].unique())
 
-    def fetch_minute_data(self, symbol, period, start_date=None, end_date=None):
+    @staticmethod
+    def _index_secid_candidates(symbol):
+        raw_symbol = str(symbol or "").strip()
+        normalized = raw_symbol.lower()
+        if normalized.startswith(("sh", "sz", "bj", "csi")):
+            if normalized.startswith("sh"):
+                return [f"1.{raw_symbol[2:]}"]
+            if normalized.startswith(("sz", "bj")):
+                return [f"0.{raw_symbol[2:]}"]
+            return [f"2.{raw_symbol[3:]}"]
+        if normalized.startswith("399"):
+            preferred = "0"
+        elif normalized.startswith(("000", "880")):
+            preferred = "1"
+        else:
+            preferred = "1"
+        candidates = [
+            f"{preferred}.{raw_symbol}",
+            f"1.{raw_symbol}",
+            f"0.{raw_symbol}",
+            f"2.{raw_symbol}",
+            f"47.{raw_symbol}",
+        ]
+        return list(dict.fromkeys(candidates))
+
+    def _fetch_minute_from_trends(self, symbol, start_date=None, end_date=None):
+        url = "https://push2his.eastmoney.com/api/qt/stock/trends2/get"
+        columns = ["时间", "开盘", "收盘", "最高", "最低", "成交量", "成交额", "均价"]
+        for secid in self._index_secid_candidates(symbol):
+            params = {
+                "secid": secid,
+                "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+                "iscr": "0",
+                "ndays": "5",
+            }
+            try:
+                data_json = request_eastmoney(url, params=params, timeout=20).json()
+            except Exception as exc:
+                self.logger.warning(f"Eastmoney index trends2 fallback failed for {secid}: {exc}")
+                continue
+            trends = (data_json.get("data") or {}).get("trends") or []
+            if not trends:
+                continue
+            df = pd.DataFrame([item.split(",") for item in trends])
+            if df.empty or df.shape[1] < len(columns):
+                continue
+            df = df.iloc[:, : len(columns)]
+            df.columns = columns
+            df.index = pd.to_datetime(df["时间"], errors="coerce")
+            df = df[df.index.notna()]
+            if start_date or end_date:
+                df = df[start_date:end_date]
+            df = df.reset_index(drop=True)
+            if not df.empty:
+                self.logger.warning(
+                    "Eastmoney index minute kline returned empty; populated "
+                    "INDEX_ZH_A_HIST_MIN_EM from same-source trends2 data"
+                )
+                return df
+        return pd.DataFrame(columns=columns)
+
+    def fetch_minute_data(self, symbol, period, start_date=None, end_date=None, _call_timeout=None):
         """Fetch minute-level index data from East Money and process it.
 
         Args:
@@ -58,6 +121,11 @@ class IndexZhAHistMinEm(AkshareToMySql):
             pd.DataFrame: Processed DataFrame with minute data or empty DataFrame on error
         """
         try:
+            if str(period) == "1":
+                df = self._fetch_minute_from_trends(symbol, start_date, end_date)
+                if df is not None and not df.empty:
+                    return self._normalize_minute_frame(df, symbol, period)
+
             # 1. Set default date range if not provided
             if start_date is None:
                 start_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d 09:30:00")
@@ -65,18 +133,34 @@ class IndexZhAHistMinEm(AkshareToMySql):
                 end_date = datetime.now().strftime("%Y-%m-%d 15:00:00")
 
             # 2. Fetch data from AKShare
-            df = self.fetch_ak_data(
-                "index_zh_a_hist_min_em",
-                symbol=symbol,
-                period=str(period),
-                start_date=start_date,
-                end_date=end_date,
-            )
+            fetch_kwargs = {
+                "symbol": symbol,
+                "period": str(period),
+                "start_date": start_date,
+                "end_date": end_date,
+            }
+            if _call_timeout is not None:
+                fetch_kwargs["_call_timeout"] = _call_timeout
+            df = self.fetch_ak_data("index_zh_a_hist_min_em", **fetch_kwargs)
 
             if df is None or df.empty:
-                self.logger.warning(f"No minute data found for index {symbol} period {period}")
-                return pd.DataFrame()
+                if str(period) == "1":
+                    df = self._fetch_minute_from_trends(symbol, start_date, end_date)
+                if df is None or df.empty:
+                    self.logger.warning(f"No minute data found for index {symbol} period {period}")
+                    return pd.DataFrame()
 
+            return self._normalize_minute_frame(df, symbol, period)
+
+        except Exception as e:
+            self.logger.error(
+                f"Error fetching minute data for index {symbol} period {period}: {str(e)}",
+                exc_info=True,
+            )
+            return pd.DataFrame()
+
+    def _normalize_minute_frame(self, df, symbol, period):
+        try:
             # 3. Rename and process columns
             df = df.rename(
                 columns={
@@ -150,12 +234,20 @@ class IndexZhAHistMinEm(AkshareToMySql):
 
         except Exception as e:
             self.logger.error(
-                f"Error fetching minute data for index {symbol} period {period}: {str(e)}",
+                f"Error normalizing minute data for index {symbol} period {period}: {str(e)}",
                 exc_info=True,
             )
             return pd.DataFrame()
 
-    def run(self, symbol=None, period="1", start_date=None, end_date=None):
+    def run(
+        self,
+        symbol=None,
+        period="1",
+        start_date=None,
+        end_date=None,
+        max_symbols=None,
+        _call_timeout=None,
+    ):
         """Main method to run the data fetching and saving process.
 
         Args:
@@ -193,6 +285,10 @@ class IndexZhAHistMinEm(AkshareToMySql):
                 )
             else:
                 symbol_list = [symbol]
+            max_symbols = int(max_symbols) if max_symbols is not None else None
+            if max_symbols is not None and len(symbol_list) > max_symbols:
+                symbol_list = symbol_list[:max_symbols]
+                self.logger.info(f"Limiting minute index update to {max_symbols} symbols")
 
             all_success = True
             for symbol in symbol_list:
@@ -200,7 +296,13 @@ class IndexZhAHistMinEm(AkshareToMySql):
                     period_list = ["1", "15", "60"] if period is None else [period]
                     for period in period_list:
                         # 获取数据
-                        df = self.fetch_minute_data(symbol, period, start_date, end_date)
+                        df = self.fetch_minute_data(
+                            symbol,
+                            period,
+                            start_date,
+                            end_date,
+                            _call_timeout=_call_timeout,
+                        )
                         if not df.empty:
                             # 处理NaN值
                             df = df.replace(np.nan, None)

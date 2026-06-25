@@ -1,9 +1,9 @@
 import json
+import logging
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from bt_api_py.brokers.gateway_bridge import GatewayBridgeAdapter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,6 +11,92 @@ from app.models.audit_record import AuditRecord
 from app.models.broker_profile import BrokerConnectionProfile
 
 _ROTATION_WARNING_DAYS = 90
+_logger = logging.getLogger(__name__)
+_GATEWAY_BRIDGE_ADAPTER_CLASS: type | None = None
+_GATEWAY_BRIDGE_IMPORT_ATTEMPTED = False
+
+
+class _FallbackGatewayBridgeAdapter:
+    """Read-only fallback used when the external bt_api_py broker contract is absent."""
+
+    def __init__(self, gateway_service: dict[str, Any] | None = None, account_id: str = "") -> None:
+        self.gateway_service = dict(gateway_service or {})
+        self.account_id = str(account_id or "gateway")
+
+    async def connect(self) -> bool:
+        return True
+
+    async def health(self) -> dict[str, Any]:
+        return {
+            "adapter": "gateway_bridge",
+            "connected": True,
+            "mode": "paper_readonly",
+            "account_id": self.account_id,
+            "source": "local_fallback",
+        }
+
+    async def list_accounts(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "account_id": self.account_id,
+                "mode": "paper_readonly",
+                "source": "local_fallback",
+            }
+        ]
+
+    async def get_positions(self) -> list[dict[str, Any]]:
+        return []
+
+    async def get_orders(self) -> list[dict[str, Any]]:
+        return []
+
+    async def get_quote(self, symbol: str) -> dict[str, Any]:
+        return {
+            "symbol": str(symbol or "").strip().upper(),
+            "last_price": 0,
+            "provider": "gateway_bridge",
+            "source": "local_fallback",
+        }
+
+
+def _get_gateway_bridge_adapter_class() -> type:
+    """Load the optional external gateway bridge adapter once, with a safe fallback."""
+    global _GATEWAY_BRIDGE_ADAPTER_CLASS, _GATEWAY_BRIDGE_IMPORT_ATTEMPTED
+
+    if _GATEWAY_BRIDGE_ADAPTER_CLASS is not None:
+        return _GATEWAY_BRIDGE_ADAPTER_CLASS
+    if _GATEWAY_BRIDGE_IMPORT_ATTEMPTED:
+        return _FallbackGatewayBridgeAdapter
+
+    _GATEWAY_BRIDGE_IMPORT_ATTEMPTED = True
+    try:
+        from importlib import metadata
+
+        package_files = metadata.files("bt_api_py") or []
+    except Exception:
+        package_files = []
+
+    has_gateway_bridge = any(
+        str(path).replace("\\", "/").endswith("bt_api_py/brokers/gateway_bridge.py")
+        for path in package_files
+    )
+    if not has_gateway_bridge:
+        _GATEWAY_BRIDGE_ADAPTER_CLASS = _FallbackGatewayBridgeAdapter
+        return _GATEWAY_BRIDGE_ADAPTER_CLASS
+
+    try:
+        from bt_api_py.brokers.gateway_bridge import GatewayBridgeAdapter
+    except Exception as exc:
+        _logger.warning(
+            "bt_api_py.brokers.gateway_bridge is unavailable; using local read-only "
+            "gateway_bridge fallback: %s",
+            exc,
+        )
+        _GATEWAY_BRIDGE_ADAPTER_CLASS = _FallbackGatewayBridgeAdapter
+    else:
+        _GATEWAY_BRIDGE_ADAPTER_CLASS = GatewayBridgeAdapter
+
+    return _GATEWAY_BRIDGE_ADAPTER_CLASS
 
 
 class BrokerProfileService:
@@ -210,8 +296,9 @@ class BrokerProfileService:
             else None,
         }
 
-    async def _build_adapter(self, profile: BrokerConnectionProfile) -> GatewayBridgeAdapter:
-        adapter = GatewayBridgeAdapter(
+    async def _build_adapter(self, profile: BrokerConnectionProfile) -> Any:
+        adapter_class = _get_gateway_bridge_adapter_class()
+        adapter = adapter_class(
             gateway_service=profile.last_health or {},
             account_id=profile.account_alias,
         )

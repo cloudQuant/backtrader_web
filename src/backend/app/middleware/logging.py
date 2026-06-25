@@ -79,6 +79,7 @@ class LoggingMiddleware:
         """Compatibility shim for legacy middleware-style tests."""
         path = request.url.path
         request_id = str(uuid.uuid4())[:8]
+        request.state.request_id = request_id
 
         if path in self.skip_paths:
             response = await call_next(request)
@@ -148,6 +149,9 @@ class LoggingMiddleware:
             return
 
         request_id = str(uuid.uuid4())[:8]
+        scope_state = scope.setdefault("state", {})
+        if isinstance(scope_state, dict):
+            scope_state["request_id"] = request_id
         start_time = time.time()
         method = scope.get("method", "?")
         client_ip = _get_client_ip(scope)
@@ -197,7 +201,6 @@ class LoggingMiddleware:
             raise
         else:
             duration = time.time() - start_time
-            scope_state = scope.get("state")
             user_id = scope_state.get("user_id") if isinstance(scope_state, dict) else None
             request_logger.info(
                 f"Request completed: {method} {path} -> {status_code}",

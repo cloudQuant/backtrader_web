@@ -333,6 +333,19 @@ async def test_trading_workspace_positions_and_daily_summary_endpoints(
         "1\t1\t2026-04-12\t2026-04-13\tau000\t1\t2\t100\t200\t1\t1500\t1499\t1\n",
         encoding="utf-8",
     )
+    (log_dir / "position.log").write_text(
+        json.dumps(
+            {
+                "datetime": "2026-04-13 09:32:00",
+                "data_name": "au000",
+                "size": 2,
+                "price": 100,
+                "value": 204,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     (log_dir / "current_position.json").write_text(
         json.dumps(
             [
@@ -356,6 +369,7 @@ async def test_trading_workspace_positions_and_daily_summary_endpoints(
     positions_payload = positions_response.json()
     assert positions_payload["positions"][0]["unit_id"] == unit_id
     assert positions_payload["positions"][0]["long_position"] == 2.0
+    assert positions_payload["positions"][0]["updated_at"] == "2026-04-13 09:32:00"
 
     daily_summary_response = await client.get(
         f"/api/v1/workspace/{workspace_id}/trading/daily-summary",
@@ -365,6 +379,102 @@ async def test_trading_workspace_positions_and_daily_summary_endpoints(
     daily_summary_payload = daily_summary_response.json()
     assert daily_summary_payload["summaries"][-1]["trading_date"] == "2026-04-13"
     assert daily_summary_payload["summaries"][-1]["trade_count"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_trading_workspace_positions_hide_idle_units_by_default(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+):
+    """Idle workspaces should not surface stale position logs as current holdings."""
+    from app.db.database import async_session_maker
+    from app.models.workspace import StrategyUnit
+    from app.services import trading_workspace_service
+
+    manager = _FakeTradingManager()
+    monkeypatch.setattr(
+        trading_workspace_service,
+        "get_live_trading_manager",
+        lambda: manager,
+    )
+
+    workspace_response = await client.post(
+        "/api/v1/workspace/",
+        headers=auth_headers,
+        json={"name": "空闲持仓测试", "workspace_type": "trading"},
+    )
+    workspace_id = workspace_response.json()["id"]
+
+    unit_response = await client.post(
+        f"/api/v1/workspace/{workspace_id}/units",
+        headers=auth_headers,
+        json={
+            "group_name": "交易组",
+            "strategy_id": "simulate/gateway_dual_ma",
+            "strategy_name": "Stopped Strategy",
+            "symbol": "rb000",
+            "symbol_name": "螺纹",
+            "trading_mode": "paper",
+        },
+    )
+    unit_id = unit_response.json()["id"]
+
+    log_dir = tmp_path / "stopped_logs"
+    log_dir.mkdir()
+    (log_dir / "position.log").write_text(
+        json.dumps(
+            {
+                "datetime": "2026-04-13 09:32:00",
+                "data_name": "rb000",
+                "size": 3,
+                "price": 3200,
+                "value": 9600,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manager.instances["stopped-001"] = {
+        "id": "stopped-001",
+        "strategy_id": "simulate/gateway_dual_ma",
+        "strategy_name": "Stopped Strategy",
+        "status": "stopped",
+        "error": None,
+        "params": {},
+        "created_at": "2026-04-13 10:00:00",
+        "started_at": "2026-04-13 10:01:00",
+        "stopped_at": "2026-04-13 10:02:00",
+        "log_dir": str(log_dir),
+        "runtime_dir": str(tmp_path),
+    }
+    async with async_session_maker() as session:
+        unit = await session.get(StrategyUnit, unit_id)
+        assert unit is not None
+        unit.trading_instance_id = "stopped-001"
+        unit.run_status = "idle"
+        await session.commit()
+
+    default_response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
+        headers=auth_headers,
+    )
+    assert default_response.status_code == 200
+    default_payload = default_response.json()
+    assert default_payload["positions"] == []
+    assert default_payload["total_long_value"] == 0.0
+
+    explicit_response = await client.get(
+        f"/api/v1/workspace/{workspace_id}/trading/positions",
+        headers=auth_headers,
+        params={"unit_ids": unit_id},
+    )
+    assert explicit_response.status_code == 200
+    explicit_payload = explicit_response.json()
+    assert explicit_payload["positions"][0]["unit_id"] == unit_id
+    assert explicit_payload["positions"][0]["long_position"] == 3.0
+    assert explicit_payload["positions"][0]["updated_at"] == "2026-04-13 09:32:00"
 
 
 @pytest.mark.asyncio

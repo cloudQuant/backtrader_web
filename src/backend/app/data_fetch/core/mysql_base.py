@@ -3,6 +3,8 @@ MySQL base class for database operations
 """
 
 import logging
+import json
+import math
 from datetime import datetime
 from typing import Any
 
@@ -44,6 +46,22 @@ class MysqlBase(Database):
             self.connection.close()
             self.connection = None
             self.logger.info("数据库连接已关闭")
+
+    @staticmethod
+    def _coerce_mysql_value(value: Any) -> Any:
+        """Convert pandas scalar values into mysql-connector compatible values."""
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        if isinstance(value, pd.Timestamp):
+            return value.to_pydatetime()
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        if isinstance(value, (dict, list, tuple, set)):
+            return json.dumps(value, ensure_ascii=False, default=str)
+        return value
 
     def _auto_create_table(self, table_name: str, df: "pd.DataFrame") -> None:
         """根据 DataFrame 的列和类型自动建表（若表已存在则跳过）"""
@@ -217,6 +235,9 @@ class MysqlBase(Database):
                         f"表 {table_name} 无可写入的有效列（df列都不在表结构中），跳过保存"
                     )
                     return False
+                mapped_columns = [c for c in df.columns if c in column_mapping]
+                if len(mapped_columns) != len(df.columns):
+                    df = df[mapped_columns].copy()
                 # Rename df columns to match actual table column names
                 df = df.rename(columns=column_mapping).copy()
             else:
@@ -262,7 +283,9 @@ class MysqlBase(Database):
         # mysql-connector may serialize NaN as bare token `nan` which MySQL treats as an identifier,
         # yielding "Unknown column 'nan' in 'field list'". Convert all NaN/NaT/NA to None first.
         df = df.astype(object).where(pd.notnull(df), None)
-        values = df.values.tolist()
+        values = [
+            [self._coerce_mysql_value(value) for value in row] for row in df.values.tolist()
+        ]
         total_rows = len(values)
 
         try:
@@ -602,7 +625,10 @@ class MysqlBase(Database):
             # mysql-connector may serialize NaN/NaT/NA as bare tokens such as `nan`.
             # Convert pandas missing values to SQL NULL before building row values.
             data_df = df[columns].astype(object).where(pd.notnull(df[columns]), None)
-            data = data_df.values.tolist()
+            data = [
+                [self._coerce_mysql_value(value) for value in row]
+                for row in data_df.values.tolist()
+            ]
 
             self.connect_db()
             self.cursor.executemany(insert_sql, data)

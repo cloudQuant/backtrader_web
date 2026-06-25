@@ -48,8 +48,11 @@ class StockLhYybCapital(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
+            df = df.copy()
+            if "序号" in df.columns:
+                df["symbol"] = "capital_" + df["序号"].astype(str)
+            if "营业部名称" in df.columns:
+                df["name"] = df["营业部名称"].astype(str).str.slice(0, 100)
             if "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
 

@@ -10,6 +10,9 @@ import pandas as pd
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
+from app.data_fetch.scripts.common.daily._jin10_macro import (
+    fetch_jin10_opec_month,
+)
 
 
 class MacroConsOpecMonth(AkshareToMySql):
@@ -41,21 +44,30 @@ class MacroConsOpecMonth(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("macro_cons_opec_month", **kwargs)
+            max_dates = kwargs.pop("max_dates", None)
+            request_timeout = kwargs.pop("request_timeout", 20)
+            df = fetch_jin10_opec_month(timeout=request_timeout, max_dates=max_dates)
 
             if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
+            if "日期" in df.columns:
+                df["data_date"] = pd.to_datetime(df["日期"], errors="coerce").dt.date
+                df = df.dropna(subset=["data_date"])
+            elif "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
+            df["symbol"] = "欧佩克月报"
+            df["name"] = "欧佩克月报"
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

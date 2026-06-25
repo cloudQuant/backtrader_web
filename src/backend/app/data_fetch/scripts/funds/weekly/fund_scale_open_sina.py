@@ -74,6 +74,7 @@ class FundScaleOpenSina(AkshareToMySql):
             )
 
             # 处理数据
+            df["fund_code"] = df["fund_code"].astype(str).str.zfill(6)
             df["fund_type"] = fund_type
             df["establish_date"] = df["establish_date_str"].apply(self.parse_date)
             df["update_date"] = df["update_date_str"].apply(self.parse_date)
@@ -116,6 +117,9 @@ class FundScaleOpenSina(AkshareToMySql):
             # 插入新数据
             new_data = df[~df["r_id"].isin(existing_ids)]
             if not new_data.empty:
+                new_data = new_data.copy()
+                new_data["is_active"] = 1
+                new_data["data_source"] = "新浪财经"
                 self.insert_data(
                     new_data,
                     self.table_name,

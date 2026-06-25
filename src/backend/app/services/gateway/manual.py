@@ -507,9 +507,20 @@ def _normalize_manual_gateway_credentials(
 
 def _resolve_manual_ctp_env_credentials(credentials: dict[str, Any]) -> dict[str, Any]:
     resolved = dict(credentials)
+    env_values = _load_backend_gateway_env_values()
+    has_explicit_fronts = bool(
+        resolved.get("td_front")
+        or resolved.get("td_address")
+        or resolved.get("md_front")
+        or resolved.get("md_address")
+    )
+    has_explicit_ctp_env = bool(str(resolved.get("ctp_env") or "").strip())
+    selection_params = dict(resolved)
+    if has_explicit_fronts and not has_explicit_ctp_env:
+        selection_params["ctp_env"] = "manual"
     selection = resolve_ctp_front_selection(
-        gateway_params=resolved,
-        env_data=_load_backend_gateway_env_values(),
+        gateway_params=selection_params,
+        env_data=env_values,
         front=None,
     )
     if selection.get("td_front"):

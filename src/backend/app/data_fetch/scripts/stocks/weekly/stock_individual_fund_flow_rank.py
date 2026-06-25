@@ -24,12 +24,30 @@ class StockIndividualFundFlowRank(AkshareToMySql):
             `symbol` VARCHAR(50) COMMENT '品种代码',
             `name` VARCHAR(100) COMMENT '品种名称',
             `data_date` DATE COMMENT '数据日期',
+            `indicator` VARCHAR(20) COMMENT '统计周期',
             `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
             `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-        UNIQUE KEY uk_symbol_date (`symbol`, `data_date`),
+        UNIQUE KEY uk_symbol_indicator_date (`symbol`, `indicator`, `data_date`),
         INDEX idx_data_date (`data_date`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Stock Individual Fund Flow Rank'
     """
+
+    @staticmethod
+    def normalize_columns(df: pd.DataFrame, indicator: str | None = None) -> pd.DataFrame:
+        """Populate standard query columns while preserving source fund-flow fields."""
+        if df.empty:
+            return df
+
+        df = df.copy()
+        if "代码" in df.columns:
+            symbol = df["代码"].astype(str).str.strip()
+            numeric_symbol = symbol.str.fullmatch(r"\d+")
+            symbol.loc[numeric_symbol] = symbol.loc[numeric_symbol].str.zfill(6)
+            df["symbol"] = symbol
+        if "名称" in df.columns:
+            df["name"] = df["名称"].astype(str).str.strip()
+        df["indicator"] = str(indicator or "").strip()
+        return df
 
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
@@ -52,6 +70,7 @@ class StockIndividualFundFlowRank(AkshareToMySql):
             # Add data_date if not exists
             if "data_date" not in df.columns:
                 df["data_date"] = pd.Timestamp.now().date()
+            df = self.normalize_columns(df, indicator=kwargs.get("indicator"))
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)

@@ -48,14 +48,25 @@ class MacroChinaBondPublic(AkshareToMySql):
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+            df = df.copy()
+            df["symbol"] = df["债券全称"].astype(str)
+            df["name"] = df["债券全称"].astype(str)
+            current_year = pd.Timestamp.now().year
+            df["data_date"] = pd.to_datetime(
+                str(current_year) + "-" + df["发行日期"].astype(str),
+                format="%Y-%m-%d",
+                errors="coerce",
+            ).dt.date
+            df["data_date"] = df["data_date"].fillna(pd.Timestamp.now().date())
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

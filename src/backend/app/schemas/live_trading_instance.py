@@ -72,9 +72,12 @@ class LiveInstanceInfo(BaseModel):
     error: str | None = Field(None, description="Error message")
     params: dict[str, Any] = Field(default_factory=dict, description="Runtime parameters")
     created_at: str = Field("", description="Creation time")
+    updated_at: str = Field("", description="Last metadata update time")
     started_at: str | None = Field(None, description="Last start time")
     stopped_at: str | None = Field(None, description="Last stop time")
     log_dir: str | None = Field(None, description="Latest log directory")
+    gateway_type: str | None = Field(None, description="Gateway provider/type")
+    gateway_key: str | None = Field(None, description="Associated gateway key")
 
 
 class LiveInstanceListResponse(BaseModel):

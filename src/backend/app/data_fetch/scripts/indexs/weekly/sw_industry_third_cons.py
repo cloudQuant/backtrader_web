@@ -170,7 +170,7 @@ class SWIndustryThirdCons(AkshareToMySql):
                     )
                     yield industry_code, pd.DataFrame()
 
-    def run(self, industry_code=None, update_all=False, max_workers=8):
+    def run(self, industry_code=None, update_all=False, max_workers=8, max_codes=None):
         """
         Main method to run the industry constituents update
 
@@ -187,6 +187,8 @@ class SWIndustryThirdCons(AkshareToMySql):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
             code_list = self.get_all_industry_code() if industry_code is None else [industry_code]
+            if max_codes is not None:
+                code_list = code_list[: max(0, int(max_codes))]
 
             # Mark old records as inactive for this industry
             # if not update_all:

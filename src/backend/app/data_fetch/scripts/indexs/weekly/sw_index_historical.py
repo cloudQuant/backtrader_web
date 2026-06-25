@@ -153,7 +153,7 @@ class SWIndexHistorical(AkshareToMySql):
                     )
                     yield symbol, period, pd.DataFrame()
 
-    def run(self, symbol=None, period="day", update_all=False, max_workers=8):
+    def run(self, symbol=None, period="day", update_all=False, max_workers=8, max_symbols=None):
         """Run the Shenwan Index historical data update"""
         try:
             if not self.table_exists(self.table_name):
@@ -163,6 +163,8 @@ class SWIndexHistorical(AkshareToMySql):
                 self.logger.error(f"Invalid period: {period}. Must be one of {self.valid_periods}")
                 return False
             symbol_list = self.get_symbol_list() if symbol is None else [symbol]
+            if max_symbols is not None:
+                symbol_list = symbol_list[: max(0, int(max_symbols))]
 
             jobs = []
             for symbol in symbol_list:

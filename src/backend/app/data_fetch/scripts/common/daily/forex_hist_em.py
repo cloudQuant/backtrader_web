@@ -7,6 +7,8 @@ Forex Hist Em
 """
 
 import pandas as pd
+from akshare.forex.forex_em import symbol_market_map
+from akshare.utils.request import request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -56,6 +58,69 @@ class ForexHistEm(AkshareToMySql):
 	    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Forex Hist Em'
 	    """
 
+    def _fetch_daily_from_trends(self, symbol):
+        market_code = symbol_market_map.get(symbol)
+        if market_code is None:
+            return pd.DataFrame()
+        url = "https://push2his.eastmoney.com/api/qt/stock/trends2/get"
+        params = {
+            "secid": f"{market_code}.{symbol}",
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+            "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+            "iscr": "0",
+            "iscca": "0",
+            "ndays": "5",
+        }
+        try:
+            data_json = request_eastmoney(url, params=params, timeout=20).json()
+        except Exception as exc:
+            self.logger.warning(f"Eastmoney forex trends2 fallback failed for {symbol}: {exc}")
+            return pd.DataFrame()
+        data = data_json.get("data") or {}
+        trends = data.get("trends") or []
+        if not trends:
+            return pd.DataFrame()
+        df = pd.DataFrame([item.split(",") for item in trends])
+        if df.empty or df.shape[1] < 5:
+            return pd.DataFrame()
+        df = df.iloc[:, :5]
+        df.columns = ["time", "今开", "最新价", "最高", "最低"]
+        df["time"] = pd.to_datetime(df["time"], errors="coerce")
+        df = df.dropna(subset=["time"])
+        if df.empty:
+            return pd.DataFrame()
+        for column in ("今开", "最新价", "最高", "最低"):
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+        df["日期"] = df["time"].dt.date
+        grouped = (
+            df.groupby("日期", as_index=False)
+            .agg(
+                今开=("今开", "first"),
+                最新价=("最新价", "last"),
+                最高=("最高", "max"),
+                最低=("最低", "min"),
+            )
+            .sort_values("日期")
+        )
+        previous_close = pd.to_numeric(data.get("preClose"), errors="coerce")
+        amplitudes = []
+        for _, row in grouped.iterrows():
+            if pd.isna(previous_close) or previous_close == 0:
+                amplitudes.append(None)
+            else:
+                amplitudes.append((row["最高"] - row["最低"]) / previous_close * 100)
+            previous_close = row["最新价"]
+        grouped["振幅"] = amplitudes
+        grouped["代码"] = data.get("code") or symbol
+        grouped["名称"] = data.get("name") or symbol
+        if not grouped.empty:
+            self.logger.warning(
+                "Eastmoney forex kline returned empty; populated FOREX_HIST_EM "
+                "from same-source trends2 aggregation"
+            )
+        return grouped[["日期", "代码", "名称", "今开", "最新价", "最高", "最低", "振幅"]]
+
     def fetch_data(self, **kwargs):
         """Fetch data from AkShare and save to database.
 
@@ -66,6 +131,7 @@ class ForexHistEm(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         self.create_table_if_not_exists(self.table_name, self.create_table_sql)
+        kwargs.setdefault("symbol", "USDCNH")
         spot_df = None
         if "symbol" not in kwargs and "symbols" not in kwargs:
             try:
@@ -82,10 +148,12 @@ class ForexHistEm(AkshareToMySql):
         frames = []
         for symbol in symbols:
             try:
-                df = self.fetch_ak_data("forex_hist_em", symbol=symbol, _call_timeout=60)
+                df = self.fetch_ak_data("forex_hist_em", symbol=symbol, _call_timeout=8)
             except Exception as e:
                 self.logger.warning(f"Failed to fetch forex history for {symbol}: {e}")
-                continue
+                df = pd.DataFrame()
+            if df is None or df.empty:
+                df = self._fetch_daily_from_trends(symbol)
             if df is not None and not df.empty:
                 frames.append(df)
 

@@ -34,6 +34,15 @@ describe('portfolioApi', () => {
     expect(request.get).toHaveBeenCalledWith('/portfolio/trades', { params: { limit: 50 } })
   })
 
+  it('getTrades with workspace ids', async () => {
+    vi.mocked(request.get).mockResolvedValue({ total: 0, trades: [] })
+    await portfolioApi.getTrades(50, ['ws-a', 'ws-b'])
+    expect(request.get).toHaveBeenCalledWith(
+      '/portfolio/trades',
+      { params: { limit: 50, workspace_ids: 'ws-a,ws-b' } },
+    )
+  })
+
   it('getEquity', async () => {
     vi.mocked(request.get).mockResolvedValue({ dates: [], total_equity: [] })
     await portfolioApi.getEquity()

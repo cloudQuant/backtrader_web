@@ -38,7 +38,6 @@ class IndexDetailCNI(AkshareToMySql):
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='国证指数样本详情';
                 """
 
-    # Update the fetch_index_detail method
     def fetch_index_detail(self, symbol, date=None):
         """
         Fetch index constituent details from CNI
@@ -51,16 +50,16 @@ class IndexDetailCNI(AkshareToMySql):
             DataFrame containing index constituent details
         """
         try:
-            # Set default date if not provided
-            date = date or datetime.now().strftime("%Y%m")
+            trade_date = pd.to_datetime(date or datetime.now(), errors="coerce")
+            if pd.isna(trade_date):
+                trade_date = pd.Timestamp(datetime.now())
 
-            self.logger.info(f"Fetching index detail for {symbol} in {date}")
+            self.logger.info(f"Fetching index detail for {symbol}")
 
-            # Fetch data using parent class method
-            df = self.fetch_ak_data("index_detail_cni", symbol=symbol, date=date)
+            df = self.fetch_ak_data("index_detail_cni", symbol=symbol)
 
             if df is None or df.empty:
-                self.logger.warning(f"No detail data found for index {symbol} in {date}")
+                self.logger.warning(f"No detail data found for index {symbol}")
                 return pd.DataFrame()
 
             # Rename and process columns
@@ -76,8 +75,13 @@ class IndexDetailCNI(AkshareToMySql):
             )
 
             # Process dates and numeric values
-            df["TRADE_DATE"] = pd.to_datetime(df["TRADE_DATE_STR"], errors="coerce").dt.date
-            df["TRADE_DATE"] = df["TRADE_DATE"].fillna(datetime.now().date())
+            if "TRADE_DATE_STR" in df.columns:
+                df["TRADE_DATE"] = pd.to_datetime(
+                    df["TRADE_DATE_STR"], errors="coerce"
+                ).dt.date
+                df["TRADE_DATE"] = df["TRADE_DATE"].fillna(trade_date.date())
+            else:
+                df["TRADE_DATE"] = trade_date.date()
 
             # Process numeric columns
             numeric_columns = ["TOTAL_MARKET_CAP", "WEIGHT"]
@@ -145,7 +149,15 @@ class IndexDetailCNI(AkshareToMySql):
 
         return date_list
 
-    def run(self, symbol=None, date=None, start_date=None, end_date=None):
+    def run(
+        self,
+        symbol=None,
+        date=None,
+        start_date=None,
+        end_date=None,
+        max_symbols=None,
+        max_months=None,
+    ):
         """
         Main method to run the index detail update
 
@@ -162,23 +174,31 @@ class IndexDetailCNI(AkshareToMySql):
             if not symbol:
                 # Get all index codes if not specified
                 df = self.get_data_by_columns("INDEX_ALL_CNI_DAILY", ["INDEX_CODE"])
+                if df.empty or "INDEX_CODE" not in df.columns:
+                    self.logger.warning("No CNI index symbols found")
+                    return True
                 symbol_list = list(df["INDEX_CODE"].unique())
             else:
                 symbol_list = [symbol]
+            max_symbols = int(max_symbols) if max_symbols is not None else None
+            if max_symbols is not None and len(symbol_list) > max_symbols:
+                symbol_list = symbol_list[:max_symbols]
+                self.logger.info(f"Limiting CNI index detail update to {max_symbols} symbols")
 
             # Create table if not exists
             if not self.table_exists(self.table_name):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
 
-            # Generate date list
             if date:
-                # Single date mode
                 date_list = [date]
+            elif end_date:
+                date_list = [end_date]
             else:
-                # Date range mode
-                date_list = self.generate_date_range(start_date, end_date)
-                self.logger.info(f"Processing {len(date_list)} months of data")
+                date_list = [datetime.now().strftime("%Y%m")]
+            max_months = int(max_months) if max_months is not None else None
+            if max_months is not None and len(date_list) > max_months:
+                date_list = date_list[-max_months:]
 
             success = True
             for symbol in symbol_list:
@@ -190,7 +210,7 @@ class IndexDetailCNI(AkshareToMySql):
                             df.replace(np.nan, None),
                             self.table_name,
                             on_duplicate_update=True,
-                            unique_keys=["TRADE_DATE", "INDEX_CODE"],
+                            unique_keys=["TRADE_DATE", "INDEX_CODE", "STOCK_CODE"],
                         )
                     else:
                         self.logger.warning(f"No data found for index {symbol} in {process_date}")

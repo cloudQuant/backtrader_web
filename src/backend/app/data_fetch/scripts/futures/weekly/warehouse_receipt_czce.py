@@ -45,7 +45,7 @@ class FuturesCzceWarehouseReceipt(AkshareToMySql):
                                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='郑州商品交易所仓单日报';
                                 """
 
-    def run(self, start_date=None, end_date=None, lookback_days=7):
+    def run(self, start_date=None, end_date=None, lookback_days=None, max_days=None):
         """
         更新郑州商品交易所仓单日报数据
 
@@ -59,6 +59,8 @@ class FuturesCzceWarehouseReceipt(AkshareToMySql):
         try:
             # 连接数据库
             self.connect_db()
+            lookback_days = int(lookback_days) if lookback_days is not None else None
+            max_days = int(max_days) if max_days is not None else None
 
             if end_date is None:
                 end_date = self.get_current_date().replace("-", "")
@@ -70,8 +72,9 @@ class FuturesCzceWarehouseReceipt(AkshareToMySql):
                 latest_date = self.get_latest_date(self.table_name)
                 if latest_date is None:
                     end_date_dt_for_default = datetime.strptime(end_date, "%Y%m%d").date()
+                    empty_table_lookback_days = 7 if lookback_days is None else lookback_days
                     start_date = (
-                        end_date_dt_for_default - timedelta(days=int(lookback_days or 0))
+                        end_date_dt_for_default - timedelta(days=empty_table_lookback_days)
                     ).strftime("%Y%m%d")
                 else:
                     start_date = latest_date
@@ -83,6 +86,12 @@ class FuturesCzceWarehouseReceipt(AkshareToMySql):
                 end_date_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
             else:
                 end_date_dt = datetime.strptime(end_date, "%Y%m%d").date()
+            if lookback_days is not None:
+                lookback_start = end_date_dt - timedelta(days=lookback_days)
+                if start_date_dt < lookback_start:
+                    start_date_dt = lookback_start
+                    start_date = start_date_dt.strftime("%Y%m%d")
+                    self.logger.info(f"限制郑商所仓单日报更新为最近 {lookback_days} 天")
 
             if start_date_dt > end_date_dt:
                 self.logger.info(f"数据已是最新，无需更新。最新日期: {end_date_dt}")
@@ -96,6 +105,9 @@ class FuturesCzceWarehouseReceipt(AkshareToMySql):
             if not trading_days:
                 self.logger.info("没有需要更新的交易日")
                 return pd.DataFrame()
+            if max_days is not None and len(trading_days) > max_days:
+                trading_days = trading_days[-max_days:]
+                self.logger.info(f"限制郑商所仓单日报更新为 {max_days} 个交易日")
 
             self.logger.info(
                 f"准备更新从 {trading_days[0]} 到 {trading_days[-1]} 的仓单数据，共 {len(trading_days)} 个交易日"

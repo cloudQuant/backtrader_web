@@ -1,5 +1,7 @@
 from collections.abc import Iterable
 
+import pandas as pd
+
 
 DEFAULT_FUND_CODE_LIMIT = 5
 
@@ -37,3 +39,15 @@ def get_codes_from_table(fetcher, table_name: str, column_name: str, limit: int 
     """
     fetcher.cursor.execute(sql, (max_rows,))
     return normalize_fund_codes(fund_codes=[row[0] for row in fetcher.cursor.fetchall() if row])
+
+
+def main() -> pd.DataFrame:
+    """Return an audit row when this helper module is scanned as a task."""
+    return pd.DataFrame(
+        [
+            {
+                "helper": "_fund_codes",
+                "default_fund_code_limit": DEFAULT_FUND_CODE_LIMIT,
+            }
+        ]
+    )

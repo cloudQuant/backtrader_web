@@ -131,6 +131,56 @@ def _tcp_fronts_reachable(td_front: str, md_front: str, timeout: float) -> bool:
     )
 
 
+def _ctp_proxy_tunnel_enabled(
+    gateway_params: dict[str, Any],
+    env_data: dict[str, str],
+) -> bool:
+    value = gateway_params.get("proxy_tunnel")
+    if value is None:
+        value = gateway_params.get("ctp_proxy_tunnel")
+    if value is None:
+        value = env_data.get("CTP_PROXY_TUNNEL")
+    if value is None:
+        value = env_data.get("BT_CTP_PROXY_TUNNEL")
+    return coerce_bool(value, default=True)
+
+
+def _maybe_tunnel_ctp_fronts_for_runtime(
+    td_front: str,
+    md_front: str,
+    gateway_params: dict[str, Any],
+    env_data: dict[str, str],
+) -> tuple[str, str, dict[str, Any]]:
+    meta: dict[str, Any] = {"ctp_proxy_tunnel": False}
+    if not _ctp_proxy_tunnel_enabled(gateway_params, env_data):
+        return td_front, md_front, meta
+    td_endpoint = _parse_tcp_front(td_front)
+    md_endpoint = _parse_tcp_front(md_front)
+    if td_endpoint is None or md_endpoint is None:
+        return td_front, md_front, meta
+    try:
+        from app.services.ctp_tunnel import ensure_tunnel, is_proxy_tunnel_needed
+
+        if not is_proxy_tunnel_needed():
+            return td_front, md_front, meta
+        td_port = ensure_tunnel(*td_endpoint)
+        md_port = ensure_tunnel(*md_endpoint)
+    except Exception as exc:
+        meta["ctp_proxy_tunnel_error"] = f"{type(exc).__name__}: {exc}"
+        return td_front, md_front, meta
+    tunneled_td = f"tcp://127.0.0.1:{td_port}"
+    tunneled_md = f"tcp://127.0.0.1:{md_port}"
+    meta.update(
+        {
+            "ctp_proxy_tunnel": True,
+            "ctp_proxy_tunnel_mode": "http_connect",
+            "original_td_front": td_front,
+            "original_md_front": md_front,
+        }
+    )
+    return tunneled_td, tunneled_md, meta
+
+
 def resolve_ctp_front_selection(
     gateway_params: dict[str, Any],
     env_data: dict[str, str],
@@ -416,7 +466,7 @@ def build_ctp_gateway_runtime_kwargs(
         gateway_params.get("broker_id") or env_data.get("CTP_BROKER_ID") or ctp.get("broker_id", "")
     )
     password = (
-        gateway_params.get("password") or env_data.get("CTP_PASSWORD") or ctp.get("password", "")
+        env_data.get("CTP_PASSWORD") or gateway_params.get("password") or ctp.get("password", "")
     )
     app_id = (
         gateway_params.get("app_id")
@@ -424,8 +474,8 @@ def build_ctp_gateway_runtime_kwargs(
         or ctp.get("app_id", "simnow_client_test")
     )
     auth_code = (
-        gateway_params.get("auth_code")
-        or env_data.get("CTP_AUTH_CODE")
+        env_data.get("CTP_AUTH_CODE")
+        or gateway_params.get("auth_code")
         or ctp.get("auth_code", "0000000000000000")
     )
     requested_ctp_env = str(
@@ -460,6 +510,12 @@ def build_ctp_gateway_runtime_kwargs(
     account_id = gateway_params.get("account_id") or investor_id
     if not all([account_id, investor_id, broker_id, password, td_address, md_address]):
         raise ValueError("CTP gateway requires complete CTP credentials and front addresses")
+    td_address, md_address, tunnel_meta = _maybe_tunnel_ctp_fronts_for_runtime(
+        str(td_address),
+        str(md_address),
+        gateway_params,
+        env_data,
+    )
     return {
         "exchange_type": "CTP",
         "asset_type": normalize_gateway_asset_type("CTP", gateway_params.get("asset_type")),
@@ -497,6 +553,7 @@ def build_ctp_gateway_runtime_kwargs(
             or ctp.get("command_timeout_sec"),
             default=20.0,
         ),
+        **tunnel_meta,
     }
 
 
@@ -657,24 +714,25 @@ def build_mt5_gateway_runtime_kwargs(
 ) -> dict[str, Any]:
     mt5 = dict(config_data.get("mt5", {}) or {})
     login = (
-        gateway_params.get("login")
-        or env_data.get("MT5_LOGIN")
+        env_data.get("MT5_LOGIN")
         or env_data.get("MT5_ACCOUNT")
+        or gateway_params.get("login")
         or mt5.get("login", "")
     )
     password = (
-        gateway_params.get("password") or env_data.get("MT5_PASSWORD") or mt5.get("password", "")
+        env_data.get("MT5_PASSWORD")
+        or env_data.get("MT5_PASS")
+        or gateway_params.get("password")
+        or mt5.get("password", "")
     )
-    if not password:
-        password = env_data.get("MT5_PASS") or ""
     account_id = (
-        gateway_params.get("account_id")
-        or env_data.get("MT5_ACCOUNT_ID")
+        env_data.get("MT5_ACCOUNT_ID")
         or env_data.get("MT5_ACCOUNT")
+        or gateway_params.get("account_id")
         or mt5.get("account_id")
         or str(login)
     )
-    ws_uri = gateway_params.get("ws_uri") or env_data.get("MT5_WS_URI") or mt5.get("ws_uri", "")
+    ws_uri = env_data.get("MT5_WS_URI") or gateway_params.get("ws_uri") or mt5.get("ws_uri", "")
     symbol_suffix = (
         gateway_params.get("symbol_suffix")
         or env_data.get("MT5_SYMBOL_SUFFIX")

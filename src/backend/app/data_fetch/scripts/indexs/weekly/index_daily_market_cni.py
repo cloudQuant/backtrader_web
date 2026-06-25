@@ -279,7 +279,15 @@ class IndexDailyMarketCNI(AkshareToMySql):
                     df = pd.DataFrame()
                 self._save_market_data(df)
 
-    def run(self, symbol=None, start_date=None, end_date=None, max_workers=8):
+    def run(
+        self,
+        symbol=None,
+        start_date=None,
+        end_date=None,
+        max_workers=8,
+        max_symbols=None,
+        lookback_days=None,
+    ):
         """
         Main method to run the market data update
 
@@ -298,6 +306,11 @@ class IndexDailyMarketCNI(AkshareToMySql):
                 self.logger.info(f"Created table {self.table_name}")
 
             symbol_list = self._get_symbol_list(symbol)
+            max_symbols = int(max_symbols) if max_symbols is not None else None
+            lookback_days = int(lookback_days) if lookback_days is not None else None
+            if max_symbols is not None and len(symbol_list) > max_symbols:
+                symbol_list = symbol_list[:max_symbols]
+                self.logger.info(f"Limiting CNI market data update to {max_symbols} symbols")
             explicit_start_date = self._normalize_date_arg(start_date)
             requested_end_date = self._normalize_date_arg(end_date) or self._get_default_end_date()
             resolved_end_date = self._resolve_effective_end_date(
@@ -310,6 +323,16 @@ class IndexDailyMarketCNI(AkshareToMySql):
                 resolved_start_date = explicit_start_date or self._get_default_start_date_for_symbol(
                     symbol
                 )
+                if lookback_days is not None:
+                    lookback_start = (
+                        datetime.strptime(resolved_end_date, "%Y%m%d")
+                        - timedelta(days=lookback_days)
+                    ).strftime("%Y%m%d")
+                    if resolved_start_date < lookback_start:
+                        resolved_start_date = lookback_start
+                        self.logger.info(
+                            f"Index {symbol}: limiting market data to last {lookback_days} days"
+                        )
                 if resolved_start_date > resolved_end_date:
                     self.logger.info(
                         f"Index {symbol} is already up to date through {resolved_end_date}"

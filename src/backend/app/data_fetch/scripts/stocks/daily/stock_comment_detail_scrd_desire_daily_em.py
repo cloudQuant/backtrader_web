@@ -2,7 +2,7 @@
 Stock Comment Detail Scrd Desire Daily Em
 
 数据源: AkShare
-函数: stock_comment_detail_scrd_desire_daily_em
+函数: stock_comment_detail_scrd_desire_em
 频率: daily
 """
 
@@ -41,21 +41,30 @@ class StockCommentDetailScrdDesireDailyEm(AkshareToMySql):
             pd.DataFrame: Fetched data
         """
         try:
-            # Fetch data from AkShare
-            df = self.fetch_ak_data("stock_comment_detail_scrd_desire_daily_em", **kwargs)
+            symbol = kwargs.get("symbol", "600000")
+            df = self.fetch_ak_data("stock_comment_detail_scrd_desire_em", **kwargs)
 
             if df is None or df.empty:
                 self.logger.warning("No data found")
                 return pd.DataFrame()
 
-            # Process data if needed
-            # Add data_date if not exists
-            if "data_date" not in df.columns:
-                df["data_date"] = pd.Timestamp.now().date()
+            df = df.copy()
+            if "股票代码" in df.columns:
+                df["symbol"] = df["股票代码"].astype(str)
+            else:
+                df["symbol"] = symbol
+            df["name"] = df["symbol"]
+            df["data_date"] = pd.to_datetime(df["交易日期"], errors="coerce").dt.date
+            df["data_date"] = df["data_date"].fillna(pd.Timestamp.now().date())
 
             # Save to database
             self.create_table_if_not_exists(self.table_name, self.create_table_sql)
-            self.save_data(df, self.table_name, ignore_duplicates=True)
+            self.save_data(
+                df,
+                self.table_name,
+                on_duplicate_update=True,
+                unique_keys=["symbol", "data_date"],
+            )
 
             return df
 

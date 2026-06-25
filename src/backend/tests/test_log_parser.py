@@ -63,6 +63,7 @@ class TestParseValueLog:
         result = parse_value_log(log_dir)
 
         assert result["dates"] == ["2024-01-01", "2024-01-02"]
+        assert result["datetimes"] == ["2024-01-01 00:00:00", "2024-01-02 00:00:00"]
         assert result["equity_curve"] == [100000.0, 101000.0]
         assert result["cash_curve"] == [50000.0, 51000.0]
 
@@ -95,11 +96,14 @@ class TestParseTradeLog:
         log_dir.mkdir()
         (log_dir / "trade.log").write_text(
             "ref\tdtopen\tdtclose\tlong\tsize\tprice\tpnl\tpnlcomm\tbarlen\tisclosed\n"
-            "1\t2024-01-01\t2024-01-05\t1\t100\t10.5\t50.0\t45.0\t5\t1\n"
+            "1\t2024-01-01 09:30:00\t2024-01-05 14:59:00\t1\t100\t10.5\t50.0\t45.0\t5\t1\n"
         )
         trades = parse_trade_log(log_dir)
         assert isinstance(trades, list)
         assert len(trades) == 1
+        assert trades[0]["datetime"] == "2024-01-05 14:59:00"
+        assert trades[0]["dtopen"] == "2024-01-01 09:30:00"
+        assert trades[0]["dtclose"] == "2024-01-05 14:59:00"
         assert trades[0]["direction"] == "buy"
         assert trades[0]["size"] == 100.0
 
@@ -204,6 +208,7 @@ class TestParseJsonSimulateLogs:
         )
         trades = parse_trade_log(log_dir)
         assert len(trades) == 1
+        assert trades[0]["datetime"] == "2026-03-13 10:00:00"
         assert trades[0]["dtopen"] == "2026-03-13 09:00:00"
         assert trades[0]["dtclose"] == "2026-03-13 10:00:00"
         assert trades[0]["pnlcomm"] == 10.0

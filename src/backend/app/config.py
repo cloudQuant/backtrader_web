@@ -4,7 +4,6 @@ Configuration management - Load configuration from environment variables.
 
 import json
 import os
-import warnings
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +105,11 @@ class Settings(BaseSettings):
     )
     AKSHARE_SCHEDULER_TIMEZONE: str = Field(
         default="Asia/Shanghai", description="Scheduler timezone for akshare tasks"
+    )
+    AKSHARE_SCHEDULER_MAX_CONCURRENT_TASKS: int = Field(
+        default=1,
+        ge=1,
+        description="Maximum concurrent akshare scheduler-triggered tasks",
     )
     AKSHARE_SCRIPT_ROOT: str = Field(
         default="app/data_fetch/scripts", description="Root directory for akshare scripts"
@@ -237,6 +241,10 @@ class Settings(BaseSettings):
     LOG_RETENTION_APP_DAYS: int = Field(default=30, description="Application log retention in days")
     LOG_RETENTION_ERROR_DAYS: int = Field(default=90, description="Error log retention in days")
     LOG_RETENTION_AUDIT_DAYS: int = Field(default=365, description="Audit log retention in days")
+    LOG_ROTATION_MAX_MB: int = Field(
+        default=100,
+        description="Maximum size in MB for each dated log file before rotation; 0 disables size cap",
+    )
 
     # Audit settings
     AUDIT_RETENTION_DAYS: int = Field(
@@ -409,11 +417,6 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Default admin password detected. Set ADMIN_PASSWORD to a secure password in production."
                 )
-        elif self.ADMIN_PASSWORD.lower() in _DEFAULT_PASSWORDS:
-            warnings.warn(
-                "Insecure default admin password detected. Change ADMIN_PASSWORD before shared or production use.",
-                stacklevel=2,
-            )
         return self
 
     @field_validator("SECRET_KEY", "JWT_SECRET_KEY")

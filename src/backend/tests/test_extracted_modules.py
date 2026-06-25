@@ -6,6 +6,7 @@ GatewayPresetService work correctly in isolation.
 """
 
 import asyncio
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -1966,6 +1967,15 @@ class TestGatewayHealthService:
                 "symbol_count": 0,
                 "tick_count": 0,
                 "order_count": 0,
+                "selected_ctp_env": "",
+                "td_front": "",
+                "md_front": "",
+                "selection_reason": "",
+                "auth_state": "unknown",
+                "login_state": "unknown",
+                "front_id": "",
+                "session_id": "",
+                "trading_day": "",
                 "ref_count": 2,
                 "instances": ["inst1", "inst2"],
                 "recent_errors": [],
@@ -2178,6 +2188,7 @@ class TestLiveInstanceService:
             load_instances=lambda: instances,
             save_instances=lambda data: None,
             is_pid_alive=lambda pid: False,
+            scan_running_strategy_pids=lambda: {},
             resolve_strategy_dir=lambda strategy_id: Path("/tmp") / strategy_id,
             find_latest_log_dir=lambda strategy_dir: "/logs/test",
         )
@@ -2195,6 +2206,7 @@ class TestLiveInstanceService:
                 load_instances=lambda: instances,
                 save_instances=lambda data: None,
                 is_pid_alive=lambda pid: True,
+                scan_running_strategy_pids=lambda: {},
                 resolve_strategy_dir=lambda strategy_id: Path("/tmp") / strategy_id,
                 find_latest_log_dir=lambda strategy_dir: None,
             )
@@ -2246,6 +2258,79 @@ class TestLiveExecutionService:
 
         assert result["status"] == "running"
         assert result["pid"] == 12345
+        assert result["updated_at"] == result["started_at"]
+        assert result["gateway_type"] == ""
+
+    def test_wait_process_reads_stderr_file_tail(self, tmp_path):
+        stderr_path = tmp_path / "subprocess.stderr.log"
+        stderr_path.write_text("x" * 600 + "file error message", encoding="utf-8")
+        proc = AsyncMock()
+        proc.pid = 12345
+        proc.returncode = 1
+        proc.stderr = None
+        proc.wait = AsyncMock()
+        setattr(proc, "_bt_stderr_path", str(stderr_path))
+        saved = {}
+        released = []
+
+        asyncio.run(
+            live_execution_service.wait_process(
+                instance_id="inst1",
+                proc=proc,
+                load_instances=lambda: {
+                    "inst1": {"strategy_id": "s1", "status": "running", "pid": 12345}
+                },
+                save_instances=lambda data: saved.update(data),
+                resolve_strategy_dir=lambda strategy_id: tmp_path / strategy_id,
+                find_latest_log_dir=lambda strategy_dir: None,
+                release_gateway_for_instance=lambda instance_id: released.append(instance_id),
+                processes={"inst1": proc},
+                stopping_instances=set(),
+            )
+        )
+
+        assert saved["inst1"]["status"] == "error"
+        assert "file error message" in saved["inst1"]["error"]
+        assert saved["inst1"]["updated_at"] == saved["inst1"]["stopped_at"]
+        assert released == ["inst1"]
+
+    def test_wait_process_cancellation_keeps_running_instance_attached(self):
+        proc = Mock()
+        proc.pid = 12345
+        proc.returncode = None
+        proc.stderr = None
+        proc.wait = AsyncMock(side_effect=asyncio.CancelledError())
+        instances = {
+            "inst1": {
+                "strategy_id": "s1",
+                "status": "running",
+                "pid": 12345,
+                "error": None,
+            }
+        }
+        saved = {}
+        released = []
+        processes = {"inst1": proc}
+
+        asyncio.run(
+            live_execution_service.wait_process(
+                instance_id="inst1",
+                proc=proc,
+                load_instances=lambda: instances,
+                save_instances=lambda data: saved.update(data),
+                resolve_strategy_dir=lambda strategy_id: Path("/tmp") / strategy_id,
+                find_latest_log_dir=lambda strategy_dir: None,
+                release_gateway_for_instance=lambda instance_id: released.append(instance_id),
+                processes=processes,
+                stopping_instances=set(),
+            )
+        )
+
+        assert saved == {}
+        assert released == []
+        assert processes["inst1"] is proc
+        assert instances["inst1"]["status"] == "running"
+        assert instances["inst1"]["pid"] == 12345
 
     def test_start_instance_clears_stopping_flag(self, tmp_path):
         instances = {"inst1": {"strategy_id": "demo", "status": "stopped"}}
@@ -2290,6 +2375,42 @@ class TestLiveExecutionService:
 
         assert "inst1" not in stopping_instances
 
+    def test_start_instance_records_env_build_failure(self, tmp_path):
+        instances = {"inst1": {"strategy_id": "demo", "status": "stopped"}}
+        strategy_dir = tmp_path / "demo"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+        saved = []
+        released = []
+
+        def raise_gateway_error(*_args):
+            raise RuntimeError(
+                "Gateway runtime failed to become ready: runtime: ctp market not ready"
+            )
+
+        with pytest.raises(ValueError, match="ctp market not ready"):
+            asyncio.run(
+                live_execution_service.start_instance(
+                    instance_id="inst1",
+                    load_instances=lambda: instances,
+                    save_instances=lambda data: saved.append(data.copy()),
+                    is_pid_alive=lambda pid: False,
+                    resolve_strategy_dir=lambda strategy_id: strategy_dir,
+                    build_subprocess_env=raise_gateway_error,
+                    release_gateway_for_instance=lambda instance_id: released.append(instance_id),
+                    wait_process_callback=AsyncMock(),
+                    processes={},
+                    stopping_instances=set(),
+                )
+            )
+
+        assert released == ["inst1"]
+        assert instances["inst1"]["status"] == "error"
+        assert instances["inst1"]["pid"] is None
+        assert "ctp market not ready" in instances["inst1"]["error"]
+        assert instances["inst1"]["stopped_at"]
+        assert saved[-1]["inst1"]["status"] == "error"
+
     def test_stop_instance_success(self):
         instances = {"inst1": {"strategy_id": "demo", "status": "running", "pid": 12345}}
         proc = Mock()
@@ -2317,6 +2438,7 @@ class TestLiveExecutionService:
 
         assert result["status"] == "stopped"
         assert result["pid"] is None
+        assert result["updated_at"] == result["stopped_at"]
         assert killed == [12345]
         assert released == ["inst1"]
         assert processes == {}
@@ -2446,18 +2568,49 @@ class TestGatewayRuntimeService:
         strategy_dir.mkdir()
         bt_api_dir = tmp_path / "bt_api_py"
         bt_api_dir.mkdir()
+        backtrader_dir = tmp_path / "backtrader"
+        backtrader_dir.mkdir()
 
         env = gateway_runtime_service.build_subprocess_env(
             instance_id="inst1",
             instance={"params": {}},
             strategy_dir=strategy_dir,
             acquire_gateway_for_instance=lambda instance_id, instance, strategy_dir: None,
-            os_environ={"PYTHONPATH": "existing"},
+            os_environ={"PYTHONPATH": "existing", "OPENBLAS_NUM_THREADS": "4"},
             bt_api_py_dir=bt_api_dir,
+            backtrader_dir=backtrader_dir,
         )
 
-        assert env["PYTHONPATH"].startswith(str(bt_api_dir))
+        assert env["PYTHONPATH"].split(os.pathsep) == [
+            str(backtrader_dir),
+            str(bt_api_dir),
+            "existing",
+        ]
         assert "BT_STORE_PROVIDER" not in env
+        assert env["BACKTRADER_LIGHT_IMPORT"] == "1"
+        assert env["BT_API_PY_LIGHT_IMPORT"] == "1"
+        assert env["BT_FEED_ENABLE_LIGHT_COLUMNS"] == "1"
+        assert env["BT_STORE_LOCAL_TIMEZONE"] == "Asia/Shanghai"
+        assert env["OPENBLAS_NUM_THREADS"] == "4"
+        assert env["OMP_NUM_THREADS"] == "1"
+
+    def test_build_subprocess_env_skips_missing_and_duplicate_python_paths(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        bt_api_dir = tmp_path / "bt_api_py"
+        bt_api_dir.mkdir()
+
+        env = gateway_runtime_service.build_subprocess_env(
+            instance_id="inst1",
+            instance={"params": {}},
+            strategy_dir=strategy_dir,
+            acquire_gateway_for_instance=lambda instance_id, instance, strategy_dir: None,
+            os_environ={"PYTHONPATH": os.pathsep.join([str(bt_api_dir), "existing"])},
+            bt_api_py_dir=bt_api_dir,
+            backtrader_dir=tmp_path / "missing_backtrader",
+        )
+
+        assert env["PYTHONPATH"].split(os.pathsep) == [str(bt_api_dir), "existing"]
 
     def test_build_subprocess_env_with_gateway(self, tmp_path):
         strategy_dir = tmp_path / "strategy"
@@ -2491,6 +2644,140 @@ class TestGatewayRuntimeService:
         assert env["BT_GATEWAY_ACCOUNT_ID"] == "acc-1"
         assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "CTP"
         assert env["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+        assert env["BACKTRADER_LIGHT_IMPORT"] == "1"
+        assert env["BT_API_PY_LIGHT_IMPORT"] == "1"
+        assert env["BT_FEED_ENABLE_LIGHT_COLUMNS"] == "1"
+        assert env["BT_STORE_LOCAL_TIMEZONE"] == "Asia/Shanghai"
+        assert env["OPENBLAS_NUM_THREADS"] == "1"
+        assert env["OMP_NUM_THREADS"] == "1"
+
+    def test_build_subprocess_env_captures_gateway_wait_native_stderr(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+
+        class NoisyHealth:
+            recent_errors = []
+            market_connection = "connected"
+            trade_connection = "connected"
+
+            @property
+            def state(self):
+                os.write(2, b"native wait warning\n")
+                return "running"
+
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+        runtime = Mock(health=NoisyHealth(), running=True)
+
+        gateway_runtime_service.build_subprocess_env(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=strategy_dir,
+            acquire_gateway_for_instance=(
+                lambda instance_id, instance, strategy_dir: {
+                    "config": config,
+                    "runtime": runtime,
+                }
+            ),
+            os_environ={},
+            bt_api_py_dir=tmp_path / "missing",
+        )
+
+        stderr_log = strategy_dir / "logs" / "gateway.stderr.log"
+        assert "native wait warning" in stderr_log.read_text(encoding="utf-8")
+
+    def test_build_subprocess_env_preserves_gateway_ready_error(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+        health = Mock(
+            state="error",
+            market_connection="error",
+            trade_connection="error",
+            recent_errors=[{"source": "runtime", "message": "ctp market not ready"}],
+        )
+        runtime = Mock(health=health, running=False)
+
+        with pytest.raises(RuntimeError, match="runtime: ctp market not ready"):
+            gateway_runtime_service.build_subprocess_env(
+                instance_id="inst1",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=(
+                    lambda instance_id, instance, strategy_dir: {
+                        "config": config,
+                        "runtime": runtime,
+                    }
+                ),
+                os_environ={},
+                bt_api_py_dir=tmp_path / "missing",
+            )
+
+    def test_wait_gateway_runtime_ready_returns_when_connected(self):
+        config = Mock(startup_timeout_sec=5)
+        health = Mock(
+            state="running",
+            market_connection="connected",
+            trade_connection="connected",
+            recent_errors=[],
+        )
+        runtime = Mock(health=health, running=True)
+
+        gateway_runtime_service.wait_gateway_runtime_ready(
+            {"config": config, "runtime": runtime},
+            sleep=Mock(),
+        )
+
+    def test_wait_gateway_runtime_ready_raises_runtime_error_detail(self):
+        config = Mock(startup_timeout_sec=5)
+        health = Mock(
+            state="error",
+            market_connection="error",
+            trade_connection="error",
+            recent_errors=[{"source": "runtime", "message": "ctp market not ready"}],
+        )
+        runtime = Mock(health=health, running=False)
+
+        with pytest.raises(RuntimeError, match="runtime: ctp market not ready"):
+            gateway_runtime_service.wait_gateway_runtime_ready(
+                {"config": config, "runtime": runtime},
+                monotonic=Mock(return_value=0.0),
+                sleep=Mock(),
+            )
+
+    def test_wait_gateway_runtime_ready_raises_timeout_detail(self):
+        config = Mock(startup_timeout_sec=1)
+        health = Mock(
+            state="connecting",
+            market_connection="disconnected",
+            trade_connection="disconnected",
+            recent_errors=[],
+        )
+        runtime = Mock(health=health, running=True)
+
+        with pytest.raises(TimeoutError, match="state=connecting"):
+            gateway_runtime_service.wait_gateway_runtime_ready(
+                {"config": config, "runtime": runtime},
+                monotonic=Mock(side_effect=[0.0, 1.0]),
+                sleep=Mock(),
+            )
 
     def test_acquire_gateway_for_instance_reuses_runtime(self):
         logger = Mock()
@@ -2537,6 +2824,40 @@ class TestGatewayRuntimeService:
         assert state1["instances"] == {"inst1", "inst2"}
         assert state1["ref_count"] == 2
         assert instance_gateways == {"inst1": "ctp-future-acc-1", "inst2": "ctp-future-acc-1"}
+
+    def test_acquire_gateway_for_instance_captures_gateway_start_native_stderr(self, tmp_path):
+        logger = Mock()
+        config = Mock(
+            runtime_name="ctp-future-acc-1",
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+        )
+
+        class Runtime:
+            def start_in_thread(self):
+                os.write(2, b"native startup warning\n")
+
+        runtime = Runtime()
+        launch = {
+            "config": config,
+            "runtime_cls": Mock(return_value=runtime),
+            "runtime_kwargs": {"account_id": "acc-1"},
+        }
+
+        gateway_runtime_service.acquire_gateway_for_instance(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=tmp_path,
+            get_gateway_params=lambda instance: {"enabled": True},
+            build_gateway_launch=lambda instance, strategy_dir, gateway_params: launch,
+            gateways={},
+            instance_gateways={},
+            logger=logger,
+        )
+
+        stderr_log = tmp_path / "logs" / "gateway.stderr.log"
+        assert "native startup warning" in stderr_log.read_text(encoding="utf-8")
 
     def test_acquire_gateway_for_instance_raises_when_runtime_start_fails(self):
         logger = Mock()

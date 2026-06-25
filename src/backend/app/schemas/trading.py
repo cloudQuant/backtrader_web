@@ -17,6 +17,25 @@ class TradingPosition(BaseModel):
     current_price: float | None = None
     market_value: float | None = None
     pnl: float | None = None
+    updated_at: str | None = None
+
+
+class TradingTrade(BaseModel):
+    """Closed trade snapshot for a strategy unit."""
+
+    id: str = ""
+    datetime: str | None = None
+    dtopen: str | None = None
+    dtclose: str | None = None
+    data_name: str = ""
+    direction: str = ""
+    size: float = 0.0
+    price: float | None = None
+    value: float | None = None
+    commission: float | None = None
+    pnl: float | None = None
+    pnlcomm: float | None = None
+    barlen: int | None = None
 
 
 class TradingSnapshot(BaseModel):
@@ -44,6 +63,7 @@ class TradingSnapshot(BaseModel):
     updated_at: str | None = None
     detail_route: str | None = None
     positions: list[TradingPosition] = Field(default_factory=list)
+    trades: list[TradingTrade] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -101,6 +121,8 @@ class PositionManagerItem(BaseModel):
     latest_price: float | None = None
     position_pnl: float = 0.0
     market_value: float = 0.0
+    updated_at: str | None = None
+    data_time: str | None = None
 
 
 class PositionManagerResponse(BaseModel):

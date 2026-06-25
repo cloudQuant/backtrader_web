@@ -70,5 +70,7 @@ mt5:
 live:
   symbol: "AAPL"
   bar_seconds: 60
+  qcheck: 0.5
+  log_ticks: false
   duration_seconds: 7200
   session_timeout: 7260

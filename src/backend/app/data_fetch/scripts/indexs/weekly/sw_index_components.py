@@ -109,13 +109,15 @@ class SWIndexComponents(AkshareToMySql):
                     self.logger.error(f"Error fetching component data for {symbol}: {exc}")
                     yield symbol, pd.DataFrame()
 
-    def run(self, symbol=None, max_workers=8):
+    def run(self, symbol=None, max_workers=8, max_symbols=None):
         """Run the Shenwan Index components update"""
         try:
             if not self.table_exists(self.table_name):
                 self.create_table(self.create_table_sql)
                 self.logger.info(f"Created table {self.table_name}")
             symbol_list = self.get_symbol_list() if symbol is None else [symbol]
+            if max_symbols is not None:
+                symbol_list = symbol_list[: max(0, int(max_symbols))]
             for symbol, df in self._fetch_component_jobs(
                 symbol_list, int(max_workers or 1)
             ):

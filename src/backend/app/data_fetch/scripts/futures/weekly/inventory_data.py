@@ -37,10 +37,11 @@ class FuturesInventoryData(AkshareToMySql):
 
                                 """
 
-    def run(self):
+    def run(self, max_symbols=None):
         if not self.table_exists(self.table_name):
             self.create_table(self.create_table_sql)
         self.logger.info("正在获取期货库存数据")
+        max_symbols = int(max_symbols) if max_symbols is not None else None
         name_symbol_dict = {
             "沪铅": "PB",
             "沪铝": "AL",
@@ -107,15 +108,19 @@ class FuturesInventoryData(AkshareToMySql):
             "铸造铝合金": "AD",
         }
         table_name = "FUTURES_INVENTORY_DATA"
-        for name in name_symbol_dict:
+        items = list(name_symbol_dict.items())
+        if max_symbols is not None and len(items) > max_symbols:
+            items = items[:max_symbols]
+            self.logger.info(f"限制处理期货库存品种数量为{max_symbols}个")
+        for name, symbol in items:
             try:
-                df = self.fetch_ak_data("futures_inventory_99", name)
+                df = self.fetch_ak_data("futures_inventory_99", symbol.lower())
                 if df is not None and not df.empty:
                     df.columns = ["BASEDATE", "CLOSE_PRICE", "INVENTORY_AMOUNT"]
                     df["R_ID"] = [self.get_uuid() for i in range(len(df))]
-                    df["REFERENCE_CODE"] = name_symbol_dict[name]
+                    df["REFERENCE_CODE"] = symbol
                     df["REFERENCE_NAME"] = name
-                    df["SOURCE"] = "99期货网"
+                    df["DATA_SOURCE"] = "99期货网"
                     df["CREATEDATE"] = self.get_current_datetime()
                     df["CREATEUSER"] = "system"
                     df["UPDATEDATE"] = self.get_current_datetime()
@@ -123,7 +128,8 @@ class FuturesInventoryData(AkshareToMySql):
                     latest_date = self.get_latest_date(
                         table_name, "BASEDATE", conditions={"REFERENCE_NAME": name}
                     )
-                    df = df[df["BASEDATE"] >= latest_date]
+                    if latest_date is not None:
+                        df = df[df["BASEDATE"] >= latest_date]
                     if len(df) > 0:
                         self.save_data(df, table_name, ignore_duplicates=True)
                     else:

@@ -12,6 +12,7 @@ Tests:
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -86,19 +87,19 @@ class TestUtilityFunctions:
 
             assert result == {}
 
-    def test_save_instances(self):
+    def test_save_instances(self, tmp_path):
         """Test saving instances to file.
 
         Verifies that instances are correctly written to
         the JSON file.
         """
-        with patch("app.services.live_trading_manager._INSTANCES_FILE") as mock_file:
+        instances_file = tmp_path / "live_trading_instances.json"
+        with patch("app.services.live_trading_manager._INSTANCES_FILE", instances_file):
             test_data = {"test": {"status": "running"}}
 
             _save_instances(test_data)
 
-            # Verify write was called
-            mock_file.write_text.assert_called_once()
+            assert json.loads(instances_file.read_text("utf-8")) == test_data
 
     def test_find_latest_log_dir(self):
         """Test finding the latest log directory.
@@ -396,6 +397,34 @@ class TestGatewayLifecycle:
         assert result["status"] == "connected"
         assert "本地保存失败" in result["message"]
 
+    def test_build_subprocess_env_prefers_local_source_paths(self, tmp_path):
+        backtrader_dir = tmp_path / "backtrader"
+        bt_api_dir = tmp_path / "bt_api_py"
+        strategy_dir = tmp_path / "strategy"
+        backtrader_dir.mkdir()
+        bt_api_dir.mkdir()
+        strategy_dir.mkdir()
+
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            manager = LiveTradingManager()
+            with (
+                patch("app.services.live_trading_manager._BACKTRADER_DIR", backtrader_dir),
+                patch("app.services.live_trading_manager._BT_API_PY_DIR", bt_api_dir),
+                patch.dict("os.environ", {"PYTHONPATH": "existing"}, clear=True),
+                patch.object(manager, "_acquire_gateway_for_instance", return_value=None),
+            ):
+                env = manager._build_subprocess_env(
+                    "inst1",
+                    {"params": {}},
+                    strategy_dir,
+                )
+
+        assert env["PYTHONPATH"].split(os.pathsep) == [
+            str(backtrader_dir),
+            str(bt_api_dir),
+            "existing",
+        ]
+
     def test_build_subprocess_env_with_gateway(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
             manager = LiveTradingManager()
@@ -427,6 +456,12 @@ class TestGatewayLifecycle:
         assert env["BT_GATEWAY_ACCOUNT_ID"] == "acc-1"
         assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "CTP"
         assert env["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+        assert env["BACKTRADER_LIGHT_IMPORT"] == "1"
+        assert env["BT_API_PY_LIGHT_IMPORT"] == "1"
+        assert env["BT_FEED_ENABLE_LIGHT_COLUMNS"] == "1"
+        assert env["BT_STORE_LOCAL_TIMEZONE"] == "Asia/Shanghai"
+        assert env["OPENBLAS_NUM_THREADS"] == "1"
+        assert env["OMP_NUM_THREADS"] == "1"
 
     def test_build_subprocess_env_with_ib_web_gateway(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
@@ -458,6 +493,11 @@ class TestGatewayLifecycle:
         assert env["BT_GATEWAY_MARKET_ENDPOINT"] == "ipc://market"
         assert env["BT_GATEWAY_ACCOUNT_ID"] == "du123456"
         assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "IB_WEB"
+        assert env["BACKTRADER_LIGHT_IMPORT"] == "1"
+        assert env["BT_API_PY_LIGHT_IMPORT"] == "1"
+        assert env["BT_FEED_ENABLE_LIGHT_COLUMNS"] == "1"
+        assert env["BT_STORE_LOCAL_TIMEZONE"] == "Asia/Shanghai"
+        assert env["OPENBLAS_NUM_THREADS"] == "1"
         assert env["BT_GATEWAY_ASSET_TYPE"] == "STK"
 
     def test_get_gateway_params_normalizes_ib_web(self):
@@ -512,6 +552,7 @@ class TestGatewayLifecycle:
                     "IB_WEB_LOGIN_BROWSER=chrome",
                     "IB_WEB_LOGIN_HEADLESS=false",
                     "IB_WEB_LOGIN_TIMEOUT=180",
+                    "IB_WEB_TIMEOUT=15",
                     "IB_WEB_COOKIE_SOURCE=file:../bt_api_py/configs/ibkr_cookies.json",
                     "IB_WEB_COOKIE_OUTPUT=../bt_api_py/configs/ibkr_cookies.json",
                 ]
@@ -822,6 +863,13 @@ class TestGatewayLifecycle:
 
         config = MagicMock(runtime_name="ctp-future-acc-1")
         runtime = Mock()
+        runtime.running = True
+        runtime.health = SimpleNamespace(
+            state="running",
+            market_connection="connected",
+            trade_connection="connected",
+            recent_errors=[],
+        )
         runtime_cls = Mock(return_value=runtime)
         launch = {
             "config": config,
@@ -874,9 +922,13 @@ class TestGatewayLifecycle:
             "config": MagicMock(command_endpoint="tcp://127.0.0.1:33128"),
         }
 
-        with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
-            with patch.object(manager, "_ping_subprocess_gateway_ready", return_value=True):
-                result = manager.get_gateway_health()
+        with patch(
+            "app.services.live_trading_manager.gateway_health_service.get_gateway_health",
+            return_value=[],
+        ):
+            with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                with patch.object(manager, "_ping_subprocess_gateway_ready", return_value=True):
+                    result = manager.get_gateway_health()
 
         assert len(result) == 1
         snap = result[0]
@@ -909,9 +961,13 @@ class TestGatewayLifecycle:
             "config": MagicMock(command_endpoint="tcp://127.0.0.1:33128"),
         }
 
-        with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
-            with patch.object(manager, "_ping_subprocess_gateway_ready", return_value=False):
-                result = manager.get_gateway_health()
+        with patch(
+            "app.services.live_trading_manager.gateway_health_service.get_gateway_health",
+            return_value=[],
+        ):
+            with patch("app.services.live_trading_manager._is_pid_alive", return_value=True):
+                with patch.object(manager, "_ping_subprocess_gateway_ready", return_value=False):
+                    result = manager.get_gateway_health()
 
         assert len(result) == 1
         snap = result[0]
@@ -1238,6 +1294,28 @@ class TestStartInstance:
     """Tests for starting instances."""
 
     @pytest.mark.asyncio
+    async def test_start_instance_delegates_file_lock_to_execution_layer(self):
+        with patch("app.services.live_trading_manager._load_instances", return_value={}):
+            with patch("app.services.live_trading_manager._instance_store_lock") as mock_lock:
+                lock_context = MagicMock()
+                mock_lock.return_value = lock_context
+                manager = LiveTradingManager()
+                mock_lock.reset_mock()
+
+                with patch(
+                    "app.services.live_trading_manager.live_execution_service.start_instance",
+                    new_callable=AsyncMock,
+                ) as mock_start:
+                    mock_start.return_value = {"id": "inst1", "status": "running"}
+
+                    result = await manager.start_instance("inst1")
+
+        assert result["status"] == "running"
+        mock_lock.assert_not_called()
+        instance_lock = mock_start.call_args.kwargs["instance_lock"]
+        assert instance_lock.__class__.__name__ == "_AsyncInstanceStoreLock"
+
+    @pytest.mark.asyncio
     async def test_start_instance_success(self):
         """Test successful instance start.
 
@@ -1395,6 +1473,13 @@ class TestStartInstance:
             asset_type="FUTURE",
         )
         runtime = Mock()
+        runtime.running = True
+        runtime.health = SimpleNamespace(
+            state="running",
+            market_connection="connected",
+            trade_connection="connected",
+            recent_errors=[],
+        )
         runtime_cls = Mock(return_value=runtime)
         launch = {
             "config": config,
@@ -1797,11 +1882,21 @@ class TestKillPid:
         a process.
         """
         import os
+        import signal
 
         # Patch os module directly since _kill_pid imports os locally
-        with patch.object(os, "kill") as mock_kill:
+        calls = []
+
+        def fake_kill(pid, sig):
+            calls.append((pid, sig))
+            if sig == 0:
+                raise ProcessLookupError
+
+        with patch.object(os, "kill", side_effect=fake_kill):
             LiveTradingManager._kill_pid(12345)
-            mock_kill.assert_called_once()
+
+        assert calls[0] == (12345, signal.SIGTERM)
+        assert (12345, signal.SIGKILL) not in calls
 
     def test_kill_pid_process_not_found(self):
         """Test terminating non-existent process.

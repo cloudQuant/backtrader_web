@@ -2,6 +2,8 @@ import logging
 
 import numpy as np
 import pandas as pd
+from akshare.index.index_global_em import index_global_em_symbol_map
+from akshare.utils.request import request_eastmoney
 
 from app.data_fetch.configs.db_config import DB_CONFIG
 from app.data_fetch.providers.akshare_to_mysql import AkshareToMySql
@@ -38,9 +40,15 @@ class IndexGlobalHistEm(AkshareToMySql):
         """
 
     def get_indices(self):
-        self.get_data_by_columns("INDEX_GLOBAL_SPOT_EM", ["INDEX_NAME"])
-        df = self.fetch_ak_data("index_global_spot_em")
-        return df["名称"].to_list()
+        fallback_indices = ["美元指数", "道琼斯", "纳斯达克", "标普500"]
+        try:
+            self.get_data_by_columns("INDEX_GLOBAL_SPOT_EM", ["INDEX_NAME"])
+            df = self.fetch_ak_data("index_global_spot_em")
+            if df is not None and not df.empty and "名称" in df.columns:
+                return df["名称"].dropna().astype(str).drop_duplicates().to_list()
+        except Exception as exc:
+            self.logger.warning(f"Failed to fetch global index list, using fallback: {exc}")
+        return fallback_indices
 
     def validate_index(self, index_name):
         """Validate if the provided index name is supported.
@@ -57,6 +65,92 @@ class IndexGlobalHistEm(AkshareToMySql):
             return False, f"Invalid index name. Must be one of {self.valid_indices}"
         return True, ""
 
+    def _fetch_daily_from_trends(self, index_name):
+        if index_name not in index_global_em_symbol_map:
+            return pd.DataFrame()
+        item = index_global_em_symbol_map[index_name]
+        secid = f"{item['market']}.{item['code']}"
+        url = "https://push2his.eastmoney.com/api/qt/stock/trends2/get"
+        params = {
+            "secid": secid,
+            "ut": "fa5fd1943c7b386f172d6893dbfba10b",
+            "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
+            "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+            "iscr": "0",
+            "iscca": "0",
+            "ndays": "5",
+        }
+        try:
+            data_json = request_eastmoney(url, params=params, timeout=20).json()
+        except Exception as exc:
+            self.logger.warning(f"Eastmoney global index trends2 fallback failed: {exc}")
+            return pd.DataFrame()
+
+        data = data_json.get("data") or {}
+        trends = data.get("trends") or []
+        if not trends:
+            return pd.DataFrame()
+        df = pd.DataFrame([item.split(",") for item in trends])
+        if df.empty or df.shape[1] < 5:
+            return pd.DataFrame()
+        df = df.iloc[:, :5]
+        df.columns = ["time", "open", "close", "high", "low"]
+        df["time"] = pd.to_datetime(df["time"], errors="coerce")
+        df = df.dropna(subset=["time"])
+        if df.empty:
+            return pd.DataFrame()
+        for column in ("open", "close", "high", "low"):
+            df[column] = pd.to_numeric(df[column], errors="coerce")
+        df["TRADE_DATE"] = df["time"].dt.date
+        grouped = (
+            df.groupby("TRADE_DATE", as_index=False)
+            .agg(
+                OPEN=("open", "first"),
+                CLOSE=("close", "last"),
+                HIGH=("high", "max"),
+                LOW=("low", "min"),
+            )
+            .sort_values("TRADE_DATE")
+        )
+        previous_close = pd.to_numeric(data.get("preClose"), errors="coerce")
+        amplitudes = []
+        for _, row in grouped.iterrows():
+            if pd.isna(previous_close) or previous_close == 0:
+                amplitudes.append(None)
+            else:
+                amplitudes.append((row["HIGH"] - row["LOW"]) / previous_close * 100)
+            previous_close = row["CLOSE"]
+        grouped["AMPLITUDE"] = amplitudes
+        grouped["INDEX_CODE"] = data.get("code") or item["code"]
+        grouped["INDEX_NAME"] = data.get("name") or index_name
+        grouped["R_ID"] = (
+            grouped["INDEX_CODE"].astype(str)
+            + "_"
+            + pd.to_datetime(grouped["TRADE_DATE"]).dt.strftime("%Y%m%d")
+        )
+        grouped["DATA_SOURCE"] = "东方财富-全球指数"
+        grouped["IS_ACTIVE"] = 1
+        if not grouped.empty:
+            self.logger.warning(
+                "Eastmoney global index kline returned empty; populated "
+                "INDEX_GLOBAL_HIST_EM from same-source trends2 aggregation"
+            )
+        return grouped[
+            [
+                "R_ID",
+                "INDEX_CODE",
+                "INDEX_NAME",
+                "TRADE_DATE",
+                "OPEN",
+                "CLOSE",
+                "HIGH",
+                "LOW",
+                "AMPLITUDE",
+                "IS_ACTIVE",
+                "DATA_SOURCE",
+            ]
+        ].reset_index(drop=True)
+
     def fetch_index_hist(self, index_name):
         """Fetch historical data for a global index from East Money.
 
@@ -68,11 +162,21 @@ class IndexGlobalHistEm(AkshareToMySql):
         """
         try:
             # 1. Fetch data from AKShare
-            df = self.fetch_ak_data("index_global_hist_em", symbol=index_name)
+            try:
+                df = self.fetch_ak_data("index_global_hist_em", symbol=index_name)
+            except Exception as fetch_exc:
+                self.logger.warning(
+                    f"Eastmoney global index kline fetch failed, trying same-source "
+                    f"trends2 aggregation: {fetch_exc}"
+                )
+                df = pd.DataFrame()
 
             if df is None or df.empty:
-                self.logger.warning(f"No historical data found for global index {index_name}")
-                return pd.DataFrame()
+                df = self._fetch_daily_from_trends(index_name)
+                if df is None or df.empty:
+                    self.logger.warning(f"No historical data found for global index {index_name}")
+                    return pd.DataFrame()
+                return df
 
             # 2. Rename and process columns
             df = df.rename(
@@ -130,7 +234,7 @@ class IndexGlobalHistEm(AkshareToMySql):
             )
             return pd.DataFrame()
 
-    def run(self, index_name=None):
+    def run(self, index_name=None, max_indices=None):
         """Main method to run the data fetching and saving process.
 
         Args:
@@ -157,6 +261,10 @@ class IndexGlobalHistEm(AkshareToMySql):
                     self.logger.error(error_msg)
                     return False
                 index_list = [index_name]
+            max_indices = int(max_indices) if max_indices is not None else None
+            if max_indices is not None and len(index_list) > max_indices:
+                index_list = index_list[:max_indices]
+                self.logger.info(f"Limiting global East Money indices to {max_indices}")
 
             all_success = True
             for idx in index_list:
@@ -198,9 +306,13 @@ class IndexGlobalHistEm(AkshareToMySql):
             return False
 
 
-def main():
+def main(index_name=None, max_indices=None):
     import argparse
     import sys
+
+    if index_name is not None or max_indices is not None:
+        fetcher = IndexGlobalHistEm(logger=logging.getLogger(__name__))
+        return fetcher.run(index_name=index_name, max_indices=max_indices)
 
     # Configure logging
     logging.basicConfig(
@@ -224,7 +336,7 @@ def main():
     try:
         args = parser.parse_args()
         fetcher = IndexGlobalHistEm(logger=logger)
-        success = fetcher.run(args.index)
+        success = fetcher.run(index_name=args.index)
         sys.exit(0 if success else 1)
     except Exception as e:
         logger.error(f"Error: {str(e)}", exc_info=True)

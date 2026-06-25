@@ -24,6 +24,7 @@ their leading underscore) so existing tests and downstream callers using
 
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,49 @@ from app.services.strategy import runtime_support as strategy_runtime_support
 
 logger = logging.getLogger(__name__)
 
+MAX_ABS_EQUITY_VALUE = 1e15
+MAX_EQUITY_CASH_RATIO = 1_000.0
+MAX_EQUITY_STEP_RATIO = 1_000.0
+MAX_SHARPE_RETURN_ABS = 10.0
+
+
+def _market_value(value: Any) -> float:
+    return round(_safe_float(value, 0.0), 8)
+
+
+def _finite_metric(value: float, default: float = 0.0) -> float:
+    return value if math.isfinite(value) else default
+
+
+def _is_plausible_equity_value(
+    value: float,
+    *,
+    cash: float,
+    previous_equity: float | None,
+) -> bool:
+    if not math.isfinite(value) or abs(value) > MAX_ABS_EQUITY_VALUE:
+        return False
+    if math.isfinite(cash) and abs(cash) > 0:
+        if abs(value) > abs(cash) * MAX_EQUITY_CASH_RATIO:
+            return False
+    if previous_equity is not None and math.isfinite(previous_equity) and abs(previous_equity) > 0:
+        if abs(value / previous_equity) > MAX_EQUITY_STEP_RATIO:
+            return False
+    return True
+
+
+def _equity_returns_for_metrics(equity: list[float]) -> list[float]:
+    returns: list[float] = []
+    for i in range(1, len(equity)):
+        previous = equity[i - 1]
+        current = equity[i]
+        if previous <= 0 or not math.isfinite(previous) or not math.isfinite(current):
+            continue
+        ret = (current - previous) / previous
+        if math.isfinite(ret) and abs(ret) <= MAX_SHARPE_RETURN_ABS:
+            returns.append(ret)
+    return returns
+
 
 def find_latest_log_dir(strategy_dir: Path) -> Path | None:
     """Find the latest log directory under the strategy directory.
@@ -101,17 +145,29 @@ def parse_value_log(log_dir: Path) -> dict[str, Any]:
     if not rows:
         rows = _parse_pipe_key_value_lines(log_dir / "value.log")
     dates = []
+    datetimes = []
     equity = []
     cash = []
+    previous_equity: float | None = None
 
     for row in rows:
-        dt = _normalize_dt_text(
+        dt_full = _normalize_dt_text(
             row.get("dt") or row.get("datetime") or row.get("event_time") or row.get("log_time")
         )
-        dt = _normalize_date_text(dt)
+        dt = _normalize_date_text(dt_full)
+        equity_value = _safe_float(row.get("value", row.get("broker_value", "0")))
+        cash_value = _safe_float(row.get("cash", row.get("broker_cash", "0")))
+        if not _is_plausible_equity_value(
+            equity_value,
+            cash=cash_value,
+            previous_equity=previous_equity,
+        ):
+            continue
         dates.append(dt)
-        equity.append(_safe_float(row.get("value", row.get("broker_value", "0"))))
-        cash.append(_safe_float(row.get("cash", row.get("broker_cash", "0"))))
+        datetimes.append(dt_full or dt)
+        equity.append(equity_value)
+        cash.append(cash_value)
+        previous_equity = equity_value
 
     # Calculate drawdown curve
     drawdown = []
@@ -124,6 +180,7 @@ def parse_value_log(log_dir: Path) -> dict[str, Any]:
 
     return {
         "dates": dates,
+        "datetimes": datetimes,
         "equity_curve": equity,
         "cash_curve": cash,
         "drawdown_curve": drawdown,
@@ -220,7 +277,7 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
             trades.append(
                 {
                     "ref": int(item.get("ref", 0)),
-                    "datetime": _normalize_date_text(item.get("dtclose")),
+                    "datetime": _normalize_dt_text(item.get("dtclose")),
                     "dtopen": _normalize_dt_text(item.get("dtopen")),
                     "dtclose": _normalize_dt_text(item.get("dtclose")),
                     "data_name": str(item.get("data_name", "")),
@@ -245,9 +302,9 @@ def parse_trade_log(log_dir: Path) -> list[dict[str, Any]]:
         trades.append(
             {
                 "ref": int(_safe_float(row.get("ref", "0"))),
-                "datetime": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
-                "dtopen": row.get("dtopen", "").split(" ")[0] if row.get("dtopen") else "",
-                "dtclose": row.get("dtclose", "").split(" ")[0] if row.get("dtclose") else "",
+                "datetime": _normalize_dt_text(row.get("dtclose")),
+                "dtopen": _normalize_dt_text(row.get("dtopen")),
+                "dtclose": _normalize_dt_text(row.get("dtclose")),
                 "data_name": row.get("data_name", ""),
                 "direction": "buy" if row.get("long") == "1" else "sell",
                 "size": abs(_safe_float(row.get("size", "0"))),
@@ -462,11 +519,12 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
                 {
                     "dt": _normalize_date_text(row.get("datetime")),
                     "datetime": _normalize_dt_text(row.get("datetime")),
+                    "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
                     "data_name": row.get("data_name", ""),
                     "size": _safe_float(row.get("size", 0.0)),
                     "price": round(_safe_float(row.get("price", 0.0)), 4),
-                    "market_value": round(_safe_float(row.get("value", 0.0)), 2),
-                    "value": round(_safe_float(row.get("value", 0.0)), 2),
+                    "market_value": _market_value(row.get("value", 0.0)),
+                    "value": _market_value(row.get("value", 0.0)),
                 }
                 for row in json_rows
                 if _normalize_dt_text(row.get("datetime"))
@@ -489,11 +547,12 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
                 {
                     "dt": _normalize_date_text(dt),
                     "datetime": dt,
+                    "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
                     "data_name": str(row.get("data_name") or row.get("event") or ""),
                     "size": size,
                     "price": round(price, 4),
-                    "market_value": round(market_value, 2),
-                    "value": round(market_value, 2),
+                    "market_value": _market_value(market_value),
+                    "value": _market_value(market_value),
                 }
             )
         return positions
@@ -501,17 +560,18 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
     for row in rows:
         size = _safe_float(row.get("size", "0"))
         price = _safe_float(row.get("price", "0"))
-        dt = row.get("dt", "")
-        if " " in dt:
-            dt = dt.split(" ")[0]
+        datetime_text = _normalize_dt_text(row.get("datetime") or row.get("dt"))
+        dt = _normalize_date_text(datetime_text)
         positions.append(
             {
                 "dt": dt,
+                "datetime": datetime_text,
+                "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
                 "data_name": row.get("data_name", ""),
                 "size": size,
                 "price": round(price, 4),
-                "market_value": round(abs(size) * price, 2),
-                "value": round(abs(size) * price, 2),
+                "market_value": _market_value(abs(size) * price),
+                "value": _market_value(abs(size) * price),
             }
         )
     return positions
@@ -541,8 +601,8 @@ def parse_current_position(log_dir: Path) -> list[dict[str, Any]]:
                         "data_name": item.get("data_name", ""),
                         "size": size,
                         "price": round(price, 4),
-                        "market_value": round(_safe_float(market_value), 2),
-                        "value": round(_safe_float(market_value), 2),
+                        "market_value": _market_value(market_value),
+                        "value": _market_value(market_value),
                     }
                 )
             return result
@@ -577,8 +637,8 @@ def parse_current_position(log_dir: Path) -> list[dict[str, Any]]:
                     "data_name": str(data_name),
                     "size": size,
                     "price": round(price, 4),
-                    "market_value": round(_safe_float(market_value), 2),
-                    "value": round(_safe_float(market_value), 2),
+                    "market_value": _market_value(market_value),
+                    "value": _market_value(market_value),
                 }
             )
         return result
@@ -632,31 +692,39 @@ def parse_log_dir(log_dir: Path, strategy_dir: Path | None = None) -> dict[str, 
     initial_cash = equity[0] if equity else 100000.0
     final_value = equity[-1] if equity else initial_cash
 
-    total_return = ((final_value - initial_cash) / initial_cash * 100) if initial_cash > 0 else 0.0
+    total_return = (
+        ((final_value - initial_cash) / initial_cash * 100)
+        if initial_cash > 0 and math.isfinite(initial_cash) and math.isfinite(final_value)
+        else 0.0
+    )
+    total_return = _finite_metric(total_return)
 
     n_days = len(equity)
     n_years = n_days / 252.0 if n_days > 0 else 1.0
-    annual_return = (
-        ((final_value / initial_cash) ** (1.0 / n_years) - 1) * 100
-        if n_years > 0 and initial_cash > 0
-        else 0.0
-    )
+    annual_return = 0.0
+    if (
+        n_years > 0
+        and initial_cash > 0
+        and final_value > 0
+        and math.isfinite(initial_cash)
+        and math.isfinite(final_value)
+    ):
+        try:
+            annual_return = ((final_value / initial_cash) ** (1.0 / n_years) - 1) * 100
+        except OverflowError:
+            annual_return = 0.0
+    annual_return = _finite_metric(annual_return)
 
     max_drawdown = (
         max(value_data.get("drawdown_curve", [0.0])) if value_data.get("drawdown_curve") else 0.0
     )
 
-    if len(equity) > 1:
-        returns = []
-        for i in range(1, len(equity)):
-            if equity[i - 1] > 0:
-                returns.append((equity[i] - equity[i - 1]) / equity[i - 1])
-        if returns:
-            avg_ret = np.mean(returns)
-            std_ret = np.std(returns)
-            sharpe_ratio = (avg_ret / std_ret * (252**0.5)) if std_ret > 0 else 0.0
-        else:
-            sharpe_ratio = 0.0
+    returns = _equity_returns_for_metrics(equity) if len(equity) > 1 else []
+    if returns:
+        avg_ret = float(np.mean(returns))
+        std_ret = float(np.std(returns))
+        sharpe_ratio = (avg_ret / std_ret * (252**0.5)) if std_ret > 0 else 0.0
+        sharpe_ratio = _finite_metric(sharpe_ratio)
     else:
         sharpe_ratio = 0.0
 

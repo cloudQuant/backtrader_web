@@ -12,9 +12,12 @@ export interface SimulationInstanceInfo {
   error: string | null
   params: Record<string, unknown>
   created_at: string
+  updated_at: string
   started_at: string | null
   stopped_at: string | null
   log_dir: string | null
+  gateway_type?: string | null
+  gateway_key?: string | null
 }
 
 export interface SimulationInstanceListResponse {

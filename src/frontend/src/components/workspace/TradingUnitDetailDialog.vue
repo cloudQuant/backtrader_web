@@ -132,19 +132,26 @@
 
         <div class="rounded-xl border border-slate-200 bg-white px-4 py-4">
           <div class="mb-3 text-sm font-medium text-slate-700">
-            {{ t('tradingUnits.positionDetail') }}
+            {{ t('tradingUnits.tradeDetail') }}
           </div>
           <el-table
-            :data="detailUnit.trading_snapshot?.positions || []"
+            :data="detailUnit.trading_snapshot?.trades || []"
             size="small"
             border
-            class="detail-positions-table"
-            :empty-text="t('tradingUnits.noPositionDetail')"
+            class="detail-trades-table"
+            :empty-text="t('tradingUnits.noTradeDetail')"
           >
+            <el-table-column
+              prop="id"
+              :label="t('tradingUnits.tradeId')"
+              width="90"
+              align="center"
+              show-overflow-tooltip
+            />
             <el-table-column
               prop="data_name"
               :label="t('tradingUnits.contract')"
-              min-width="150"
+              min-width="130"
               show-overflow-tooltip
             />
             <el-table-column
@@ -163,7 +170,7 @@
               align="right"
             />
             <el-table-column
-              :label="t('tradingUnits.openPrice')"
+              :label="t('tradingUnits.tradePrice')"
               width="110"
               align="right"
             >
@@ -172,32 +179,50 @@
               </template>
             </el-table-column>
             <el-table-column
-              :label="t('tradingUnits.currentPrice')"
+              :label="t('tradingUnits.netPnL')"
               width="110"
               align="right"
             >
               <template #default="{ row }">
-                {{ formatPrice(row.current_price) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              :label="t('tradingUnits.marketValue')"
-              width="120"
-              align="right"
-            >
-              <template #default="{ row }">
-                {{ formatAmountCompact(row.market_value) }}
-              </template>
-            </el-table-column>
-            <el-table-column
-              :label="t('tradingUnits.pnl')"
-              width="110"
-              align="right"
-            >
-              <template #default="{ row }">
-                <span :class="numberClass(row.pnl)">
-                  {{ formatSignedNumber(row.pnl, 2, false) }}
+                <span :class="numberClass(tradePnl(row))">
+                  {{ formatSignedNumber(tradePnl(row), 2, false) }}
                 </span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              :label="t('tradingUnits.commission')"
+              width="100"
+              align="right"
+            >
+              <template #default="{ row }">
+                {{ formatNumber(row.commission, 2, false) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              :label="t('tradingUnits.openTime')"
+              min-width="150"
+              show-overflow-tooltip
+            >
+              <template #default="{ row }">
+                {{ formatTradeTime(row.dtopen) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              :label="t('tradingUnits.closeTime')"
+              min-width="150"
+              show-overflow-tooltip
+            >
+              <template #default="{ row }">
+                {{ formatTradeTime(row.dtclose) }}
+              </template>
+            </el-table-column>
+            <el-table-column
+              :label="t('tradingUnits.holdingBars')"
+              width="100"
+              align="right"
+            >
+              <template #default="{ row }">
+                {{ formatNumber(row.barlen, 0, false) }}
               </template>
             </el-table-column>
           </el-table>
@@ -209,7 +234,6 @@
 <script setup lang="ts">
 import {
   directionLabel,
-  formatAmountCompact,
   formatNumber,
   formatPrice,
   formatSignedNumber,
@@ -218,7 +242,7 @@ import {
   statusLabel,
 } from '@/composables/useUnitTableRendering'
 import { useI18n } from 'vue-i18n'
-import type { StrategyUnit } from '@/types/workspace'
+import type { StrategyUnit, TradingTrade } from '@/types/workspace'
 
 const { t } = useI18n()
 
@@ -232,4 +256,16 @@ const emit = defineEmits<{
   (e: 'openRuntimeDialog', unit: StrategyUnit): void
   (e: 'openRuntimeDirectory', unit: StrategyUnit): void
 }>()
+
+function formatTradeTime(value: string | null | undefined): string {
+  const text = String(value ?? '').trim()
+  if (!text) return '-'
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
+  const date = new Date(text.replace(' ', 'T'))
+  return Number.isNaN(date.getTime()) ? text : date.toLocaleString('zh-CN')
+}
+
+function tradePnl(row: TradingTrade): number | null {
+  return row.pnlcomm ?? row.pnl ?? null
+}
 </script>

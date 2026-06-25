@@ -21,6 +21,11 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _request_logger(request: Request, request_id: str, **extra: Any) -> Any:
+    """Return a logger bound with request context."""
+    return logger.bind(request_id=request_id, path=request.url.path, **extra)
+
+
 class ErrorResponse:
     """Standard error response format."""
 
@@ -82,13 +87,10 @@ async def handle_base_app_error(request: Request, exc: BaseAppError) -> JSONResp
     request_id = getattr(request.state, "request_id", str(uuid.uuid4())[:8])
 
     # Log the error
-    logger.warning(
-        f"Application error: {exc.error_code} - {exc.message}",
-        extra={
-            "request_id": request_id,
-            "path": request.url.path,
-            "error_code": exc.error_code,
-        },
+    _request_logger(request, request_id, error_code=exc.error_code).warning(
+        "Application error: {} - {}",
+        exc.error_code,
+        exc.message,
     )
 
     # Determine status code based on error type
@@ -157,11 +159,7 @@ def _build_validation_error_response(
 async def handle_validation_error(request: Request, exc: ValidationError) -> JSONResponse:
     """Handle Pydantic validation errors (e.g. model_validate failures)."""
     errors, request_id = _build_validation_error_response(request, exc)
-    logger.info(
-        "Validation error: %s field(s)",
-        len(errors),
-        extra={"request_id": request_id, "path": request.url.path},
-    )
+    _request_logger(request, request_id).info("Validation error: {} field(s)", len(errors))
     return JSONResponse(
         content=ErrorResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -181,10 +179,9 @@ async def handle_request_validation_error(
 ) -> JSONResponse:
     """Handle FastAPI request validation errors (422)."""
     errors, request_id = _build_validation_error_response(request, exc)
-    logger.info(
-        "Request validation error: %s field(s)",
+    _request_logger(request, request_id).info(
+        "Request validation error: {} field(s)",
         len(errors),
-        extra={"request_id": request_id, "path": request.url.path},
     )
     return JSONResponse(
         content=ErrorResponse(
@@ -239,15 +236,13 @@ async def handle_http_exception(
 
     request_id = getattr(request.state, "request_id", str(uuid.uuid4())[:8])
 
-    logger.error(
-        "HTTP exception: %s - %s",
-        status_code,
-        detail,
-        extra={
-            "request_id": request_id,
-            "path": request.url.path,
-        },
-    )
+    request_logger = _request_logger(request, request_id, status_code=status_code)
+    if status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR:
+        request_logger.error("HTTP exception: {} - {}", status_code, detail)
+    elif status_code >= status.HTTP_400_BAD_REQUEST:
+        request_logger.warning("HTTP exception: {} - {}", status_code, detail)
+    else:
+        request_logger.info("HTTP exception: {} - {}", status_code, detail)
 
     message, details = _extract_http_detail_message(detail)
 
@@ -276,13 +271,10 @@ async def handle_generic_exception(request: Request, exc: Exception) -> JSONResp
     request_id = getattr(request.state, "request_id", str(uuid.uuid4())[:8])
 
     # Log the full exception for debugging
-    logger.error(
-        f"Unhandled exception: {type(exc).__name__} - {str(exc)}",
-        extra={
-            "request_id": request_id,
-            "path": request.url.path,
-        },
-        exc_info=True,
+    _request_logger(request, request_id).opt(exception=exc).error(
+        "Unhandled exception: {} - {}",
+        type(exc).__name__,
+        str(exc),
     )
 
     # Don't expose internal errors to clients

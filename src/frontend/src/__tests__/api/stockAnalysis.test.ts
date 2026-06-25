@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { StockAnalysisCreateTaskParams } from '@/api/stockAnalysis'
 
 vi.mock('@/api/index', () => ({
   default: {
@@ -59,7 +60,7 @@ describe('stockAnalysisApi', () => {
     const { stockAnalysisApi } = await import('@/api/stockAnalysis')
     const apiModule = (await import('@/api/index')).default
     const post = vi.mocked(apiModule.post).mockResolvedValue({} as never)
-    const payload = {
+    const payload: StockAnalysisCreateTaskParams = {
       symbol: '000001.SZ',
       market_type: 'A股',
       analysis_date: '2026-06-15',

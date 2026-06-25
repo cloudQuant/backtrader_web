@@ -266,6 +266,118 @@ class TestCallLogger:
         assert result is True
         # The function should still work correctly even with filtering
 
+    def test_nested_pydantic_args_and_results_are_sanitized(self, monkeypatch):
+        """Pydantic credential fields are masked in call and result logs."""
+        from app.schemas.auth import Token, UserLogin
+        from app.utils.call_logger import call_logger
+
+        messages = []
+
+        class StubLogger:
+            def info(self, message):
+                messages.append(message)
+
+            def warning(self, message):
+                messages.append(message)
+
+            def error(self, message):
+                messages.append(message)
+
+        monkeypatch.setattr(
+            "app.utils.call_logger.get_logger",
+            lambda _name: StubLogger(),
+            raising=True,
+        )
+
+        @call_logger()
+        def login(user_login: UserLogin) -> Token:
+            assert user_login.password == "secret123"
+            return Token(
+                access_token="token-secret-value",
+                token_type="bearer",
+                expires_in=60,
+            )
+
+        result = login(UserLogin(username="admin", password="secret123"))
+
+        assert result.access_token == "token-secret-value"
+        log_text = "\n".join(messages)
+        assert "secret123" not in log_text
+        assert "token-secret-value" not in log_text
+        assert "'password': '***'" in log_text
+        assert "'access_token': '***'" in log_text
+
+    def test_nested_mapping_args_and_results_are_sanitized(self, monkeypatch):
+        """Nested sensitive mapping fields are masked in call and result logs."""
+        from app.utils.call_logger import call_logger
+
+        messages = []
+
+        class StubLogger:
+            def info(self, message):
+                messages.append(message)
+
+            def warning(self, message):
+                messages.append(message)
+
+            def error(self, message):
+                messages.append(message)
+
+        monkeypatch.setattr(
+            "app.utils.call_logger.get_logger",
+            lambda _name: StubLogger(),
+            raising=True,
+        )
+
+        @call_logger()
+        def process(payload: dict) -> dict:
+            return {
+                "status": "ok",
+                "refresh_token": "refresh-secret",
+                "nested": {"api_key": "key-secret"},
+            }
+
+        assert process({"nested": {"password": "secret123"}})["status"] == "ok"
+        log_text = "\n".join(messages)
+        assert "secret123" not in log_text
+        assert "refresh-secret" not in log_text
+        assert "key-secret" not in log_text
+        assert "'password': '***'" in log_text
+        assert "'refresh_token': '***'" in log_text
+        assert "'api_key': '***'" in log_text
+
+    def test_self_argument_is_omitted_from_call_logs(self, monkeypatch):
+        """Bound method self objects are omitted from call logs."""
+        from app.utils.call_logger import call_logger
+
+        messages = []
+
+        class StubLogger:
+            def info(self, message):
+                messages.append(message)
+
+            def warning(self, message):
+                messages.append(message)
+
+            def error(self, message):
+                messages.append(message)
+
+        monkeypatch.setattr(
+            "app.utils.call_logger.get_logger",
+            lambda _name: StubLogger(),
+            raising=True,
+        )
+
+        class Service:
+            @call_logger()
+            def run(self, value: str) -> str:
+                return value
+
+        assert Service().run("ok") == "ok"
+        log_text = "\n".join(messages)
+        assert "'self':" not in log_text
+        assert "Service object" not in log_text
+
     def test_log_result_false_suppresses_result(self):
         """log_result=False still returns the correct value."""
         from app.utils.call_logger import call_logger
@@ -350,6 +462,7 @@ class TestLogRotationConfig:
         assert settings.LOG_RETENTION_APP_DAYS == 30
         assert settings.LOG_RETENTION_ERROR_DAYS == 90
         assert settings.LOG_RETENTION_AUDIT_DAYS == 365
+        assert settings.LOG_ROTATION_MAX_MB == 100
 
     def test_custom_retention_values(self):
         """Custom retention periods can be set."""
@@ -360,10 +473,12 @@ class TestLogRotationConfig:
             LOG_RETENTION_APP_DAYS=7,
             LOG_RETENTION_ERROR_DAYS=30,
             LOG_RETENTION_AUDIT_DAYS=180,
+            LOG_ROTATION_MAX_MB=50,
         )
         assert settings.LOG_RETENTION_APP_DAYS == 7
         assert settings.LOG_RETENTION_ERROR_DAYS == 30
         assert settings.LOG_RETENTION_AUDIT_DAYS == 180
+        assert settings.LOG_ROTATION_MAX_MB == 50
 
     def test_log_dir_config(self):
         """LOG_DIR can be configured."""

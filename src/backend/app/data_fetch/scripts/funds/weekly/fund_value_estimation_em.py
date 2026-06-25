@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 from datetime import datetime
 from typing import Any
@@ -95,7 +96,11 @@ class FundValueEstimationEm(AkshareToMySql):
             self.logger.info(f"开始获取{fund_type}基金净值估算数据...")
 
             # 获取数据
-            df = self.fetch_ak_data("fund_value_estimation_em", symbol=fund_type)
+            df = self.fetch_ak_data(
+                "fund_value_estimation_em",
+                symbol=fund_type,
+                _call_timeout=120,
+            )
 
             if df is None or df.empty:
                 self.logger.warning(f"未获取到{fund_type}基金净值估算数据")
@@ -116,25 +121,24 @@ class FundValueEstimationEm(AkshareToMySql):
             return None
 
         try:
-            # 重命名列
+            dynamic_columns = self._resolve_dynamic_columns(df.columns)
             df = df.rename(
                 columns={
                     "基金代码": "FUND_CODE",
                     "基金名称": "FUND_NAME",
-                    "交易日-估算数据-估算值": "ESTIMATED_VALUE_STR",
-                    "交易日-估算数据-估算增长率": "ESTIMATED_RETURN_STR",
-                    "交易日-公布数据-单位净值": "PUBLISHED_NAV_STR",
-                    "交易日-公布数据-日增长率": "PUBLISHED_RETURN_STR",
+                    dynamic_columns.get("estimated_value"): "ESTIMATED_VALUE_STR",
+                    dynamic_columns.get("estimated_return"): "ESTIMATED_RETURN_STR",
+                    dynamic_columns.get("published_nav"): "PUBLISHED_NAV_STR",
+                    dynamic_columns.get("published_return"): "PUBLISHED_RETURN_STR",
                     "估算偏差": "ESTIMATION_DEVIATION_STR",
                 }
             )
 
             # 获取交易日期（从列名中提取）
-            nav_date_col = [col for col in df.columns if "单位净值" in col]
-            if nav_date_col:
+            trade_date = dynamic_columns.get("trade_date")
+            if trade_date:
                 try:
-                    trade_date_str = nav_date_col[0].split("-")[0]
-                    df["TRADE_DATE"] = pd.to_datetime(trade_date_str).date()
+                    df["TRADE_DATE"] = pd.to_datetime(trade_date).date()
                 except Exception as e:
                     self.logger.warning(f"解析交易日期失败: {e}")
                     df["TRADE_DATE"] = datetime.now().date()
@@ -197,6 +201,26 @@ class FundValueEstimationEm(AkshareToMySql):
         except Exception as e:
             self.logger.error(f"处理基金净值估算数据失败: {e}", exc_info=True)
             return None
+
+    @staticmethod
+    def _resolve_dynamic_columns(columns: pd.Index) -> dict[str, str]:
+        """Resolve date-prefixed Eastmoney estimation columns."""
+        result: dict[str, str] = {}
+        for column in map(str, columns):
+            if column.endswith("-估算数据-估算值"):
+                result["estimated_value"] = column
+            elif column.endswith("-估算数据-估算增长率"):
+                result["estimated_return"] = column
+            elif column.endswith("-公布数据-单位净值"):
+                result["published_nav"] = column
+            elif column.endswith("-公布数据-日增长率"):
+                result["published_return"] = column
+
+            if column.endswith(("-估算数据-估算值", "-公布数据-单位净值")):
+                match = re.match(r"(\d{4}-\d{2}-\d{2})-", column)
+                if match:
+                    result.setdefault("trade_date", match.group(1))
+        return result
 
     def save_estimation_data(self, df: pd.DataFrame) -> bool:
         """

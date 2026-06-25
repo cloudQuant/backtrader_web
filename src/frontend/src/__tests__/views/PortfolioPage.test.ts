@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PortfolioPage from '@/views/PortfolioPage.vue'
+import { portfolioApi } from '@/api/portfolio'
 import { elStubs } from '@/test/stubs'
 
 vi.mock('element-plus', () => ({
@@ -43,15 +44,68 @@ vi.mock('@/api/strategy', () => ({
 vi.mock('@/api/portfolio', () => ({
   portfolioApi: {
     getOverview: vi.fn().mockResolvedValue({
-      total_assets: 100000, total_cash: 50000, total_position_value: 50000,
+      total_assets: 100000, total_cash: 50000, total_position_value: 50000, net_position_value: 50000,
       total_initial_capital: 80000, total_pnl: 20000, total_pnl_pct: 25,
       strategy_count: 2, running_count: 1, strategies: [
         { strategy_id: 's1', strategy_name: 'SMA', status: 'running', assets: 60000, pnl: 10000, pnl_pct: 20 },
       ],
     }),
-    getPositions: vi.fn().mockResolvedValue({ total: 0, positions: [] }),
-    getTrades: vi.fn().mockResolvedValue({ total: 0, trades: [] }),
-    getEquity: vi.fn().mockResolvedValue({ dates: ['2024-01-01'], total_equity: [100000], drawdown: [0], strategies: [] }),
+    getPositions: vi.fn().mockResolvedValue({
+      total: 0,
+      positions: [],
+      summary: {
+        total_long_value: 0,
+        total_short_value: 0,
+        gross_market_value: 0,
+        net_market_value: 0,
+        total_pnl: 0,
+        long_count: 0,
+        short_count: 0,
+        flat_count: 0,
+      },
+    }),
+    getTrades: vi.fn().mockResolvedValue({
+      total: 2,
+      trades: [
+        {
+          strategy_id: 'unit-1',
+          strategy_name: 'CTA 交易工作区 / RB 趋势',
+          instance_id: 'unit-1',
+          ref: 1,
+          datetime: '2026-06-19 10:00:00',
+          dtopen: '2026-06-19 09:30:00',
+          dtclose: '2026-06-19 10:00:00',
+          data_name: 'RB2510',
+          direction: 'long',
+          size: 2,
+          price: 3600,
+          value: 7200,
+          commission: 3,
+          pnl: 200,
+          pnlcomm: 197,
+          barlen: 12,
+        },
+        {
+          strategy_id: 'idle-unit',
+          strategy_name: '暂停工作区 / AG 趋势',
+          instance_id: 'idle-unit',
+          ref: 2,
+          datetime: '2026-06-19 10:00:00',
+          dtopen: '2026-06-19 09:30:00',
+          dtclose: '2026-06-19 10:00:00',
+          data_name: 'AG2512',
+          direction: 'short',
+          size: 1,
+          price: 8000,
+          value: 8000,
+          commission: 3,
+          pnl: -50,
+          pnlcomm: -53,
+          barlen: 8,
+        },
+      ],
+    }),
+    getEquity: vi.fn().mockResolvedValue({ dates: ['2024-01-01'], total_equity: [100000], total_drawdown: [0], strategies: [] }),
     getAllocation: vi.fn().mockResolvedValue({ total: 1, items: [{ name: 'BTC', value: 50000, pct: 50 }] }),
   },
 }))
@@ -165,15 +219,64 @@ describe('PortfolioPage', () => {
     expect(vm.positions.length).toBe(1)
     expect(vm.positions[0].strategy_name).toContain('CTA 交易工作区')
     expect(vm.positions[0].data_name).toBe('RB2510')
+    expect(vm.positions[0].long_position).toBe(2)
+    expect(vm.positions[0].latest_price).toBe(3600)
+    expect(vm.positionSummary.total_long_value).toBe(7200)
+    expect(vm.positionSummary.gross_market_value).toBe(7200)
+    expect(vm.positionSummary.net_market_value).toBe(7200)
+    expect(vm.positionSummary.total_pnl).toBe(200)
   })
 
-  it('loadTabData loads selected workspace trading summaries as trade rows', async () => {
+  it('loadTabData loads selected workspace trade records', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
     await vm.loadTabData('trades')
     expect(vm.trades.length).toBe(1)
-    expect(vm.trades[0].strategy_name).toBe('CTA 交易工作区')
-    expect(vm.trades[0].size).toBe(3)
+    expect(vm.trades[0].strategy_name).toBe('CTA 交易工作区 / RB 趋势')
+    expect(vm.trades[0].data_name).toBe('RB2510')
+    expect(vm.trades[0].pnlcomm).toBe(197)
+    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running'])
+  })
+
+  it('loadWorkspaceAggregates requests trades per selected workspace', async () => {
+    const vm = doMount().vm as any
+    vm.runningWorkspaces = [
+      {
+        id: 'ws-running',
+        user_id: 'u1',
+        name: 'CTA 交易工作区',
+        description: null,
+        workspace_type: 'trading',
+        settings: {},
+        trading_config: {},
+        unit_count: 2,
+        completed_count: 0,
+        status: 'running',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+      },
+      {
+        id: 'ws-mt5',
+        user_id: 'u1',
+        name: 'MT5模拟工作区',
+        description: null,
+        workspace_type: 'trading',
+        settings: {},
+        trading_config: {},
+        unit_count: 2,
+        completed_count: 0,
+        status: 'running',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+      },
+    ]
+    vm.selectedWorkspaceIds = ['ws-running', 'ws-mt5']
+
+    vi.mocked(portfolioApi.getTrades).mockClear()
+    await vm.loadWorkspaceAggregates()
+
+    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-running'])
+    expect(portfolioApi.getTrades).toHaveBeenCalledWith(1000, ['ws-mt5'])
   })
 
   it('loadTabData loads equity', async () => {
@@ -216,6 +319,14 @@ describe('PortfolioPage', () => {
     const vm = doMount().vm as any
     vm.allocationItems = []
     vm.renderAllocationChart() // should not throw
+  })
+
+  it('tradeDirectionLabel supports backend buy/sell directions', () => {
+    const vm = doMount().vm as any
+    expect(vm.tradeDirectionLabel('buy')).toBe('多')
+    expect(vm.tradeDirectionLabel('sell')).toBe('空')
+    expect(vm.tradeDirectionClass('buy')).toBe('text-red-600')
+    expect(vm.tradeDirectionClass('sell')).toBe('text-green-600')
   })
 
   it('handleResize is callable', () => {

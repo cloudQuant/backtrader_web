@@ -21,6 +21,7 @@ BACKEND_DIR="$PROJECT_ROOT/src/backend"
 FRONTEND_DIR="$PROJECT_ROOT/src/frontend"
 PID_DIR="$PROJECT_ROOT/.pids"
 LOG_DIR="$PROJECT_ROOT/logs"
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python || true)}"
 
 # PID 文件
 BACKEND_PID_FILE="$PID_DIR/backend.pid"
@@ -33,6 +34,18 @@ FRONTEND_LOG="$LOG_DIR/frontend.log"
 # 创建必要目录
 mkdir -p "$PID_DIR"
 mkdir -p "$LOG_DIR"
+
+start_background() {
+    local log_file="$1"
+    shift
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$@" > "$log_file" 2>&1 &
+    else
+        nohup "$@" > "$log_file" 2>&1 &
+    fi
+    echo $!
+}
 
 echo -e "${CYAN}"
 echo "======================================"
@@ -68,18 +81,18 @@ fi
 echo -e "${BLUE}[1/4]${NC} 检查环境依赖..."
 
 # 检查 Python
-if ! command -v python &> /dev/null; then
-    echo -e "${RED}错误: 未找到 Python，请先安装 Python 3.10+${NC}"
+if [ -z "$PYTHON_BIN" ] || [ ! -x "$PYTHON_BIN" ]; then
+    echo -e "${RED}错误: 未找到 Python，请先激活项目 Python 环境或设置 PYTHON_BIN${NC}"
     exit 1
 fi
-PYTHON_VERSION=$(python --version | awk '{print $2}')
+PYTHON_VERSION=$("$PYTHON_BIN" --version | awk '{print $2}')
 echo -e "  Python 版本: ${GREEN}$PYTHON_VERSION${NC}"
 
 # 检查 Python 依赖
 echo -e "  ${BLUE}检查 Python 依赖...${NC}"
 MISSING_DEPS=0
 for pkg in fastapi uvicorn sqlalchemy pydantic; do
-    if ! python -c "import $pkg" 2>/dev/null; then
+    if ! "$PYTHON_BIN" -c "import $pkg" 2>/dev/null; then
         echo -e "  ${YELLOW}✗${NC} $pkg 未安装"
         MISSING_DEPS=1
     fi
@@ -125,12 +138,11 @@ if [ ! -f ".env" ]; then
     fi
 fi
 
-# 启动后端（使用系统Python）
+# 启动后端
 BACKEND_HOST="${HOST:-0.0.0.0}"
 BACKEND_DEBUG="${DEBUG:-true}"
 echo -e "  ${GREEN}启动 FastAPI 服务 (端口 8000, 地址 ${BACKEND_HOST})...${NC}"
-nohup env DEBUG="$BACKEND_DEBUG" HOST="$BACKEND_HOST" python -m uvicorn app.main:app --host "$BACKEND_HOST" --port 8000 > "$BACKEND_LOG" 2>&1 &
-BACKEND_PID=$!
+BACKEND_PID=$(start_background "$BACKEND_LOG" env DEBUG="$BACKEND_DEBUG" HOST="$BACKEND_HOST" "$PYTHON_BIN" -m uvicorn app.main:app --host "$BACKEND_HOST" --port 8000)
 echo $BACKEND_PID > "$BACKEND_PID_FILE"
 
 # 等待后端启动
@@ -166,8 +178,7 @@ else
 
     # 启动前端
     echo -e "  ${GREEN}启动 Vite 开发服务器 (端口 3000)...${NC}"
-    nohup npm run dev > "$FRONTEND_LOG" 2>&1 &
-    FRONTEND_PID=$!
+    FRONTEND_PID=$(start_background "$FRONTEND_LOG" npm run dev)
     echo $FRONTEND_PID > "$FRONTEND_PID_FILE"
 
     # 等待前端启动

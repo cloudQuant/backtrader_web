@@ -173,6 +173,49 @@
         >
           <el-card>
             <div
+              v-if="positions.length > 0"
+              class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4"
+            >
+              <div class="rounded border border-gray-200 px-3 py-2">
+                <div class="text-xs text-gray-500">
+                  {{ t('portfolio.cardLongValue') }}
+                </div>
+                <div class="text-lg font-semibold text-red-600">
+                  {{ formatMoney(positionSummary.total_long_value) }}
+                </div>
+              </div>
+              <div class="rounded border border-gray-200 px-3 py-2">
+                <div class="text-xs text-gray-500">
+                  {{ t('portfolio.cardShortValue') }}
+                </div>
+                <div class="text-lg font-semibold text-green-600">
+                  {{ formatMoney(positionSummary.total_short_value) }}
+                </div>
+              </div>
+              <div class="rounded border border-gray-200 px-3 py-2">
+                <div class="text-xs text-gray-500">
+                  {{ t('portfolio.cardNetExposure') }}
+                </div>
+                <div
+                  class="text-lg font-semibold"
+                  :class="exposureValueClass(positionSummary.net_market_value)"
+                >
+                  {{ formatSignedMoney(positionSummary.net_market_value) }}
+                </div>
+              </div>
+              <div class="rounded border border-gray-200 px-3 py-2">
+                <div class="text-xs text-gray-500">
+                  {{ t('portfolio.cardPositionPnl') }}
+                </div>
+                <div
+                  class="text-lg font-semibold"
+                  :class="signedValueClass(positionSummary.total_pnl)"
+                >
+                  {{ formatSignedMoney(positionSummary.total_pnl) }}
+                </div>
+              </div>
+            </div>
+            <div
               v-if="positions.length === 0"
               class="text-center text-gray-400 py-8"
             >
@@ -205,8 +248,26 @@
                     :type="row.size > 0 ? 'danger' : row.size < 0 ? 'success' : 'info'"
                     size="small"
                   >
-                    {{ row.direction }}
+                    {{ directionLabel(row.direction) }}
                   </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="t('portfolio.colLongPosition')"
+                width="90"
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ formatPositionSize(row.long_position) }}
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="t('portfolio.colShortPosition')"
+                width="90"
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ formatPositionSize(row.short_position) }}
                 </template>
               </el-table-column>
               <el-table-column
@@ -224,7 +285,16 @@
                 align="right"
               >
                 <template #default="{ row }">
-                  {{ row.price.toFixed(4) }}
+                  {{ formatNumber(row.price, 4) }}
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="t('portfolio.colLatestPrice')"
+                width="100"
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ formatNumber(row.latest_price ?? row.price, 4) }}
                 </template>
               </el-table-column>
               <el-table-column
@@ -234,6 +304,26 @@
               >
                 <template #default="{ row }">
                   {{ formatMoney(row.market_value) }}
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="t('portfolio.colPositionPnl')"
+                width="110"
+                align="right"
+              >
+                <template #default="{ row }">
+                  <span :class="signedValueClass(row.position_pnl || 0)">
+                    {{ formatSignedMoney(row.position_pnl || 0) }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column
+                prop="updated_at"
+                :label="t('portfolio.colUpdatedAt')"
+                width="150"
+              >
+                <template #default="{ row }">
+                  {{ formatDateTime(row.updated_at) }}
                 </template>
               </el-table-column>
             </el-table>
@@ -276,20 +366,20 @@
                 align="center"
               >
                 <template #default="{ row }">
-                  <span :class="row.direction === 'long' ? 'text-red-600' : 'text-green-600'">
-                    {{ row.direction === 'long' ? t('portfolio.directionLong') : t('portfolio.directionShort') }}
+                  <span :class="tradeDirectionClass(row.direction)">
+                    {{ tradeDirectionLabel(row.direction) }}
                   </span>
                 </template>
               </el-table-column>
               <el-table-column
                 prop="dtopen"
                 :label="t('portfolio.colOpenDate')"
-                width="100"
+                width="150"
               />
               <el-table-column
                 prop="dtclose"
                 :label="t('portfolio.colCloseDate')"
-                width="100"
+                width="150"
               />
               <el-table-column
                 :label="t('portfolio.colPrice')"
@@ -386,13 +476,14 @@ import { workspaceApi } from '@/api/workspace'
 import type {
   PortfolioOverview,
   PositionItem,
+  PositionSummary,
   TradeItem,
   PortfolioEquity,
   AllocationItem,
 } from '@/api/portfolio'
 import type {
-  TradingDailySummaryItem,
   TradingPositionManagerItem,
+  TradingPositionManagerResponse,
   Workspace,
 } from '@/types/workspace'
 import { PORTFOLIO_DRAWDOWN_AREA_COLOR, PORTFOLIO_DRAWDOWN_COLOR, PORTFOLIO_EQUITY_COLOR } from '@/constants/chartColors'
@@ -403,7 +494,7 @@ const loading = ref(true)
 const activeTab = ref('workspaces')
 
 const overview = ref<PortfolioOverview>({
-  total_assets: 0, total_cash: 0, total_position_value: 0,
+  total_assets: 0, total_cash: 0, total_position_value: 0, net_position_value: 0,
   total_initial_capital: 0, total_pnl: 0, total_pnl_pct: 0,
   strategy_count: 0, running_count: 0, strategies: [],
 })
@@ -413,6 +504,7 @@ const equityData = ref<PortfolioEquity | null>(null)
 const allocationItems = ref<AllocationItem[]>([])
 const runningWorkspaces = ref<Workspace[]>([])
 const selectedWorkspaceIds = ref<string[]>([])
+const positionSummary = ref<PositionSummary>(emptyPositionSummary())
 
 // Chart refs
 const equityChartRef = ref<HTMLElement | null>(null)
@@ -428,12 +520,86 @@ function formatMoney(v: number) {
   return v.toFixed(2)
 }
 
+function formatSignedMoney(v: number) {
+  return `${v >= 0 ? '+' : ''}${formatMoney(v)}`
+}
+
+function formatNumber(v: number | null | undefined, digits = 2) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(digits) : '--'
+}
+
+function formatPositionSize(v: number | null | undefined) {
+  const n = Number(v || 0)
+  return Number.isFinite(n) && n !== 0 ? formatNumber(n, 4) : '--'
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return '--'
+  return String(value).replace('T', ' ').replace('Z', '').slice(0, 19)
+}
+
+function signedValueClass(v: number | null | undefined) {
+  const n = Number(v || 0)
+  if (n > 0) return 'text-green-600'
+  if (n < 0) return 'text-red-600'
+  return 'text-gray-700'
+}
+
+function exposureValueClass(v: number | null | undefined) {
+  const n = Number(v || 0)
+  if (n > 0) return 'text-red-600'
+  if (n < 0) return 'text-green-600'
+  return 'text-gray-700'
+}
+
+function directionLabel(direction: string) {
+  if (direction === 'long') return t('portfolio.directionLong')
+  if (direction === 'short') return t('portfolio.directionShort')
+  return t('portfolio.directionFlat')
+}
+
+function isLongTradeDirection(direction: string | null | undefined) {
+  const normalized = String(direction || '').toLowerCase()
+  return normalized === 'long' || normalized === 'buy'
+}
+
+function isShortTradeDirection(direction: string | null | undefined) {
+  const normalized = String(direction || '').toLowerCase()
+  return normalized === 'short' || normalized === 'sell'
+}
+
+function tradeDirectionLabel(direction: string | null | undefined) {
+  if (isLongTradeDirection(direction)) return t('portfolio.directionLong')
+  if (isShortTradeDirection(direction)) return t('portfolio.directionShort')
+  return String(direction || '--')
+}
+
+function tradeDirectionClass(direction: string | null | undefined) {
+  if (isLongTradeDirection(direction)) return 'text-red-600'
+  if (isShortTradeDirection(direction)) return 'text-green-600'
+  return 'text-gray-700'
+}
+
+function emptyPositionSummary(): PositionSummary {
+  return {
+    total_long_value: 0,
+    total_short_value: 0,
+    gross_market_value: 0,
+    net_market_value: 0,
+    total_pnl: 0,
+    long_count: 0,
+    short_count: 0,
+    flat_count: 0,
+  }
+}
+
 const loadedTabs = ref<Set<string>>(new Set(['workspaces']))
 const selectedWorkspaces = computed(() => (
   runningWorkspaces.value.filter(workspace => selectedWorkspaceIds.value.includes(workspace.id))
 ))
 const selectedPositionValue = computed(() => (
-  positions.value.reduce((sum, item) => sum + (Number(item.market_value) || 0), 0)
+  positionSummary.value.gross_market_value
 ))
 
 function workspaceStatusLabel(status: string) {
@@ -486,20 +652,48 @@ async function loadWorkspaceAggregates() {
   if (workspaces.length === 0) {
     positions.value = []
     trades.value = []
+    positionSummary.value = emptyPositionSummary()
     return
   }
 
-  const [positionResults, summaryResults] = await Promise.all([
+  const [positionResults, tradeResults] = await Promise.all([
     Promise.all(workspaces.map(workspace => workspaceApi.getTradingPositions(workspace.id))),
-    Promise.all(workspaces.map(workspace => workspaceApi.getTradingDailySummary(workspace.id))),
+    Promise.all(workspaces.map(workspace => portfolioApi.getTrades(1000, [workspace.id]))),
   ])
 
-  positions.value = positionResults.flatMap((result, index) => (
+  const nextPositions = positionResults.flatMap((result, index) => (
     result.positions.map(item => mapWorkspacePosition(workspaces[index], item))
   ))
-  trades.value = summaryResults.flatMap((result, index) => (
-    result.summaries.map((item, summaryIndex) => mapWorkspaceSummary(workspaces[index], item, summaryIndex))
-  ))
+  positions.value = nextPositions
+  positionSummary.value = buildWorkspacePositionSummary(positionResults, nextPositions)
+  trades.value = tradeResults
+    .flatMap((result, index) => (
+      result.trades.filter(item => isTradeInSelectedWorkspaces(item, [workspaces[index]]))
+    ))
+    .sort((a, b) => tradeSortKey(b).localeCompare(tradeSortKey(a)))
+}
+
+function buildWorkspacePositionSummary(
+  positionResults: TradingPositionManagerResponse[],
+  rows: PositionItem[],
+): PositionSummary {
+  const totalLong = positionResults.reduce((sum, item) => sum + Number(item.total_long_value || 0), 0)
+  const totalShort = positionResults.reduce((sum, item) => sum + Number(item.total_short_value || 0), 0)
+  const totalPnl = positionResults.reduce((sum, item) => sum + Number(item.total_pnl || 0), 0)
+  return {
+    total_long_value: roundMoney(totalLong),
+    total_short_value: roundMoney(totalShort),
+    gross_market_value: roundMoney(totalLong + totalShort),
+    net_market_value: roundMoney(totalLong - totalShort),
+    total_pnl: roundMoney(totalPnl),
+    long_count: rows.filter(item => item.direction === 'long').length,
+    short_count: rows.filter(item => item.direction === 'short').length,
+    flat_count: rows.filter(item => item.direction === 'flat').length,
+  }
+}
+
+function roundMoney(v: number) {
+  return Math.round((Number(v) || 0) * 100) / 100
 }
 
 function mapWorkspacePosition(
@@ -507,42 +701,36 @@ function mapWorkspacePosition(
   item: TradingPositionManagerItem,
 ): PositionItem {
   const netSize = Number(item.long_position || 0) - Number(item.short_position || 0)
+  const latestPrice = Number(item.latest_price ?? item.avg_price ?? 0)
+  const avgPrice = Number(item.avg_price ?? latestPrice)
   return {
     strategy_id: item.unit_id,
     strategy_name: `${workspace.name} / ${item.unit_name}`,
     instance_id: item.unit_id,
     data_name: item.symbol,
     size: netSize,
-    price: Number(item.avg_price ?? item.latest_price ?? 0),
+    price: avgPrice,
+    latest_price: latestPrice,
     market_value: Number(item.market_value ?? 0),
+    position_pnl: Number(item.position_pnl || 0),
     direction: netSize > 0 ? 'long' : netSize < 0 ? 'short' : 'flat',
+    long_position: Number(item.long_position || 0),
+    short_position: Number(item.short_position || 0),
+    trading_mode: item.trading_mode,
+    updated_at: item.updated_at ?? workspace.updated_at,
+    data_time: item.data_time,
   }
 }
 
-function mapWorkspaceSummary(
-  workspace: Workspace,
-  item: TradingDailySummaryItem,
-  index: number,
-): TradeItem {
-  const dailyPnl = Number(item.daily_pnl || 0)
-  return {
-    strategy_id: workspace.id,
-    strategy_name: workspace.name,
-    instance_id: workspace.id,
-    ref: index + 1,
-    datetime: item.trading_date,
-    dtopen: item.trading_date,
-    dtclose: item.trading_date,
-    data_name: t('portfolio.dailySummarySymbol'),
-    direction: dailyPnl >= 0 ? 'long' : 'short',
-    size: Number(item.trade_count || 0),
-    price: 0,
-    value: Number(item.cumulative_pnl || 0),
-    commission: 0,
-    pnl: dailyPnl,
-    pnlcomm: dailyPnl,
-    barlen: 1,
-  }
+function isTradeInSelectedWorkspaces(item: TradeItem, workspaces: Workspace[]) {
+  const strategyName = String(item.strategy_name || '')
+  return workspaces.some(workspace => (
+    strategyName === workspace.name || strategyName.startsWith(`${workspace.name} /`)
+  ))
+}
+
+function tradeSortKey(item: TradeItem) {
+  return String(item.dtclose || item.datetime || item.dtopen || '')
 }
 
 async function toggleWorkspace(workspaceId: string, checked: boolean) {

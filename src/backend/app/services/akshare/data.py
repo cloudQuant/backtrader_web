@@ -44,6 +44,20 @@ class AkshareDataService:
             raise ValueError(f"Invalid table name: {table_name}")
         return table_name
 
+    @classmethod
+    def normalize_existing_table_name(cls, table_name: str) -> str:
+        """Normalize a pre-existing warehouse table name without lowercasing it.
+
+        Legacy data_fetch scripts create physical MySQL tables with uppercase
+        names such as ``STOCK_ZH_A_DAILY``. MySQL table names are case-sensitive
+        on Linux, so lowercasing those names makes row-count checks silently
+        report zero even when the table has data.
+        """
+        raw_table_name = str(table_name or "").strip()
+        if _VALID_IDENTIFIER.match(raw_table_name):
+            return raw_table_name
+        return cls._validate_table_name(cls._normalize_identifier(raw_table_name))
+
     @staticmethod
     def _quote_identifier(identifier: str) -> str:
         return f"`{AkshareDataService._validate_table_name(identifier)}`"
@@ -269,7 +283,7 @@ class AkshareDataService:
         parameters: dict[str, Any],
         status: str = "success",
     ) -> DataTable:
-        normalized_table_name = self._validate_table_name(self._normalize_identifier(table_name))
+        normalized_table_name = self.normalize_existing_table_name(table_name)
         row_count = await self.get_row_count(normalized_table_name)
         try:
             schema = await self.get_table_schema(normalized_table_name)

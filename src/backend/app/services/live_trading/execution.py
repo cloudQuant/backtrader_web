@@ -1,14 +1,60 @@
 import asyncio
+import contextlib
+import os
 import subprocess
 import sys
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from app.services.live_trading.metadata import (
+    instance_timestamp,
+    normalize_instance_metadata,
+)
 
 # Callback dependencies injected by ``LiveTradingManager``; typed loosely
 # since the concrete signatures vary per callback.
 _Cb = Callable[..., Any]
+_SUBPROCESS_STDOUT_LOG = "subprocess.stdout.log"
+_SUBPROCESS_STDERR_LOG = "subprocess.stderr.log"
+
+
+def _optional_lock(lock: Any | None):
+    return lock if lock is not None else contextlib.nullcontext()
+
+
+def _decode_output_tail(data: bytes, limit: int = 500) -> str:
+    for encoding in ("utf-8", "gbk", "cp936"):
+        try:
+            return data.decode(encoding)[-limit:]
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return data.decode("utf-8", errors="replace")[-limit:]
+
+
+def _read_file_tail(path: Path, limit: int = 500, read_bytes: int = 8192) -> str:
+    try:
+        with path.open("rb") as handle:
+            try:
+                handle.seek(-read_bytes, os.SEEK_END)
+            except OSError:
+                handle.seek(0)
+            data = handle.read()
+    except OSError:
+        return ""
+    return _decode_output_tail(data, limit=limit)
+
+
+def _close_subprocess_log_handles(proc: asyncio.subprocess.Process) -> None:
+    proc_attrs = getattr(proc, "__dict__", {})
+    for attr in ("_bt_stdout_handle", "_bt_stderr_handle"):
+        handle = proc_attrs.get(attr)
+        if handle is None:
+            continue
+        try:
+            handle.close()
+        except OSError:
+            pass
 
 
 async def start_instance(
@@ -22,6 +68,7 @@ async def start_instance(
     wait_process_callback: _Cb,
     processes: dict[str, Any],
     stopping_instances: set[str],
+    instance_lock: Any | None = None,
 ) -> dict[str, Any]:
     instances = load_instances()
     if instance_id not in instances:
@@ -44,35 +91,72 @@ async def start_instance(
     if not run_py.is_file():
         raise ValueError(f"run.py does not exist: {run_py}")
 
-    env = build_subprocess_env(instance_id, inst, strategy_dir)
+    try:
+        env = build_subprocess_env(instance_id, inst, strategy_dir)
+    except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+        release_gateway_for_instance(instance_id)
+        now = instance_timestamp()
+        async with _optional_lock(instance_lock):
+            latest = load_instances()
+            inst = latest.get(instance_id, inst)
+            inst["status"] = "error"
+            inst["pid"] = None
+            inst["error"] = str(exc)
+            inst["stopped_at"] = now
+            normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+            latest[instance_id] = inst
+            save_instances(latest)
+        raise ValueError(str(exc)) from exc
+
     sub_kwargs: dict[str, Any] = {}
     if sys.platform == "win32":
         import subprocess as _sp
 
         sub_kwargs["creationflags"] = _sp.CREATE_NEW_PROCESS_GROUP | _sp.CREATE_NO_WINDOW
+    stdout_handle = None
+    stderr_handle = None
     try:
+        logs_dir = strategy_dir / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        stdout_path = logs_dir / _SUBPROCESS_STDOUT_LOG
+        stderr_path = logs_dir / _SUBPROCESS_STDERR_LOG
+        stdout_handle = stdout_path.open("ab", buffering=0)
+        stderr_handle = stderr_path.open("ab", buffering=0)
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
             str(run_py),
             cwd=str(strategy_dir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
             env=env,
             **sub_kwargs,
         )
+        setattr(proc, "_bt_stdout_handle", stdout_handle)
+        setattr(proc, "_bt_stderr_handle", stderr_handle)
+        setattr(proc, "_bt_stderr_path", str(stderr_path))
     except (OSError, subprocess.SubprocessError):
+        for handle in (stdout_handle, stderr_handle):
+            if handle is not None:
+                try:
+                    handle.close()
+                except OSError:
+                    pass
         release_gateway_for_instance(instance_id)
         raise
     stopping_instances.discard(instance_id)
     processes[instance_id] = proc
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    inst["status"] = "running"
-    inst["pid"] = proc.pid
-    inst["error"] = None
-    inst["started_at"] = now
-    instances[instance_id] = inst
-    save_instances(instances)
+    now = instance_timestamp()
+    async with _optional_lock(instance_lock):
+        latest = load_instances()
+        inst = latest.get(instance_id, inst)
+        inst["status"] = "running"
+        inst["pid"] = proc.pid
+        inst["error"] = None
+        inst["started_at"] = now
+        normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+        latest[instance_id] = inst
+        save_instances(latest)
     asyncio.create_task(wait_process_callback(instance_id, proc))
     inst["id"] = instance_id
     return inst
@@ -87,6 +171,7 @@ async def stop_instance(
     release_gateway_for_instance: _Cb,
     processes: dict[str, Any],
     stopping_instances: set[str],
+    instance_lock: Any | None = None,
 ) -> dict[str, Any]:
     instances = load_instances()
     if instance_id not in instances:
@@ -106,12 +191,16 @@ async def stop_instance(
         except (ProcessLookupError, asyncio.TimeoutError, OSError, RuntimeError):
             proc.kill()
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    inst["status"] = "stopped"
-    inst["pid"] = None
-    inst["stopped_at"] = now
-    instances[instance_id] = inst
-    save_instances(instances)
+    now = instance_timestamp()
+    async with _optional_lock(instance_lock):
+        latest = load_instances()
+        inst = latest.get(instance_id, inst)
+        inst["status"] = "stopped"
+        inst["pid"] = None
+        inst["stopped_at"] = now
+        normalize_instance_metadata(inst, instance_id=instance_id, now=now, touch=True)
+        latest[instance_id] = inst
+        save_instances(latest)
     release_gateway_for_instance(instance_id)
     inst["id"] = instance_id
     return inst
@@ -184,9 +273,17 @@ async def wait_process(
     release_gateway_for_instance: _Cb,
     processes: dict[str, Any],
     stopping_instances: set[str],
+    instance_lock: Any | None = None,
 ) -> None:
     try:
         await proc.wait()
+    except asyncio.CancelledError:
+        # Supervisors can intentionally exit after starting a detached strategy
+        # (for example run_dual_exchange_simulation.py --no-hold). In that case
+        # asyncio cancels this background watcher while the child process is
+        # still running and proc.returncode is still None. The instance must
+        # remain running for the next monitor/backend process to observe it.
+        pass
     except Exception as e:
         # wait() may raise if process already terminated; safe to ignore
         # but log for debugging visibility
@@ -194,60 +291,69 @@ async def wait_process(
 
         logging.getLogger(__name__).debug("proc.wait() raised (ignored): %s", e)
     finally:
-        instances = load_instances()
+        _close_subprocess_log_handles(proc)
         stale_callback = False
-        current_proc = processes.get(instance_id)
-        if current_proc is not None and current_proc is not proc:
-            stale_callback = True
-        if instance_id in instances:
-            inst = instances[instance_id]
-            current_pid = inst.get("pid")
-            if current_pid not in (None, proc.pid):
+        async with _optional_lock(instance_lock):
+            instances = load_instances()
+            current_proc = processes.get(instance_id)
+            if current_proc is not None and current_proc is not proc:
                 stale_callback = True
-            if not stale_callback:
-                was_stopping = instance_id in stopping_instances
-                if was_stopping:
-                    inst["status"] = "stopped"
-                    inst["error"] = None
-                elif proc.returncode != 0:
-                    stderr = ""
-                    if proc.stderr:
-                        try:
-                            stderr_bytes = await proc.stderr.read()
-                            for encoding in ("utf-8", "gbk", "cp936"):
+            if instance_id in instances:
+                inst = instances[instance_id]
+                current_pid = inst.get("pid")
+                if current_pid not in (None, proc.pid):
+                    stale_callback = True
+                if not stale_callback:
+                    was_stopping = instance_id in stopping_instances
+                    if proc.returncode is None and not was_stopping:
+                        stale_callback = True
+                    else:
+                        if was_stopping:
+                            inst["status"] = "stopped"
+                            inst["error"] = None
+                        elif proc.returncode != 0:
+                            stderr = ""
+                            if proc.stderr:
                                 try:
-                                    stderr = stderr_bytes.decode(encoding)
-                                    break
-                                except (UnicodeDecodeError, LookupError):
-                                    continue
-                            else:
-                                stderr = stderr_bytes.decode("utf-8", errors="replace")
-                            stderr = stderr[-500:]
-                        except Exception as e:
-                            # stderr read failed; use empty string
-                            import logging
+                                    stderr_bytes = await proc.stderr.read()
+                                    stderr = _decode_output_tail(stderr_bytes, limit=500)
+                                except Exception as e:
+                                    # stderr read failed; use empty string
+                                    import logging
 
-                            logging.getLogger(__name__).warning("Failed to read stderr: %s", e)
-                    inst["status"] = "error"
-                    inst["error"] = stderr or f"Process exit code: {proc.returncode}"
-                else:
-                    inst["status"] = "stopped"
-                    inst["error"] = None
-                inst["pid"] = None
-                inst["stopped_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                try:
-                    runtime_dir = str(inst.get("runtime_dir") or "").strip()
-                    strategy_dir = (
-                        Path(runtime_dir).expanduser()
-                        if runtime_dir
-                        else resolve_strategy_dir(inst["strategy_id"])
-                    )
-                    inst["log_dir"] = find_latest_log_dir(strategy_dir)
-                except ValueError:
-                    inst["log_dir"] = None
-                instances[instance_id] = inst
-                save_instances(instances)
+                                    logging.getLogger(__name__).warning(
+                                        "Failed to read stderr: %s", e
+                                    )
+                            if not stderr:
+                                proc_attrs = getattr(proc, "__dict__", {})
+                                stderr_path = str(proc_attrs.get("_bt_stderr_path") or "").strip()
+                                if stderr_path:
+                                    stderr = _read_file_tail(Path(stderr_path), limit=500)
+                            inst["status"] = "error"
+                            inst["error"] = stderr or f"Process exit code: {proc.returncode}"
+                        else:
+                            inst["status"] = "stopped"
+                            inst["error"] = None
+                        inst["pid"] = None
+                        now = instance_timestamp()
+                        inst["stopped_at"] = now
+                        normalize_instance_metadata(
+                            inst, instance_id=instance_id, now=now, touch=True
+                        )
+                        try:
+                            runtime_dir = str(inst.get("runtime_dir") or "").strip()
+                            strategy_dir = (
+                                Path(runtime_dir).expanduser()
+                                if runtime_dir
+                                else resolve_strategy_dir(inst["strategy_id"])
+                            )
+                            inst["log_dir"] = find_latest_log_dir(strategy_dir)
+                        except ValueError:
+                            inst["log_dir"] = None
+                        instances[instance_id] = inst
+                        save_instances(instances)
+            if not stale_callback:
+                processes.pop(instance_id, None)
+                stopping_instances.discard(instance_id)
         if not stale_callback:
-            processes.pop(instance_id, None)
-            stopping_instances.discard(instance_id)
             release_gateway_for_instance(instance_id)
