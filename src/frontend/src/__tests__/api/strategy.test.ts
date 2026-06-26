@@ -95,6 +95,26 @@ describe('strategyApi', () => {
     })
   })
 
+  it('submitAIResearchTask', async () => {
+    vi.mocked(api.post).mockResolvedValue({ task_id: 'task-1', status: 'pending' })
+    await strategyApi.submitAIResearchTask({
+      prompt: 'build a trend strategy',
+      symbol: '000001.SZ',
+      target_sharpe: 1,
+    })
+    expect(api.post).toHaveBeenCalledWith('/strategy/ai-research/tasks', {
+      prompt: 'build a trend strategy',
+      symbol: '000001.SZ',
+      target_sharpe: 1,
+    })
+  })
+
+  it('getAIResearchTask', async () => {
+    vi.mocked(api.get).mockResolvedValue({ task_id: 'task-1', status: 'completed' })
+    await strategyApi.getAIResearchTask('task-1')
+    expect(api.get).toHaveBeenCalledWith('/strategy/ai-research/tasks/task-1')
+  })
+
   it('listAIResearchRuns', async () => {
     vi.mocked(api.get).mockResolvedValue({ total: 1, items: [] })
     await strategyApi.listAIResearchRuns('research-ws', 5)

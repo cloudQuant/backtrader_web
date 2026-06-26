@@ -217,6 +217,13 @@
                   </el-icon>
                   {{ aiResearchRunning ? t('strategy.aiResearchRunning') : t('strategy.aiResearchRun') }}
                 </el-button>
+                <el-tag
+                  v-if="aiResearchTaskId"
+                  size="small"
+                  type="info"
+                >
+                  任务 {{ aiResearchTaskStatus || aiResearchTaskId }}
+                </el-tag>
               </div>
             </el-form>
           </section>
@@ -755,8 +762,10 @@ import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
 import type {
   AIStrategyPaperMonitoringRule,
   AIStrategyPaperTradingReview,
+  AIStrategyResearchRunRequest,
   AIStrategyResearchRunRecord,
   AIStrategyResearchRunResponse,
+  AIStrategyResearchTaskResponse,
 } from '@/api/strategy'
 
 const { t } = useI18n()
@@ -784,6 +793,8 @@ const aiResearchRunning = ref(false)
 const aiResearchResult = ref<AIStrategyResearchRunResponse | null>(null)
 const aiResearchRunsLoading = ref(false)
 const aiResearchRuns = ref<AIStrategyResearchRunRecord[]>([])
+const aiResearchTaskId = ref('')
+const aiResearchTaskStatus = ref('')
 const aiResearchPaperStartingRunId = ref('')
 const aiResearchPaperReviewingRunId = ref('')
 const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingReview>>({})
@@ -1063,6 +1074,84 @@ async function continueResearchFromPaperReview(record: AIStrategyResearchRunReco
   await runAIResearchLoop()
 }
 
+function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResearchRunRequest {
+  return {
+    prompt,
+    symbol,
+    symbol_name: aiResearchForm.symbol_name.trim(),
+    timeframe: aiResearchForm.timeframe,
+    timeframe_n: aiResearchForm.timeframe_n,
+    start_date: aiResearchForm.start_date || null,
+    end_date: aiResearchForm.end_date || null,
+    target_sharpe: aiResearchForm.target_sharpe,
+    min_total_trades: aiResearchForm.min_total_trades,
+    max_drawdown_limit: enabledQualityGate(
+      aiResearchForm.use_max_drawdown_limit,
+      aiResearchForm.max_drawdown_limit
+    ),
+    min_total_return: enabledQualityGate(
+      aiResearchForm.use_min_total_return,
+      aiResearchForm.min_total_return
+    ),
+    min_annual_return: enabledQualityGate(
+      aiResearchForm.use_min_annual_return,
+      aiResearchForm.min_annual_return
+    ),
+    min_win_rate: enabledQualityGate(
+      aiResearchForm.use_min_win_rate,
+      aiResearchForm.min_win_rate
+    ),
+    max_iterations: aiResearchForm.max_iterations,
+    initial_cash: aiResearchForm.initial_cash,
+    commission: aiResearchForm.commission,
+    research_workspace_id: aiResearchForm.research_workspace_id || null,
+    seed_strategy_id: aiResearchForm.seed_strategy_id || null,
+    continue_from_run_id: aiResearchForm.continue_from_run_id || null,
+    start_paper_trading: aiResearchForm.start_paper_trading,
+  }
+}
+
+function isAIResearchTaskTerminal(task: AIStrategyResearchTaskResponse) {
+  return ['completed', 'failed', 'cancelled'].includes(String(task.status || '').toLowerCase())
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+async function runAIResearchRequest(
+  payload: AIStrategyResearchRunRequest
+): Promise<AIStrategyResearchRunResponse> {
+  const apiWithTasks = strategyApi as typeof strategyApi & {
+    submitAIResearchTask?: typeof strategyApi.submitAIResearchTask
+    getAIResearchTask?: typeof strategyApi.getAIResearchTask
+  }
+  if (
+    typeof apiWithTasks.submitAIResearchTask !== 'function'
+    || typeof apiWithTasks.getAIResearchTask !== 'function'
+  ) {
+    return strategyApi.runAIResearchLoop(payload)
+  }
+
+  let task = await apiWithTasks.submitAIResearchTask(payload)
+  aiResearchTaskId.value = task.task_id
+  aiResearchTaskStatus.value = task.status
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    if (task.status === 'completed' && task.result) {
+      return task.result
+    }
+    if (isAIResearchTaskTerminal(task)) {
+      throw new Error(task.error || task.message || 'AI research task failed')
+    }
+    task = await apiWithTasks.getAIResearchTask(task.task_id)
+    aiResearchTaskStatus.value = task.status
+    if (!isAIResearchTaskTerminal(task)) {
+      await sleep(1500)
+    }
+  }
+  throw new Error('AI research task polling timed out')
+}
+
 async function runAIResearchLoop() {
   const prompt = aiResearchForm.prompt.trim()
   const symbol = aiResearchForm.symbol.trim()
@@ -1076,41 +1165,10 @@ async function runAIResearchLoop() {
   }
 
   aiResearchRunning.value = true
+  aiResearchTaskId.value = ''
+  aiResearchTaskStatus.value = ''
   try {
-    aiResearchResult.value = await strategyApi.runAIResearchLoop({
-      prompt,
-      symbol,
-      symbol_name: aiResearchForm.symbol_name.trim(),
-      timeframe: aiResearchForm.timeframe,
-      timeframe_n: aiResearchForm.timeframe_n,
-      start_date: aiResearchForm.start_date || null,
-      end_date: aiResearchForm.end_date || null,
-      target_sharpe: aiResearchForm.target_sharpe,
-      min_total_trades: aiResearchForm.min_total_trades,
-      max_drawdown_limit: enabledQualityGate(
-        aiResearchForm.use_max_drawdown_limit,
-        aiResearchForm.max_drawdown_limit
-      ),
-      min_total_return: enabledQualityGate(
-        aiResearchForm.use_min_total_return,
-        aiResearchForm.min_total_return
-      ),
-      min_annual_return: enabledQualityGate(
-        aiResearchForm.use_min_annual_return,
-        aiResearchForm.min_annual_return
-      ),
-      min_win_rate: enabledQualityGate(
-        aiResearchForm.use_min_win_rate,
-        aiResearchForm.min_win_rate
-      ),
-      max_iterations: aiResearchForm.max_iterations,
-      initial_cash: aiResearchForm.initial_cash,
-      commission: aiResearchForm.commission,
-      research_workspace_id: aiResearchForm.research_workspace_id || null,
-      seed_strategy_id: aiResearchForm.seed_strategy_id || null,
-      continue_from_run_id: aiResearchForm.continue_from_run_id || null,
-      start_paper_trading: aiResearchForm.start_paper_trading,
-    })
+    aiResearchResult.value = await runAIResearchRequest(buildAIResearchRequest(prompt, symbol))
     if (aiResearchResult.value.run_record) {
       upsertAIResearchRunRecord(aiResearchResult.value.run_record)
     } else {

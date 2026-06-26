@@ -241,3 +241,17 @@ class AIStrategyResearchRunResponse(BaseModel):
     run_record: AIStrategyResearchRunRecord | None = None
     next_actions: list[str] = Field(default_factory=list)
     message: str
+
+
+class AIStrategyResearchTaskResponse(BaseModel):
+    """Async task state for a long-running AI research loop."""
+
+    task_id: str
+    status: str
+    submitted_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    run_id: str | None = None
+    error: str | None = None
+    message: str = ""
+    result: AIStrategyResearchRunResponse | None = None

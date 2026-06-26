@@ -476,6 +476,47 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
   })
 
+  it('runs AI research through async task polling when task API is available', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    ;(strategyApi as any).submitAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'research-task-1',
+      status: 'running',
+      submitted_at: '2026-06-27T00:00:00Z',
+      message: 'submitted',
+    })
+    ;(strategyApi as any).getAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'research-task-1',
+      status: 'completed',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      run_id: 'run-1',
+      message: 'done',
+      result: baseResult,
+    })
+    try {
+      const wrapper = doMount()
+      const vm = wrapper.vm as any
+      vm.aiResearchForm.prompt = '生成一个趋势策略'
+      vm.aiResearchForm.symbol = '000001.SZ'
+      await vm.runAIResearchLoop()
+
+      expect((strategyApi as any).submitAIResearchTask).toHaveBeenCalledWith(expect.objectContaining({
+        prompt: '生成一个趋势策略',
+        symbol: '000001.SZ',
+      }))
+      expect((strategyApi as any).getAIResearchTask).toHaveBeenCalledWith('research-task-1')
+      expect(strategyApi.runAIResearchLoop).not.toHaveBeenCalled()
+      expect(vm.aiResearchTaskId).toBe('research-task-1')
+      expect(vm.aiResearchTaskStatus).toBe('completed')
+      expect(vm.aiResearchResult.achieved).toBe(true)
+    } finally {
+      delete (strategyApi as any).submitAIResearchTask
+      delete (strategyApi as any).getAIResearchTask
+    }
+  })
+
   it('uses AI research run history to refill the form', () => {
     const vm = doMount().vm as any
     vm.useAIResearchRecord({

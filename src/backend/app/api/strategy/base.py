@@ -15,6 +15,7 @@ from app.schemas.ai_strategy_research import (
     AIStrategyResearchRunListResponse,
     AIStrategyResearchRunRequest,
     AIStrategyResearchRunResponse,
+    AIStrategyResearchTaskResponse,
 )
 from app.schemas.strategy import (
     StrategyCopilotBacktestRequest,
@@ -29,6 +30,10 @@ from app.schemas.strategy import (
     StrategyUpdate,
 )
 from app.services.ai_strategy_research_service import AIStrategyResearchService
+from app.services.ai_strategy_research_task_manager import (
+    AIStrategyResearchTaskManager,
+    get_ai_strategy_research_task_manager,
+)
 from app.services.strategy_service import (
     StrategyService,
     get_strategy_dir,
@@ -50,6 +55,11 @@ def get_strategy_service():
 @lru_cache
 def get_ai_strategy_research_service():
     return AIStrategyResearchService()
+
+
+@lru_cache
+def get_ai_strategy_research_tasks():
+    return get_ai_strategy_research_task_manager()
 
 
 @router.post("/", response_model=StrategyResponse, summary="Create strategy")
@@ -237,6 +247,42 @@ async def run_ai_strategy_research_loop(
         return await service.run(current_user.sub, data)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.post(
+    "/ai-research/tasks",
+    response_model=AIStrategyResearchTaskResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Submit AI strategy research loop task",
+)
+async def submit_ai_strategy_research_task(
+    data: AIStrategyResearchRunRequest,
+    current_user=Depends(get_current_user),
+    service: AIStrategyResearchService = Depends(get_ai_strategy_research_service),
+    task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+):
+    """Submit a long-running AI research loop and poll it by task id."""
+    try:
+        return await task_manager.submit(current_user.sub, data, service=service)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.get(
+    "/ai-research/tasks/{task_id}",
+    response_model=AIStrategyResearchTaskResponse,
+    summary="Get AI strategy research task status",
+)
+async def get_ai_strategy_research_task(
+    task_id: str,
+    current_user=Depends(get_current_user),
+    task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+):
+    """Return task status and result when the AI research loop has finished."""
+    task = await task_manager.get_task(current_user.sub, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="AI research task not found")
+    return task
 
 
 @router.get(

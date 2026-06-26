@@ -296,6 +296,18 @@ export interface AIStrategyResearchRunResponse {
   message: string
 }
 
+export interface AIStrategyResearchTaskResponse {
+  task_id: string
+  status: string
+  submitted_at: string
+  started_at?: string | null
+  completed_at?: string | null
+  run_id?: string | null
+  error?: string | null
+  message: string
+  result?: AIStrategyResearchRunResponse | null
+}
+
 export interface AIStrategyPaperTradingReview {
   run_id: string
   research_workspace_id: string
@@ -493,6 +505,19 @@ export const strategyApi = {
       '/strategy/ai-research/run',
       data
     )
+  },
+
+  async submitAIResearchTask(
+    data: AIStrategyResearchRunRequest
+  ): Promise<AIStrategyResearchTaskResponse> {
+    return api.post<AIStrategyResearchTaskResponse, AIStrategyResearchRunRequest>(
+      '/strategy/ai-research/tasks',
+      data
+    )
+  },
+
+  async getAIResearchTask(taskId: string): Promise<AIStrategyResearchTaskResponse> {
+    return api.get<AIStrategyResearchTaskResponse>(`/strategy/ai-research/tasks/${taskId}`)
   },
 
   async listAIResearchRuns(

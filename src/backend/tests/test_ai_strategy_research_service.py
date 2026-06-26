@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from typing import Any
@@ -7,7 +8,7 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
-from app.api.strategy.base import get_ai_strategy_research_service
+from app.api.strategy.base import get_ai_strategy_research_service, get_ai_strategy_research_tasks
 from app.main import app
 from app.schemas.ai_strategy_research import (
     AIStrategyPaperTradingReview,
@@ -35,6 +36,7 @@ from app.services.ai_strategy_research_service import (
     AIStrategyResearchService,
     LocalStrategyImprover,
 )
+from app.services.ai_strategy_research_task_manager import AIStrategyResearchTaskManager
 from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
 from app.services.strategy.core import _runtime_metadata_from_copilot_request
 
@@ -1511,6 +1513,32 @@ class FakeResearchAPIService:
 
 
 @pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
+    manager = AIStrategyResearchTaskManager()
+
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="000001.SZ"),
+        service=FakeResearchAPIService(),
+    )
+
+    assert submitted.status == "pending"
+    task = None
+    for _ in range(20):
+        task = await manager.get_task("user-1", submitted.task_id)
+        if task is not None and task.status == "completed":
+            break
+        await asyncio.sleep(0.01)
+
+    assert task is not None
+    assert task.status == "completed"
+    assert task.run_id == "api-run"
+    assert task.result is not None
+    assert task.result.achieved is True
+    assert await manager.get_task("other-user", submitted.task_id) is None
+
+
+@pytest.mark.asyncio
 async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_headers: dict):
     app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
     try:
@@ -1534,6 +1562,49 @@ async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_heade
     assert payload["research_workspace"]["id"] == "research-api-ws"
     assert payload["iterations"][0]["sharpe_ratio"] == 1.05
     assert payload["next_actions"] == []
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_api_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    task_manager = AIStrategyResearchTaskManager()
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/tasks",
+            headers=auth_headers,
+            json={
+                "prompt": "生成一个均线策略并优化到夏普率 1.0",
+                "symbol": "000001.SZ",
+                "target_sharpe": 1.0,
+                "max_iterations": 2,
+            },
+        )
+        assert response.status_code == 202
+        task_id = response.json()["task_id"]
+        payload = None
+        for _ in range(20):
+            status_response = await client.get(
+                f"/api/v1/strategy/ai-research/tasks/{task_id}",
+                headers=auth_headers,
+            )
+            assert status_response.status_code == 200
+            payload = status_response.json()
+            if payload["status"] == "completed":
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
+
+    assert payload is not None
+    assert payload["status"] == "completed"
+    assert payload["run_id"] == "api-run"
+    assert payload["result"]["achieved"] is True
+    assert payload["result"]["research_workspace"]["id"] == "research-api-ws"
 
 
 @pytest.mark.asyncio
