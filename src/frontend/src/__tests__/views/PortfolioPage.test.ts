@@ -163,6 +163,7 @@ vi.mock('@/api/workspace', () => ({
           margin_value: 720,
           multiplier: 10,
           margin_rate: 0.1,
+          leverage: 10,
           commission: 3.5,
           gross_pnl: 203.5,
           position_source: 'gateway',
@@ -253,6 +254,7 @@ describe('PortfolioPage', () => {
     expect(vm.positions[0].long_position).toBe(2)
     expect(vm.positions[0].latest_price).toBe(3600)
     expect(vm.positions[0].margin_value).toBe(720)
+    expect(vm.positions[0].leverage).toBe(10)
     expect(vm.positions[0].commission).toBe(3.5)
     expect(vm.positions[0].position_source).toBe('gateway')
     expect(vm.positions[0].asset_spec_source).toBe('ctp_gateway')
@@ -299,6 +301,7 @@ describe('PortfolioPage', () => {
           margin_value: 120_240,
           multiplier: 300,
           margin_rate: 0.12,
+          leverage: 8.33333333,
           commission: 10,
           gross_pnl: 130,
           position_source: 'gateway',

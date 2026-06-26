@@ -48,6 +48,7 @@ export interface PositionItem {
   commission?: number
   multiplier?: number
   margin_rate?: number
+  leverage?: number
   margin_value?: number
   direction: string
   long_position?: number

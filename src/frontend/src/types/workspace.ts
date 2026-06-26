@@ -95,6 +95,7 @@ export interface TradingPosition {
   margin_value?: number | null
   multiplier?: number | null
   margin_rate?: number | null
+  leverage?: number | null
   commission?: number | null
   gross_pnl?: number | null
   pnl: number | null
@@ -192,6 +193,7 @@ export interface TradingPositionManagerItem {
   margin_value?: number | null
   multiplier?: number | null
   margin_rate?: number | null
+  leverage?: number | null
   commission?: number | null
   gross_pnl?: number | null
   updated_at?: string | null

@@ -3418,6 +3418,76 @@ async def test_build_positions_response_exposes_valuation_metadata(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_build_positions_response_revalues_stale_local_snapshot_with_unit_asset_spec(
+    monkeypatch,
+):
+    service = TradingWorkspaceService()
+    unit = SimpleNamespace(
+        id="unit-ctp-stale",
+        strategy_name="CTP Unit",
+        strategy_id="simulate/gateway_dual_ma",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        trading_mode="live",
+        unit_settings={},
+        params={
+            "contract_metadata": {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                    "source": "runtime_asset_spec",
+                }
+            }
+        },
+        data_config={},
+        gateway_config={},
+        trading_snapshot={
+            "positions": [
+                {
+                    "data_name": "IF2609",
+                    "direction": "long",
+                    "size": 1,
+                    "price": 5000.0,
+                    "current_price": 5001.0,
+                    "market_value": 5001.0,
+                    "position_pnl": 1.0,
+                    "position_source": "snapshot",
+                    "updated_at": "2026-06-25 09:00:00",
+                }
+            ],
+            "position_source": "snapshot",
+            "long_position": 1.0,
+            "short_position": 0.0,
+            "position_pnl": 1.0,
+            "long_market_value": 5001.0,
+            "short_market_value": 0.0,
+        },
+    )
+
+    async def fail_hydrate(_units, _user_id):
+        raise AssertionError("hydrate_units should not run when hydrate=False")
+
+    monkeypatch.setattr(service, "hydrate_units", fail_hydrate)
+
+    result = await service.build_positions_response([unit], "user-1", hydrate=False)
+    row = result.positions[0]
+
+    assert row.market_value == pytest.approx(1_500_300.0)
+    assert row.margin_value == pytest.approx(150_030.0)
+    assert row.multiplier == pytest.approx(300.0)
+    assert row.margin_rate == pytest.approx(0.1)
+    assert row.leverage == pytest.approx(10.0)
+    assert row.gross_pnl == pytest.approx(300.0)
+    assert row.commission == pytest.approx(34.5)
+    assert row.position_pnl == pytest.approx(265.5)
+    assert result.total_long_value == pytest.approx(1_500_300.0)
+    assert result.total_pnl == pytest.approx(265.5)
+    assert any("重新计算" in warning for warning in row.valuation_warnings)
+
+
+@pytest.mark.asyncio
 async def test_build_positions_response_values_raw_ctp_snapshot_aliases(monkeypatch):
     service = TradingWorkspaceService()
     unit = SimpleNamespace(
@@ -3633,6 +3703,108 @@ async def test_start_units_keeps_already_running_instance_running(tmp_path, monk
     assert unit.run_count == 7
     assert unit.trading_snapshot["instance_status"] == "running"
     assert stale_tick_log.read_text("utf-8") == "keep-running-log\n"
+
+
+@pytest.mark.asyncio
+async def test_start_units_syncs_runtime_contract_metadata_to_unit(tmp_path, monkeypatch):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir(parents=True)
+    unit = SimpleNamespace(
+        id="unit-1",
+        workspace_id="ws-1",
+        group_name="压测",
+        strategy_id="simulate/gateway_dual_ma",
+        strategy_name="CTP压测01",
+        symbol="IF2609",
+        symbol_name="沪深300",
+        timeframe="1m",
+        timeframe_n=1,
+        category="future",
+        data_config={},
+        unit_settings={},
+        params={},
+        optimization_config={},
+        gateway_config={
+            "params": {
+                "gateway": {
+                    "enabled": True,
+                    "provider": "ctp_gateway",
+                    "exchange_type": "CTP",
+                    "asset_type": "FUTURE",
+                    "account_id": "SIM001",
+                }
+            }
+        },
+        trading_mode="live",
+        lock_running=False,
+        lock_trading=False,
+        trading_instance_id=None,
+        run_status="idle",
+        run_count=0,
+        trading_snapshot={},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+    )
+
+    monkeypatch.setattr(
+        workspace_unit_runtime,
+        "sync_trading_unit_runtime",
+        lambda *_args, **_kwargs: runtime_dir,
+    )
+
+    class FakeManager:
+        def __init__(self):
+            self.instances = {}
+
+        def add_instance(self, strategy_id, params, user_id=None, runtime_dir=None):
+            instance = {
+                "id": "inst-asset",
+                "strategy_id": strategy_id,
+                "status": "stopped",
+                "params": dict(params or {}),
+                "runtime_dir": runtime_dir,
+                "log_dir": None,
+            }
+            self.instances["inst-asset"] = instance
+            return instance
+
+        def get_instance(self, instance_id, user_id=None):
+            return self.instances.get(instance_id)
+
+        async def start_instance(self, instance_id):
+            instance = self.instances[instance_id]
+            params = dict(instance.get("params") or {})
+            params["contract_metadata"] = {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                    "source": "gateway.get_symbol_info",
+                }
+            }
+            instance["params"] = params
+            instance["status"] = "running"
+            return instance
+
+        def remove_instance(self, *_args, **_kwargs):
+            raise AssertionError("remove_instance should not be called")
+
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: FakeManager(),
+    )
+
+    results = await TradingWorkspaceService().start_units([unit], user_id="user-1")
+
+    assert results[0]["status"] == "running"
+    metadata = unit.params["contract_metadata"]["IF2609"]
+    assert metadata["multiplier"] == 300
+    assert metadata["margin_rate"] == 0.1
+    assert metadata["commission_rate"] == 0.000023
+    assert metadata["source"] == "gateway.get_symbol_info"
 
 
 @pytest.mark.asyncio

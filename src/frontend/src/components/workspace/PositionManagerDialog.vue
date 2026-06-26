@@ -177,6 +177,15 @@
           </template>
         </el-table-column>
         <el-table-column
+          :label="t('workspaceDialogs.leverage')"
+          width="80"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatNumber(row.leverage, 2) }}
+          </template>
+        </el-table-column>
+        <el-table-column
           :label="t('workspaceDialogs.pmColCommission')"
           width="95"
           align="right"

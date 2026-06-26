@@ -1882,6 +1882,59 @@ async def test_portfolio_positions_use_contract_multiplier_and_commission():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_revalue_stale_snapshot_with_saved_asset_spec():
+    """Portfolio risk should not reuse stale local PnL when saved asset specs exist."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    mgr = _MockManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "contract_metadata": {
+                        "IF2609": {
+                            "symbol": "IF2609",
+                            "multiplier": 300,
+                            "margin_rate": 0.1,
+                            "commission_rate": 0.000023,
+                            "source": "runtime_asset_spec",
+                        }
+                    }
+                },
+            }
+        ]
+    )
+    mock_positions = [
+        {
+            "data_name": "IF2609",
+            "size": 1,
+            "price": 5000.0,
+            "current_price": 5001.0,
+            "market_value": 5001.0,
+            "position_pnl": 1.0,
+            "position_source": "snapshot",
+        },
+    ]
+
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", return_value="/fake/dir"),
+        patch("app.api.portfolio_api.find_latest_log_dir", return_value="/fake/logs"),
+        patch("app.api.portfolio_api.parse_current_position", return_value=mock_positions),
+    ):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["market_value"] == pytest.approx(1_500_300.0)
+    assert row["margin_value"] == pytest.approx(150_030.0)
+    assert row["leverage"] == pytest.approx(10.0)
+    assert row["gross_pnl"] == pytest.approx(300.0)
+    assert row["commission"] == pytest.approx(34.5)
+    assert row["position_pnl"] == pytest.approx(265.5)
+    assert result["summary"]["total_pnl"] == pytest.approx(265.5)
+    assert any("重新计算" in warning for warning in row["valuation_warnings"])
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_use_local_mt5_forex_contract_size_when_log_fallback(
     tmp_path,
 ):

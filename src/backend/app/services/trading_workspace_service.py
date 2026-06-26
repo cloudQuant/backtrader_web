@@ -78,6 +78,7 @@ _GROSS_PNL_FIELD_KEYS = (
     "unrealizedpnl",
     "unrealisedpnl",
     "floating_pnl",
+    "position_pnl",
     "profit",
     "upl",
     "up",
@@ -228,6 +229,13 @@ def _unique_number(values: list[Any]) -> float | None:
     if all(abs(item - first) <= EPSILON for item in numbers):
         return first
     return None
+
+
+def _leverage_from_margin_rate(value: Any) -> float | None:
+    margin_rate = _safe_float(value)
+    if margin_rate <= EPSILON:
+        return None
+    return round(1.0 / margin_rate, 8)
 
 
 def _append_unique(target: list[str], *values: Any) -> None:
@@ -664,6 +672,142 @@ class TradingWorkspaceService:
     def _has_any(row: dict[str, Any], *keys: str) -> bool:
         return any(row.get(key) not in (None, "") for key in keys)
 
+    @staticmethod
+    def _unit_contract_metadata(unit: StrategyUnit) -> dict[str, Any]:
+        params = _safe_dict(getattr(unit, "params", None))
+        metadata = params.get("contract_metadata")
+        return dict(metadata) if isinstance(metadata, dict) else {}
+
+    @classmethod
+    def _unit_has_asset_valuation_config(cls, unit: StrategyUnit) -> bool:
+        if cls._unit_contract_metadata(unit):
+            return True
+        for config in (
+            _safe_dict(getattr(unit, "unit_settings", None)),
+            _safe_dict(getattr(unit, "params", None)),
+            _safe_dict(getattr(unit, "data_config", None)),
+            _safe_dict(getattr(unit, "gateway_config", None)),
+        ):
+            if cls._has_any(
+                config,
+                "multiplier",
+                "mult",
+                "contract_multiplier",
+                "contract_size",
+                "trade_contract_size",
+                "margin",
+                "margin_rate",
+                "margin_ratio",
+                "leverage",
+                "lever",
+                "commission",
+                "commission_rate",
+                "open_commission_rate",
+                "close_commission_rate",
+                "taker_commission_rate",
+                "maker_commission_rate",
+                "commission_amount",
+            ):
+                return True
+        return False
+
+    @classmethod
+    def _sync_unit_contract_metadata_from_instance(
+        cls,
+        unit: StrategyUnit,
+        instance: dict[str, Any] | None,
+    ) -> bool:
+        instance_params = _safe_dict((instance or {}).get("params"))
+        instance_metadata = instance_params.get("contract_metadata")
+        if not isinstance(instance_metadata, dict) or not instance_metadata:
+            return False
+
+        params = _safe_dict(getattr(unit, "params", None))
+        current_metadata = (
+            dict(params.get("contract_metadata"))
+            if isinstance(params.get("contract_metadata"), dict)
+            else {}
+        )
+        changed = False
+        for key, value in instance_metadata.items():
+            if not isinstance(value, dict):
+                continue
+            normalized_key = str(key)
+            normalized_value = dict(value)
+            if current_metadata.get(normalized_key) != normalized_value:
+                current_metadata[normalized_key] = normalized_value
+                changed = True
+        if not changed:
+            return False
+        params["contract_metadata"] = current_metadata
+        unit.params = params
+        return True
+
+    @classmethod
+    def _position_row_should_recalculate_local_pnl(
+        cls,
+        row: dict[str, Any],
+        spec: Any,
+        *,
+        position_source: str,
+    ) -> bool:
+        if str(position_source or "").strip().lower() == "gateway":
+            return False
+        if cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS):
+            return False
+        if not (
+            getattr(spec, "has_multiplier", False)
+            or getattr(spec, "has_commission", False)
+            or getattr(spec, "has_margin_rate", False)
+            or getattr(spec, "has_margin_amount", False)
+        ):
+            return False
+        if not cls._has_any(
+            row,
+            "price",
+            "avg_price",
+            "average_price",
+            "price_open",
+            "avgCost",
+            "avgPrice",
+            "avgPx",
+            "entryPrice",
+            "Price",
+            "AveragePrice",
+        ):
+            return False
+        if not cls._has_any(
+            row,
+            *_CURRENT_PRICE_FIELD_KEYS,
+            "market_value",
+            "marketValue",
+            "positionValue",
+            "position_value",
+            "value",
+        ):
+            return False
+        return cls._has_any(row, *_GROSS_PNL_FIELD_KEYS, "pnl")
+
+    @classmethod
+    def _position_row_for_valuation(
+        cls,
+        row: dict[str, Any],
+        spec: Any,
+        *,
+        position_source: str,
+    ) -> dict[str, Any]:
+        item = dict(row)
+        if not cls._position_row_should_recalculate_local_pnl(
+            item,
+            spec,
+            position_source=position_source,
+        ):
+            return item
+        for key in (*_GROSS_PNL_FIELD_KEYS, "pnl"):
+            item.pop(key, None)
+        item["recalculated_position_pnl"] = True
+        return item
+
     @classmethod
     def _position_valuation_warnings(
         cls,
@@ -871,17 +1015,24 @@ class TradingWorkspaceService:
                 instance,
                 cls._asset_spec_config_for_row(_safe_dict(item)),
             )
-            valued = value_position(item, spec=spec)
-            if valued is None:
-                continue
             position_source = cls._position_source_for_row(item, fallback_position_source)
-            asset_spec_source = cls._asset_spec_source_for_row(item, spec)
-            row_warnings = cls._position_valuation_warnings(
-                unit,
-                item,
+            valuation_item = cls._position_row_for_valuation(
+                _safe_dict(item),
                 spec,
                 position_source=position_source,
             )
+            valued = value_position(valuation_item, spec=spec)
+            if valued is None:
+                continue
+            asset_spec_source = cls._asset_spec_source_for_row(item, spec)
+            row_warnings = cls._position_valuation_warnings(
+                unit,
+                valuation_item,
+                spec,
+                position_source=position_source,
+            )
+            if valuation_item.get("recalculated_position_pnl"):
+                row_warnings.append("本地/快照持仓盈亏已按最新资产乘数、保证金和手续费设置重新计算")
             _append_unique(valuation_warnings, row_warnings)
             position_sources.append(position_source)
             if asset_spec_source:
@@ -916,6 +1067,7 @@ class TradingWorkspaceService:
                     "margin_value": round(valued.margin_value, 2),
                     "multiplier": round(valued.multiplier, 8),
                     "margin_rate": round(valued.margin_rate, 8),
+                    "leverage": _leverage_from_margin_rate(valued.margin_rate),
                     "commission": round(valued.commission, 4),
                     "commission_signed": True,
                     "gross_pnl": round(valued.gross_pnl, 2),
@@ -1230,6 +1382,7 @@ class TradingWorkspaceService:
                         started = refreshed
                         already_running = True
 
+                self._sync_unit_contract_metadata_from_instance(unit, started)
                 unit.run_status = "running"
                 if not already_running:
                     unit.run_count = int(unit.run_count or 0) + 1
@@ -1414,6 +1567,36 @@ class TradingWorkspaceService:
         return cls._has_any(row, *_POSITION_RESPONSE_REVALUE_KEYS)
 
     @classmethod
+    def _position_row_needs_asset_spec_revaluation(
+        cls,
+        unit: StrategyUnit,
+        row: dict[str, Any],
+    ) -> bool:
+        if abs(_safe_float(row.get("size"))) <= EPSILON and not cls._has_any(
+            row, *_POSITION_SIZE_ALIAS_KEYS
+        ):
+            return False
+        if not cls._unit_has_asset_valuation_config(unit):
+            return False
+        if cls._has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS):
+            return False
+        if cls._has_any(row, *_GROSS_PNL_FIELD_KEYS, "pnl") and cls._has_any(
+            row,
+            "price",
+            "avg_price",
+            "average_price",
+            "price_open",
+            "avgCost",
+            "avgPrice",
+            "avgPx",
+            "entryPrice",
+            "Price",
+            "AveragePrice",
+        ):
+            return True
+        return not cls._has_any(row, "multiplier", "margin_rate", "margin_value")
+
+    @classmethod
     def _position_rows_for_response_valuation(
         cls,
         rows: list[dict[str, Any]],
@@ -1453,7 +1636,9 @@ class TradingWorkspaceService:
             position_rows = list(snapshot.get("positions") or [])
             raw_position_rows = [row for row in position_rows if isinstance(row, dict)]
             if raw_position_rows and any(
-                self._position_row_needs_response_valuation(row) for row in raw_position_rows
+                self._position_row_needs_response_valuation(row)
+                or self._position_row_needs_asset_spec_revaluation(unit, row)
+                for row in raw_position_rows
             ):
                 latest_price = self._apply_position_rows_to_snapshot(
                     snapshot,
@@ -1594,6 +1779,13 @@ class TradingWorkspaceService:
                     "margin_rate": _unique_number(
                         [
                             row.get("margin_rate")
+                            for row in active_position_rows
+                            if isinstance(row, dict)
+                        ]
+                    ),
+                    "leverage": _unique_number(
+                        [
+                            row.get("leverage") or _leverage_from_margin_rate(row.get("margin_rate"))
                             for row in active_position_rows
                             if isinstance(row, dict)
                         ]

@@ -78,10 +78,12 @@ _GROSS_PNL_FIELD_KEYS = (
     "unrealizedpnl",
     "unrealisedpnl",
     "floating_pnl",
+    "position_pnl",
     "profit",
     "upl",
     "up",
 )
+_EXPLICIT_NET_PNL_FIELD_KEYS = ("pnlcomm", "net_pnl", "netPnl", "netPNL")
 
 
 @dataclass
@@ -134,6 +136,13 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _leverage_from_margin_rate(value: Any) -> float | None:
+    margin_rate = _safe_float(value)
+    if margin_rate <= EPSILON:
+        return None
+    return round(1.0 / margin_rate, 8)
 
 
 def _safe_dict(value: Any) -> dict[str, Any]:
@@ -874,29 +883,107 @@ def _position_valuation_warnings(
     return warnings
 
 
+def _position_row_should_recalculate_local_pnl(
+    row: dict[str, Any],
+    spec: Any,
+    *,
+    position_source: str,
+) -> bool:
+    if str(position_source or "").strip().lower() == "gateway":
+        return False
+    if _has_any(row, *_EXPLICIT_NET_PNL_FIELD_KEYS):
+        return False
+    if not (
+        getattr(spec, "has_multiplier", False)
+        or getattr(spec, "has_commission", False)
+        or getattr(spec, "has_margin_rate", False)
+        or getattr(spec, "has_margin_amount", False)
+    ):
+        return False
+    if not _has_any(
+        row,
+        "price",
+        "avg_price",
+        "average_price",
+        "price_open",
+        "avgCost",
+        "avgPrice",
+        "avgPx",
+        "entryPrice",
+        "Price",
+        "AveragePrice",
+    ):
+        return False
+    if not _has_any(
+        row,
+        "current_price",
+        "latest_price",
+        "last_price",
+        "mark_price",
+        "markPrice",
+        "markPx",
+        "market_price",
+        "lastPrice",
+        "LastPrice",
+        "market_value",
+        "marketValue",
+        "positionValue",
+        "position_value",
+        "value",
+    ):
+        return False
+    return _has_any(row, *_GROSS_PNL_FIELD_KEYS, "pnl")
+
+
+def _position_row_for_valuation(
+    row: dict[str, Any],
+    spec: Any,
+    *,
+    position_source: str,
+) -> dict[str, Any]:
+    item = dict(row)
+    if not _position_row_should_recalculate_local_pnl(
+        item,
+        spec,
+        position_source=position_source,
+    ):
+        return item
+    for key in (*_GROSS_PNL_FIELD_KEYS, "pnl"):
+        item.pop(key, None)
+    item["recalculated_position_pnl"] = True
+    return item
+
+
 def _valued_source_positions(source: _PortfolioSource) -> list[dict[str, Any]]:
     positions: list[dict[str, Any]] = []
     for row in _source_positions(source):
         symbol = str(row.get("data_name") or row.get("symbol") or "")
         spec = contract_spec_for(symbol, row, source.snapshot or {}, *source.valuation_configs)
-        valued = value_position(row, spec=spec)
-        if valued is None:
-            continue
         position_source = str(
             row.get("position_source")
             or row.get("source")
             or source.position_source
             or "local"
         ).strip()
+        valuation_row = _position_row_for_valuation(
+            row,
+            spec,
+            position_source=position_source,
+        )
+        valued = value_position(valuation_row, spec=spec)
+        if valued is None:
+            continue
         asset_spec_source = str(
             row.get("asset_spec_source") or getattr(spec, "source", "") or ""
         ).strip()
         row_warnings = _position_valuation_warnings(
             source,
-            row,
+            valuation_row,
             spec,
             position_source=position_source,
         )
+        if valuation_row.get("recalculated_position_pnl"):
+            row_warnings.append("本地/快照持仓盈亏已按最新资产乘数、保证金和手续费设置重新计算")
         _append_unique(source.valuation_warnings, row_warnings)
         if asset_spec_source:
             source.asset_spec_source = _unique_text([source.asset_spec_source, asset_spec_source])
@@ -914,6 +1001,7 @@ def _valued_source_positions(source: _PortfolioSource) -> list[dict[str, Any]]:
                 "commission": valued.commission,
                 "multiplier": valued.multiplier,
                 "margin_rate": valued.margin_rate,
+                "leverage": _leverage_from_margin_rate(valued.margin_rate),
                 "margin_value": valued.margin_value,
                 "updated_at": _position_updated_at(row),
                 "data_time": _position_data_time(row),
@@ -1384,6 +1472,7 @@ async def get_portfolio_positions(
                     "commission": _safe_round(float(p.get("commission") or 0.0), 4),
                     "multiplier": _safe_round(float(p.get("multiplier") or 1.0), 8),
                     "margin_rate": _safe_round(float(p.get("margin_rate") or 0.0), 8),
+                    "leverage": p.get("leverage"),
                     "margin_value": _safe_round(float(p.get("margin_value") or 0.0)),
                     "updated_at": _position_updated_at(p),
                     "data_time": _position_data_time(p),

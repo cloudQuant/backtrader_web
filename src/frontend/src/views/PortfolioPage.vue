@@ -327,6 +327,15 @@
                 </template>
               </el-table-column>
               <el-table-column
+                :label="t('workspaceDialogs.leverage')"
+                width="80"
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ formatNumber(row.leverage, 2) }}
+                </template>
+              </el-table-column>
+              <el-table-column
                 :label="t('portfolio.colCommission')"
                 width="95"
                 align="right"
@@ -807,6 +816,7 @@ function mapWorkspacePosition(
     commission: item.commission == null ? undefined : Number(item.commission),
     multiplier: item.multiplier == null ? undefined : Number(item.multiplier),
     margin_rate: item.margin_rate == null ? undefined : Number(item.margin_rate),
+    leverage: item.leverage == null ? undefined : Number(item.leverage),
     direction,
     long_position: longPosition,
     short_position: shortPosition,

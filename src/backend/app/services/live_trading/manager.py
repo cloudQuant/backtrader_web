@@ -638,6 +638,7 @@ class LiveTradingManager:
 
         try:
             from app.services.trading_asset_info_service import (
+                persist_asset_specs,
                 query_gateway_asset_spec,
                 query_gateway_last_price,
                 resolve_asset_specs,
@@ -674,6 +675,44 @@ class LiveTradingManager:
                 )
             except Exception:
                 specs = {}
+            if specs:
+                try:
+                    persist_asset_specs(strategy_dir, instance, specs)
+                    with _instance_store_lock():
+                        latest = _load_instances()
+                        latest_instance = latest.get(str(instance_id))
+                        if isinstance(latest_instance, dict):
+                            params = (
+                                dict(latest_instance.get("params") or {})
+                                if isinstance(latest_instance.get("params"), dict)
+                                else {}
+                            )
+                            metadata = (
+                                dict(params.get("contract_metadata") or {})
+                                if isinstance(params.get("contract_metadata"), dict)
+                                else {}
+                            )
+                            instance_params = (
+                                instance.get("params")
+                                if isinstance(instance.get("params"), dict)
+                                else {}
+                            )
+                            resolved_metadata = instance_params.get("contract_metadata")
+                            if isinstance(resolved_metadata, dict):
+                                for key, value in resolved_metadata.items():
+                                    if isinstance(value, dict):
+                                        metadata[str(key)] = dict(value)
+                            if metadata:
+                                params["contract_metadata"] = metadata
+                                latest_instance["params"] = params
+                                latest[str(instance_id)] = latest_instance
+                                _save_instances(latest)
+                except Exception:
+                    logger.debug(
+                        "Failed to persist queried asset specs for instance %s",
+                        instance_id,
+                        exc_info=True,
+                    )
 
         if specs or not gateway:
             return specs
