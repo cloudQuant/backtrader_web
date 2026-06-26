@@ -1232,6 +1232,78 @@ class TestDirectOrderServicePaperTrade:
         assert mock_paper_service.submit_order.await_args.kwargs["symbol"] == "BTCUSDT"
 
     @pytest.mark.asyncio
+    async def test_close_position_rejects_hedged_symbol_without_requested_side(self):
+        """Paper close should match live close ambiguity checks for hedged symbols."""
+        service = DirectOrderService()
+        intent = TradingIntent(
+            action=TradeAction.CLOSE,
+            symbol="BTCUSDT",
+            confidence=0.9,
+        )
+
+        long_position = SimpleNamespace(symbol="BTCUSDT", size=0.25, position_side="long")
+        short_position = SimpleNamespace(symbol="BTCUSDT", size=-0.2, position_side="short")
+
+        mock_paper_service = AsyncMock()
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
+        mock_paper_service.list_positions = AsyncMock(
+            return_value=([long_position, short_position], 2)
+        )
+        mock_paper_service.submit_order = AsyncMock()
+
+        with patch(
+            "app.services.paper_trading_service.PaperTradingService",
+            return_value=mock_paper_service,
+        ):
+            result = await service.execute_paper_trade(intent, user_id="user1")
+
+        assert result["success"] is False
+        assert result["error"] == "ambiguous_position"
+        assert "请指定合约或方向" in result["message"]
+        mock_paper_service.submit_order.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_close_position_uses_explicit_position_side_for_hedged_symbol(self):
+        """Paper close-short intents should close only the short leg."""
+        service = DirectOrderService()
+        intent = TradingIntent(
+            action=TradeAction.CLOSE,
+            symbol="BTCUSDT",
+            quantity=0.1,
+            confidence=0.9,
+            additional_params={"position_side": "short"},
+        )
+
+        long_position = SimpleNamespace(symbol="BTCUSDT", size=0.25, position_side="long")
+        short_position = SimpleNamespace(symbol="BTCUSDT", size=-0.2, position_side="short")
+        mock_order = SimpleNamespace(id="close_short")
+
+        mock_paper_service = AsyncMock()
+        mock_paper_service.list_accounts = AsyncMock(return_value=([MagicMock(id="acc1")], 1))
+        mock_paper_service.list_positions = AsyncMock(
+            return_value=([long_position, short_position], 2)
+        )
+        mock_paper_service.submit_order = AsyncMock(return_value=mock_order)
+
+        with patch(
+            "app.services.paper_trading_service.PaperTradingService",
+            return_value=mock_paper_service,
+        ):
+            result = await service.execute_paper_trade(intent, user_id="user1")
+
+        assert result["success"] is True
+        assert result["symbol"] == "BTCUSDT"
+        assert result["side"] == "buy"
+        assert result["size"] == pytest.approx(0.1)
+        assert mock_paper_service.submit_order.await_args.kwargs == {
+            "account_id": "acc1",
+            "symbol": "BTCUSDT",
+            "order_type": "market",
+            "side": "buy",
+            "size": 0.1,
+        }
+
+    @pytest.mark.asyncio
     async def test_close_position_not_found(self):
         """Close position fails when no matching position exists."""
         service = DirectOrderService()

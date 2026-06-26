@@ -1751,20 +1751,21 @@ class DirectOrderService:
                 limit=50,
                 offset=0,
             )
-            target = None
-            requested = self._symbol_candidates(intent.symbol)
             desired_direction = self._desired_close_direction(intent)
-            for p in positions:
-                position_symbol = getattr(p, "symbol", "")
-                if requested and requested & self._symbol_candidates(position_symbol):
-                    size = float(getattr(p, "size", 0.0) or 0.0)
-                    direction = "short" if size < 0 else "long"
-                    if desired_direction and direction != desired_direction:
-                        continue
-                    target = p
-                    break
+            position_rows = [self._paper_position_row(p) for p in positions]
+            matches, select_error = self._matching_close_positions(
+                position_rows,
+                intent.symbol,
+                desired_direction=desired_direction,
+            )
 
-            if not target:
+            if not matches:
+                if select_error == "ambiguous_position":
+                    return {
+                        "success": False,
+                        "error": "ambiguous_position",
+                        "message": f"{intent.symbol or '当前账户'} 存在多个可平持仓，请指定合约或方向",
+                    }
                 return {
                     "success": False,
                     "error": "no_position",
@@ -1772,9 +1773,11 @@ class DirectOrderService:
                 }
 
             # Submit counter-order to close
-            side = "sell" if target.size > 0 else "buy"
+            target_row = matches[0]
+            target = target_row["_paper_position"]
+            side = "sell" if self._position_direction(target_row) == "long" else "buy"
             try:
-                size = self._requested_close_size(intent, abs(target.size))
+                size = self._requested_close_size(intent, abs(self._position_size(target_row)))
                 size = self._normalise_order_size(size)
             except ValueError as e:
                 return {"success": False, "error": "invalid_order", "message": str(e)}
@@ -1798,6 +1801,26 @@ class DirectOrderService:
             }
         except Exception as e:
             return {"success": False, "error": str(e), "message": f"平仓失败: {e}"}
+
+    @classmethod
+    def _paper_position_row(cls, position: Any) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "_paper_position": position,
+            "symbol": getattr(position, "symbol", ""),
+            "size": getattr(position, "size", 0.0),
+        }
+        for field in (
+            "direction",
+            "side",
+            "position_side",
+            "positionSide",
+            "posSide",
+            "position_direction",
+        ):
+            value = getattr(position, field, None)
+            if isinstance(value, (str, int, float)) and value not in (None, ""):
+                row[field] = value
+        return row
 
     @staticmethod
     def _map_order_type(order_type: OrderType) -> str:
