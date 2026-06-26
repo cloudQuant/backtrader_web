@@ -436,6 +436,23 @@
                   复核模拟
                 </el-button>
                 <el-button
+                  v-if="canContinueResearchFromCurrentRunRecord"
+                  size="small"
+                  type="warning"
+                  plain
+                  :loading="aiResearchRunning && aiResearchForm.continue_from_run_id === aiResearchResult.run_id"
+                  data-test="ai-research-current-continue-run"
+                  @click="continueResearchFromCurrentRunRecord"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <MagicStick />
+                  </el-icon>
+                  继续投研
+                </el-button>
+                <el-button
                   v-if="canContinueResearchFromCurrentPaperIssue && !aiResearchCurrentPaperReview"
                   size="small"
                   type="warning"
@@ -800,6 +817,23 @@
                       <Link />
                     </el-icon>
                     查看脚本
+                  </el-button>
+                  <el-button
+                    v-if="canContinueResearchFromRunRecord(record)"
+                    size="small"
+                    type="warning"
+                    plain
+                    :loading="aiResearchRunning && aiResearchForm.continue_from_run_id === record.run_id"
+                    data-test="ai-research-history-continue-run"
+                    @click="continueResearchFromRecord(record)"
+                  >
+                    <el-icon
+                      class="mr-1"
+                      aria-hidden="true"
+                    >
+                      <MagicStick />
+                    </el-icon>
+                    继续投研
                   </el-button>
                   <el-button
                     v-if="canContinueResearchFromPaperReview(record)"
@@ -1232,6 +1266,7 @@ const aiResearchContinuationEnabled = computed(() =>
 const aiResearchContinuationLabel = computed(() => {
   if (aiResearchForm.continuation_source === 'paper_review') return '从模拟复核反馈继续'
   if (aiResearchForm.continuation_source === 'paper_trading_failed') return '从模拟启动失败继续'
+  if (aiResearchForm.continuation_source === 'research_failure') return '从未达标结果继续'
   return '从历史最佳策略继续'
 })
 const canCancelAIResearchTask = computed(() =>
@@ -1254,6 +1289,10 @@ const canContinueResearchFromCurrentPaperReview = computed(() => {
 const canContinueResearchFromCurrentPaperIssue = computed(() => {
   const record = aiResearchResult.value?.run_record
   return Boolean(record && canContinueResearchFromPaperIssue(record))
+})
+const canContinueResearchFromCurrentRunRecord = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return Boolean(record && canContinueResearchFromRunRecord(record))
 })
 const aiResearchCurrentPaperReview = computed(() => {
   const result = aiResearchResult.value
@@ -1593,10 +1632,15 @@ function canContinueResearchFromPaperReview(record: AIStrategyResearchRunRecord)
 }
 
 function canContinueResearchFromPaperIssue(record: AIStrategyResearchRunRecord) {
+  const source = continuationSourceForRecord(record)
   return Boolean(
     record.best_strategy_id &&
-    continuationSourceForRecord(record)
+    (source === 'paper_review' || source === 'paper_trading_failed')
   )
+}
+
+function canContinueResearchFromRunRecord(record: AIStrategyResearchRunRecord) {
+  return Boolean(record.best_strategy_id && !record.achieved && record.iteration_count > 0)
 }
 
 function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
@@ -1604,6 +1648,7 @@ function continuationSourceForRecord(record: AIStrategyResearchRunRecord) {
     return 'paper_review'
   }
   if (isPaperTradingStartFailure(record)) return 'paper_trading_failed'
+  if (canContinueResearchFromRunRecord(record)) return 'research_failure'
   return ''
 }
 
@@ -1778,10 +1823,20 @@ async function reviewPaperFromCurrentResult() {
 async function continueResearchFromCurrentPaperReview() {
   const record = aiResearchResult.value?.run_record
   if (!record) return
-  await continueResearchFromPaperReview(record)
+  await continueResearchFromRecord(record)
+}
+
+async function continueResearchFromCurrentRunRecord() {
+  const record = aiResearchResult.value?.run_record
+  if (!record) return
+  await continueResearchFromRecord(record)
 }
 
 async function continueResearchFromPaperReview(record: AIStrategyResearchRunRecord) {
+  await continueResearchFromRecord(record)
+}
+
+async function continueResearchFromRecord(record: AIStrategyResearchRunRecord) {
   useAIResearchRecord(record)
   await runAIResearchLoop()
 }

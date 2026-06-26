@@ -1417,6 +1417,88 @@ async def test_research_loop_can_continue_from_previous_run_best_strategy():
 
 
 @pytest.mark.asyncio
+async def test_research_loop_continuation_improves_failed_research_before_backtest():
+    workspace_service = FakeWorkspaceService()
+    previous_record = {
+        **_run_record(
+            "failed-research-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "status": "max_iterations_reached",
+        "achieved": False,
+        "best_iteration": 2,
+        "best_sharpe": 0.72,
+        "best_metrics": {"sharpe_ratio": 0.72, "total_trades": 4, "max_drawdown": -12.0},
+        "next_actions": ["下一轮改稿应直接针对：Sharpe 0.720 below target 1.000"],
+        "iterations": [
+            {
+                "iteration": 2,
+                "strategy_id": "strategy-2",
+                "strategy_name": "历史未达标策略",
+                "unit_id": "unit-2",
+                "task_id": "task-2",
+                "run_status": "completed",
+                "metrics": {"sharpe_ratio": 0.72, "total_trades": 4, "max_drawdown": -12.0},
+                "sharpe_ratio": 0.72,
+                "total_trades": 4,
+                "quality_score": 72.0,
+                "quality_gate_evaluations": [],
+                "passed": False,
+                "failure_reason": "Sharpe 0.720 below target 1.000",
+                "quality_gate_failures": ["Sharpe 0.720 below target 1.000"],
+                "improvement_plan": ["减少低质量入场，增加趋势/波动过滤。"],
+                "improvement_notes": [],
+                "next_actions": [],
+            }
+        ],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [previous_record]}}}
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "历史未达标策略"}
+    )
+    seed_strategy = _strategy("strategy-2", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.12, "total_trades": 6, "max_drawdown": -6.0}],
+        strategies={"strategy-2": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续上一轮未达标投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="failed-research-run",
+            start_paper_trading=False,
+            out_of_sample_validation=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name == "历史未达标策略 v1"
+    assert "基于上一轮投研未达标原因" in result.iterations[0].improvement_notes[0]
+    assert any(
+        "Sharpe 0.720 below target 1.000" in note
+        for note in result.iterations[0].improvement_notes
+    )
+    assert result.run_record is not None
+    assert result.run_record.continued_from_run_id == "failed-research-run"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_continuation_uses_failed_paper_review_before_backtest():
     workspace_service = FakeWorkspaceService()
     record = {

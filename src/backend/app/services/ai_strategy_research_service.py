@@ -369,11 +369,12 @@ class AIStrategyResearchService:
             )
             draft = _normalize_research_draft(improvement.draft, request)
             continuation_source = str(request.continuation_context.get("source") or "")
-            continuation_note = (
-                "基于上一轮模拟交易启动失败原因生成 continuation 改进版。"
-                if continuation_source == "paper_trading_failed"
-                else "基于上一轮模拟交易复核结果生成 continuation 改进版。"
-            )
+            if continuation_source == "paper_trading_failed":
+                continuation_note = "基于上一轮模拟交易启动失败原因生成 continuation 改进版。"
+            elif continuation_source == "research_failure":
+                continuation_note = "基于上一轮投研未达标原因生成 continuation 改进版。"
+            else:
+                continuation_note = "基于上一轮模拟交易复核结果生成 continuation 改进版。"
             pending_improvement_notes = [
                 continuation_note,
                 *improvement.notes,
@@ -2547,7 +2548,7 @@ def _continuation_context_from_record(
     if not failed_evaluations and record.paper_review_status != "needs_research_review":
         paper_trading_error = _paper_trading_start_failure_from_record(record)
         if not paper_trading_error:
-            return {}
+            return _research_failure_context_from_record(record)
         failure = "模拟交易启动失败"
         if paper_trading_error:
             failure = f"{failure}：{paper_trading_error}"
@@ -2580,6 +2581,50 @@ def _continuation_context_from_record(
         "paper_review_evaluations": failed_evaluations,
         "paper_review_next_actions": list(record.paper_review_next_actions or []),
         "metrics": metrics,
+    }
+
+
+def _research_failure_context_from_record(
+    record: AIStrategyResearchRunRecord,
+) -> dict[str, Any]:
+    if record.achieved:
+        return {}
+    payload = _best_iteration_payload(record)
+    if not payload:
+        return {}
+
+    failures = [
+        str(item).strip()
+        for item in [
+            *list(payload.get("quality_gate_failures") or []),
+            *list(payload.get("validation_failures") or []),
+        ]
+        if str(item or "").strip()
+    ]
+    failure_reason = str(payload.get("failure_reason") or "").strip()
+    validation_failure_reason = str(payload.get("validation_failure_reason") or "").strip()
+    for reason in (failure_reason, validation_failure_reason):
+        if reason and reason not in failures:
+            failures.append(reason)
+    if not failures:
+        status = str(record.status or "not achieved").strip()
+        failures.append(f"Previous research run finished without achieving target: {status}")
+
+    metrics = dict(record.best_metrics or {})
+    metrics.update(dict(payload.get("metrics") or {}))
+    validation_metrics = dict(payload.get("validation_metrics") or {})
+    for key, value in validation_metrics.items():
+        metrics[f"validation_{key}"] = value
+
+    return {
+        "source": "research_failure",
+        "run_id": record.run_id,
+        "iteration": payload.get("iteration"),
+        "quality_gate_failures": failures,
+        "metrics": metrics,
+        "diagnostics": dict(payload.get("diagnostics") or {}),
+        "improvement_plan": list(payload.get("improvement_plan") or []),
+        "next_actions": list(record.next_actions or []),
     }
 
 

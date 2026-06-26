@@ -956,7 +956,7 @@ describe('StrategyPage', () => {
     const { strategyApi } = await import('@/api/strategy')
     const wrapper = doMount()
     const vm = wrapper.vm as any
-    vm.useAIResearchRecord({
+    const record = {
       run_id: 'history-run',
       prompt: '历史趋势策略',
       symbol: '600000.SH',
@@ -985,11 +985,17 @@ describe('StrategyPage', () => {
       started_at: '2026-06-27T00:00:00Z',
       completed_at: '2026-06-27T00:01:00Z',
       iterations: [],
-    })
+    }
+    vm.aiResearchRuns = [record]
+    vm.aiResearchRunsLoading = false
 
     await wrapper.vm.$nextTick()
-    expect(wrapper.text()).toContain('从历史最佳策略继续')
-    await vm.runAIResearchLoop()
+    expect(vm.canContinueResearchFromRunRecord(record)).toBe(true)
+    const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续投研'))
+    expect(continueButton).toBeTruthy()
+    await continueButton!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('从未达标结果继续')
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '历史趋势策略',
       symbol: '600000.SH',
