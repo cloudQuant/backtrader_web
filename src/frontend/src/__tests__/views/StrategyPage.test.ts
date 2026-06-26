@@ -957,6 +957,7 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
       'needs_research_review'
     )
+    expect(vm.aiResearchResult.next_actions[0]).toBe('回到研究工作区降低过拟合并收紧风险预算')
     const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
     expect(continueButton).toBeTruthy()
     await continueButton!.trigger('click')
@@ -1578,6 +1579,7 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].paper_review_ready_for_live).toBe(true)
     expect(vm.aiResearchRuns[0].paper_reviewed_at).toBe('2026-06-27T00:02:00Z')
     expect(vm.aiResearchRuns[0].paper_review_evaluations[0].key).toBe('rolling_sharpe')
+    expect(vm.aiResearchRuns[0].next_actions[0]).toContain('模拟交易监控计划已全部通过')
     expect(vm.aiResearchRuns[0].pipeline.current_stage).toBe('live_candidate')
     expect(wrapper.text()).toContain('阶段 live_candidate')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')

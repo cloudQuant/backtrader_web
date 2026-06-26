@@ -1883,6 +1883,7 @@ function reviewedRunRecord(
     paper_review_evaluations: review.evaluations,
     paper_review_next_actions: review.next_actions,
     pipeline: review.pipeline ?? record.pipeline,
+    next_actions: review.next_actions,
   }
 }
 
@@ -1896,6 +1897,7 @@ function applyPaperReviewToCurrentResult(
     ...current,
     run_record: runRecord,
     pipeline: runRecord.pipeline ?? current.pipeline,
+    next_actions: runRecord.next_actions ?? current.next_actions,
   }
 }
 

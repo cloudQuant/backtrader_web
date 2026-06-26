@@ -1134,6 +1134,7 @@ async def test_review_paper_trading_run_evaluates_monitoring_plan():
     assert updated_run["paper_reviewed_at"] == review.reviewed_at
     assert updated_run["paper_review_evaluations"][0]["key"] == "rolling_sharpe"
     assert "实盘候选" in updated_run["paper_review_next_actions"][0]
+    assert updated_run["next_actions"] == updated_run["paper_review_next_actions"]
     assert updated_run["pipeline"]["current_stage"] == "live_candidate"
     assert updated_run["pipeline"]["ready_for_live"] is True
 

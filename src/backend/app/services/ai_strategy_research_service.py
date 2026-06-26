@@ -1449,6 +1449,7 @@ class AIStrategyResearchService:
                 ],
                 "paper_review_next_actions": review.next_actions,
                 "pipeline": review.pipeline,
+                "next_actions": review.next_actions,
             }
         )
         return await self._persist_research_run_record(user_id, workspace, updated_record)
