@@ -1568,6 +1568,9 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
       'ready_for_live_candidate'
     )
+    expect(wrapper.find('[data-test="ai-research-paper-review-actions"]').text()).toContain(
+      '模拟交易监控计划已全部通过'
+    )
     expect(wrapper.text()).toContain('实盘候选')
     expect(wrapper.text()).toContain('复核 ready_for_live_candidate')
     expect(wrapper.text()).toContain('模拟交易滚动 Sharpe')

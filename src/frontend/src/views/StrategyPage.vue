@@ -511,6 +511,18 @@
                     {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
                   </span>
                 </div>
+                <div
+                  v-if="aiResearchCurrentPaperReview.next_actions?.length"
+                  class="ai-research-paper-review-actions"
+                  data-test="ai-research-current-paper-review-actions"
+                >
+                  <span
+                    v-for="action in aiResearchCurrentPaperReview.next_actions"
+                    :key="action"
+                  >
+                    {{ action }}
+                  </span>
+                </div>
                 <el-button
                   v-if="canContinueResearchFromCurrentPaperReview"
                   size="small"
@@ -889,6 +901,18 @@
                         :key="rule.key"
                       >
                         {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="aiResearchPaperReviews[record.run_id].next_actions?.length"
+                      class="ai-research-paper-review-actions"
+                      data-test="ai-research-paper-review-actions"
+                    >
+                      <span
+                        v-for="action in aiResearchPaperReviews[record.run_id].next_actions"
+                        :key="action"
+                      >
+                        {{ action }}
                       </span>
                     </div>
                   </div>
