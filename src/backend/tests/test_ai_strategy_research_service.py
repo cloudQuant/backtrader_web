@@ -1342,6 +1342,50 @@ async def test_research_loop_can_start_from_seed_strategy_without_regenerating()
 
 
 @pytest.mark.asyncio
+async def test_research_loop_falls_back_when_seed_strategy_is_invalid():
+    workspace_service = FakeWorkspaceService()
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={
+            "name": "无效种子策略",
+            "code": "def not_a_strategy():\n    return 1\n",
+        }
+    )
+    seed_strategy = _strategy("seed-strategy", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.16, "total_trades": 6, "max_drawdown": -5.0}],
+        strategies={"seed-strategy": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续优化上一轮最佳策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            seed_strategy_id="seed-strategy",
+            start_paper_trading=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert "not_a_strategy" not in strategy_service.submitted_drafts[0].code
+    assert "class AIGeneratedStrategy" in strategy_service.submitted_drafts[0].code
+    assert result.iterations[0].improvement_notes[0].startswith("种子策略代码不可运行")
+    assert result.run_record is not None
+    assert result.run_record.seed_strategy_id == "seed-strategy"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_can_continue_from_previous_run_best_strategy():
     workspace_service = FakeWorkspaceService()
     previous_record = {

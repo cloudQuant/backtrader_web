@@ -350,6 +350,8 @@ class AIStrategyResearchService:
             )
             draft = _normalize_research_draft(draft_response.strategy_draft, request)
             draft, initial_draft_notes = _ensure_runnable_initial_draft(draft, request)
+        else:
+            draft, initial_draft_notes = _ensure_runnable_seed_draft(draft, request)
 
         iterations: list[AIStrategyResearchIteration] = []
         best_iteration: AIStrategyResearchIteration | None = None
@@ -2364,13 +2366,37 @@ def _ensure_runnable_initial_draft(
     draft: AIStrategyDraft,
     request: AIStrategyResearchRunRequest,
 ) -> tuple[AIStrategyDraft, list[str]]:
+    return _ensure_runnable_research_draft(
+        draft,
+        request,
+        failure_note_prefix="AI初始策略代码不可运行",
+    )
+
+
+def _ensure_runnable_seed_draft(
+    draft: AIStrategyDraft,
+    request: AIStrategyResearchRunRequest,
+) -> tuple[AIStrategyDraft, list[str]]:
+    return _ensure_runnable_research_draft(
+        draft,
+        request,
+        failure_note_prefix="种子策略代码不可运行",
+    )
+
+
+def _ensure_runnable_research_draft(
+    draft: AIStrategyDraft,
+    request: AIStrategyResearchRunRequest,
+    *,
+    failure_note_prefix: str,
+) -> tuple[AIStrategyDraft, list[str]]:
     try:
         _validate_strategy_code_draft(draft.code)
         return draft, []
     except ValueError as exc:
         fallback = _normalize_research_draft(build_ai_strategy_draft(request.prompt), request)
         return fallback, [
-            f"AI初始策略代码不可运行，已使用本地可运行草案继续投研：{exc}",
+            f"{failure_note_prefix}，已使用本地可运行草案继续投研：{exc}",
         ]
 
 
