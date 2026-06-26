@@ -360,7 +360,7 @@
                 <div>
                   <span>{{ t('strategy.aiResearchPaperStatus') }}</span>
                   <strong>
-                    {{ aiResearchResult.paper_trading?.started ? t('strategy.aiResearchPaperStarted') : t('strategy.aiResearchPaperNotStarted') }}
+                    {{ aiResearchPaperStatusText }}
                   </strong>
                 </div>
               </div>
@@ -406,7 +406,7 @@
                   >
                     <VideoPlay />
                   </el-icon>
-                  启动模拟
+                  {{ aiResearchCurrentPaperFailed ? '重试模拟' : '启动模拟' }}
                 </el-button>
                 <el-button
                   v-if="aiResearchResult.paper_trading?.started"
@@ -722,6 +722,9 @@
                       <span>质量分 {{ formatMetric(record.best_quality_score) }}</span>
                       <span v-if="pipelineStage(record)">
                         阶段 {{ pipelineStage(record) }}
+                      </span>
+                      <span v-if="record.pipeline?.paper_trading_error">
+                        模拟错误 {{ record.pipeline.paper_trading_error }}
                       </span>
                       <span v-if="recordOutOfSampleSummary(record)">
                         {{ recordOutOfSampleSummary(record) }}
@@ -1197,6 +1200,19 @@ const aiBestSharpe = computed(() => {
 })
 
 const aiResearchNextActions = computed(() => aiResearchResult.value?.next_actions ?? [])
+const aiResearchCurrentPaperFailed = computed(() => {
+  const pipeline = aiResearchResult.value?.pipeline
+  return Boolean(
+    pipeline?.current_stage === 'paper_trading_failed'
+    || pipeline?.paper_trading_error
+  )
+})
+const aiResearchPaperStatusText = computed(() => {
+  if (aiResearchCurrentPaperFailed.value) return '模拟启动失败'
+  return aiResearchResult.value?.paper_trading?.started
+    ? t('strategy.aiResearchPaperStarted')
+    : t('strategy.aiResearchPaperNotStarted')
+})
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
 )

@@ -596,6 +596,61 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')
   })
 
+  it('shows paper trading start failure as retryable current result', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })
+    vi.mocked(strategyApi.runAIResearchLoop).mockClear()
+    const failedPipeline = {
+      current_stage: 'paper_trading_failed',
+      status: 'achieved',
+      progress: 60,
+      ready_for_live: false,
+      paper_trading_error: 'Failed to create paper trading unit',
+      steps: [
+        {
+          key: 'paper_trading',
+          label: '启动模拟交易',
+          status: 'failed',
+          error: 'Failed to create paper trading unit',
+        },
+      ],
+    }
+    vi.mocked(strategyApi.runAIResearchLoop).mockResolvedValueOnce({
+      ...baseResult,
+      paper_trading: null,
+      pipeline: failedPipeline,
+      next_actions: ['模拟交易启动错误：Failed to create paper trading unit'],
+      run_record: {
+        ...baseResult.run_record!,
+        paper_trading_started: false,
+        paper_workspace_id: null,
+        paper_unit_id: null,
+        pipeline: failedPipeline,
+        next_actions: ['模拟交易启动错误：Failed to create paper trading unit'],
+      },
+    })
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.aiResearchForm.prompt = '生成一个趋势策略'
+    vm.aiResearchForm.symbol = '000001.SZ'
+
+    await vm.runAIResearchLoop()
+    await flushPromises()
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.text()).toContain('模拟启动失败')
+    const retryPaperButton = wrapper.findAll('button').find(button => button.text().includes('重试模拟'))
+    expect(retryPaperButton).toBeTruthy()
+    expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain(
+      '模拟交易启动错误：Failed to create paper trading unit'
+    )
+    expect(wrapper.text()).toContain('阶段 paper_trading_failed')
+    expect(wrapper.text()).toContain('模拟错误 Failed to create paper trading unit')
+    expect(vm.aiResearchRuns[0].pipeline.paper_trading_error).toBe(
+      'Failed to create paper trading unit'
+    )
+  })
+
   it('runs AI research through async task polling when task API is available', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const baseResult = await strategyApi.runAIResearchLoop({ prompt: 'seed', symbol: '000001.SZ' })

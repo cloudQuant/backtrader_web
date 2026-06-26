@@ -376,6 +376,7 @@ export interface AIStrategyPipelineStep {
   key: string
   label: string
   status: string
+  error?: string | null
   iteration_count?: number
   max_iterations?: number
   review_status?: string | null
@@ -386,6 +387,7 @@ export interface AIStrategyPipelineSummary {
   status: string
   progress: number
   ready_for_live: boolean
+  paper_trading_error?: string | null
   steps: AIStrategyPipelineStep[]
 }
 
