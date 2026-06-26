@@ -1019,6 +1019,71 @@ async def test_review_paper_trading_blocks_live_candidate_when_valuation_is_unco
 
 
 @pytest.mark.asyncio
+async def test_review_paper_trading_confirms_valuation_from_unit_asset_specs(monkeypatch):
+    def fake_resolve_asset_specs(instance, strategy_dir, gateway=None, symbols=None):
+        assert "IF2609" in symbols
+        return {
+            "IF2609": {
+                "symbol": "IF2609",
+                "source": "local_futures_commission",
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+            }
+        }
+
+    monkeypatch.setattr(
+        "app.services.ai_strategy_research_service.resolve_asset_specs",
+        fake_resolve_asset_specs,
+    )
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个股指期货趋势策略",
+            symbol="IF2609",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+    workspace_service.statuses["paper-unit"] = UnitStatusResponse(
+        id="paper-unit",
+        run_status="running",
+        last_task_id="paper-task",
+        metrics_snapshot={
+            "rolling_sharpe": 0.72,
+            "max_drawdown": 4.5,
+            "closed_trades": 3,
+            "slippage_and_commission_delta": 0.0002,
+        },
+        run_count=1,
+        trading_mode="paper",
+    )
+
+    review = await service.review_paper_trading_run("user-1", result.run_id)
+
+    valuation = next(item for item in review.evaluations if item.key == "valuation_confidence")
+    assert valuation.status == "passed"
+    assert valuation.actual == 1.0
+    assert valuation.source == "unit.unit_settings.contract_metadata"
+    assert review.status == "ready_for_live_candidate"
+    assert review.ready_for_live is True
+
+
+@pytest.mark.asyncio
 async def test_research_loop_stops_after_max_iterations_without_paper():
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeStrategyService(

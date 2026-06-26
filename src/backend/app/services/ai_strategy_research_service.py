@@ -2979,8 +2979,10 @@ def _lookup_paper_valuation_confidence(
             if row_statuses & {"estimated", "stale_fallback", "unknown"}:
                 return 0.0, f"{source_name}.positions"
 
-    if unit is not None and _unit_has_contract_metadata(unit):
-        return 1.0, "unit.params.contract_metadata"
+    if unit is not None:
+        source = _unit_contract_metadata_source(unit)
+        if source:
+            return 1.0, source
 
     return None, None
 
@@ -3016,11 +3018,23 @@ def _paper_position_row_statuses(payload: dict[str, Any]) -> set[str]:
     return statuses
 
 
-def _unit_has_contract_metadata(unit: StrategyUnitResponse) -> bool:
-    params = dict(unit.params or {})
-    metadata = params.get("contract_metadata")
-    if not isinstance(metadata, dict):
-        return False
+def _unit_contract_metadata_source(unit: StrategyUnitResponse) -> str | None:
+    sources = (
+        ("unit.unit_settings", dict(unit.unit_settings or {})),
+        ("unit.data_config", dict(unit.data_config or {})),
+        ("unit.params", dict(unit.params or {})),
+        ("unit.gateway_config", dict(unit.gateway_config or {})),
+    )
+    metadata_keys = ("contract_metadata", "contracts", "contract_specs", "instrument_specs")
+    for source_name, payload in sources:
+        for key in metadata_keys:
+            metadata = payload.get(key)
+            if isinstance(metadata, dict) and _contract_metadata_has_asset_specs(metadata):
+                return f"{source_name}.{key}"
+    return None
+
+
+def _contract_metadata_has_asset_specs(metadata: dict[str, Any]) -> bool:
     for value in metadata.values():
         if not isinstance(value, dict):
             continue
