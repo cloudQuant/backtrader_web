@@ -83,6 +83,20 @@ vi.mock('@/api/strategy', () => ({
             { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
           ],
           best_metrics: { sharpe_ratio: 1.2 },
+          asset_specs: {
+            '000001.SZ': {
+              symbol: '000001.SZ',
+              multiplier: 1,
+              commission_rate: 0.0008,
+              source: 'local_stock_defaults',
+            },
+          },
+          backtest_environment: {
+            initial_cash: 100000,
+            commission: 0.0008,
+            annual_days: 252,
+            asset_spec_source: 'local_stock_defaults',
+          },
           best_strategy_id: 's1',
           best_strategy_name: 'AI策略',
           research_workspace_id: 'research-ws',
@@ -257,6 +271,20 @@ vi.mock('@/api/strategy', () => ({
         ],
         best_diagnostics: { summary: '第 1 轮已通过全部质量门槛，可进入模拟交易候选。', promotion_ready: true },
         best_metrics: { sharpe_ratio: 1.2 },
+        asset_specs: {
+          '000001.SZ': {
+            symbol: '000001.SZ',
+            multiplier: 1,
+            commission_rate: 0.0008,
+            source: 'local_stock_defaults',
+          },
+        },
+        backtest_environment: {
+          initial_cash: 100000,
+          commission: 0.0008,
+          annual_days: 252,
+          asset_spec_source: 'local_stock_defaults',
+        },
         best_strategy_id: 's1',
         best_strategy_name: 'AI策略',
         research_workspace_id: 'research-ws',
@@ -548,6 +576,10 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-oos-summary"]').text()).toContain('0.92 / 0.80')
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
     expect(wrapper.text()).toContain('进入模拟交易后优先验证成交、滑点、费用和样本外收益稳定性')
+    const currentRuntimeEnv = wrapper.find('[data-test="ai-research-current-runtime-env"]').text()
+    expect(currentRuntimeEnv).toContain('回测环境')
+    expect(currentRuntimeEnv).toContain('手续费 0.000800')
+    expect(currentRuntimeEnv).toContain('资产来源 local_stock_defaults')
     const bestScriptButton = wrapper.findAll('button').find(
       button => button.text().includes('查看最佳脚本')
     )
@@ -1515,6 +1547,22 @@ describe('StrategyPage', () => {
           best_quality_score: 100,
           best_quality_gate_evaluations: [],
           best_metrics: { sharpe_ratio: 1.2 },
+          asset_specs: {
+            IF2609: {
+              symbol: 'IF2609',
+              multiplier: 300,
+              margin_rate: 0.1,
+              commission_rate: 0.000023,
+              source: 'local_futures_commission',
+            },
+          },
+          backtest_environment: {
+            initial_cash: 250000,
+            commission: 0.000023,
+            multiplier: 300,
+            margin: 0.1,
+            asset_spec_source: 'local_futures_commission',
+          },
           best_strategy_id: 's1',
           best_strategy_name: 'AI策略',
           research_workspace_id: 'research-ws',
@@ -1552,6 +1600,12 @@ describe('StrategyPage', () => {
     await wrapper.vm.$nextTick()
     expect(vm.canReviewPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)
     expect(wrapper.text()).toContain('阶段 paper_trading')
+    const historyRuntimeEnv = wrapper.find('[data-test="ai-research-history-runtime-env"]').text()
+    expect(historyRuntimeEnv).toContain('回测环境')
+    expect(historyRuntimeEnv).toContain('资产 IF2609')
+    expect(historyRuntimeEnv).toContain('初始资金 250000.00')
+    expect(historyRuntimeEnv).toContain('手续费 0.000023')
+    expect(historyRuntimeEnv).toContain('合约乘数 300.00')
     const historyPaperEnv = wrapper.find('[data-test="ai-research-history-paper-env"]').text()
     expect(historyPaperEnv).toContain('模拟环境')
     expect(historyPaperEnv).toContain('初始资金 200000.00')

@@ -474,6 +474,20 @@
               </div>
 
               <div
+                v-if="aiResearchCurrentRuntimeEnvironment.length"
+                class="ai-research-paper-env"
+                data-test="ai-research-current-runtime-env"
+              >
+                <strong>回测环境</strong>
+                <span
+                  v-for="item in aiResearchCurrentRuntimeEnvironment"
+                  :key="item.key"
+                >
+                  {{ item.label }} {{ item.value }}
+                </span>
+              </div>
+
+              <div
                 v-if="aiResearchCurrentPaperEnvironment.length"
                 class="ai-research-paper-env"
                 data-test="ai-research-current-paper-env"
@@ -866,6 +880,19 @@
                     </el-icon>
                     继续改进
                   </el-button>
+                  <div
+                    v-if="hasResearchRuntimeEnvironment(record)"
+                    class="ai-research-paper-env"
+                    data-test="ai-research-history-runtime-env"
+                  >
+                    <strong>回测环境</strong>
+                    <span
+                      v-for="item in researchRuntimeItems(record)"
+                      :key="item.key"
+                    >
+                      {{ item.label }} {{ item.value }}
+                    </span>
+                  </div>
                   <div
                     v-if="hasPaperEnvironment(record.paper_handoff)"
                     class="ai-research-paper-env"
@@ -1345,6 +1372,11 @@ const aiResearchCurrentPaperEnvironment = computed(() => {
   if (!result) return []
   return paperEnvironmentItems(result.paper_trading?.handoff ?? result.run_record?.paper_handoff)
 })
+const aiResearchCurrentRuntimeEnvironment = computed(() => {
+  const result = aiResearchResult.value
+  if (!result) return []
+  return researchRuntimeItems(result.run_record, result.paper_trading?.handoff)
+})
 const aiResearchBestGateEvaluations = computed(
   () => aiResearchResult.value?.best_quality_gate_evaluations ?? []
 )
@@ -1472,6 +1504,50 @@ type PaperEnvironmentItem = {
   value: string
 }
 
+function hasResearchRuntimeEnvironment(record: AIStrategyResearchRunRecord) {
+  return researchRuntimeItems(record).length > 0
+}
+
+function researchRuntimeItems(
+  record: AIStrategyResearchRunRecord | null | undefined,
+  handoff?: Record<string, unknown> | null
+): PaperEnvironmentItem[] {
+  const environment = runtimeEnvironmentPayload(record, handoff)
+  const items = environmentItemsFromPayload(environment)
+  const asset = firstRuntimeAssetSpec(record, handoff)
+  if (!asset) return items
+
+  const existing = new Set(items.map(item => item.key))
+  if (!existing.has('asset_symbol')) {
+    items.unshift({ key: 'asset_symbol', label: '资产', value: asset.symbol })
+  }
+  const appendSpecNumber = (key: string, label: string, digits = 2) => {
+    if (existing.has(key)) return
+    const value = asset.spec[key]
+    if (value === undefined || value === null || value === '') return
+    items.push({ key, label, value: formatMetric(value, digits) })
+    existing.add(key)
+  }
+  const appendSpecText = (key: string, label: string) => {
+    if (existing.has(key)) return
+    const value = asset.spec[key]
+    if (value === undefined || value === null || value === '') return
+    items.push({ key, label, value: String(value) })
+    existing.add(key)
+  }
+  appendSpecNumber('multiplier', '合约乘数', 2)
+  appendSpecNumber('margin', '保证金', 4)
+  appendSpecNumber('margin_rate', '保证金率', 4)
+  appendSpecNumber('leverage', '杠杆', 2)
+  appendSpecNumber('max_leverage', '最大杠杆', 2)
+  appendSpecNumber('commission', '手续费', 6)
+  appendSpecNumber('commission_rate', '手续费率', 6)
+  if (!items.some(item => item.label === '资产来源')) appendSpecText('asset_spec_source', '资产来源')
+  if (!items.some(item => item.label === '资产来源')) appendSpecText('source', '资产来源')
+  if (!items.some(item => item.label === '费用来源')) appendSpecText('fee_source', '费用来源')
+  return items.slice(0, 10)
+}
+
 function hasPaperEnvironment(handoff: Record<string, unknown> | null | undefined) {
   return paperEnvironmentItems(handoff).length > 0
 }
@@ -1480,7 +1556,10 @@ function paperEnvironmentItems(
   handoff: Record<string, unknown> | null | undefined
 ): PaperEnvironmentItem[] {
   if (!isRecord(handoff) || !isRecord(handoff.backtest_environment)) return []
-  const environment = handoff.backtest_environment
+  return environmentItemsFromPayload(handoff.backtest_environment)
+}
+
+function environmentItemsFromPayload(environment: Record<string, unknown>): PaperEnvironmentItem[] {
   const items: PaperEnvironmentItem[] = []
   const appendNumber = (key: string, label: string, digits = 2) => {
     const value = environment[key]
@@ -1510,6 +1589,37 @@ function paperEnvironmentItems(
   appendText('weight_mode', '权重')
   appendText('asset_spec_source', '资产来源')
   return items
+}
+
+function runtimeEnvironmentPayload(
+  record: AIStrategyResearchRunRecord | null | undefined,
+  handoff?: Record<string, unknown> | null
+): Record<string, unknown> {
+  if (isRecord(record?.backtest_environment)) return record.backtest_environment
+  if (isRecord(handoff?.backtest_environment)) return handoff.backtest_environment
+  if (isRecord(record?.paper_handoff) && isRecord(record.paper_handoff.backtest_environment)) {
+    return record.paper_handoff.backtest_environment
+  }
+  return {}
+}
+
+function firstRuntimeAssetSpec(
+  record: AIStrategyResearchRunRecord | null | undefined,
+  handoff?: Record<string, unknown> | null
+): { symbol: string; spec: Record<string, unknown> } | null {
+  const sources = [
+    record?.asset_specs,
+    handoff?.asset_specs,
+    isRecord(record?.paper_handoff) ? record.paper_handoff.asset_specs : null,
+  ]
+  for (const source of sources) {
+    if (!isRecord(source)) continue
+    for (const [symbol, spec] of Object.entries(source)) {
+      if (!isRecord(spec)) continue
+      return { symbol, spec }
+    }
+  }
+  return null
 }
 
 function iterationOutOfSampleValidation(
