@@ -693,6 +693,32 @@ def _side_from_position_value(key: str, value: Any) -> str | None:
     return None
 
 
+def _position_side(row: dict[str, Any], signed_size: float | None = None) -> str | None:
+    for key in (
+        "posSide",
+        "positionSide",
+        "position_side",
+        "PositionSide",
+        "holdSide",
+        "trade_action",
+        "position_type",
+        "type",
+        "PosiDirection",
+        "posi_direction",
+        "position_direction",
+        "direction",
+    ):
+        side = _side_from_position_value(key, row.get(key))
+        if side:
+            return side
+    if signed_size is not None:
+        if signed_size > 0:
+            return "long"
+        if signed_size < 0:
+            return "short"
+    return None
+
+
 def signed_gateway_size(row: dict[str, Any]) -> float:
     raw_size = (
         _first_number(
@@ -713,24 +739,7 @@ def signed_gateway_size(row: dict[str, Any]) -> float:
         )
         or 0.0
     )
-    direction = None
-    for key in (
-        "direction",
-        "side",
-        "position_side",
-        "positionSide",
-        "PositionSide",
-        "posSide",
-        "trade_action",
-        "position_type",
-        "type",
-        "PosiDirection",
-        "posi_direction",
-        "position_direction",
-    ):
-        direction = _side_from_position_value(key, row.get(key))
-        if direction:
-            break
+    direction = _position_side(row)
     if direction == "short":
         return -abs(raw_size)
     return raw_size
@@ -764,6 +773,28 @@ def _trade_matches_symbol(row: dict[str, Any], symbol: str) -> bool:
     if not expected:
         return True
     return _compact_symbol(_trade_symbol(row)) in expected
+
+
+def _trade_position_side(row: dict[str, Any]) -> str | None:
+    for key in (
+        "posSide",
+        "positionSide",
+        "position_side",
+        "PositionSide",
+        "holdSide",
+        "ps",
+    ):
+        side = _side_from_position_value(key, row.get(key))
+        if side:
+            return side
+    return None
+
+
+def _trade_matches_position_side(row: dict[str, Any], position_side: str | None) -> bool:
+    if position_side not in {"long", "short"}:
+        return True
+    trade_side = _trade_position_side(row)
+    return trade_side is None or trade_side == position_side
 
 
 def _trade_signed_size(row: dict[str, Any]) -> float:
@@ -1034,13 +1065,16 @@ def _open_trade_commission_for_position(
     size: float,
     trades: Iterable[dict[str, Any]] | None,
     asset_spec: dict[str, Any] | None = None,
+    position_side: str | None = None,
 ) -> tuple[float | None, str | None]:
     if not trades or abs(size) <= 1e-12:
         return None, None
     matched = [
         dict(row)
         for row in trades
-        if isinstance(row, dict) and _trade_matches_symbol(row, symbol)
+        if isinstance(row, dict)
+        and _trade_matches_symbol(row, symbol)
+        and _trade_matches_position_side(row, position_side)
     ]
     if not matched:
         return None, None
@@ -1113,6 +1147,7 @@ def normalize_gateway_position(
     """Normalize exchange position rows to the valuation input shape."""
     symbol = gateway_position_symbol(row, fallback_symbol)
     size = signed_gateway_size(row)
+    position_side = _position_side(row, size)
     inverse_contract = _is_inverse_contract_spec(row, asset_spec)
     multiplier_keys = (
         (
@@ -1255,6 +1290,7 @@ def normalize_gateway_position(
             size=size,
             trades=recent_trades,
             asset_spec=asset_spec,
+            position_side=position_side,
         )
         if actual_commission is not None:
             commission = actual_commission
