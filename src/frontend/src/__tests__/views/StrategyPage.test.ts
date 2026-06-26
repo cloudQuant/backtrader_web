@@ -1585,6 +1585,90 @@ describe('StrategyPage', () => {
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')
   })
 
+  it('shows persisted paper trading review from run history after reload', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+      total: 1,
+      items: [
+        {
+          run_id: 'history-reviewed-run',
+          prompt: '已复核趋势策略',
+          symbol: '000001.SZ',
+          symbol_name: '平安银行',
+          timeframe: '1d',
+          timeframe_n: 1,
+          status: 'achieved',
+          achieved: true,
+          target_sharpe: 1,
+          quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+          min_total_trades: 1,
+          max_iterations: 3,
+          iteration_count: 2,
+          best_iteration: 2,
+          best_sharpe: 1.2,
+          best_quality_score: 100,
+          best_quality_gate_evaluations: [],
+          best_metrics: { sharpe_ratio: 1.2 },
+          best_strategy_id: 's1',
+          best_strategy_name: 'AI策略',
+          research_workspace_id: 'research-ws',
+          seed_strategy_id: null,
+          continued_from_run_id: null,
+          paper_workspace_id: 'paper-ws',
+          paper_unit_id: 'paper-unit',
+          paper_trading_started: true,
+          paper_monitoring_plan: [],
+          paper_handoff: {},
+          paper_review_status: 'ready_for_live_candidate',
+          paper_review_ready_for_live: true,
+          paper_reviewed_at: '2026-06-27T00:02:00Z',
+          paper_review_evaluations: [
+            {
+              key: 'rolling_sharpe',
+              label: '模拟交易滚动 Sharpe',
+              metric: 'rolling_sharpe',
+              actual: 1.12,
+              threshold: 1,
+              passed: true,
+              status: 'passed',
+              direction: 'min',
+              window: '2026-06-27',
+              action: 'continue',
+            },
+          ],
+          paper_review_next_actions: ['模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。'],
+          pipeline: {
+            current_stage: 'live_candidate',
+            status: 'achieved',
+            progress: 100,
+            ready_for_live: true,
+            steps: [],
+          },
+          next_actions: ['模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。'],
+          started_at: '2026-06-27T00:00:00Z',
+          completed_at: '2026-06-27T00:01:00Z',
+          iterations: [],
+        },
+      ],
+    })
+
+    const wrapper = doMount()
+    await flushPromises()
+
+    expect(strategyApi.reviewAIResearchPaperTrading).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
+      'ready_for_live_candidate'
+    )
+    expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
+      '模拟交易滚动 Sharpe'
+    )
+    expect(wrapper.find('[data-test="ai-research-paper-review-actions"]').text()).toContain(
+      '模拟交易监控计划已全部通过'
+    )
+    expect(wrapper.text()).toContain('阶段 live_candidate')
+    expect(wrapper.text()).toContain('实盘候选')
+  })
+
   it('continues research directly from a failed paper review record', async () => {
     const { strategyApi } = await import('@/api/strategy')
     vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({

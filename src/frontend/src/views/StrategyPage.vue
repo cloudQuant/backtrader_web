@@ -880,36 +880,36 @@
                     </span>
                   </div>
                   <div
-                    v-if="aiResearchPaperReviews[record.run_id]"
+                    v-if="paperReviewForRecord(record)"
                     class="ai-research-paper-review"
                     data-test="ai-research-paper-review"
                   >
                     <div class="ai-research-paper-review-head">
                       <el-tag
                         size="small"
-                        :type="aiResearchPaperReviews[record.run_id].ready_for_live ? 'success' : 'warning'"
+                        :type="paperReviewForRecord(record)?.ready_for_live ? 'success' : 'warning'"
                       >
-                        {{ aiResearchPaperReviews[record.run_id].status }}
+                        {{ paperReviewForRecord(record)?.status }}
                       </el-tag>
                       <span>
-                        {{ aiResearchPaperReviews[record.run_id].ready_for_live ? '实盘候选' : '继续观察' }}
+                        {{ paperReviewForRecord(record)?.ready_for_live ? '实盘候选' : '继续观察' }}
                       </span>
                     </div>
                     <div class="ai-research-paper-review-rules">
                       <span
-                        v-for="rule in aiResearchPaperReviews[record.run_id].evaluations"
+                        v-for="rule in paperReviewForRecord(record)?.evaluations ?? []"
                         :key="rule.key"
                       >
                         {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
                       </span>
                     </div>
                     <div
-                      v-if="aiResearchPaperReviews[record.run_id].next_actions?.length"
+                      v-if="paperReviewForRecord(record)?.next_actions?.length"
                       class="ai-research-paper-review-actions"
                       data-test="ai-research-paper-review-actions"
                     >
                       <span
-                        v-for="action in aiResearchPaperReviews[record.run_id].next_actions"
+                        v-for="action in paperReviewForRecord(record)?.next_actions ?? []"
                         :key="action"
                       >
                         {{ action }}
@@ -1338,23 +1338,7 @@ const aiResearchCurrentPaperReview = computed(() => {
   const result = aiResearchResult.value
   const record = result?.run_record
   if (!result || !record) return null
-  const review = aiResearchPaperReviews[result.run_id]
-  if (review) return review
-  if (!record.paper_review_status || !record.paper_review_evaluations?.length) return null
-  return {
-    run_id: record.run_id,
-    research_workspace_id: record.research_workspace_id,
-    paper_workspace_id: record.paper_workspace_id,
-    paper_unit_id: record.paper_unit_id,
-    paper_trading_started: record.paper_trading_started,
-    monitoring_plan: record.paper_monitoring_plan ?? [],
-    evaluations: record.paper_review_evaluations,
-    ready_for_live: Boolean(record.paper_review_ready_for_live),
-    status: record.paper_review_status,
-    reviewed_at: record.paper_reviewed_at,
-    pipeline: record.pipeline,
-    next_actions: record.paper_review_next_actions ?? [],
-  } satisfies AIStrategyPaperTradingReview
+  return paperReviewForRecord(record)
 })
 const aiResearchCurrentPaperEnvironment = computed(() => {
   const result = aiResearchResult.value
@@ -1885,6 +1869,28 @@ function reviewedRunRecord(
     pipeline: review.pipeline ?? record.pipeline,
     next_actions: review.next_actions,
   }
+}
+
+function paperReviewForRecord(
+  record: AIStrategyResearchRunRecord
+): AIStrategyPaperTradingReview | null {
+  const review = aiResearchPaperReviews[record.run_id]
+  if (review) return review
+  if (!record.paper_review_status || !record.paper_review_evaluations?.length) return null
+  return {
+    run_id: record.run_id,
+    research_workspace_id: record.research_workspace_id,
+    paper_workspace_id: record.paper_workspace_id,
+    paper_unit_id: record.paper_unit_id,
+    paper_trading_started: record.paper_trading_started,
+    monitoring_plan: record.paper_monitoring_plan ?? [],
+    evaluations: record.paper_review_evaluations,
+    ready_for_live: Boolean(record.paper_review_ready_for_live),
+    status: record.paper_review_status,
+    reviewed_at: record.paper_reviewed_at,
+    pipeline: record.pipeline,
+    next_actions: record.paper_review_next_actions ?? [],
+  } satisfies AIStrategyPaperTradingReview
 }
 
 function applyPaperReviewToCurrentResult(
