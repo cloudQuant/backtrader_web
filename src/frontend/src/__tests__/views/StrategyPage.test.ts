@@ -41,6 +41,17 @@ vi.mock('@/stores/strategy', () => ({
 
 vi.mock('@/api/strategy', () => ({
   strategyApi: {
+    get: vi.fn().mockResolvedValue({
+      id: 's1',
+      user_id: 'u1',
+      name: 'AI策略',
+      description: 'history strategy',
+      code: 'class HistoryStrategy: pass',
+      params: {},
+      category: 'trend',
+      created_at: '2026-06-27T00:00:00Z',
+      updated_at: '2026-06-27T00:00:00Z',
+    }),
     getTemplateReadme: vi.fn().mockResolvedValue({ content: '# README' }),
     getTemplateConfig: vi.fn().mockResolvedValue({}),
     listAIResearchRuns: vi.fn().mockResolvedValue({
@@ -875,9 +886,19 @@ describe('StrategyPage', () => {
         iterations: [],
       },
     ]
+    vm.aiResearchRunsLoading = false
 
     await wrapper.vm.$nextTick()
     expect(vm.canStartPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)
+    const historyScriptButton = wrapper.findAll('button').find(
+      button => button.text().includes('查看脚本')
+    )
+    expect(historyScriptButton).toBeTruthy()
+    await historyScriptButton!.trigger('click')
+    await flushPromises()
+    expect(strategyApi.get).toHaveBeenCalledWith('s1')
+    expect(vm.viewDialogVisible).toBe(true)
+    expect(vm.currentStrategy.code).toContain('HistoryStrategy')
     await vm.startPaperFromResearchRecord(vm.aiResearchRuns[0])
     await flushPromises()
 

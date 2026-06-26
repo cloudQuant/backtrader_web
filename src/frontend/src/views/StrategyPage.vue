@@ -671,6 +671,22 @@
                     复核模拟
                   </el-button>
                   <el-button
+                    v-if="record.best_strategy_id"
+                    size="small"
+                    plain
+                    :loading="aiResearchStrategyViewingRunId === record.run_id"
+                    data-test="ai-research-history-view-strategy"
+                    @click="viewStrategyFromResearchRecord(record)"
+                  >
+                    <el-icon
+                      class="mr-1"
+                      aria-hidden="true"
+                    >
+                      <Link />
+                    </el-icon>
+                    查看脚本
+                  </el-button>
+                  <el-button
                     v-if="canContinueResearchFromPaperReview(record)"
                     size="small"
                     type="warning"
@@ -987,6 +1003,7 @@ const aiResearchCancelling = ref(false)
 const aiResearchCancelRequested = ref(false)
 const aiResearchPaperStartingRunId = ref('')
 const aiResearchPaperReviewingRunId = ref('')
+const aiResearchStrategyViewingRunId = ref('')
 const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingReview>>({})
 
 const form = reactive({
@@ -1390,6 +1407,19 @@ async function startPaperFromCurrentResult() {
   const record = aiResearchResult.value?.run_record
   if (!record) return
   await startPaperFromResearchRecord(record)
+}
+
+async function viewStrategyFromResearchRecord(record: AIStrategyResearchRunRecord) {
+  if (!record.best_strategy_id) return
+  aiResearchStrategyViewingRunId.value = record.run_id
+  try {
+    const strategy = await strategyApi.get(record.best_strategy_id)
+    viewStrategy(strategy)
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchStrategyViewingRunId.value = ''
+  }
 }
 
 function paperMonitoringPlanFromHandoff(
