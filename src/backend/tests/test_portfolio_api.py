@@ -2950,6 +2950,93 @@ async def test_portfolio_positions_match_gateway_trade_fees_by_position_side():
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_match_gateway_trade_fees_by_position_idx():
+    """Bybit hedge-mode fees must bind to the matching positionIdx leg."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "positionIdx": "1",
+                    "size": "0.01",
+                    "avgPrice": "60000",
+                    "markPrice": "61000",
+                    "unrealisedPnl": "10",
+                },
+                {
+                    "symbol": "BTCUSDT",
+                    "positionIdx": "2",
+                    "size": "0.02",
+                    "avgPrice": "62000",
+                    "markPrice": "61000",
+                    "unrealisedPnl": "20",
+                },
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTCUSDT" in symbols
+            return {
+                "BTCUSDT": {
+                    "source": "bybit_gateway",
+                    "contract_size": 1,
+                    "commission_rate": 0.0004,
+                }
+            }
+
+        def query_instance_gateway_trades(self, instance_id, *, symbol=None, limit=100):
+            assert instance_id == "inst-a"
+            assert symbol == "BTCUSDT"
+            assert limit == 500
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "Buy",
+                    "positionIdx": "1",
+                    "execQty": "0.01",
+                    "execFee": "0.5",
+                    "execTime": "1710000000000",
+                },
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "Sell",
+                    "positionIdx": "2",
+                    "execQty": "0.02",
+                    "execFee": "1.25",
+                    "execTime": "1710000001000",
+                },
+            ]
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+    by_direction = {row["direction"]: row for row in result["positions"]}
+
+    assert by_direction["long"]["commission"] == pytest.approx(0.5)
+    assert by_direction["long"]["position_pnl"] == pytest.approx(9.5)
+    assert by_direction["short"]["commission"] == pytest.approx(1.25)
+    assert by_direction["short"]["position_pnl"] == pytest.approx(18.75)
+    assert result["summary"]["total_pnl"] == pytest.approx(28.25)
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_warn_when_gateway_trade_fee_currency_differs():
     """Trade fees paid in another currency must not be treated as quote-currency PnL."""
     from app.api.portfolio_api import get_portfolio_positions

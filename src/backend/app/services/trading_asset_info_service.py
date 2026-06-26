@@ -909,6 +909,8 @@ def _trade_position_side(row: dict[str, Any]) -> str | None:
         "position_side",
         "PositionSide",
         "holdSide",
+        "positionIdx",
+        "position_idx",
         "ps",
     ):
         side = _side_from_position_value(key, row.get(key))
