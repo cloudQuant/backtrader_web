@@ -494,6 +494,8 @@ describe('StrategyPage', () => {
     const vm = wrapper.vm as any
     vm.aiResearchForm.prompt = '生成一个趋势策略'
     vm.aiResearchForm.symbol = '000001.SZ'
+    vm.aiResearchForm.knowledge_base_id = 'kb-quant'
+    vm.aiResearchForm.thinking_mode = true
     vm.aiResearchForm.use_max_drawdown_limit = true
     vm.aiResearchForm.max_drawdown_limit = 12
     vm.aiResearchForm.use_min_total_return = true
@@ -507,6 +509,8 @@ describe('StrategyPage', () => {
     expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
       prompt: '生成一个趋势策略',
       symbol: '000001.SZ',
+      knowledge_base_id: 'kb-quant',
+      thinking_mode: true,
       target_sharpe: 1,
       max_drawdown_limit: 12,
       min_total_return: 8,

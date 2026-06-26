@@ -53,6 +53,22 @@
                 <el-form-item :label="t('strategy.aiResearchSymbolName')">
                   <el-input v-model="aiResearchForm.symbol_name" />
                 </el-form-item>
+                <el-form-item label="知识库 ID">
+                  <el-input
+                    v-model="aiResearchForm.knowledge_base_id"
+                    clearable
+                    placeholder="可选"
+                    data-test="ai-research-knowledge-base"
+                  />
+                </el-form-item>
+                <el-form-item label="生成模式">
+                  <el-checkbox
+                    v-model="aiResearchForm.thinking_mode"
+                    data-test="ai-research-thinking-mode"
+                  >
+                    深度思考
+                  </el-checkbox>
+                </el-form-item>
                 <el-form-item :label="t('strategy.aiResearchTimeframe')">
                   <el-select
                     v-model="aiResearchForm.timeframe"
@@ -1082,6 +1098,8 @@ const aiResearchForm = reactive({
   timeframe_n: 1,
   start_date: '',
   end_date: '',
+  knowledge_base_id: '',
+  thinking_mode: false,
   target_sharpe: 1.0,
   min_total_trades: 1,
   use_max_drawdown_limit: false,
@@ -1632,6 +1650,8 @@ function buildAIResearchRequest(prompt: string, symbol: string): AIStrategyResea
     seed_strategy_id: aiResearchForm.seed_strategy_id || null,
     continue_from_run_id: aiResearchForm.continue_from_run_id || null,
     start_paper_trading: aiResearchForm.start_paper_trading,
+    knowledge_base_id: aiResearchForm.knowledge_base_id.trim() || null,
+    thinking_mode: aiResearchForm.thinking_mode,
   }
 }
 
