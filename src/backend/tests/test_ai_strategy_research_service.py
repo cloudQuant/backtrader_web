@@ -550,6 +550,12 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.best_strategy.id == "strategy-2"
     assert strategy_service.generate_requests[0].knowledge_base_id == "kb-quant"
     assert strategy_service.generate_requests[0].thinking_mode is True
+    initial_prompt = strategy_service.generate_requests[0].prompt
+    assert initial_prompt.startswith("请生成一个双均线趋势策略，目标夏普率 1.0")
+    assert '"target_sharpe": 1.0' in initial_prompt
+    assert '"symbol": "000001.SZ"' in initial_prompt
+    assert '"rolling_sharpe"' in initial_prompt
+    assert "自动回测、评估质量门槛" in initial_prompt
     assert len(result.iterations) == 2
     assert result.iterations[1].improvement_notes
     assert len(strategy_service.submitted_drafts) == 2
@@ -840,6 +846,11 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
     assert backtest_request.unit_settings["margin"] == pytest.approx(0.1)
     assert backtest_request.unit_settings["commission"] == pytest.approx(0.000023)
     assert backtest_request.unit_settings["asset_spec_source"] == "local_futures_commission"
+    initial_prompt = strategy_service.generate_requests[0].prompt
+    assert '"IF2609"' in initial_prompt
+    assert '"multiplier": 300' in initial_prompt
+    assert '"commission_source": "asset_specs_or_default"' in initial_prompt
+    assert "local_futures_commission" in initial_prompt
     assert result.run_record is not None
     assert result.run_record.commission == pytest.approx(0.000023)
 

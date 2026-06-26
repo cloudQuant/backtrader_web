@@ -341,7 +341,7 @@ class AIStrategyResearchService:
             draft_response = await self.strategy_service.generate_copilot_draft(
                 user_id,
                 StrategyCopilotDraftRequest(
-                    prompt=request.prompt,
+                    prompt=_build_research_draft_prompt(request),
                     knowledge_base_id=request.knowledge_base_id,
                     thinking_mode=request.thinking_mode,
                 ),
@@ -3215,6 +3215,93 @@ def _run_next_actions(
     if result_iteration is not None and result_iteration.quality_gate_failures:
         actions.append("下一轮改稿应直接针对：" + "；".join(result_iteration.quality_gate_failures))
     return actions
+
+
+def _build_research_draft_prompt(request: AIStrategyResearchRunRequest) -> str:
+    """Add research-loop constraints to the initial draft prompt."""
+
+    asset_specs = _resolve_research_asset_specs(request)
+    context: dict[str, Any] = {
+        "objective": request.prompt,
+        "symbol": request.symbol,
+        "symbol_name": request.symbol_name or request.symbol,
+        "timeframe": request.timeframe,
+        "timeframe_n": request.timeframe_n,
+        "date_range": {
+            "start_date": request.start_date,
+            "end_date": request.end_date,
+            "out_of_sample_validation": request.out_of_sample_validation,
+            "out_of_sample_ratio": request.out_of_sample_ratio,
+        },
+        "quality_gates": _quality_gates_payload(request),
+        "backtest_environment": {
+            "initial_cash": request.initial_cash,
+            "commission": request.commission,
+            "commission_source": "user_override"
+            if _request_has_explicit_commission(request)
+            else "asset_specs_or_default",
+            "annual_days": request.annual_days,
+            "calc_method": request.calc_method,
+            "weight_mode": request.weight_mode,
+        },
+        "asset_specs": _summarize_asset_specs_for_prompt(asset_specs),
+        "paper_trading_handoff": {
+            "enabled_after_success": request.start_paper_trading,
+            "monitoring_metrics": [
+                "rolling_sharpe",
+                "max_drawdown",
+                "closed_trades",
+                "slippage_and_commission_delta",
+                "valuation_confidence",
+            ],
+        },
+        "strategy_requirements": [
+            "生成完整可运行的 Backtrader Strategy 代码",
+            "包含明确入场、出场、仓位和止损/止盈逻辑",
+            "参数默认值必须与 params 描述一致，方便后续自动改进",
+            "避免未来函数、不可执行交易假设和只依赖单一样本内收益",
+            "若资产规格包含合约乘数、保证金或手续费，策略说明中必须提示对应风险",
+        ],
+    }
+    return (
+        f"{request.prompt.strip()}\n\n"
+        "AI策略投研上下文(JSON):\n"
+        f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}\n\n"
+        "请按上述上下文生成第一版策略草案；后续系统会自动回测、评估质量门槛、"
+        "基于失败原因继续改进，并在达标后进入模拟交易。"
+    )
+
+
+def _summarize_asset_specs_for_prompt(
+    asset_specs: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    summary: dict[str, dict[str, Any]] = {}
+    keys = (
+        "symbol",
+        "exchange",
+        "product",
+        "multiplier",
+        "contract_multiplier",
+        "contract_size",
+        "margin_rate",
+        "margin",
+        "long_margin_rate",
+        "short_margin_rate",
+        "commission_rate",
+        "open_commission_rate",
+        "close_commission_rate",
+        "close_today_commission_rate",
+        "commission_amount",
+        "source",
+        "fee_source",
+    )
+    for symbol, spec in asset_specs.items():
+        if not isinstance(spec, dict):
+            continue
+        selected = {key: spec[key] for key in keys if spec.get(key) not in (None, "")}
+        if selected:
+            summary[str(symbol)] = selected
+    return summary
 
 
 def _build_improvement_messages(
