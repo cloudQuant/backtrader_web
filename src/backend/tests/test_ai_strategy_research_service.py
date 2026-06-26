@@ -1053,7 +1053,7 @@ async def test_review_paper_trading_confirms_valuation_from_unit_asset_specs(mon
                 "source": "local_futures_commission",
                 "multiplier": 300,
                 "margin_rate": 0.1,
-                "commission_rate": 0.000023,
+                "commission_rate": 0.002,
             }
         }
 
@@ -1084,6 +1084,18 @@ async def test_review_paper_trading_confirms_valuation_from_unit_asset_specs(mon
             poll_interval_seconds=0.1,
         ),
     )
+    assert result.paper_trading is not None
+    assert result.paper_trading.handoff is not None
+    assert result.paper_trading.handoff["backtest_environment"]["commission"] == pytest.approx(
+        0.002
+    )
+    assert result.paper_trading.handoff["backtest_environment"]["asset_spec_source"] == (
+        "local_futures_commission"
+    )
+    execution_cost_rule = next(
+        item for item in result.paper_monitoring_plan if item["key"] == "execution_cost"
+    )
+    assert execution_cost_rule["threshold"] == pytest.approx(0.004)
     workspace_service.statuses["paper-unit"] = UnitStatusResponse(
         id="paper-unit",
         run_status="running",

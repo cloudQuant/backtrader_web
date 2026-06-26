@@ -2591,6 +2591,7 @@ def _build_paper_trading_handoff(
         "achieved_diagnostics": best_iteration.diagnostics,
         "total_trades": best_iteration.total_trades,
         "best_metrics": best_iteration.metrics,
+        "backtest_environment": _paper_backtest_environment(request, best_iteration),
         "out_of_sample_validation": {
             "status": best_iteration.validation_status,
             "window": best_iteration.validation_window,
@@ -2846,14 +2847,21 @@ def _paper_monitoring_plan(
     request: AIStrategyResearchRunRequest,
     best_iteration: AIStrategyResearchIteration,
 ) -> list[dict[str, Any]]:
-    return _paper_monitoring_plan_from_metrics(request, best_iteration.metrics)
+    return _paper_monitoring_plan_from_metrics(
+        request,
+        best_iteration.metrics,
+        commission=_paper_effective_commission(request, best_iteration),
+    )
 
 
 def _paper_monitoring_plan_from_metrics(
     request: AIStrategyResearchRunRequest,
     metrics: dict[str, Any],
+    *,
+    commission: float | None = None,
 ) -> list[dict[str, Any]]:
     drawdown_limit = _paper_drawdown_limit(request, metrics)
+    execution_commission = request.commission if commission is None else commission
     return [
         {
             "key": "rolling_sharpe",
@@ -2888,7 +2896,7 @@ def _paper_monitoring_plan_from_metrics(
             "metric": "slippage_and_commission_delta",
             "window": "each review",
             "direction": "max",
-            "threshold": round(max(float(request.commission or 0.0) * 2, 0.001), 6),
+            "threshold": round(max(float(execution_commission or 0.0) * 2, 0.001), 6),
             "action": "费用或滑点明显高于回测假设时，更新手续费/滑点配置后重新回测。",
         },
         {
@@ -2901,6 +2909,35 @@ def _paper_monitoring_plan_from_metrics(
             "action": "持仓估值、合约乘数、保证金或手续费未确认时，先修正交易所/本地资产信息后再复核。",
         },
     ]
+
+
+def _paper_effective_commission(
+    request: AIStrategyResearchRunRequest,
+    best_iteration: AIStrategyResearchIteration,
+) -> float:
+    unit_settings = dict(best_iteration.unit.unit_settings or {})
+    return _runtime_float(unit_settings.get("commission"), request.commission)
+
+
+def _paper_backtest_environment(
+    request: AIStrategyResearchRunRequest,
+    best_iteration: AIStrategyResearchIteration,
+) -> dict[str, Any]:
+    unit_settings = dict(best_iteration.unit.unit_settings or {})
+    data_config = dict(best_iteration.unit.data_config or {})
+    environment: dict[str, Any] = {
+        "initial_cash": _runtime_float(unit_settings.get("initial_cash"), request.initial_cash),
+        "commission": _runtime_float(unit_settings.get("commission"), request.commission),
+        "annual_days": _runtime_int(unit_settings.get("annual_days"), request.annual_days),
+        "calc_method": _runtime_text(unit_settings.get("calc_method"), request.calc_method),
+        "weight_mode": _runtime_text(unit_settings.get("weight_mode"), request.weight_mode),
+        "start_date": _runtime_text(data_config.get("start_date"), request.start_date),
+        "end_date": _runtime_text(data_config.get("end_date"), request.end_date),
+    }
+    for key in ("multiplier", "margin", "asset_spec_source"):
+        if unit_settings.get(key) not in (None, ""):
+            environment[key] = unit_settings[key]
+    return environment
 
 
 def _paper_drawdown_limit(
