@@ -556,8 +556,21 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchResult.run_record.paper_trading_started).toBe(true)
     expect(vm.aiResearchRuns[0].run_id).toBe('run-1')
     expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)
+    const currentReviewButton = wrapper.findAll('button').find(
+      button => button.text().includes('复核模拟')
+    )
+    expect(currentReviewButton).toBeTruthy()
+    await currentReviewButton!.trigger('click')
+    await flushPromises()
+    expect(strategyApi.reviewAIResearchPaperTrading).toHaveBeenCalledWith('run-1', 'research-ws')
+    expect(vm.aiResearchResult.run_record.paper_review_status).toBe('ready_for_live_candidate')
+    expect(vm.aiResearchRuns[0].paper_review_status).toBe('ready_for_live_candidate')
+    expect(wrapper.find('[data-test="ai-research-current-paper-review"]').text()).toContain(
+      'ready_for_live_candidate'
+    )
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
+    expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')
   })
 
   it('runs AI research through async task polling when task API is available', async () => {

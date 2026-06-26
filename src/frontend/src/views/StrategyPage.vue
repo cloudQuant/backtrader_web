@@ -398,6 +398,49 @@
                   </el-icon>
                   {{ t('strategy.aiResearchOpenPaper') }}
                 </el-button>
+                <el-button
+                  v-if="canReviewPaperFromCurrentResult"
+                  size="small"
+                  type="primary"
+                  plain
+                  :loading="aiResearchPaperReviewingRunId === aiResearchResult.run_id"
+                  data-test="ai-research-current-review-paper"
+                  @click="reviewPaperFromCurrentResult"
+                >
+                  <el-icon
+                    class="mr-1"
+                    aria-hidden="true"
+                  >
+                    <MagicStick />
+                  </el-icon>
+                  复核模拟
+                </el-button>
+              </div>
+
+              <div
+                v-if="aiResearchCurrentPaperReview"
+                class="ai-research-paper-review ai-research-current-paper-review"
+                data-test="ai-research-current-paper-review"
+              >
+                <div class="ai-research-paper-review-head">
+                  <el-tag
+                    size="small"
+                    :type="aiResearchCurrentPaperReview.ready_for_live ? 'success' : 'warning'"
+                  >
+                    {{ aiResearchCurrentPaperReview.status }}
+                  </el-tag>
+                  <span>
+                    {{ aiResearchCurrentPaperReview.ready_for_live ? '实盘候选' : '继续观察' }}
+                  </span>
+                </div>
+                <div class="ai-research-paper-review-rules">
+                  <span
+                    v-for="rule in aiResearchCurrentPaperReview.evaluations"
+                    :key="rule.key"
+                  >
+                    {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
+                  </span>
+                </div>
               </div>
 
               <div
@@ -1094,6 +1137,32 @@ const canStartPaperFromCurrentResult = computed(() => {
   const record = aiResearchResult.value?.run_record
   return Boolean(record && canStartPaperFromRecord(record))
 })
+const canReviewPaperFromCurrentResult = computed(() => {
+  const record = aiResearchResult.value?.run_record
+  return Boolean(record && canReviewPaperFromRecord(record))
+})
+const aiResearchCurrentPaperReview = computed(() => {
+  const result = aiResearchResult.value
+  const record = result?.run_record
+  if (!result || !record) return null
+  const review = aiResearchPaperReviews[result.run_id]
+  if (review) return review
+  if (!record.paper_review_status || !record.paper_review_evaluations?.length) return null
+  return {
+    run_id: record.run_id,
+    research_workspace_id: record.research_workspace_id,
+    paper_workspace_id: record.paper_workspace_id,
+    paper_unit_id: record.paper_unit_id,
+    paper_trading_started: record.paper_trading_started,
+    monitoring_plan: record.paper_monitoring_plan ?? [],
+    evaluations: record.paper_review_evaluations,
+    ready_for_live: Boolean(record.paper_review_ready_for_live),
+    status: record.paper_review_status,
+    reviewed_at: record.paper_reviewed_at,
+    pipeline: record.pipeline,
+    next_actions: record.paper_review_next_actions ?? [],
+  } satisfies AIStrategyPaperTradingReview
+})
 const aiResearchBestGateEvaluations = computed(
   () => aiResearchResult.value?.best_quality_gate_evaluations ?? []
 )
@@ -1386,6 +1455,34 @@ function applyPaperStartToCurrentResult(
   }
 }
 
+function reviewedRunRecord(
+  record: AIStrategyResearchRunRecord,
+  review: AIStrategyPaperTradingReview
+): AIStrategyResearchRunRecord {
+  return {
+    ...record,
+    paper_review_status: review.status,
+    paper_review_ready_for_live: review.ready_for_live,
+    paper_reviewed_at: review.reviewed_at ?? record.paper_reviewed_at,
+    paper_review_evaluations: review.evaluations,
+    paper_review_next_actions: review.next_actions,
+    pipeline: review.pipeline ?? record.pipeline,
+  }
+}
+
+function applyPaperReviewToCurrentResult(
+  runId: string,
+  runRecord: AIStrategyResearchRunRecord
+) {
+  const current = aiResearchResult.value
+  if (!current || current.run_id !== runId) return
+  aiResearchResult.value = {
+    ...current,
+    run_record: runRecord,
+    pipeline: runRecord.pipeline ?? current.pipeline,
+  }
+}
+
 async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchPaperStartingRunId.value = record.run_id
   try {
@@ -1437,25 +1534,21 @@ async function reviewPaperFromResearchRecord(record: AIStrategyResearchRunRecord
       record.research_workspace_id
     )
     aiResearchPaperReviews[record.run_id] = review
-    aiResearchRuns.value = aiResearchRuns.value.map(item =>
-      item.run_id === record.run_id
-        ? {
-            ...item,
-            paper_review_status: review.status,
-            paper_review_ready_for_live: review.ready_for_live,
-            paper_reviewed_at: review.reviewed_at ?? item.paper_reviewed_at,
-            paper_review_evaluations: review.evaluations,
-            paper_review_next_actions: review.next_actions,
-            pipeline: review.pipeline ?? item.pipeline,
-          }
-        : item
-    )
+    const updatedRecord = reviewedRunRecord(record, review)
+    upsertAIResearchRunRecord(updatedRecord)
+    applyPaperReviewToCurrentResult(record.run_id, updatedRecord)
     ElMessage.success(review.ready_for_live ? '模拟交易已满足实盘候选条件' : '模拟交易复核已更新')
   } catch {
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchPaperReviewingRunId.value = ''
   }
+}
+
+async function reviewPaperFromCurrentResult() {
+  const record = aiResearchResult.value?.run_record
+  if (!record) return
+  await reviewPaperFromResearchRecord(record)
 }
 
 async function continueResearchFromPaperReview(record: AIStrategyResearchRunRecord) {
@@ -2077,6 +2170,10 @@ onMounted(async () => {
   flex-basis: 100%;
   border-top: 1px solid var(--el-border-color-lighter);
   padding-top: 8px;
+}
+
+.ai-research-current-paper-review {
+  margin-bottom: 16px;
 }
 
 .ai-research-paper-review-head,
