@@ -3089,7 +3089,7 @@ def resolve_asset_specs(
         for source in (
             _extract_existing_metadata(config, symbol),
             _extract_existing_metadata(params, symbol),
-            _query_local_futures_spec(symbol),
+            query_local_asset_spec(symbol),
             query_gateway_asset_spec(gateway, symbol),
         ):
             if source:

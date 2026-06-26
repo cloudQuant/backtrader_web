@@ -2787,6 +2787,55 @@ async def test_portfolio_positions_use_mt5_gateway_latest_price_from_asset_spec(
 
 
 @pytest.mark.asyncio
+async def test_portfolio_positions_use_local_asset_spec_when_gateway_specs_empty():
+    """Portfolio risk should use local contract metadata when the gateway omits it."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "direction": "buy",
+                    "volume": 0.02,
+                    "price": 2330.0,
+                    "current_price": 2331.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {}
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "XAUUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["asset_spec_source"] == "local_mt5_defaults"
+    assert row["multiplier"] == 100.0
+    assert row["latest_price"] == 2331.0
+    assert row["market_value"] == 4662.0
+    assert row["position_pnl"] == 2.0
+
+
+@pytest.mark.asyncio
 async def test_portfolio_positions_use_mt5_position_current_price():
     """MT5 position rows can carry price_current without relying on tick cache."""
     from app.api.portfolio_api import get_portfolio_positions

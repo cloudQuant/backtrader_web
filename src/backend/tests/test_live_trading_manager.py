@@ -251,6 +251,25 @@ def test_query_instance_asset_specs_merges_gateway_last_price():
     assert spec["last_price"] == pytest.approx(2331.0)
 
 
+def test_query_instance_asset_specs_falls_back_to_local_defaults_with_gateway_tick():
+    class FakeAdapter:
+        last_price = {"XAUUSD": 2331.0}
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:MT5:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:MT5:demo"
+
+    specs = manager.query_instance_asset_specs("inst-a", ["XAUUSD"])
+
+    spec = specs["XAUUSD"]
+    assert spec["source"] == "local_mt5_defaults"
+    assert spec["contract_size"] == pytest.approx(100.0)
+    assert spec["current_price"] == pytest.approx(2331.0)
+
+
 def test_query_instance_asset_specs_reads_gateway_latest_tick_cache():
     class FakeAdapter:
         _latest_ticks = {"BTCUSDT": {"markPrice": "61000.5", "lastPrice": "60999.0"}}

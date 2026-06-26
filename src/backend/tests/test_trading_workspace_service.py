@@ -14,6 +14,7 @@ from app.services.trading_asset_info_service import (
     persist_asset_specs,
     query_gateway_asset_spec,
     query_gateway_last_price,
+    resolve_asset_specs,
     signed_gateway_size,
     symbol_aliases,
     symbols_for_instance,
@@ -2951,6 +2952,19 @@ def test_persist_asset_specs_writes_runtime_sections_used_by_templates(tmp_path)
     assert config["simulate"]["contract_metadata"]["IF2609"]["multiplier"] == 300
     assert config["backtest"]["multiplier"] == 300
     assert instance["params"]["contract_metadata"]["IF2609"]["margin_rate"] == 0.12
+
+
+def test_resolve_asset_specs_uses_local_mt5_defaults_without_gateway(tmp_path):
+    strategy_dir = tmp_path / "strategy"
+    strategy_dir.mkdir()
+    instance = {"params": {"symbol": "XAUUSD"}}
+
+    specs = resolve_asset_specs(instance, strategy_dir, symbols=["XAUUSD"])
+
+    spec = specs["XAUUSD"]
+    assert spec["source"] == "local_mt5_defaults"
+    assert spec["contract_size"] == pytest.approx(100.0)
+    assert spec["multiplier"] == pytest.approx(100.0)
 
 
 def test_sync_trading_unit_runtime_copies_template_and_merges_unit_config(tmp_path, monkeypatch):

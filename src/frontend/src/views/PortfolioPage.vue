@@ -827,6 +827,7 @@ function mapWorkspacePosition(
     position_pnl: Number(item.position_pnl || 0),
     gross_pnl: item.gross_pnl == null ? undefined : Number(item.gross_pnl),
     commission: item.commission == null ? undefined : Number(item.commission),
+    commission_source: item.commission_source,
     multiplier: item.multiplier == null ? undefined : Number(item.multiplier),
     margin_rate: item.margin_rate == null ? undefined : Number(item.margin_rate),
     leverage: item.leverage == null ? undefined : Number(item.leverage),

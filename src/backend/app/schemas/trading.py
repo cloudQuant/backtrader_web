@@ -21,6 +21,7 @@ class TradingPosition(BaseModel):
     margin_rate: float | None = None
     leverage: float | None = None
     commission: float | None = None
+    commission_source: str | None = None
     gross_pnl: float | None = None
     pnl: float | None = None
     pnlcomm: float | None = None
@@ -145,6 +146,7 @@ class PositionManagerItem(BaseModel):
     margin_rate: float | None = None
     leverage: float | None = None
     commission: float | None = None
+    commission_source: str | None = None
     gross_pnl: float | None = None
     updated_at: str | None = None
     data_time: str | None = None

@@ -29,6 +29,7 @@ from app.services.trading_asset_info_service import (
     SHORT_POSITION_FIELD_KEYS,
     gateway_position_symbol,
     normalize_gateway_position,
+    query_local_asset_spec,
     symbol_aliases,
 )
 
@@ -276,6 +277,121 @@ def _asset_spec_for_symbol(specs: dict[str, dict[str, Any]], symbol: str) -> dic
         if isinstance(item, dict):
             return dict(item)
     return {}
+
+
+def _metadata_from_config(config: dict[str, Any], symbol: str) -> dict[str, Any]:
+    for container_key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
+        container = config.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        item = _asset_spec_for_symbol(
+            {str(key): value for key, value in container.items() if isinstance(value, dict)},
+            symbol,
+        )
+        if item:
+            return item
+    return {}
+
+
+def _merge_unit_contract_metadata(
+    specs: dict[str, dict[str, Any]],
+    unit: StrategyUnit,
+    instance: dict[str, Any] | None,
+    symbols: list[str],
+) -> dict[str, dict[str, Any]]:
+    completed = {str(key): dict(value) for key, value in specs.items() if isinstance(value, dict)}
+    instance_params = _safe_dict((instance or {}).get("params"))
+    configs = (
+        _safe_dict(getattr(unit, "params", None)),
+        _safe_dict(getattr(unit, "unit_settings", None)),
+        _safe_dict(getattr(unit, "data_config", None)),
+        _safe_dict(getattr(unit, "gateway_config", None)),
+        instance_params,
+        _safe_dict(instance_params.get("unit_settings")),
+        _safe_dict(instance_params.get("data_config")),
+        _safe_dict(instance_params.get("gateway")),
+        _safe_dict(instance_params.get("simulate")),
+        _safe_dict(instance_params.get("backtest")),
+        _safe_dict(instance_params.get("live")),
+    )
+    for symbol in symbols:
+        if _asset_spec_has_contract_metadata(_asset_spec_for_symbol(completed, symbol)):
+            continue
+        for config in configs:
+            metadata = _metadata_from_config(config, symbol)
+            if metadata:
+                _merge_asset_spec_aliases(completed, symbol, metadata)
+                break
+    return completed
+
+
+def _merge_asset_spec_aliases(
+    specs: dict[str, dict[str, Any]],
+    symbol: str,
+    spec: dict[str, Any],
+) -> None:
+    if not spec:
+        return
+    existing = _asset_spec_for_symbol(specs, symbol)
+    merged = dict(spec)
+    merged.update(existing)
+    existing_source = str(existing.get("source") or existing.get("asset_spec_source") or "").strip()
+    next_source = str(spec.get("source") or spec.get("asset_spec_source") or "").strip()
+    if existing_source and next_source and existing_source != next_source:
+        merged["source"] = f"{existing_source}+{next_source}"
+        merged["asset_spec_source"] = merged["source"]
+    for key in symbol_aliases(symbol):
+        specs[str(key)] = dict(merged)
+
+
+def _asset_spec_has_contract_metadata(spec: dict[str, Any]) -> bool:
+    return any(
+        spec.get(key) not in (None, "")
+        for key in (
+            "multiplier",
+            "mult",
+            "contract_size",
+            "trade_contract_size",
+            "contract_multiplier",
+            "ctVal",
+            "VolumeMultiple",
+            "CONTRACT_MULTIPLIER",
+            "margin",
+            "margin_rate",
+            "margin_ratio",
+            "leverage",
+            "margin_amount",
+            "initial_margin_per_lot",
+            "commission",
+            "commission_rate",
+            "open_commission_rate",
+            "close_commission_rate",
+            "close_today_commission_rate",
+            "maker_commission_rate",
+            "taker_commission_rate",
+            "commission_amount",
+            "open_commission_amount",
+            "close_commission_amount",
+            "close_today_commission_amount",
+        )
+    )
+
+
+def _complete_asset_specs_from_local(
+    specs: dict[str, dict[str, Any]],
+    symbols: list[str],
+) -> dict[str, dict[str, Any]]:
+    completed = {str(key): dict(value) for key, value in specs.items() if isinstance(value, dict)}
+    for symbol in symbols:
+        if _asset_spec_has_contract_metadata(_asset_spec_for_symbol(completed, symbol)):
+            continue
+        try:
+            local_spec = query_local_asset_spec(symbol)
+        except Exception:
+            local_spec = {}
+        if isinstance(local_spec, dict) and local_spec:
+            _merge_asset_spec_aliases(completed, symbol, local_spec)
+    return completed
 
 
 def _append_symbol_candidate(target: list[str], value: Any) -> None:
@@ -1004,7 +1120,10 @@ class TradingWorkspaceService:
                     for key, value in raw_specs.items()
                     if isinstance(value, dict)
                 }
-                cls._sync_unit_contract_metadata_from_specs(unit, asset_specs)
+        asset_specs = _merge_unit_contract_metadata(asset_specs, unit, instance, symbols)
+        asset_specs = _complete_asset_specs_from_local(asset_specs, symbols)
+        if asset_specs:
+            cls._sync_unit_contract_metadata_from_specs(unit, asset_specs)
 
         recent_trades: list[dict[str, Any]] = []
         query_trades = getattr(manager, "query_instance_gateway_trades", None)
@@ -1119,6 +1238,8 @@ class TradingWorkspaceService:
                     "margin_rate": round(valued.margin_rate, 8),
                     "leverage": _leverage_from_margin_rate(valued.margin_rate),
                     "commission": round(valued.commission, 4),
+                    "commission_source": valuation_item.get("commission_source")
+                    or item.get("commission_source"),
                     "commission_signed": True,
                     "gross_pnl": round(valued.gross_pnl, 2),
                     "pnl": round(valued.pnl, 2),
@@ -1820,6 +1941,13 @@ class TradingWorkspaceService:
             )
             margin_value = sum(_safe_float(row.get("margin_value")) for row in active_position_rows)
             commission = sum(_safe_float(row.get("commission")) for row in active_position_rows)
+            commission_source = _unique_text(
+                [
+                    row.get("commission_source")
+                    for row in active_position_rows
+                    if isinstance(row, dict)
+                ]
+            )
             gross_pnl_values = [
                 row.get("gross_pnl")
                 for row in active_position_rows
@@ -1875,6 +2003,7 @@ class TradingWorkspaceService:
                         ]
                     ),
                     "commission": round(commission, 4) if active_position_rows else None,
+                    "commission_source": commission_source,
                     "gross_pnl": round(gross_pnl, 2) if gross_pnl is not None else None,
                     "updated_at": updated_at,
                     "data_time": data_time,

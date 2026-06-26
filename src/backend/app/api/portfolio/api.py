@@ -35,6 +35,7 @@ from app.services.trading_asset_info_service import (
     gateway_position_symbol,
     load_runtime_config,
     normalize_gateway_position,
+    query_local_asset_spec,
     signed_gateway_size,
     symbol_aliases,
 )
@@ -367,6 +368,106 @@ def _asset_spec_for_symbol(specs: dict[str, dict[str, Any]], symbol: str) -> dic
     return {}
 
 
+def _metadata_from_config(config: dict[str, Any], symbol: str) -> dict[str, Any]:
+    for container_key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
+        container = config.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        item = _asset_spec_for_symbol(
+            {str(key): value for key, value in container.items() if isinstance(value, dict)},
+            symbol,
+        )
+        if item:
+            return item
+    return {}
+
+
+def _merge_source_contract_metadata(
+    specs: dict[str, dict[str, Any]],
+    source: _PortfolioSource,
+    symbols: list[str],
+) -> dict[str, dict[str, Any]]:
+    completed = {str(key): dict(value) for key, value in specs.items() if isinstance(value, dict)}
+    for symbol in symbols:
+        if _asset_spec_has_contract_metadata(_asset_spec_for_symbol(completed, symbol)):
+            continue
+        for config in source.valuation_configs:
+            metadata = _metadata_from_config(config, symbol)
+            if metadata:
+                _merge_asset_spec_aliases(completed, symbol, metadata)
+                break
+    return completed
+
+
+def _merge_asset_spec_aliases(
+    specs: dict[str, dict[str, Any]],
+    symbol: str,
+    spec: dict[str, Any],
+) -> None:
+    if not spec:
+        return
+    existing = _asset_spec_for_symbol(specs, symbol)
+    merged = dict(spec)
+    merged.update(existing)
+    existing_source = str(existing.get("source") or existing.get("asset_spec_source") or "").strip()
+    next_source = str(spec.get("source") or spec.get("asset_spec_source") or "").strip()
+    if existing_source and next_source and existing_source != next_source:
+        merged["source"] = f"{existing_source}+{next_source}"
+        merged["asset_spec_source"] = merged["source"]
+    for key in symbol_aliases(symbol):
+        specs[str(key)] = dict(merged)
+
+
+def _asset_spec_has_contract_metadata(spec: dict[str, Any]) -> bool:
+    return any(
+        spec.get(key) not in (None, "")
+        for key in (
+            "multiplier",
+            "mult",
+            "contract_size",
+            "trade_contract_size",
+            "contract_multiplier",
+            "ctVal",
+            "VolumeMultiple",
+            "CONTRACT_MULTIPLIER",
+            "margin",
+            "margin_rate",
+            "margin_ratio",
+            "leverage",
+            "margin_amount",
+            "initial_margin_per_lot",
+            "commission",
+            "commission_rate",
+            "open_commission_rate",
+            "close_commission_rate",
+            "close_today_commission_rate",
+            "maker_commission_rate",
+            "taker_commission_rate",
+            "commission_amount",
+            "open_commission_amount",
+            "close_commission_amount",
+            "close_today_commission_amount",
+        )
+    )
+
+
+def _complete_asset_specs_from_local(
+    specs: dict[str, dict[str, Any]],
+    symbols: list[str],
+) -> dict[str, dict[str, Any]]:
+    completed = {str(key): dict(value) for key, value in specs.items() if isinstance(value, dict)}
+    for symbol in symbols:
+        if _asset_spec_has_contract_metadata(_asset_spec_for_symbol(completed, symbol)):
+            continue
+        try:
+            local_spec = query_local_asset_spec(symbol)
+        except Exception:
+            local_spec = {}
+        if isinstance(local_spec, dict) and local_spec:
+            _merge_asset_spec_aliases(completed, symbol, local_spec)
+    return completed
+
+
 def _append_symbol_candidate(target: list[str], value: Any) -> None:
     if isinstance(value, (list, tuple, set)):
         for item in value:
@@ -523,6 +624,8 @@ def _live_positions_for_source(
             asset_specs = {
                 str(key): dict(value) for key, value in raw_specs.items() if isinstance(value, dict)
             }
+    asset_specs = _merge_source_contract_metadata(asset_specs, source, symbols)
+    asset_specs = _complete_asset_specs_from_local(asset_specs, symbols)
 
     recent_trades: list[dict[str, Any]] = []
     query_trades = getattr(mgr, "query_instance_gateway_trades", None)
@@ -1014,6 +1117,8 @@ def _valued_source_positions(source: _PortfolioSource) -> list[dict[str, Any]]:
                 "position_pnl": valued.pnl,
                 "gross_pnl": valued.gross_pnl,
                 "commission": valued.commission,
+                "commission_source": valuation_row.get("commission_source")
+                or row.get("commission_source"),
                 "multiplier": valued.multiplier,
                 "margin_rate": valued.margin_rate,
                 "leverage": _leverage_from_margin_rate(valued.margin_rate),
@@ -1485,6 +1590,7 @@ async def get_portfolio_positions(
                     "position_pnl": _safe_round(position_pnl),
                     "gross_pnl": _safe_round(float(p.get("gross_pnl") or 0.0)),
                     "commission": _safe_round(float(p.get("commission") or 0.0), 4),
+                    "commission_source": p.get("commission_source"),
                     "multiplier": _safe_round(float(p.get("multiplier") or 1.0), 8),
                     "margin_rate": _safe_round(float(p.get("margin_rate") or 0.0), 8),
                     "leverage": p.get("leverage"),

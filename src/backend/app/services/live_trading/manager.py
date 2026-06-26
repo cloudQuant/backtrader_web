@@ -641,7 +641,9 @@ class LiveTradingManager:
                 persist_asset_specs,
                 query_gateway_asset_spec,
                 query_gateway_last_price,
+                query_local_asset_spec,
                 resolve_asset_specs,
+                symbol_aliases,
             )
         except Exception:
             return {}
@@ -714,11 +716,29 @@ class LiveTradingManager:
                         exc_info=True,
                     )
 
-        if specs or not gateway:
+        if not specs:
+            for symbol in requested_symbols:
+                local_spec = query_local_asset_spec(symbol)
+                if not local_spec:
+                    continue
+                for key in symbol_aliases(symbol):
+                    specs[str(key)] = dict(local_spec)
+
+        if not gateway:
             return specs
 
         for symbol in requested_symbols:
-            spec = query_gateway_asset_spec(gateway, symbol)
+            spec: dict[str, Any] = {}
+            for key in symbol_aliases(symbol):
+                item = specs.get(str(key))
+                if isinstance(item, dict):
+                    spec.update(item)
+                    break
+            if not spec:
+                spec = dict(query_local_asset_spec(symbol) or {})
+            gateway_spec = query_gateway_asset_spec(gateway, symbol)
+            if gateway_spec:
+                spec.update(gateway_spec)
             last_price = query_gateway_last_price(gateway, symbol)
             if last_price and last_price > 0:
                 spec = dict(spec or {})

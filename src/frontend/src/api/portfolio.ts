@@ -46,6 +46,7 @@ export interface PositionItem {
   position_pnl?: number
   gross_pnl?: number
   commission?: number
+  commission_source?: string | null
   multiplier?: number
   margin_rate?: number
   leverage?: number
