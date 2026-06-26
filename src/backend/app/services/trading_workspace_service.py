@@ -23,6 +23,12 @@ from app.services.log_parser_service import (
     parse_log_dir,
     parse_position_log,
 )
+from app.services.position_valuation import EPSILON, contract_spec_for, value_position
+from app.services.trading_asset_info_service import (
+    gateway_position_symbol,
+    normalize_gateway_position,
+    symbol_aliases,
+)
 
 _LIGHT_HYDRATE_PRESERVE_KEYS = (
     "today_pnl",
@@ -33,6 +39,113 @@ _LIGHT_HYDRATE_PRESERVE_KEYS = (
     "trading_day",
     "detail_route",
     "trades",
+)
+_COMMISSION_FIELD_KEYS = (
+    "commission",
+    "comm",
+    "fee",
+    "fees",
+    "open_commission",
+    "position_fee",
+    "position_commission",
+    "trade_fee",
+    "trade_commission",
+    "commission_amount",
+    "Commission",
+)
+_PNL_FIELD_KEYS = ("pnlcomm", "net_pnl", "netPnl", "netPNL", "position_pnl", "pnl")
+_GROSS_PNL_FIELD_KEYS = (
+    "gross_pnl",
+    "position_unrealized_pnl",
+    "position_profit",
+    "PositionProfit",
+    "unrealized_profit",
+    "unRealizedProfit",
+    "UnrealizedPnL",
+    "unrealizedPnl",
+    "unrealized_pnl",
+    "unrealizedPNL",
+    "unrealizedpnl",
+    "floating_pnl",
+    "profit",
+    "upl",
+    "up",
+)
+_POSITION_SIZE_ALIAS_KEYS = (
+    "volume",
+    "position",
+    "qty",
+    "quantity",
+    "position_volume",
+    "positionAmt",
+    "pos",
+    "pa",
+    "Position",
+    "Volume",
+    "Qty",
+    "Quantity",
+)
+_POSITION_RESPONSE_REVALUE_KEYS = (
+    "instrument",
+    "InstrumentID",
+    "instId",
+    "contract",
+    "pos",
+    "posSide",
+    "Position",
+    "Volume",
+    "Qty",
+    "Quantity",
+    "PosiDirection",
+    "posi_direction",
+    "position_direction",
+    "price_open",
+    "avgPx",
+    "last_price",
+    "lastPrice",
+    "markPx",
+    "LastPrice",
+    "Price",
+    "AveragePrice",
+    "PositionCost",
+    "position_cost",
+    "VolumeMultiple",
+    "CONTRACT_MULTIPLIER",
+    "LongMarginRatioByMoney",
+    "ShortMarginRatioByMoney",
+    "LongMarginRatioByVolume",
+    "ShortMarginRatioByVolume",
+    "MARGIN_BUY",
+    "MARGIN_SELL",
+    "MARGIN_PER_LOT",
+    "imr",
+    "mmr",
+    "lever",
+    "mgnMode",
+    "OpenRatioByMoney",
+    "OpenRatioByVolume",
+    "OPEN_FEE_RATE",
+    "OPEN_FEE_AMOUNT",
+    "COMMISSION_OPEN_RATIO",
+    "COMMISSION_OPEN_AMOUNT",
+)
+_CURRENT_PRICE_FIELD_KEYS = (
+    "current_price",
+    "latest_price",
+    "last_price",
+    "mark_price",
+    "markPrice",
+    "market_price",
+    "lastPrice",
+    "LastPrice",
+    "price_current",
+    "marketPrice",
+    "mktPrice",
+    "mp",
+    "PriceCurrent",
+    "CurrentPrice",
+    "SettlementPrice",
+    "settlement_price",
 )
 
 
@@ -59,10 +172,107 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _round_quantity(value: Any) -> float:
+    number = _safe_float(value, 0.0)
+    rounded = round(number, 4)
+    if abs(number) > EPSILON and abs(rounded) <= EPSILON:
+        rounded = round(number, 8)
+        if abs(rounded) <= EPSILON:
+            return number
+    return rounded
+
+
 def _safe_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
     return {}
+
+
+def _unique_text(values: list[Any]) -> str | None:
+    texts = [str(value or "").strip() for value in values]
+    unique = sorted({text for text in texts if text})
+    if not unique:
+        return None
+    if len(unique) == 1:
+        return unique[0]
+    return "mixed"
+
+
+def _unique_number(values: list[Any]) -> float | None:
+    numbers: list[float] = []
+    for value in values:
+        if value in (None, ""):
+            continue
+        number = _safe_float(value)
+        numbers.append(number)
+    if not numbers:
+        return None
+    first = numbers[0]
+    if all(abs(item - first) <= EPSILON for item in numbers):
+        return first
+    return None
+
+
+def _append_unique(target: list[str], *values: Any) -> None:
+    seen = set(target)
+    for value in values:
+        if isinstance(value, (list, tuple, set)):
+            _append_unique(target, *value)
+            seen = set(target)
+            continue
+        text = str(value or "").strip()
+        if text and text not in seen:
+            target.append(text)
+            seen.add(text)
+
+
+def _asset_spec_for_symbol(specs: dict[str, dict[str, Any]], symbol: str) -> dict[str, Any]:
+    for key in symbol_aliases(symbol):
+        item = specs.get(key)
+        if isinstance(item, dict):
+            return dict(item)
+    return {}
+
+
+def _append_symbol_candidate(target: list[str], value: Any) -> None:
+    text = str(value or "").strip()
+    if text and text not in target:
+        target.append(text)
+
+
+def _append_config_symbols(target: list[str], config: dict[str, Any]) -> None:
+    for key in (
+        "symbol",
+        "data_name",
+        "instrument",
+        "InstrumentID",
+        "trade_symbol",
+        "contract_symbol",
+        "localSymbol",
+        "local_symbol",
+        "contractDesc",
+        "contract_desc",
+        "description",
+        "ticker",
+    ):
+        _append_symbol_candidate(target, config.get(key))
+    for key in ("symbols", "symbol_list", "instruments"):
+        values = config.get(key)
+        if isinstance(values, (list, tuple, set)):
+            for value in values:
+                _append_symbol_candidate(target, value)
+    for section_key in ("data_config", "data", "live", "gateway", "params"):
+        section = config.get(section_key)
+        if isinstance(section, dict):
+            _append_config_symbols(target, section)
+    for container_key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
+        container = config.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        for key, item in container.items():
+            _append_symbol_candidate(target, key)
+            if isinstance(item, dict):
+                _append_config_symbols(target, item)
 
 
 def _clear_runtime_logs_before_start(runtime_dir: Path) -> None:
@@ -145,6 +355,10 @@ class TradingWorkspaceService:
             "trading_day": None,
             "updated_at": _now_local_text(),
             "detail_route": None,
+            "position_source": None,
+            "asset_spec_source": None,
+            "valuation_status": "empty",
+            "valuation_warnings": [],
             "positions": [],
             "trades": [],
         }
@@ -216,7 +430,7 @@ class TradingWorkspaceService:
                     ),
                     "data_name": str(payload.get("data_name") or payload.get("symbol") or symbol),
                     "direction": cls._normalize_trade_direction(payload.get("direction"), raw_size),
-                    "size": round(size, 4),
+                    "size": _round_quantity(size),
                     "price": round(price, 4) if price else None,
                     "value": round(value, 2) if value else None,
                     "commission": round(commission, 4),
@@ -233,25 +447,126 @@ class TradingWorkspaceService:
         return trades[-200:]
 
     @staticmethod
-    def _latest_position_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        latest_by_key: dict[str, tuple[int, str, dict[str, Any]]] = {}
-        for index, row in enumerate(rows):
-            key = str(row.get("data_name") or row.get("symbol") or "").strip()
-            if not key:
+    def _position_log_row_direction(row: dict[str, Any], size: float) -> str:
+        for key in (
+            "direction",
+            "side",
+            "position_side",
+            "positionSide",
+            "PositionSide",
+            "posSide",
+            "trade_action",
+            "position_type",
+            "type",
+            "PosiDirection",
+            "posi_direction",
+            "position_direction",
+        ):
+            value = row.get(key)
+            if value in (None, ""):
                 continue
+            text = str(value).strip().lower()
+            if text in {"long", "buy", "bought", "position_type_buy", "deal_type_buy"}:
+                return "long"
+            if text in {"short", "sell", "sold", "position_type_sell", "deal_type_sell"}:
+                return "short"
+            if text == "flat":
+                return "flat"
+            try:
+                code = int(float(value))
+            except (TypeError, ValueError):
+                code = None
+            key_text = key.lower()
+            if key_text in {"trade_action", "position_type", "type"}:
+                if code == 0:
+                    return "long"
+                if code == 1:
+                    return "short"
+            if key_text in {"posidirection", "posi_direction", "position_direction"}:
+                if code == 2:
+                    return "long"
+                if code == 3:
+                    return "short"
+        if abs(size) <= EPSILON:
+            return "flat"
+        return "short" if size < 0 else "long"
+
+    @staticmethod
+    def _latest_position_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        latest_by_key: dict[str, tuple[int, str, str, dict[str, Any]]] = {}
+        latest_flat_by_key: dict[str, tuple[int, str, str, dict[str, Any]]] = {}
+        latest_flat_by_symbol: dict[str, tuple[int, str, dict[str, Any]]] = {}
+        for index, row in enumerate(rows):
+            symbol = str(row.get("data_name") or row.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            size = _safe_float(row.get("size"), 0.0)
+            direction = TradingWorkspaceService._position_log_row_direction(row, size)
             timestamp = str(row.get("datetime") or row.get("dt") or "")
+            if abs(size) <= EPSILON:
+                if direction in {"long", "short"}:
+                    key = f"{symbol}:{direction}"
+                    current_flat = latest_flat_by_key.get(key)
+                    if current_flat is None or (timestamp, index) >= (
+                        current_flat[1],
+                        current_flat[0],
+                    ):
+                        latest_flat_by_key[key] = (index, timestamp, symbol, row)
+                    continue
+                current_flat = latest_flat_by_symbol.get(symbol)
+                if current_flat is None or (timestamp, index) >= (
+                    current_flat[1],
+                    current_flat[0],
+                ):
+                    latest_flat_by_symbol[symbol] = (index, timestamp, row)
+                continue
+            key = f"{symbol}:{direction}"
             current = latest_by_key.get(key)
             if current is None or (timestamp, index) >= (current[1], current[0]):
-                latest_by_key[key] = (index, timestamp, row)
-        return [item[2] for item in latest_by_key.values()]
+                latest_by_key[key] = (index, timestamp, symbol, row)
+
+        latest_nonflat_by_symbol: dict[str, tuple[int, str]] = {}
+        for index, timestamp, symbol, _row in latest_by_key.values():
+            current = latest_nonflat_by_symbol.get(symbol)
+            if current is None or (timestamp, index) >= (current[1], current[0]):
+                latest_nonflat_by_symbol[symbol] = (index, timestamp)
+
+        selected: list[tuple[int, dict[str, Any]]] = []
+        for index, timestamp, symbol, row in latest_by_key.values():
+            direction = TradingWorkspaceService._position_log_row_direction(
+                row, _safe_float(row.get("size"), 0.0)
+            )
+            key = f"{symbol}:{direction}"
+            flat = latest_flat_by_symbol.get(symbol)
+            if flat is not None and (flat[1], flat[0]) >= (timestamp, index):
+                continue
+            directional_flat = latest_flat_by_key.get(key)
+            if directional_flat is not None and (directional_flat[1], directional_flat[0]) >= (
+                timestamp,
+                index,
+            ):
+                continue
+            selected.append((index, row))
+        for symbol, (index, timestamp, row) in latest_flat_by_symbol.items():
+            latest_nonflat = latest_nonflat_by_symbol.get(symbol)
+            if latest_nonflat is None or (timestamp, index) >= (
+                latest_nonflat[1],
+                latest_nonflat[0],
+            ):
+                selected.append((index, row))
+        for key, (index, timestamp, _symbol, row) in latest_flat_by_key.items():
+            latest_nonflat = latest_by_key.get(key)
+            if latest_nonflat is None or (timestamp, index) >= (
+                latest_nonflat[1],
+                latest_nonflat[0],
+            ):
+                selected.append((index, row))
+        return [row for _index, row in sorted(selected, key=lambda item: item[0])]
 
     @staticmethod
     def _position_updated_at(row: dict[str, Any]) -> str | None:
         return _safe_iso_text(
-            row.get("updated_at")
-            or row.get("log_time")
-            or row.get("datetime")
-            or row.get("dt")
+            row.get("updated_at") or row.get("log_time") or row.get("datetime") or row.get("dt")
         )
 
     @staticmethod
@@ -275,6 +590,344 @@ class TradingWorkspaceService:
             if timestamp and (latest is None or timestamp > latest):
                 latest = timestamp
         return latest
+
+    @classmethod
+    def _contract_spec(
+        cls,
+        unit: StrategyUnit,
+        symbol: str,
+        instance: dict[str, Any] | None = None,
+        *extra_configs: dict[str, Any],
+    ):
+        instance_params = _safe_dict((instance or {}).get("params"))
+        return contract_spec_for(
+            symbol,
+            *extra_configs,
+            _safe_dict(getattr(unit, "unit_settings", None)),
+            _safe_dict(getattr(unit, "params", None)),
+            _safe_dict(getattr(unit, "data_config", None)),
+            _safe_dict(getattr(unit, "gateway_config", None)),
+            instance_params,
+            _safe_dict(instance_params.get("unit_settings")),
+            _safe_dict(instance_params.get("data_config")),
+            _safe_dict(instance_params.get("gateway")),
+            _safe_dict(instance_params.get("simulate")),
+            _safe_dict(instance_params.get("backtest")),
+            _safe_dict(instance_params.get("live")),
+        )
+
+    @staticmethod
+    def _position_source_for_row(row: dict[str, Any], fallback: str | None = None) -> str:
+        return str(
+            row.get("position_source") or row.get("source") or fallback or "local"
+        ).strip()
+
+    @staticmethod
+    def _asset_spec_source_for_row(row: dict[str, Any], spec: Any) -> str | None:
+        return str(row.get("asset_spec_source") or getattr(spec, "source", "") or "").strip() or None
+
+    @staticmethod
+    def _asset_spec_config_for_row(row: dict[str, Any]) -> dict[str, Any]:
+        config = dict(row)
+        config.pop("position_source", None)
+        if config.get("asset_spec_source"):
+            config["source"] = config.get("asset_spec_source")
+        else:
+            config.pop("source", None)
+        return config
+
+    @staticmethod
+    def _has_any(row: dict[str, Any], *keys: str) -> bool:
+        return any(row.get(key) not in (None, "") for key in keys)
+
+    @classmethod
+    def _position_valuation_warnings(
+        cls,
+        unit: StrategyUnit,
+        row: dict[str, Any],
+        spec: Any,
+        *,
+        position_source: str,
+    ) -> list[str]:
+        warnings: list[str] = []
+        trading_mode = cls.normalize_trading_mode(getattr(unit, "trading_mode", None))
+        if trading_mode == "live" and position_source != "gateway":
+            warnings.append("未能从交易所网关确认当前持仓，当前数据来自本地日志/快照")
+
+        if not getattr(spec, "has_multiplier", False) and not cls._has_any(
+            row, "multiplier", "mult", "contract_multiplier", "contract_size"
+        ):
+            warnings.append("合约乘数未从交易所或本地资产信息确认，按 1 估算")
+        if (
+            not getattr(spec, "has_margin_rate", False)
+            and not getattr(spec, "has_margin_amount", False)
+            and not cls._has_any(
+                row,
+                "margin",
+                "margin_rate",
+                "margin_ratio",
+                "leverage",
+                "lever",
+                "margin_value",
+                "use_margin",
+                "initial_margin",
+                "imr",
+                "margin_amount",
+                "initial_margin_per_lot",
+                "margin_initial",
+                "maintain_margin",
+                "mmr",
+                "long_margin_amount",
+                "short_margin_amount",
+                "MARGIN_PER_LOT",
+                "LONG_MARGIN_AMOUNT",
+                "SHORT_MARGIN_AMOUNT",
+            )
+        ):
+            warnings.append("保证金率未确认，按全额保证金估算")
+        has_real_commission = cls._has_any(row, *_COMMISSION_FIELD_KEYS)
+        if row.get("commission_currency_mismatch"):
+            warnings.append("成交手续费币种与盈亏计价币种不一致，当前按资产费率估算手续费")
+        if not getattr(spec, "has_commission", False) and not has_real_commission:
+            warnings.append("手续费未确认，持仓盈亏未扣除真实手续费")
+        elif getattr(spec, "has_commission", False) and not has_real_commission and cls._has_any(
+            row, *_GROSS_PNL_FIELD_KEYS
+        ):
+            warnings.append("持仓手续费未从交易所成交/持仓回报确认，当前按资产费率估算")
+        return warnings
+
+    @classmethod
+    def _unit_position_symbol_aliases(
+        cls,
+        unit: StrategyUnit,
+        instance: dict[str, Any] | None,
+    ) -> set[str]:
+        candidates: list[str] = []
+        _append_symbol_candidate(candidates, getattr(unit, "symbol", None))
+        _append_config_symbols(candidates, _safe_dict(getattr(unit, "params", None)))
+        _append_config_symbols(candidates, _safe_dict(getattr(unit, "data_config", None)))
+        _append_config_symbols(candidates, _safe_dict(getattr(unit, "unit_settings", None)))
+        _append_config_symbols(candidates, _safe_dict((instance or {}).get("params")))
+        if not candidates:
+            _append_symbol_candidate(candidates, getattr(unit, "symbol_name", None))
+
+        aliases: set[str] = set()
+        for symbol in candidates:
+            aliases.update(symbol_aliases(symbol))
+        return aliases
+
+    @staticmethod
+    def _position_symbol_matches(symbol: str, allowed_aliases: set[str]) -> bool:
+        if not allowed_aliases:
+            return True
+        return any(alias in allowed_aliases for alias in symbol_aliases(symbol))
+
+    @classmethod
+    def _gateway_position_rows(
+        cls,
+        unit: StrategyUnit,
+        instance: dict[str, Any] | None,
+    ) -> list[dict[str, Any]] | None:
+        instance_id = str((instance or {}).get("id") or unit.trading_instance_id or "").strip()
+        if not instance_id:
+            return None
+
+        try:
+            manager = get_live_trading_manager()
+        except Exception:
+            return None
+
+        has_gateway = getattr(manager, "has_instance_gateway", None)
+        if callable(has_gateway):
+            try:
+                if not has_gateway(instance_id):
+                    return None
+            except Exception:
+                return None
+
+        query_positions = getattr(manager, "query_instance_gateway_positions", None)
+        if not callable(query_positions):
+            return None
+        try:
+            raw_positions = query_positions(instance_id)
+        except Exception:
+            return None
+        if not isinstance(raw_positions, list):
+            return None
+
+        fallback_symbol = str(unit.symbol or unit.symbol_name or unit.strategy_name or "")
+        allowed_aliases = cls._unit_position_symbol_aliases(unit, instance)
+        matched_positions: list[dict[str, Any]] = []
+        symbols: list[str] = []
+        seen: set[str] = set()
+        for item in raw_positions:
+            if not isinstance(item, dict):
+                continue
+            row_symbol = gateway_position_symbol(item)
+            if allowed_aliases and not cls._position_symbol_matches(row_symbol, allowed_aliases):
+                continue
+            matched_positions.append(item)
+            symbol = row_symbol or fallback_symbol
+            if symbol and symbol not in seen:
+                symbols.append(symbol)
+                seen.add(symbol)
+        if fallback_symbol and fallback_symbol not in seen:
+            symbols.append(fallback_symbol)
+
+        asset_specs: dict[str, dict[str, Any]] = {}
+        query_specs = getattr(manager, "query_instance_asset_specs", None)
+        if callable(query_specs) and symbols:
+            try:
+                raw_specs = query_specs(instance_id, symbols)
+            except Exception:
+                raw_specs = {}
+            if isinstance(raw_specs, dict):
+                asset_specs = {
+                    str(key): dict(value)
+                    for key, value in raw_specs.items()
+                    if isinstance(value, dict)
+                }
+
+        recent_trades: list[dict[str, Any]] = []
+        query_trades = getattr(manager, "query_instance_gateway_trades", None)
+        if callable(query_trades) and symbols:
+            for symbol in symbols:
+                try:
+                    raw_trades = query_trades(instance_id, symbol=symbol, limit=500)
+                except TypeError:
+                    raw_trades = query_trades(instance_id)
+                except Exception:
+                    raw_trades = []
+                if isinstance(raw_trades, list):
+                    recent_trades.extend(
+                        dict(item) for item in raw_trades if isinstance(item, dict)
+                    )
+
+        rows: list[dict[str, Any]] = []
+        for item in matched_positions:
+            symbol = gateway_position_symbol(item, fallback_symbol)
+            rows.append(
+                normalize_gateway_position(
+                    item,
+                    fallback_symbol=fallback_symbol,
+                    asset_spec=_asset_spec_for_symbol(asset_specs, symbol),
+                    recent_trades=recent_trades,
+                )
+            )
+        return rows
+
+    @classmethod
+    def _apply_position_rows_to_snapshot(
+        cls,
+        snapshot: dict[str, Any],
+        unit: StrategyUnit,
+        instance: dict[str, Any] | None,
+        positions: list[dict[str, Any]],
+    ) -> float | None:
+        long_position = 0.0
+        short_position = 0.0
+        long_market_value = 0.0
+        short_market_value = 0.0
+        position_pnl = 0.0
+        detail_positions: list[dict[str, Any]] = []
+        latest_price: float | None = None
+        latest_position_updated_at: str | None = None
+        position_sources: list[str] = []
+        asset_spec_sources: list[str] = []
+        valuation_warnings = list(snapshot.get("valuation_warnings") or [])
+        fallback_position_source = str(snapshot.get("position_source") or "").strip() or None
+
+        fallback_symbol = str(unit.symbol or unit.symbol_name or unit.strategy_name or "")
+
+        for item in positions:
+            data_name = gateway_position_symbol(item, fallback_symbol)
+            spec = cls._contract_spec(
+                unit,
+                data_name,
+                instance,
+                cls._asset_spec_config_for_row(_safe_dict(item)),
+            )
+            valued = value_position(item, spec=spec)
+            if valued is None:
+                continue
+            position_source = cls._position_source_for_row(item, fallback_position_source)
+            asset_spec_source = cls._asset_spec_source_for_row(item, spec)
+            row_warnings = cls._position_valuation_warnings(
+                unit,
+                item,
+                spec,
+                position_source=position_source,
+            )
+            _append_unique(valuation_warnings, row_warnings)
+            position_sources.append(position_source)
+            if asset_spec_source:
+                asset_spec_sources.append(asset_spec_source)
+
+            if valued.size > 0:
+                long_position += abs(valued.size)
+                long_market_value += valued.market_value
+            else:
+                short_position += abs(valued.size)
+                short_market_value += valued.market_value
+
+            position_pnl += valued.pnl
+            latest_price = valued.current_price
+            position_updated_at = cls._position_updated_at(item)
+            position_data_time = cls._position_data_time(item)
+            if position_updated_at and (
+                latest_position_updated_at is None
+                or position_updated_at > latest_position_updated_at
+            ):
+                latest_position_updated_at = position_updated_at
+            detail_positions.append(
+                {
+                    "data_name": valued.data_name or data_name,
+                    "direction": valued.direction,
+                    "size": _round_quantity(abs(valued.size)),
+                    "price": round(valued.entry_price, 4) if valued.entry_price else None,
+                    "current_price": round(valued.current_price, 4)
+                    if valued.current_price
+                    else None,
+                    "market_value": round(valued.market_value, 2),
+                    "margin_value": round(valued.margin_value, 2),
+                    "multiplier": round(valued.multiplier, 8),
+                    "margin_rate": round(valued.margin_rate, 8),
+                    "commission": round(valued.commission, 4),
+                    "commission_signed": True,
+                    "gross_pnl": round(valued.gross_pnl, 2),
+                    "pnl": round(valued.pnl, 2),
+                    "pnlcomm": round(valued.pnl, 2),
+                    "position_pnl": round(valued.pnl, 2),
+                    "updated_at": position_updated_at,
+                    "data_time": position_data_time,
+                    "source": position_source,
+                    "position_source": position_source,
+                    "asset_spec_source": asset_spec_source,
+                    "valuation_status": "estimated" if row_warnings else "confirmed",
+                    "valuation_warnings": row_warnings,
+                }
+            )
+
+        snapshot["positions"] = detail_positions
+        if not position_sources and fallback_position_source:
+            position_sources.append(fallback_position_source)
+        snapshot["position_source"] = _unique_text(position_sources)
+        snapshot["asset_spec_source"] = _unique_text(asset_spec_sources)
+        snapshot["valuation_warnings"] = valuation_warnings
+        if valuation_warnings:
+            snapshot["valuation_status"] = "estimated"
+        elif snapshot.get("position_source") == "gateway":
+            snapshot["valuation_status"] = "confirmed"
+        else:
+            snapshot["valuation_status"] = "empty" if not detail_positions else "estimated"
+        if latest_position_updated_at:
+            snapshot["updated_at"] = latest_position_updated_at
+        snapshot["long_position"] = _round_quantity(long_position)
+        snapshot["short_position"] = _round_quantity(short_position)
+        snapshot["long_market_value"] = round(long_market_value, 2)
+        snapshot["short_market_value"] = round(short_market_value, 2)
+        snapshot["position_pnl"] = round(position_pnl, 2)
+        return latest_price
 
     @classmethod
     def _build_instance_params(cls, unit: StrategyUnit) -> dict[str, Any]:
@@ -344,126 +997,97 @@ class TradingWorkspaceService:
         elapsed_seconds: float | None = None
         latest_price: float | None = None
 
+        log_result: dict[str, Any] | None = None
+        position_rows: list[dict[str, Any]] = []
+        position_rows_source = "none"
         log_dir = _instance_log_dir(instance)
         if log_dir and log_dir.is_dir():
             log_result = parse_log_dir(log_dir) if full_log else None
-            positions = cls._latest_position_rows(parse_position_log(log_dir))
-            if not positions:
-                positions = parse_current_position(log_dir)
+            position_rows = cls._latest_position_rows(parse_position_log(log_dir))
+            if position_rows:
+                position_rows_source = "log"
+            if not position_rows:
+                position_rows = parse_current_position(log_dir)
+                if position_rows:
+                    position_rows_source = "snapshot"
 
-            long_position = 0.0
-            short_position = 0.0
-            long_market_value = 0.0
-            short_market_value = 0.0
-            position_pnl = 0.0
-            detail_positions: list[dict[str, Any]] = []
-            latest_position_updated_at: str | None = None
+        gateway_position_rows = cls._gateway_position_rows(unit, instance)
+        if gateway_position_rows is not None:
+            position_rows = gateway_position_rows
+            position_rows_source = "gateway"
+        elif (
+            cls.normalize_trading_mode(getattr(unit, "trading_mode", None)) == "live"
+            and instance_status == "running"
+        ):
+            snapshot["valuation_status"] = "stale_fallback"
+            _append_unique(
+                snapshot["valuation_warnings"],
+                "运行中的实盘单元未能从交易所网关确认当前持仓，当前盈亏可能来自过期日志/快照",
+            )
 
-            for item in positions:
-                size = _safe_float(item.get("size"))
-                entry_price = _safe_float(item.get("price"))
-                market_value_raw = _safe_float(item.get("market_value", item.get("value")))
-                current_price = (
-                    abs(market_value_raw) / abs(size)
-                    if abs(size) > 0 and abs(market_value_raw) > 0
-                    else entry_price
-                )
-                pnl = (current_price - entry_price) * size
-                direction = "long" if size >= 0 else "short"
+        if position_rows or gateway_position_rows is not None:
+            snapshot["position_source"] = position_rows_source
+            latest_price = cls._apply_position_rows_to_snapshot(
+                snapshot,
+                unit,
+                instance,
+                position_rows,
+            )
 
-                if size >= 0:
-                    long_position += abs(size)
-                    long_market_value += abs(size) * current_price
-                else:
-                    short_position += abs(size)
-                    short_market_value += abs(size) * current_price
+        if log_result:
+            snapshot["trades"] = cls._normalize_trade_rows(
+                list(log_result.get("trades") or []),
+                unit=unit,
+            )
 
-                position_pnl += pnl
-                latest_price = current_price
-                position_updated_at = cls._position_updated_at(item)
-                position_data_time = cls._position_data_time(item)
-                if position_updated_at and (
-                    latest_position_updated_at is None
-                    or position_updated_at > latest_position_updated_at
-                ):
-                    latest_position_updated_at = position_updated_at
-                detail_positions.append(
-                    {
-                        "data_name": str(item.get("data_name") or ""),
-                        "direction": direction,
-                        "size": abs(size),
-                        "price": round(entry_price, 4) if entry_price else None,
-                        "current_price": round(current_price, 4) if current_price else None,
-                        "market_value": round(abs(size) * current_price, 2),
-                        "pnl": round(pnl, 2),
-                        "updated_at": position_updated_at,
-                        "data_time": position_data_time,
-                    }
-                )
+            kline = log_result.get("kline") or {}
+            dates = list(kline.get("dates") or [])
+            ohlc = list(kline.get("ohlc") or [])
+            if dates:
+                snapshot["trading_day"] = str(dates[-1])[:10]
+                bar_count = len(dates)
+            if len(ohlc) >= 1:
+                last_close = _safe_float((ohlc[-1] or [None, None])[1], default=0.0)
+                if last_close > 0:
+                    snapshot["latest_price"] = round(last_close, 4)
+                if len(ohlc) >= 2:
+                    prev_close = _safe_float((ohlc[-2] or [None, None])[1], default=0.0)
+                    if prev_close > 0 and last_close > 0:
+                        snapshot["change_pct"] = round(
+                            (last_close - prev_close) / prev_close * 100, 2
+                        )
 
-            snapshot["positions"] = detail_positions
-            if latest_position_updated_at:
-                snapshot["updated_at"] = latest_position_updated_at
-            snapshot["long_position"] = round(long_position, 4)
-            snapshot["short_position"] = round(short_position, 4)
-            snapshot["long_market_value"] = round(long_market_value, 2)
-            snapshot["short_market_value"] = round(short_market_value, 2)
-            snapshot["position_pnl"] = round(position_pnl, 2)
+            equity_curve = list(log_result.get("equity_curve") or [])
+            initial_cash = _safe_float(log_result.get("initial_cash"), 0.0)
+            final_value = _safe_float(log_result.get("final_value"), 0.0)
+            if len(equity_curve) >= 2:
+                snapshot["today_pnl"] = round(equity_curve[-1] - equity_curve[-2], 2)
+            snapshot["cumulative_pnl"] = round(final_value - initial_cash, 2)
+            snapshot["max_drawdown_rate"] = round(_safe_float(log_result.get("max_drawdown")), 2)
+            total_market_value = _safe_float(snapshot.get("long_market_value")) + _safe_float(
+                snapshot.get("short_market_value")
+            )
+            if final_value > 0 and total_market_value > 0:
+                snapshot["leverage"] = round(total_market_value / final_value, 4)
+            if snapshot.get("latest_price") is None and latest_price is not None:
+                snapshot["latest_price"] = round(latest_price, 4)
 
-            if log_result:
-                snapshot["trades"] = cls._normalize_trade_rows(
-                    list(log_result.get("trades") or []),
-                    unit=unit,
-                )
-
-                kline = log_result.get("kline") or {}
-                dates = list(kline.get("dates") or [])
-                ohlc = list(kline.get("ohlc") or [])
-                if dates:
-                    snapshot["trading_day"] = str(dates[-1])[:10]
-                    bar_count = len(dates)
-                if len(ohlc) >= 1:
-                    last_close = _safe_float((ohlc[-1] or [None, None])[1], default=0.0)
-                    if last_close > 0:
-                        snapshot["latest_price"] = round(last_close, 4)
-                    if len(ohlc) >= 2:
-                        prev_close = _safe_float((ohlc[-2] or [None, None])[1], default=0.0)
-                        if prev_close > 0 and last_close > 0:
-                            snapshot["change_pct"] = round(
-                                (last_close - prev_close) / prev_close * 100, 2
-                            )
-
-                equity_curve = list(log_result.get("equity_curve") or [])
-                initial_cash = _safe_float(log_result.get("initial_cash"), 0.0)
-                final_value = _safe_float(log_result.get("final_value"), 0.0)
-                if len(equity_curve) >= 2:
-                    snapshot["today_pnl"] = round(equity_curve[-1] - equity_curve[-2], 2)
-                snapshot["cumulative_pnl"] = round(final_value - initial_cash, 2)
-                snapshot["max_drawdown_rate"] = round(
-                    _safe_float(log_result.get("max_drawdown")), 2
-                )
-                total_market_value = long_market_value + short_market_value
-                if final_value > 0 and total_market_value > 0:
-                    snapshot["leverage"] = round(total_market_value / final_value, 4)
-                if snapshot.get("latest_price") is None and latest_price is not None:
-                    snapshot["latest_price"] = round(latest_price, 4)
-
-                metrics_snapshot = {
-                    "total_return": log_result.get("total_return"),
-                    "annual_return": log_result.get("annual_return"),
-                    "sharpe_ratio": log_result.get("sharpe_ratio"),
-                    "max_drawdown": log_result.get("max_drawdown"),
-                    "win_rate": log_result.get("win_rate"),
-                    "total_trades": log_result.get("total_trades"),
-                    "profitable_trades": log_result.get("profitable_trades"),
-                    "losing_trades": log_result.get("losing_trades"),
-                    "initial_cash": initial_cash,
-                    "final_value": final_value,
-                    "net_value": round(final_value / initial_cash, 6) if initial_cash > 0 else None,
-                    "net_profit": round(final_value - initial_cash, 2),
-                    "max_leverage": snapshot.get("leverage"),
-                    "trading_days": len(equity_curve),
-                }
+            metrics_snapshot = {
+                "total_return": log_result.get("total_return"),
+                "annual_return": log_result.get("annual_return"),
+                "sharpe_ratio": log_result.get("sharpe_ratio"),
+                "max_drawdown": log_result.get("max_drawdown"),
+                "win_rate": log_result.get("win_rate"),
+                "total_trades": log_result.get("total_trades"),
+                "profitable_trades": log_result.get("profitable_trades"),
+                "losing_trades": log_result.get("losing_trades"),
+                "initial_cash": initial_cash,
+                "final_value": final_value,
+                "net_value": round(final_value / initial_cash, 6) if initial_cash > 0 else None,
+                "net_profit": round(final_value - initial_cash, 2),
+                "max_leverage": snapshot.get("leverage"),
+                "trading_days": len(equity_curve),
+            }
 
         if snapshot.get("latest_price") is None and latest_price is not None:
             snapshot["latest_price"] = round(latest_price, 4)
@@ -577,10 +1201,7 @@ class TradingWorkspaceService:
                         refreshed = manager.get_instance(
                             str(unit.trading_instance_id), user_id=user_id
                         )
-                        if (
-                            not refreshed
-                            or str(refreshed.get("status") or "").lower() != "running"
-                        ):
+                        if not refreshed or str(refreshed.get("status") or "").lower() != "running":
                             raise
                         started = refreshed
                         already_running = True
@@ -631,13 +1252,18 @@ class TradingWorkspaceService:
         for unit in units:
             cancelled = False
             stopped_instance = None
+            open_order_cancel: dict[str, Any] | None = None
+            error_message: str | None = None
             try:
                 if unit.lock_running:
                     raise ValueError("该策略单元已锁定运行")
                 if unit.lock_trading:
                     raise ValueError("该策略单元已锁定交易")
                 if unit.trading_instance_id:
-                    await manager.stop_instance(str(unit.trading_instance_id))
+                    stop_result = await manager.stop_instance(str(unit.trading_instance_id))
+                    if isinstance(stop_result, dict):
+                        value = stop_result.get("open_order_cancel")
+                        open_order_cancel = value if isinstance(value, dict) else None
                     stopped_instance = manager.get_instance(
                         str(unit.trading_instance_id), user_id=user_id
                     )
@@ -656,15 +1282,29 @@ class TradingWorkspaceService:
                 else:
                     snapshot = self.default_snapshot(unit=unit, instance_status="stopped")
                     snapshot["stopped_at"] = _now_local_text()
+                if open_order_cancel is not None:
+                    snapshot["open_order_cancel"] = open_order_cancel
                 unit.trading_snapshot = snapshot
             except Exception as exc:
+                metadata = getattr(exc, "open_order_cancel", None)
+                if isinstance(metadata, dict):
+                    open_order_cancel = metadata
+                error_message = str(exc)
                 unit.run_status = "failed"
-                unit.trading_snapshot = self.default_snapshot(
+                snapshot = self.default_snapshot(
                     unit=unit,
                     instance_status="error",
                     error=str(exc),
                 )
-            results.append({"unit_id": unit.id, "cancelled": cancelled})
+                if open_order_cancel is not None:
+                    snapshot["open_order_cancel"] = open_order_cancel
+                unit.trading_snapshot = snapshot
+            result: dict[str, Any] = {"unit_id": unit.id, "cancelled": cancelled}
+            if error_message:
+                result["error"] = error_message
+            if open_order_cancel is not None:
+                result["open_order_cancel"] = open_order_cancel
+            results.append(result)
 
         return results
 
@@ -717,6 +1357,51 @@ class TradingWorkspaceService:
             return None
         return round(total_cost / total_size, 4)
 
+    @staticmethod
+    def _position_row_direction(row: dict[str, Any]) -> str:
+        direction = str(row.get("direction") or row.get("side") or "").strip().lower()
+        if direction in {"short", "sell", "sold"}:
+            return "short"
+        raw_size = _safe_float(row.get("size"))
+        return "short" if raw_size < 0 else "long"
+
+    @staticmethod
+    def _first_row_number(row: dict[str, Any], *keys: str) -> float | None:
+        for key in keys:
+            value = row.get(key)
+            if value in (None, ""):
+                continue
+            return _safe_float(value)
+        return None
+
+    @classmethod
+    def _position_row_needs_response_valuation(cls, row: dict[str, Any]) -> bool:
+        if abs(_safe_float(row.get("size"))) <= EPSILON and cls._has_any(
+            row, *_POSITION_SIZE_ALIAS_KEYS
+        ):
+            return True
+        return cls._has_any(row, *_POSITION_RESPONSE_REVALUE_KEYS)
+
+    @classmethod
+    def _position_rows_for_response_valuation(
+        cls,
+        rows: list[dict[str, Any]],
+        snapshot: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        latest_price = snapshot.get("latest_price")
+        updated_at = snapshot.get("updated_at")
+        valued_rows: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            if latest_price not in (None, "") and cls._first_row_number(
+                item, *_CURRENT_PRICE_FIELD_KEYS
+            ) is None:
+                item["latest_price"] = latest_price
+            if updated_at not in (None, "") and not cls._position_updated_at(item):
+                item["updated_at"] = updated_at
+            valued_rows.append(item)
+        return valued_rows
+
     async def build_positions_response(
         self,
         units: list[StrategyUnit],
@@ -735,14 +1420,116 @@ class TradingWorkspaceService:
         for unit in units:
             snapshot = _safe_dict(unit.trading_snapshot)
             position_rows = list(snapshot.get("positions") or [])
+            raw_position_rows = [row for row in position_rows if isinstance(row, dict)]
+            if raw_position_rows and any(
+                self._position_row_needs_response_valuation(row) for row in raw_position_rows
+            ):
+                latest_price = self._apply_position_rows_to_snapshot(
+                    snapshot,
+                    unit,
+                    None,
+                    self._position_rows_for_response_valuation(raw_position_rows, snapshot),
+                )
+                if latest_price is not None:
+                    snapshot["latest_price"] = round(latest_price, 4)
+                position_rows = list(snapshot.get("positions") or [])
+            active_position_rows = [
+                row
+                for row in position_rows
+                if isinstance(row, dict) and abs(_safe_float(row.get("size"))) > EPSILON
+            ]
+            if position_rows and not active_position_rows:
+                continue
+            long_position = _safe_float(snapshot.get("long_position"))
+            short_position = _safe_float(snapshot.get("short_position"))
             long_market_value = _safe_float(snapshot.get("long_market_value"))
             short_market_value = _safe_float(snapshot.get("short_market_value"))
             position_pnl = _safe_float(snapshot.get("position_pnl"))
+            if active_position_rows:
+                derived_long_position = 0.0
+                derived_short_position = 0.0
+                derived_long_market_value = 0.0
+                derived_short_market_value = 0.0
+                has_row_market_value = False
+                row_pnl_values: list[float] = []
+                for row in active_position_rows:
+                    size = abs(_safe_float(row.get("size")))
+                    if size <= EPSILON:
+                        continue
+                    is_short = self._position_row_direction(row) == "short"
+                    if is_short:
+                        derived_short_position += size
+                    else:
+                        derived_long_position += size
+                    row_market_value = self._first_row_number(row, "market_value")
+                    if row_market_value is not None:
+                        has_row_market_value = True
+                        if is_short:
+                            derived_short_market_value += abs(row_market_value)
+                        else:
+                            derived_long_market_value += abs(row_market_value)
+                    row_pnl = self._first_row_number(row, *_PNL_FIELD_KEYS)
+                    if row_pnl is not None:
+                        row_pnl_values.append(row_pnl)
+                if derived_long_position > EPSILON or derived_short_position > EPSILON:
+                    long_position = derived_long_position
+                    short_position = derived_short_position
+                if has_row_market_value:
+                    long_market_value = derived_long_market_value
+                    short_market_value = derived_short_market_value
+                if row_pnl_values:
+                    position_pnl = sum(row_pnl_values)
             market_value = round(long_market_value + short_market_value, 2)
+            if (
+                abs(long_position) <= EPSILON
+                and abs(short_position) <= EPSILON
+                and abs(market_value) <= EPSILON
+                and not active_position_rows
+            ):
+                continue
             updated_at = self._latest_position_updated_at(position_rows) or _safe_iso_text(
                 snapshot.get("updated_at")
             )
-            data_time = self._latest_position_data_time(position_rows)
+            data_time = self._latest_position_data_time(active_position_rows)
+            data_name = (
+                str(active_position_rows[0].get("data_name") or active_position_rows[0].get("symbol") or "")
+                if len(active_position_rows) == 1
+                else ""
+            )
+            position_source = _unique_text(
+                [
+                    row.get("position_source") or row.get("source")
+                    for row in active_position_rows
+                    if isinstance(row, dict)
+                ]
+            ) or _safe_iso_text(snapshot.get("position_source"))
+            asset_spec_source = _unique_text(
+                [
+                    row.get("asset_spec_source")
+                    for row in active_position_rows
+                    if isinstance(row, dict)
+                ]
+            ) or _safe_iso_text(snapshot.get("asset_spec_source"))
+            valuation_warnings: list[str] = []
+            _append_unique(valuation_warnings, snapshot.get("valuation_warnings") or [])
+            for row in active_position_rows:
+                if isinstance(row, dict):
+                    _append_unique(valuation_warnings, row.get("valuation_warnings") or [])
+            valuation_status = str(snapshot.get("valuation_status") or "").strip() or (
+                "estimated" if valuation_warnings else "confirmed"
+            )
+            margin_value = sum(_safe_float(row.get("margin_value")) for row in active_position_rows)
+            commission = sum(_safe_float(row.get("commission")) for row in active_position_rows)
+            gross_pnl_values = [
+                row.get("gross_pnl")
+                for row in active_position_rows
+                if isinstance(row, dict) and row.get("gross_pnl") not in (None, "")
+            ]
+            gross_pnl = (
+                sum(_safe_float(value) for value in gross_pnl_values)
+                if gross_pnl_values
+                else None
+            )
             total_long_value += long_market_value
             total_short_value += short_market_value
             total_pnl += position_pnl
@@ -751,12 +1538,13 @@ class TradingWorkspaceService:
                 {
                     "unit_id": str(unit.id),
                     "unit_name": str(unit.strategy_name or unit.strategy_id or unit.id),
-                    "symbol": str(unit.symbol or ""),
+                    "symbol": data_name or str(unit.symbol or ""),
+                    "data_name": data_name or None,
                     "symbol_name": str(unit.symbol_name or "") or None,
                     "trading_mode": self.normalize_trading_mode(unit.trading_mode),
-                    "long_position": round(_safe_float(snapshot.get("long_position")), 4),
-                    "short_position": round(_safe_float(snapshot.get("short_position")), 4),
-                    "avg_price": self._weighted_avg_price(position_rows),
+                    "long_position": _round_quantity(long_position),
+                    "short_position": _round_quantity(short_position),
+                    "avg_price": self._weighted_avg_price(active_position_rows),
                     "latest_price": (
                         round(_safe_float(snapshot.get("latest_price")), 4)
                         if snapshot.get("latest_price") is not None
@@ -764,8 +1552,29 @@ class TradingWorkspaceService:
                     ),
                     "position_pnl": round(position_pnl, 2),
                     "market_value": market_value,
+                    "margin_value": round(margin_value, 2) if active_position_rows else None,
+                    "multiplier": _unique_number(
+                        [
+                            row.get("multiplier")
+                            for row in active_position_rows
+                            if isinstance(row, dict)
+                        ]
+                    ),
+                    "margin_rate": _unique_number(
+                        [
+                            row.get("margin_rate")
+                            for row in active_position_rows
+                            if isinstance(row, dict)
+                        ]
+                    ),
+                    "commission": round(commission, 4) if active_position_rows else None,
+                    "gross_pnl": round(gross_pnl, 2) if gross_pnl is not None else None,
                     "updated_at": updated_at,
                     "data_time": data_time,
+                    "position_source": position_source,
+                    "asset_spec_source": asset_spec_source,
+                    "valuation_status": valuation_status,
+                    "valuation_warnings": valuation_warnings,
                 }
             )
 

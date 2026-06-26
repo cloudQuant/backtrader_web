@@ -4,7 +4,7 @@ Paper trading schemas.
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class AccountCreate(BaseModel):
@@ -62,15 +62,16 @@ class OrderRequest(BaseModel):
     account_id: str = Field(..., description="Account ID")
     symbol: str = Field(
         ...,
-        pattern=r"^\d{6}\.(SH|SZ)$",
-        description="Stock code, e.g., 000001.SZ or 600000.SH, must be A-share format: 6 digits.SH or .SZ",
+        min_length=1,
+        max_length=40,
+        description="Trading symbol, e.g., 000001.SZ, BTC/USDT, BTCUSDT, XAUUSD, or IF2609",
     )
     order_type: str = Field(
         ...,
         description="Order type: market (market order), limit (limit order), stop (stop loss), stop_limit (stop limit)",
     )
     side: str = Field(..., description="Order side: buy (long) or sell (close long or short)")
-    size: int = Field(..., gt=0, description="Order size, must be positive integer")
+    size: float = Field(..., gt=0, description="Order size, must be positive")
     price: float | None = Field(
         None, gt=0, description="Limit order price (not required for market orders)"
     )
@@ -81,6 +82,34 @@ class OrderRequest(BaseModel):
         None, gt=0, description="Take profit price (required for stop limit orders)"
     )
 
+    @field_validator("order_type")
+    @classmethod
+    def validate_order_type(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"market", "limit", "stop", "stop_limit"}:
+            raise ValueError("order_type must be one of: market, limit, stop, stop_limit")
+        return normalized
+
+    @field_validator("side")
+    @classmethod
+    def validate_side(cls, value: str) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized not in {"buy", "sell"}:
+            raise ValueError("side must be one of: buy, sell")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_required_prices(self) -> "OrderRequest":
+        if self.order_type == "limit" and self.price is None and self.limit_price is None:
+            raise ValueError("limit orders require price or limit_price")
+        if self.order_type == "stop" and self.stop_price is None and self.price is None:
+            raise ValueError("stop orders require stop_price or price")
+        if self.order_type == "stop_limit" and (
+            self.stop_price is None or self.limit_price is None
+        ):
+            raise ValueError("stop_limit orders require stop_price and limit_price")
+        return self
+
 
 class OrderResponse(BaseModel):
     """Paper trading order response schema."""
@@ -89,14 +118,14 @@ class OrderResponse(BaseModel):
 
     id: str = Field(..., description="Order ID")
     account_id: str = Field(..., description="Account ID")
-    symbol: str = Field(..., description="Stock code")
+    symbol: str = Field(..., description="Trading symbol")
     order_type: str = Field(..., description="Order type")
     side: str = Field(..., description="Order side")
-    size: int = Field(..., description="Order size")
+    size: float = Field(..., description="Order size")
     price: float | None = Field(None, description="Limit order price")
     stop_price: float | None = Field(None, description="Stop price")
     limit_price: float | None = Field(None, description="Take profit price")
-    filled_size: int = Field(default=0, description="Filled size")
+    filled_size: float = Field(default=0, description="Filled size")
     avg_fill_price: float = Field(default=0, description="Average fill price")
     status: str = Field(
         ...,
@@ -124,16 +153,21 @@ class PositionResponse(BaseModel):
 
     id: str = Field(..., description="Position ID")
     account_id: str = Field(..., description="Account ID")
-    symbol: str = Field(..., description="Stock code")
-    size: int = Field(
+    symbol: str = Field(..., description="Trading symbol")
+    size: float = Field(
         ...,
-        description="Position size (positive for long, negative for short, e.g., 100 means long 100 shares, -50 means short 50 shares)",
+        description="Position size (positive for long, negative for short, e.g., 100 means long 100 shares, -0.5 means short half a lot)",
     )
     avg_price: float = Field(default=0, description="Average cost price")
     market_value: float = Field(
         default=0,
-        description="Market value (size * market price), e.g., size=100, market_price=105.5, then market_value=10550",
+        description="Notional market value (size * market price * multiplier)",
     )
+    margin_value: float = Field(default=0, description="Reserved margin for the position")
+    multiplier: float = Field(default=1, description="Contract multiplier")
+    margin_rate: float = Field(default=1, description="Margin rate")
+    commission_rate: float = Field(default=0, description="Commission rate used for valuation")
+    commission_amount: float = Field(default=0, description="Fixed commission per lot/contract")
     unrealized_pnl: float = Field(
         default=0,
         description="Unrealized profit/loss (calculated at current market price, positive for profit, negative for loss)",
@@ -162,9 +196,9 @@ class TradeResponse(BaseModel):
     id: str = Field(..., description="Trade ID")
     account_id: str = Field(..., description="Account ID")
     order_id: str | None = Field(None, description="Order ID")
-    symbol: str = Field(..., description="Stock code")
+    symbol: str = Field(..., description="Trading symbol")
     side: str = Field(..., description="Trade side: buy (buy) or sell (sell)")
-    size: int = Field(..., description="Trade size")
+    size: float = Field(..., description="Trade size")
     price: float = Field(..., description="Trade price")
     commission: float = Field(default=0, description="Commission")
     slippage: float = Field(default=0, description="Slippage")

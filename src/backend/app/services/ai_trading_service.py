@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.db.database import async_session_maker
@@ -46,6 +46,11 @@ from app.services.ai_trading.messages import (
 from app.services.ai_trading.messages import (
     build_suggestions as _build_suggestions,
 )
+from app.services.trading_asset_info_service import (
+    gateway_position_symbol,
+    query_local_asset_spec,
+    signed_gateway_size,
+)
 from app.services.trading_intent_parser import parse_trading_intent
 from app.services.trading_risk_guard import TradingRiskConfig, TradingRiskGuard
 
@@ -53,6 +58,7 @@ logger = logging.getLogger(__name__)
 
 # In-memory store for pending trades (production should use DB)
 _pending_trades: dict[str, dict[str, Any]] = {}
+PENDING_TRADE_TTL_SECONDS = 300
 
 # Global risk guard instance
 _risk_guard: TradingRiskGuard | None = None
@@ -60,6 +66,25 @@ _risk_guard: TradingRiskGuard | None = None
 
 class MissingGatewayContextError(ValueError):
     """Raised when AI trading execution lacks a valid account or gateway context."""
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def get_risk_guard() -> TradingRiskGuard:
@@ -123,6 +148,8 @@ class AITradingService:
                 diagnostic_message=diagnostic_message,
             )
 
+        self._enrich_intent_with_asset_spec(intent, request)
+
         # Step 2: Risk assessment
         risk_assessment = self.risk_guard.assess(
             intent=intent,
@@ -145,12 +172,15 @@ class AITradingService:
         # Step 4: Check if confirmation is needed
         if risk_assessment.requires_confirmation and not request.auto_confirm:
             # Store pending trade for later confirmation
+            created_at = _utc_now()
+            expires_at = created_at + timedelta(seconds=PENDING_TRADE_TTL_SECONDS)
             _pending_trades[trade_id] = {
                 "user_id": user_id,
                 "intent": intent.model_dump(),
                 "risk_assessment": risk_assessment.model_dump(),
                 "request": request.model_dump(),
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": created_at.isoformat(),
+                "expires_at": expires_at.isoformat(),
             }
 
             # Push WebSocket notification for real-time confirmation
@@ -224,19 +254,64 @@ class AITradingService:
                 message="无权操作此交易",
             )
 
-        # Remove from pending
-        del _pending_trades[request.trade_id]
-
         if not request.confirmed:
+            del _pending_trades[request.trade_id]
             return TradeConfirmResponse(
                 trade_id=request.trade_id,
                 status=TradeStatus.CANCELLED,
                 message="交易已取消",
             )
 
-        # Execute the confirmed trade
         intent = TradingIntent(**pending["intent"])
         original_request = AITradingRequest(**pending["request"])
+        if self._pending_trade_expired(pending):
+            del _pending_trades[request.trade_id]
+            return TradeConfirmResponse(
+                trade_id=request.trade_id,
+                status=TradeStatus.FAILED,
+                message="确认已过期，请重新提交交易请求。",
+                execution_result={
+                    "success": False,
+                    "error": "confirmation_expired",
+                    "expires_at": pending.get("expires_at"),
+                },
+            )
+
+        try:
+            current_risk = await self._reassess_confirmed_trade(
+                user_id=user_id,
+                intent=intent,
+                request=original_request,
+            )
+        except MissingGatewayContextError as exc:
+            del _pending_trades[request.trade_id]
+            diagnostic_message = str(exc)
+            return TradeConfirmResponse(
+                trade_id=request.trade_id,
+                status=TradeStatus.REJECTED,
+                message=f"交易上下文不可用，已取消确认执行: {diagnostic_message}",
+                execution_result={
+                    "success": False,
+                    "error": "context_unavailable",
+                    "message": diagnostic_message,
+                },
+            )
+
+        if not current_risk.approved:
+            del _pending_trades[request.trade_id]
+            return TradeConfirmResponse(
+                trade_id=request.trade_id,
+                status=TradeStatus.REJECTED,
+                message=self._build_rejection_message(current_risk),
+                execution_result={
+                    "success": False,
+                    "error": "risk_recheck_failed",
+                    "risk_assessment": current_risk.model_dump(),
+                },
+            )
+
+        # Remove from pending immediately before execution to prevent double-submit.
+        del _pending_trades[request.trade_id]
 
         execution_result = await self._execute_trade(user_id, intent, original_request)
         status = TradeStatus.FILLED if execution_result.get("success") else TradeStatus.FAILED
@@ -246,6 +321,34 @@ class AITradingService:
             status=status,
             message=self._build_execution_message(intent, execution_result),
             execution_result=execution_result,
+        )
+
+    def _pending_trade_expired(self, pending: dict[str, Any]) -> bool:
+        expires_at = _parse_datetime(pending.get("expires_at"))
+        if expires_at is None:
+            created_at = _parse_datetime(pending.get("created_at"))
+            if created_at is None:
+                return True
+            expires_at = created_at + timedelta(seconds=PENDING_TRADE_TTL_SECONDS)
+        return _utc_now() >= expires_at
+
+    async def _reassess_confirmed_trade(
+        self,
+        *,
+        user_id: str,
+        intent: TradingIntent,
+        request: AITradingRequest,
+    ) -> RiskAssessment:
+        context = await self._resolve_trading_context(user_id=user_id, request=request)
+        if context.get("degraded"):
+            diagnostic_message = str(context.get("diagnostic_message") or "交易上下文不可用")
+            raise MissingGatewayContextError(diagnostic_message)
+
+        self._enrich_intent_with_asset_spec(intent, request)
+        return self.risk_guard.assess(
+            intent=intent,
+            account_balance=float(context.get("account_balance") or 0.0),
+            current_positions=context.get("current_positions"),
         )
 
     async def _execute_trade(
@@ -422,11 +525,16 @@ class AITradingService:
                 "当前网关未返回账户权益或余额，AI 交易已降级为仅解析意图。"
             )
 
+        try:
+            raw_positions = manager.query_gateway_positions(gateway_id, strict=True)
+        except RuntimeError as exc:
+            return self._build_degraded_context(
+                f"网关持仓查询失败，已停止自动交易：{exc}"
+            )
+
         return {
             "account_balance": account_balance,
-            "current_positions": self._normalize_positions(
-                manager.query_gateway_positions(gateway_id)
-            ),
+            "current_positions": self._normalize_positions(raw_positions),
         }
 
     def _build_degraded_context(self, diagnostic_message: str) -> dict[str, Any]:
@@ -449,12 +557,30 @@ class AITradingService:
     def _extract_account_balance(self, account_snapshot: dict[str, Any]) -> float | None:
         """Extract a usable account balance from a gateway snapshot."""
         balance_keys = (
+            "value",
             "total_equity",
+            "totalEquity",
             "equity",
+            "Equity",
             "balance",
+            "Balance",
             "current_cash",
+            "account_value",
+            "accountValue",
             "available_balance",
+            "availableBalance",
             "net_liquidation",
+            "NetLiquidation",
+            "netliquidation",
+            "NetLiquidationValue",
+            "total_margin_balance",
+            "totalMarginBalance",
+            "margin_balance",
+            "marginBalance",
+            "total_wallet_balance",
+            "totalWalletBalance",
+            "wallet_balance",
+            "walletBalance",
         )
         for key in balance_keys:
             value = self._coerce_optional_float(account_snapshot.get(key))
@@ -466,36 +592,73 @@ class AITradingService:
         """Normalize gateway positions into the schema expected by the risk guard."""
         normalized_positions: list[dict[str, Any]] = []
         for position in positions:
-            symbol = str(
-                position.get("symbol")
-                or position.get("vt_symbol")
-                or position.get("instrument_id")
-                or position.get("ticker")
-                or ""
-            ).strip()
-            size = self._coerce_optional_float(position.get("size"))
-            if size is None:
-                size = self._coerce_optional_float(position.get("volume"))
-            if size is None:
-                size = self._coerce_optional_float(position.get("position"))
-            if size is None:
-                size = self._coerce_optional_float(position.get("qty"))
-            if not symbol or size is None:
+            if not isinstance(position, dict):
                 continue
-
-            direction = str(position.get("direction") or position.get("side") or "").lower()
-            if direction in {"short", "sell"} and size > 0:
-                size = -size
+            symbol = gateway_position_symbol(position)
+            size = signed_gateway_size(position)
+            if not symbol or abs(size) <= 1e-12:
+                continue
 
             normalized_positions.append({"symbol": symbol, "size": size})
         return normalized_positions
 
+    def _enrich_intent_with_asset_spec(
+        self,
+        intent: TradingIntent,
+        request: AITradingRequest,
+    ) -> None:
+        """Attach asset specs before risk checks use notional values."""
+        if not intent.symbol:
+            return
+        if request.dry_run:
+            try:
+                asset_spec = query_local_asset_spec(intent.symbol)
+            except Exception as exc:
+                logger.debug("Failed to enrich AI paper intent with local asset spec: %s", exc)
+                return
+        else:
+            if not request.gateway_id:
+                return
+            try:
+                from app.services.direct_order_service import DirectOrderService
+
+                asset_spec = DirectOrderService()._gateway_asset_spec(
+                    request.gateway_id,
+                    intent.symbol,
+                )
+            except Exception as exc:
+                logger.debug("Failed to enrich AI live intent with gateway asset spec: %s", exc)
+                return
+        if not isinstance(asset_spec, dict) or not asset_spec:
+            return
+
+        params = dict(intent.additional_params or {})
+        for key, value in asset_spec.items():
+            if value in (None, ""):
+                continue
+            params[key] = value
+        intent.additional_params = params
+
+    def _enrich_intent_with_live_asset_spec(
+        self,
+        intent: TradingIntent,
+        request: AITradingRequest,
+    ) -> None:
+        """Backward-compatible wrapper for live-only callers."""
+        self._enrich_intent_with_asset_spec(intent, request)
+
     def _coerce_optional_float(self, value: Any) -> float | None:
         """Safely coerce a value to float."""
-        if value in {None, ""}:
+        if value is None or value == "":
+            return None
+        if isinstance(value, dict):
+            for key in ("amount", "value", "balance", "total"):
+                parsed = self._coerce_optional_float(value.get(key))
+                if parsed is not None:
+                    return parsed
             return None
         try:
-            return float(value)
+            return float(str(value).strip().replace(",", ""))
         except (TypeError, ValueError):
             return None
 

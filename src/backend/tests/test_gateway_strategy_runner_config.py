@@ -4,6 +4,8 @@ import os
 import time
 from pathlib import Path
 
+import pytest
+
 
 def _load_runner(strategy_dir: str):
     repo_root = Path(__file__).resolve().parents[3]
@@ -13,6 +15,23 @@ def _load_runner(strategy_dir: str):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+class _FakeBroker:
+    def __init__(self):
+        self.commission_infos = []
+        self.stock_commissions = []
+
+    def addcommissioninfo(self, comminfo, name=None):
+        self.commission_infos.append((name, comminfo))
+
+    def setcommission(self, **kwargs):
+        self.stock_commissions.append(kwargs)
+
+
+class _FakeCerebro:
+    def __init__(self):
+        self.broker = _FakeBroker()
 
 
 def _read_heartbeat(path: Path) -> dict:
@@ -112,6 +131,162 @@ def test_gateway_runner_prefers_mt5_env_credentials(monkeypatch):
     assert runtime["config"]["password"] == "env-pass"
     assert runtime["config"]["account_id"] == "env-account"
     assert runtime["config"]["ws_uri"] == "env-ws"
+
+
+def test_gateway_runner_store_configs_include_strategy_identity(monkeypatch):
+    for strategy_dir in ("gateway_dual_ma", "gateway_boll_breakout"):
+        module = _load_runner(strategy_dir)
+        config = {"workspace_unit": {"unit_id": "unit-42"}}
+        monkeypatch.delenv("BT_TRADING_INSTANCE_ID", raising=False)
+
+        assert (
+            module._merge_gateway_env_config(
+                config, "ctp_gateway", "CTP", "FUTURE"
+            )["config"]["strategy_id"]
+            == "unit-42"
+        )
+        assert (
+            module._build_ctp_store_config(config, "ctp_gateway", "FUTURE")["config"][
+                "strategy_id"
+            ]
+            == "unit-42"
+        )
+        assert (
+            module._build_ib_store_config(config, "ib_gateway", "STK")["config"][
+                "strategy_id"
+            ]
+            == "unit-42"
+        )
+        assert (
+            module._build_mt5_store_config(config, "mt5_gateway", "OTC")["config"][
+                "strategy_id"
+            ]
+            == "unit-42"
+        )
+
+        monkeypatch.setenv("BT_TRADING_INSTANCE_ID", "inst-42")
+        assert (
+            module._merge_gateway_env_config(
+                config, "ctp_gateway", "CTP", "FUTURE"
+            )["config"]["strategy_id"]
+            == "inst-42"
+        )
+
+
+def test_gateway_runner_contract_commission_uses_exchange_fee_and_fixed_margin():
+    for strategy_dir in ("gateway_dual_ma", "gateway_boll_breakout"):
+        module = _load_runner(strategy_dir)
+        cerebro = _FakeCerebro()
+
+        module._apply_contract_commission(
+            cerebro,
+            {
+                "data": {
+                    "asset_type": "future",
+                    "contract_metadata": {
+                        "IF2609": {
+                            "VolumeMultiple": 300,
+                            "margin_initial": 150000,
+                            "OpenRatioByMoney": 0.23,
+                            "CloseRatioByMoney": 0.3,
+                            "CloseTodayRatioByMoney": 3.45,
+                            "OpenRatioByVolume": 1.2,
+                            "CloseRatioByVolume": 2.0,
+                            "CloseTodayRatioByVolume": 4.5,
+                        }
+                    },
+                }
+            },
+            "IF2609",
+        )
+
+        assert cerebro.broker.stock_commissions == []
+        assert len(cerebro.broker.commission_infos) == 1
+        name, comminfo = cerebro.broker.commission_infos[0]
+        assert name == "IF2609"
+        assert comminfo.get_param("mult") == pytest.approx(300.0)
+        assert comminfo.get_param("commission") == pytest.approx(0.000023)
+        assert comminfo.get_margin(5000.0) == pytest.approx(150000.0)
+        assert comminfo.getcommission(1, 5000.0, role="open") == pytest.approx(35.7)
+        assert comminfo.getcommission(1, 5000.0, role="close") == pytest.approx(47.0)
+        assert comminfo.getcommission(1, 5000.0, role="close_today") == pytest.approx(522.0)
+
+
+def test_gateway_runner_contract_commission_preserves_okx_maker_taker_rates():
+    for strategy_dir in ("gateway_dual_ma", "gateway_boll_breakout"):
+        module = _load_runner(strategy_dir)
+        cerebro = _FakeCerebro()
+
+        module._apply_contract_commission(
+            cerebro,
+            {
+                "data": {
+                    "asset_type": "swap",
+                    "contract_metadata": {
+                        "BTC-USDT-SWAP": {
+                            "multiplier": 0.01,
+                            "margin_rate": 0.1,
+                            "commission_rate": 0.0005,
+                            "maker_commission_rate": -0.0002,
+                            "taker_commission_rate": 0.0005,
+                        }
+                    },
+                }
+            },
+            "BTC-USDT-SWAP",
+        )
+
+        assert cerebro.broker.stock_commissions == []
+        assert len(cerebro.broker.commission_infos) == 1
+        name, comminfo = cerebro.broker.commission_infos[0]
+        assert name == "BTC-USDT-SWAP"
+        assert comminfo.get_param("mult") == pytest.approx(0.01)
+        assert comminfo.getcommission(10, 60000.0, role="maker") == pytest.approx(-1.2)
+        assert comminfo.getcommission(10, 60000.0, role="taker") == pytest.approx(3.0)
+        assert comminfo.getcommission(10, 60000.0) == pytest.approx(3.0)
+
+
+def test_gateway_runner_contract_commission_uses_inverse_comminfo():
+    for strategy_dir in ("gateway_dual_ma", "gateway_boll_breakout"):
+        module = _load_runner(strategy_dir)
+        cerebro = _FakeCerebro()
+
+        module._apply_contract_commission(
+            cerebro,
+            {
+                "data": {
+                    "asset_type": "swap",
+                    "contract_metadata": {
+                        "BTC-USD-SWAP": {
+                            "ctType": "inverse",
+                            "multiplier": 1,
+                            "ctVal": 100,
+                            "ctMult": 1,
+                            "ctValCcy": "USD",
+                            "baseCcy": "BTC",
+                            "quoteCcy": "USD",
+                            "settleCcy": "BTC",
+                            "margin_rate": 0.1,
+                            "taker_commission_rate": 0.0005,
+                            "maker_commission_rate": -0.0001,
+                        }
+                    },
+                }
+            },
+            "BTC-USD-SWAP",
+        )
+
+        assert cerebro.broker.stock_commissions == []
+        assert len(cerebro.broker.commission_infos) == 1
+        name, comminfo = cerebro.broker.commission_infos[0]
+        assert name == "BTC-USD-SWAP"
+        assert comminfo.__class__.__name__ == "ComminfoFuturesInverse"
+        assert comminfo.get_param("mult") == pytest.approx(100.0)
+        assert comminfo.get_margin(50000.0) == pytest.approx(10.0)
+        assert comminfo.getoperationcost(100, 50000.0) == pytest.approx(1000.0)
+        assert comminfo.getcommission(100, 50000.0) == pytest.approx(5.0)
+        assert comminfo.getcommission(100, 50000.0, role="maker") == pytest.approx(-1.0)
+        assert comminfo.profitandloss(100, 50000.0, 55000.0) == pytest.approx(1000.0)
 
 
 def test_gateway_runner_allows_cerebro_memory_overrides():

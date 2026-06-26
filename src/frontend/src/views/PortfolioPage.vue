@@ -245,7 +245,7 @@
               >
                 <template #default="{ row }">
                   <el-tag
-                    :type="row.size > 0 ? 'danger' : row.size < 0 ? 'success' : 'info'"
+                    :type="positionDirectionTag(row)"
                     size="small"
                   >
                     {{ directionLabel(row.direction) }}
@@ -276,7 +276,7 @@
                 align="right"
               >
                 <template #default="{ row }">
-                  {{ row.size }}
+                  {{ formatPositionSize(row.size) }}
                 </template>
               </el-table-column>
               <el-table-column
@@ -315,6 +315,43 @@
                   <span :class="signedValueClass(row.position_pnl || 0)">
                     {{ formatSignedMoney(row.position_pnl || 0) }}
                   </span>
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="t('portfolio.colMarginValue')"
+                width="110"
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ formatOptionalMoney(row.margin_value) }}
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="t('portfolio.colCommission')"
+                width="95"
+                align="right"
+              >
+                <template #default="{ row }">
+                  {{ formatNumber(row.commission, 2) }}
+                </template>
+              </el-table-column>
+              <el-table-column
+                :label="t('portfolio.colValuationStatus')"
+                width="125"
+                align="center"
+              >
+                <template #default="{ row }">
+                  <el-tooltip
+                    :content="valuationTooltip(row)"
+                    placement="top"
+                  >
+                    <el-tag
+                      :type="valuationStatusTag(row)"
+                      size="small"
+                    >
+                      {{ valuationStatusLabel(row) }}
+                    </el-tag>
+                  </el-tooltip>
                 </template>
               </el-table-column>
               <el-table-column
@@ -529,9 +566,16 @@ function formatNumber(v: number | null | undefined, digits = 2) {
   return Number.isFinite(n) ? n.toFixed(digits) : '--'
 }
 
+function formatOptionalMoney(v: number | null | undefined) {
+  const n = Number(v)
+  return Number.isFinite(n) ? formatMoney(n) : '--'
+}
+
 function formatPositionSize(v: number | null | undefined) {
   const n = Number(v || 0)
-  return Number.isFinite(n) && n !== 0 ? formatNumber(n, 4) : '--'
+  if (!Number.isFinite(n) || n === 0) return '--'
+  if (Math.abs(n) < 0.0001) return n.toFixed(8).replace(/\.?0+$/, '')
+  return formatNumber(n, 4)
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -556,7 +600,15 @@ function exposureValueClass(v: number | null | undefined) {
 function directionLabel(direction: string) {
   if (direction === 'long') return t('portfolio.directionLong')
   if (direction === 'short') return t('portfolio.directionShort')
+  if (direction === 'hedged') return t('portfolio.directionHedged')
   return t('portfolio.directionFlat')
+}
+
+function positionDirectionTag(row: PositionItem) {
+  if (row.direction === 'hedged') return 'warning'
+  if (Number(row.size || 0) > 0) return 'danger'
+  if (Number(row.size || 0) < 0) return 'success'
+  return 'info'
 }
 
 function isLongTradeDirection(direction: string | null | undefined) {
@@ -612,6 +664,38 @@ function workspaceStatusLabel(status: string) {
   return map[status] || status
 }
 
+function valuationStatusTag(row: PositionItem) {
+  const status = String(row.valuation_status || '').toLowerCase()
+  if (row.position_source === 'gateway' && status === 'confirmed') return 'success'
+  if (status === 'stale_fallback') return 'danger'
+  if (status === 'estimated' || (row.valuation_warnings?.length ?? 0) > 0) return 'warning'
+  return 'info'
+}
+
+function valuationStatusLabel(row: PositionItem) {
+  const status = String(row.valuation_status || '').toLowerCase()
+  if (row.position_source === 'gateway' && status === 'confirmed') return t('portfolio.valuationGatewayConfirmed')
+  if (status === 'stale_fallback') return t('portfolio.valuationStale')
+  if (status === 'estimated' || (row.valuation_warnings?.length ?? 0) > 0) return t('portfolio.valuationEstimated')
+  return t('portfolio.valuationUnknown')
+}
+
+function positionSourceLabel(value: string | null | undefined) {
+  const source = String(value || '').toLowerCase()
+  if (source === 'gateway') return t('portfolio.sourceGateway')
+  if (source === 'log') return t('portfolio.sourceLog')
+  if (source === 'snapshot') return t('portfolio.sourceSnapshot')
+  if (source === 'mixed') return t('portfolio.sourceMixed')
+  return t('portfolio.sourceUnknown')
+}
+
+function valuationTooltip(row: PositionItem) {
+  const warnings = row.valuation_warnings?.filter(Boolean) ?? []
+  if (warnings.length > 0) return warnings.join('；')
+  const assetSource = row.asset_spec_source || '--'
+  return `${t('portfolio.positionSource')}: ${positionSourceLabel(row.position_source)}；${t('portfolio.assetSpecSource')}: ${assetSource}`
+}
+
 async function loadData() {
   loading.value = true
   loadedTabs.value = new Set(['workspaces'])
@@ -663,7 +747,7 @@ async function loadWorkspaceAggregates() {
 
   const nextPositions = positionResults.flatMap((result, index) => (
     result.positions.map(item => mapWorkspacePosition(workspaces[index], item))
-  ))
+  )).filter(item => hasOpenPosition(item))
   positions.value = nextPositions
   positionSummary.value = buildWorkspacePositionSummary(positionResults, nextPositions)
   trades.value = tradeResults
@@ -686,9 +770,9 @@ function buildWorkspacePositionSummary(
     gross_market_value: roundMoney(totalLong + totalShort),
     net_market_value: roundMoney(totalLong - totalShort),
     total_pnl: roundMoney(totalPnl),
-    long_count: rows.filter(item => item.direction === 'long').length,
-    short_count: rows.filter(item => item.direction === 'short').length,
-    flat_count: rows.filter(item => item.direction === 'flat').length,
+    long_count: rows.filter(item => Number(item.long_position || 0) > 0 || Number(item.size || 0) > 0).length,
+    short_count: rows.filter(item => Number(item.short_position || 0) > 0 || Number(item.size || 0) < 0).length,
+    flat_count: rows.filter(item => !hasOpenPosition(item)).length,
   }
 }
 
@@ -700,9 +784,14 @@ function mapWorkspacePosition(
   workspace: Workspace,
   item: TradingPositionManagerItem,
 ): PositionItem {
-  const netSize = Number(item.long_position || 0) - Number(item.short_position || 0)
+  const longPosition = Number(item.long_position || 0)
+  const shortPosition = Number(item.short_position || 0)
+  const netSize = longPosition - shortPosition
   const latestPrice = Number(item.latest_price ?? item.avg_price ?? 0)
   const avgPrice = Number(item.avg_price ?? latestPrice)
+  const direction = longPosition > 0 && shortPosition > 0
+    ? 'hedged'
+    : netSize > 0 ? 'long' : netSize < 0 ? 'short' : 'flat'
   return {
     strategy_id: item.unit_id,
     strategy_name: `${workspace.name} / ${item.unit_name}`,
@@ -712,14 +801,31 @@ function mapWorkspacePosition(
     price: avgPrice,
     latest_price: latestPrice,
     market_value: Number(item.market_value ?? 0),
+    margin_value: item.margin_value == null ? undefined : Number(item.margin_value),
     position_pnl: Number(item.position_pnl || 0),
-    direction: netSize > 0 ? 'long' : netSize < 0 ? 'short' : 'flat',
-    long_position: Number(item.long_position || 0),
-    short_position: Number(item.short_position || 0),
+    gross_pnl: item.gross_pnl == null ? undefined : Number(item.gross_pnl),
+    commission: item.commission == null ? undefined : Number(item.commission),
+    multiplier: item.multiplier == null ? undefined : Number(item.multiplier),
+    margin_rate: item.margin_rate == null ? undefined : Number(item.margin_rate),
+    direction,
+    long_position: longPosition,
+    short_position: shortPosition,
     trading_mode: item.trading_mode,
     updated_at: item.updated_at ?? workspace.updated_at,
     data_time: item.data_time,
+    position_source: item.position_source,
+    asset_spec_source: item.asset_spec_source,
+    valuation_status: item.valuation_status,
+    valuation_warnings: item.valuation_warnings ?? [],
   }
+}
+
+function hasOpenPosition(item: PositionItem) {
+  return (
+    Math.abs(Number(item.size || 0)) > 0
+    || Number(item.long_position || 0) > 0
+    || Number(item.short_position || 0) > 0
+  )
 }
 
 function isTradeInSelectedWorkspaces(item: TradeItem, workspaces: Workspace[]) {

@@ -90,6 +90,22 @@ class TestTradingRiskGuard:
         assert result.approved is False
         assert "禁止交易列表" in result.blocked_reasons[0]
 
+    def test_blocked_symbol_matches_exchange_alias(self):
+        guard = TradingRiskGuard(
+            TradingRiskConfig(blocked_symbols=["BTC/USDT"], min_confidence_threshold=0.3)
+        )
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="BTCUSDT",
+            quantity=0.1,
+            confidence=0.8,
+        )
+
+        result = guard.assess(intent)
+
+        assert result.approved is False
+        assert "禁止交易列表" in result.blocked_reasons[0]
+
     def test_valid_trade_approved(self):
         intent = TradingIntent(
             action=TradeAction.BUY,
@@ -113,6 +129,54 @@ class TestTradingRiskGuard:
         result = self.guard.assess(intent, account_balance=100000)
         assert result.approved is True
         assert result.requires_confirmation is True
+
+    def test_market_order_without_reference_price_is_blocked_when_account_is_known(self):
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="BTCUSDT",
+            quantity=0.1,
+            confidence=0.8,
+            risk_level=RiskLevel.LOW,
+        )
+
+        result = self.guard.assess(intent, account_balance=100000)
+
+        assert result.approved is False
+        assert any("缺少价格或最新价" in reason for reason in result.blocked_reasons)
+
+    def test_market_order_uses_reference_price_for_amount_limits(self):
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="BTCUSDT",
+            quantity=0.1,
+            confidence=0.8,
+            risk_level=RiskLevel.LOW,
+            additional_params={"last_price": 60000},
+        )
+
+        result = self.guard.assess(intent, account_balance=100000)
+
+        assert result.approved is True
+        assert result.requires_confirmation is True
+        assert result.max_loss_estimate == pytest.approx(300.0)
+
+    def test_futures_trade_value_uses_contract_multiplier(self):
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="IF2609",
+            exchange="ctp",
+            quantity=1,
+            price=5000,
+            confidence=0.8,
+            risk_level=RiskLevel.LOW,
+            additional_params={"multiplier": 300},
+        )
+
+        result = self.guard.assess(intent, account_balance=1_000_000)
+
+        assert result.approved is False
+        assert any("单笔交易金额" in reason for reason in result.blocked_reasons)
+        assert result.max_loss_estimate == pytest.approx(75_000.0)
 
     def test_no_stop_loss_warning(self):
         intent = TradingIntent(
@@ -152,12 +216,31 @@ class TestAITradingService:
     def service(self):
         return AITradingService()
 
+    def test_normalize_positions_uses_gateway_aliases_and_filters_zero(self, service):
+        positions = service._normalize_positions(
+            [
+                {
+                    "position_symbol_name": "BTCUSDT",
+                    "positionSide": "SHORT",
+                    "positionAmt": "0.25",
+                },
+                {
+                    "symbol_name": "ETHUSDT",
+                    "positionSide": "LONG",
+                    "positionAmt": "0",
+                },
+            ]
+        )
+
+        assert positions == [{"symbol": "BTCUSDT", "size": -0.25}]
+
     async def test_dry_run_execution(self, service):
         """Dry run should return confirmed status without real execution."""
         mock_intent = TradingIntent(
             action=TradeAction.BUY,
             symbol="rb2501",
             quantity=1,
+            price=3500,
             confidence=0.9,
             risk_level=RiskLevel.LOW,
             reason="测试买入",
@@ -175,6 +258,7 @@ class TestAITradingService:
                 new_callable=AsyncMock,
                 return_value={"account_balance": 100000.0, "current_positions": []},
             ),
+            patch("app.services.ai_trading_service.query_local_asset_spec", return_value={}),
         ):
             request = AITradingRequest(message="买入1手螺纹钢", dry_run=True)
             result = await service.process_trading_request("user1", request)
@@ -182,6 +266,79 @@ class TestAITradingService:
         assert result.status == TradeStatus.CONFIRMED
         assert result.execution_result is not None
         assert result.execution_result.get("dry_run") is True
+
+    async def test_dry_run_risk_uses_local_contract_multiplier(self, service):
+        """Paper AI risk assessment must use local asset specs before dry-run approval."""
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="IF2609",
+            exchange="ctp",
+            quantity=1,
+            price=5000,
+            confidence=0.9,
+            risk_level=RiskLevel.LOW,
+        )
+
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 1_000_000.0, "current_positions": []},
+            ),
+            patch(
+                "app.services.ai_trading_service.query_local_asset_spec",
+                return_value={"symbol": "IF2609", "multiplier": 300, "margin_rate": 0.1},
+            ),
+        ):
+            request = AITradingRequest(message="买入1手IF2609", dry_run=True)
+            result = await service.process_trading_request("user1", request)
+
+        assert result.status == TradeStatus.REJECTED
+        assert result.intent.additional_params["multiplier"] == 300
+        assert any("单笔交易金额" in reason for reason in result.risk_assessment.blocked_reasons)
+
+    async def test_dry_run_asset_spec_overrides_stale_parser_multiplier(self, service):
+        """Authoritative local specs must override stale LLM/parser multiplier params."""
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="IF2609",
+            exchange="ctp",
+            quantity=1,
+            price=5000,
+            confidence=0.9,
+            risk_level=RiskLevel.LOW,
+            additional_params={"multiplier": 1},
+        )
+
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 1_000_000.0, "current_positions": []},
+            ),
+            patch(
+                "app.services.ai_trading_service.query_local_asset_spec",
+                return_value={"symbol": "IF2609", "multiplier": 300, "margin_rate": 0.1},
+            ),
+        ):
+            request = AITradingRequest(message="买入1手IF2609", dry_run=True)
+            result = await service.process_trading_request("user1", request)
+
+        assert result.status == TradeStatus.REJECTED
+        assert result.intent.additional_params["multiplier"] == 300
+        assert any("单笔交易金额" in reason for reason in result.risk_assessment.blocked_reasons)
 
     async def test_rejected_by_risk_guard(self, service):
         """Low confidence intent should be rejected."""
@@ -277,6 +434,211 @@ class TestAITradingService:
         assert result.degraded is True
         assert result.diagnostic_message is not None
         assert "尚未建立运行时连接" in result.diagnostic_message
+
+    async def test_live_gateway_position_query_failure_returns_degraded_response(self, service):
+        """AI trading must not treat an unreadable live position book as flat."""
+
+        class FakeManager:
+            def list_connected_gateways(self):
+                return [
+                    {
+                        "gateway_key": "manual:CTP:test",
+                        "exchange_type": "CTP",
+                        "account_id": "investor-001",
+                        "has_runtime": True,
+                    }
+                ]
+
+            def query_gateway_account(self, gateway_id):
+                assert gateway_id == "manual:CTP:test"
+                return {
+                    "gateway_key": gateway_id,
+                    "state": "running",
+                    "trade_connection": "connected",
+                    "equity": 100000.0,
+                }
+
+            def query_gateway_positions(self, gateway_id, *, strict=False):
+                assert gateway_id == "manual:CTP:test"
+                assert strict is True
+                raise RuntimeError("position channel disconnected")
+
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="rb2501",
+            quantity=1,
+            confidence=0.9,
+            risk_level=RiskLevel.LOW,
+        )
+
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch(
+                "app.services.live_trading_manager.get_live_trading_manager",
+                return_value=FakeManager(),
+            ),
+        ):
+            request = AITradingRequest(
+                message="买入1手螺纹钢",
+                dry_run=False,
+                gateway_id="manual:CTP:test",
+            )
+            result = await service.process_trading_request("user1", request)
+
+        assert result.status == TradeStatus.REJECTED
+        assert result.degraded is True
+        assert result.diagnostic_message is not None
+        assert "持仓查询失败" in result.diagnostic_message
+
+    async def test_live_gateway_risk_uses_gateway_contract_multiplier(self, service):
+        """Live AI risk assessment must use gateway contract specs before execution."""
+
+        class FakeManager:
+            def list_connected_gateways(self):
+                return [
+                    {
+                        "gateway_key": "manual:CTP:test",
+                        "exchange_type": "CTP",
+                        "account_id": "investor-001",
+                        "has_runtime": True,
+                    }
+                ]
+
+            def query_gateway_account(self, gateway_id):
+                assert gateway_id == "manual:CTP:test"
+                return {
+                    "state": "ready",
+                    "trade_connection": "connected",
+                    "total_equity": 1_000_000.0,
+                }
+
+            def query_gateway_positions(self, gateway_id, strict=False):
+                assert gateway_id == "manual:CTP:test"
+                assert strict is True
+                return []
+
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="IF2609",
+            exchange="ctp",
+            quantity=1,
+            price=5000,
+            confidence=0.9,
+            risk_level=RiskLevel.LOW,
+        )
+
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch(
+                "app.services.live_trading_manager.get_live_trading_manager",
+                return_value=FakeManager(),
+            ),
+            patch(
+                "app.services.direct_order_service.DirectOrderService._gateway_asset_spec",
+                return_value={"multiplier": 300, "contract_size": 300},
+            ),
+        ):
+            request = AITradingRequest(
+                message="买入1手IF2609",
+                dry_run=False,
+                gateway_id="manual:CTP:test",
+                auto_confirm=True,
+            )
+            result = await service.process_trading_request("user1", request)
+
+        assert result.status == TradeStatus.REJECTED
+        assert result.intent.additional_params["multiplier"] == 300
+        assert any("单笔交易金额" in reason for reason in result.risk_assessment.blocked_reasons)
+
+    async def test_live_gateway_risk_uses_inverse_contract_notional(self, service):
+        """Inverse contracts use fixed contract value instead of price * contract value."""
+
+        class FakeManager:
+            def list_connected_gateways(self):
+                return [
+                    {
+                        "gateway_key": "manual:OKX:test",
+                        "exchange_type": "OKX",
+                        "account_id": "okx-001",
+                        "has_runtime": True,
+                    }
+                ]
+
+            def query_gateway_account(self, gateway_id):
+                assert gateway_id == "manual:OKX:test"
+                return {
+                    "state": "ready",
+                    "trade_connection": "connected",
+                    "value": 100_000.0,
+                }
+
+            def query_gateway_positions(self, gateway_id, strict=False):
+                assert gateway_id == "manual:OKX:test"
+                assert strict is True
+                return []
+
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="BTC-USD-SWAP",
+            exchange="okx",
+            quantity=100,
+            price=50000,
+            stop_loss=45000,
+            confidence=0.9,
+            risk_level=RiskLevel.LOW,
+        )
+
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch(
+                "app.services.live_trading_manager.get_live_trading_manager",
+                return_value=FakeManager(),
+            ),
+            patch(
+                "app.services.direct_order_service.DirectOrderService._gateway_asset_spec",
+                return_value={
+                    "source": "okx_get_instruments",
+                    "asset_type": "SWAP",
+                    "contract_type": "inverse",
+                    "ctVal": 100,
+                    "ctValCcy": "USD",
+                    "baseCcy": "BTC",
+                    "quoteCcy": "USD",
+                    "settleCcy": "BTC",
+                    "taker_commission_rate": 0.0005,
+                },
+            ),
+            patch.object(
+                service,
+                "_execute_trade",
+                new_callable=AsyncMock,
+                return_value={"success": True, "order_id": "dry-live-okx"},
+            ),
+        ):
+            request = AITradingRequest(
+                message="买入100张BTC反向永续",
+                dry_run=False,
+                gateway_id="manual:OKX:test",
+                auto_confirm=True,
+            )
+            result = await service.process_trading_request("user1", request)
+
+        assert result.status == TradeStatus.FILLED
+        assert result.risk_assessment.approved is True
+        assert result.risk_assessment.max_loss_estimate == pytest.approx(1000.0)
+        assert result.intent.additional_params["contract_type"] == "inverse"
 
 
 class TestAITradingAPI:
@@ -540,7 +902,13 @@ class TestAITradingServiceConfirmation:
 
     @pytest.fixture
     def service(self):
-        return AITradingService()
+        from app.services.ai_trading_service import _pending_trades
+
+        _pending_trades.clear()
+        service = AITradingService()
+        service.risk_guard = TradingRiskGuard(TradingRiskConfig())
+        yield service
+        _pending_trades.clear()
 
     async def test_pending_confirmation_flow(self, service):
         """High-risk trade should require confirmation."""
@@ -548,7 +916,7 @@ class TestAITradingServiceConfirmation:
             action=TradeAction.BUY,
             symbol="BTCUSDT",
             quantity=0.1,
-            price=None,  # market order, no value estimate
+            price=100000,
             confidence=0.9,
             risk_level=RiskLevel.HIGH,  # HIGH risk triggers confirmation
         )
@@ -581,6 +949,7 @@ class TestAITradingServiceConfirmation:
             action=TradeAction.BUY,
             symbol="rb2501",
             quantity=1,
+            price=3500,
             confidence=0.9,
             risk_level=RiskLevel.HIGH,
         )
@@ -606,8 +975,16 @@ class TestAITradingServiceConfirmation:
 
         # Mock the execution for confirmation
         mock_execution = {"success": True, "type": "paper_trade", "message": "模拟执行成功"}
-        with patch.object(
-            service, "_execute_trade", new_callable=AsyncMock, return_value=mock_execution
+        with (
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
+            patch.object(
+                service, "_execute_trade", new_callable=AsyncMock, return_value=mock_execution
+            ),
         ):
             confirm_req = TradeConfirmRequest(
                 trade_id=pending_result.trade_id,
@@ -615,6 +992,98 @@ class TestAITradingServiceConfirmation:
             )
             confirm_result = await service.confirm_trade("user1", confirm_req)
         assert confirm_result.status == TradeStatus.FILLED
+
+    async def test_confirm_trade_expired_does_not_execute(self, service):
+        """Expired pending confirmations must not execute live orders."""
+        from app.schemas.ai_trading import TradeConfirmRequest
+        from app.services.ai_trading_service import _pending_trades
+
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="rb2501",
+            quantity=1,
+            price=3500,
+            confidence=0.9,
+            risk_level=RiskLevel.HIGH,
+        )
+
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
+        ):
+            request = AITradingRequest(message="买入1手螺纹钢", dry_run=False)
+            pending_result = await service.process_trading_request("user1", request)
+
+        _pending_trades[pending_result.trade_id]["expires_at"] = "2000-01-01T00:00:00+00:00"
+        with patch.object(service, "_execute_trade", new_callable=AsyncMock) as mock_execute:
+            confirm_result = await service.confirm_trade(
+                "user1",
+                TradeConfirmRequest(trade_id=pending_result.trade_id, confirmed=True),
+            )
+
+        assert confirm_result.status == TradeStatus.FAILED
+        assert confirm_result.execution_result is not None
+        assert confirm_result.execution_result["error"] == "confirmation_expired"
+        mock_execute.assert_not_awaited()
+        assert pending_result.trade_id not in _pending_trades
+
+    async def test_confirm_trade_rechecks_risk_before_execution(self, service):
+        """A confirmation must be rejected if current risk no longer passes."""
+        from app.schemas.ai_trading import TradeConfirmRequest
+
+        mock_intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="rb2501",
+            quantity=1,
+            price=3500,
+            confidence=0.9,
+            risk_level=RiskLevel.HIGH,
+        )
+
+        with (
+            patch(
+                "app.services.ai_trading_service.parse_trading_intent",
+                new_callable=AsyncMock,
+                return_value=mock_intent,
+            ),
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
+        ):
+            request = AITradingRequest(message="买入1手螺纹钢", dry_run=False)
+            pending_result = await service.process_trading_request("user1", request)
+
+        service.risk_guard.config.max_single_trade_amount = 1000.0
+        with (
+            patch.object(
+                service,
+                "_resolve_trading_context",
+                new_callable=AsyncMock,
+                return_value={"account_balance": 100000.0, "current_positions": []},
+            ),
+            patch.object(service, "_execute_trade", new_callable=AsyncMock) as mock_execute,
+        ):
+            confirm_result = await service.confirm_trade(
+                "user1",
+                TradeConfirmRequest(trade_id=pending_result.trade_id, confirmed=True),
+            )
+
+        assert confirm_result.status == TradeStatus.REJECTED
+        assert confirm_result.execution_result is not None
+        assert confirm_result.execution_result["error"] == "risk_recheck_failed"
+        mock_execute.assert_not_awaited()
 
     async def test_reject_trade(self, service):
         """Rejecting a pending trade should cancel it."""
@@ -624,6 +1093,7 @@ class TestAITradingServiceConfirmation:
             action=TradeAction.BUY,
             symbol="rb2501",
             quantity=1,
+            price=3500,
             confidence=0.9,
             risk_level=RiskLevel.HIGH,
         )
@@ -671,6 +1141,7 @@ class TestAITradingServiceConfirmation:
             action=TradeAction.BUY,
             symbol="rb2501",
             quantity=1,
+            price=3500,
             confidence=0.9,
             risk_level=RiskLevel.HIGH,
         )
@@ -762,6 +1233,25 @@ class TestRiskGuardEdgeCases:
         result = self.guard.assess(intent, current_positions=positions)
         assert result.position_impact is not None
         assert "增加" in result.position_impact
+
+    def test_position_impact_matches_symbol_alias_and_skips_zero(self):
+        intent = TradingIntent(
+            action=TradeAction.SELL,
+            symbol="BTCUSDT",
+            quantity=0.25,
+            confidence=0.8,
+            risk_level=RiskLevel.LOW,
+        )
+        positions = [
+            {"symbol": "BTC-USDT", "size": 0},
+            {"symbol": "BTC/USDT", "size": 0.5},
+        ]
+
+        result = self.guard.assess(intent, current_positions=positions)
+
+        assert result.position_impact is not None
+        assert "当前持仓 0.5" in result.position_impact
+        assert "减少" in result.position_impact
 
     def test_record_trade_increments_counter(self):
         assert self.guard._daily_trade_count == 0

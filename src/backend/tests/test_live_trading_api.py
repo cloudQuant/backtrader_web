@@ -272,6 +272,48 @@ class TestLiveTradingList:
         # first. Offloading via to_thread lets the fast request overtake it.
         assert order == ["fast", "slow"]
 
+    async def test_gateway_positions_query_uses_strict_gateway_read(
+        self, client: AsyncClient, auth_headers
+    ):
+        def _query_positions(_gateway_key: str, *, strict: bool = False) -> list[dict[str, str]]:
+            assert strict is True
+            return [{"symbol": "rb2501", "volume": 1}]
+
+        with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.query_gateway_positions.side_effect = _query_positions
+            mock_get_mgr.return_value = mock_mgr
+
+            response = await client.get(
+                "/api/v1/live-trading/gateways/manual:CTP:089763/positions",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data == {
+            "total": 1,
+            "positions": [{"symbol": "rb2501", "volume": 1}],
+        }
+
+    async def test_gateway_positions_query_returns_error_when_gateway_unavailable(
+        self, client: AsyncClient, auth_headers
+    ):
+        with patch("app.api.live_trading_api.get_live_trading_manager") as mock_get_mgr:
+            mock_mgr = MagicMock()
+            mock_mgr.query_gateway_positions.side_effect = RuntimeError(
+                "Gateway 'manual:CTP:089763' has no runtime"
+            )
+            mock_get_mgr.return_value = mock_mgr
+
+            response = await client.get(
+                "/api/v1/live-trading/gateways/manual:CTP:089763/positions",
+                headers=auth_headers,
+            )
+
+        assert response.status_code == 404
+        assert "has no runtime" in response.json()["message"]
+
     async def test_connect_gateway_error_returns_400_not_500(
         self, client: AsyncClient, auth_headers
     ):

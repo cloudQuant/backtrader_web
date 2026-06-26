@@ -1,7 +1,35 @@
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from app.services import ctp_tunnel
+from app.services.gateway import manual as manual_gateway_service
 from app.services.gateway import manual_ctp_proxy, manual_ports
+
+
+class _FakeOrderAdapter:
+    def __init__(self, orders):
+        self.orders = orders
+        self.cancelled = []
+
+    def get_open_orders(self):
+        return list(self.orders)
+
+    def cancel_order(self, payload):
+        self.cancelled.append(dict(payload))
+        return {"status": "ok"}
+
+
+class _FakeRawOrderAdapter(_FakeOrderAdapter):
+    def get_open_orders(self):
+        return self.orders
+
+
+class _FakePositionAdapter:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def get_positions(self):
+        return self.payload
 
 
 class TestManualPorts:
@@ -181,3 +209,357 @@ class TestCtpTunnel:
         assert b"Host: 182.254.243.31:40011\r\n" in request
         assert b"Proxy-Authorization: Basic abc123\r\n" in request
         assert request.endswith(b"\r\n\r\n")
+
+
+class TestManualGatewayPositions:
+    def test_query_gateway_positions_unwraps_nested_data_positions_in_strict_mode(self):
+        adapter = _FakePositionAdapter(
+            {"data": {"positions": [{"symbol": "BTCUSDT", "positionAmt": "0.25"}]}}
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        rows = manual_gateway_service.query_gateway_positions(gateways, "gw-1", strict=True)
+
+        assert rows == [{"symbol": "BTCUSDT", "positionAmt": "0.25"}]
+
+    def test_query_gateway_positions_unwraps_result_symbol_map(self):
+        adapter = _FakePositionAdapter(
+            {"result": {"BTCUSDT": {"symbol": "BTCUSDT", "size": 0.25}}}
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        rows = manual_gateway_service.query_gateway_positions(gateways, "gw-1")
+
+        assert rows == [{"symbol": "BTCUSDT", "size": 0.25}]
+
+    def test_query_gateway_positions_accepts_single_position_row(self):
+        adapter = _FakePositionAdapter({"symbol": "IF2609", "Position": 1})
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        rows = manual_gateway_service.query_gateway_positions(gateways, "gw-1", strict=True)
+
+        assert rows == [{"symbol": "IF2609", "Position": 1}]
+
+    def test_query_gateway_positions_accepts_okx_single_position_row(self):
+        adapter = _FakePositionAdapter(
+            {"instId": "BTC-USDT-SWAP", "pos": "1", "avgPx": "60000"}
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        rows = manual_gateway_service.query_gateway_positions(gateways, "gw-1", strict=True)
+
+        assert rows == [{"instId": "BTC-USDT-SWAP", "pos": "1", "avgPx": "60000"}]
+
+    def test_query_gateway_positions_unwraps_nested_ib_description_quantity_map(self):
+        adapter = _FakePositionAdapter(
+            {
+                "accounts": {
+                    "U1234567": {
+                        "portfolio": {
+                            "SPY": {
+                                "description": "SPY",
+                                "quantity": 5,
+                                "mktPrice": 471.16,
+                            }
+                        }
+                    }
+                }
+            }
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        rows = manual_gateway_service.query_gateway_positions(gateways, "gw-1", strict=True)
+
+        assert rows == [{"description": "SPY", "quantity": 5, "mktPrice": 471.16}]
+
+
+class TestManualGatewayOrderCancellation:
+    def test_cancel_gateway_open_orders_cancels_unowned_when_exclusive(self):
+        adapter = _FakeOrderAdapter(
+            [{"order_ref": "ref-1", "data_name": "IF2609", "remaining": 1}]
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"inst-1"},
+            cancel_unowned=True,
+        )
+
+        assert result["status"] == "ok"
+        assert result["cancelled_count"] == 1
+        assert adapter.cancelled[0]["order_ref"] == "ref-1"
+        assert adapter.cancelled[0]["symbol"] == "IF2609"
+
+    def test_cancel_gateway_open_orders_skips_unknown_owner_on_shared_gateway(self):
+        adapter = _FakeOrderAdapter(
+            [{"order_ref": "ref-2", "data_name": "IF2609", "remaining": 1}]
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"inst-1"},
+            cancel_unowned=False,
+        )
+
+        assert result["status"] == "warning"
+        assert result["cancelled_count"] == 0
+        assert result["skipped_count"] == 1
+        assert result["unknown_owner_count"] == 1
+        assert result["skipped_orders"][0]["skip_reason"] == "unknown_owner"
+        assert adapter.cancelled == []
+
+    def test_cancel_gateway_open_orders_uses_order_map_owner(self):
+        adapter = _FakeOrderAdapter(
+            [{"order_ref": "ref-3", "data_name": "IF2609", "remaining": 1}]
+        )
+        order_map = SimpleNamespace(
+            by_client=lambda value: SimpleNamespace(strategy_id="unit-1")
+            if value == "ref-3"
+            else None
+        )
+        gateways = {
+            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
+        }
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"unit-1"},
+            cancel_unowned=False,
+        )
+
+        assert result["status"] == "ok"
+        assert result["cancelled_count"] == 1
+        assert result["cancelled_orders"][0]["owner_id"] == "unit-1"
+
+    def test_cancel_gateway_open_orders_uses_venue_order_map_owner(self):
+        adapter = _FakeOrderAdapter(
+            [{"external_order_id": "venue-1", "data_name": "IF2609", "remaining": 1}]
+        )
+        order_map = SimpleNamespace(
+            strategy_for_venue=lambda value: "unit-1" if value == "venue-1" else None
+        )
+        gateways = {
+            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
+        }
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"unit-1"},
+            cancel_unowned=False,
+        )
+
+        assert result["status"] == "ok"
+        assert result["cancelled_count"] == 1
+        assert result["cancelled_orders"][0]["owner_id"] == "unit-1"
+
+    def test_cancel_gateway_open_orders_uses_exchange_client_order_alias_owner(self):
+        adapter = _FakeOrderAdapter(
+            [{"instId": "BTC-USDT-SWAP", "clOrdId": "client-1", "remaining": 1}]
+        )
+        order_map = SimpleNamespace(
+            by_client=lambda value: SimpleNamespace(strategy_id="unit-1")
+            if value == "client-1"
+            else None
+        )
+        gateways = {
+            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
+        }
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"unit-1"},
+            cancel_unowned=False,
+        )
+
+        assert result["status"] == "ok"
+        assert result["cancelled_count"] == 1
+        assert result["cancelled_orders"][0]["owner_id"] == "unit-1"
+
+    def test_cancel_gateway_open_orders_uses_order_link_id_owner(self):
+        adapter = _FakeOrderAdapter(
+            [{"symbol": "ETHUSDT", "orderLinkId": "client-link-1", "remaining": 1}]
+        )
+        order_map = SimpleNamespace(
+            by_client=lambda value: SimpleNamespace(strategy_id="unit-1")
+            if value == "client-link-1"
+            else None
+        )
+        gateways = {
+            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
+        }
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"unit-1"},
+            cancel_unowned=False,
+        )
+
+        assert result["status"] == "ok"
+        assert result["cancelled_count"] == 1
+        assert adapter.cancelled[0]["client_order_id"] == "client-link-1"
+        assert adapter.cancelled[0]["order_ref"] == "client-link-1"
+
+    def test_cancel_gateway_open_orders_leaves_other_owner_orders_as_ok(self):
+        adapter = _FakeOrderAdapter(
+            [{"order_ref": "ref-4", "data_name": "IF2609", "remaining": 1}]
+        )
+        order_map = SimpleNamespace(
+            by_client=lambda value: SimpleNamespace(strategy_id="unit-2")
+            if value == "ref-4"
+            else None
+        )
+        gateways = {
+            "gw-1": {"runtime": SimpleNamespace(adapter=adapter, order_map=order_map)}
+        }
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"unit-1"},
+            cancel_unowned=False,
+        )
+
+        assert result["status"] == "ok"
+        assert result["cancelled_count"] == 0
+        assert result["other_owner_count"] == 1
+        assert result["skipped_orders"][0]["skip_reason"] == "different_owner"
+        assert adapter.cancelled == []
+
+    def test_cancel_gateway_open_orders_normalizes_exchange_order_aliases(self):
+        adapter = _FakeOrderAdapter(
+            [
+                {
+                    "instId": "BTC-USDT-SWAP",
+                    "ordId": "okx-order-1",
+                    "clOrdId": "okx-client-1",
+                    "state": "live",
+                    "remaining": 1,
+                }
+            ]
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"inst-1"},
+            cancel_unowned=True,
+        )
+
+        assert result["status"] == "ok"
+        assert result["cancelled_count"] == 1
+        assert adapter.cancelled[0]["symbol"] == "BTC-USDT-SWAP"
+        assert adapter.cancelled[0]["data_name"] == "BTC-USDT-SWAP"
+        assert adapter.cancelled[0]["order_id"] == "okx-order-1"
+        assert adapter.cancelled[0]["client_order_id"] == "okx-client-1"
+        assert adapter.cancelled[0]["order_ref"] == "okx-client-1"
+
+    def test_cancel_gateway_open_orders_unwraps_nested_exchange_payload(self):
+        adapter = _FakeRawOrderAdapter(
+            {
+                "status": "ok",
+                "data": {
+                    "BTC-USDT-SWAP": [
+                        {
+                            "instId": "BTC-USDT-SWAP",
+                            "ordId": "okx-order-2",
+                            "clOrdId": "okx-client-2",
+                            "state": "live",
+                            "remaining": 1,
+                        },
+                        {
+                            "instId": "BTC-USDT-SWAP",
+                            "ordId": "okx-order-closed",
+                            "state": "filled",
+                        },
+                    ]
+                },
+            }
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"inst-1"},
+            cancel_unowned=True,
+        )
+
+        assert result["status"] == "ok"
+        assert result["open_order_count"] == 1
+        assert result["cancelled_count"] == 1
+        assert adapter.cancelled[0]["symbol"] == "BTC-USDT-SWAP"
+        assert adapter.cancelled[0]["order_id"] == "okx-order-2"
+        assert adapter.cancelled[0]["client_order_id"] == "okx-client-2"
+
+    def test_cancel_gateway_open_orders_reports_query_error_payload(self):
+        adapter = _FakeRawOrderAdapter({"status": "error", "message": "auth failed"})
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"inst-1"},
+            cancel_unowned=True,
+        )
+
+        assert result["status"] == "error"
+        assert "auth failed" in result["message"]
+        assert result["cancelled_count"] == 0
+        assert adapter.cancelled == []
+
+    def test_cancel_gateway_open_orders_ignores_terminal_exchange_status_aliases(self):
+        adapter = _FakeOrderAdapter(
+            [
+                {
+                    "instId": "BTC-USDT-SWAP",
+                    "ordId": "terminal-1",
+                    "state": "partially_filled_canceled",
+                },
+                {
+                    "symbol": "IF2609",
+                    "order_ref": "terminal-2",
+                    "status": "partial-canceled",
+                },
+                {
+                    "symbol": "IF2609",
+                    "order_ref": "terminal-3",
+                    "status": "expired in match",
+                },
+                {
+                    "symbol": "IF2609",
+                    "order_ref": "open-1",
+                    "status": "live",
+                },
+            ]
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        result = manual_gateway_service.cancel_gateway_open_orders(
+            gateways,
+            "gw-1",
+            owner_ids={"unit-1"},
+            cancel_unowned=True,
+        )
+
+        assert result["status"] == "ok"
+        assert result["open_order_count"] == 1
+        assert result["cancelled_count"] == 1
+        assert adapter.cancelled == [
+            {
+                "symbol": "IF2609",
+                "order_ref": "open-1",
+                "status": "live",
+                "data_name": "IF2609",
+                "order_id": None,
+                "client_order_id": None,
+            }
+        ]

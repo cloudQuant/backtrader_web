@@ -1609,20 +1609,137 @@ def connect_mt5_gateway(
         }
 
 
+def _account_number(row: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = row.get(key)
+        if value in (None, ""):
+            continue
+        if isinstance(value, dict):
+            nested_value = None
+            for nested_key in ("amount", "value", "balance", "total"):
+                candidate = value.get(nested_key)
+                if candidate not in (None, ""):
+                    nested_value = candidate
+                    break
+            if nested_value in (None, ""):
+                continue
+            value = nested_value
+        if isinstance(value, str):
+            value = value.strip().replace(",", "")
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _normalize_account_balance(raw: Any) -> dict[str, Any]:
+    if not isinstance(raw, dict):
+        return {}
+    status = str(raw.get("status") or "").strip().lower()
+    if status == "error":
+        message = str(raw.get("message") or raw.get("error") or "account query failed")
+        raise RuntimeError(message)
+
+    payload = dict(raw)
+    cash = _account_number(
+        payload,
+        "cash",
+        "available_cash",
+        "available",
+        "Available",
+        "available_funds",
+        "AvailableFunds",
+        "availablefunds",
+        "available_balance",
+        "availableBalance",
+        "total_available_balance",
+        "totalAvailableBalance",
+        "free_margin",
+        "freeMargin",
+        "marginFree",
+        "margin_free",
+        "withdraw_available",
+        "withdrawAvailable",
+        "available_to_withdraw",
+        "availableToWithdraw",
+    )
+    value = _account_number(
+        payload,
+        "value",
+        "equity",
+        "Equity",
+        "total_equity",
+        "totalEquity",
+        "account_value",
+        "accountValue",
+        "net_liquidation",
+        "NetLiquidation",
+        "netliquidation",
+        "NetLiquidationValue",
+        "total_margin_balance",
+        "totalMarginBalance",
+        "margin_balance",
+        "marginBalance",
+        "total_wallet_balance",
+        "totalWalletBalance",
+        "wallet_balance",
+        "walletBalance",
+        "balance",
+        "Balance",
+    )
+    margin = _account_number(
+        payload,
+        "margin",
+        "used_margin",
+        "margin_used",
+        "curr_margin",
+        "CurrMargin",
+        "initial_margin",
+        "initialMargin",
+        "total_initial_margin",
+        "totalInitialMargin",
+        "maintain_margin",
+        "maintenance_margin",
+        "maintMargin",
+    )
+    if cash is None and value is not None and margin is not None:
+        cash = value - margin
+    if cash is not None:
+        payload["cash"] = cash
+    if value is not None:
+        payload["value"] = value
+        payload.setdefault("equity", value)
+    elif cash is not None:
+        payload["value"] = cash
+        payload.setdefault("equity", cash)
+    if margin is not None:
+        payload["margin"] = margin
+    return payload
+
+
 def query_gateway_account(
-    gateways: dict[str, dict[str, Any]], gateway_key: str
+    gateways: dict[str, dict[str, Any]],
+    gateway_key: str,
+    *,
+    strict: bool = False,
 ) -> dict[str, Any] | None:
     state = gateways.get(gateway_key)
     if state is None:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} is not connected")
         return None
     runtime = state.get("runtime")
     if runtime is None:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} has no runtime")
         return None
     try:
+        result: dict[str, Any]
         health = getattr(runtime, "health", None)
         if health is not None:
             snap = health.snapshot()
-            return {
+            result = {
                 "gateway_key": gateway_key,
                 "exchange": state.get("exchange_type", snap.get("exchange", "")),
                 "account_id": state.get("account_id", snap.get("account_id", "")),
@@ -1630,29 +1747,209 @@ def query_gateway_account(
                 "market_connection": snap.get("market_connection", "unknown"),
                 "trade_connection": snap.get("trade_connection", "unknown"),
             }
-        return {"gateway_key": gateway_key, "state": "connected"}
-    except (AttributeError, KeyError, RuntimeError):
+        else:
+            result = {"gateway_key": gateway_key, "state": "connected"}
+
+        adapter = _runtime_adapter(runtime)
+        get_balance = getattr(adapter, "get_balance", None) if adapter is not None else None
+        if callable(get_balance):
+            balance_payload = _normalize_account_balance(get_balance())
+            if balance_payload:
+                result.update(balance_payload)
+                result["account_source"] = "adapter.get_balance"
+        return result
+    except (AttributeError, KeyError, TypeError, RuntimeError) as exc:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} account query failed: {exc}") from exc
         return {"gateway_key": gateway_key, "state": "error"}
 
 
 def query_gateway_positions(
-    gateways: dict[str, dict[str, Any]], gateway_key: str
+    gateways: dict[str, dict[str, Any]],
+    gateway_key: str,
+    *,
+    strict: bool = False,
 ) -> list[dict[str, Any]]:
     state = gateways.get(gateway_key)
     if state is None:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} is not connected")
         return []
     runtime = state.get("runtime")
     if runtime is None:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} has no runtime")
         return []
+
+    def _looks_like_position_row(row: dict[str, Any]) -> bool:
+        symbol_keys = (
+            "symbol",
+            "data_name",
+            "instrument",
+            "instrument_id",
+            "InstrumentID",
+            "instId",
+            "contract",
+            "contract_symbol",
+            "contractDesc",
+            "contract_desc",
+            "description",
+            "ticker",
+            "local_symbol",
+            "localSymbol",
+            "position_symbol_name",
+            "symbol_name",
+            "trade_symbol",
+            "conid",
+        )
+        size_keys = (
+            "size",
+            "volume",
+            "position",
+            "qty",
+            "quantity",
+            "position_volume",
+            "positionAmt",
+            "pos",
+            "pa",
+            "Position",
+            "Volume",
+            "Qty",
+            "Quantity",
+            "TradeVolume",
+        )
+        return any(row.get(key) not in (None, "") for key in symbol_keys) and any(
+            row.get(key) not in (None, "") for key in size_keys
+        )
+
+    def _rows_from_raw(raw: Any, *, depth: int = 0) -> list[dict[str, Any]]:
+        if depth > 6:
+            if strict:
+                raise RuntimeError("Gateway positions payload is nested too deeply")
+            return []
+        if raw is None:
+            return []
+        if isinstance(raw, dict):
+            status = str(raw.get("status") or "").strip().lower()
+            if status == "error":
+                message = str(raw.get("message") or raw.get("error") or "position query failed")
+                raise RuntimeError(message)
+            for key in ("positions", "data", "result"):
+                data = raw.get(key)
+                if data is not None:
+                    return _rows_from_raw(data, depth=depth + 1)
+            if _looks_like_position_row(raw):
+                return [dict(raw)]
+            rows: list[dict[str, Any]] = []
+            for item in raw.values():
+                if isinstance(item, (dict, list, tuple, set)):
+                    rows.extend(_rows_from_raw(item, depth=depth + 1))
+            return rows
+        if isinstance(raw, (list, tuple, set)):
+            return [dict(item) for item in raw if isinstance(item, dict)]
+        if strict:
+            raise RuntimeError("Gateway positions returned an unsupported payload")
+        return []
+
     try:
         positions = getattr(runtime, "positions", None)
         if positions is not None and callable(positions):
-            return list(positions())
+            return _rows_from_raw(positions())
+        adapter = _runtime_adapter(runtime)
+        if adapter is not None:
+            for method_name in ("get_positions", "fetch_positions"):
+                method = getattr(adapter, method_name, None)
+                if callable(method):
+                    return _rows_from_raw(method())
         pos_dict = getattr(runtime, "_positions", None)
         if isinstance(pos_dict, dict):
-            return list(pos_dict.values())
+            return _rows_from_raw(pos_dict)
+        if isinstance(pos_dict, list):
+            return _rows_from_raw(pos_dict)
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} does not expose live positions")
         return []
-    except (AttributeError, KeyError, TypeError):
+    except (AttributeError, KeyError, TypeError, RuntimeError) as exc:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} position query failed: {exc}") from exc
+        return []
+
+
+def query_gateway_trades(
+    gateways: dict[str, dict[str, Any]],
+    gateway_key: str,
+    *,
+    symbol: str | None = None,
+    limit: int = 100,
+    strict: bool = False,
+) -> list[dict[str, Any]]:
+    state = gateways.get(gateway_key)
+    if state is None:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} is not connected")
+        return []
+    runtime = state.get("runtime")
+    if runtime is None:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} has no runtime")
+        return []
+
+    def _rows_from_raw(raw: Any, *, depth: int = 0) -> list[dict[str, Any]]:
+        if depth > 6:
+            if strict:
+                raise RuntimeError("Gateway trades payload is nested too deeply")
+            return []
+        if raw is None:
+            return []
+        if isinstance(raw, dict):
+            status = str(raw.get("status") or "").strip().lower()
+            if status == "error":
+                message = str(raw.get("message") or raw.get("error") or "trade query failed")
+                raise RuntimeError(message)
+            for key in ("trades", "fills", "data", "result"):
+                data = raw.get(key)
+                if data is not None:
+                    return _rows_from_raw(data, depth=depth + 1)
+            return [dict(raw)]
+        if isinstance(raw, (list, tuple, set)):
+            return [dict(item) for item in raw if isinstance(item, dict)]
+        if strict:
+            raise RuntimeError("Gateway trades returned an unsupported payload")
+        return []
+
+    def _call(method: Any) -> list[dict[str, Any]]:
+        try:
+            return _rows_from_raw(method(symbol=symbol, limit=limit))
+        except TypeError:
+            try:
+                return _rows_from_raw(method(symbol, limit))
+            except TypeError:
+                return _rows_from_raw(method())
+
+    try:
+        for method_name in ("get_trades", "trades", "fetch_trades", "get_recent_trades"):
+            method = getattr(runtime, method_name, None)
+            if callable(method):
+                rows = _call(method)
+                if rows:
+                    return rows[:limit]
+        adapter = _runtime_adapter(runtime)
+        if adapter is not None:
+            for method_name in ("get_trades", "fetch_trades", "get_recent_trades"):
+                method = getattr(adapter, method_name, None)
+                if callable(method):
+                    rows = _call(method)
+                    if rows:
+                        return rows[:limit]
+        trade_rows = getattr(runtime, "_recent_trades", None) or getattr(runtime, "_trades", None)
+        if isinstance(trade_rows, (list, tuple, set)):
+            return _rows_from_raw(list(trade_rows))[-limit:]
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} does not expose live trades")
+        return []
+    except (AttributeError, KeyError, TypeError, RuntimeError) as exc:
+        if strict:
+            raise RuntimeError(f"Gateway {gateway_key!r} trade query failed: {exc}") from exc
         return []
 
 
@@ -1677,6 +1974,451 @@ def query_gateway_orders(
         return []
     except (AttributeError, KeyError, TypeError):
         return []
+
+
+def _runtime_adapter(runtime: Any) -> Any:
+    return getattr(runtime, "adapter", None) if runtime is not None else None
+
+
+def _order_text(row: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return str(value).strip()
+    return ""
+
+
+def _is_open_order(row: dict[str, Any]) -> bool:
+    remaining = row.get("remaining")
+    if remaining not in (None, ""):
+        try:
+            return float(remaining) > 0
+        except (TypeError, ValueError):
+            pass
+    status = (
+        _order_text(row, "status", "order_status", "OrderStatus", "state")
+        .lower()
+        .replace("-", "_")
+        .replace(" ", "_")
+    )
+    if not status:
+        return True
+    closed_statuses = {
+        "filled",
+        "completed",
+        "complete",
+        "cancelled",
+        "canceled",
+        "cancel",
+        "mmp_canceled",
+        "partial_canceled",
+        "partial_cancelled",
+        "partial_filled_canceled",
+        "partial_filled_cancelled",
+        "part_filled_canceled",
+        "part_filled_cancelled",
+        "partially_filled_canceled",
+        "partially_filled_cancelled",
+        "filled_canceled",
+        "filled_cancelled",
+        "rejected",
+        "reject",
+        "failed",
+        "error",
+        "expired",
+        "expired_in_match",
+        "done",
+        "closed",
+        "fully_filled",
+    }
+    return status not in closed_statuses
+
+
+def _looks_like_order_row(row: dict[str, Any]) -> bool:
+    order_identity_keys = (
+        "order_ref",
+        "ctp_order_ref",
+        "OrderRef",
+        "OrderSysID",
+        "client_order_id",
+        "clientOrderId",
+        "newClientOrderId",
+        "origClientOrderId",
+        "orderLinkId",
+        "origOrderLinkId",
+        "clOrdId",
+        "origClOrdId",
+        "venue_order_id",
+        "external_order_id",
+        "order_id",
+        "orderId",
+        "ordId",
+        "OrderID",
+        "orderXtpId",
+        "order_xtp_id",
+    )
+    if any(row.get(key) not in (None, "") for key in order_identity_keys):
+        return True
+    has_generic_id = row.get("id") not in (None, "")
+    has_symbol = any(
+        row.get(key) not in (None, "")
+        for key in (
+            "symbol",
+            "data_name",
+            "instrument",
+            "instrument_id",
+            "InstrumentID",
+            "instId",
+        )
+    )
+    has_status = any(
+        row.get(key) not in (None, "")
+        for key in ("status", "order_status", "OrderStatus", "state")
+    )
+    has_size = any(
+        row.get(key) not in (None, "")
+        for key in (
+            "remaining",
+            "leavesQty",
+            "leaves_qty",
+            "unfilled",
+            "unfilled_quantity",
+            "qty",
+            "quantity",
+            "volume",
+            "VolumeTotalOriginal",
+            "VolumeTotal",
+        )
+    )
+    return has_status and has_symbol and (has_size or has_generic_id)
+
+
+def _order_rows_from_raw(raw: Any, *, depth: int = 0) -> list[dict[str, Any]]:
+    if depth > 8:
+        raise RuntimeError("Gateway open orders payload is nested too deeply")
+    if raw is None:
+        return []
+    if isinstance(raw, dict):
+        if _looks_like_order_row(raw):
+            return [dict(raw)]
+        status = str(raw.get("status") or raw.get("state") or "").strip().lower()
+        if status in {"error", "failed"}:
+            message = str(raw.get("message") or raw.get("error") or "open order query failed")
+            raise RuntimeError(message)
+        code = raw.get("code", raw.get("retCode"))
+        if code not in (None, "", 0, "0"):
+            message = str(
+                raw.get("message")
+                or raw.get("msg")
+                or raw.get("retMsg")
+                or "open order query failed"
+            )
+            raise RuntimeError(message)
+        for key in (
+            "open_orders",
+            "openOrders",
+            "orders",
+            "data",
+            "result",
+            "rows",
+            "items",
+            "list",
+            "records",
+        ):
+            if key in raw:
+                return _order_rows_from_raw(raw.get(key), depth=depth + 1)
+        rows: list[dict[str, Any]] = []
+        for item in raw.values():
+            if isinstance(item, (dict, list, tuple, set)):
+                rows.extend(_order_rows_from_raw(item, depth=depth + 1))
+        return rows
+    if isinstance(raw, (list, tuple, set)):
+        rows: list[dict[str, Any]] = []
+        for item in raw:
+            if isinstance(item, (dict, list, tuple, set)):
+                rows.extend(_order_rows_from_raw(item, depth=depth + 1))
+        return rows
+    return []
+
+
+def _active_gateway_orders(runtime: Any) -> list[dict[str, Any]]:
+    adapter = _runtime_adapter(runtime)
+    raw_orders: Any = None
+    for target in (adapter, runtime):
+        if target is None:
+            continue
+        for method_name in ("fetch_open_orders", "get_open_orders", "orders"):
+            method = getattr(target, method_name, None)
+            if callable(method):
+                raw_orders = method()
+                break
+        if raw_orders is not None:
+            break
+    if raw_orders is None:
+        order_dict = getattr(runtime, "_orders", None)
+        raw_orders = list(order_dict.values()) if isinstance(order_dict, dict) else order_dict
+    rows = _order_rows_from_raw(raw_orders)
+    return [dict(row) for row in rows if isinstance(row, dict) and _is_open_order(row)]
+
+
+def _entry_strategy_id(entry: Any) -> str:
+    return str(getattr(entry, "strategy_id", "") or "").strip()
+
+
+def _order_owner_id(runtime: Any, row: dict[str, Any]) -> str:
+    details = row.get("details")
+    for value in (
+        row.get("owner_id"),
+        row.get("ownerId"),
+        row.get("strategy_id"),
+        row.get("strategyId"),
+        (details or {}).get("strategy_id") if isinstance(details, dict) else None,
+        (details or {}).get("strategyId") if isinstance(details, dict) else None,
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    order_map = getattr(runtime, "order_map", None)
+    if order_map is None:
+        return ""
+    for key in ("request_id",):
+        value = _order_text(row, key)
+        if value:
+            strategy_id = ""
+            method = getattr(order_map, "strategy_for_request", None)
+            if callable(method):
+                strategy_id = str(method(value) or "").strip()
+            if strategy_id:
+                return strategy_id
+    for key in (
+        "client_order_id",
+        "clientOrderId",
+        "newClientOrderId",
+        "origClientOrderId",
+        "orderLinkId",
+        "origOrderLinkId",
+        "clOrdId",
+        "order_ref",
+        "ctp_order_ref",
+    ):
+        value = _order_text(row, key)
+        if value:
+            method = getattr(order_map, "by_client", None)
+            entry = method(value) if callable(method) else None
+            strategy_id = _entry_strategy_id(entry)
+            if strategy_id:
+                return strategy_id
+    for key in (
+        "venue_order_id",
+        "external_order_id",
+        "order_id",
+        "orderId",
+        "ordId",
+        "id",
+    ):
+        value = _order_text(row, key)
+        if value:
+            method = getattr(order_map, "strategy_for_venue", None)
+            strategy_id = str(method(value) or "").strip() if callable(method) else ""
+            if not strategy_id:
+                by_venue = getattr(order_map, "by_venue", None)
+                strategy_id = _entry_strategy_id(by_venue(value) if callable(by_venue) else None)
+            if strategy_id:
+                return strategy_id
+    return ""
+
+
+def _cancel_order_payload(row: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(row)
+    symbol = (
+        row.get("data_name")
+        or row.get("instrument")
+        or row.get("symbol")
+        or row.get("instId")
+    )
+    payload.setdefault("symbol", symbol)
+    payload.setdefault(
+        "data_name",
+        row.get("symbol")
+        or row.get("instrument")
+        or row.get("data_name")
+        or row.get("instId"),
+    )
+    payload.setdefault(
+        "order_id",
+        row.get("order_id")
+        or row.get("external_order_id")
+        or row.get("venue_order_id")
+        or row.get("id")
+        or row.get("orderId")
+        or row.get("ordId"),
+    )
+    client_order_id = (
+        row.get("client_order_id")
+        or row.get("clientOrderId")
+        or row.get("newClientOrderId")
+        or row.get("origClientOrderId")
+        or row.get("orderLinkId")
+        or row.get("origOrderLinkId")
+        or row.get("clOrdId")
+    )
+    payload.setdefault("client_order_id", client_order_id)
+    payload.setdefault("order_ref", row.get("order_ref") or row.get("ctp_order_ref") or client_order_id)
+    return payload
+
+
+def cancel_gateway_open_orders(
+    gateways: dict[str, dict[str, Any]],
+    gateway_key: str,
+    *,
+    owner_ids: set[str] | None = None,
+    cancel_unowned: bool = False,
+) -> dict[str, Any]:
+    """Cancel open orders on a gateway when ownership is known or unshared.
+
+    Shared gateways can contain orders from multiple strategy instances.  This
+    helper only cancels rows whose owner id matches ``owner_ids`` unless
+    ``cancel_unowned`` is true (used when the gateway is exclusively owned by
+    the stopping instance).
+    """
+    state = gateways.get(gateway_key)
+    if state is None:
+        return {
+            "gateway_key": gateway_key,
+            "status": "skipped",
+            "message": "gateway not found",
+            "open_order_count": 0,
+            "cancelled_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "unknown_owner_count": 0,
+            "other_owner_count": 0,
+        }
+    runtime = state.get("runtime")
+    adapter = _runtime_adapter(runtime)
+    if runtime is None or adapter is None:
+        return {
+            "gateway_key": gateway_key,
+            "status": "skipped",
+            "message": "gateway runtime or adapter unavailable",
+            "open_order_count": 0,
+            "cancelled_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "unknown_owner_count": 0,
+            "other_owner_count": 0,
+        }
+
+    try:
+        orders = _active_gateway_orders(runtime)
+    except Exception as exc:
+        return {
+            "gateway_key": gateway_key,
+            "status": "error",
+            "message": f"failed to query gateway open orders: {exc}",
+            "open_order_count": 0,
+            "cancelled_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "unknown_owner_count": 0,
+            "other_owner_count": 0,
+            "cancelled_orders": [],
+            "failed_orders": [],
+            "skipped_orders": [],
+        }
+    owner_ids = {str(item).strip() for item in (owner_ids or set()) if str(item).strip()}
+    cancel_order = getattr(adapter, "cancel_order", None)
+    if not orders:
+        return {
+            "gateway_key": gateway_key,
+            "status": "ok",
+            "message": "no open orders",
+            "open_order_count": 0,
+            "cancelled_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "unknown_owner_count": 0,
+            "other_owner_count": 0,
+            "cancelled_orders": [],
+            "failed_orders": [],
+            "skipped_orders": [],
+        }
+    if not callable(cancel_order):
+        return {
+            "gateway_key": gateway_key,
+            "status": "error",
+            "message": "gateway adapter does not support order cancellation",
+            "open_order_count": len(orders),
+            "cancelled_count": 0,
+            "failed_count": len(orders),
+            "skipped_count": 0,
+            "unknown_owner_count": 0,
+            "other_owner_count": 0,
+            "cancelled_orders": [],
+            "failed_orders": orders,
+            "skipped_orders": [],
+        }
+
+    cancelled: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    unknown_owner_count = 0
+    other_owner_count = 0
+    for row in orders:
+        owner_id = _order_owner_id(runtime, row)
+        row_with_owner = dict(row)
+        if owner_id:
+            row_with_owner["owner_id"] = owner_id
+        if owner_ids and owner_id and owner_id not in owner_ids:
+            row_with_owner["skip_reason"] = "different_owner"
+            other_owner_count += 1
+            skipped.append(row_with_owner)
+            continue
+        if owner_ids and not owner_id and not cancel_unowned:
+            row_with_owner["skip_reason"] = "unknown_owner"
+            unknown_owner_count += 1
+            skipped.append(row_with_owner)
+            continue
+        try:
+            response = cancel_order(_cancel_order_payload(row))
+        except Exception as exc:
+            item = dict(row_with_owner)
+            item["error"] = f"{type(exc).__name__}: {exc}"
+            failed.append(item)
+        else:
+            item = dict(row_with_owner)
+            if isinstance(response, dict):
+                item["cancel_response"] = response
+            cancelled.append(item)
+
+    status = "ok"
+    if failed:
+        status = "error"
+    elif unknown_owner_count:
+        status = "warning"
+    message = "open orders cancelled"
+    if status == "ok" and skipped and cancelled:
+        message = "matching open orders cancelled; other-owner orders left untouched"
+    elif status == "ok" and skipped:
+        message = "no matching open orders to cancel"
+    elif status == "warning":
+        message = "some open orders were not cancelled because ownership was unknown"
+    elif status == "error":
+        message = "failed to cancel one or more open orders"
+    return {
+        "gateway_key": gateway_key,
+        "status": status,
+        "message": message,
+        "open_order_count": len(orders),
+        "cancelled_count": len(cancelled),
+        "failed_count": len(failed),
+        "skipped_count": len(skipped),
+        "unknown_owner_count": unknown_owner_count,
+        "other_owner_count": other_owner_count,
+        "cancelled_orders": cancelled,
+        "failed_orders": failed,
+        "skipped_orders": skipped,
+    }
 
 
 def list_connected_gateways(gateways: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:

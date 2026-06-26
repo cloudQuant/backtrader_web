@@ -7,7 +7,7 @@ Provides a full paper trading workflow: accounts, orders, positions, trades, and
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.websockets import WebSocket, WebSocketDisconnect
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_websocket_current_user
 from app.schemas.paper_trading import (
     AccountCreate,
     AccountListResponse,
@@ -186,16 +186,22 @@ async def submit_paper_order(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Paper trading account not found",
         )
-    order = await service.submit_order(
-        account_id=request.account_id,
-        symbol=request.symbol,
-        order_type=request.order_type,
-        side=request.side,
-        size=request.size,
-        price=request.price,
-        stop_price=request.stop_price,
-        limit_price=request.limit_price,
-    )
+    try:
+        order = await service.submit_order(
+            account_id=request.account_id,
+            symbol=request.symbol,
+            order_type=request.order_type,
+            side=request.side,
+            size=request.size,
+            price=request.price,
+            stop_price=request.stop_price,
+            limit_price=request.limit_price,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
     return order
 
 
@@ -461,17 +467,27 @@ async def websocket_account_endpoint(websocket: WebSocket, account_id: str):
     from app.websocket_manager import MessageType
     from app.websocket_manager import manager as ws_manager
 
-    # Verify account exists
+    current_user, accepted_subprotocol = get_websocket_current_user(websocket)
+    if current_user is None:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # Verify account exists and belongs to the authenticated websocket user.
     service = PaperTradingService()
     account = await service.get_account(account_id)
-    if not account:
+    if not account or account.user_id != current_user.sub:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     client_id = f"ws-client-{id(websocket)}"
 
     # Establish connection
-    await ws_manager.connect(websocket, f"account:{account_id}", client_id)
+    await ws_manager.connect(
+        websocket,
+        f"account:{account_id}",
+        client_id,
+        accepted_subprotocol,
+    )
 
     try:
         # Send initial account information

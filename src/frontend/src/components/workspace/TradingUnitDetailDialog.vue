@@ -78,9 +78,9 @@
               {{ t('tradingUnits.longPosition') }} / {{ t('tradingUnits.flat') }}
             </div>
             <div class="mt-1 text-lg font-semibold text-slate-700">
-              {{ formatNumber(detailUnit.trading_snapshot?.long_position, 0, false) }}
+              {{ formatQuantity(detailUnit.trading_snapshot?.long_position) }}
               /
-              {{ formatNumber(detailUnit.trading_snapshot?.short_position, 0, false) }}
+              {{ formatQuantity(detailUnit.trading_snapshot?.short_position) }}
             </div>
           </div>
           <div class="rounded-lg border border-slate-200 bg-white px-4 py-3">
@@ -236,6 +236,7 @@ import {
   directionLabel,
   formatNumber,
   formatPrice,
+  formatQuantity,
   formatSignedNumber,
   formatTime,
   numberClass,

@@ -12,6 +12,7 @@ Tests cover all portfolio endpoints with mocked dependencies:
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -78,6 +79,236 @@ def test_parse_positions_for_portfolio_prefers_position_log_precision(monkeypatc
     assert result == precise_log
 
 
+def test_parse_positions_for_portfolio_keeps_dual_side_same_symbol(monkeypatch, tmp_path):
+    """Dual-side logs must not collapse long and short rows for the same symbol."""
+    from app.api import portfolio_api
+
+    precise_log = [
+        {
+            "datetime": "2026-06-24 11:00:00",
+            "data_name": "IF2609",
+            "size": 1,
+            "price": 5000.0,
+        },
+        {
+            "datetime": "2026-06-24 11:01:00",
+            "data_name": "IF2609",
+            "size": -2,
+            "price": 5010.0,
+        },
+        {
+            "datetime": "2026-06-24 11:02:00",
+            "data_name": "IF2609",
+            "size": 3,
+            "price": 5020.0,
+        },
+    ]
+
+    monkeypatch.setattr(portfolio_api, "parse_current_position", lambda _log_dir: [])
+    monkeypatch.setattr(portfolio_api, "parse_position_log", lambda _log_dir: precise_log)
+
+    result = portfolio_api._parse_positions_for_portfolio(tmp_path)
+
+    assert len(result) == 2
+    by_direction = {"long" if row["size"] > 0 else "short": row for row in result}
+    assert by_direction["long"]["price"] == 5020.0
+    assert by_direction["short"]["price"] == 5010.0
+
+
+def test_parse_positions_for_portfolio_flat_log_clears_stale_position(monkeypatch, tmp_path):
+    """A latest flat log row must clear earlier position rows and stale snapshots."""
+    from app.api import portfolio_api
+
+    stale_snapshot = [{"data_name": "IF2609", "size": 1, "price": 5000.0}]
+    precise_log = [
+        {
+            "datetime": "2026-06-24 11:00:00",
+            "data_name": "IF2609",
+            "size": 1,
+            "price": 5000.0,
+        },
+        {
+            "datetime": "2026-06-24 11:02:00",
+            "data_name": "IF2609",
+            "size": 0,
+            "price": 0.0,
+        },
+    ]
+
+    monkeypatch.setattr(portfolio_api, "parse_current_position", lambda _log_dir: stale_snapshot)
+    monkeypatch.setattr(portfolio_api, "parse_position_log", lambda _log_dir: precise_log)
+
+    result = portfolio_api._parse_positions_for_portfolio(tmp_path)
+
+    assert len(result) == 1
+    assert result[0]["size"] == 0
+
+
+def test_parse_positions_for_portfolio_directional_flat_keeps_opposite_side(
+    monkeypatch, tmp_path
+):
+    """A long-side flat row must not clear a still-open short row for the same symbol."""
+    from app.api import portfolio_api
+
+    precise_log = [
+        {
+            "datetime": "2026-06-24 11:00:00",
+            "data_name": "IF2609",
+            "direction": "long",
+            "size": 1,
+            "price": 5000.0,
+        },
+        {
+            "datetime": "2026-06-24 11:01:00",
+            "data_name": "IF2609",
+            "direction": "short",
+            "size": -2,
+            "price": 5010.0,
+        },
+        {
+            "datetime": "2026-06-24 11:02:00",
+            "data_name": "IF2609",
+            "direction": "long",
+            "size": 0,
+            "price": 0.0,
+        },
+    ]
+
+    monkeypatch.setattr(portfolio_api, "parse_current_position", lambda _log_dir: [])
+    monkeypatch.setattr(portfolio_api, "parse_position_log", lambda _log_dir: precise_log)
+
+    result = portfolio_api._parse_positions_for_portfolio(tmp_path)
+
+    nonflat = [row for row in result if abs(float(row.get("size") or 0.0)) > 0]
+    flat = [row for row in result if abs(float(row.get("size") or 0.0)) == 0]
+    assert len(nonflat) == 1
+    assert nonflat[0]["direction"] == "short"
+    assert nonflat[0]["price"] == 5010.0
+    assert len(flat) == 1
+    assert flat[0]["direction"] == "long"
+
+
+def test_snapshot_positions_for_portfolio_preserves_explicit_margin_value():
+    """Snapshot fallback should keep exchange-reported margin instead of re-estimating it."""
+    from app.api import portfolio_api
+    from app.services.position_valuation import PositionSpec, value_position
+
+    rows = portfolio_api._snapshot_positions_for_portfolio(
+        {
+            "positions": [
+                {
+                    "data_name": "XAUUSD",
+                    "direction": "long",
+                    "size": 0.1,
+                    "price": 2300.0,
+                    "current_price": 2310.0,
+                    "margin_value": 39.0,
+                    "use_margin": 39.0,
+                }
+            ]
+        }
+    )
+
+    assert rows[0]["margin_value"] == 39.0
+    valued = value_position(rows[0], spec=PositionSpec(multiplier=100, margin_rate=0.02))
+    assert valued is not None
+    assert valued.margin_value == 39.0
+
+
+def test_snapshot_positions_for_portfolio_preserves_signed_short_without_direction():
+    """Legacy snapshots may encode short direction only through a negative size."""
+    from app.api import portfolio_api
+
+    rows = portfolio_api._snapshot_positions_for_portfolio(
+        {
+            "positions": [
+                {
+                    "data_name": "EURUSD",
+                    "size": -0.01,
+                    "price": 1.1381,
+                    "market_value": -0.0113789,
+                }
+            ]
+        }
+    )
+
+    assert rows[0]["size"] == pytest.approx(-0.01)
+
+
+def test_snapshot_positions_for_portfolio_handles_sell_direction_alias():
+    """Snapshot fallback should not turn sell-side rows into long exposure."""
+    from app.api import portfolio_api
+
+    rows = portfolio_api._snapshot_positions_for_portfolio(
+        {
+            "positions": [
+                {
+                    "data_name": "BTCUSDT",
+                    "direction": "sell",
+                    "size": 0.25,
+                    "price": 60000.0,
+                }
+            ]
+        }
+    )
+
+    assert rows[0]["size"] == pytest.approx(-0.25)
+
+
+def test_snapshot_positions_for_portfolio_handles_numeric_short_direction():
+    """CTP/MT5-style numeric short codes should remain short in snapshot fallback."""
+    from app.api import portfolio_api
+
+    rows = portfolio_api._snapshot_positions_for_portfolio(
+        {
+            "positions": [
+                {
+                    "data_name": "IF2609",
+                    "PosiDirection": 3,
+                    "size": 1,
+                    "price": 5000.0,
+                }
+            ]
+        }
+    )
+
+    assert rows[0]["size"] == pytest.approx(-1.0)
+
+
+def test_snapshot_positions_for_portfolio_preserves_raw_ctp_asset_aliases():
+    """Snapshot fallback should keep raw CTP fields for multiplier-aware valuation."""
+    from app.api import portfolio_api
+    from app.services.position_valuation import contract_spec_for, value_position
+
+    rows = portfolio_api._snapshot_positions_for_portfolio(
+        {
+            "positions": [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "Price": 5000.0,
+                    "LastPrice": 5001.0,
+                    "VolumeMultiple": 300,
+                    "LongMarginRatioByMoney": 0.1,
+                    "OpenRatioByMoney": 0.23,
+                    "source": "ctp_gateway",
+                }
+            ]
+        }
+    )
+
+    valued = value_position(rows[0], spec=contract_spec_for("IF2609", rows[0]))
+
+    assert rows[0]["data_name"] == "IF2609"
+    assert rows[0]["size"] == pytest.approx(1.0)
+    assert rows[0]["VolumeMultiple"] == 300
+    assert rows[0]["market_value_estimated"] is True
+    assert valued is not None
+    assert valued.market_value == pytest.approx(1_500_300.0)
+    assert valued.pnl == pytest.approx(265.5)
+
+
 def test_resolve_instance_log_dir_falls_back_when_explicit_log_dir_is_stale(tmp_path):
     """A stale persisted log_dir must not hide an active runtime_dir/logs."""
     from app.api import portfolio_api
@@ -99,6 +330,16 @@ def test_resolve_instance_log_dir_falls_back_when_explicit_log_dir_is_stale(tmp_
     )
 
     assert result == log_dir
+
+
+def test_asset_spec_lookup_supports_exchange_prefixed_symbols():
+    from app.api.portfolio_api import _asset_spec_for_symbol
+
+    spec = {"symbol": "IF2609", "multiplier": 300}
+
+    assert _asset_spec_for_symbol({"IF2609": spec}, "CFFEX.IF2609") == spec
+    assert _asset_spec_for_symbol({"IF2609": spec}, "IF2609.CFFEX") == spec
+    assert _asset_spec_for_symbol({"rb2601": spec}, "SHFE_rb2601") == spec
 
 
 class _MockManager:
@@ -233,6 +474,52 @@ async def test_portfolio_overview_position_value_uses_gross_market_value_for_sho
 
 
 @pytest.mark.asyncio
+async def test_portfolio_overview_does_not_fallback_position_value_when_gateway_confirms_flat():
+    """An empty gateway position snapshot is confirmed flat, not missing data."""
+    from app.api.portfolio_api import get_portfolio_overview
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return []
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id == "inst-a"
+            return {
+                "account_id": "acct-a",
+                "value": 10000.0,
+                "cash": 9500.0,
+                "account_source": "gateway",
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT-SWAP",
+                },
+            }
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_overview(current_user=_USER, mgr=mgr)
+
+    assert result["total_assets"] == 10000.0
+    assert result["total_cash"] == 9500.0
+    assert result["total_position_value"] == 0.0
+    assert result["net_position_value"] == 0.0
+    assert result["strategies"][0]["position_source"] == "gateway"
+    assert result["strategies"][0]["valuation_status"] == "confirmed"
+
+
+@pytest.mark.asyncio
 async def test_portfolio_overview_multiple_strategies():
     """Multiple strategies are aggregated correctly."""
     from app.api.portfolio_api import get_portfolio_overview
@@ -337,6 +624,404 @@ async def test_portfolio_positions_with_data():
         "short_count": 1,
         "flat_count": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_live_gateway_positions_without_log_dir():
+    """Running gateway positions should be valued even when no log dir exists."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    instance = {
+        **_INSTANCE_A,
+        "params": {"symbol": "XAUUSD"},
+    }
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "direction": "buy",
+                    "volume": 0.1,
+                    "price_open": 2300.0,
+                    "last_price": 2310.0,
+                    "profit": 100.0,
+                    "commission": -1.0,
+                    "swap": -0.5,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {"XAUUSD": {"contract_size": 100, "margin_rate": 0.02}}
+
+    mgr = GatewayManager([instance])
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    assert result["total"] == 1
+    assert result["positions"][0]["data_name"] == "XAUUSD"
+    assert result["positions"][0]["size"] == 0.1
+    assert result["positions"][0]["market_value"] == 23100.0
+    assert result["positions"][0]["margin_value"] == 462.0
+    assert result["positions"][0]["multiplier"] == 100.0
+    assert result["positions"][0]["commission"] == 1.0
+    assert result["positions"][0]["position_pnl"] == 98.5
+    assert result["summary"]["gross_market_value"] == 23100.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_runtime_config_asset_specs_when_gateway_specs_empty(
+    tmp_path,
+):
+    """Persisted runtime contract metadata should backstop gateway spec query gaps."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    (runtime_dir / "config.yaml").write_text(
+        "contract_metadata:\n"
+        "  IF2609:\n"
+        "    symbol: IF2609\n"
+        "    multiplier: 300\n"
+        "    margin_rate: 0.1\n"
+        "    commission_rate: 0.000023\n"
+        "    source: runtime_config\n",
+        encoding="utf-8",
+    )
+    instance = {
+        **_INSTANCE_A,
+        "runtime_dir": str(runtime_dir),
+        "params": {"trading_mode": "live", "symbol": "IF2609"},
+    }
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "IF2609",
+                    "direction": "long",
+                    "volume": 1,
+                    "price": 5000.0,
+                    "current_price": 5001.0,
+                    "profit": 300.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {}
+
+    mgr = GatewayManager([instance])
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["market_value"] == 1_500_300.0
+    assert row["margin_value"] == 150_030.0
+    assert row["multiplier"] == 300.0
+    assert row["commission"] == 34.5
+    assert row["position_pnl"] == 265.5
+    assert row["asset_spec_source"] == "runtime_config"
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_warn_when_bound_gateway_position_query_fails():
+    """A bound gateway query failure must not be reported as confirmed flat."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    instance = {
+        **_INSTANCE_A,
+        "params": {
+            "trading_mode": "live",
+            "symbol": "IF2609",
+        },
+    }
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            raise RuntimeError("gateway runtime missing")
+
+    mgr = GatewayManager([instance])
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    assert result["positions"] == []
+    assert result["summary"] == _EMPTY_POSITION_SUMMARY
+    assert any("交易所网关持仓查询失败" in item for item in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_portfolio_overview_uses_live_gateway_account_without_log_dir():
+    """Live account equity should populate overview when local logs are absent."""
+    from app.api.portfolio_api import get_portfolio_overview
+
+    instance = {
+        **_INSTANCE_A,
+        "params": {
+            "trading_mode": "live",
+            "symbol": "XAUUSD",
+        },
+    }
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "direction": "buy",
+                    "volume": 0.1,
+                    "price_open": 2300.0,
+                    "last_price": 2310.0,
+                    "profit": 100.0,
+                    "commission": -1.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {"XAUUSD": {"contract_size": 100, "margin_rate": 0.02}}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id == "inst-a"
+            return {
+                "gateway_key": "manual:MT5:demo",
+                "account_source": "adapter.get_balance",
+                "value": 100250.0,
+                "cash": 99050.0,
+                "margin": 1200.0,
+            }
+
+    mgr = GatewayManager([instance])
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_overview(current_user=_USER, mgr=mgr)
+
+    assert result["total_assets"] == 100250.0
+    assert result["total_cash"] == 99050.0
+    assert result["total_initial_capital"] == 100250.0
+    assert result["total_pnl"] == 0.0
+    assert result["total_position_value"] == 23100.0
+    strategy = result["strategies"][0]
+    assert strategy["total_assets"] == 100250.0
+    assert strategy["account_source"] == "adapter.get_balance"
+    assert strategy["account_counted_in_totals"] is True
+
+
+@pytest.mark.asyncio
+async def test_portfolio_overview_reads_crypto_account_balance_aliases():
+    """Crypto exchange balance aliases must contribute to live account totals."""
+    from app.api.portfolio_api import get_portfolio_overview
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id == "inst-a"
+            return {
+                "gateway_key": "manual:BYBIT:unified",
+                "account_source": "adapter.get_balance",
+                "account_type": "UNIFIED",
+                "totalEquity": "10,250.5",
+                "totalWalletBalance": {"amount": "10,000.0"},
+                "totalAvailableBalance": {"amount": "9,125.25"},
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {"trading_mode": "live", "symbol": "BTCUSDT"},
+            }
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_overview(current_user=_USER, mgr=mgr)
+
+    assert result["total_assets"] == 10250.5
+    assert result["total_cash"] == 9125.25
+    assert result["total_initial_capital"] == 10250.5
+    assert result["strategies"][0]["total_assets"] == 10250.5
+    assert result["strategies"][0]["account_counted_in_totals"] is True
+
+
+@pytest.mark.asyncio
+async def test_portfolio_overview_derives_cash_from_equity_minus_margin_before_balance():
+    """Balance must not be treated as available cash when margin is in use."""
+    from app.api.portfolio_api import get_portfolio_overview
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id == "inst-a"
+            return {
+                "gateway_key": "manual:MT5:demo",
+                "account_source": "adapter.get_balance",
+                "balance": 100000.0,
+                "equity": 100250.0,
+                "margin": 1200.0,
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
+            }
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_overview(current_user=_USER, mgr=mgr)
+
+    assert result["total_assets"] == 100250.0
+    assert result["total_cash"] == 99050.0
+    assert result["total_initial_capital"] == 100250.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_overview_counts_shared_gateway_account_once_without_logs():
+    """Multiple strategies on one gateway must not double count account equity."""
+    from app.api.portfolio_api import get_portfolio_overview
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            return instance_id in {"inst-a", "inst-b"}
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id in {"inst-a", "inst-b"}
+            return {
+                "gateway_key": "manual:MT5:shared",
+                "account_source": "adapter.get_balance",
+                "value": 100250.0,
+                "cash": 99050.0,
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "id": "inst-a",
+                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
+            },
+            {
+                **_INSTANCE_B,
+                "id": "inst-b",
+                "status": "running",
+                "params": {"trading_mode": "live", "symbol": "EURUSD"},
+            },
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_overview(current_user=_USER, mgr=mgr)
+
+    assert result["total_assets"] == 100250.0
+    assert result["total_cash"] == 99050.0
+    assert result["total_initial_capital"] == 100250.0
+    assert [item["account_counted_in_totals"] for item in result["strategies"]] == [True, False]
+
+
+@pytest.mark.asyncio
+async def test_portfolio_overview_does_not_merge_distinct_accounts_by_currency_only():
+    """Currency is not an account identity; USD accounts can be separate."""
+    from app.api.portfolio_api import get_portfolio_overview
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            return instance_id in {"inst-a", "inst-b"}
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            values = {
+                "inst-a": 100250.0,
+                "inst-b": 50300.0,
+            }
+            return {
+                "account_source": "adapter.get_balance",
+                "value": values[instance_id],
+                "cash": values[instance_id] - 1000.0,
+                "currency": "USD",
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "id": "inst-a",
+                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
+            },
+            {
+                **_INSTANCE_B,
+                "id": "inst-b",
+                "status": "running",
+                "params": {"trading_mode": "live", "symbol": "EURUSD"},
+            },
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_overview(current_user=_USER, mgr=mgr)
+
+    assert result["total_assets"] == 150550.0
+    assert result["total_cash"] == 148550.0
+    assert result["total_initial_capital"] == 150550.0
+    assert [item["account_counted_in_totals"] for item in result["strategies"]] == [True, True]
 
 
 @pytest.mark.asyncio
@@ -596,6 +1281,126 @@ async def test_portfolio_equity_prefers_intraday_datetimes():
     assert result["total_equity"] == [100000.0, 100025.0, 100010.0]
 
 
+@pytest.mark.asyncio
+async def test_portfolio_equity_uses_live_gateway_account_without_log_dir():
+    """Equity should show a live account point when no local logs exist."""
+    from app.api.portfolio_api import get_portfolio_equity
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id == "inst-a"
+            return {
+                "gateway_key": "manual:MT5:demo",
+                "account_source": "adapter.get_balance",
+                "value": 100250.0,
+                "cash": 99050.0,
+                "updated_at": "2026-06-26T09:30:00+08:00",
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
+            }
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_equity(current_user=_USER, mgr=mgr)
+
+    assert result["dates"] == ["2026-06-26T09:30:00+08:00"]
+    assert result["total_equity"] == [100250.0]
+    assert result["total_drawdown"] == [0.0]
+    assert result["strategies"][0]["values"] == [100250.0]
+    assert result["strategies"][0]["value_source"] == "adapter.get_balance"
+
+
+@pytest.mark.asyncio
+async def test_portfolio_equity_counts_shared_gateway_account_once_without_logs():
+    """Equity must not double count one shared live account."""
+    from app.api.portfolio_api import get_portfolio_equity
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            return instance_id in {"inst-a", "inst-b"}
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id in {"inst-a", "inst-b"}
+            return {
+                "gateway_key": "manual:MT5:shared",
+                "account_source": "adapter.get_balance",
+                "value": 100250.0,
+                "cash": 99050.0,
+                "updated_at": "2026-06-26T09:30:00+08:00",
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "id": "inst-a",
+                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
+            },
+            {
+                **_INSTANCE_B,
+                "id": "inst-b",
+                "status": "running",
+                "params": {"trading_mode": "live", "symbol": "EURUSD"},
+            },
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_equity(current_user=_USER, mgr=mgr)
+
+    assert result["total_equity"] == [100250.0]
+    assert len(result["strategies"]) == 1
+    assert result["strategies"][0]["instance_id"] == "inst-a"
+
+
+@pytest.mark.asyncio
+async def test_portfolio_equity_does_not_backfill_before_strategy_first_point():
+    """A strategy should contribute zero before its first equity point."""
+    from app.api.portfolio_api import get_portfolio_equity
+
+    mgr = _MockManager([_INSTANCE_A, _INSTANCE_B])
+
+    def mock_parse_value(log_dir):
+        if "strat_001" in str(log_dir):
+            return {"dates": ["2026-06-25", "2026-06-26"], "equity_curve": [100.0, 110.0]}
+        return {"dates": ["2026-06-26"], "equity_curve": [200.0]}
+
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", side_effect=lambda s: f"/fake/{s}"),
+        patch("app.api.portfolio_api.find_latest_log_dir", side_effect=lambda d: f"{d}/logs"),
+        patch("app.api.portfolio_api.parse_value_log", side_effect=mock_parse_value),
+    ):
+        result = await get_portfolio_equity(current_user=_USER, mgr=mgr)
+
+    assert result["dates"] == ["2026-06-25", "2026-06-26"]
+    assert result["total_equity"] == [100.0, 310.0]
+    by_instance = {item["instance_id"]: item for item in result["strategies"]}
+    assert by_instance["inst-a"]["values"] == [100.0, 110.0]
+    assert by_instance["inst-b"]["values"] == [0.0, 200.0]
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Portfolio Allocation
 # ══════════════════════════════════════════════════════════════════════════════
@@ -637,6 +1442,105 @@ async def test_portfolio_allocation_with_data():
     assert result["items"][0]["weight"] == 25.0
     # strat_002: 225000/300000 = 75%
     assert result["items"][1]["weight"] == 75.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_allocation_uses_live_gateway_account_without_log_dir():
+    """Allocation should include live account equity when no local logs exist."""
+    from app.api.portfolio_api import get_portfolio_allocation
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id == "inst-a"
+            return {
+                "gateway_key": "manual:MT5:demo",
+                "account_source": "adapter.get_balance",
+                "value": 100250.0,
+                "cash": 99050.0,
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
+            }
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_allocation(current_user=_USER, mgr=mgr)
+
+    assert result["total"] == 100250.0
+    assert result["items"] == [
+        {
+            "strategy_id": "strat_001",
+            "strategy_name": "MA Cross",
+            "instance_id": "inst-a",
+            "value": 100250.0,
+            "value_source": "adapter.get_balance",
+            "weight": 100.0,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_portfolio_allocation_counts_shared_gateway_account_once_without_logs():
+    """Allocation must not double count one shared live account."""
+    from app.api.portfolio_api import get_portfolio_allocation
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            return instance_id in {"inst-a", "inst-b"}
+
+        def query_instance_gateway_positions(self, instance_id):
+            return []
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            return {}
+
+        def query_instance_gateway_account(self, instance_id):
+            assert instance_id in {"inst-a", "inst-b"}
+            return {
+                "gateway_key": "manual:MT5:shared",
+                "account_source": "adapter.get_balance",
+                "value": 100250.0,
+                "cash": 99050.0,
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "id": "inst-a",
+                "params": {"trading_mode": "live", "symbol": "XAUUSD"},
+            },
+            {
+                **_INSTANCE_B,
+                "id": "inst-b",
+                "status": "running",
+                "params": {"trading_mode": "live", "symbol": "EURUSD"},
+            },
+        ]
+    )
+
+    with patch("app.api.portfolio_api.get_strategy_dir", side_effect=ValueError("not found")):
+        result = await get_portfolio_allocation(current_user=_USER, mgr=mgr)
+
+    assert result["total"] == 100250.0
+    assert len(result["items"]) == 1
+    assert result["items"][0]["value"] == 100250.0
+    assert result["items"][0]["weight"] == 100.0
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -732,7 +1636,7 @@ async def test_portfolio_overview_zero_initial_capital():
 
 @pytest.mark.asyncio
 async def test_portfolio_positions_flat_position():
-    """Position with size=0 is labeled 'flat'."""
+    """Position with size=0 is hidden from portfolio positions."""
     from app.api.portfolio_api import get_portfolio_positions
 
     mgr = _MockManager([_INSTANCE_A])
@@ -747,8 +1651,1514 @@ async def test_portfolio_positions_flat_position():
     ):
         result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
 
-    assert result["positions"][0]["direction"] == "flat"
-    assert result["summary"]["flat_count"] == 1
+    assert result["positions"] == []
+    assert result["summary"] == _EMPTY_POSITION_SUMMARY
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_contract_multiplier_and_commission():
+    """Futures positions use contract multiplier and net out real commission."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    mgr = _MockManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "unit_settings": {
+                        "multiplier": 10,
+                        "margin": 0.1,
+                        "commission": 0.0002,
+                    }
+                },
+            }
+        ]
+    )
+    mock_positions = [
+        {
+            "data_name": "rb2610",
+            "size": 1,
+            "price": 3127.0,
+            "current_price": 3126.0,
+            "market_value": 3126.0,
+            "commission": 2.5,
+        },
+    ]
+
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", return_value="/fake/dir"),
+        patch("app.api.portfolio_api.find_latest_log_dir", return_value="/fake/logs"),
+        patch("app.api.portfolio_api.parse_current_position", return_value=mock_positions),
+    ):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    assert result["positions"][0]["market_value"] == 31260.0
+    assert result["positions"][0]["signed_market_value"] == 31260.0
+    assert result["positions"][0]["margin_value"] == 3126.0
+    assert result["positions"][0]["multiplier"] == 10.0
+    assert result["positions"][0]["commission"] == 2.5
+    assert result["positions"][0]["position_pnl"] == -12.5
+    assert result["summary"]["total_long_value"] == 31260.0
+    assert result["summary"]["total_pnl"] == -12.5
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_value_gateway_current_position_fallback(tmp_path):
+    """Raw gateway fields in current_position.json still produce signed, fee-aware PnL."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "current_position.json").write_text(
+        json.dumps(
+            [
+                {
+                    "symbol": "BTCUSDT",
+                    "positionSide": "SHORT",
+                    "positionAmt": "0.25",
+                    "entryPrice": "60000",
+                    "markPrice": "59000",
+                    "position_fee": "0.25",
+                    "contract_size": "1",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    mgr = _MockManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {"trading_mode": "live", "symbol": "BTCUSDT"},
+            }
+        ]
+    )
+
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", return_value=str(tmp_path)),
+        patch("app.api.portfolio_api.find_latest_log_dir", return_value=str(log_dir)),
+    ):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["data_name"] == "BTCUSDT"
+    assert row["size"] == -0.25
+    assert row["signed_market_value"] == -14750.0
+    assert row["commission"] == 0.25
+    assert row["position_pnl"] == 249.75
+    assert result["summary"]["short_count"] == 1
+    assert result["summary"]["net_market_value"] == -14750.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_value_raw_ctp_current_position_spec_aliases(tmp_path):
+    """CTP raw current_position aliases must not fall back to multiplier=1."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "current_position.json").write_text(
+        json.dumps(
+            [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "Price": 5000.0,
+                    "LastPrice": 5001.0,
+                    "VolumeMultiple": 300,
+                    "LongMarginRatioByMoney": 0.1,
+                    "OpenRatioByMoney": 0.23,
+                    "source": "ctp_gateway",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    mgr = _MockManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {"trading_mode": "live", "symbol": "IF2609"},
+            }
+        ]
+    )
+
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", return_value=str(tmp_path)),
+        patch("app.api.portfolio_api.find_latest_log_dir", return_value=str(log_dir)),
+    ):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["data_name"] == "IF2609"
+    assert row["market_value"] == 1_500_300.0
+    assert row["margin_value"] == 150_030.0
+    assert row["multiplier"] == 300.0
+    assert row["commission"] == 34.5
+    assert row["position_pnl"] == 265.5
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_value_raw_ctp_position_log_aliases(tmp_path):
+    """Raw CTP aliases in position.log must feed portfolio positions before snapshot fallback."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "position.log").write_text(
+        json.dumps(
+            {
+                "datetime": "2026-06-24 11:02:00",
+                "InstrumentID": "IF2609",
+                "PosiDirection": "2",
+                "Position": 1,
+                "Price": 5000.0,
+                "LastPrice": 5001.0,
+                "VolumeMultiple": 300,
+                "LongMarginRatioByMoney": 0.1,
+                "OpenRatioByMoney": 0.23,
+                "source": "ctp_gateway",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    mgr = _MockManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {"trading_mode": "live", "symbol": "IF2609"},
+            }
+        ]
+    )
+
+    with (
+        patch("app.api.portfolio_api.get_strategy_dir", return_value=str(tmp_path)),
+        patch("app.api.portfolio_api.find_latest_log_dir", return_value=str(log_dir)),
+    ):
+        result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["data_name"] == "IF2609"
+    assert row["market_value"] == 1_500_300.0
+    assert row["margin_value"] == 150_030.0
+    assert row["commission"] == 34.5
+    assert row["position_pnl"] == 265.5
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_expose_gateway_valuation_metadata():
+    """Live portfolio positions show gateway/spec provenance for risk review."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "IF2609",
+                    "direction": "long",
+                    "volume": 1,
+                    "price_open": 5000.0,
+                    "last_price": 5001.0,
+                    "profit": 300.0,
+                    "commission": 34.5069,
+                    "use_margin": 150030.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["position_source"] == "gateway"
+    assert row["asset_spec_source"] == "ctp_gateway"
+    assert row["valuation_status"] == "confirmed"
+    assert row["valuation_warnings"] == []
+    assert row["market_value"] == 1500300.0
+    assert row["margin_value"] == 150030.0
+    assert row["commission"] == pytest.approx(34.5069)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_filter_shared_gateway_rows_by_source_symbol():
+    """Shared gateway account positions must not be duplicated into every strategy."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    raw_positions = [
+        {
+            "symbol": "BTCUSDT",
+            "side": "long",
+            "size": 0.1,
+            "price": 60000.0,
+            "current_price": 61000.0,
+        },
+        {
+            "symbol": "ETH/USDT",
+            "side": "long",
+            "size": 2.0,
+            "price": 3000.0,
+            "current_price": 3100.0,
+        },
+    ]
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            return instance_id in {"inst-btc", "inst-eth"}
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id in {"inst-btc", "inst-eth"}
+            return list(raw_positions)
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id in {"inst-btc", "inst-eth"}
+            return {
+                symbol: {"source": "shared_gateway", "contract_size": 1, "commission_rate": 0.0}
+                for symbol in symbols
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                "id": "inst-btc",
+                "strategy_id": "btc_strategy",
+                "strategy_name": "BTC Strategy",
+                "status": "running",
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC/USDT",
+                },
+            },
+            {
+                "id": "inst-eth",
+                "strategy_id": "eth_strategy",
+                "strategy_name": "ETH Strategy",
+                "status": "running",
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "ETHUSDT",
+                },
+            },
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    assert result["total"] == 2
+    rows_by_instance = {row["instance_id"]: row for row in result["positions"]}
+    assert rows_by_instance["inst-btc"]["data_name"] == "BTCUSDT"
+    assert rows_by_instance["inst-btc"]["market_value"] == 6100.0
+    assert rows_by_instance["inst-eth"]["data_name"] == "ETH/USDT"
+    assert rows_by_instance["inst-eth"]["market_value"] == 6200.0
+    assert result["summary"]["gross_market_value"] == 12300.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_value_raw_ib_gateway_rows():
+    """Raw IB Web portfolio fields must be normalized before position valuation."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "account": "U123456",
+                    "symbol": "AAPL",
+                    "secType": "STK",
+                    "position": 10,
+                    "avgCost": 150.0,
+                    "marketPrice": 155.0,
+                    "marketValue": 1550.0,
+                    "unrealizedPNL": 50.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "AAPL" in symbols
+            return {"AAPL": {"source": "ib_gateway", "contract_size": 1, "commission_rate": 0.0}}
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "AAPL",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["data_name"] == "AAPL"
+    assert row["size"] == 10.0
+    assert row["price"] == 150.0
+    assert row["latest_price"] == 155.0
+    assert row["market_value"] == 1550.0
+    assert row["position_pnl"] == 50.0
+    assert result["summary"]["total_pnl"] == 50.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_value_ib_client_portal_field_names():
+    """IBKR Client Portal positions use description and mkt*/Pnl fields."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "acctId": "U1234567",
+                    "description": "SPY",
+                    "assetClass": "STK",
+                    "position": 5.0,
+                    "avgPrice": 434.93,
+                    "mktPrice": 471.16000365,
+                    "mktValue": 2355.8,
+                    "unrealizedPnl": 181.15,
+                    "realizedPnl": 0.0,
+                    "currency": "USD",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "SPY" in symbols
+            return {"SPY": {"source": "ib_gateway", "contract_size": 1, "commission_rate": 0.0}}
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "SPY",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    assert result["total"] == 1
+    row = result["positions"][0]
+    assert row["data_name"] == "SPY"
+    assert row["size"] == 5.0
+    assert row["price"] == pytest.approx(434.93)
+    assert row["latest_price"] == pytest.approx(471.16000365)
+    assert row["market_value"] == pytest.approx(2355.8)
+    assert row["position_pnl"] == pytest.approx(181.15)
+    assert result["summary"]["total_pnl"] == pytest.approx(181.15)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_preserve_gateway_market_value_when_multiplier_missing():
+    """Gateway marketValue must protect exposure when contract specs are incomplete."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "account": "U123456",
+                    "symbol": "ES",
+                    "secType": "FUT",
+                    "position": 1,
+                    "avgCost": 5000.0,
+                    "marketPrice": 5010.0,
+                    "marketValue": 250500.0,
+                    "unrealizedPNL": 500.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "ES" in symbols
+            return {"ES": {"source": "ib_gateway", "commission_rate": 0.0001}}
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "ES",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["data_name"] == "ES"
+    assert row["market_value"] == pytest.approx(250500.0)
+    assert row["signed_market_value"] == pytest.approx(250500.0)
+    assert row["gross_pnl"] == pytest.approx(500.0)
+    assert row["commission"] == pytest.approx(25.0)
+    assert row["position_pnl"] == pytest.approx(475.0)
+    assert result["summary"]["gross_market_value"] == pytest.approx(250500.0)
+    assert result["summary"]["total_pnl"] == pytest.approx(475.0)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_estimate_fee_when_gateway_returns_gross_pnl_without_fee():
+    """Gross exchange PnL must not be treated as net PnL when commission is absent."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "PositionCost": 1_500_000.0,
+                    "SettlementPrice": 5010.0,
+                    "PositionProfit": 3000.0,
+                    "UseMargin": 150300.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["gross_pnl"] == 3000.0
+    assert row["commission"] == pytest.approx(34.5)
+    assert row["position_pnl"] == pytest.approx(2965.5)
+    assert result["summary"]["total_pnl"] == pytest.approx(2965.5)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_split_today_history_aliases_for_exit_fee():
+    """Gateway today/history aliases must drive close-today/close-yesterday fees."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 2,
+                    "PositionCost": 3_000_000.0,
+                    "SettlementPrice": 5001.0,
+                    "PositionProfit": 600.0,
+                    "today_volume": 1,
+                    "history_volume": 1,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "VolumeMultiple": 300,
+                    "OpenRatioByMoney": 0.23,
+                    "CloseRatioByMoney": 0.3,
+                    "CloseTodayRatioByMoney": 3.45,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["gross_pnl"] == 600.0
+    assert row["commission"] == pytest.approx(631.6125)
+    assert row["position_pnl"] == pytest.approx(-31.61)
+    assert result["summary"]["total_pnl"] == pytest.approx(-31.61)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_treat_gateway_position_pnl_as_gross_without_fee():
+    """Raw gateway position_pnl is a floating-PnL alias unless net_pnl/pnlcomm is explicit."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "Price": 5000.0,
+                    "LastPrice": 5010.0,
+                    "position_pnl": 3000.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "multiplier": 300,
+                    "commission_rate": 0.000023,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["gross_pnl"] == 3000.0
+    assert row["commission"] == pytest.approx(34.5)
+    assert row["position_pnl"] == pytest.approx(2965.5)
+    assert result["summary"]["total_pnl"] == pytest.approx(2965.5)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_handle_raw_ctp_short_direction():
+    """Raw CTP PosiDirection='3' rows are short positions in portfolio risk."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "3",
+                    "Position": 1,
+                    "PositionCost": 1_500_000.0,
+                    "SettlementPrice": 4990.0,
+                    "PositionProfit": 3000.0,
+                    "Commission": 34.5,
+                    "UseMargin": 149700.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["direction"] == "short"
+    assert row["size"] == -1.0
+    assert row["market_value"] == 1_497_000.0
+    assert row["signed_market_value"] == -1_497_000.0
+    assert row["position_pnl"] == 2965.5
+    assert row["gross_pnl"] == 3000.0
+    assert row["commission"] == 34.5
+    assert result["summary"]["short_count"] == 1
+    assert result["summary"]["net_market_value"] == -1_497_000.0
+    assert result["summary"]["total_pnl"] == 2965.5
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_prefer_gateway_latest_price_over_ctp_settlement():
+    """CTP settlement price is only a fallback when a gateway latest price is unavailable."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "PositionCost": 1_500_000.0,
+                    "SettlementPrice": 4990.0,
+                    "UseMargin": 180_000.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "IF2609" in symbols
+            return {
+                "IF2609": {
+                    "source": "ctp_gateway",
+                    "multiplier": 300,
+                    "margin_rate": 0.12,
+                    "commission_rate": 0.0,
+                    "current_price": 5010.0,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "IF2609",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["latest_price"] == 5010.0
+    assert row["market_value"] == 1_503_000.0
+    assert row["position_pnl"] == 3_000.0
+    assert row["margin_value"] == 180_000.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_mt5_gateway_latest_price_from_asset_spec():
+    """MT5 live positions should use gateway cached latest price when the row lacks it."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "direction": "buy",
+                    "volume": 0.02,
+                    "price": 2330.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {
+                "XAUUSD": {
+                    "source": "mt5_gateway",
+                    "contract_size": 100,
+                    "margin_initial": 1950.0,
+                    "current_price": 2331.0,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "XAUUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["latest_price"] == 2331.0
+    assert row["market_value"] == 4662.0
+    assert row["position_pnl"] == 2.0
+    assert row["margin_value"] == 39.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_mt5_position_current_price():
+    """MT5 position rows can carry price_current without relying on tick cache."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "direction": "buy",
+                    "volume": 0.02,
+                    "price": 2330.0,
+                    "current_price": 2331.0,
+                    "profit": 2.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {
+                "XAUUSD": {
+                    "source": "mt5_gateway",
+                    "contract_size": 100,
+                    "margin_initial": 1950.0,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "XAUUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["latest_price"] == 2331.0
+    assert row["market_value"] == 4662.0
+    assert row["position_pnl"] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_handle_binance_gateway_position_fields():
+    """Binance direct positions use positionAmt/markPrice/unRealizedProfit fields."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "position_symbol_name": "BTCUSDT",
+                    "position_volume": "0.02",
+                    "position_side": "BOTH",
+                    "avg_price": "60000",
+                    "mark_price": "61000",
+                    "position_unrealized_pnl": "20",
+                    "leverage": "10",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTCUSDT" in symbols
+            return {
+                "BTCUSDT": {
+                    "source": "binance_gateway",
+                    "contract_size": 1,
+                    "commission_rate": 0.0004,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["data_name"] == "BTCUSDT"
+    assert row["size"] == 0.02
+    assert row["latest_price"] == 61000.0
+    assert row["market_value"] == 1220.0
+    assert row["margin_rate"] == 0.1
+    assert row["margin_value"] == 122.0
+    assert row["gross_pnl"] == 20.0
+    assert row["commission"] == pytest.approx(0.48)
+    assert row["position_pnl"] == pytest.approx(19.52)
+    assert result["summary"]["long_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_gateway_trades_for_current_open_commission():
+    """Replay gateway fills to use real open-position commission when possible."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "position_symbol_name": "BTCUSDT",
+                    "positionAmt": "0.02",
+                    "positionSide": "BOTH",
+                    "entryPrice": "60000",
+                    "markPrice": "61000",
+                    "unRealizedProfit": "20",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTCUSDT" in symbols
+            return {
+                "BTCUSDT": {
+                    "source": "binance_gateway",
+                    "contract_size": 1,
+                    "commission_rate": 0.0004,
+                }
+            }
+
+        def query_instance_gateway_trades(self, instance_id, *, symbol=None, limit=100):
+            assert instance_id == "inst-a"
+            assert symbol == "BTCUSDT"
+            assert limit == 500
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "qty": "0.02",
+                    "commission": "0.5",
+                    "time": 1710000000000,
+                }
+            ]
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["gross_pnl"] == pytest.approx(20.0)
+    assert row["commission"] == pytest.approx(0.5)
+    assert row["position_pnl"] == pytest.approx(19.5)
+    assert result["summary"]["total_pnl"] == pytest.approx(19.5)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_warn_when_gateway_trade_fee_currency_differs():
+    """Trade fees paid in another currency must not be treated as quote-currency PnL."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "position_symbol_name": "BTCUSDT",
+                    "positionAmt": "0.02",
+                    "entryPrice": "60000",
+                    "markPrice": "61000",
+                    "unRealizedProfit": "20",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            return {
+                "BTCUSDT": {
+                    "source": "binance_gateway",
+                    "contract_size": 1,
+                    "quote_asset": "USDT",
+                    "commission_rate": 0.0004,
+                }
+            }
+
+        def query_instance_gateway_trades(self, instance_id, *, symbol=None, limit=100):
+            assert instance_id == "inst-a"
+            assert symbol == "BTCUSDT"
+            return [
+                {
+                    "symbol": "BTCUSDT",
+                    "side": "BUY",
+                    "qty": "0.02",
+                    "commission": "0.001",
+                    "commissionAsset": "BNB",
+                    "time": 1710000000000,
+                }
+            ]
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["commission"] == pytest.approx(0.48)
+    assert row["position_pnl"] == pytest.approx(19.52)
+    assert any("手续费币种" in item for item in row["valuation_warnings"])
+    assert row["valuation_status"] == "estimated"
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_gateway_fee_cost_dict_as_real_commission():
+    """Exchange fee objects must be treated as exact commission in portfolio risk."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "position_symbol_name": "BTCUSDT",
+                    "position_volume": "0.02",
+                    "position_side": "BOTH",
+                    "avg_price": "60000",
+                    "mark_price": "61000",
+                    "position_unrealized_pnl": "20",
+                    "fee": {"cost": "0.12", "currency": "USDT"},
+                    "leverage": "10",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTCUSDT" in symbols
+            return {
+                "BTCUSDT": {
+                    "source": "binance_gateway",
+                    "contract_size": 1,
+                    "commission_rate": 0.0004,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["commission"] == pytest.approx(0.12)
+    assert row["position_pnl"] == pytest.approx(19.88)
+    assert result["summary"]["total_pnl"] == pytest.approx(19.88)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_preserve_okx_positive_fee_as_rebate():
+    """OKX positive position fee means rebate, not an extra portfolio cost."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "BTC-USDT-SWAP",
+                    "position_side": "long",
+                    "position_volume": 1,
+                    "avg_price": 60000.0,
+                    "mark_price": 60005.0,
+                    "position_unrealized_pnl": 5.0,
+                    "position_fee": 0.25,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTC-USDT-SWAP" in symbols
+            return {
+                "BTC-USDT-SWAP": {
+                    "source": "okx_gateway",
+                    "contract_size": 1,
+                    "commission_rate": 0.0004,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT-SWAP",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["commission"] == pytest.approx(-0.25)
+    assert row["position_pnl"] == pytest.approx(5.25)
+    assert result["summary"]["total_pnl"] == pytest.approx(5.25)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_prefer_okx_upl_over_position_pnl():
+    """OKX open-position PnL should use upl, not the position pnl accumulator."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instId": "BTC-USDT-SWAP",
+                    "posSide": "long",
+                    "pos": "2",
+                    "avgPx": "60000",
+                    "markPx": "60100",
+                    "upl": "2.0",
+                    "pnl": "999.0",
+                    "fee": "-0.12",
+                    "source": "okx_gateway",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTC-USDT-SWAP" in symbols
+            return {
+                "BTC-USDT-SWAP": {
+                    "source": "okx_gateway",
+                    "instType": "SWAP",
+                    "ctVal": "0.01",
+                    "settleCcy": "USDT",
+                    "commission_rate": 0.0004,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTC-USDT-SWAP",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["gross_pnl"] == pytest.approx(2.0)
+    assert row["commission"] == pytest.approx(0.12)
+    assert row["position_pnl"] == pytest.approx(1.88)
+    assert result["summary"]["total_pnl"] == pytest.approx(1.88)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_explicit_inverse_flag_without_cttype():
+    """Portfolio risk should not require ctType when the gateway says inverse=true."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "symbol": "BTCUSD",
+                    "posSide": "long",
+                    "pos": 2,
+                    "avgPx": 50000.0,
+                    "markPx": 55000.0,
+                    "source": "okx_gateway",
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "BTCUSD" in symbols
+            return {
+                "BTCUSD": {
+                    "source": "gateway.get_symbol_info",
+                    "instType": "SWAP",
+                    "inverse": True,
+                    "multiplier": 1,
+                    "ctVal": 100,
+                    "ctMult": 1,
+                    "margin_rate": 0.1,
+                    "taker_commission_rate": 0.0005,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "BTCUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["multiplier"] == pytest.approx(100.0)
+    assert row["market_value"] == pytest.approx(200.0)
+    assert row["margin_value"] == pytest.approx(20.0)
+    assert row["gross_pnl"] == pytest.approx(20.0)
+    assert row["commission"] == pytest.approx(0.2)
+    assert row["position_pnl"] == pytest.approx(19.8)
+    assert result["summary"]["gross_market_value"] == pytest.approx(200.0)
+    assert result["summary"]["total_pnl"] == pytest.approx(19.8)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_handle_raw_mt5_numeric_short_type():
+    """Raw MT5 type=1 positions are shorts, not long exposure."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "type": 1,
+                    "volume": 0.02,
+                    "price": 2330.0,
+                    "current_price": 2329.0,
+                    "profit": 2.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {
+                "XAUUSD": {
+                    "source": "mt5_gateway",
+                    "contract_size": 100,
+                    "margin_initial": 1950.0,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "XAUUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["direction"] == "short"
+    assert row["size"] == -0.02
+    assert row["signed_market_value"] == -4658.0
+    assert row["market_value"] == 4658.0
+    assert row["gross_pnl"] == 2.0
+    assert result["summary"]["short_count"] == 1
+    assert result["summary"]["net_market_value"] == -4658.0
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_estimate_mt5_fee_when_position_commission_missing():
+    """MT5 missing commission must not be treated as confirmed zero-fee PnL."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "direction": "buy",
+                    "volume": 0.02,
+                    "price": 2330.0,
+                    "current_price": 2331.0,
+                    "profit": 2.0,
+                    "swap": -0.1,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {
+                "XAUUSD": {
+                    "source": "mt5_gateway",
+                    "contract_size": 100,
+                    "margin_initial": 1950.0,
+                    "commission_rate": 0.001,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "XAUUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["commission"] == pytest.approx(4.66)
+    assert row["gross_pnl"] == 2.0
+    assert row["position_pnl"] == pytest.approx(-2.76)
+    assert row["valuation_status"] == "estimated"
+    assert any("按资产费率估算" in item for item in row["valuation_warnings"])
+    assert result["summary"]["total_pnl"] == pytest.approx(-2.76)
+
+
+@pytest.mark.asyncio
+async def test_portfolio_positions_use_mt5_margin_initial_per_lot():
+    """MT5 margin_initial is fixed per lot, not a full-notional margin rate."""
+    from app.api.portfolio_api import get_portfolio_positions
+
+    class GatewayManager(_MockManager):
+        def has_instance_gateway(self, instance_id):
+            assert instance_id == "inst-a"
+            return True
+
+        def query_instance_gateway_positions(self, instance_id):
+            assert instance_id == "inst-a"
+            return [
+                {
+                    "instrument": "XAUUSD",
+                    "direction": "buy",
+                    "volume": 0.02,
+                    "price": 2330.0,
+                    "last_price": 2331.0,
+                    "profit": 2.0,
+                    "commission": 0.0,
+                    "swap": 0.0,
+                }
+            ]
+
+        def query_instance_asset_specs(self, instance_id, symbols):
+            assert instance_id == "inst-a"
+            assert "XAUUSD" in symbols
+            return {
+                "XAUUSD": {
+                    "source": "mt5_gateway",
+                    "contract_size": 100,
+                    "margin_initial": 1950.0,
+                }
+            }
+
+    mgr = GatewayManager(
+        [
+            {
+                **_INSTANCE_A,
+                "params": {
+                    "trading_mode": "live",
+                    "symbol": "XAUUSD",
+                },
+            }
+        ]
+    )
+
+    result = await get_portfolio_positions(current_user=_USER, mgr=mgr)
+
+    row = result["positions"][0]
+    assert row["position_source"] == "gateway"
+    assert row["asset_spec_source"] == "mt5_gateway"
+    assert row["valuation_status"] == "confirmed"
+    assert row["valuation_warnings"] == []
+    assert row["market_value"] == pytest.approx(4662.0)
+    assert row["margin_value"] == pytest.approx(39.0)
+    assert row["position_pnl"] == pytest.approx(2.0)
 
 
 @pytest.mark.asyncio
@@ -798,14 +3208,11 @@ async def test_portfolio_prefers_active_workspace_units_when_manager_is_empty(
     log_dir = workspace_unit_runtime.unit_dir("ws-1", "unit-1") / "logs"
     log_dir.mkdir(parents=True)
     (log_dir / "value.log").write_text(
-        "dt\tvalue\tcash\n"
-        "2026-06-24 00:00:00\t100000\t99000\n"
-        "2026-06-24 00:01:00\t100200\t99100\n",
+        "dt\tvalue\tcash\n2026-06-24 00:00:00\t100000\t99000\n2026-06-24 00:01:00\t100200\t99100\n",
         encoding="utf-8",
     )
     (log_dir / "position.log").write_text(
-        "dt\tdata_name\tsize\tprice\n"
-        "2026-06-24 00:01:00\tIF2609\t1\t5000\n",
+        "dt\tdata_name\tsize\tprice\n2026-06-24 00:01:00\tIF2609\t1\t5000\n",
         encoding="utf-8",
     )
     (log_dir / "trade.log").write_text(
@@ -833,6 +3240,4 @@ async def test_portfolio_prefers_active_workspace_units_when_manager_is_empty(
 
     trades = await get_portfolio_trades(limit=10, current_user=_USER, mgr=mgr)
     assert trades["total"] == 1
-    assert trades["trades"][0]["strategy_name"] == (
-        "期货模拟工作区 / CTP压测01-短周期均线-1m"
-    )
+    assert trades["trades"][0]["strategy_name"] == ("期货模拟工作区 / CTP压测01-短周期均线-1m")

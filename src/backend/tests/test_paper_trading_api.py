@@ -12,10 +12,12 @@ Tests cover all paper trading endpoints with mocked service layer:
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, status
+from pydantic import ValidationError
+from starlette.websockets import WebSocketDisconnect
 
 _USER = SimpleNamespace(sub="u1")
 _OTHER_USER = SimpleNamespace(sub="u2")
@@ -246,6 +248,77 @@ async def test_submit_paper_order():
         stop_price=None,
         limit_price=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_submit_paper_order_maps_service_validation_error_to_400():
+    """Service-side validation failures should not become 500 responses."""
+    from app.api.paper_trading import submit_paper_order
+
+    svc = _MockService()
+    svc.submit_order = AsyncMock(side_effect=ValueError("side must be one of: buy, sell"))
+    request = SimpleNamespace(
+        account_id="acct-1",
+        symbol="000001.SZ",
+        side="hold",
+        order_type="market",
+        size=100,
+        price=None,
+        stop_price=None,
+        limit_price=None,
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await submit_paper_order(request=request, current_user=_USER, service=svc)
+
+    assert exc.value.status_code == 400
+    assert "side" in exc.value.detail
+
+
+def test_order_request_accepts_fractional_non_stock_symbol():
+    """Paper API must support fractional crypto/FX/futures-like symbols."""
+    from app.schemas.paper_trading import OrderRequest
+
+    request = OrderRequest(
+        account_id="acct-1",
+        symbol="BTC/USDT",
+        side="buy",
+        order_type="limit",
+        size=0.25,
+        price=50000.0,
+    )
+
+    assert request.symbol == "BTC/USDT"
+    assert request.size == pytest.approx(0.25)
+
+
+def test_order_request_rejects_invalid_side():
+    """Invalid side must fail schema validation before reaching the service."""
+    from app.schemas.paper_trading import OrderRequest
+
+    with pytest.raises(ValidationError, match="side"):
+        OrderRequest(
+            account_id="acct-1",
+            symbol="BTC/USDT",
+            side="hold",
+            order_type="market",
+            size=0.25,
+        )
+
+
+def test_order_request_rejects_incomplete_stop_limit():
+    """Stop-limit simulation orders need explicit trigger and limit prices."""
+    from app.schemas.paper_trading import OrderRequest
+
+    with pytest.raises(ValidationError, match="stop_limit"):
+        OrderRequest(
+            account_id="acct-1",
+            symbol="BTC/USDT",
+            side="buy",
+            order_type="stop_limit",
+            size=0.25,
+            stop_price=50000.0,
+        )
 
 
 @pytest.mark.asyncio
@@ -516,3 +589,84 @@ async def test_list_paper_trades_with_filters():
         limit=50,
         offset=10,
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WebSocket
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_paper_account_websocket_rejects_missing_token(monkeypatch):
+    """Paper account websocket must require authenticated access."""
+    from app.api import paper_trading
+
+    websocket = SimpleNamespace(close=AsyncMock())
+    monkeypatch.setattr(paper_trading, "get_websocket_current_user", lambda _ws: (None, None))
+
+    await paper_trading.websocket_account_endpoint(websocket, "acct-1")
+
+    websocket.close.assert_awaited_once_with(code=status.WS_1008_POLICY_VIOLATION)
+
+
+@pytest.mark.asyncio
+async def test_paper_account_websocket_rejects_foreign_account(monkeypatch):
+    """Authenticated websocket users must not subscribe to another account."""
+    from app.api import paper_trading
+
+    websocket = SimpleNamespace(close=AsyncMock())
+    account = SimpleNamespace(id="acct-1", user_id="other")
+    service = SimpleNamespace(get_account=AsyncMock(return_value=account))
+    monkeypatch.setattr(
+        paper_trading,
+        "get_websocket_current_user",
+        lambda _ws: (SimpleNamespace(sub="u1"), "access-token"),
+    )
+    monkeypatch.setattr(paper_trading, "PaperTradingService", lambda: service)
+
+    await paper_trading.websocket_account_endpoint(websocket, "acct-1")
+
+    websocket.close.assert_awaited_once_with(code=status.WS_1008_POLICY_VIOLATION)
+
+
+@pytest.mark.asyncio
+async def test_paper_account_websocket_accepts_owner_with_subprotocol(monkeypatch):
+    """Authorized paper websocket connections should keep the negotiated token subprotocol."""
+    from app.api import paper_trading
+
+    websocket = SimpleNamespace(close=AsyncMock())
+    account = SimpleNamespace(
+        id="acct-1",
+        user_id="u1",
+        current_cash=1000.0,
+        total_equity=1005.0,
+        profit_loss=5.0,
+        profit_loss_pct=0.5,
+    )
+    service = SimpleNamespace(get_account=AsyncMock(return_value=account))
+    manager = SimpleNamespace(
+        connect=AsyncMock(),
+        send_to_task=AsyncMock(),
+        disconnect=Mock(),
+    )
+
+    async def _stop_after_initial_snapshot(_seconds):
+        raise WebSocketDisconnect()
+
+    monkeypatch.setattr(
+        paper_trading,
+        "get_websocket_current_user",
+        lambda _ws: (SimpleNamespace(sub="u1"), "access-token"),
+    )
+    monkeypatch.setattr(paper_trading, "PaperTradingService", lambda: service)
+    monkeypatch.setattr("app.websocket_manager.manager", manager)
+    monkeypatch.setattr("asyncio.sleep", _stop_after_initial_snapshot)
+
+    await paper_trading.websocket_account_endpoint(websocket, "acct-1")
+
+    manager.connect.assert_awaited_once()
+    assert manager.connect.await_args.args[1] == "account:acct-1"
+    assert manager.connect.await_args.args[3] == "access-token"
+    manager.send_to_task.assert_awaited()
+    assert manager.send_to_task.await_args.args[1]["data"]["total_equity"] == 1005.0
+    manager.disconnect.assert_called_once()

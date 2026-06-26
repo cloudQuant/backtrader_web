@@ -20,8 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 
 from app.services.live_trading_manager import (
-    LiveTradingManager,
     _PROJECT_ROOT,
+    LiveTradingManager,
     _find_latest_log_dir,
     _is_pid_alive,
     _load_instances,
@@ -224,6 +224,223 @@ class TestLiveTradingManagerInitialization:
 
         assert _should_restore_manual_gateways() is False
         mock_start_restore.assert_not_called()
+
+
+def test_query_instance_asset_specs_merges_gateway_last_price():
+    class FakeAdapter:
+        last_price = {"XAUUSD": 2331.0}
+
+        def get_symbol_info(self, symbol):
+            assert symbol == "XAUUSD"
+            return {"symbol": symbol, "contract_size": 100, "margin_initial": 1950.0}
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:MT5:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:MT5:demo"
+
+    specs = manager.query_instance_asset_specs("inst-a", ["XAUUSD"])
+
+    spec = specs["XAUUSD"]
+    assert spec["contract_size"] == 100
+    assert spec["current_price"] == pytest.approx(2331.0)
+    assert spec["latest_price"] == pytest.approx(2331.0)
+    assert spec["last_price"] == pytest.approx(2331.0)
+
+
+def test_query_instance_asset_specs_reads_gateway_latest_tick_cache():
+    class FakeAdapter:
+        _latest_ticks = {"BTCUSDT": {"markPrice": "61000.5", "lastPrice": "60999.0"}}
+
+        def get_symbol_info(self, symbol):
+            assert symbol == "BTCUSDT"
+            return {"symbol": symbol, "contract_size": 0.001}
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:BINANCE:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:BINANCE:demo"
+
+    specs = manager.query_instance_asset_specs("inst-a", ["BTCUSDT"])
+
+    spec = specs["BTCUSDT"]
+    assert spec["contract_size"] == pytest.approx(0.001)
+    assert spec["current_price"] == pytest.approx(61000.5)
+    assert spec["latest_price"] == pytest.approx(61000.5)
+    assert spec["last_price"] == pytest.approx(61000.5)
+
+
+def test_query_instance_asset_specs_reads_gateway_ticker_payload():
+    class FakeAdapter:
+        def get_symbol_info(self, symbol):
+            assert symbol == "ETH-USDT-SWAP"
+            return {"symbol": symbol, "contract_size": 0.01}
+
+        def get_ticker(self, symbol):
+            assert symbol == "ETH-USDT-SWAP"
+            return {"data": [{"instId": symbol, "last": "3200.25"}]}
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:OKX:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:OKX:demo"
+
+    specs = manager.query_instance_asset_specs("inst-a", ["ETH-USDT-SWAP"])
+
+    spec = specs["ETH-USDT-SWAP"]
+    assert spec["contract_size"] == pytest.approx(0.01)
+    assert spec["current_price"] == pytest.approx(3200.25)
+    assert spec["latest_price"] == pytest.approx(3200.25)
+    assert spec["last_price"] == pytest.approx(3200.25)
+
+
+def test_query_instance_asset_specs_merges_runtime_config_gateway_and_last_price(tmp_path):
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    (runtime_dir / "config.yaml").write_text(
+        "contract_metadata:\n"
+        "  IF2609:\n"
+        "    symbol: IF2609\n"
+        "    multiplier: 300\n"
+        "    margin_rate: 0.1\n"
+        "    commission_rate: 0.000023\n"
+        "    source: runtime_config\n",
+        encoding="utf-8",
+    )
+
+    class FakeAdapter:
+        last_price = {"IF2609": 5001.0}
+
+        def get_symbol_info(self, symbol):
+            assert symbol == "IF2609"
+            return {"symbol": symbol, "price_tick": 0.2}
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:CTP:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:CTP:demo"
+
+    with (
+        patch(
+            "app.services.live_trading_manager._load_instances",
+            return_value={
+                "inst-a": {
+                    "id": "inst-a",
+                    "strategy_id": "demo",
+                    "runtime_dir": str(runtime_dir),
+                    "params": {"symbol": "IF2609"},
+                }
+            },
+        ),
+        patch(
+            "app.services.trading_asset_info_service._query_local_futures_spec",
+            return_value={},
+        ),
+    ):
+        specs = manager.query_instance_asset_specs("inst-a", ["IF2609"])
+
+    spec = specs["IF2609"]
+    assert spec["multiplier"] == pytest.approx(300)
+    assert spec["margin_rate"] == pytest.approx(0.1)
+    assert spec["commission_rate"] == pytest.approx(0.000023)
+    assert spec["price_tick"] == pytest.approx(0.2)
+    assert spec["current_price"] == pytest.approx(5001.0)
+    assert spec["source"] == "gateway.get_symbol_info"
+
+
+def test_query_instance_gateway_positions_reads_runtime_adapter_positions():
+    class FakeAdapter:
+        def get_positions(self):
+            return [{"symbol": "IF2609", "volume": 1}]
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:CTP:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:CTP:demo"
+
+    positions = manager.query_instance_gateway_positions("inst-a")
+
+    assert positions == [{"symbol": "IF2609", "volume": 1}]
+
+
+def test_query_gateway_positions_strict_reads_runtime_adapter_positions():
+    class FakeAdapter:
+        def get_positions(self):
+            return [{"symbol": "IF2609", "volume": 1}]
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:CTP:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+    }
+
+    positions = manager.query_gateway_positions("manual:CTP:demo", strict=True)
+
+    assert positions == [{"symbol": "IF2609", "volume": 1}]
+
+
+def test_query_gateway_positions_strict_raises_for_gateway_without_runtime():
+    manager = LiveTradingManager()
+    manager._gateways["manual:CTP:demo"] = {
+        "runtime": None,
+    }
+
+    with pytest.raises(RuntimeError, match="has no runtime"):
+        manager.query_gateway_positions("manual:CTP:demo", strict=True)
+
+
+def test_query_instance_gateway_positions_raises_for_bound_gateway_without_runtime():
+    manager = LiveTradingManager()
+    manager._gateways["manual:CTP:demo"] = {
+        "runtime": None,
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:CTP:demo"
+
+    with pytest.raises(RuntimeError, match="has no runtime"):
+        manager.query_instance_gateway_positions("inst-a")
+
+
+def test_query_instance_gateway_account_reads_runtime_adapter_balance():
+    class FakeAdapter:
+        def get_balance(self):
+            return {"balance": 100000.0, "equity": 100500.0, "margin_free": 99000.0}
+
+    manager = LiveTradingManager()
+    manager._gateways["manual:MT5:demo"] = {
+        "runtime": SimpleNamespace(adapter=FakeAdapter()),
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:MT5:demo"
+
+    account = manager.query_instance_gateway_account("inst-a")
+
+    assert account is not None
+    assert account["gateway_key"] == "manual:MT5:demo"
+    assert account["value"] == 100500.0
+    assert account["cash"] == 99000.0
+    assert account["account_source"] == "adapter.get_balance"
+
+
+def test_query_instance_gateway_account_raises_for_bound_gateway_without_runtime():
+    manager = LiveTradingManager()
+    manager._gateways["manual:MT5:demo"] = {
+        "runtime": None,
+        "instances": {"inst-a"},
+    }
+    manager._instance_gateways["inst-a"] = "manual:MT5:demo"
+
+    with pytest.raises(RuntimeError, match="has no runtime"):
+        manager.query_instance_gateway_account("inst-a")
 
 
 class TestGatewayLifecycle:
@@ -456,12 +673,45 @@ class TestGatewayLifecycle:
         assert env["BT_GATEWAY_ACCOUNT_ID"] == "acc-1"
         assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "CTP"
         assert env["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+        assert env["BT_TRADING_INSTANCE_ID"] == "inst1"
         assert env["BACKTRADER_LIGHT_IMPORT"] == "1"
         assert env["BT_API_PY_LIGHT_IMPORT"] == "1"
         assert env["BT_FEED_ENABLE_LIGHT_COLUMNS"] == "1"
         assert env["BT_STORE_LOCAL_TIMEZONE"] == "Asia/Shanghai"
         assert env["OPENBLAS_NUM_THREADS"] == "1"
         assert env["OMP_NUM_THREADS"] == "1"
+
+    @pytest.mark.asyncio
+    async def test_stop_instance_aborts_when_open_order_cancel_fails(self):
+        cancel_result = {
+            "gateway_key": "manual:CTP:simnow",
+            "status": "error",
+            "message": "gateway adapter does not support order cancellation",
+            "open_order_count": 1,
+            "failed_count": 1,
+        }
+        with (
+            patch(
+                "app.services.live_trading_manager._load_instances",
+                return_value={"inst1": {"id": "inst1", "params": {}}},
+            ),
+            patch("app.services.live_trading_manager._save_instances"),
+            patch(
+                "app.services.live_trading_manager.live_execution_service.stop_instance",
+                new_callable=AsyncMock,
+            ) as mock_stop,
+        ):
+            manager = LiveTradingManager()
+            with patch.object(
+                manager,
+                "_cancel_open_orders_for_instance",
+                return_value=cancel_result,
+            ):
+                with pytest.raises(RuntimeError) as exc_info:
+                    await manager.stop_instance("inst1")
+
+        assert exc_info.value.open_order_cancel == cancel_result
+        assert mock_stop.await_count == 0
 
     def test_build_subprocess_env_with_ib_web_gateway(self):
         with patch("app.services.live_trading_manager._load_instances", return_value={}):
@@ -1362,6 +1612,73 @@ class TestStartInstance:
 
                                 assert result["status"] == "running"
                                 assert result["pid"] == 12345
+
+    @pytest.mark.asyncio
+    async def test_start_instance_persists_runtime_asset_specs_from_env_builder(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "run.py").write_text("print('ok')\n", encoding="utf-8")
+        base_instances = {
+            "inst1": {
+                "id": "inst1",
+                "strategy_id": "test_strategy",
+                "status": "stopped",
+                "params": {"symbol": "IF2609"},
+            },
+        }
+        saved_instances = {}
+
+        def _load():
+            return json.loads(json.dumps(base_instances))
+
+        def _save(data):
+            saved_instances.update(json.loads(json.dumps(data)))
+
+        def _build_env(_instance_id, instance, _strategy_dir):
+            params = dict(instance.get("params") or {})
+            params["contract_metadata"] = {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                }
+            }
+            instance["params"] = params
+            return {}
+
+        with (
+            patch("app.services.live_trading_manager._load_instances", side_effect=_load),
+            patch("app.services.live_trading_manager._save_instances", side_effect=_save),
+            patch("app.services.live_trading_manager._is_pid_alive", return_value=False),
+        ):
+            manager = LiveTradingManager()
+            mock_proc = AsyncMock()
+            mock_proc.pid = 12345
+            mock_proc.returncode = None
+
+            with (
+                patch.object(manager, "_resolve_strategy_dir", return_value=strategy_dir),
+                patch.object(manager, "_build_subprocess_env", side_effect=_build_env),
+                patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+                patch("asyncio.create_task") as mock_create_task,
+            ):
+
+                def _create_task(coro):
+                    try:
+                        coro.close()
+                    except Exception:
+                        pass
+                    return Mock()
+
+                mock_create_task.side_effect = _create_task
+                result = await manager.start_instance("inst1")
+
+        assert result["status"] == "running"
+        metadata = saved_instances["inst1"]["params"]["contract_metadata"]["IF2609"]
+        assert metadata["multiplier"] == 300
+        assert metadata["margin_rate"] == 0.1
+        assert metadata["commission_rate"] == 0.000023
 
     @pytest.mark.asyncio
     async def test_start_instance_passes_gateway_env_to_subprocess(self):

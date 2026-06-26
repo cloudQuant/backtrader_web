@@ -74,6 +74,231 @@ def _market_value(value: Any) -> float:
     return round(_safe_float(value, 0.0), 8)
 
 
+def _first_present(row: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _position_symbol(row: dict[str, Any], fallback: str = "") -> str:
+    return str(
+        _first_present(
+            row,
+            "data_name",
+            "symbol",
+            "instrument",
+            "InstrumentID",
+            "trade_symbol",
+            "contract_symbol",
+            "position_symbol_name",
+            "symbol_name",
+            "local_symbol",
+            "localSymbol",
+            "contractDesc",
+            "contract_desc",
+            "description",
+            "ticker",
+            "conid",
+        )
+        or fallback
+        or ""
+    ).strip()
+
+
+def _position_size(row: dict[str, Any]) -> float:
+    return _safe_float(
+        _first_present(
+            row,
+            "size",
+            "volume",
+            "position",
+            "qty",
+            "quantity",
+            "position_volume",
+            "positionAmt",
+            "pa",
+            "Position",
+            "Volume",
+            "Qty",
+            "Quantity",
+            "trade_volume",
+            "TradeVolume",
+        ),
+        0.0,
+    )
+
+
+def _position_entry_price(row: dict[str, Any]) -> float:
+    return _safe_float(
+        _first_present(
+            row,
+            "price",
+            "avg_price",
+            "average_price",
+            "price_open",
+            "avgCost",
+            "avgPrice",
+            "entryPrice",
+            "ep",
+            "averageCost",
+            "Price",
+            "AveragePrice",
+        ),
+        0.0,
+    )
+
+
+def _mark_estimated_market_value(
+    payload: dict[str, Any], explicit_market_value: Any
+) -> dict[str, Any]:
+    if explicit_market_value in (None, ""):
+        payload["market_value_estimated"] = True
+    return payload
+
+
+def _position_extra_fields(row: dict[str, Any]) -> dict[str, Any]:
+    extras: dict[str, Any] = {}
+    numeric_keys = (
+        "current_price",
+        "latest_price",
+        "last_price",
+        "LastPrice",
+        "lastPrice",
+        "mark_price",
+        "markPrice",
+        "market_price",
+        "marketPrice",
+        "SettlementPrice",
+        "settlement_price",
+        "PositionCost",
+        "position_cost",
+        "multiplier",
+        "mult",
+        "contract_multiplier",
+        "contract_size",
+        "trade_contract_size",
+        "VolumeMultiple",
+        "CONTRACT_MULTIPLIER",
+        "price_tick",
+        "tick_size",
+        "PriceTick",
+        "MIN_PRICE_CHANGE",
+        "margin",
+        "margin_rate",
+        "margin_ratio",
+        "long_margin_rate",
+        "short_margin_rate",
+        "LongMarginRatio",
+        "ShortMarginRatio",
+        "LongMarginRatioByMoney",
+        "ShortMarginRatioByMoney",
+        "MARGIN_RATIO",
+        "MARGIN_BUY",
+        "MARGIN_SELL",
+        "leverage",
+        "margin_value",
+        "use_margin",
+        "initial_margin",
+        "maintain_margin",
+        "UseMargin",
+        "InitialMargin",
+        "MaintainMargin",
+        "margin_amount",
+        "initial_margin_per_lot",
+        "margin_initial",
+        "initial_margin_amount",
+        "long_margin_amount",
+        "short_margin_amount",
+        "LongMarginRatioByVolume",
+        "ShortMarginRatioByVolume",
+        "MARGIN_PER_LOT",
+        "LONG_MARGIN_AMOUNT",
+        "SHORT_MARGIN_AMOUNT",
+        "commission",
+        "comm",
+        "fee",
+        "fees",
+        "open_commission",
+        "position_fee",
+        "position_commission",
+        "trade_fee",
+        "trade_commission",
+        "commission_rate",
+        "open_commission_rate",
+        "close_commission_rate",
+        "close_today_commission_rate",
+        "OpenRatioByMoney",
+        "CloseRatioByMoney",
+        "CloseTodayRatioByMoney",
+        "OPEN_FEE_RATE",
+        "COMMISSION_OPEN_RATIO",
+        "commission_amount",
+        "OpenRatioByVolume",
+        "CloseRatioByVolume",
+        "CloseTodayRatioByVolume",
+        "OPEN_FEE_AMOUNT",
+        "OPEN_FEE_PER_LOT",
+        "COMMISSION_OPEN_AMOUNT",
+        "fillFee",
+        "fill_fee",
+        "fee_rate",
+        "fee_amount",
+        "pnl",
+        "gross_pnl",
+        "pnlcomm",
+        "net_pnl",
+        "position_pnl",
+        "position_profit",
+        "PositionProfit",
+        "position_unrealized_pnl",
+        "unrealized_profit",
+        "unRealizedProfit",
+        "UnrealizedPnL",
+        "unrealizedPnl",
+        "unrealized_pnl",
+        "unrealizedPNL",
+        "unrealizedpnl",
+        "floating_pnl",
+        "profit",
+        "upl",
+        "up",
+    )
+    for key in numeric_keys:
+        if key in row and row.get(key) not in (None, ""):
+            extras[key] = _safe_float(row.get(key), 0.0)
+    text_keys = (
+        "asset_type",
+        "exchange",
+        "exchange_id",
+        "exchange_name",
+        "direction",
+        "side",
+        "position_side",
+        "positionSide",
+        "PositionSide",
+        "trade_action",
+        "position_type",
+        "type",
+        "PosiDirection",
+        "posi_direction",
+        "position_direction",
+        "commission_method",
+        "source",
+        "position_source",
+        "asset_spec_source",
+        "broker",
+        "gateway",
+        "margin_type",
+    )
+    for key in text_keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            extras[key] = str(value)
+    return extras
+
+
 def _finite_metric(value: float, default: float = 0.0) -> float:
     return value if math.isfinite(value) else default
 
@@ -515,20 +740,35 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
     if not rows:
         json_rows = _parse_json_lines(log_dir / "position.log")
         if json_rows:
-            return [
-                {
-                    "dt": _normalize_date_text(row.get("datetime")),
-                    "datetime": _normalize_dt_text(row.get("datetime")),
-                    "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
-                    "data_name": row.get("data_name", ""),
-                    "size": _safe_float(row.get("size", 0.0)),
-                    "price": round(_safe_float(row.get("price", 0.0)), 4),
-                    "market_value": _market_value(row.get("value", 0.0)),
-                    "value": _market_value(row.get("value", 0.0)),
-                }
-                for row in json_rows
-                if _normalize_dt_text(row.get("datetime"))
-            ]
+            positions = []
+            for row in json_rows:
+                if not _normalize_dt_text(row.get("datetime")):
+                    continue
+                explicit_market_value = _first_present(row, "value", "market_value")
+                size = _position_size(row)
+                price = _position_entry_price(row)
+                market_value = (
+                    explicit_market_value if explicit_market_value is not None else abs(size) * price
+                )
+                positions.append(
+                    _mark_estimated_market_value(
+                        {
+                            "dt": _normalize_date_text(row.get("datetime")),
+                            "datetime": _normalize_dt_text(row.get("datetime")),
+                            "log_time": _normalize_dt_text(
+                                row.get("log_time") or row.get("event_time")
+                            ),
+                            "data_name": _position_symbol(row),
+                            "size": size,
+                            "price": round(price, 4),
+                            "market_value": _market_value(market_value),
+                            "value": _market_value(market_value),
+                            **_position_extra_fields(row),
+                        },
+                        explicit_market_value,
+                    )
+                )
+            return positions
         pipe_rows = _parse_pipe_key_value_lines(log_dir / "position.log")
         if not pipe_rows:
             return []
@@ -540,39 +780,52 @@ def parse_position_log(log_dir: Path) -> list[dict[str, Any]]:
             dt = _normalize_dt_text(row.get("datetime") or row.get("dt"))
             if not dt and index < len(fallback_dates):
                 dt = fallback_dates[index]
-            size = _safe_float(row.get("size", 0.0))
-            price = _safe_float(row.get("price", 0.0))
-            market_value = _safe_float(row.get("value", abs(size) * price))
+            size = _position_size(row)
+            price = _position_entry_price(row)
+            explicit_market_value = row.get("value")
+            market_value = _safe_float(
+                explicit_market_value if explicit_market_value not in (None, "") else abs(size) * price
+            )
             positions.append(
-                {
-                    "dt": _normalize_date_text(dt),
-                    "datetime": dt,
-                    "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
-                    "data_name": str(row.get("data_name") or row.get("event") or ""),
-                    "size": size,
-                    "price": round(price, 4),
-                    "market_value": _market_value(market_value),
-                    "value": _market_value(market_value),
-                }
+                _mark_estimated_market_value(
+                    {
+                        "dt": _normalize_date_text(dt),
+                        "datetime": dt,
+                        "log_time": _normalize_dt_text(
+                            row.get("log_time") or row.get("event_time")
+                        ),
+                        "data_name": _position_symbol(row, str(row.get("event") or "")),
+                        "size": size,
+                        "price": round(price, 4),
+                        "market_value": _market_value(market_value),
+                        "value": _market_value(market_value),
+                        **_position_extra_fields(row),
+                    },
+                    explicit_market_value,
+                )
             )
         return positions
     positions = []
     for row in rows:
-        size = _safe_float(row.get("size", "0"))
-        price = _safe_float(row.get("price", "0"))
+        size = _position_size(row)
+        price = _position_entry_price(row)
         datetime_text = _normalize_dt_text(row.get("datetime") or row.get("dt"))
         dt = _normalize_date_text(datetime_text)
         positions.append(
-            {
-                "dt": dt,
-                "datetime": datetime_text,
-                "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
-                "data_name": row.get("data_name", ""),
-                "size": size,
-                "price": round(price, 4),
-                "market_value": _market_value(abs(size) * price),
-                "value": _market_value(abs(size) * price),
-            }
+            _mark_estimated_market_value(
+                {
+                    "dt": dt,
+                    "datetime": datetime_text,
+                    "log_time": _normalize_dt_text(row.get("log_time") or row.get("event_time")),
+                    "data_name": _position_symbol(row),
+                    "size": size,
+                    "price": round(price, 4),
+                    "market_value": _market_value(abs(size) * price),
+                    "value": _market_value(abs(size) * price),
+                    **_position_extra_fields(row),
+                },
+                None,
+            )
         )
     return positions
 
@@ -593,17 +846,26 @@ def parse_current_position(log_dir: Path) -> list[dict[str, Any]]:
                 data = json.load(f)
             result = []
             for item in data:
-                size = _safe_float(str(item.get("size", 0)))
-                price = _safe_float(str(item.get("price", 0)))
-                market_value = item.get("value", item.get("market_value", size * price))
+                if not isinstance(item, dict):
+                    continue
+                size = _position_size(item)
+                price = _position_entry_price(item)
+                explicit_market_value = _first_present(item, "value", "market_value")
+                market_value = (
+                    explicit_market_value if explicit_market_value is not None else size * price
+                )
                 result.append(
-                    {
-                        "data_name": item.get("data_name", ""),
-                        "size": size,
-                        "price": round(price, 4),
-                        "market_value": _market_value(market_value),
-                        "value": _market_value(market_value),
-                    }
+                    _mark_estimated_market_value(
+                        {
+                            "data_name": _position_symbol(item),
+                            "size": size,
+                            "price": round(price, 4),
+                            "market_value": _market_value(market_value),
+                            "value": _market_value(market_value),
+                            **_position_extra_fields(item),
+                        },
+                        explicit_market_value,
+                    )
                 )
             return result
         except (json.JSONDecodeError, OSError, KeyError, TypeError) as e:
@@ -625,21 +887,26 @@ def parse_current_position(log_dir: Path) -> list[dict[str, Any]]:
         for data_name, item in positions.items():
             if not isinstance(item, dict):
                 continue
-            size = _safe_float(item.get("size", 0.0))
-            price = _safe_float(item.get("price", 0.0))
-            market_value = item.get("value")
+            size = _position_size(item)
+            price = _position_entry_price(item)
+            explicit_market_value = _first_present(item, "value", "market_value")
+            market_value = explicit_market_value
             if market_value is None:
                 market_value = size * _safe_float(item.get("current_price", price))
             result.append(
-                {
-                    "dt": _normalize_date_text(as_of),
-                    "datetime": as_of,
-                    "data_name": str(data_name),
-                    "size": size,
-                    "price": round(price, 4),
-                    "market_value": _market_value(market_value),
-                    "value": _market_value(market_value),
-                }
+                _mark_estimated_market_value(
+                    {
+                        "dt": _normalize_date_text(as_of),
+                        "datetime": as_of,
+                        "data_name": _position_symbol(item, str(data_name)),
+                        "size": size,
+                        "price": round(price, 4),
+                        "market_value": _market_value(market_value),
+                        "value": _market_value(market_value),
+                        **_position_extra_fields(item),
+                    },
+                    explicit_market_value,
+                )
             )
         return result
     except (OSError, TypeError, ValueError) as e:

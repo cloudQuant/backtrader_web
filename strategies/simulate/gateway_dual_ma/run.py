@@ -54,6 +54,12 @@ if _PYMT5.exists() and str(_PYMT5) not in sys.path:
 
 import backtrader as bt  # noqa: E402
 import yaml  # noqa: E402
+from backtrader.comminfo import (  # noqa: E402
+    ComminfoFuturesFixed,
+    ComminfoFuturesInverse,
+    ComminfoFuturesMixed,
+    ComminfoFuturesPercent,
+)
 from backtrader.feeds.btapifeed import BtApiFeed  # noqa: E402
 from backtrader.stores.btapistore import BtApiStore  # noqa: E402
 
@@ -110,6 +116,469 @@ def _safe_float(value, default=0.0):
         return float(value) if value not in (None, "") else default
     except (TypeError, ValueError):
         return default
+
+
+def _first_number(*values, default=None):
+    for value in values:
+        if value in (None, ""):
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return default
+
+
+def _normalise_rate(value, default=0.0):
+    number = _first_number(value, default=default)
+    if number is None:
+        return default
+    if number > 1.0:
+        return number / 100.0
+    return max(number, 0.0)
+
+
+def _normalise_signed_rate(value, default=None):
+    number = _first_number(value, default=default)
+    if number is None:
+        return default
+    if abs(number) > 1.0:
+        return number / 100.0
+    return number
+
+
+def _as_dict(value):
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _symbol_keys(symbol: str) -> list[str]:
+    raw = str(symbol or "").strip()
+    exchanges = {"SHFE", "DCE", "CZCE", "CFFEX", "INE", "GFEX"}
+    instrument = raw
+    exchange = ""
+    if "." in raw:
+        left, right = raw.split(".", 1)
+        left = left.strip()
+        right = right.strip()
+        if left.upper() in exchanges:
+            instrument, exchange = right, left.upper()
+        elif right.upper() in exchanges:
+            instrument, exchange = left, right.upper()
+        else:
+            instrument = left
+    if "_" in raw:
+        left, right = raw.split("_", 1)
+        left = left.strip()
+        right = right.strip()
+        if left.upper() in exchanges:
+            instrument, exchange = right, left.upper()
+        elif right.upper() in exchanges:
+            instrument, exchange = left, right.upper()
+    keys = [raw, instrument, instrument.upper(), instrument.lower()]
+    if exchange and instrument:
+        keys.extend(
+            [
+                f"{exchange}.{instrument}",
+                f"{instrument}.{exchange}",
+                f"{exchange}_{instrument}",
+                f"{instrument}_{exchange}",
+            ]
+        )
+    result: list[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        if key and key not in seen:
+            result.append(key)
+            seen.add(key)
+    return result
+
+
+def _contract_metadata_for(config: dict, symbol: str) -> dict:
+    for source in (
+        config,
+        _as_dict(config.get("params")),
+        _as_dict(config.get("live")),
+        _as_dict(config.get("simulate")),
+        _as_dict(config.get("data")),
+        _as_dict(config.get("backtest")),
+    ):
+        for container_key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
+            container = source.get(container_key)
+            if not isinstance(container, dict):
+                continue
+            for key in _symbol_keys(symbol):
+                item = container.get(key)
+                if isinstance(item, dict):
+                    return dict(item)
+    return {}
+
+
+def _commission_rate_from_keys(meta: dict, *keys):
+    method = str(meta.get("commission_method") or "").strip().lower()
+    ratio_10k_keys = {
+        "OpenRatioByMoney",
+        "CloseRatioByMoney",
+        "CloseTodayRatioByMoney",
+        "CloseYesterdayRatioByMoney",
+        "COMMISSION_OPEN_RATIO",
+        "COMMISSION_CLOSE_RATIO",
+        "COMMISSION_CLOSE_TODAY_RATIO",
+        "COMMISSION_CLOSE_YESTERDAY_RATIO",
+    }
+    for key in keys:
+        value = _first_number(meta.get(key))
+        if value is None:
+            continue
+        if method == "percent_10k" or key in ratio_10k_keys or (
+            key.endswith("RatioByMoney") and value > 0.01
+        ):
+            value = max(value, 0.0)
+            return value / 10000.0 if value > 0.01 else value
+        return _normalise_rate(value, 0.0)
+    return None
+
+
+def _explicit_commission_rate(meta: dict):
+    return _commission_rate_from_keys(
+        meta,
+        "commission",
+        "commission_rate",
+        "fee_rate",
+        "open_fee_rate",
+        "open_commission_rate",
+        "OpenRatioByMoney",
+        "COMMISSION_OPEN_RATIO",
+    )
+
+
+def _signed_commission_rate(meta: dict, *keys):
+    for key in keys:
+        value = _normalise_signed_rate(meta.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _commission_amount_from_keys(meta: dict, *keys):
+    for key in keys:
+        value = _first_number(meta.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _commission_amount(meta: dict):
+    return _commission_amount_from_keys(
+        meta,
+        "commission_amount",
+        "fee_amount",
+        "commission_per_lot",
+        "open_fee_amount",
+        "open_commission_amount",
+        "OpenRatioByVolume",
+        "COMMISSION_OPEN_AMOUNT",
+    )
+
+
+def _text(value) -> str:
+    return str(value or "").strip().lower().replace("-", "_")
+
+
+def _currency_code(value) -> str:
+    return "".join(ch for ch in str(value or "").strip().upper() if ch.isalnum())
+
+
+def _is_inverse_contract(meta: dict) -> bool:
+    explicit = _text(
+        meta.get("inverse")
+        or meta.get("is_inverse")
+        or meta.get("isInverse")
+        or meta.get("inverse_contract")
+        or meta.get("inverseContract")
+    )
+    if explicit in {"1", "true", "yes", "y", "inverse"}:
+        return True
+    if explicit in {"0", "false", "no", "n", "linear"}:
+        return False
+
+    contract_type = _text(
+        meta.get("contract_type")
+        or meta.get("contractType")
+        or meta.get("ctType")
+        or meta.get("type")
+    )
+    if "inverse" in contract_type or "coin_margined" in contract_type:
+        return True
+    if "linear" in contract_type or "usdt_margined" in contract_type or "usdc_margined" in contract_type:
+        return False
+
+    contract_ccy = _currency_code(
+        meta.get("contract_value_currency")
+        or meta.get("contractValueCurrency")
+        or meta.get("contract_value_ccy")
+        or meta.get("ctValCcy")
+    )
+    base_ccy = _currency_code(
+        meta.get("base_currency") or meta.get("baseCurrency") or meta.get("base_asset") or meta.get("baseCcy")
+    )
+    quote_ccy = _currency_code(
+        meta.get("quote_currency") or meta.get("quoteCurrency") or meta.get("quote_asset") or meta.get("quoteCcy")
+    )
+    settle_ccy = _currency_code(
+        meta.get("settle_currency")
+        or meta.get("settleCurrency")
+        or meta.get("settle_ccy")
+        or meta.get("settleCcy")
+        or meta.get("margin_currency")
+        or meta.get("marginCcy")
+    )
+    fee_ccy = _currency_code(meta.get("fee_currency") or meta.get("feeCurrency") or meta.get("feeCcy"))
+    if contract_ccy and quote_ccy and contract_ccy == quote_ccy and contract_ccy != base_ccy:
+        return True
+    if contract_ccy and base_ccy and contract_ccy == base_ccy:
+        return False
+    if base_ccy and quote_ccy and settle_ccy == base_ccy and settle_ccy != quote_ccy:
+        return True
+    return bool((contract_ccy or settle_ccy) and base_ccy and quote_ccy and fee_ccy == base_ccy and fee_ccy != quote_ccy)
+
+
+def _contract_multiplier(meta: dict, simulate_cfg: dict, backtest_cfg: dict, inverse_contract: bool):
+    if inverse_contract:
+        return _first_number(
+            meta.get("contract_value"),
+            meta.get("contractValue"),
+            meta.get("contract_value_amount"),
+            meta.get("contractValueAmount"),
+            meta.get("contract_notional_value"),
+            meta.get("okx_contract_value"),
+            meta.get("ctVal"),
+            meta.get("multiplier"),
+            meta.get("mult"),
+            meta.get("contract_multiplier"),
+            meta.get("contract_size"),
+            meta.get("trade_contract_size"),
+            meta.get("ctMult"),
+            meta.get("VolumeMultiple"),
+            meta.get("CONTRACT_MULTIPLIER"),
+            simulate_cfg.get("multiplier"),
+            backtest_cfg.get("multiplier"),
+            backtest_cfg.get("mult"),
+            default=1.0,
+        )
+    return _first_number(
+        meta.get("multiplier"),
+        meta.get("mult"),
+        meta.get("contract_multiplier"),
+        meta.get("contract_size"),
+        meta.get("trade_contract_size"),
+        meta.get("contract_notional_value"),
+        meta.get("okx_contract_value"),
+        meta.get("ctVal"),
+        meta.get("ctMult"),
+        meta.get("VolumeMultiple"),
+        meta.get("CONTRACT_MULTIPLIER"),
+        simulate_cfg.get("multiplier"),
+        backtest_cfg.get("multiplier"),
+        backtest_cfg.get("mult"),
+        default=1.0,
+    )
+
+
+def _apply_contract_commission(cerebro, config: dict, data_name: str) -> None:
+    simulate_cfg = _as_dict(config.get("simulate"))
+    backtest_cfg = _as_dict(config.get("backtest"))
+    data_cfg = _as_dict(config.get("data"))
+    asset_type = str(data_cfg.get("asset_type") or data_cfg.get("data_type") or "").strip().lower()
+    meta = _contract_metadata_for(config, data_name)
+    inverse_contract = _is_inverse_contract(meta)
+    multiplier = _contract_multiplier(meta, simulate_cfg, backtest_cfg, inverse_contract)
+    margin_value = _first_number(
+        meta.get("margin"),
+        meta.get("margin_rate"),
+        meta.get("margin_ratio"),
+        meta.get("long_margin_rate"),
+        meta.get("LongMarginRatioByMoney"),
+        meta.get("MARGIN_BUY"),
+        simulate_cfg.get("margin"),
+        backtest_cfg.get("margin"),
+    )
+    margin_amount = _first_number(
+        meta.get("margin_amount"),
+        meta.get("initial_margin_per_lot"),
+        meta.get("margin_initial"),
+        meta.get("initial_margin_amount"),
+        meta.get("SYMBOL_MARGIN_INITIAL"),
+    )
+    leverage = _first_number(meta.get("leverage"))
+    margin_rate = 1.0 / leverage if leverage and leverage > 0 else _normalise_rate(margin_value, 1.0)
+    margin_amount_param = max(margin_amount, 0.0) if margin_amount and margin_amount > 0 else None
+    default_commission = _safe_float(
+        simulate_cfg.get("commission"),
+        _safe_float(backtest_cfg.get("commission"), 0.0005),
+    )
+    commission_rate = _explicit_commission_rate(meta)
+    close_commission_rate = _commission_rate_from_keys(
+        meta,
+        "close_fee_rate",
+        "close_commission_rate",
+        "CloseRatioByMoney",
+        "COMMISSION_CLOSE_RATIO",
+    )
+    close_today_commission_rate = _commission_rate_from_keys(
+        meta,
+        "close_today_fee_rate",
+        "close_today_commission_rate",
+        "CloseTodayRatioByMoney",
+        "COMMISSION_CLOSE_TODAY_RATIO",
+    )
+    close_yesterday_commission_rate = _commission_rate_from_keys(
+        meta,
+        "close_yesterday_fee_rate",
+        "close_yesterday_commission_rate",
+        "CloseYesterdayRatioByMoney",
+        "COMMISSION_CLOSE_YESTERDAY_RATIO",
+    )
+    maker_commission_rate = _signed_commission_rate(
+        meta,
+        "maker_commission_rate",
+        "maker_fee_rate",
+    )
+    taker_commission_rate = _signed_commission_rate(
+        meta,
+        "taker_commission_rate",
+        "taker_fee_rate",
+    )
+    if commission_rate is None:
+        commission_rate = (
+            taker_commission_rate
+            if taker_commission_rate is not None
+            else maker_commission_rate
+        )
+    fixed_commission = _commission_amount(meta)
+    close_fixed_commission = _commission_amount_from_keys(
+        meta,
+        "close_fee_amount",
+        "close_commission_amount",
+        "CloseRatioByVolume",
+        "COMMISSION_CLOSE_AMOUNT",
+    )
+    close_today_fixed_commission = _commission_amount_from_keys(
+        meta,
+        "close_today_fee_amount",
+        "close_today_commission_amount",
+        "CloseTodayRatioByVolume",
+        "COMMISSION_CLOSE_TODAY_AMOUNT",
+    )
+    close_yesterday_fixed_commission = _commission_amount_from_keys(
+        meta,
+        "close_yesterday_fee_amount",
+        "close_yesterday_commission_amount",
+        "CloseYesterdayRatioByVolume",
+        "COMMISSION_CLOSE_YESTERDAY_AMOUNT",
+    )
+    percent_role_kwargs = {
+        "open_commission": max(commission_rate, 0.0) if commission_rate is not None else None,
+        "close_commission": close_commission_rate,
+        "close_today_commission": close_today_commission_rate,
+        "close_yesterday_commission": close_yesterday_commission_rate,
+        "maker_commission": maker_commission_rate,
+        "taker_commission": taker_commission_rate,
+    }
+    percent_role_kwargs = {
+        key: value for key, value in percent_role_kwargs.items() if value is not None
+    }
+    fixed_role_kwargs = {
+        "open_commission": max(fixed_commission, 0.0)
+        if fixed_commission is not None
+        else None,
+        "close_commission": close_fixed_commission,
+        "close_today_commission": close_today_fixed_commission,
+        "close_yesterday_commission": close_yesterday_fixed_commission,
+    }
+    fixed_role_kwargs = {
+        key: max(value, 0.0) for key, value in fixed_role_kwargs.items() if value is not None
+    }
+    mixed_amount_kwargs = {
+        "open_commission_amount": max(fixed_commission, 0.0)
+        if fixed_commission is not None
+        else None,
+        "close_commission_amount": close_fixed_commission,
+        "close_today_commission_amount": close_today_fixed_commission,
+        "close_yesterday_commission_amount": close_yesterday_fixed_commission,
+    }
+    mixed_amount_kwargs = {
+        key: max(value, 0.0) for key, value in mixed_amount_kwargs.items() if value is not None
+    }
+    derivative_like = bool(meta) or asset_type in {
+        "future",
+        "futures",
+        "option",
+        "options",
+        "forex",
+        "fx",
+        "otc",
+        "cfd",
+        "swap",
+        "swaps",
+        "perpetual",
+        "perp",
+    }
+    if not derivative_like:
+        cerebro.broker.setcommission(commission=default_commission)
+        return
+
+    if inverse_contract:
+        inverse_percent_rate = (
+            commission_rate
+            if commission_rate is not None
+            else (0.0 if fixed_commission is not None else default_commission)
+        )
+        comminfo = ComminfoFuturesInverse(
+            commission=inverse_percent_rate,
+            commission_amount=max(fixed_commission or 0.0, 0.0),
+            margin=max(margin_rate, 0.0),
+            margin_amount=margin_amount_param,
+            mult=max(multiplier or 1.0, 1e-12),
+            **percent_role_kwargs,
+            **mixed_amount_kwargs,
+        )
+        cerebro.broker.addcommissioninfo(comminfo, name=data_name)
+        return
+
+    if (
+        fixed_commission is not None
+        and commission_rate is not None
+        and str(meta.get("commission_method") or "").lower() != "fixed_per_lot"
+    ):
+        comminfo = ComminfoFuturesMixed(
+            commission=max(commission_rate, 0.0),
+            commission_amount=max(fixed_commission, 0.0),
+            margin=max(margin_rate, 0.0),
+            margin_amount=margin_amount_param,
+            mult=max(multiplier or 1.0, 1e-12),
+            **percent_role_kwargs,
+            **mixed_amount_kwargs,
+        )
+    elif fixed_commission is not None and (
+        str(meta.get("commission_method") or "").lower() == "fixed_per_lot"
+        or commission_rate is None
+    ):
+        comminfo = ComminfoFuturesFixed(
+            commission=max(fixed_commission, 0.0),
+            margin=max(margin_rate, 0.0),
+            margin_amount=margin_amount_param,
+            mult=max(multiplier or 1.0, 1e-12),
+            **fixed_role_kwargs,
+        )
+    else:
+        comminfo = ComminfoFuturesPercent(
+            commission=commission_rate if commission_rate is not None else default_commission,
+            margin=max(margin_rate, 0.0),
+            margin_amount=margin_amount_param,
+            mult=max(multiplier or 1.0, 1e-12),
+            **percent_role_kwargs,
+        )
+    cerebro.broker.addcommissioninfo(comminfo, name=data_name)
 
 
 def _resolve_heartbeat_interval(config: dict) -> float:
@@ -307,6 +776,20 @@ def _resolve_asset_type(config: dict, exchange_type: str) -> str:
     ).strip().upper()
 
 
+def _resolve_strategy_identity(config: dict) -> str:
+    workspace_unit = dict(config.get("workspace_unit") or {})
+    gateway = dict(config.get("gateway") or {})
+    value = (
+        os.environ.get("BT_TRADING_INSTANCE_ID")
+        or workspace_unit.get("unit_id")
+        or gateway.get("strategy_id")
+        or workspace_unit.get("strategy_id")
+        or config.get("strategy_id")
+        or "default"
+    )
+    return str(value or "default").strip() or "default"
+
+
 def _merge_gateway_env_config(config: dict, provider: str, exchange_type: str, asset_type: str) -> dict:
     gateway = dict(config.get("gateway") or {})
     account_id = str(
@@ -328,6 +811,7 @@ def _merge_gateway_env_config(config: dict, provider: str, exchange_type: str, a
             "account_id": account_id,
             "exchange_type": exchange_type,
             "asset_type": asset_type,
+            "strategy_id": _resolve_strategy_identity(config),
             "gateway_startup_timeout_sec": _safe_float(
                 os.environ.get("BT_GATEWAY_STARTUP_TIMEOUT_SEC"),
                 default_startup_timeout,
@@ -361,6 +845,7 @@ def _build_ctp_store_config(config: dict, provider: str, asset_type: str) -> dic
             "exchange_type": "CTP",
             "asset_type": asset_type or "FUTURE",
             "account_id": str(ctp.get("account_id") or investor_id).strip(),
+            "strategy_id": _resolve_strategy_identity(config),
             "td_address": str(ctp.get("td_address") or front.get("td_address") or "").strip(),
             "md_address": str(ctp.get("md_address") or front.get("md_address") or "").strip(),
             "broker_id": str(ctp.get("broker_id") or os.environ.get("CTP_BROKER_ID") or "").strip(),
@@ -399,6 +884,7 @@ def _build_ib_store_config(config: dict, provider: str, asset_type: str) -> dict
         "config": {
             "exchange_type": "IB_WEB",
             "asset_type": asset_type or "STK",
+            "strategy_id": _resolve_strategy_identity(config),
             "account_id": str(
                 gateway.get("account_id")
                 or ib_web.get("account_id")
@@ -486,6 +972,7 @@ def _build_mt5_store_config(config: dict, provider: str, asset_type: str) -> dic
             "exchange_type": "MT5",
             "asset_type": asset_type or "OTC",
             "account_id": account_id,
+            "strategy_id": _resolve_strategy_identity(config),
             "login": login,
             "password": str(
                 os.environ.get("MT5_PASSWORD")
@@ -704,7 +1191,7 @@ def run():
             stdstats=_resolve_stdstats(config),
         )
         cerebro.broker.setcash(_safe_float(simulate_cfg.get("initial_cash"), 100000.0))
-        cerebro.broker.setcommission(commission=_safe_float(simulate_cfg.get("commission"), 0.0005))
+        _apply_contract_commission(cerebro, config, symbol)
         slippage = _safe_float(simulate_cfg.get("slippage"), 0.0)
         if slippage > 0:
             try:

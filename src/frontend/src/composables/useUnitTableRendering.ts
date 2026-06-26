@@ -58,6 +58,14 @@ export function formatNumber(
     : formatted
 }
 
+export function formatQuantity(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '-'
+  const number = Number(value)
+  if (!Number.isFinite(number) || number === 0) return '-'
+  if (Math.abs(number) < 0.0001) return number.toFixed(8).replace(/\.?0+$/, '')
+  return number.toFixed(4)
+}
+
 export function formatPrice(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return '-'
   const number = Number(value)

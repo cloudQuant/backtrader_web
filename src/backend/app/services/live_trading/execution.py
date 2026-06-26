@@ -57,6 +57,30 @@ def _close_subprocess_log_handles(proc: asyncio.subprocess.Process) -> None:
             pass
 
 
+def _merge_runtime_contract_metadata(
+    target: dict[str, Any],
+    source: dict[str, Any],
+) -> None:
+    source_params = source.get("params") if isinstance(source.get("params"), dict) else {}
+    contract_metadata = source_params.get("contract_metadata")
+    if not isinstance(contract_metadata, dict) or not contract_metadata:
+        return
+
+    target_params = dict(target.get("params") or {}) if isinstance(target.get("params"), dict) else {}
+    target_metadata = (
+        dict(target_params.get("contract_metadata") or {})
+        if isinstance(target_params.get("contract_metadata"), dict)
+        else {}
+    )
+    for key, value in contract_metadata.items():
+        if isinstance(value, dict):
+            target_metadata[str(key)] = dict(value)
+    if not target_metadata:
+        return
+    target_params["contract_metadata"] = target_metadata
+    target["params"] = target_params
+
+
 async def start_instance(
     instance_id: str,
     load_instances: _Cb,
@@ -131,9 +155,9 @@ async def start_instance(
             env=env,
             **sub_kwargs,
         )
-        setattr(proc, "_bt_stdout_handle", stdout_handle)
-        setattr(proc, "_bt_stderr_handle", stderr_handle)
-        setattr(proc, "_bt_stderr_path", str(stderr_path))
+        proc._bt_stdout_handle = stdout_handle
+        proc._bt_stderr_handle = stderr_handle
+        proc._bt_stderr_path = str(stderr_path)
     except (OSError, subprocess.SubprocessError):
         for handle in (stdout_handle, stderr_handle):
             if handle is not None:
@@ -146,10 +170,16 @@ async def start_instance(
     stopping_instances.discard(instance_id)
     processes[instance_id] = proc
 
+    refreshed_inst = inst
     now = instance_timestamp()
     async with _optional_lock(instance_lock):
         latest = load_instances()
-        inst = latest.get(instance_id, inst)
+        latest_inst = latest.get(instance_id)
+        if isinstance(latest_inst, dict):
+            _merge_runtime_contract_metadata(latest_inst, refreshed_inst)
+            inst = latest_inst
+        else:
+            inst = refreshed_inst
         inst["status"] = "running"
         inst["pid"] = proc.pid
         inst["error"] = None

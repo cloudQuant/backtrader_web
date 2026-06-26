@@ -19,6 +19,7 @@ from app.schemas.ai_trading import (
     TradeAction,
     TradingIntent,
 )
+from app.services.trading_asset_info_service import symbol_aliases
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ class TradingRiskGuard:
         warnings: list[str] = []
         blocked_reasons: list[str] = []
         requires_confirmation = False
+        is_execution_action = intent.action in (TradeAction.BUY, TradeAction.SELL)
 
         # === Hard Rules (cannot be bypassed) ===
 
@@ -97,17 +99,18 @@ class TradingRiskGuard:
             )
 
         # Rule 3: Symbol must be specified for execution actions
-        if intent.action in (TradeAction.BUY, TradeAction.SELL) and not intent.symbol:
+        if is_execution_action and not intent.symbol:
             blocked_reasons.append("交易品种未指定，无法执行")
 
         # Rule 4: Quantity must be specified
-        if intent.action in (TradeAction.BUY, TradeAction.SELL) and not intent.quantity:
+        if is_execution_action and not intent.quantity:
             blocked_reasons.append("交易数量未指定，无法执行")
 
         # Rule 5: Blocked symbols
-        if intent.symbol and intent.symbol.upper() in [
-            s.upper() for s in self.config.blocked_symbols
-        ]:
+        if intent.symbol and any(
+            self._symbols_match(intent.symbol, blocked_symbol)
+            for blocked_symbol in self.config.blocked_symbols
+        ):
             blocked_reasons.append(f"品种 {intent.symbol} 在禁止交易列表中")
 
         # Rule 6: Exchange whitelist
@@ -124,18 +127,45 @@ class TradingRiskGuard:
         if self._daily_trade_count >= self.config.max_daily_trades:
             blocked_reasons.append(f"已达到每日最大交易次数 ({self.config.max_daily_trades})")
 
+        # Estimate trade value and potential loss before amount/loss rules.
+        trade_value = self._estimate_trade_value(intent, account_balance)
+        max_loss_estimate = self._estimate_max_loss(intent, trade_value)
+
+        # Rule 8: Daily loss limit
+        if is_execution_action and self.config.max_daily_loss > 0:
+            if self._daily_loss >= self.config.max_daily_loss:
+                blocked_reasons.append(
+                    "已达到每日最大亏损限制 "
+                    f"({self._daily_loss:.0f}/{self.config.max_daily_loss:.0f})"
+                )
+            elif max_loss_estimate is not None:
+                projected_daily_loss = self._daily_loss + max_loss_estimate
+                if projected_daily_loss > self.config.max_daily_loss:
+                    blocked_reasons.append(
+                        f"预计最大亏损 ({max_loss_estimate:.0f}) 将使当日累计亏损达到 "
+                        f"{projected_daily_loss:.0f}，超过每日最大亏损限制 "
+                        f"({self.config.max_daily_loss:.0f})"
+                    )
+
         # === Soft Rules (warnings + confirmation) ===
 
-        # Estimate trade value
-        trade_value = self._estimate_trade_value(intent, account_balance)
+        if (
+            is_execution_action
+            and intent.quantity is not None
+            and account_balance > 0
+            and trade_value is None
+        ):
+            blocked_reasons.append(
+                "缺少价格或最新价，无法校验单笔金额和账户仓位比例，禁止自动执行"
+            )
 
-        # Rule 8: Single trade amount limit
+        # Rule 9: Single trade amount limit
         if trade_value and trade_value > self.config.max_single_trade_amount:
             blocked_reasons.append(
                 f"单笔交易金额 ({trade_value:.0f}) 超过限制 ({self.config.max_single_trade_amount:.0f})"
             )
 
-        # Rule 9: Confirmation threshold
+        # Rule 10: Confirmation threshold
         if trade_value and trade_value > self.config.require_confirmation_above:
             requires_confirmation = True
             warnings.append(
@@ -143,7 +173,7 @@ class TradingRiskGuard:
                 f"({self.config.require_confirmation_above:.0f})，需要确认"
             )
 
-        # Rule 10: Position ratio check
+        # Rule 11: Position ratio check
         if account_balance > 0 and trade_value:
             position_ratio = trade_value / account_balance
             if position_ratio > self.config.max_position_ratio:
@@ -153,14 +183,14 @@ class TradingRiskGuard:
                 )
                 requires_confirmation = True
 
-        # Rule 11: High risk level from AI
+        # Rule 12: High risk level from AI
         if intent.risk_level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
             warnings.append(f"AI 评估风险等级为 {intent.risk_level.value}")
             requires_confirmation = True
 
-        # Rule 12: Market order without stop loss
+        # Rule 13: Market order without stop loss
         if (
-            intent.action in (TradeAction.BUY, TradeAction.SELL)
+            is_execution_action
             and intent.order_type == OrderType.MARKET
             and intent.stop_loss is None
         ):
@@ -175,7 +205,7 @@ class TradingRiskGuard:
             warnings=warnings,
             blocked_reasons=blocked_reasons,
             requires_confirmation=requires_confirmation,
-            max_loss_estimate=self._estimate_max_loss(intent, trade_value),
+            max_loss_estimate=max_loss_estimate,
             position_impact=self._describe_position_impact(intent, current_positions),
         )
 
@@ -198,18 +228,29 @@ class TradingRiskGuard:
         """Estimate the monetary value of a trade."""
         if intent.quantity is None:
             return None
-        if intent.price:
-            return intent.quantity * intent.price
-        # For market orders without price, we can't estimate precisely
+        multiplier = self._contract_multiplier(intent)
+        if self._is_inverse_contract(intent):
+            return abs(intent.quantity) * multiplier
+        reference_price = self._reference_price(intent)
+        if reference_price and reference_price > 0:
+            return abs(intent.quantity) * reference_price * multiplier
         return None
 
     def _estimate_max_loss(self, intent: TradingIntent, trade_value: float | None) -> float | None:
         """Estimate maximum potential loss."""
         if trade_value is None:
             return None
-        if intent.stop_loss and intent.price:
-            loss_per_unit = abs(intent.price - intent.stop_loss)
-            return loss_per_unit * (intent.quantity or 1)
+        reference_price = self._reference_price(intent)
+        if intent.stop_loss and reference_price:
+            multiplier = self._contract_multiplier(intent)
+            if self._is_inverse_contract(intent):
+                return (
+                    abs(intent.quantity or 1)
+                    * multiplier
+                    * abs((intent.stop_loss / reference_price) - 1.0)
+                )
+            loss_per_unit = abs(reference_price - intent.stop_loss)
+            return loss_per_unit * abs(intent.quantity or 1) * multiplier
         # Without stop loss, estimate 5% max loss
         return trade_value * 0.05
 
@@ -238,8 +279,11 @@ class TradingRiskGuard:
             return None
 
         for pos in current_positions:
-            if pos.get("symbol", "").upper() == intent.symbol.upper():
-                current_size = pos.get("size", 0)
+            symbol = str(pos.get("symbol") or pos.get("data_name") or "").strip()
+            if self._symbols_match(symbol, intent.symbol):
+                current_size = self._coerce_float(pos.get("size"), 0.0)
+                if abs(current_size) <= 1e-12:
+                    continue
                 if intent.action == TradeAction.BUY:
                     return f"当前持仓 {current_size}，买入后将增加 {intent.quantity or 0}"
                 elif intent.action == TradeAction.SELL:
@@ -250,3 +294,148 @@ class TradingRiskGuard:
         if intent.action in (TradeAction.BUY, TradeAction.SELL):
             return f"新建 {intent.symbol} 仓位"
         return None
+
+    @staticmethod
+    def _symbols_match(left: Any, right: Any) -> bool:
+        left_aliases = {alias.upper() for alias in symbol_aliases(left)}
+        right_aliases = {alias.upper() for alias in symbol_aliases(right)}
+        return bool(left_aliases and right_aliases and left_aliases & right_aliases)
+
+    @staticmethod
+    def _coerce_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @classmethod
+    def _reference_price(cls, intent: TradingIntent) -> float | None:
+        price = cls._coerce_optional_float(intent.price)
+        if price and price > 0:
+            return price
+        params = intent.additional_params if isinstance(intent.additional_params, dict) else {}
+        for key in (
+            "reference_price",
+            "current_price",
+            "latest_price",
+            "last_price",
+            "mark_price",
+            "market_price",
+            "estimated_price",
+        ):
+            price = cls._coerce_optional_float(params.get(key))
+            if price and price > 0:
+                return price
+        return None
+
+    @classmethod
+    def _contract_multiplier(cls, intent: TradingIntent) -> float:
+        params = intent.additional_params if isinstance(intent.additional_params, dict) else {}
+        keys = (
+            (
+                "contract_value",
+                "contractValue",
+                "contract_value_amount",
+                "contractValueAmount",
+                "contract_notional_value",
+                "okx_contract_value",
+                "ctVal",
+                "multiplier",
+                "mult",
+                "contract_multiplier",
+                "contract_size",
+                "trade_contract_size",
+                "ctMult",
+                "VolumeMultiple",
+                "CONTRACT_MULTIPLIER",
+            )
+            if cls._is_inverse_contract(intent)
+            else (
+                "multiplier",
+                "mult",
+                "contract_multiplier",
+                "contract_size",
+                "trade_contract_size",
+                "contract_notional_value",
+                "okx_contract_value",
+                "ctVal",
+                "ctMult",
+                "VolumeMultiple",
+                "CONTRACT_MULTIPLIER",
+            )
+        )
+        for key in keys:
+            multiplier = cls._coerce_optional_float(params.get(key))
+            if multiplier and multiplier > 0:
+                return multiplier
+        return 1.0
+
+    @classmethod
+    def _is_inverse_contract(cls, intent: TradingIntent) -> bool:
+        params = intent.additional_params if isinstance(intent.additional_params, dict) else {}
+        explicit = cls._explicit_inverse_flag(params)
+        if explicit is not None:
+            return explicit
+        contract_type = str(
+            params.get("contract_type") or params.get("ctType") or ""
+        ).strip().lower()
+        if "inverse" in contract_type:
+            return True
+        if "linear" in contract_type:
+            return False
+
+        contract_ccy = cls._currency_code(
+            params.get("contract_value_currency")
+            or params.get("contract_value_ccy")
+            or params.get("ctValCcy")
+            or params.get("contractValueCurrency")
+        )
+        if not contract_ccy:
+            return False
+        base_ccy = cls._currency_code(params.get("base_asset") or params.get("baseCcy"))
+        quote_ccy = cls._currency_code(params.get("quote_asset") or params.get("quoteCcy"))
+        settle_ccy = cls._currency_code(
+            params.get("settle_currency")
+            or params.get("settleCcy")
+            or params.get("fee_currency")
+            or params.get("feeCcy")
+        )
+        if quote_ccy and contract_ccy == quote_ccy and contract_ccy != base_ccy:
+            return True
+        return bool(base_ccy and settle_ccy == base_ccy and contract_ccy != base_ccy)
+
+    @staticmethod
+    def _explicit_inverse_flag(params: dict[str, Any]) -> bool | None:
+        for key in (
+            "inverse",
+            "is_inverse",
+            "isInverse",
+            "inverse_contract",
+            "inverseContract",
+        ):
+            value = params.get(key)
+            if value in (None, ""):
+                continue
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)):
+                return value != 0
+            text = str(value).strip().lower()
+            if text in {"1", "true", "yes", "y", "inverse", "coin_margined"}:
+                return True
+            if text in {"0", "false", "no", "n", "linear"}:
+                return False
+        return None
+
+    @staticmethod
+    def _currency_code(value: Any) -> str:
+        return "".join(ch for ch in str(value or "").strip().upper() if ch.isalnum())
+
+    @staticmethod
+    def _coerce_optional_float(value: Any) -> float | None:
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None

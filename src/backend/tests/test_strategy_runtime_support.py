@@ -381,3 +381,16 @@ class TestWorkspaceUnitRuntime:
         assert config["backtest"]["initial_cash"] == 250000
         assert config["workspace_unit"]["template_dir"] == str(template_dir)
         assert config["workspace_unit"]["strategy_module"] == "strategy_abberation.py"
+        run_text = (runtime_dir / "run.py").read_text(encoding="utf-8")
+        assert "ComminfoFuturesFixed" in run_text
+        assert "ComminfoFuturesInverse" in run_text
+        assert "ComminfoFuturesMixed" in run_text
+        assert "_apply_commission_info(cerebro, config, name)" in run_text
+        assert "contract_metadata" in run_text
+        assert "margin_amount=margin_amount_param" in run_text
+        assert "meta.get('max_leverage')" in run_text
+        assert "meta.get('trade_contract_size')" in run_text
+        assert "meta.get('ctVal')" in run_text
+        assert "_is_inverse_contract(meta)" in run_text
+        assert "close_yesterday_commission=close_yesterday_rate" in run_text
+        assert "close_yesterday_commission_amount=close_yesterday_amount" in run_text

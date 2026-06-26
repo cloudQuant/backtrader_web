@@ -33,11 +33,14 @@
         align="center"
       />
       <el-table-column
-        prop="size"
         :label="t('workspaceDialogs.tpdColSize')"
         width="90"
         align="right"
-      />
+      >
+        <template #default="{ row }">
+          {{ formatQuantity(row.size) }}
+        </template>
+      </el-table-column>
       <el-table-column
         :label="t('workspaceDialogs.tpdColOpenPrice')"
         width="110"
@@ -62,7 +65,7 @@
         align="right"
       >
         <template #default="{ row }">
-          {{ formatNumber(row.market_value, 2) }}
+          {{ formatAmount(row.market_value) }}
         </template>
       </el-table-column>
       <el-table-column
@@ -71,8 +74,8 @@
         align="right"
       >
         <template #default="{ row }">
-          <span :class="numberClass(row.pnl)">
-            {{ formatSignedNumber(row.pnl, 2) }}
+          <span :class="numberClass(positionPnl(row))">
+            {{ formatSignedAmount(positionPnl(row)) }}
           </span>
         </template>
       </el-table-column>
@@ -84,6 +87,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { StrategyUnit } from '@/types/workspace'
+import { formatQuantity } from '@/composables/useUnitTableRendering'
 
 const { t } = useI18n()
 
@@ -96,17 +100,38 @@ defineEmits<{
   'update:modelValue': [value: boolean]
 }>()
 
-const positions = computed(() => props.unit?.trading_snapshot?.positions ?? [])
+const positions = computed(() => (
+  (props.unit?.trading_snapshot?.positions ?? []).filter(position => Number(position.size || 0) !== 0)
+))
 
 function formatNumber(value: number | null | undefined, digits = 2) {
   if (value == null || Number.isNaN(value)) return '-'
   return Number(value).toFixed(digits)
 }
 
-function formatSignedNumber(value: number | null | undefined, digits = 2) {
+function formatAmount(value: number | null | undefined) {
   if (value == null || Number.isNaN(value)) return '-'
   const number = Number(value)
-  return `${number >= 0 ? '+' : ''}${number.toFixed(digits)}`
+  if (!Number.isFinite(number)) return '-'
+  if (number !== 0 && Math.abs(number) < 1) return number.toFixed(6).replace(/\.?0+$/, '')
+  return number.toFixed(2)
+}
+
+function formatSignedAmount(value: number | null | undefined) {
+  if (value == null || Number.isNaN(value)) return '-'
+  const number = Number(value)
+  if (!Number.isFinite(number)) return '-'
+  return `${number >= 0 ? '+' : ''}${formatAmount(number)}`
+}
+
+function positionPnl(row: Record<string, unknown>) {
+  for (const key of ['pnlcomm', 'pnl', 'position_pnl', 'gross_pnl']) {
+    const value = row[key]
+    if (value == null || value === '') continue
+    const number = Number(value)
+    if (Number.isFinite(number)) return number
+  }
+  return null
 }
 
 function numberClass(value: number | null | undefined) {

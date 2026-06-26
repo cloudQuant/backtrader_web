@@ -1849,6 +1849,124 @@ class TestManualGatewayService:
             "trade_connection": "connected",
         }
 
+    def test_query_gateway_account_merges_adapter_balance(self):
+        health = Mock()
+        health.snapshot.return_value = {
+            "exchange": "MT5",
+            "account_id": "demo",
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "connected",
+        }
+        adapter = Mock()
+        adapter.get_balance.return_value = {
+            "balance": 100000.0,
+            "equity": 100250.0,
+            "margin": 1200.0,
+            "margin_free": 99050.0,
+            "currency": "USD",
+        }
+        runtime = SimpleNamespace(health=health, adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_account(
+            {"gw1": {"runtime": runtime, "exchange_type": "MT5", "account_id": "demo"}},
+            "gw1",
+        )
+
+        assert result is not None
+        assert result["gateway_key"] == "gw1"
+        assert result["value"] == 100250.0
+        assert result["cash"] == 99050.0
+        assert result["margin"] == 1200.0
+        assert result["account_source"] == "adapter.get_balance"
+
+    def test_query_gateway_account_derives_cash_from_equity_minus_margin(self):
+        health = Mock()
+        health.snapshot.return_value = {
+            "exchange": "MT5",
+            "account_id": "demo",
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "connected",
+        }
+        adapter = Mock()
+        adapter.get_balance.return_value = {
+            "balance": 100000.0,
+            "equity": 100250.0,
+            "margin": 1200.0,
+            "currency": "USD",
+        }
+        runtime = SimpleNamespace(health=health, adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_account(
+            {"gw1": {"runtime": runtime, "exchange_type": "MT5", "account_id": "demo"}},
+            "gw1",
+        )
+
+        assert result is not None
+        assert result["value"] == 100250.0
+        assert result["cash"] == 99050.0
+        assert result["margin"] == 1200.0
+        assert result["balance"] == 100000.0
+
+    def test_query_gateway_account_normalizes_crypto_balance_aliases(self):
+        health = Mock()
+        health.snapshot.return_value = {
+            "exchange": "BYBIT",
+            "account_id": "unified",
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "connected",
+        }
+        adapter = Mock()
+        adapter.get_balance.return_value = {
+            "account_type": "UNIFIED",
+            "total_equity": "10,250.5",
+            "total_wallet_balance": "10,000.0",
+            "total_available_balance": "9,125.25",
+            "total_initial_margin": "875.25",
+        }
+        runtime = SimpleNamespace(health=health, adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_account(
+            {"gw1": {"runtime": runtime, "exchange_type": "BYBIT", "account_id": "unified"}},
+            "gw1",
+        )
+
+        assert result is not None
+        assert result["value"] == 10250.5
+        assert result["equity"] == 10250.5
+        assert result["cash"] == 9125.25
+        assert result["margin"] == 875.25
+        assert result["account_source"] == "adapter.get_balance"
+
+    def test_query_gateway_account_preserves_nested_zero_available_cash(self):
+        health = Mock()
+        health.snapshot.return_value = {
+            "exchange": "IB_WEB",
+            "account_id": "acc-zero",
+            "state": "running",
+            "market_connection": "connected",
+            "trade_connection": "connected",
+        }
+        adapter = Mock()
+        adapter.get_balance.return_value = {
+            "NetLiquidation": {"amount": "250000.0"},
+            "AvailableFunds": {"amount": 0},
+            "Balance": 250000.0,
+        }
+        runtime = SimpleNamespace(health=health, adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_account(
+            {"gw1": {"runtime": runtime, "exchange_type": "IB_WEB", "account_id": "acc-zero"}},
+            "gw1",
+        )
+
+        assert result is not None
+        assert result["value"] == 250000.0
+        assert result["cash"] == 0.0
+        assert result["account_source"] == "adapter.get_balance"
+
     def test_query_gateway_positions_supports_callable_and_internal_dict(self):
         runtime_a = Mock()
         runtime_a.positions = Mock(return_value=[{"symbol": "IF00"}])
@@ -1859,6 +1977,7 @@ class TestManualGatewayService:
         assert result_a == [{"symbol": "IF00"}]
 
         runtime_b = Mock()
+        runtime_b.adapter = None
         runtime_b.positions = None
         runtime_b._positions = {"a": {"symbol": "rb"}}
         result_b = manual_gateway_service.query_gateway_positions(
@@ -1866,6 +1985,28 @@ class TestManualGatewayService:
             "gw2",
         )
         assert result_b == [{"symbol": "rb"}]
+
+    def test_query_gateway_positions_reads_runtime_adapter_positions(self):
+        adapter = Mock()
+        adapter.get_positions = Mock(return_value=[{"symbol": "XAUUSD", "volume": 0.1}])
+        runtime = SimpleNamespace(adapter=adapter)
+
+        result = manual_gateway_service.query_gateway_positions(
+            {"gw1": {"runtime": runtime}},
+            "gw1",
+            strict=True,
+        )
+
+        assert result == [{"symbol": "XAUUSD", "volume": 0.1}]
+        adapter.get_positions.assert_called_once_with()
+
+    def test_query_gateway_positions_strict_raises_when_runtime_missing(self):
+        with pytest.raises(RuntimeError, match="has no runtime"):
+            manual_gateway_service.query_gateway_positions(
+                {"gw1": {"runtime": None}},
+                "gw1",
+                strict=True,
+            )
 
     def test_list_connected_gateways_filters_manual_only(self):
         result = manual_gateway_service.list_connected_gateways(
@@ -2269,7 +2410,7 @@ class TestLiveExecutionService:
         proc.returncode = 1
         proc.stderr = None
         proc.wait = AsyncMock()
-        setattr(proc, "_bt_stderr_path", str(stderr_path))
+        proc._bt_stderr_path = str(stderr_path)
         saved = {}
         released = []
 
@@ -2650,6 +2791,112 @@ class TestGatewayRuntimeService:
         assert env["BT_STORE_LOCAL_TIMEZONE"] == "Asia/Shanghai"
         assert env["OPENBLAS_NUM_THREADS"] == "1"
         assert env["OMP_NUM_THREADS"] == "1"
+
+    def test_build_subprocess_env_with_gateway_requires_symbol_asset_spec(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "config.yaml").write_text(
+            "data:\n  symbol: UNKNOWN999\n  asset_type: future\n",
+            encoding="utf-8",
+        )
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+
+        with pytest.raises(RuntimeError, match="交易资产规格"):
+            gateway_runtime_service.build_subprocess_env(
+                instance_id="inst1",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=(
+                    lambda instance_id, instance, strategy_dir: {"config": config}
+                ),
+                os_environ={},
+                bt_api_py_dir=tmp_path / "missing",
+            )
+
+    def test_build_subprocess_env_with_gateway_rejects_incomplete_contract_spec(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "config.yaml").write_text(
+            "data:\n"
+            "  symbol: BTC-USDT-SWAP\n"
+            "  asset_type: swap\n"
+            "contract_metadata:\n"
+            "  BTC-USDT-SWAP:\n"
+            "    asset_type: SWAP\n"
+            "    source: local_fixture\n",
+            encoding="utf-8",
+        )
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="OKX",
+            asset_type="SWAP",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+
+        with pytest.raises(RuntimeError, match="交易资产规格不完整"):
+            gateway_runtime_service.build_subprocess_env(
+                instance_id="inst1",
+                instance={"params": {"gateway": {"enabled": True}}},
+                strategy_dir=strategy_dir,
+                acquire_gateway_for_instance=(
+                    lambda instance_id, instance, strategy_dir: {"config": config}
+                ),
+                os_environ={},
+                bt_api_py_dir=tmp_path / "missing",
+            )
+
+    def test_build_subprocess_env_with_gateway_accepts_local_contract_spec(self, tmp_path):
+        strategy_dir = tmp_path / "strategy"
+        strategy_dir.mkdir()
+        (strategy_dir / "config.yaml").write_text(
+            "data:\n"
+            "  symbol: IF2609\n"
+            "  asset_type: future\n"
+            "contract_metadata:\n"
+            "  IF2609:\n"
+            "    multiplier: 300\n"
+            "    margin_rate: 0.12\n"
+            "    commission_rate: 0.000023\n",
+            encoding="utf-8",
+        )
+        config = Mock(
+            command_endpoint="ipc://command",
+            event_endpoint="ipc://event",
+            market_endpoint="ipc://market",
+            account_id="acc-1",
+            exchange_type="CTP",
+            asset_type="FUTURE",
+            startup_timeout_sec=5,
+            command_timeout_sec=10,
+        )
+
+        env = gateway_runtime_service.build_subprocess_env(
+            instance_id="inst1",
+            instance={"params": {"gateway": {"enabled": True}}},
+            strategy_dir=strategy_dir,
+            acquire_gateway_for_instance=(
+                lambda instance_id, instance, strategy_dir: {"config": config}
+            ),
+            os_environ={},
+            bt_api_py_dir=tmp_path / "missing",
+        )
+
+        assert env["BT_GATEWAY_EXCHANGE_TYPE"] == "CTP"
+        assert env["BT_GATEWAY_ASSET_TYPE"] == "FUTURE"
+        assert env["BT_GATEWAY_COMMAND_ENDPOINT"] == "ipc://command"
 
     def test_build_subprocess_env_captures_gateway_wait_native_stderr(self, tmp_path):
         strategy_dir = tmp_path / "strategy"

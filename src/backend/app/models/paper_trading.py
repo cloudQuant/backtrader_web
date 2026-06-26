@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import relationship
 
 from app.db.database import Base
@@ -98,6 +98,11 @@ class Position(Base):
         size: Position size (positive for long, negative for short).
         avg_price: Average cost price.
         market_value: Market value.
+        margin_value: Reserved margin for margin-based instruments.
+        multiplier: Contract multiplier.
+        margin_rate: Margin rate.
+        commission_rate: Commission rate used for this position.
+        commission_amount: Fixed commission per lot/contract.
         unrealized_pnl: Unrealized profit/loss.
         unrealized_pnl_pct: Unrealized profit/loss percentage.
         entry_price: Entry price.
@@ -113,10 +118,15 @@ class Position(Base):
     )
     symbol = Column(String(20), nullable=False, index=True)
     size = Column(
-        Integer, default=0, nullable=False
+        Float, default=0.0, nullable=False
     )  # Position size (positive for long, negative for short)
     avg_price = Column(Float, default=0.0, nullable=False)  # Average cost
     market_value = Column(Float, default=0.0, nullable=False)  # Market value
+    margin_value = Column(Float, default=0.0, nullable=False)  # Reserved margin
+    multiplier = Column(Float, default=1.0, nullable=False)  # Contract multiplier
+    margin_rate = Column(Float, default=1.0, nullable=False)  # Margin rate
+    commission_rate = Column(Float, default=0.0, nullable=False)  # Commission rate
+    commission_amount = Column(Float, default=0.0, nullable=False)  # Fixed commission per lot
     unrealized_pnl = Column(Float, default=0.0, nullable=False)  # Unrealized profit/loss
     unrealized_pnl_pct = Column(
         Float, default=0.0, nullable=False
@@ -166,11 +176,11 @@ class Order(Base):
     symbol = Column(String(20), nullable=False, index=True)
     order_type = Column(String(20), nullable=False)  # MARKET, LIMIT, STOP, STOP_LIMIT
     side = Column(String(10), nullable=False)  # BUY, SELL
-    size = Column(Integer, nullable=False)  # Order size
+    size = Column(Float, nullable=False)  # Order size
     price = Column(Float, nullable=True)  # Limit order price
     stop_price = Column(Float, nullable=True)  # Stop loss price
     limit_price = Column(Float, nullable=True)  # Take profit price
-    filled_size = Column(Integer, default=0, nullable=False)  # Filled size
+    filled_size = Column(Float, default=0.0, nullable=False)  # Filled size
     avg_fill_price = Column(Float, default=0.0, nullable=False)  # Average fill price
     status = Column(String(20), default=OrderStatus.PENDING.value, nullable=False, index=True)
     rejected_reason = Column(String(255), nullable=True)  # Rejection reason
@@ -215,7 +225,7 @@ class PaperTrade(Base):
     order_id = Column(String(36), ForeignKey("paper_trading_orders.id"), nullable=True, index=True)
     symbol = Column(String(20), nullable=False, index=True)
     side = Column(String(10), nullable=False)  # BUY, SELL
-    size = Column(Integer, nullable=False)
+    size = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
     commission = Column(Float, default=0.0, nullable=False)
     slippage = Column(Float, default=0.0, nullable=False)

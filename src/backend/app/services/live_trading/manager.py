@@ -462,13 +462,233 @@ class LiveTradingManager:
         with self._gateway_lock:
             return manual_gateway_service.query_gateway_account(self._gateways, gateway_key)
 
-    def query_gateway_positions(self, gateway_key: str) -> list[dict[str, str | float]]:
+    def query_gateway_positions(
+        self,
+        gateway_key: str,
+        *,
+        strict: bool = False,
+    ) -> list[dict[str, Any]]:
         with self._gateway_lock:
-            return manual_gateway_service.query_gateway_positions(self._gateways, gateway_key)
+            return manual_gateway_service.query_gateway_positions(
+                self._gateways,
+                gateway_key,
+                strict=strict,
+            )
+
+    def query_gateway_trades(
+        self,
+        gateway_key: str,
+        *,
+        symbol: str | None = None,
+        limit: int = 100,
+        strict: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self._gateway_lock:
+            return manual_gateway_service.query_gateway_trades(
+                self._gateways,
+                gateway_key,
+                symbol=symbol,
+                limit=limit,
+                strict=strict,
+            )
 
     def query_gateway_orders(self, gateway_key: str) -> list[dict[str, Any]]:
         with self._gateway_lock:
             return manual_gateway_service.query_gateway_orders(self._gateways, gateway_key)
+
+    @staticmethod
+    def _instance_order_owner_ids(instance_id: str, instance: dict[str, Any]) -> set[str]:
+        params = instance.get("params") if isinstance(instance.get("params"), dict) else {}
+        workspace_unit = (
+            params.get("workspace_unit") if isinstance(params.get("workspace_unit"), dict) else {}
+        )
+        candidates = {
+            str(instance_id or "").strip(),
+            str(instance.get("id") or "").strip(),
+            str(instance.get("trading_instance_id") or "").strip(),
+            str(workspace_unit.get("unit_id") or "").strip(),
+        }
+        return {item for item in candidates if item}
+
+    def _cancel_open_orders_for_instance(
+        self,
+        instance_id: str,
+        instance: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        with self._gateway_lock:
+            gateway_key = self._gateway_key_for_instance_unlocked(str(instance_id))
+            if not gateway_key:
+                return None
+            state = self._gateways.get(gateway_key)
+            if not isinstance(state, dict):
+                return None
+            active_instances = {
+                str(item) for item in (state.get("instances", set()) or set()) if item is not None
+            }
+            ref_count = max(int(state.get("ref_count", 0) or 0), len(active_instances))
+            cancel_unowned = ref_count <= 1 and (
+                not active_instances or active_instances == {str(instance_id)}
+            )
+            return manual_gateway_service.cancel_gateway_open_orders(
+                self._gateways,
+                gateway_key,
+                owner_ids=self._instance_order_owner_ids(instance_id, instance),
+                cancel_unowned=cancel_unowned,
+            )
+
+    @staticmethod
+    def _persist_instance_stop_metadata(instance_id: str, metadata: dict[str, Any]) -> None:
+        if not metadata:
+            return
+        with _instance_store_lock():
+            instances = _load_instances()
+            inst = instances.get(instance_id)
+            if not isinstance(inst, dict):
+                return
+            inst.update(metadata)
+            instances[instance_id] = inst
+            _save_instances(instances)
+
+    def _raise_on_failed_open_order_cancel(
+        self,
+        instance_id: str,
+        open_order_cancel: dict[str, Any] | None,
+    ) -> None:
+        if not isinstance(open_order_cancel, dict):
+            return
+        if str(open_order_cancel.get("status") or "").lower() != "error":
+            return
+        self._persist_instance_stop_metadata(
+            instance_id,
+            {"open_order_cancel": open_order_cancel},
+        )
+        message = str(open_order_cancel.get("message") or "failed to cancel open orders")
+        exc = RuntimeError(f"停止策略前撤销交易所挂单失败：{message}")
+        exc.open_order_cancel = open_order_cancel
+        raise exc
+
+    def _gateway_key_for_instance_unlocked(self, instance_id: str) -> str:
+        key = str(self._instance_gateways.get(instance_id) or "").strip()
+        if key:
+            return key
+        for gateway_key, state in self._gateways.items():
+            instances = state.get("instances", set()) or set()
+            if instance_id in instances or str(instance_id) in {str(item) for item in instances}:
+                return str(gateway_key)
+        return ""
+
+    def has_instance_gateway(self, instance_id: str) -> bool:
+        with self._gateway_lock:
+            return bool(self._gateway_key_for_instance_unlocked(str(instance_id)))
+
+    def query_instance_gateway_positions(self, instance_id: str) -> list[dict[str, Any]]:
+        with self._gateway_lock:
+            gateway_key = self._gateway_key_for_instance_unlocked(str(instance_id))
+            if not gateway_key:
+                return []
+            return manual_gateway_service.query_gateway_positions(
+                self._gateways,
+                gateway_key,
+                strict=True,
+            )
+
+    def query_instance_gateway_trades(
+        self,
+        instance_id: str,
+        *,
+        symbol: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        with self._gateway_lock:
+            gateway_key = self._gateway_key_for_instance_unlocked(str(instance_id))
+            if not gateway_key:
+                return []
+            return manual_gateway_service.query_gateway_trades(
+                self._gateways,
+                gateway_key,
+                symbol=symbol,
+                limit=limit,
+                strict=True,
+            )
+
+    def query_instance_gateway_account(self, instance_id: str) -> dict[str, Any] | None:
+        with self._gateway_lock:
+            gateway_key = self._gateway_key_for_instance_unlocked(str(instance_id))
+            if not gateway_key:
+                return None
+            return manual_gateway_service.query_gateway_account(
+                self._gateways,
+                gateway_key,
+                strict=True,
+            )
+
+    def query_instance_asset_specs(
+        self,
+        instance_id: str,
+        symbols: list[str],
+    ) -> dict[str, dict[str, Any]]:
+        requested_symbols = [str(symbol or "").strip() for symbol in symbols]
+        requested_symbols = [symbol for symbol in requested_symbols if symbol]
+        if not requested_symbols:
+            return {}
+
+        with self._gateway_lock:
+            gateway_key = self._gateway_key_for_instance_unlocked(str(instance_id))
+            gateway = self._gateways.get(gateway_key) if gateway_key else None
+
+        try:
+            from app.services.trading_asset_info_service import (
+                query_gateway_asset_spec,
+                query_gateway_last_price,
+                resolve_asset_specs,
+            )
+        except Exception:
+            return {}
+
+        try:
+            instances = _load_instances()
+            instance = dict(instances.get(str(instance_id)) or {})
+        except Exception:
+            instance = {}
+
+        strategy_dir: Path | None = None
+        runtime_dir = str(instance.get("runtime_dir") or "").strip()
+        if runtime_dir:
+            strategy_dir = Path(runtime_dir).expanduser()
+        else:
+            strategy_id = str(instance.get("strategy_id") or "").strip()
+            if strategy_id:
+                try:
+                    strategy_dir = self._resolve_strategy_dir(strategy_id)
+                except Exception:
+                    strategy_dir = None
+
+        specs: dict[str, dict[str, Any]] = {}
+        if strategy_dir is not None:
+            try:
+                specs = resolve_asset_specs(
+                    instance,
+                    strategy_dir,
+                    gateway,
+                    symbols=requested_symbols,
+                )
+            except Exception:
+                specs = {}
+
+        if specs or not gateway:
+            return specs
+
+        for symbol in requested_symbols:
+            spec = query_gateway_asset_spec(gateway, symbol)
+            last_price = query_gateway_last_price(gateway, symbol)
+            if last_price and last_price > 0:
+                spec = dict(spec or {})
+                spec["current_price"] = last_price
+                spec["latest_price"] = last_price
+                spec["last_price"] = last_price
+            if spec:
+                specs[str(symbol)] = spec
+        return specs
 
     def list_connected_gateways(self) -> list[GatewayData]:
         with self._gateway_lock:
@@ -637,20 +857,48 @@ class LiveTradingManager:
 
     async def stop_instance(self, instance_id: str) -> StopResult:
         async with self._instance_op_lock:
+            instances = _load_instances()
+            inst = instances.get(instance_id, {})
+            open_order_cancel = (
+                self._cancel_open_orders_for_instance(instance_id, inst)
+                if isinstance(inst, dict)
+                else None
+            )
+            self._raise_on_failed_open_order_cancel(instance_id, open_order_cancel)
             return cast(
                 StopResult,
-                await live_execution_service.stop_instance(
-                    instance_id=instance_id,
-                    load_instances=_load_instances,
-                    save_instances=_save_instances,
-                    is_pid_alive=_is_pid_alive,
-                    kill_pid=self._kill_pid,
-                    release_gateway_for_instance=self._release_gateway_for_instance,
-                    processes=self._processes,
-                    stopping_instances=self._stopping_instances,
-                    instance_lock=_AsyncInstanceStoreLock(),
+                self._attach_stop_metadata(
+                    instance_id,
+                    await live_execution_service.stop_instance(
+                        instance_id=instance_id,
+                        load_instances=_load_instances,
+                        save_instances=_save_instances,
+                        is_pid_alive=_is_pid_alive,
+                        kill_pid=self._kill_pid,
+                        release_gateway_for_instance=self._release_gateway_for_instance,
+                        processes=self._processes,
+                        stopping_instances=self._stopping_instances,
+                        instance_lock=_AsyncInstanceStoreLock(),
+                    ),
+                    open_order_cancel,
                 ),
             )
+
+    def _attach_stop_metadata(
+        self,
+        instance_id: str,
+        result: dict[str, Any],
+        open_order_cancel: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if open_order_cancel is None:
+            return result
+        result = dict(result)
+        result["open_order_cancel"] = open_order_cancel
+        self._persist_instance_stop_metadata(
+            instance_id,
+            {"open_order_cancel": open_order_cancel},
+        )
+        return result
 
     async def start_all(self, user_id: str | None = None) -> dict[str, StartResult]:
         return await live_execution_service.start_all(

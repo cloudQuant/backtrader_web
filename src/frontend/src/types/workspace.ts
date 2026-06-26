@@ -92,7 +92,21 @@ export interface TradingPosition {
   price: number | null
   current_price: number | null
   market_value: number | null
+  margin_value?: number | null
+  multiplier?: number | null
+  margin_rate?: number | null
+  commission?: number | null
+  gross_pnl?: number | null
   pnl: number | null
+  pnlcomm?: number | null
+  position_pnl?: number | null
+  updated_at?: string | null
+  data_time?: string | null
+  source?: string | null
+  position_source?: string | null
+  asset_spec_source?: string | null
+  valuation_status?: string | null
+  valuation_warnings?: string[]
 }
 
 export interface TradingTrade {
@@ -133,6 +147,11 @@ export interface TradingSnapshot {
   trading_day: string | null
   updated_at: string | null
   detail_route: string | null
+  position_source?: string | null
+  asset_spec_source?: string | null
+  valuation_status?: string | null
+  valuation_warnings?: string[]
+  open_order_cancel?: Record<string, unknown> | null
   positions: TradingPosition[]
   trades: TradingTrade[]
 }
@@ -170,8 +189,18 @@ export interface TradingPositionManagerItem {
   latest_price: number | null
   position_pnl: number
   market_value: number
+  margin_value?: number | null
+  multiplier?: number | null
+  margin_rate?: number | null
+  commission?: number | null
+  gross_pnl?: number | null
   updated_at?: string | null
   data_time?: string | null
+  data_name?: string | null
+  position_source?: string | null
+  asset_spec_source?: string | null
+  valuation_status?: string | null
+  valuation_warnings?: string[]
 }
 
 export interface TradingPositionManagerResponse {

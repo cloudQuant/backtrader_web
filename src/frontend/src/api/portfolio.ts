@@ -8,6 +8,10 @@ export interface StrategySummary {
   strategy_id: string
   strategy_name: string
   status: string
+  position_source?: string | null
+  asset_spec_source?: string | null
+  valuation_status?: string | null
+  valuation_warnings?: string[]
   total_assets: number
   initial_capital: number
   pnl: number
@@ -40,12 +44,21 @@ export interface PositionItem {
   market_value: number
   signed_market_value?: number
   position_pnl?: number
+  gross_pnl?: number
+  commission?: number
+  multiplier?: number
+  margin_rate?: number
+  margin_value?: number
   direction: string
   long_position?: number
   short_position?: number
   trading_mode?: string
   updated_at?: string | null
   data_time?: string | null
+  position_source?: string | null
+  asset_spec_source?: string | null
+  valuation_status?: string | null
+  valuation_warnings?: string[]
 }
 
 export interface PositionSummary {
@@ -83,6 +96,7 @@ export interface EquityStrategy {
   strategy_name: string
   instance_id: string
   values: number[]
+  value_source?: string
 }
 
 export interface PortfolioEquity {
@@ -98,6 +112,7 @@ export interface AllocationItem {
   instance_id: string
   value: number
   weight: number
+  value_source?: string
 }
 
 export const portfolioApi = {
@@ -105,7 +120,7 @@ export const portfolioApi = {
     return request.get('/portfolio/overview')
   },
 
-  getPositions(): Promise<{ total: number; positions: PositionItem[]; summary?: PositionSummary }> {
+  getPositions(): Promise<{ total: number; positions: PositionItem[]; summary?: PositionSummary; warnings?: string[] }> {
     return request.get('/portfolio/positions')
   },
 

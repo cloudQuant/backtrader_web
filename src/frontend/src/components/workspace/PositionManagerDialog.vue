@@ -114,7 +114,7 @@
           align="right"
         >
           <template #default="{ row }">
-            {{ formatNumber(row.long_position, 2) }}
+            {{ formatQuantity(row.long_position) }}
           </template>
         </el-table-column>
         <el-table-column
@@ -124,7 +124,7 @@
           align="right"
         >
           <template #default="{ row }">
-            {{ formatNumber(row.short_position, 2) }}
+            {{ formatQuantity(row.short_position) }}
           </template>
         </el-table-column>
         <el-table-column
@@ -165,6 +165,43 @@
         >
           <template #default="{ row }">
             {{ formatAmountCompact(row.market_value) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="t('workspaceDialogs.pmColMarginValue')"
+          width="110"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatAmountCompact(row.margin_value) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="t('workspaceDialogs.pmColCommission')"
+          width="95"
+          align="right"
+        >
+          <template #default="{ row }">
+            {{ formatNumber(row.commission, 2) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="t('workspaceDialogs.pmColValuationStatus')"
+          width="125"
+          align="center"
+        >
+          <template #default="{ row }">
+            <el-tooltip
+              :content="valuationTooltip(row)"
+              placement="top"
+            >
+              <el-tag
+                :type="valuationStatusTag(row)"
+                size="small"
+              >
+                {{ valuationStatusLabel(row) }}
+              </el-tag>
+            </el-tooltip>
           </template>
         </el-table-column>
       </el-table>
@@ -209,7 +246,10 @@ async function loadPositions() {
   loading.value = true
   try {
     const response = await workspaceApi.getTradingPositions(props.workspaceId, props.unitIds)
-    positions.value = response.positions
+    positions.value = response.positions.filter(position => (
+      Math.abs(Number(position.long_position || 0)) > 0
+      || Math.abs(Number(position.short_position || 0)) > 0
+    ))
     summary.total_long_value = response.total_long_value
     summary.total_short_value = response.total_short_value
     summary.total_pnl = response.total_pnl
@@ -234,6 +274,14 @@ function formatNumber(value: number | null | undefined, digits = 2) {
   return Number(value).toFixed(digits)
 }
 
+function formatQuantity(value: number | null | undefined) {
+  if (value == null || Number.isNaN(value)) return '-'
+  const number = Number(value)
+  if (!Number.isFinite(number) || number === 0) return '-'
+  if (Math.abs(number) < 0.0001) return number.toFixed(8).replace(/\.?0+$/, '')
+  return number.toFixed(4)
+}
+
 function formatAmountCompact(value: number | null | undefined, digits = 2) {
   if (value == null || Number.isNaN(value)) return '-'
   const number = Number(value)
@@ -256,6 +304,38 @@ function formatSigned(value: number | null | undefined, digits = 2) {
 function numberClass(value: number | null | undefined) {
   if (value == null || Number.isNaN(value) || value === 0) return 'text-slate-600'
   return value > 0 ? 'text-red-600' : 'text-green-600'
+}
+
+function valuationStatusTag(row: TradingPositionManagerItem) {
+  const status = String(row.valuation_status || '').toLowerCase()
+  if (row.position_source === 'gateway' && status === 'confirmed') return 'success'
+  if (status === 'stale_fallback') return 'danger'
+  if (status === 'estimated' || (row.valuation_warnings?.length ?? 0) > 0) return 'warning'
+  return 'info'
+}
+
+function valuationStatusLabel(row: TradingPositionManagerItem) {
+  const status = String(row.valuation_status || '').toLowerCase()
+  if (row.position_source === 'gateway' && status === 'confirmed') return t('workspaceDialogs.pmValuationGatewayConfirmed')
+  if (status === 'stale_fallback') return t('workspaceDialogs.pmValuationStale')
+  if (status === 'estimated' || (row.valuation_warnings?.length ?? 0) > 0) return t('workspaceDialogs.pmValuationEstimated')
+  return t('workspaceDialogs.pmValuationUnknown')
+}
+
+function positionSourceLabel(value: string | null | undefined) {
+  const source = String(value || '').toLowerCase()
+  if (source === 'gateway') return t('workspaceDialogs.pmSourceGateway')
+  if (source === 'log') return t('workspaceDialogs.pmSourceLog')
+  if (source === 'snapshot') return t('workspaceDialogs.pmSourceSnapshot')
+  if (source === 'mixed') return t('workspaceDialogs.pmSourceMixed')
+  return t('workspaceDialogs.pmSourceUnknown')
+}
+
+function valuationTooltip(row: TradingPositionManagerItem) {
+  const warnings = row.valuation_warnings?.filter(Boolean) ?? []
+  if (warnings.length > 0) return warnings.join('；')
+  const assetSource = row.asset_spec_source || '-'
+  return `${t('workspaceDialogs.pmPositionSource')}: ${positionSourceLabel(row.position_source)}；${t('workspaceDialogs.pmAssetSpecSource')}: ${assetSource}`
 }
 </script>
 

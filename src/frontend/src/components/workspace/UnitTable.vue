@@ -120,7 +120,7 @@
       align="right"
     >
       <template #default="{ row }">
-        {{ formatNumber(row.trading_snapshot?.long_position, 0, false) }}
+        {{ formatQuantity(row.trading_snapshot?.long_position) }}
       </template>
     </el-table-column>
     <el-table-column
@@ -129,7 +129,7 @@
       align="right"
     >
       <template #default="{ row }">
-        {{ formatNumber(row.trading_snapshot?.short_position, 0, false) }}
+        {{ formatQuantity(row.trading_snapshot?.short_position) }}
       </template>
     </el-table-column>
     <el-table-column
@@ -259,6 +259,7 @@ import {
   formatDate,
   formatNumber,
   formatPrice,
+  formatQuantity,
   formatSignedNumber,
   formatTime,
   numberClass,

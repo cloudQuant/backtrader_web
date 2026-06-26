@@ -13,6 +13,7 @@ import {
   formatDate,
   formatNumber,
   formatPrice,
+  formatQuantity,
   formatSignedNumber,
   formatTime,
   numberClass,
@@ -150,6 +151,23 @@ describe('useUnitTableRendering', () => {
       expect(formatNumber(null)).toBe('-')
       expect(formatNumber(undefined)).toBe('-')
       expect(formatNumber(NaN)).toBe('-')
+    })
+  })
+
+  describe('formatQuantity', () => {
+    it('preserves micro nonzero quantities', () => {
+      expect(formatQuantity(0.00004)).toBe('0.00004')
+      expect(formatQuantity(-0.00004)).toBe('-0.00004')
+    })
+
+    it('formats normal quantities with 4 decimals', () => {
+      expect(formatQuantity(1.23456)).toBe('1.2346')
+    })
+
+    it('returns - for flat or invalid quantities', () => {
+      expect(formatQuantity(0)).toBe('-')
+      expect(formatQuantity(null)).toBe('-')
+      expect(formatQuantity(NaN)).toBe('-')
     })
   })
 

@@ -222,7 +222,20 @@ async def query_gateway_positions(
     mgr: LiveTradingManager = Depends(_get_manager),
 ) -> dict[str, Any]:
     """Query positions from a connected gateway."""
-    positions = await asyncio.to_thread(mgr.query_gateway_positions, gateway_key)
+    try:
+        positions = await asyncio.to_thread(
+            mgr.query_gateway_positions,
+            gateway_key,
+            strict=True,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "not connected" in message or "has no runtime" in message
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        raise HTTPException(status_code=status_code, detail=message) from exc
     return {"total": len(positions), "positions": positions}
 
 

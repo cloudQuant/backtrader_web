@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import PortfolioPage from '@/views/PortfolioPage.vue'
 import { portfolioApi } from '@/api/portfolio'
+import { workspaceApi } from '@/api/workspace'
 import { elStubs } from '@/test/stubs'
 
 vi.mock('element-plus', () => ({
@@ -159,6 +160,28 @@ vi.mock('@/api/workspace', () => ({
           latest_price: 3600,
           position_pnl: 200,
           market_value: 7200,
+          margin_value: 720,
+          multiplier: 10,
+          margin_rate: 0.1,
+          commission: 3.5,
+          gross_pnl: 203.5,
+          position_source: 'gateway',
+          asset_spec_source: 'ctp_gateway',
+          valuation_status: 'confirmed',
+          valuation_warnings: [],
+        },
+        {
+          unit_id: 'unit-flat',
+          unit_name: '空仓单元',
+          symbol: 'AG2512',
+          symbol_name: '白银',
+          trading_mode: 'live',
+          long_position: 0,
+          short_position: 0,
+          avg_price: 0,
+          latest_price: 0,
+          position_pnl: 0,
+          market_value: 0,
         },
       ],
       total_long_value: 7200,
@@ -203,6 +226,14 @@ describe('PortfolioPage', () => {
     expect(vm.formatMoney(99.5)).toBe('99.50')
   })
 
+  it('formatPositionSize preserves micro nonzero positions', () => {
+    const vm = doMount().vm as any
+    expect(vm.formatPositionSize(0.00004)).toBe('0.00004')
+    expect(vm.formatPositionSize(-0.00004)).toBe('-0.00004')
+    expect(vm.formatPositionSize(1.23456)).toBe('1.2346')
+    expect(vm.formatPositionSize(0)).toBe('--')
+  })
+
   it('loadData loads dashboard and running trading workspaces', async () => {
     const vm = doMount().vm as any
     await vm.loadData()
@@ -221,10 +252,79 @@ describe('PortfolioPage', () => {
     expect(vm.positions[0].data_name).toBe('RB2510')
     expect(vm.positions[0].long_position).toBe(2)
     expect(vm.positions[0].latest_price).toBe(3600)
+    expect(vm.positions[0].margin_value).toBe(720)
+    expect(vm.positions[0].commission).toBe(3.5)
+    expect(vm.positions[0].position_source).toBe('gateway')
+    expect(vm.positions[0].asset_spec_source).toBe('ctp_gateway')
+    expect(vm.valuationStatusLabel(vm.positions[0])).toBe('交易所确认')
     expect(vm.positionSummary.total_long_value).toBe(7200)
     expect(vm.positionSummary.gross_market_value).toBe(7200)
     expect(vm.positionSummary.net_market_value).toBe(7200)
     expect(vm.positionSummary.total_pnl).toBe(200)
+  })
+
+  it('loadWorkspaceAggregates keeps hedged positions with zero net size', async () => {
+    const vm = doMount().vm as any
+    vm.runningWorkspaces = [
+      {
+        id: 'ws-running',
+        user_id: 'u1',
+        name: 'CTA 交易工作区',
+        description: null,
+        workspace_type: 'trading',
+        settings: {},
+        trading_config: {},
+        unit_count: 1,
+        completed_count: 0,
+        status: 'running',
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-02T00:00:00Z',
+      },
+    ]
+    vm.selectedWorkspaceIds = ['ws-running']
+    vi.mocked(workspaceApi.getTradingPositions).mockResolvedValueOnce({
+      positions: [
+        {
+          unit_id: 'unit-hedged',
+          unit_name: 'IF 双向',
+          symbol: 'IF2609',
+          symbol_name: null,
+          trading_mode: 'live',
+          long_position: 1,
+          short_position: 1,
+          avg_price: 5000,
+          latest_price: 5010,
+          position_pnl: 120,
+          market_value: 1_002_000,
+          margin_value: 120_240,
+          multiplier: 300,
+          margin_rate: 0.12,
+          commission: 10,
+          gross_pnl: 130,
+          position_source: 'gateway',
+          asset_spec_source: 'ctp_gateway',
+          valuation_status: 'confirmed',
+          valuation_warnings: [],
+        },
+      ],
+      total_long_value: 501_000,
+      total_short_value: 501_000,
+      total_pnl: 120,
+    })
+    vi.mocked(portfolioApi.getTrades).mockResolvedValueOnce({ total: 0, trades: [] })
+
+    await vm.loadWorkspaceAggregates()
+
+    expect(vm.positions).toHaveLength(1)
+    expect(vm.positions[0].direction).toBe('hedged')
+    expect(vm.positions[0].size).toBe(0)
+    expect(vm.positions[0].long_position).toBe(1)
+    expect(vm.positions[0].short_position).toBe(1)
+    expect(vm.directionLabel('hedged')).toBe('双向')
+    expect(vm.positionSummary.long_count).toBe(1)
+    expect(vm.positionSummary.short_count).toBe(1)
+    expect(vm.positionSummary.gross_market_value).toBe(1_002_000)
+    expect(vm.positionSummary.net_market_value).toBe(0)
   })
 
   it('loadTabData loads selected workspace trade records', async () => {

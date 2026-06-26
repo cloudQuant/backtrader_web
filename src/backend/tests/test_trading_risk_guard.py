@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 
+import pytest
+
 from app.schemas.ai_trading import (
     OrderType,
     RiskLevel,
@@ -156,6 +158,51 @@ class TestTradingRiskGuardHardRules:
         result = guard.assess(intent)
         assert result.approved is False
         assert any("每日最大交易次数" in r for r in result.blocked_reasons)
+
+    def test_daily_loss_limit_blocks_new_trades(self):
+        config = TradingRiskConfig(
+            max_daily_loss=500.0,
+            max_single_trade_amount=100000.0,
+        )
+        guard = TradingRiskGuard(config)
+        guard._daily_loss = 500.0
+        guard._last_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="rb2501",
+            quantity=1,
+            price=3500.0,
+            confidence=0.9,
+        )
+        result = guard.assess(intent)
+
+        assert result.approved is False
+        assert any("每日最大亏损" in r for r in result.blocked_reasons)
+
+    def test_projected_loss_over_daily_limit_blocks_trade(self):
+        config = TradingRiskConfig(
+            max_daily_loss=500.0,
+            max_single_trade_amount=100000.0,
+            require_confirmation_above=100000.0,
+        )
+        guard = TradingRiskGuard(config)
+        guard._daily_loss = 450.0
+        guard._last_reset_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="rb2501",
+            quantity=1,
+            price=3500.0,
+            stop_loss=3400.0,
+            confidence=0.9,
+        )
+        result = guard.assess(intent)
+
+        assert result.approved is False
+        assert result.max_loss_estimate == 100.0
+        assert any("预计最大亏损" in r for r in result.blocked_reasons)
 
     def test_single_trade_amount_exceeds_limit(self):
         config = TradingRiskConfig(max_single_trade_amount=5000.0)
@@ -335,6 +382,56 @@ class TestTradingRiskGuardHelpers:
         )
         value = guard._estimate_trade_value(intent, account_balance=100000.0)
         assert value == 35000.0
+
+    def test_estimate_trade_value_for_inverse_contract_uses_contract_value(self):
+        guard = TradingRiskGuard()
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="BTC-USD-SWAP",
+            exchange="okx",
+            quantity=100,
+            price=50000.0,
+            stop_loss=45000.0,
+            confidence=0.9,
+            additional_params={
+                "contract_type": "inverse",
+                "ctVal": 100,
+                "ctValCcy": "USD",
+                "baseCcy": "BTC",
+                "quoteCcy": "USD",
+                "settleCcy": "BTC",
+            },
+        )
+
+        trade_value = guard._estimate_trade_value(intent, account_balance=100000.0)
+        max_loss = guard._estimate_max_loss(intent, trade_value=trade_value)
+
+        assert trade_value == 10000.0
+        assert max_loss == pytest.approx(1000.0)
+
+    def test_explicit_inverse_flag_prefers_ctval_over_multiplier_aliases(self):
+        guard = TradingRiskGuard()
+        intent = TradingIntent(
+            action=TradeAction.BUY,
+            symbol="BTCUSD",
+            exchange="okx",
+            quantity=100,
+            price=50000.0,
+            stop_loss=45000.0,
+            confidence=0.9,
+            additional_params={
+                "inverse": True,
+                "multiplier": 1,
+                "ctMult": 1,
+                "ctVal": 100,
+            },
+        )
+
+        trade_value = guard._estimate_trade_value(intent, account_balance=100000.0)
+        max_loss = guard._estimate_max_loss(intent, trade_value=trade_value)
+
+        assert trade_value == pytest.approx(10000.0)
+        assert max_loss == pytest.approx(1000.0)
 
     def test_estimate_trade_value_no_price(self):
         guard = TradingRiskGuard()

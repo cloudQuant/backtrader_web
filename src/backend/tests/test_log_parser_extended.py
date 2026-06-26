@@ -182,6 +182,41 @@ class TestParsePositionLog:
         assert positions[0]["market_value"] == -0.0056649
         assert positions[0]["value"] == -0.0056649
 
+    def test_parse_json_position_uses_gateway_position_aliases(self, tmp_path: Path):
+        """Raw gateway-style position.log rows keep size, price and CTP spec aliases."""
+        from app.services.position_valuation import contract_spec_for, value_position
+
+        (tmp_path / "position.log").write_text(
+            json.dumps(
+                {
+                    "log_time": "2026-06-25T07:18:41.365+08:00",
+                    "datetime": "2026-06-24 11:02:00",
+                    "InstrumentID": "IF2609",
+                    "PosiDirection": "2",
+                    "Position": 1,
+                    "Price": 5000.0,
+                    "LastPrice": 5001.0,
+                    "VolumeMultiple": 300,
+                    "LongMarginRatioByMoney": 0.1,
+                    "OpenRatioByMoney": 0.23,
+                    "source": "ctp_gateway",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        positions = parse_position_log(tmp_path)
+        valued = value_position(positions[0], spec=contract_spec_for("IF2609", positions[0]))
+
+        assert positions[0]["data_name"] == "IF2609"
+        assert positions[0]["size"] == 1.0
+        assert positions[0]["price"] == 5000.0
+        assert positions[0]["market_value_estimated"] is True
+        assert valued is not None
+        assert valued.market_value == 1_500_300.0
+        assert valued.pnl == 265.5
+
     def test_empty_dir(self, tmp_path: Path):
         """Test parsing with empty directory."""
         assert parse_position_log(tmp_path) == []
@@ -214,6 +249,37 @@ class TestParseCurrentPosition:
 
         assert result[0]["market_value"] == -0.0056649
         assert result[0]["value"] == -0.0056649
+
+    def test_parse_json_preserves_gateway_position_fields(self, tmp_path: Path):
+        """Raw gateway-style position snapshots keep side, size, fee and margin fields."""
+        from app.services.position_valuation import PositionSpec, value_position
+
+        data = [
+            {
+                "symbol": "BTCUSDT",
+                "positionSide": "SHORT",
+                "positionAmt": "0.25",
+                "entryPrice": "60000",
+                "markPrice": "59000",
+                "position_fee": "0.25",
+                "margin_initial": "1250",
+                "contract_size": "1",
+            }
+        ]
+        (tmp_path / "current_position.json").write_text(json.dumps(data), encoding="utf-8")
+
+        result = parse_current_position(tmp_path)
+        valued = value_position(result[0], spec=PositionSpec())
+
+        assert result[0]["data_name"] == "BTCUSDT"
+        assert result[0]["size"] == 0.25
+        assert result[0]["positionSide"] == "SHORT"
+        assert result[0]["position_fee"] == 0.25
+        assert result[0]["margin_initial"] == 1250.0
+        assert valued is not None
+        assert valued.direction == "short"
+        assert valued.current_price == 59000.0
+        assert valued.pnl == 249.75
 
     def test_no_file(self, tmp_path: Path):
         """Test parsing when file doesn't exist."""

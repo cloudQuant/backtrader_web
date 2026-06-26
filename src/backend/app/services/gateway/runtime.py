@@ -165,6 +165,143 @@ def _prepend_python_paths(env: dict[str, str], paths: list[Path | None]) -> None
         env["PYTHONPATH"] = os.pathsep.join(entries)
 
 
+_CONTRACT_SPEC_KEYS = (
+    "multiplier",
+    "contract_multiplier",
+    "contract_size",
+    "contract_notional_value",
+    "okx_contract_value",
+    "ctVal",
+    "VolumeMultiple",
+)
+_CONTRACT_ASSET_TYPES = {
+    "CFD",
+    "COIN-M",
+    "COIN_M",
+    "FOP",
+    "FOREX",
+    "FUTURE",
+    "FUTURES",
+    "OPTION",
+    "PERP",
+    "PERPETUAL",
+    "SWAP",
+}
+
+
+def _gateway_config_value(gateway: dict[str, Any] | None, field: str) -> Any:
+    if not isinstance(gateway, dict):
+        return None
+    config = gateway.get("config")
+    if isinstance(config, dict):
+        value = config.get(field)
+    else:
+        value = getattr(config, field, None)
+    if value not in (None, ""):
+        return value
+    return gateway.get(field)
+
+
+def _positive_spec_number(spec: dict[str, Any], *keys: str) -> bool:
+    for key in keys:
+        value = spec.get(key)
+        if value in (None, ""):
+            continue
+        try:
+            if float(value) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def _asset_type_requires_contract_spec(gateway: dict[str, Any] | None, spec: dict[str, Any]) -> bool:
+    values = (
+        spec.get("asset_type"),
+        spec.get("instType"),
+        _gateway_config_value(gateway, "asset_type"),
+        _gateway_config_value(gateway, "exchange_type"),
+    )
+    text = " ".join(str(value or "").upper().replace("-", "_") for value in values)
+    return any(token in text for token in _CONTRACT_ASSET_TYPES)
+
+
+def _runtime_spec_for_symbol(
+    specs: dict[str, dict[str, Any]],
+    symbol: str,
+    symbol_aliases: Callable[[str], list[str]],
+) -> dict[str, Any]:
+    aliases = [symbol]
+    try:
+        aliases.extend(symbol_aliases(symbol))
+    except Exception:
+        pass
+    aliases = [str(alias or "").strip() for alias in aliases if str(alias or "").strip()]
+    compact_aliases = {"".join(ch for ch in alias if ch.isalnum()).upper() for alias in aliases}
+    for alias in aliases:
+        item = specs.get(alias)
+        if isinstance(item, dict) and item:
+            return item
+    for key, item in specs.items():
+        if not isinstance(item, dict) or not item:
+            continue
+        key_text = str(key or "").strip()
+        if key_text in aliases:
+            return item
+        compact_key = "".join(ch for ch in key_text if ch.isalnum()).upper()
+        if compact_key and compact_key in compact_aliases:
+            return item
+    return {}
+
+
+def _validate_runtime_asset_specs(
+    instance: dict[str, Any],
+    strategy_dir: Path,
+    gateway: dict[str, Any] | None,
+    specs: dict[str, dict[str, Any]],
+    symbols_for_instance: Callable[[dict[str, Any], Path], list[str]],
+    symbol_aliases: Callable[[str], list[str]],
+    runtime_symbols: list[str] | None = None,
+) -> None:
+    if gateway is None:
+        return
+
+    symbols: list[str] = []
+    seen_symbols: set[str] = set()
+    for symbol in (
+        runtime_symbols if runtime_symbols is not None else symbols_for_instance(instance, strategy_dir)
+    ):
+        text = str(symbol or "").strip()
+        key = text.upper()
+        if not text or key in seen_symbols:
+            continue
+        symbols.append(text)
+        seen_symbols.add(key)
+    if not symbols:
+        return
+
+    missing: list[str] = []
+    incomplete: list[str] = []
+    for symbol in symbols:
+        spec = _runtime_spec_for_symbol(specs, symbol, symbol_aliases)
+        if not spec:
+            missing.append(symbol)
+            continue
+        if _asset_type_requires_contract_spec(gateway, spec) and not _positive_spec_number(
+            spec, *_CONTRACT_SPEC_KEYS
+        ):
+            incomplete.append(f"{symbol}: missing contract multiplier/value")
+
+    if missing:
+        raise RuntimeError(
+            "实盘策略启动前未获取到交易资产规格: " + ", ".join(sorted(set(missing)))
+        )
+    if incomplete:
+        raise RuntimeError(
+            "实盘策略启动前交易资产规格不完整: " + "; ".join(sorted(set(incomplete)))
+        )
+
+
 def build_subprocess_env(
     instance_id: str,
     instance: dict[str, Any],
@@ -177,12 +314,15 @@ def build_subprocess_env(
     env = dict(os_environ)
     for key, value in _LIVE_SUBPROCESS_THREAD_DEFAULTS.items():
         env.setdefault(key, value)
+    env["BT_TRADING_INSTANCE_ID"] = str(instance_id)
     _prepend_python_paths(env, [backtrader_dir, bt_api_py_dir])
     gateway = acquire_gateway_for_instance(instance_id, instance, strategy_dir)
     if gateway is None:
+        _refresh_runtime_asset_specs(instance, strategy_dir, None)
         return env
     with _redirect_gateway_native_stdio(strategy_dir):
         wait_gateway_runtime_ready(gateway)
+    _refresh_runtime_asset_specs(instance, strategy_dir, gateway)
     config = gateway["config"]
     env["BT_STORE_PROVIDER"] = "mt5_gateway" if config.exchange_type == "MT5" else "ctp_gateway"
     env["BT_GATEWAY_START_LOCAL_RUNTIME"] = "0"
@@ -195,6 +335,39 @@ def build_subprocess_env(
     env["BT_GATEWAY_STARTUP_TIMEOUT_SEC"] = str(config.startup_timeout_sec)
     env["BT_GATEWAY_COMMAND_TIMEOUT_SEC"] = str(config.command_timeout_sec)
     return env
+
+
+def _refresh_runtime_asset_specs(
+    instance: dict[str, Any],
+    strategy_dir: Path,
+    gateway: dict[str, Any] | None,
+) -> None:
+    try:
+        from app.services.trading_asset_info_service import (
+            refresh_instance_asset_specs,
+            symbol_aliases,
+            symbols_for_instance,
+        )
+    except Exception as exc:
+        if gateway is not None:
+            raise RuntimeError(f"实盘策略启动前加载资产信息服务失败: {exc}") from exc
+        return
+    try:
+        runtime_symbols = symbols_for_instance(instance, strategy_dir) if gateway is not None else None
+        specs = refresh_instance_asset_specs(instance, strategy_dir, gateway)
+        _validate_runtime_asset_specs(
+            instance,
+            strategy_dir,
+            gateway,
+            specs,
+            symbols_for_instance,
+            symbol_aliases,
+            runtime_symbols=runtime_symbols,
+        )
+    except Exception as exc:
+        if gateway is not None:
+            raise RuntimeError(f"实盘策略启动前刷新交易资产信息失败: {exc}") from exc
+        return
 
 
 def _latest_runtime_error(runtime: Any) -> str:
@@ -246,7 +419,9 @@ def wait_gateway_runtime_ready(
             return
 
         runtime_running = bool(getattr(runtime, "running", False))
-        if state == "error" or (state and state not in {"created", "connecting"} and not runtime_running):
+        if state == "error" or (
+            state and state not in {"created", "connecting"} and not runtime_running
+        ):
             detail = _latest_runtime_error(runtime) or state
             raise RuntimeError(f"Gateway runtime failed to become ready: {detail}")
 
