@@ -867,6 +867,35 @@ def test_position_valuation_uses_fee_cost_dict_as_real_commission():
     assert valued.pnl == pytest.approx(19.88)
 
 
+def test_position_valuation_uses_bybit_exec_fee_v2_as_real_commission():
+    spec = normalize_asset_spec(
+        {
+            "symbol": "BTCUSDT",
+            "contract_size": 1,
+            "commission_rate": 0.01,
+        },
+        symbol="BTCUSDT",
+        source="bybit_gateway",
+    )
+
+    valued = value_position(
+        {
+            "data_name": "BTCUSDT",
+            "size": 0.02,
+            "price": 60000.0,
+            "current_price": 61000.0,
+            "gross_pnl": 20.0,
+            "execFeeV2": "0.15",
+            "feeCurrency": "USDT",
+        },
+        spec=contract_spec_for("BTCUSDT", {"contract_metadata": {"BTCUSDT": spec}}),
+    )
+
+    assert valued is not None
+    assert valued.commission == pytest.approx(0.15)
+    assert valued.pnl == pytest.approx(19.85)
+
+
 def test_position_valuation_preserves_signed_internal_commission_rebate():
     valued = value_position(
         {
