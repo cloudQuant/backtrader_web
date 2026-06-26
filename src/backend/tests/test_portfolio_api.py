@@ -149,6 +149,26 @@ def test_parse_positions_for_portfolio_keeps_bybit_position_idx_dual_side(
     assert by_idx["2"]["price"] == pytest.approx(60100.0)
 
 
+def test_portfolio_position_row_direction_treats_bybit_position_idx_zero_as_one_way():
+    """Bybit positionIdx=0 should defer to signed size in one-way mode."""
+    from app.api import portfolio_api
+
+    assert (
+        portfolio_api._position_row_direction(
+            {"data_name": "BTCUSDT", "positionIdx": "0", "size": 0.1},
+            0.1,
+        )
+        == "long"
+    )
+    assert (
+        portfolio_api._position_row_direction(
+            {"data_name": "BTCUSDT", "positionIdx": "0", "size": -0.1},
+            -0.1,
+        )
+        == "short"
+    )
+
+
 def test_parse_positions_for_portfolio_flat_log_clears_stale_position(monkeypatch, tmp_path):
     """A latest flat log row must clear earlier position rows and stale snapshots."""
     from app.api import portfolio_api

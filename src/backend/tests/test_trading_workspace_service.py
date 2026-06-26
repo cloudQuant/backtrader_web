@@ -690,6 +690,24 @@ def test_latest_position_rows_keeps_bybit_position_idx_dual_side_rows():
     assert by_idx["2"]["price"] == pytest.approx(60100.0)
 
 
+def test_position_log_row_direction_treats_bybit_position_idx_zero_as_one_way():
+    """Bybit positionIdx=0 identifies one-way mode, not a flat position."""
+    assert (
+        TradingWorkspaceService._position_log_row_direction(
+            {"data_name": "BTCUSDT", "positionIdx": "0", "size": 0.1},
+            0.1,
+        )
+        == "long"
+    )
+    assert (
+        TradingWorkspaceService._position_log_row_direction(
+            {"data_name": "BTCUSDT", "positionIdx": "0", "size": -0.1},
+            -0.1,
+        )
+        == "short"
+    )
+
+
 def test_latest_position_rows_directional_flat_keeps_opposite_side():
     rows = [
         {

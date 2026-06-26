@@ -510,8 +510,6 @@ class TradingWorkspaceService:
                     return "long"
                 if code == 2:
                     return "short"
-                if code == 0:
-                    return "flat"
         if abs(size) <= EPSILON:
             return "flat"
         return "short" if size < 0 else "long"
