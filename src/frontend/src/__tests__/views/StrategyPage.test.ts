@@ -531,6 +531,37 @@ describe('StrategyPage', () => {
     }
   })
 
+  it('cancels a running AI research task', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    ;(strategyApi as any).cancelAIResearchTask = vi.fn().mockResolvedValue({
+      task_id: 'research-task-1',
+      status: 'cancelled',
+      submitted_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      current_stage: 'cancelled',
+      progress: 35,
+      current_iteration: 1,
+      iteration_count: 0,
+      max_iterations: 3,
+      message: 'cancelled',
+    })
+    try {
+      const vm = doMount().vm as any
+      vm.aiResearchRunning = true
+      vm.aiResearchTaskId = 'research-task-1'
+      await vm.cancelAIResearchTask()
+
+      expect((strategyApi as any).cancelAIResearchTask).toHaveBeenCalledWith('research-task-1')
+      expect(vm.aiResearchRunning).toBe(false)
+      expect(vm.aiResearchTaskStatus).toBe('cancelled')
+      expect(vm.aiResearchTaskStage).toBe('cancelled')
+      expect(ElMessage.success).toHaveBeenCalledWith('AI投研任务已取消')
+    } finally {
+      delete (strategyApi as any).cancelAIResearchTask
+    }
+  })
+
   it('uses AI research run history to refill the form', () => {
     const vm = doMount().vm as any
     vm.useAIResearchRecord({

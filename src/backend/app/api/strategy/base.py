@@ -285,6 +285,23 @@ async def get_ai_strategy_research_task(
     return task
 
 
+@router.post(
+    "/ai-research/tasks/{task_id}/cancel",
+    response_model=AIStrategyResearchTaskResponse,
+    summary="Cancel AI strategy research task",
+)
+async def cancel_ai_strategy_research_task(
+    task_id: str,
+    current_user=Depends(get_current_user),
+    task_manager: AIStrategyResearchTaskManager = Depends(get_ai_strategy_research_tasks),
+):
+    """Cancel a running AI research loop task."""
+    task = await task_manager.cancel_task(current_user.sub, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="AI research task not found")
+    return task
+
+
 @router.get(
     "/ai-research/runs",
     response_model=AIStrategyResearchRunListResponse,

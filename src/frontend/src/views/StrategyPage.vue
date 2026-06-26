@@ -217,6 +217,14 @@
                   </el-icon>
                   {{ aiResearchRunning ? t('strategy.aiResearchRunning') : t('strategy.aiResearchRun') }}
                 </el-button>
+                <el-button
+                  v-if="canCancelAIResearchTask"
+                  data-test="ai-research-cancel"
+                  :loading="aiResearchCancelling"
+                  @click="cancelAIResearchTask"
+                >
+                  取消任务
+                </el-button>
                 <el-tag
                   v-if="aiResearchTaskId"
                   size="small"
@@ -802,6 +810,8 @@ const aiResearchTaskStatus = ref('')
 const aiResearchTaskStage = ref('')
 const aiResearchTaskProgress = ref(0)
 const aiResearchTaskIteration = ref<number | null>(null)
+const aiResearchCancelling = ref(false)
+const aiResearchCancelRequested = ref(false)
 const aiResearchPaperStartingRunId = ref('')
 const aiResearchPaperReviewingRunId = ref('')
 const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingReview>>({})
@@ -878,6 +888,11 @@ const aiBestSharpe = computed(() => {
 const aiResearchNextActions = computed(() => aiResearchResult.value?.next_actions ?? [])
 const aiResearchContinuationEnabled = computed(() =>
   Boolean(aiResearchForm.seed_strategy_id || aiResearchForm.continue_from_run_id)
+)
+const canCancelAIResearchTask = computed(() =>
+  aiResearchRunning.value
+  && Boolean(aiResearchTaskId.value)
+  && typeof (strategyApi as { cancelAIResearchTask?: unknown }).cancelAIResearchTask === 'function'
 )
 const aiResearchBestGateEvaluations = computed(
   () => aiResearchResult.value?.best_quality_gate_evaluations ?? []
@@ -1128,6 +1143,10 @@ function isAIResearchTaskTerminal(task: AIStrategyResearchTaskResponse) {
   return ['completed', 'failed', 'cancelled'].includes(String(task.status || '').toLowerCase())
 }
 
+function isAIResearchTaskCancelled(task: AIStrategyResearchTaskResponse) {
+  return String(task.status || '').toLowerCase() === 'cancelled'
+}
+
 function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
 }
@@ -1160,6 +1179,9 @@ async function runAIResearchRequest(
     if (task.status === 'completed' && task.result) {
       return task.result
     }
+    if (isAIResearchTaskCancelled(task)) {
+      throw new Error('AI_RESEARCH_CANCELLED')
+    }
     if (isAIResearchTaskTerminal(task)) {
       throw new Error(task.error || task.message || 'AI research task failed')
     }
@@ -1170,6 +1192,24 @@ async function runAIResearchRequest(
     }
   }
   throw new Error('AI research task polling timed out')
+}
+
+async function cancelAIResearchTask() {
+  const taskId = aiResearchTaskId.value
+  const cancelTask = (strategyApi as { cancelAIResearchTask?: (taskId: string) => Promise<AIStrategyResearchTaskResponse> }).cancelAIResearchTask
+  if (!taskId || typeof cancelTask !== 'function') return
+  aiResearchCancelling.value = true
+  aiResearchCancelRequested.value = true
+  try {
+    const task = await cancelTask(taskId)
+    applyAIResearchTaskStatus(task)
+    aiResearchRunning.value = false
+    ElMessage.success('AI投研任务已取消')
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchCancelling.value = false
+  }
 }
 
 async function runAIResearchLoop() {
@@ -1190,6 +1230,7 @@ async function runAIResearchLoop() {
   aiResearchTaskStage.value = ''
   aiResearchTaskProgress.value = 0
   aiResearchTaskIteration.value = null
+  aiResearchCancelRequested.value = false
   try {
     aiResearchResult.value = await runAIResearchRequest(buildAIResearchRequest(prompt, symbol))
     if (aiResearchResult.value.run_record) {
@@ -1198,7 +1239,14 @@ async function runAIResearchLoop() {
       await loadAIResearchRuns()
     }
     ElMessage.success(t('strategy.aiResearchRunSuccess'))
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof Error
+      && error.message === 'AI_RESEARCH_CANCELLED'
+      && aiResearchCancelRequested.value
+    ) {
+      return
+    }
     ElMessage.error(t('strategy.aiResearchRunFailed'))
   } finally {
     aiResearchRunning.value = false

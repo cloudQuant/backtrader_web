@@ -526,6 +526,13 @@ export const strategyApi = {
     return api.get<AIStrategyResearchTaskResponse>(`/strategy/ai-research/tasks/${taskId}`)
   },
 
+  async cancelAIResearchTask(taskId: string): Promise<AIStrategyResearchTaskResponse> {
+    return api.post<AIStrategyResearchTaskResponse, undefined>(
+      `/strategy/ai-research/tasks/${taskId}/cancel`,
+      undefined
+    )
+  },
+
   async listAIResearchRuns(
     researchWorkspaceId?: string | null,
     limit = 20

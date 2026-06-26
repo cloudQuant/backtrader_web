@@ -23,6 +23,7 @@ def _utc_iso_now() -> str:
 class _ResearchTaskState:
     user_id: str
     response: AIStrategyResearchTaskResponse
+    background_task: asyncio.Task[None] | None = None
 
 
 class AIStrategyResearchTaskManager:
@@ -53,7 +54,13 @@ class AIStrategyResearchTaskManager:
             self._tasks[task_id] = _ResearchTaskState(user_id=user_id, response=response)
 
         loop = asyncio.get_running_loop()
-        loop.create_task(self._run_task(task_id, user_id, request, service=service))
+        background_task = loop.create_task(
+            self._run_task(task_id, user_id, request, service=service)
+        )
+        async with self._lock:
+            state = self._tasks.get(task_id)
+            if state is not None:
+                state.background_task = background_task
         return response
 
     async def get_task(
@@ -66,6 +73,32 @@ class AIStrategyResearchTaskManager:
             if state is None or state.user_id != user_id:
                 return None
             return state.response.model_copy(deep=True)
+
+    async def cancel_task(
+        self,
+        user_id: str,
+        task_id: str,
+    ) -> AIStrategyResearchTaskResponse | None:
+        background_task: asyncio.Task[None] | None = None
+        async with self._lock:
+            state = self._tasks.get(task_id)
+            if state is None or state.user_id != user_id:
+                return None
+            if state.response.status in {"completed", "failed", "cancelled"}:
+                return state.response.model_copy(deep=True)
+            background_task = state.background_task
+            state.response = state.response.model_copy(
+                update={
+                    "status": "cancelled",
+                    "completed_at": _utc_iso_now(),
+                    "current_stage": "cancelled",
+                    "message": "AI research task cancelled",
+                }
+            )
+            response = state.response.model_copy(deep=True)
+        if background_task is not None and not background_task.done():
+            background_task.cancel()
+        return response
 
     async def _run_task(
         self,
@@ -122,6 +155,14 @@ class AIStrategyResearchTaskManager:
                 latest_iteration=latest_iteration,
                 result=result,
                 message=result.message,
+            )
+        except asyncio.CancelledError:
+            await self._update_task(
+                task_id,
+                status="cancelled",
+                completed_at=_utc_iso_now(),
+                current_stage="cancelled",
+                message="AI research task cancelled",
             )
         except Exception as exc:
             await self._update_task(

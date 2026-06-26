@@ -115,6 +115,15 @@ describe('strategyApi', () => {
     expect(api.get).toHaveBeenCalledWith('/strategy/ai-research/tasks/task-1')
   })
 
+  it('cancelAIResearchTask', async () => {
+    vi.mocked(api.post).mockResolvedValue({ task_id: 'task-1', status: 'cancelled' })
+    await strategyApi.cancelAIResearchTask('task-1')
+    expect(api.post).toHaveBeenCalledWith(
+      '/strategy/ai-research/tasks/task-1/cancel',
+      undefined
+    )
+  })
+
   it('listAIResearchRuns', async () => {
     vi.mocked(api.get).mockResolvedValue({ total: 1, items: [] })
     await strategyApi.listAIResearchRuns('research-ws', 5)

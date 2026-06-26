@@ -1553,6 +1553,29 @@ class FakeResearchAPIService:
         )
 
 
+class SlowResearchAPIService:
+    async def run(
+        self,
+        user_id: str,
+        request: AIStrategyResearchRunRequest,
+        *,
+        progress_callback=None,
+    ):
+        if progress_callback is not None:
+            await progress_callback(
+                {
+                    "current_stage": "backtesting",
+                    "progress": 25.0,
+                    "current_iteration": 1,
+                    "iteration_count": 0,
+                    "max_iterations": request.max_iterations,
+                    "message": "slow fake backtest",
+                }
+            )
+        await asyncio.sleep(60)
+        raise AssertionError("slow research task should have been cancelled")
+
+
 @pytest.mark.asyncio
 async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     manager = AIStrategyResearchTaskManager()
@@ -1583,6 +1606,43 @@ async def test_ai_strategy_research_task_manager_runs_task_and_scopes_user():
     assert task.result is not None
     assert task.result.achieved is True
     assert await manager.get_task("other-user", submitted.task_id) is None
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_manager_cancels_running_task():
+    manager = AIStrategyResearchTaskManager()
+    submitted = await manager.submit(
+        "user-1",
+        AIStrategyResearchRunRequest(prompt="生成趋势策略", symbol="000001.SZ"),
+        service=SlowResearchAPIService(),
+    )
+
+    running = None
+    for _ in range(20):
+        running = await manager.get_task("user-1", submitted.task_id)
+        if running is not None and running.current_stage == "backtesting":
+            break
+        await asyncio.sleep(0.01)
+
+    assert running is not None
+    assert running.status == "running"
+    assert running.progress == pytest.approx(25.0)
+
+    cancelled = await manager.cancel_task("user-1", submitted.task_id)
+    assert cancelled is not None
+    assert cancelled.status == "cancelled"
+    assert cancelled.current_stage == "cancelled"
+    assert await manager.cancel_task("other-user", submitted.task_id) is None
+
+    final = None
+    for _ in range(20):
+        final = await manager.get_task("user-1", submitted.task_id)
+        if final is not None and final.status == "cancelled":
+            break
+        await asyncio.sleep(0.01)
+    assert final is not None
+    assert final.status == "cancelled"
+    assert final.completed_at
 
 
 @pytest.mark.asyncio
@@ -1657,6 +1717,52 @@ async def test_ai_strategy_research_task_api_endpoint(
     assert payload["latest_iteration"]["iteration"] == 1
     assert payload["result"]["achieved"] is True
     assert payload["result"]["research_workspace"]["id"] == "research-api-ws"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_task_cancel_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    task_manager = AIStrategyResearchTaskManager()
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: SlowResearchAPIService()
+    app.dependency_overrides[get_ai_strategy_research_tasks] = lambda: task_manager
+    try:
+        response = await client.post(
+            "/api/v1/strategy/ai-research/tasks",
+            headers=auth_headers,
+            json={
+                "prompt": "生成一个均线策略并优化到夏普率 1.0",
+                "symbol": "000001.SZ",
+                "target_sharpe": 1.0,
+                "max_iterations": 2,
+            },
+        )
+        assert response.status_code == 202
+        task_id = response.json()["task_id"]
+        for _ in range(20):
+            status_response = await client.get(
+                f"/api/v1/strategy/ai-research/tasks/{task_id}",
+                headers=auth_headers,
+            )
+            assert status_response.status_code == 200
+            if status_response.json()["current_stage"] == "backtesting":
+                break
+            await asyncio.sleep(0.01)
+
+        cancel_response = await client.post(
+            f"/api/v1/strategy/ai-research/tasks/{task_id}/cancel",
+            headers=auth_headers,
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+        app.dependency_overrides.pop(get_ai_strategy_research_tasks, None)
+
+    assert cancel_response.status_code == 200
+    payload = cancel_response.json()
+    assert payload["status"] == "cancelled"
+    assert payload["current_stage"] == "cancelled"
+    assert payload["completed_at"]
 
 
 @pytest.mark.asyncio
