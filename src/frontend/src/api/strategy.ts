@@ -132,6 +132,10 @@ export interface AIStrategyResearchRunRequest {
   min_annual_return?: number | null
   min_win_rate?: number | null
   max_iterations?: number
+  out_of_sample_validation?: boolean
+  out_of_sample_ratio?: number
+  min_out_of_sample_sharpe?: number | null
+  min_out_of_sample_trades?: number | null
   backtest_timeout_seconds?: number
   poll_interval_seconds?: number
   initial_cash?: number
@@ -172,6 +176,7 @@ export interface AIStrategyResearchDiagnostics {
   weaknesses?: string[]
   improvement_plan?: string[]
   promotion_ready?: boolean
+  out_of_sample_validation?: AIStrategyOutOfSampleValidation
 }
 
 export interface AIStrategyPaperMonitoringRule {
@@ -200,6 +205,15 @@ export interface AIStrategyResearchIteration {
   metrics: Record<string, unknown>
   sharpe_ratio: number
   total_trades: number
+  validation_unit?: StrategyUnit | null
+  validation_run_result?: StrategyCopilotRunResult | null
+  validation_unit_status?: UnitStatusResponse | null
+  validation_status?: string | null
+  validation_window?: Record<string, string> | null
+  validation_metrics?: Record<string, unknown>
+  validation_gate_evaluations?: AIStrategyQualityGateEvaluation[]
+  validation_failures?: string[]
+  validation_failure_reason?: string | null
   quality_score: number
   quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
   passed: boolean
@@ -209,6 +223,15 @@ export interface AIStrategyResearchIteration {
   improvement_plan?: string[]
   improvement_notes: string[]
   next_actions: string[]
+}
+
+export interface AIStrategyOutOfSampleValidation {
+  status?: string | null
+  window?: Record<string, string> | null
+  metrics?: Record<string, unknown>
+  gate_evaluations?: AIStrategyQualityGateEvaluation[]
+  failures?: string[]
+  failure_reason?: string | null
 }
 
 export interface AIStrategyPaperTradingStart {

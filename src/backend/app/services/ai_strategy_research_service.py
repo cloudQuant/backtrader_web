@@ -10,7 +10,7 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +64,22 @@ _TERMINAL_UNIT_STATUSES = {"completed", "failed", "cancelled", "timeout"}
 class StrategyImprovement:
     draft: AIStrategyDraft
     notes: list[str]
+
+
+@dataclass(frozen=True)
+class OutOfSampleWindow:
+    train_start: str
+    train_end: str
+    validation_start: str
+    validation_end: str
+
+    def as_dict(self) -> dict[str, str]:
+        return {
+            "train_start": self.train_start,
+            "train_end": self.train_end,
+            "validation_start": self.validation_start,
+            "validation_end": self.validation_end,
+        }
 
 
 class LocalStrategyImprover:
@@ -337,6 +353,7 @@ class AIStrategyResearchService:
         selected_iteration: AIStrategyResearchIteration | None = None
         pending_improvement_notes: list[str] = []
         continuation_failures = _continuation_quality_gate_failures(request.continuation_context)
+        validation_window = _out_of_sample_window(request)
         if continuation_failures:
             improvement = await self.improver.improve(
                 draft,
@@ -372,7 +389,13 @@ class AIStrategyResearchService:
                 raise ValueError(
                     f"Generated strategy code validation failed before iteration {iteration}: {exc}"
                 ) from exc
-            backtest_request = self._build_backtest_request(draft, request)
+            backtest_request = self._build_backtest_request(
+                draft,
+                request,
+                start_date=validation_window.train_start if validation_window else None,
+                end_date=validation_window.train_end if validation_window else None,
+                group_name_suffix=" 训练样本" if validation_window else "",
+            )
             backtest_response = await self.strategy_service.backtest_copilot_draft(
                 user_id,
                 research_workspace.id,
@@ -427,6 +450,114 @@ class AIStrategyResearchService:
                 failure_reason = f"Backtest finished with status {unit_status.run_status}"
             if not failure_reason and quality_gate_failures:
                 failure_reason = "; ".join(quality_gate_failures)
+
+            validation_unit: StrategyUnitResponse | None = None
+            validation_run_result: StrategyCopilotRunResult | None = None
+            validation_unit_status: UnitStatusResponse | None = None
+            validation_status: str | None = None
+            validation_metrics: dict[str, Any] = {}
+            validation_gate_evaluations: list[dict[str, Any]] = []
+            validation_failures: list[str] = []
+            validation_failure_reason: str | None = None
+            validation_window_payload = validation_window.as_dict() if validation_window else None
+
+            if passed and request.out_of_sample_validation:
+                if validation_window is None:
+                    validation_status = "skipped"
+                    validation_failure_reason = (
+                        "Out-of-sample validation skipped because start_date/end_date "
+                        "do not define a splittable range"
+                    )
+                else:
+                    await _emit_research_progress(
+                        progress_callback,
+                        {
+                            "current_stage": "validating",
+                            "progress": min(
+                                _research_loop_progress(iteration, request.max_iterations) + 1.0,
+                                83.0,
+                            ),
+                            "current_iteration": iteration,
+                            "iteration_count": len(iterations),
+                            "max_iterations": request.max_iterations,
+                            "latest_iteration": {
+                                "iteration": iteration,
+                                "validation_window": validation_window_payload,
+                            },
+                            "message": f"Running out-of-sample validation for iteration {iteration}",
+                        },
+                    )
+                    validation_request = self._build_backtest_request(
+                        draft,
+                        request,
+                        start_date=validation_window.validation_start,
+                        end_date=validation_window.validation_end,
+                        group_name_suffix=" 样本外验证",
+                    )
+                    validation_response = await self.strategy_service.backtest_copilot_draft(
+                        user_id,
+                        research_workspace.id,
+                        validation_request,
+                    )
+                    if validation_response is None:
+                        raise ValueError(
+                            "Research workspace or generated validation strategy was not found"
+                        )
+                    validation_unit = validation_response.unit
+                    validation_run_result = validation_response.run_result
+                    await _emit_research_progress(
+                        progress_callback,
+                        {
+                            "current_stage": "validating",
+                            "progress": min(
+                                _research_loop_progress(iteration, request.max_iterations) + 2.0,
+                                84.0,
+                            ),
+                            "current_iteration": iteration,
+                            "iteration_count": len(iterations),
+                            "max_iterations": request.max_iterations,
+                            "current_backtest_task_id": validation_response.run_result.task_id,
+                            "latest_iteration": {
+                                "iteration": iteration,
+                                "validation_window": validation_window_payload,
+                            },
+                            "message": (
+                                f"Out-of-sample validation task submitted for iteration {iteration}"
+                            ),
+                        },
+                    )
+                    validation_unit_status, validation_wait_failure = await self._wait_for_unit_status(
+                        research_workspace.id,
+                        user_id,
+                        validation_response.unit.id,
+                        initial_status=validation_response.unit_status,
+                        timeout_seconds=request.backtest_timeout_seconds,
+                        poll_interval_seconds=request.poll_interval_seconds,
+                    )
+                    validation_metrics = dict(
+                        validation_unit_status.metrics_snapshot if validation_unit_status else {}
+                    )
+                    validation_run_status = (
+                        validation_unit_status.run_status if validation_unit_status else None
+                    )
+                    validation_gate_evaluations = _out_of_sample_gate_evaluations(
+                        request,
+                        validation_metrics,
+                        run_status=validation_run_status,
+                    )
+                    validation_failures = _out_of_sample_failures(
+                        request,
+                        validation_metrics,
+                        run_status=validation_run_status,
+                    )
+                    validation_status = "passed" if not validation_failures else "failed"
+                    if validation_wait_failure and validation_run_status != "completed":
+                        validation_failure_reason = validation_wait_failure
+                    if validation_failures:
+                        validation_failure_reason = "; ".join(validation_failures)
+                        quality_gate_failures = [*quality_gate_failures, *validation_failures]
+                        failure_reason = validation_failure_reason
+                        passed = False
             diagnostics = _iteration_diagnostics(
                 request,
                 iteration=iteration,
@@ -436,6 +567,21 @@ class AIStrategyResearchService:
                 quality_gate_evaluations=quality_gate_evaluations,
                 failure_reason=failure_reason,
             )
+            if request.out_of_sample_validation:
+                diagnostics["out_of_sample_validation"] = {
+                    "status": validation_status or "not_required",
+                    "window": validation_window_payload,
+                    "metrics": validation_metrics,
+                    "gate_evaluations": validation_gate_evaluations,
+                    "failures": validation_failures,
+                    "failure_reason": validation_failure_reason,
+                }
+                if validation_failures:
+                    diagnostics["promotion_ready"] = False
+                    diagnostics["summary"] = (
+                        f"第 {iteration} 轮训练样本达标，但样本外验证未通过："
+                        + "；".join(validation_failures)
+                    )
             improvement_plan = list(diagnostics.get("improvement_plan") or [])
 
             item = AIStrategyResearchIteration(
@@ -447,6 +593,15 @@ class AIStrategyResearchService:
                 metrics=metrics,
                 sharpe_ratio=sharpe,
                 total_trades=total_trades,
+                validation_unit=validation_unit,
+                validation_run_result=validation_run_result,
+                validation_unit_status=validation_unit_status,
+                validation_status=validation_status,
+                validation_window=validation_window_payload,
+                validation_metrics=validation_metrics,
+                validation_gate_evaluations=validation_gate_evaluations,
+                validation_failures=validation_failures,
+                validation_failure_reason=validation_failure_reason,
                 quality_score=quality_score,
                 quality_gate_evaluations=quality_gate_evaluations,
                 passed=passed,
@@ -503,7 +658,7 @@ class AIStrategyResearchService:
                 improvement = await self.improver.improve(
                     draft,
                     iteration=iteration,
-                    metrics=metrics,
+                    metrics=_improvement_metrics(metrics, validation_metrics),
                     target_sharpe=request.target_sharpe,
                     quality_gate_failures=quality_gate_failures,
                     user_id=user_id,
@@ -837,8 +992,14 @@ class AIStrategyResearchService:
         self,
         draft: AIStrategyDraft,
         request: AIStrategyResearchRunRequest,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        group_name_suffix: str = "",
     ) -> StrategyCopilotBacktestRequest:
         asset_specs = _resolve_research_asset_specs(request)
+        effective_start_date = start_date if start_date is not None else request.start_date
+        effective_end_date = end_date if end_date is not None else request.end_date
         data_config = {
             **request.data_config,
             "symbol": request.symbol,
@@ -846,10 +1007,10 @@ class AIStrategyResearchService:
             "timeframe": request.timeframe,
             "timeframe_n": request.timeframe_n,
         }
-        if request.start_date:
-            data_config["start_date"] = request.start_date
-        if request.end_date:
-            data_config["end_date"] = request.end_date
+        if effective_start_date:
+            data_config["start_date"] = effective_start_date
+        if effective_end_date:
+            data_config["end_date"] = effective_end_date
 
         unit_settings = {
             **request.unit_settings,
@@ -874,7 +1035,10 @@ class AIStrategyResearchService:
             symbol_name=request.symbol_name or request.symbol,
             timeframe=request.timeframe,
             timeframe_n=request.timeframe_n,
-            group_name=request.group_name or draft.execution_plan.group_name or draft.name,
+            group_name=_bounded_name(
+                f"{request.group_name or draft.execution_plan.group_name or draft.name}{group_name_suffix}",
+                200,
+            ),
             data_config=data_config,
             unit_settings=unit_settings,
             optimization_config=request.optimization_config,
@@ -1491,6 +1655,169 @@ def _quality_gate_failures(
     return failures
 
 
+def _parse_iso_date(value: str | None) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def _out_of_sample_window(request: AIStrategyResearchRunRequest) -> OutOfSampleWindow | None:
+    if not request.out_of_sample_validation:
+        return None
+    start = _parse_iso_date(request.start_date)
+    end = _parse_iso_date(request.end_date)
+    if start is None or end is None or end <= start:
+        return None
+    total_days = (end - start).days + 1
+    if total_days < 8:
+        return None
+    validation_days = max(int(total_days * request.out_of_sample_ratio), 1)
+    validation_days = min(validation_days, total_days - 2)
+    validation_start = end - timedelta(days=validation_days - 1)
+    train_end = validation_start - timedelta(days=1)
+    if train_end <= start or validation_start > end:
+        return None
+    return OutOfSampleWindow(
+        train_start=start.isoformat(),
+        train_end=train_end.isoformat(),
+        validation_start=validation_start.isoformat(),
+        validation_end=end.isoformat(),
+    )
+
+
+def _out_of_sample_min_sharpe(request: AIStrategyResearchRunRequest) -> float:
+    if request.min_out_of_sample_sharpe is not None:
+        return request.min_out_of_sample_sharpe
+    return round(request.target_sharpe * 0.6, 6)
+
+
+def _out_of_sample_min_trades(request: AIStrategyResearchRunRequest) -> int:
+    if request.min_out_of_sample_trades is not None:
+        return request.min_out_of_sample_trades
+    if request.min_total_trades <= 0:
+        return 0
+    return max(1, int(round(request.min_total_trades * request.out_of_sample_ratio)))
+
+
+def _out_of_sample_failures(
+    request: AIStrategyResearchRunRequest,
+    metrics: dict[str, Any],
+    *,
+    run_status: str | None,
+) -> list[str]:
+    failures: list[str] = []
+    if run_status != "completed":
+        failures.append(f"Out-of-sample backtest finished with status {run_status or 'unknown'}")
+        return failures
+
+    min_sharpe = _out_of_sample_min_sharpe(request)
+    sharpe = _quality_metric(metrics, "sharpe_ratio", "sharpe", "sharpeRatio")
+    if sharpe is None:
+        failures.append("Out-of-sample Sharpe metric unavailable")
+    elif sharpe < min_sharpe:
+        failures.append(
+            f"Out-of-sample Sharpe {sharpe:.3f} below minimum {min_sharpe:.3f}"
+        )
+
+    min_trades = _out_of_sample_min_trades(request)
+    total_trades = _metric_int(metrics, "total_trades", "totalTrades", "trades")
+    if total_trades < min_trades:
+        failures.append(
+            f"Out-of-sample only {total_trades} trades, below minimum {min_trades}"
+        )
+
+    if request.max_drawdown_limit is not None:
+        max_drawdown = _quality_metric(
+            metrics,
+            "max_drawdown",
+            "maxDrawdown",
+            "drawdown",
+            "max_dd",
+            "maxDD",
+        )
+        if max_drawdown is None:
+            failures.append("Out-of-sample max drawdown metric unavailable")
+        else:
+            comparable = abs(_align_metric_scale(max_drawdown, request.max_drawdown_limit))
+            if comparable > abs(request.max_drawdown_limit):
+                failures.append(
+                    f"Out-of-sample max drawdown {comparable:.3f} exceeds limit "
+                    f"{abs(request.max_drawdown_limit):.3f}"
+                )
+
+    return failures
+
+
+def _out_of_sample_gate_evaluations(
+    request: AIStrategyResearchRunRequest,
+    metrics: dict[str, Any],
+    *,
+    run_status: str | None,
+) -> list[dict[str, Any]]:
+    if run_status != "completed":
+        return []
+    evaluations = [
+        _minimum_gate_evaluation(
+            "out_of_sample_sharpe",
+            "Out-of-sample Sharpe",
+            _quality_metric(metrics, "sharpe_ratio", "sharpe", "sharpeRatio"),
+            _out_of_sample_min_sharpe(request),
+        ),
+        _minimum_gate_evaluation(
+            "out_of_sample_total_trades",
+            "Out-of-sample total trades",
+            float(_metric_int(metrics, "total_trades", "totalTrades", "trades")),
+            float(_out_of_sample_min_trades(request)),
+        ),
+    ]
+    if request.max_drawdown_limit is not None:
+        max_drawdown = _quality_metric(
+            metrics,
+            "max_drawdown",
+            "maxDrawdown",
+            "drawdown",
+            "max_dd",
+            "maxDD",
+        )
+        comparable = (
+            abs(_align_metric_scale(max_drawdown, request.max_drawdown_limit))
+            if max_drawdown is not None
+            else None
+        )
+        evaluations.append(
+            _maximum_gate_evaluation(
+                "out_of_sample_max_drawdown",
+                "Out-of-sample max drawdown",
+                comparable,
+                abs(request.max_drawdown_limit),
+            )
+        )
+    return evaluations
+
+
+def _improvement_metrics(
+    metrics: dict[str, Any],
+    validation_metrics: dict[str, Any],
+) -> dict[str, Any]:
+    if not validation_metrics:
+        return metrics
+    merged = dict(metrics)
+    merged["out_of_sample"] = dict(validation_metrics)
+    for source_key, target_key in (
+        ("sharpe_ratio", "out_of_sample_sharpe"),
+        ("total_trades", "out_of_sample_total_trades"),
+        ("max_drawdown", "out_of_sample_max_drawdown"),
+        ("total_return", "out_of_sample_total_return"),
+    ):
+        if source_key in validation_metrics:
+            merged[target_key] = validation_metrics[source_key]
+    return merged
+
+
 def _is_better_research_candidate(
     candidate: AIStrategyResearchIteration,
     current: AIStrategyResearchIteration,
@@ -1673,12 +2000,19 @@ def _quality_gates_payload(request: AIStrategyResearchRunRequest) -> dict[str, A
     payload: dict[str, Any] = {
         "target_sharpe": request.target_sharpe,
         "min_total_trades": request.min_total_trades,
+        "out_of_sample_validation": request.out_of_sample_validation,
+        "out_of_sample_ratio": request.out_of_sample_ratio,
     }
+    if request.out_of_sample_validation:
+        payload["min_out_of_sample_sharpe"] = _out_of_sample_min_sharpe(request)
+        payload["min_out_of_sample_trades"] = _out_of_sample_min_trades(request)
     for key in (
         "max_drawdown_limit",
         "min_total_return",
         "min_annual_return",
         "min_win_rate",
+        "min_out_of_sample_sharpe",
+        "min_out_of_sample_trades",
     ):
         value = getattr(request, key)
         if value is not None:
@@ -1886,6 +2220,10 @@ def _paper_start_request_from_record(
         min_total_return=_optional_gate_number(gates.get("min_total_return")),
         min_annual_return=_optional_gate_number(gates.get("min_annual_return")),
         min_win_rate=_optional_gate_number(gates.get("min_win_rate")),
+        out_of_sample_validation=bool(gates.get("out_of_sample_validation", True)),
+        out_of_sample_ratio=float(gates.get("out_of_sample_ratio") or 0.25),
+        min_out_of_sample_sharpe=_optional_gate_number(gates.get("min_out_of_sample_sharpe")),
+        min_out_of_sample_trades=_optional_gate_int(gates.get("min_out_of_sample_trades")),
         max_iterations=max(int(record.max_iterations or 1), 1),
         research_workspace_id=record.research_workspace_id,
         trading_workspace_id=request.trading_workspace_id,
@@ -1927,6 +2265,14 @@ def _iteration_from_record_payload(
         metrics=metrics,
         sharpe_ratio=_metric_float(metrics, "sharpe_ratio", "sharpe", "sharpeRatio"),
         total_trades=_metric_int(metrics, "total_trades", "totalTrades", "trades"),
+        validation_status=payload.get("validation_status"),
+        validation_window=dict(payload.get("validation_window") or {})
+        if payload.get("validation_window")
+        else None,
+        validation_metrics=dict(payload.get("validation_metrics") or {}),
+        validation_gate_evaluations=list(payload.get("validation_gate_evaluations") or []),
+        validation_failures=list(payload.get("validation_failures") or []),
+        validation_failure_reason=payload.get("validation_failure_reason"),
         quality_score=float(payload.get("quality_score") or record.best_quality_score or 0.0),
         quality_gate_evaluations=list(
             payload.get("quality_gate_evaluations")
@@ -1948,6 +2294,15 @@ def _optional_gate_number(value: Any) -> float | None:
         return None
     try:
         return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_gate_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
     except (TypeError, ValueError):
         return None
 
@@ -2090,6 +2445,14 @@ def _build_paper_trading_handoff(
         "achieved_diagnostics": best_iteration.diagnostics,
         "total_trades": best_iteration.total_trades,
         "best_metrics": best_iteration.metrics,
+        "out_of_sample_validation": {
+            "status": best_iteration.validation_status,
+            "window": best_iteration.validation_window,
+            "metrics": best_iteration.validation_metrics,
+            "gate_evaluations": best_iteration.validation_gate_evaluations,
+            "failures": best_iteration.validation_failures,
+            "failure_reason": best_iteration.validation_failure_reason,
+        },
         "paper_monitoring_plan": _paper_monitoring_plan(request, best_iteration),
         "symbol": request.symbol,
         "symbol_name": request.symbol_name or request.symbol,
@@ -2111,6 +2474,19 @@ def _compact_research_iteration(item: AIStrategyResearchIteration) -> dict[str, 
         "metrics": item.metrics,
         "sharpe_ratio": item.sharpe_ratio,
         "total_trades": item.total_trades,
+        "validation_status": item.validation_status,
+        "validation_window": item.validation_window,
+        "validation_metrics": item.validation_metrics,
+        "validation_gate_evaluations": item.validation_gate_evaluations,
+        "validation_failures": item.validation_failures,
+        "validation_failure_reason": item.validation_failure_reason,
+        "validation_unit_id": item.validation_unit.id if item.validation_unit else None,
+        "validation_task_id": item.validation_run_result.task_id
+        if item.validation_run_result
+        else None,
+        "validation_run_status": item.validation_unit_status.run_status
+        if item.validation_unit_status
+        else None,
         "quality_score": item.quality_score,
         "quality_gate_evaluations": item.quality_gate_evaluations,
         "passed": item.passed,

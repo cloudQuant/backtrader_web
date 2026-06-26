@@ -42,6 +42,25 @@ class AIStrategyResearchRunRequest(BaseModel):
         description="Optional minimum win rate, ratio or percent",
     )
     max_iterations: int = Field(3, ge=1, le=8, description="Maximum improvement rounds")
+    out_of_sample_validation: bool = Field(
+        True,
+        description="Run an out-of-sample validation backtest before paper trading when dates allow",
+    )
+    out_of_sample_ratio: float = Field(
+        0.25,
+        ge=0.05,
+        le=0.5,
+        description="Fraction of the requested date range reserved for out-of-sample validation",
+    )
+    min_out_of_sample_sharpe: float | None = Field(
+        None,
+        description="Optional minimum Sharpe for out-of-sample validation; defaults to 60% of target",
+    )
+    min_out_of_sample_trades: int | None = Field(
+        None,
+        ge=0,
+        description="Optional minimum trades for out-of-sample validation",
+    )
     backtest_timeout_seconds: float = Field(
         600.0, ge=1.0, le=3600.0, description="Per-round backtest wait timeout"
     )
@@ -95,6 +114,15 @@ class AIStrategyResearchIteration(BaseModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
     sharpe_ratio: float = 0.0
     total_trades: int = 0
+    validation_unit: StrategyUnitResponse | None = None
+    validation_run_result: StrategyCopilotRunResult | None = None
+    validation_unit_status: UnitStatusResponse | None = None
+    validation_status: str | None = None
+    validation_window: dict[str, str] | None = None
+    validation_metrics: dict[str, Any] = Field(default_factory=dict)
+    validation_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    validation_failures: list[str] = Field(default_factory=list)
+    validation_failure_reason: str | None = None
     quality_score: float = 0.0
     quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
     passed: bool = False

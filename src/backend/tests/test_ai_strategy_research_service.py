@@ -589,6 +589,10 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.run_record.quality_gates == {
         "target_sharpe": 1.0,
         "min_total_trades": 1,
+        "out_of_sample_validation": True,
+        "out_of_sample_ratio": 0.25,
+        "min_out_of_sample_sharpe": 0.6,
+        "min_out_of_sample_trades": 1,
     }
     assert result.paper_trading.handoff["quality_gates"] == result.run_record.quality_gates
     assert result.research_workspace.settings["ai_research"]["last_run"]["run_id"] == result.run_id
@@ -602,6 +606,142 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert "系统将基于本轮失败原因生成下一版策略" in result.research_workspace.settings[
         "ai_research"
     ]["runs"][0]["iterations"][0]["next_actions"][-1]
+
+
+@pytest.mark.asyncio
+async def test_research_loop_validates_out_of_sample_before_paper_when_dates_are_available():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.32, "total_trades": 12, "max_drawdown": -4.0},
+            {"sharpe_ratio": 0.92, "total_trades": 3, "max_drawdown": -2.0},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略并做样本外验证",
+            symbol="000001.SZ",
+            symbol_name="平安银行",
+            start_date="2024-01-01",
+            end_date="2024-01-20",
+            target_sharpe=1.0,
+            min_total_trades=4,
+            min_out_of_sample_sharpe=0.8,
+            min_out_of_sample_trades=2,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert result.paper_trading is not None
+    assert len(strategy_service.submitted_backtest_requests) == 2
+    train_request, validation_request = strategy_service.submitted_backtest_requests
+    assert train_request.data_config["start_date"] == "2024-01-01"
+    assert train_request.data_config["end_date"] == "2024-01-15"
+    assert validation_request.data_config["start_date"] == "2024-01-16"
+    assert validation_request.data_config["end_date"] == "2024-01-20"
+    assert "训练样本" in train_request.group_name
+    assert "样本外验证" in validation_request.group_name
+
+    iteration = result.iterations[0]
+    assert iteration.passed is True
+    assert iteration.validation_status == "passed"
+    assert iteration.validation_window == {
+        "train_start": "2024-01-01",
+        "train_end": "2024-01-15",
+        "validation_start": "2024-01-16",
+        "validation_end": "2024-01-20",
+    }
+    assert iteration.validation_metrics["sharpe_ratio"] == pytest.approx(0.92)
+    assert [item["key"] for item in iteration.validation_gate_evaluations] == [
+        "out_of_sample_sharpe",
+        "out_of_sample_total_trades",
+    ]
+    assert iteration.validation_failures == []
+    assert result.paper_trading.handoff is not None
+    assert result.paper_trading.handoff["research_strategy_id"] == "strategy-1"
+    assert result.paper_trading.handoff["out_of_sample_validation"]["status"] == "passed"
+    assert result.run_record is not None
+    assert result.run_record.quality_gates["min_out_of_sample_sharpe"] == 0.8
+    assert result.run_record.quality_gates["min_out_of_sample_trades"] == 2
+    assert result.run_record.paper_handoff["out_of_sample_validation"]["metrics"][
+        "sharpe_ratio"
+    ] == pytest.approx(0.92)
+    assert result.run_record.iterations[0]["validation_task_id"] == "task-2"
+    assert result.run_record.iterations[0]["validation_run_status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_research_loop_continues_when_out_of_sample_validation_fails():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.2, "total_trades": 8, "max_drawdown": -3.0},
+            {"sharpe_ratio": 0.3, "total_trades": 1, "max_drawdown": -2.0},
+            {"sharpe_ratio": 1.18, "total_trades": 9, "max_drawdown": -4.0},
+            {"sharpe_ratio": 0.95, "total_trades": 3, "max_drawdown": -2.5},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略并持续优化到样本外达标",
+            symbol="000001.SZ",
+            start_date="2024-01-01",
+            end_date="2024-01-20",
+            target_sharpe=1.0,
+            min_total_trades=4,
+            min_out_of_sample_sharpe=0.8,
+            min_out_of_sample_trades=2,
+            max_iterations=2,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert len(result.iterations) == 2
+    assert len(strategy_service.submitted_backtest_requests) == 4
+    assert result.iterations[0].passed is False
+    assert result.iterations[0].validation_status == "failed"
+    assert any(
+        "Out-of-sample Sharpe" in failure
+        for failure in result.iterations[0].validation_failures
+    )
+    assert any(
+        "Out-of-sample only 1 trades" in failure
+        for failure in result.iterations[0].validation_failures
+    )
+    assert result.iterations[0].diagnostics["promotion_ready"] is False
+    assert "sharpe" in result.iterations[0].diagnostics["failure_categories"]
+    assert result.iterations[1].passed is True
+    assert result.iterations[1].validation_status == "passed"
+    assert result.best_strategy is not None
+    assert result.best_strategy.id == "strategy-3"
+    assert result.paper_trading is not None
+    assert result.paper_trading.handoff is not None
+    assert result.paper_trading.handoff["research_strategy_id"] == "strategy-3"
+    assert result.paper_trading.handoff["out_of_sample_validation"]["status"] == "passed"
+    assert result.run_record is not None
+    assert result.run_record.iterations[0]["validation_status"] == "failed"
+    assert result.run_record.iterations[1]["validation_status"] == "passed"
 
 
 def test_copilot_workspace_runtime_metadata_extracts_contract_specs():
