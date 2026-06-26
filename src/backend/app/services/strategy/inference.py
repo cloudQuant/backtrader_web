@@ -55,9 +55,15 @@ def strategy_name_from_prompt(prompt: str) -> str:
 
 def class_name_from_prompt(prompt: str) -> str:
     tokens = re.findall(r"[A-Za-z0-9]+", str(prompt or ""))
+    tokens = [token for token in tokens if re.search(r"[A-Za-z]", token)]
     if not tokens:
         return "AIGeneratedStrategy"
-    return "".join(token.capitalize() for token in tokens[:4]) + "Strategy"
+    class_name = "".join(token[:1].upper() + token[1:] for token in tokens[:4])
+    if not re.match(r"^[A-Za-z_]", class_name):
+        class_name = f"AI{class_name}"
+    if not class_name.endswith("Strategy"):
+        class_name = f"{class_name}Strategy"
+    return class_name
 
 
 def infer_timeframe(prompt: str) -> str | None:

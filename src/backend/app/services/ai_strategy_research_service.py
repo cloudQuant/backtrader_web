@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import json
 import re
@@ -44,6 +45,7 @@ from app.services.ai_router.router import AIChatRouter, get_ai_chat_router
 from app.services.strategy.inference import render_param_default
 from app.services.strategy_service import StrategyService
 from app.services.workspace_service import WorkspaceService
+from app.utils.sandbox import StrategySandbox
 
 _TERMINAL_UNIT_STATUSES = {"completed", "failed", "cancelled", "timeout"}
 
@@ -293,6 +295,12 @@ class AIStrategyResearchService:
         achieved = False
 
         for iteration in range(1, request.max_iterations + 1):
+            try:
+                _validate_strategy_code_draft(draft.code)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Generated strategy code validation failed before iteration {iteration}: {exc}"
+                ) from exc
             backtest_request = self._build_backtest_request(draft, request)
             backtest_response = await self.strategy_service.backtest_copilot_draft(
                 user_id,
@@ -772,6 +780,47 @@ def _coerce_research_run_record(value: Any) -> AIStrategyResearchRunRecord | Non
         return None
 
 
+def _validate_strategy_code_draft(code: str) -> None:
+    text = str(code or "").strip()
+    if not text:
+        raise ValueError("strategy code is empty")
+    try:
+        StrategySandbox._check_code_safety(text)
+        tree = ast.parse(text, filename="<ai_strategy_draft>")
+    except SyntaxError as exc:
+        raise ValueError(f"strategy code syntax error: {exc}") from exc
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError(f"strategy code safety check failed: {exc}") from exc
+
+    if not any(_is_backtrader_strategy_class(node) for node in ast.walk(tree)):
+        raise ValueError("strategy code must define a class inheriting from bt.Strategy")
+
+
+def _is_backtrader_strategy_class(node: ast.AST) -> bool:
+    if not isinstance(node, ast.ClassDef):
+        return False
+    return any(_is_backtrader_strategy_base(base) for base in node.bases)
+
+
+def _is_backtrader_strategy_base(base: ast.AST) -> bool:
+    if isinstance(base, ast.Attribute) and base.attr == "Strategy":
+        return _ast_name(base.value) in {"bt", "backtrader"}
+    if isinstance(base, ast.Name):
+        return base.id == "Strategy"
+    return False
+
+
+def _ast_name(node: ast.AST) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _ast_name(node.value)
+        return f"{parent}.{node.attr}" if parent else node.attr
+    return ""
+
+
 def _quality_gate_failures(
     request: AIStrategyResearchRunRequest,
     metrics: dict[str, Any],
@@ -1061,8 +1110,7 @@ def _merge_ai_improvement(
 
     code = _optional_text(payload.get("code"))
     if code:
-        if "bt.Strategy" not in code and "backtrader" not in code:
-            raise ValueError("AI strategy code does not look like a Backtrader strategy")
+        _validate_strategy_code_draft(code)
         improved.code = code
 
     params = _coerce_param_specs(payload.get("params"))

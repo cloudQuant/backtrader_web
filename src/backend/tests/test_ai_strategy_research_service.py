@@ -251,6 +251,29 @@ class FakeStrategyService:
         )
 
 
+class FakeInvalidDraftStrategyService:
+    def __init__(self) -> None:
+        self.backtest_called = False
+
+    async def generate_copilot_draft(self, user_id: str, request):
+        draft = build_ai_strategy_draft(request.prompt).model_copy(
+            update={"code": "def not_a_strategy():\n    return 1\n"}
+        )
+        return StrategyCopilotDraftResponse(
+            answer=render_ai_strategy_draft_answer(draft),
+            strategy_draft=draft,
+            citations=[],
+            context_chunks_used=0,
+            tokens_used=0,
+            model_id=None,
+            reasoning=None,
+        )
+
+    async def backtest_copilot_draft(self, user_id: str, workspace_id: str, request):
+        self.backtest_called = True
+        raise AssertionError("invalid strategy draft should not be submitted to backtest")
+
+
 async def _noop_sleep(_: float) -> None:
     return None
 
@@ -288,6 +311,13 @@ class FakeAIChatRouter:
             provider="fake",
             total_tokens=123,
         )
+
+
+def test_ai_strategy_draft_class_name_is_valid_with_numeric_goal():
+    draft = build_ai_strategy_draft("请生成一个双均线趋势策略，目标夏普率 1.0")
+
+    compile(draft.code, "<strategy>", "exec")
+    assert "class AIGeneratedStrategy(bt.Strategy):" in draft.code
 
 
 @pytest.mark.asyncio
@@ -354,6 +384,39 @@ async def test_ai_strategy_improver_falls_back_when_model_payload_is_invalid():
     assert result.draft.name.endswith("v2")
     assert result.notes[0].startswith("AI模型改稿不可用，已使用本地规则回退")
     assert any("调整均线窗口" in note for note in result.notes)
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_improver_falls_back_when_model_code_is_not_strategy():
+    draft = build_ai_strategy_draft("请生成一个均线趋势策略")
+    improver = AIStrategyImprover(
+        ai_router=FakeAIChatRouter(
+            """
+            {
+              "name": "无效策略",
+              "description": "invalid",
+              "code": "def not_a_strategy():\\n    return 1\\n",
+              "notes": ["模型没有返回 Backtrader Strategy 类"]
+            }
+            """
+        ),
+        preference_service=FakePreferenceService(),
+        settings=FakeAISettings(),
+    )
+
+    result = await improver.improve(
+        draft,
+        iteration=1,
+        metrics={"sharpe_ratio": 0.2, "total_trades": 0},
+        target_sharpe=1.0,
+        user_id="user-1",
+        request=AIStrategyResearchRunRequest(prompt="均线趋势", symbol="000001.SZ"),
+    )
+
+    assert result.draft.name.endswith("v2")
+    assert "not_a_strategy" not in result.draft.code
+    assert result.notes[0].startswith("AI模型改稿不可用，已使用本地规则回退")
+    assert "must define a class inheriting from bt.Strategy" in result.notes[0]
 
 
 @pytest.mark.asyncio
@@ -455,6 +518,31 @@ async def test_research_loop_stops_after_max_iterations_without_paper():
     assert result.status == "max_iterations_reached"
     assert result.paper_trading is None
     assert workspace_service.started_units == []
+
+
+@pytest.mark.asyncio
+async def test_research_loop_rejects_invalid_generated_strategy_before_backtest():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeInvalidDraftStrategyService()
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    with pytest.raises(ValueError, match="Generated strategy code validation failed"):
+        await service.run(
+            "user-1",
+            AIStrategyResearchRunRequest(
+                prompt="请生成一个无效策略",
+                symbol="000001.SZ",
+                max_iterations=1,
+                poll_interval_seconds=0.1,
+            ),
+        )
+
+    assert strategy_service.backtest_called is False
 
 
 @pytest.mark.asyncio
