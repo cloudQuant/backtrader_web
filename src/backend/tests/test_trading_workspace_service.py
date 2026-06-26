@@ -350,6 +350,11 @@ def test_build_snapshot_uses_gateway_asset_spec_fee_for_position_pnl(monkeypatch
     assert snapshot["position_pnl"] == pytest.approx(77.0)
     assert snapshot["valuation_status"] == "estimated"
     assert any("按资产费率估算" in item for item in snapshot["valuation_warnings"])
+    metadata = unit.params["contract_metadata"]["XAUUSD"]
+    assert metadata["source"] == "gateway.get_symbol_info"
+    assert metadata["contract_size"] == 100
+    assert metadata["margin_rate"] == 0.02
+    assert metadata["commission_rate"] == 0.001
 
 
 def test_build_snapshot_filters_gateway_positions_to_unit_symbol(monkeypatch, tmp_path):
@@ -3805,6 +3810,53 @@ async def test_start_units_syncs_runtime_contract_metadata_to_unit(tmp_path, mon
     assert metadata["margin_rate"] == 0.1
     assert metadata["commission_rate"] == 0.000023
     assert metadata["source"] == "gateway.get_symbol_info"
+
+
+@pytest.mark.asyncio
+async def test_hydrate_units_marks_changed_when_asset_metadata_is_refreshed(monkeypatch):
+    unit = SimpleNamespace(
+        id="unit-asset-refresh",
+        trading_instance_id=None,
+        run_status="running",
+        trading_snapshot={"instance_status": "running"},
+        metrics_snapshot={},
+        bar_count=None,
+        last_run_time=None,
+        params={},
+    )
+
+    class FakeManager:
+        pass
+
+    def fake_build_snapshot(cls, current_unit, instance, *, full_log=True):
+        current_unit.params = {
+            "contract_metadata": {
+                "IF2609": {
+                    "symbol": "IF2609",
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                    "commission_rate": 0.000023,
+                    "source": "gateway.query_instrument",
+                }
+            }
+        }
+        return dict(current_unit.trading_snapshot), {}, None, None
+
+    monkeypatch.setattr(
+        trading_workspace_service_module,
+        "get_live_trading_manager",
+        lambda: FakeManager(),
+    )
+    monkeypatch.setattr(
+        TradingWorkspaceService,
+        "_build_snapshot",
+        classmethod(fake_build_snapshot),
+    )
+
+    changed = await TradingWorkspaceService().hydrate_units([unit], user_id="user-1")
+
+    assert changed is True
+    assert unit.params["contract_metadata"]["IF2609"]["multiplier"] == 300
 
 
 @pytest.mark.asyncio

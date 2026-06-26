@@ -124,6 +124,23 @@ def get_all_strategy_templates() -> list[StrategyTemplate]:
     )
 
 
+def _runtime_metadata_from_copilot_request(
+    request: StrategyDraftWorkspaceAddRequest,
+) -> dict[str, Any]:
+    """Runtime metadata that must be available to generated run scripts."""
+    metadata: dict[str, Any] = {}
+    for source in (request.data_config, request.unit_settings):
+        if not isinstance(source, dict):
+            continue
+        for key in ("contract_metadata", "contracts", "contract_specs", "instrument_specs"):
+            value = source.get(key)
+            if isinstance(value, dict) and value:
+                existing = dict(metadata.get(key) or {})
+                existing.update(value)
+                metadata[key] = existing
+    return metadata
+
+
 __all__ = [
     "STRATEGIES_DIR",
     "StrategyService",
@@ -257,6 +274,9 @@ class StrategyService:
         strategy_params = {
             name: spec.default for name, spec in request.strategy_draft.params.items()
         }
+        runtime_metadata = _runtime_metadata_from_copilot_request(request)
+        if runtime_metadata:
+            strategy_params.update(runtime_metadata)
         timeframe = (
             request.timeframe
             or request.strategy_draft.data_source.timeframe

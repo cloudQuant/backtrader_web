@@ -196,7 +196,11 @@
                     type="info"
                     @close="clearAIResearchContinuation"
                   >
-                    从历史最佳策略继续
+                    {{
+                      aiResearchForm.continuation_source === 'paper_review'
+                        ? '从模拟复核反馈继续'
+                        : '从历史最佳策略继续'
+                    }}
                   </el-tag>
                 </div>
                 <el-button
@@ -433,7 +437,16 @@
                       <span>{{ record.symbol }}</span>
                       <span>{{ t('strategy.aiResearchBestSharpe') }} {{ formatMetric(record.best_sharpe) }}</span>
                       <span>质量分 {{ formatMetric(record.best_quality_score) }}</span>
+                      <span v-if="pipelineStage(record)">
+                        阶段 {{ pipelineStage(record) }}
+                      </span>
                       <span>{{ t('strategy.aiResearchIterations') }} {{ record.iteration_count }}</span>
+                      <span v-if="record.paper_review_status">
+                        复核 {{ record.paper_review_status }}
+                      </span>
+                      <span v-if="record.paper_reviewed_at">
+                        复核时间 {{ formatDateTime(record.paper_reviewed_at) }}
+                      </span>
                       <span>{{ formatDateTime(record.completed_at) }}</span>
                     </span>
                   </button>
@@ -453,6 +466,65 @@
                     </el-icon>
                     启动模拟
                   </el-button>
+                  <el-button
+                    v-else-if="canReviewPaperFromRecord(record)"
+                    size="small"
+                    type="primary"
+                    plain
+                    :loading="aiResearchPaperReviewingRunId === record.run_id"
+                    data-test="ai-research-history-review-paper"
+                    @click="reviewPaperFromResearchRecord(record)"
+                  >
+                    <el-icon
+                      class="mr-1"
+                      aria-hidden="true"
+                    >
+                      <MagicStick />
+                    </el-icon>
+                    复核模拟
+                  </el-button>
+                  <el-button
+                    v-if="canContinueResearchFromPaperReview(record)"
+                    size="small"
+                    type="warning"
+                    plain
+                    :loading="aiResearchRunning && aiResearchForm.continue_from_run_id === record.run_id"
+                    data-test="ai-research-history-continue-paper-review"
+                    @click="continueResearchFromPaperReview(record)"
+                  >
+                    <el-icon
+                      class="mr-1"
+                      aria-hidden="true"
+                    >
+                      <MagicStick />
+                    </el-icon>
+                    继续改进
+                  </el-button>
+                  <div
+                    v-if="aiResearchPaperReviews[record.run_id]"
+                    class="ai-research-paper-review"
+                    data-test="ai-research-paper-review"
+                  >
+                    <div class="ai-research-paper-review-head">
+                      <el-tag
+                        size="small"
+                        :type="aiResearchPaperReviews[record.run_id].ready_for_live ? 'success' : 'warning'"
+                      >
+                        {{ aiResearchPaperReviews[record.run_id].status }}
+                      </el-tag>
+                      <span>
+                        {{ aiResearchPaperReviews[record.run_id].ready_for_live ? '实盘候选' : '继续观察' }}
+                      </span>
+                    </div>
+                    <div class="ai-research-paper-review-rules">
+                      <span
+                        v-for="rule in aiResearchPaperReviews[record.run_id].evaluations"
+                        :key="rule.key"
+                      >
+                        {{ rule.label }} {{ formatMetric(rule.actual) }} / {{ formatMetric(rule.threshold) }}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div
@@ -680,7 +752,12 @@ import StrategyEditDialog from './strategy-components/StrategyEditDialog.vue'
 import StrategyDetailDialog from './strategy-components/StrategyDetailDialog.vue'
 import StrategyTemplateCard from './strategy-components/StrategyTemplateCard.vue'
 import type { ParamSpec, Strategy, StrategyTemplate } from '@/types'
-import type { AIStrategyResearchRunRecord, AIStrategyResearchRunResponse } from '@/api/strategy'
+import type {
+  AIStrategyPaperMonitoringRule,
+  AIStrategyPaperTradingReview,
+  AIStrategyResearchRunRecord,
+  AIStrategyResearchRunResponse,
+} from '@/api/strategy'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -708,6 +785,8 @@ const aiResearchResult = ref<AIStrategyResearchRunResponse | null>(null)
 const aiResearchRunsLoading = ref(false)
 const aiResearchRuns = ref<AIStrategyResearchRunRecord[]>([])
 const aiResearchPaperStartingRunId = ref('')
+const aiResearchPaperReviewingRunId = ref('')
+const aiResearchPaperReviews = reactive<Record<string, AIStrategyPaperTradingReview>>({})
 
 const form = reactive({
   name: '',
@@ -740,6 +819,7 @@ const aiResearchForm = reactive({
   research_workspace_id: '',
   seed_strategy_id: '',
   continue_from_run_id: '',
+  continuation_source: '',
   start_paper_trading: true,
 })
 
@@ -868,6 +948,8 @@ function useAIResearchRecord(record: AIStrategyResearchRunRecord) {
   aiResearchForm.research_workspace_id = record.research_workspace_id || ''
   aiResearchForm.seed_strategy_id = record.best_strategy_id || ''
   aiResearchForm.continue_from_run_id = record.best_strategy_id ? record.run_id : ''
+  aiResearchForm.continuation_source =
+    record.paper_review_status && !record.paper_review_ready_for_live ? 'paper_review' : ''
 }
 
 function enabledQualityGate(enabled: boolean, value: number) {
@@ -875,17 +957,42 @@ function enabledQualityGate(enabled: boolean, value: number) {
 }
 
 function researchIterationNextActions(item: AIStrategyResearchRunResponse['iterations'][number]) {
-  return item.next_actions ?? []
+  const nextActions = item.next_actions ?? []
+  const improvementPlan = item.improvement_plan ?? item.diagnostics?.improvement_plan ?? []
+  return [...new Set([...nextActions, ...improvementPlan])]
 }
 
 function canStartPaperFromRecord(record: AIStrategyResearchRunRecord) {
   return Boolean(record.achieved && !record.paper_trading_started && record.best_strategy_id)
 }
 
+function canReviewPaperFromRecord(record: AIStrategyResearchRunRecord) {
+  return Boolean(record.paper_trading_started && record.paper_workspace_id && record.paper_unit_id)
+}
+
+function canContinueResearchFromPaperReview(record: AIStrategyResearchRunRecord) {
+  return Boolean(
+    record.best_strategy_id &&
+    record.paper_review_status === 'needs_research_review' &&
+    !record.paper_review_ready_for_live
+  )
+}
+
+function pipelineStage(record: AIStrategyResearchRunRecord) {
+  if (record.paper_review_ready_for_live) return 'live_candidate'
+  if (record.paper_review_status) return 'paper_review'
+  if (record.pipeline?.current_stage) return record.pipeline.current_stage
+  if (record.paper_trading_started) return 'paper_trading'
+  if (record.achieved) return 'quality_achieved'
+  if (record.status === 'timeout') return 'backtest_timeout'
+  return record.iteration_count > 0 ? 'research_iteration' : ''
+}
+
 function clearAIResearchContinuation() {
   aiResearchForm.research_workspace_id = ''
   aiResearchForm.seed_strategy_id = ''
   aiResearchForm.continue_from_run_id = ''
+  aiResearchForm.continuation_source = ''
 }
 
 async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord) {
@@ -901,6 +1008,9 @@ async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord)
             paper_trading_started: paper.started,
             paper_workspace_id: paper.workspace.id,
             paper_unit_id: paper.unit.id,
+            paper_handoff: paper.handoff ?? {},
+            paper_monitoring_plan:
+              paperMonitoringPlanFromHandoff(paper.handoff) ?? item.paper_monitoring_plan,
           }
         : item
     )
@@ -910,6 +1020,47 @@ async function startPaperFromResearchRecord(record: AIStrategyResearchRunRecord)
   } finally {
     aiResearchPaperStartingRunId.value = ''
   }
+}
+
+function paperMonitoringPlanFromHandoff(
+  handoff: Record<string, unknown> | null | undefined
+): AIStrategyPaperMonitoringRule[] | undefined {
+  const plan = handoff?.paper_monitoring_plan
+  return Array.isArray(plan) ? (plan as AIStrategyPaperMonitoringRule[]) : undefined
+}
+
+async function reviewPaperFromResearchRecord(record: AIStrategyResearchRunRecord) {
+  aiResearchPaperReviewingRunId.value = record.run_id
+  try {
+    const review = await strategyApi.reviewAIResearchPaperTrading(
+      record.run_id,
+      record.research_workspace_id
+    )
+    aiResearchPaperReviews[record.run_id] = review
+    aiResearchRuns.value = aiResearchRuns.value.map(item =>
+      item.run_id === record.run_id
+        ? {
+            ...item,
+            paper_review_status: review.status,
+            paper_review_ready_for_live: review.ready_for_live,
+            paper_reviewed_at: review.reviewed_at ?? item.paper_reviewed_at,
+            paper_review_evaluations: review.evaluations,
+            paper_review_next_actions: review.next_actions,
+            pipeline: review.pipeline ?? item.pipeline,
+          }
+        : item
+    )
+    ElMessage.success(review.ready_for_live ? '模拟交易已满足实盘候选条件' : '模拟交易复核已更新')
+  } catch {
+    ElMessage.error(t('strategy.aiResearchRunFailed'))
+  } finally {
+    aiResearchPaperReviewingRunId.value = ''
+  }
+}
+
+async function continueResearchFromPaperReview(record: AIStrategyResearchRunRecord) {
+  useAIResearchRecord(record)
+  await runAIResearchLoop()
 }
 
 async function runAIResearchLoop() {
@@ -1283,6 +1434,7 @@ onMounted(async () => {
   padding: 10px 12px;
   background: var(--el-bg-color);
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
@@ -1326,6 +1478,30 @@ onMounted(async () => {
 .ai-research-history-meta {
   color: var(--el-text-color-secondary);
   font-size: 12px;
+}
+
+.ai-research-paper-review {
+  flex-basis: 100%;
+  border-top: 1px solid var(--el-border-color-lighter);
+  padding-top: 8px;
+}
+
+.ai-research-paper-review-head,
+.ai-research-paper-review-rules {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.ai-research-paper-review-head {
+  margin-bottom: 6px;
+  color: var(--el-text-color-primary);
+}
+
+.ai-research-paper-review-rules {
+  color: var(--el-text-color-secondary);
 }
 
 .ai-research-history-empty {

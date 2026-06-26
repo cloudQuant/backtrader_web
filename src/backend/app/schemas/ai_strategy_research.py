@@ -78,6 +78,10 @@ class AIStrategyResearchRunRequest(BaseModel):
         default_factory=dict, description="Unit optimization config"
     )
     gateway_config: dict[str, Any] = Field(default_factory=dict, description="Paper gateway config")
+    continuation_context: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Internal context carried from a previous research/paper review run",
+    )
 
 
 class AIStrategyResearchIteration(BaseModel):
@@ -96,6 +100,14 @@ class AIStrategyResearchIteration(BaseModel):
     passed: bool = False
     failure_reason: str | None = None
     quality_gate_failures: list[str] = Field(default_factory=list)
+    diagnostics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Structured diagnosis of this backtest round and improvement focus",
+    )
+    improvement_plan: list[str] = Field(
+        default_factory=list,
+        description="Concrete changes the next strategy revision should prioritize",
+    )
     improvement_notes: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
 
@@ -119,6 +131,42 @@ class AIStrategyPaperTradingStartRequest(BaseModel):
     gateway_config: dict[str, Any] = Field(default_factory=dict, description="Paper gateway config")
 
 
+class AIStrategyPaperTradingRuleEvaluation(BaseModel):
+    """Evaluation for one paper trading monitoring rule."""
+
+    key: str
+    label: str
+    metric: str
+    window: str
+    direction: str
+    threshold: float
+    actual: float | None = None
+    source: str | None = None
+    status: str
+    passed: bool = False
+    action: str
+
+
+class AIStrategyPaperTradingReview(BaseModel):
+    """Current paper trading validation state for an AI research run."""
+
+    run_id: str
+    research_workspace_id: str
+    paper_workspace_id: str | None = None
+    paper_unit_id: str | None = None
+    paper_trading_started: bool = False
+    workspace: WorkspaceResponse | None = None
+    unit: StrategyUnitResponse | None = None
+    unit_status: UnitStatusResponse | None = None
+    monitoring_plan: list[dict[str, Any]] = Field(default_factory=list)
+    evaluations: list[AIStrategyPaperTradingRuleEvaluation] = Field(default_factory=list)
+    ready_for_live: bool = False
+    status: str
+    reviewed_at: str | None = None
+    pipeline: dict[str, Any] = Field(default_factory=dict)
+    next_actions: list[str] = Field(default_factory=list)
+
+
 class AIStrategyResearchRunRecord(BaseModel):
     """Compact persisted summary for one AI strategy research run."""
 
@@ -139,6 +187,7 @@ class AIStrategyResearchRunRecord(BaseModel):
     best_sharpe: float = 0.0
     best_quality_score: float = 0.0
     best_quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    best_diagnostics: dict[str, Any] = Field(default_factory=dict)
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     best_strategy_id: str | None = None
     best_strategy_name: str | None = None
@@ -148,6 +197,14 @@ class AIStrategyResearchRunRecord(BaseModel):
     paper_workspace_id: str | None = None
     paper_unit_id: str | None = None
     paper_trading_started: bool = False
+    paper_monitoring_plan: list[dict[str, Any]] = Field(default_factory=list)
+    paper_handoff: dict[str, Any] = Field(default_factory=dict)
+    paper_review_status: str | None = None
+    paper_review_ready_for_live: bool = False
+    paper_reviewed_at: str | None = None
+    paper_review_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    paper_review_next_actions: list[str] = Field(default_factory=list)
+    pipeline: dict[str, Any] = Field(default_factory=dict)
     next_actions: list[str] = Field(default_factory=list)
     started_at: str
     completed_at: str
@@ -173,11 +230,14 @@ class AIStrategyResearchRunResponse(BaseModel):
     best_iteration: int | None = None
     best_quality_score: float = 0.0
     best_quality_gate_evaluations: list[dict[str, Any]] = Field(default_factory=list)
+    best_diagnostics: dict[str, Any] = Field(default_factory=dict)
     best_metrics: dict[str, Any] = Field(default_factory=dict)
     research_workspace: WorkspaceResponse
     iterations: list[AIStrategyResearchIteration] = Field(default_factory=list)
     best_strategy: StrategyResponse | None = None
     paper_trading: AIStrategyPaperTradingStart | None = None
+    paper_monitoring_plan: list[dict[str, Any]] = Field(default_factory=list)
+    pipeline: dict[str, Any] = Field(default_factory=dict)
     run_record: AIStrategyResearchRunRecord | None = None
     next_actions: list[str] = Field(default_factory=list)
     message: str

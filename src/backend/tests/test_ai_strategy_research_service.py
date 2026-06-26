@@ -10,6 +10,8 @@ from httpx import AsyncClient
 from app.api.strategy.base import get_ai_strategy_research_service
 from app.main import app
 from app.schemas.ai_strategy_research import (
+    AIStrategyPaperTradingReview,
+    AIStrategyPaperTradingRuleEvaluation,
     AIStrategyPaperTradingStart,
     AIStrategyPaperTradingStartRequest,
     AIStrategyResearchRunListResponse,
@@ -19,6 +21,7 @@ from app.schemas.ai_strategy_research import (
 )
 from app.schemas.strategy import (
     AIStrategyDraft,
+    StrategyCopilotBacktestRequest,
     StrategyCopilotBacktestResponse,
     StrategyCopilotDraftResponse,
     StrategyCopilotRunResult,
@@ -33,6 +36,7 @@ from app.services.ai_strategy_research_service import (
     LocalStrategyImprover,
 )
 from app.services.strategy.ai_draft import build_ai_strategy_draft, render_ai_strategy_draft_answer
+from app.services.strategy.core import _runtime_metadata_from_copilot_request
 
 
 def _now() -> datetime:
@@ -149,6 +153,7 @@ class FakeWorkspaceService:
         self.statuses: dict[str, UnitStatusResponse] = {}
         self.units: dict[str, StrategyUnitResponse] = {}
         self.created_units: list[StrategyUnitResponse] = []
+        self.updated_units: list[StrategyUnitResponse] = []
         self.started_units: list[tuple[str, list[str]]] = []
         self.updated_workspaces: list[WorkspaceResponse] = []
 
@@ -220,6 +225,16 @@ class FakeWorkspaceService:
         self.created_units.append(unit)
         return unit.model_dump(mode="python")
 
+    async def update_unit(self, workspace_id: str, unit_id: str, user_id: str, data):
+        unit = self.units.get(unit_id)
+        if unit is None or unit.workspace_id != workspace_id:
+            return None
+        payload = data.model_dump(exclude_unset=True)
+        unit = unit.model_copy(update=payload)
+        self.units[unit.id] = unit
+        self.updated_units.append(unit)
+        return unit.model_dump(mode="python")
+
     async def run_units(self, workspace_id: str, user_id: str, unit_ids: list[str], parallel=False):
         self.started_units.append((workspace_id, unit_ids))
         return [{"unit_id": unit_ids[0], "task_id": "paper-task", "status": "running"}]
@@ -238,6 +253,7 @@ class FakeStrategyService:
         self.strategies = strategies or {}
         self.generated = 0
         self.submitted_drafts: list[AIStrategyDraft] = []
+        self.submitted_backtest_requests: list[Any] = []
 
     async def generate_copilot_draft(self, user_id: str, request):
         draft = build_ai_strategy_draft(request.prompt)
@@ -255,6 +271,7 @@ class FakeStrategyService:
     async def backtest_copilot_draft(self, user_id: str, workspace_id: str, request):
         round_index = len(self.submitted_drafts)
         self.submitted_drafts.append(request.strategy_draft)
+        self.submitted_backtest_requests.append(request)
         strategy = _strategy(f"strategy-{round_index + 1}", request.strategy_draft)
         metrics = self.metrics_by_round[round_index]
         unit = _unit(f"unit-{round_index + 1}", workspace_id, strategy, metrics=metrics)
@@ -399,6 +416,8 @@ async def test_ai_strategy_improver_uses_model_json_to_rewrite_strategy():
     payload = json.loads(router.calls[0]["messages"][1]["content"])
     assert payload["quality_gate_failures"] == ["Max drawdown 18.000 exceeds limit 10.000"]
     assert payload["quality_gates"]["max_drawdown_limit"] == 10.0
+    assert "suggested_improvement_plan" in payload
+    assert any("止损" in item for item in payload["suggested_improvement_plan"])
     assert result.draft.name == "AI改进趋势策略"
     assert "class ImprovedStrategy" in result.draft.code
     assert result.draft.params["risk_pct"].default == 0.01
@@ -527,18 +546,38 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.paper_trading.handoff["run_id"] == result.run_id
     assert result.paper_trading.handoff["research_strategy_id"] == "strategy-2"
     assert result.paper_trading.handoff["paper_unit_id"] == "paper-unit"
+    assert result.paper_trading.handoff["achieved_diagnostics"]["promotion_ready"] is True
+    assert result.paper_trading.handoff["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
     assert result.paper_trading.unit.unit_settings["ai_research_handoff"]["run_id"] == result.run_id
+    assert result.paper_trading.unit.unit_settings["ai_research_handoff"]["paper_task_id"] == "paper-task"
     assert result.paper_trading.unit.data_config["ai_research_run_id"] == result.run_id
+    assert workspace_service.updated_units[-1].id == "paper-unit"
+    assert workspace_service.updated_units[-1].unit_settings["ai_research_handoff"][
+        "paper_task_id"
+    ] == "paper-task"
+    assert workspace_service.units["paper-unit"].unit_settings["ai_research_handoff"][
+        "paper_monitoring_plan"
+    ][0]["key"] == "rolling_sharpe"
     assert (
         result.paper_trading.workspace.settings["ai_research_handoff"]["last_handoff"]["run_id"]
         == result.run_id
     )
     assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
     assert result.run_id
+    assert result.iterations[0].diagnostics["failure_categories"] == ["trade_count"]
+    assert "有效交易样本数" in result.iterations[0].improvement_plan[0]
+    assert result.best_diagnostics["promotion_ready"] is True
+    assert result.paper_monitoring_plan[0]["threshold"] == 0.6
     assert result.run_record is not None
     assert result.run_record.best_strategy_id == "strategy-2"
     assert result.run_record.paper_trading_started is True
     assert result.run_record.best_quality_score == 100.0
+    assert result.run_record.best_diagnostics["promotion_ready"] is True
+    assert result.run_record.paper_monitoring_plan == result.paper_monitoring_plan
+    assert result.run_record.paper_handoff["paper_task_id"] == "paper-task"
+    assert result.run_record.paper_handoff["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
+    assert result.run_record.pipeline["current_stage"] == "paper_trading"
+    assert result.run_record.pipeline["steps"][3]["key"] == "paper_trading"
     assert result.run_record.best_quality_gate_evaluations[0]["key"] == "sharpe"
     assert result.next_actions == [
         "策略已通过验收并进入模拟交易，下一步跟踪模拟账户成交、持仓和风控指标。",
@@ -555,9 +594,225 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert result.research_workspace.settings["ai_research"]["runs"][0]["iterations"][0][
         "failure_reason"
     ] == "Only 0 trades, below minimum 1"
+    assert result.research_workspace.settings["ai_research"]["runs"][0]["iterations"][0][
+        "diagnostics"
+    ]["failure_categories"] == ["trade_count"]
     assert "系统将基于本轮失败原因生成下一版策略" in result.research_workspace.settings[
         "ai_research"
     ]["runs"][0]["iterations"][0]["next_actions"][-1]
+
+
+def test_copilot_workspace_runtime_metadata_extracts_contract_specs():
+    draft = build_ai_strategy_draft("请生成一个股指期货趋势策略")
+    request = StrategyCopilotBacktestRequest(
+        strategy_draft=draft,
+        symbol="IF2609",
+        data_config={
+            "contract_metadata": {
+                "IF2609": {
+                    "multiplier": 300,
+                    "margin_rate": 0.1,
+                }
+            }
+        },
+        unit_settings={
+            "contract_specs": {
+                "CFFEX.IF2609": {
+                    "commission_rate": 0.000023,
+                }
+            }
+        },
+    )
+
+    metadata = _runtime_metadata_from_copilot_request(request)
+
+    assert metadata["contract_metadata"]["IF2609"]["multiplier"] == 300
+    assert metadata["contract_specs"]["CFFEX.IF2609"]["commission_rate"] == 0.000023
+
+
+@pytest.mark.asyncio
+async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
+    def fake_resolve_asset_specs(instance, strategy_dir, gateway=None, symbols=None):
+        assert "IF2609" in symbols
+        return {
+            "IF2609": {
+                "symbol": "IF2609",
+                "source": "local_futures_commission",
+                "multiplier": 300,
+                "margin_rate": 0.1,
+                "commission_rate": 0.000023,
+                "close_today_commission_rate": 0.000345,
+            }
+        }
+
+    monkeypatch.setattr(
+        "app.services.ai_strategy_research_service.resolve_asset_specs",
+        fake_resolve_asset_specs,
+    )
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.2, "total_trades": 5, "max_drawdown": -3.0},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个股指期货趋势策略",
+            symbol="IF2609",
+            target_sharpe=1.0,
+            max_iterations=1,
+            start_paper_trading=False,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    backtest_request = strategy_service.submitted_backtest_requests[0]
+    contract_metadata = backtest_request.data_config["contract_metadata"]["IF2609"]
+    unit_metadata = backtest_request.unit_settings["contract_metadata"]["IF2609"]
+    assert contract_metadata["multiplier"] == 300
+    assert unit_metadata["margin_rate"] == 0.1
+    assert backtest_request.unit_settings["multiplier"] == 300
+    assert backtest_request.unit_settings["margin"] == pytest.approx(0.1)
+    assert backtest_request.unit_settings["commission"] == pytest.approx(0.000023)
+    assert backtest_request.unit_settings["asset_spec_source"] == "local_futures_commission"
+
+
+@pytest.mark.asyncio
+async def test_review_paper_trading_run_evaluates_monitoring_plan():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+    workspace_service.statuses["paper-unit"] = UnitStatusResponse(
+        id="paper-unit",
+        run_status="running",
+        last_task_id="paper-task",
+        metrics_snapshot={
+            "rolling_sharpe": 0.72,
+            "max_drawdown": 4.5,
+            "closed_trades": 3,
+            "slippage_and_commission_delta": 0.0002,
+        },
+        trading_snapshot={
+            "valuation_status": "confirmed",
+            "position_source": "gateway",
+            "asset_spec_source": "paper_gateway",
+            "valuation_warnings": [],
+        },
+        run_count=1,
+        trading_mode="paper",
+    )
+
+    review = await service.review_paper_trading_run("user-1", result.run_id)
+
+    assert review.status == "ready_for_live_candidate"
+    assert review.ready_for_live is True
+    assert review.paper_workspace_id == "paper-ws"
+    assert review.paper_unit_id == "paper-unit"
+    assert review.reviewed_at
+    assert review.pipeline["current_stage"] == "live_candidate"
+    assert review.pipeline["ready_for_live"] is True
+    assert [item.status for item in review.evaluations] == [
+        "passed",
+        "passed",
+        "passed",
+        "passed",
+        "passed",
+    ]
+    assert review.evaluations[0].source == "unit_status.metrics_snapshot"
+    assert review.evaluations[-1].key == "valuation_confidence"
+    assert review.evaluations[-1].source == "unit_status.trading_snapshot"
+    assert "实盘候选" in review.next_actions[0]
+    updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
+    assert updated_run["run_id"] == result.run_id
+    assert updated_run["paper_review_status"] == "ready_for_live_candidate"
+    assert updated_run["paper_review_ready_for_live"] is True
+    assert updated_run["paper_reviewed_at"] == review.reviewed_at
+    assert updated_run["paper_review_evaluations"][0]["key"] == "rolling_sharpe"
+    assert "实盘候选" in updated_run["paper_review_next_actions"][0]
+    assert updated_run["pipeline"]["current_stage"] == "live_candidate"
+    assert updated_run["pipeline"]["ready_for_live"] is True
+
+
+@pytest.mark.asyncio
+async def test_review_paper_trading_blocks_live_candidate_when_valuation_is_unconfirmed():
+    workspace_service = FakeWorkspaceService()
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [
+            {"sharpe_ratio": 1.18, "total_trades": 6, "max_drawdown": -4.0},
+        ],
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个趋势策略",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+    workspace_service.statuses["paper-unit"] = UnitStatusResponse(
+        id="paper-unit",
+        run_status="running",
+        last_task_id="paper-task",
+        metrics_snapshot={
+            "rolling_sharpe": 0.72,
+            "max_drawdown": 4.5,
+            "closed_trades": 3,
+            "slippage_and_commission_delta": 0.0002,
+        },
+        trading_snapshot={
+            "valuation_status": "estimated",
+            "valuation_warnings": ["手续费未确认，持仓盈亏未扣除真实手续费"],
+        },
+        run_count=1,
+        trading_mode="paper",
+    )
+
+    review = await service.review_paper_trading_run("user-1", result.run_id)
+
+    valuation = next(item for item in review.evaluations if item.key == "valuation_confidence")
+    assert valuation.status == "failed"
+    assert valuation.actual == 0.0
+    assert review.status == "needs_research_review"
+    assert review.ready_for_live is False
+    assert "资产信息" in review.next_actions[0]
 
 
 @pytest.mark.asyncio
@@ -756,6 +1011,78 @@ async def test_research_loop_can_continue_from_previous_run_best_strategy():
 
 
 @pytest.mark.asyncio
+async def test_research_loop_continuation_uses_failed_paper_review_before_backtest():
+    workspace_service = FakeWorkspaceService()
+    record = {
+        **_run_record(
+            "paper-failed-run",
+            workspace_id="research-ws",
+            completed_at="2026-01-01T00:01:00+00:00",
+        ),
+        "paper_trading_started": True,
+        "paper_review_status": "needs_research_review",
+        "paper_review_ready_for_live": False,
+        "paper_reviewed_at": "2026-01-02T00:00:00+00:00",
+        "paper_review_evaluations": [
+            {
+                "key": "drawdown_guard",
+                "label": "模拟交易最大回撤",
+                "metric": "max_drawdown",
+                "window": "since paper start",
+                "direction": "max",
+                "threshold": 10.0,
+                "actual": 18.0,
+                "source": "unit_status.metrics_snapshot",
+                "status": "failed",
+                "passed": False,
+                "action": "停止自动交易并收紧风控。",
+            }
+        ],
+        "paper_review_next_actions": ["停止自动交易并收紧风控。"],
+    }
+    workspace_service.workspaces["research-ws"] = _workspace("research-ws", "research").model_copy(
+        update={"settings": {"ai_research": {"runs": [record]}}}
+    )
+    seed_draft = build_ai_strategy_draft("请生成一个均线趋势策略").model_copy(
+        update={"name": "模拟失败策略"}
+    )
+    seed_strategy = _strategy("strategy-2", seed_draft)
+    strategy_service = FakeStrategyService(
+        workspace_service,
+        [{"sharpe_ratio": 1.15, "total_trades": 6, "max_drawdown": -8.0}],
+        strategies={"strategy-2": seed_strategy},
+    )
+    service = AIStrategyResearchService(
+        strategy_service=strategy_service,
+        workspace_service=workspace_service,
+        improver=LocalStrategyImprover(),
+        sleep=_noop_sleep,
+    )
+
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="继续模拟失败后的策略投研",
+            symbol="000001.SZ",
+            target_sharpe=1.0,
+            continue_from_run_id="paper-failed-run",
+            start_paper_trading=False,
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+        ),
+    )
+
+    assert result.achieved is True
+    assert strategy_service.generated == 0
+    assert strategy_service.submitted_drafts[0].name.endswith("v1")
+    assert "模拟失败策略 v1" == strategy_service.submitted_drafts[0].name
+    assert "基于上一轮模拟交易复核结果" in result.iterations[0].improvement_notes[0]
+    assert any("止损" in note or "风控" in note for note in result.iterations[0].improvement_notes)
+    assert result.run_record is not None
+    assert result.run_record.continued_from_run_id == "paper-failed-run"
+
+
+@pytest.mark.asyncio
 async def test_research_loop_rejects_invalid_generated_strategy_before_backtest():
     workspace_service = FakeWorkspaceService()
     strategy_service = FakeInvalidDraftStrategyService()
@@ -951,12 +1278,19 @@ async def test_start_paper_trading_from_achieved_research_run_record():
     assert result.handoff["run_id"] == "previous-run"
     assert result.handoff["research_strategy_id"] == strategy.id
     assert result.handoff["achieved_quality_gate_evaluations"][0]["key"] == "sharpe"
+    assert result.handoff["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
     assert workspace_service.started_units == [("paper-ws", ["paper-unit"])]
+    assert workspace_service.updated_units[-1].unit_settings["ai_research_handoff"][
+        "paper_task_id"
+    ] == "paper-task"
     updated_run = workspace_service.workspaces["research-ws"].settings["ai_research"]["runs"][0]
     assert updated_run["run_id"] == "previous-run"
     assert updated_run["paper_trading_started"] is True
     assert updated_run["paper_workspace_id"] == "paper-ws"
     assert updated_run["paper_unit_id"] == "paper-unit"
+    assert updated_run["paper_monitoring_plan"][0]["key"] == "rolling_sharpe"
+    assert updated_run["paper_handoff"]["paper_task_id"] == "paper-task"
+    assert updated_run["pipeline"]["current_stage"] == "paper_trading"
 
 
 @pytest.mark.asyncio
@@ -1004,6 +1338,8 @@ async def test_list_research_run_records_reads_workspace_history():
 
     assert result.total == 2
     assert [item.run_id for item in result.items] == ["newer-run"]
+    assert result.items[0].pipeline["current_stage"] == "paper_trading"
+    assert result.items[0].pipeline["progress"] > 0
 
     scoped = await service.list_run_records(
         "user-1",
@@ -1012,6 +1348,7 @@ async def test_list_research_run_records_reads_workspace_history():
     )
     assert scoped.total == 1
     assert scoped.items[0].run_id == "older-run"
+    assert scoped.items[0].pipeline["current_stage"] == "paper_trading"
 
 
 class FakeResearchAPIService:
@@ -1108,6 +1445,70 @@ class FakeResearchAPIService:
             },
         )
 
+    async def review_paper_trading_run(
+        self,
+        user_id: str,
+        run_id: str,
+        *,
+        research_workspace_id: str | None = None,
+    ):
+        workspace = _workspace("paper-api-ws", "trading")
+        draft = build_ai_strategy_draft("生成一个均线策略")
+        strategy = _strategy("strategy-api", draft)
+        unit = _unit("paper-api-unit", workspace.id, strategy)
+        return AIStrategyPaperTradingReview(
+            run_id=run_id,
+            research_workspace_id=research_workspace_id or "research-api-ws",
+            paper_workspace_id=workspace.id,
+            paper_unit_id=unit.id,
+            paper_trading_started=True,
+            workspace=workspace,
+            unit=unit,
+            unit_status=UnitStatusResponse(
+                id=unit.id,
+                run_status="running",
+                metrics_snapshot={"rolling_sharpe": 0.8},
+                trading_mode="paper",
+            ),
+            monitoring_plan=[
+                {
+                    "key": "rolling_sharpe",
+                    "label": "模拟交易滚动 Sharpe",
+                    "metric": "rolling_sharpe",
+                    "window": "30 trading days",
+                    "direction": "min",
+                    "threshold": 0.6,
+                    "action": "继续观察",
+                }
+            ],
+            evaluations=[
+                AIStrategyPaperTradingRuleEvaluation(
+                    key="rolling_sharpe",
+                    label="模拟交易滚动 Sharpe",
+                    metric="rolling_sharpe",
+                    window="30 trading days",
+                    direction="min",
+                    threshold=0.6,
+                    actual=0.8,
+                    source="unit_status.metrics_snapshot",
+                    status="passed",
+                    passed=True,
+                    action="继续观察",
+                )
+            ],
+            ready_for_live=True,
+            status="ready_for_live_candidate",
+            reviewed_at="2026-01-01T00:02:00+00:00",
+            pipeline={
+                "current_stage": "live_candidate",
+                "status": "achieved",
+                "progress": 100,
+                "ready_for_live": True,
+                "steps": [],
+            },
+            next_actions=["模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。"],
+        )
+
 
 @pytest.mark.asyncio
 async def test_ai_strategy_research_api_endpoint(client: AsyncClient, auth_headers: dict):
@@ -1178,3 +1579,26 @@ async def test_ai_strategy_research_start_paper_from_history_endpoint(
     assert payload["workspace"]["id"] == "paper-api-ws"
     assert payload["unit"]["id"] == "paper-api-unit"
     assert payload["handoff"]["run_id"] == "api-history-run"
+
+
+@pytest.mark.asyncio
+async def test_ai_strategy_research_paper_review_endpoint(
+    client: AsyncClient,
+    auth_headers: dict,
+):
+    app.dependency_overrides[get_ai_strategy_research_service] = lambda: FakeResearchAPIService()
+    try:
+        response = await client.get(
+            "/api/v1/strategy/ai-research/runs/api-history-run/paper-trading/review",
+            headers=auth_headers,
+            params={"research_workspace_id": "research-api-ws"},
+        )
+    finally:
+        app.dependency_overrides.pop(get_ai_strategy_research_service, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ready_for_live_candidate"
+    assert payload["ready_for_live"] is True
+    assert payload["evaluations"][0]["metric"] == "rolling_sharpe"
+    assert payload["evaluations"][0]["status"] == "passed"

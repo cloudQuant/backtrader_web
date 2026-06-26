@@ -744,6 +744,36 @@ class TradingWorkspaceService:
         return True
 
     @classmethod
+    def _sync_unit_contract_metadata_from_specs(
+        cls,
+        unit: StrategyUnit,
+        asset_specs: dict[str, dict[str, Any]],
+    ) -> bool:
+        if not asset_specs:
+            return False
+
+        params = _safe_dict(getattr(unit, "params", None))
+        current_metadata = (
+            dict(params.get("contract_metadata"))
+            if isinstance(params.get("contract_metadata"), dict)
+            else {}
+        )
+        changed = False
+        for key, value in asset_specs.items():
+            if not isinstance(value, dict):
+                continue
+            normalized_key = str(key)
+            normalized_value = dict(value)
+            if current_metadata.get(normalized_key) != normalized_value:
+                current_metadata[normalized_key] = normalized_value
+                changed = True
+        if not changed:
+            return False
+        params["contract_metadata"] = current_metadata
+        unit.params = params
+        return True
+
+    @classmethod
     def _position_row_should_recalculate_local_pnl(
         cls,
         row: dict[str, Any],
@@ -955,6 +985,7 @@ class TradingWorkspaceService:
                     for key, value in raw_specs.items()
                     if isinstance(value, dict)
                 }
+                cls._sync_unit_contract_metadata_from_specs(unit, asset_specs)
 
         recent_trades: list[dict[str, Any]] = []
         query_trades = getattr(manager, "query_instance_gateway_trades", None)
@@ -1294,6 +1325,7 @@ class TradingWorkspaceService:
             if unit.trading_instance_id:
                 instance = manager.get_instance(unit.trading_instance_id, user_id=user_id)
 
+            params_before = _safe_dict(getattr(unit, "params", None))
             snapshot, metrics_snapshot, bar_count, elapsed_seconds = self._build_snapshot(
                 unit,
                 instance,
@@ -1317,6 +1349,8 @@ class TradingWorkspaceService:
                 changed = True
             if elapsed_seconds is not None and unit.last_run_time != elapsed_seconds:
                 unit.last_run_time = elapsed_seconds
+                changed = True
+            if _safe_dict(getattr(unit, "params", None)) != params_before:
                 changed = True
 
         return changed

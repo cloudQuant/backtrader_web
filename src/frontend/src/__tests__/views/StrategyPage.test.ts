@@ -75,6 +75,7 @@ vi.mock('@/api/strategy', () => ({
           paper_workspace_id: null,
           paper_unit_id: null,
           paper_trading_started: false,
+          paper_monitoring_plan: [],
           next_actions: ['继续跟踪模拟交易'],
           started_at: '2026-06-27T00:00:00Z',
           completed_at: '2026-06-27T00:01:00Z',
@@ -103,7 +104,19 @@ vi.mock('@/api/strategy', () => ({
           score: 1,
         },
       ],
+      best_diagnostics: { summary: '第 1 轮已通过全部质量门槛，可进入模拟交易候选。', promotion_ready: true },
       best_metrics: { sharpe_ratio: 1.2 },
+      paper_monitoring_plan: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          action: '低于阈值时暂停放大资金',
+        },
+      ],
       research_workspace: {
         id: 'research-ws',
         user_id: 'u1',
@@ -165,6 +178,12 @@ vi.mock('@/api/strategy', () => ({
           ],
           passed: true,
           quality_gate_failures: [],
+          diagnostics: {
+            summary: '第 1 轮已通过全部质量门槛，可进入模拟交易候选。',
+            improvement_plan: ['进入模拟交易后优先验证成交、滑点、费用和样本外收益稳定性。'],
+            promotion_ready: true,
+          },
+          improvement_plan: ['进入模拟交易后优先验证成交、滑点、费用和样本外收益稳定性。'],
           improvement_notes: [],
           next_actions: ['该轮已通过全部验收门槛，可作为进入模拟交易的候选版本。'],
         },
@@ -192,6 +211,7 @@ vi.mock('@/api/strategy', () => ({
         best_quality_gate_evaluations: [
           { key: 'sharpe', label: 'Sharpe', actual: 1.2, target: 1, direction: 'min', passed: true, score: 1 },
         ],
+        best_diagnostics: { summary: '第 1 轮已通过全部质量门槛，可进入模拟交易候选。', promotion_ready: true },
         best_metrics: { sharpe_ratio: 1.2 },
         best_strategy_id: 's1',
         best_strategy_name: 'AI策略',
@@ -201,6 +221,7 @@ vi.mock('@/api/strategy', () => ({
         paper_workspace_id: null,
         paper_unit_id: null,
         paper_trading_started: false,
+        paper_monitoring_plan: [],
         next_actions: ['策略已通过验收，可手动进入模拟交易或安排样本外验证。'],
         started_at: '2026-06-27T00:00:00Z',
         completed_at: '2026-06-27T00:01:00Z',
@@ -257,7 +278,55 @@ vi.mock('@/api/strategy', () => ({
       },
       run_result: { unit_id: 'paper-unit', task_id: 'paper-task', status: 'running' },
       started: true,
-      handoff: { run_id: 'history-run' },
+      handoff: {
+        run_id: 'history-run',
+        paper_task_id: 'paper-task',
+        paper_monitoring_plan: [
+          {
+            key: 'rolling_sharpe',
+            label: '模拟交易滚动 Sharpe',
+            metric: 'rolling_sharpe',
+            window: '30 trading days',
+            direction: 'min',
+            threshold: 0.6,
+            action: '继续观察',
+          },
+        ],
+      },
+    }),
+    reviewAIResearchPaperTrading: vi.fn().mockResolvedValue({
+      run_id: 'history-run',
+      research_workspace_id: 'research-ws',
+      paper_workspace_id: 'paper-ws',
+      paper_unit_id: 'paper-unit',
+      paper_trading_started: true,
+      monitoring_plan: [],
+      evaluations: [
+        {
+          key: 'rolling_sharpe',
+          label: '模拟交易滚动 Sharpe',
+          metric: 'rolling_sharpe',
+          window: '30 trading days',
+          direction: 'min',
+          threshold: 0.6,
+          actual: 0.72,
+          source: 'unit_status.metrics_snapshot',
+          status: 'passed',
+          passed: true,
+          action: '继续观察',
+        },
+      ],
+      ready_for_live: true,
+      status: 'ready_for_live_candidate',
+      reviewed_at: '2026-06-27T00:02:00Z',
+      pipeline: {
+        current_stage: 'live_candidate',
+        status: 'achieved',
+        progress: 100,
+        ready_for_live: true,
+        steps: [],
+      },
+      next_actions: ['模拟交易监控计划已全部通过，可作为实盘候选进入人工复核。'],
     }),
   },
 }))
@@ -271,8 +340,11 @@ describe('StrategyPage', () => {
 
   const doMount = () => mount(StrategyPage, { global: { stubs: elStubs } })
 
-  it('mounts without error', () => {
-    expect(doMount().exists()).toBe(true)
+  it('mounts without error', async () => {
+    const wrapper = doMount()
+    await flushPromises()
+    expect(wrapper.exists()).toBe(true)
+    expect(wrapper.text()).toContain('阶段 quality_achieved')
   })
 
   it('getCategoryLabel returns correct labels', () => {
@@ -400,6 +472,7 @@ describe('StrategyPage', () => {
     expect(wrapper.find('[data-test="ai-research-gate-summary"]').text()).toContain('Sharpe')
     expect(wrapper.find('[data-test="ai-research-gate-summary"]').text()).toContain('1.20 / 1.00')
     expect(wrapper.find('[data-test="ai-research-next-actions"]').text()).toContain('策略已通过验收')
+    expect(wrapper.text()).toContain('进入模拟交易后优先验证成交、滑点、费用和样本外收益稳定性')
     expect(ElMessage.success).toHaveBeenCalledWith('AI投研流程已完成')
   })
 
@@ -499,6 +572,47 @@ describe('StrategyPage', () => {
     }))
   })
 
+  it('marks continuation as paper-review feedback when previous paper review failed', async () => {
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    vm.useAIResearchRecord({
+      run_id: 'paper-failed-run',
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      symbol_name: '浦发银行',
+      timeframe: '1d',
+      timeframe_n: 1,
+      status: 'achieved',
+      achieved: true,
+      target_sharpe: 1,
+      quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+      min_total_trades: 1,
+      max_iterations: 3,
+      iteration_count: 2,
+      best_iteration: 2,
+      best_sharpe: 1.2,
+      best_quality_score: 100,
+      best_quality_gate_evaluations: [],
+      best_metrics: {},
+      best_strategy_id: 'best-strategy',
+      best_strategy_name: '历史最佳策略',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: null,
+      continued_from_run_id: null,
+      paper_trading_started: true,
+      paper_review_status: 'needs_research_review',
+      paper_review_ready_for_live: false,
+      next_actions: [],
+      started_at: '2026-06-27T00:00:00Z',
+      completed_at: '2026-06-27T00:01:00Z',
+      iterations: [],
+    })
+
+    await wrapper.vm.$nextTick()
+    expect(vm.aiResearchForm.continuation_source).toBe('paper_review')
+    expect(wrapper.text()).toContain('从模拟复核反馈继续')
+  })
+
   it('starts paper trading from an achieved history record', async () => {
     const { strategyApi } = await import('@/api/strategy')
     const { ElMessage } = await import('element-plus')
@@ -550,7 +664,171 @@ describe('StrategyPage', () => {
     expect(vm.aiResearchRuns[0].paper_trading_started).toBe(true)
     expect(vm.aiResearchRuns[0].paper_workspace_id).toBe('paper-ws')
     expect(vm.aiResearchRuns[0].paper_unit_id).toBe('paper-unit')
+    expect(vm.aiResearchRuns[0].paper_handoff.paper_task_id).toBe('paper-task')
+    expect(vm.aiResearchRuns[0].paper_monitoring_plan[0].key).toBe('rolling_sharpe')
     expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已启动')
+  })
+
+  it('reviews paper trading from an achieved history record', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    const { ElMessage } = await import('element-plus')
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+      total: 1,
+      items: [
+        {
+          run_id: 'history-run',
+          prompt: '历史趋势策略',
+          symbol: '000001.SZ',
+          symbol_name: '平安银行',
+          timeframe: '1d',
+          timeframe_n: 1,
+          status: 'achieved',
+          achieved: true,
+          target_sharpe: 1,
+          quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+          min_total_trades: 1,
+          max_iterations: 3,
+          iteration_count: 2,
+          best_iteration: 2,
+          best_sharpe: 1.2,
+          best_quality_score: 100,
+          best_quality_gate_evaluations: [],
+          best_metrics: { sharpe_ratio: 1.2 },
+          best_strategy_id: 's1',
+          best_strategy_name: 'AI策略',
+          research_workspace_id: 'research-ws',
+          seed_strategy_id: null,
+          continued_from_run_id: null,
+          paper_workspace_id: 'paper-ws',
+          paper_unit_id: 'paper-unit',
+          paper_trading_started: true,
+          pipeline: {
+            current_stage: 'paper_trading',
+            status: 'achieved',
+            progress: 80,
+            ready_for_live: false,
+            steps: [],
+          },
+          next_actions: [],
+          started_at: '2026-06-27T00:00:00Z',
+          completed_at: '2026-06-27T00:01:00Z',
+          iterations: [],
+        },
+      ],
+    })
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+
+    await wrapper.vm.$nextTick()
+    expect(vm.canReviewPaperFromRecord(vm.aiResearchRuns[0])).toBe(true)
+    expect(wrapper.text()).toContain('阶段 paper_trading')
+    const reviewButton = wrapper.findAll('button').find(button => button.text().includes('复核模拟'))
+    expect(reviewButton).toBeTruthy()
+    await reviewButton!.trigger('click')
+    await flushPromises()
+
+    expect(strategyApi.reviewAIResearchPaperTrading).toHaveBeenCalledWith(
+      'history-run',
+      'research-ws'
+    )
+    expect(wrapper.find('[data-test="ai-research-paper-review"]').text()).toContain(
+      'ready_for_live_candidate'
+    )
+    expect(wrapper.text()).toContain('实盘候选')
+    expect(wrapper.text()).toContain('复核 ready_for_live_candidate')
+    expect(wrapper.text()).toContain('模拟交易滚动 Sharpe')
+    expect(vm.aiResearchRuns[0].paper_review_status).toBe('ready_for_live_candidate')
+    expect(vm.aiResearchRuns[0].paper_review_ready_for_live).toBe(true)
+    expect(vm.aiResearchRuns[0].paper_reviewed_at).toBe('2026-06-27T00:02:00Z')
+    expect(vm.aiResearchRuns[0].paper_review_evaluations[0].key).toBe('rolling_sharpe')
+    expect(vm.aiResearchRuns[0].pipeline.current_stage).toBe('live_candidate')
+    expect(wrapper.text()).toContain('阶段 live_candidate')
+    expect(ElMessage.success).toHaveBeenCalledWith('模拟交易已满足实盘候选条件')
+  })
+
+  it('continues research directly from a failed paper review record', async () => {
+    const { strategyApi } = await import('@/api/strategy')
+    vi.mocked(strategyApi.listAIResearchRuns).mockResolvedValueOnce({
+      total: 1,
+      items: [
+        {
+          run_id: 'paper-failed-run',
+          prompt: '历史趋势策略',
+          symbol: '600000.SH',
+          symbol_name: '浦发银行',
+          timeframe: '1d',
+          timeframe_n: 1,
+          status: 'achieved',
+          achieved: true,
+          target_sharpe: 1,
+          quality_gates: { target_sharpe: 1, min_total_trades: 1 },
+          min_total_trades: 1,
+          max_iterations: 3,
+          iteration_count: 2,
+          best_iteration: 2,
+          best_sharpe: 1.2,
+          best_quality_score: 100,
+          best_quality_gate_evaluations: [],
+          best_metrics: { sharpe_ratio: 1.2 },
+          best_strategy_id: 'best-strategy',
+          best_strategy_name: '历史最佳策略',
+          research_workspace_id: 'research-ws',
+          seed_strategy_id: null,
+          continued_from_run_id: null,
+          paper_workspace_id: 'paper-ws',
+          paper_unit_id: 'paper-unit',
+          paper_trading_started: true,
+          paper_review_status: 'needs_research_review',
+          paper_review_ready_for_live: false,
+          paper_reviewed_at: '2026-06-27T00:02:00Z',
+          paper_review_evaluations: [
+            {
+              key: 'rolling_sharpe',
+              label: '模拟交易滚动 Sharpe',
+              metric: 'rolling_sharpe',
+              window: '30 trading days',
+              direction: 'min',
+              threshold: 0.6,
+              actual: 0.2,
+              source: 'unit_status.metrics_snapshot',
+              status: 'failed',
+              passed: false,
+              action: '回到研究工作区降低过拟合并收紧风险预算',
+            },
+          ],
+          pipeline: {
+            current_stage: 'paper_review',
+            status: 'needs_review',
+            progress: 80,
+            ready_for_live: false,
+            steps: [],
+          },
+          next_actions: ['回到研究工作区降低过拟合并收紧风险预算'],
+          started_at: '2026-06-27T00:00:00Z',
+          completed_at: '2026-06-27T00:01:00Z',
+          iterations: [],
+        },
+      ],
+    })
+    const wrapper = doMount()
+    const vm = wrapper.vm as any
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('继续改进')
+    const continueButton = wrapper.findAll('button').find(button => button.text().includes('继续改进'))
+    expect(continueButton).toBeTruthy()
+    await continueButton!.trigger('click')
+    await flushPromises()
+
+    expect(vm.aiResearchForm.continuation_source).toBe('paper_review')
+    expect(strategyApi.runAIResearchLoop).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: '历史趋势策略',
+      symbol: '600000.SH',
+      research_workspace_id: 'research-ws',
+      seed_strategy_id: 'best-strategy',
+      continue_from_run_id: 'paper-failed-run',
+    }))
   })
 
   it('saveStrategy warns when name/code empty', async () => {

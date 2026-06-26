@@ -113,6 +113,17 @@ describe('strategyApi', () => {
     })
   })
 
+  it('reviewAIResearchPaperTrading', async () => {
+    vi.mocked(api.get).mockResolvedValue({ status: 'ready_for_live_candidate' })
+    await strategyApi.reviewAIResearchPaperTrading('run-1', 'research-ws')
+    expect(api.get).toHaveBeenCalledWith(
+      '/strategy/ai-research/runs/run-1/paper-trading/review',
+      {
+        params: { research_workspace_id: 'research-ws' },
+      }
+    )
+  })
+
   it('createOverfittingTask', async () => {
     vi.mocked(api.post).mockResolvedValue({ task_id: 'ot-1' })
     await strategyApi.createOverfittingTask('t1', { methods: ['monte_carlo'] })

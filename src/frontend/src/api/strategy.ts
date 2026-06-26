@@ -164,6 +164,33 @@ export interface AIStrategyQualityGateEvaluation {
   score: number
 }
 
+export interface AIStrategyResearchDiagnostics {
+  summary?: string
+  metric_snapshot?: Record<string, number | null>
+  failure_categories?: string[]
+  strengths?: string[]
+  weaknesses?: string[]
+  improvement_plan?: string[]
+  promotion_ready?: boolean
+}
+
+export interface AIStrategyPaperMonitoringRule {
+  key: string
+  label: string
+  metric: string
+  window: string
+  direction: 'min' | 'max'
+  threshold: number
+  action: string
+}
+
+export interface AIStrategyPaperTradingRuleEvaluation extends AIStrategyPaperMonitoringRule {
+  actual?: number | null
+  source?: string | null
+  status: string
+  passed: boolean
+}
+
 export interface AIStrategyResearchIteration {
   iteration: number
   strategy: Strategy
@@ -178,6 +205,8 @@ export interface AIStrategyResearchIteration {
   passed: boolean
   failure_reason?: string | null
   quality_gate_failures: string[]
+  diagnostics?: AIStrategyResearchDiagnostics
+  improvement_plan?: string[]
   improvement_notes: string[]
   next_actions: string[]
 }
@@ -215,6 +244,7 @@ export interface AIStrategyResearchRunRecord {
   best_sharpe: number
   best_quality_score: number
   best_quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
+  best_diagnostics?: AIStrategyResearchDiagnostics
   best_metrics: Record<string, unknown>
   best_strategy_id?: string | null
   best_strategy_name?: string | null
@@ -224,6 +254,14 @@ export interface AIStrategyResearchRunRecord {
   paper_workspace_id?: string | null
   paper_unit_id?: string | null
   paper_trading_started: boolean
+  paper_monitoring_plan?: AIStrategyPaperMonitoringRule[]
+  paper_handoff?: Record<string, unknown>
+  paper_review_status?: string | null
+  paper_review_ready_for_live?: boolean
+  paper_reviewed_at?: string | null
+  paper_review_evaluations?: AIStrategyPaperTradingRuleEvaluation[]
+  paper_review_next_actions?: string[]
+  pipeline?: AIStrategyPipelineSummary
   next_actions: string[]
   started_at: string
   completed_at: string
@@ -245,14 +283,52 @@ export interface AIStrategyResearchRunResponse {
   best_iteration?: number | null
   best_quality_score: number
   best_quality_gate_evaluations: AIStrategyQualityGateEvaluation[]
+  best_diagnostics?: AIStrategyResearchDiagnostics
   best_metrics: Record<string, unknown>
   research_workspace: Workspace
   iterations: AIStrategyResearchIteration[]
   best_strategy?: Strategy | null
   paper_trading?: AIStrategyPaperTradingStart | null
+  paper_monitoring_plan?: AIStrategyPaperMonitoringRule[]
+  pipeline?: AIStrategyPipelineSummary
   run_record?: AIStrategyResearchRunRecord | null
   next_actions: string[]
   message: string
+}
+
+export interface AIStrategyPaperTradingReview {
+  run_id: string
+  research_workspace_id: string
+  paper_workspace_id?: string | null
+  paper_unit_id?: string | null
+  paper_trading_started: boolean
+  workspace?: Workspace | null
+  unit?: StrategyUnit | null
+  unit_status?: UnitStatusResponse | null
+  monitoring_plan: AIStrategyPaperMonitoringRule[]
+  evaluations: AIStrategyPaperTradingRuleEvaluation[]
+  ready_for_live: boolean
+  status: string
+  reviewed_at?: string | null
+  pipeline?: AIStrategyPipelineSummary
+  next_actions: string[]
+}
+
+export interface AIStrategyPipelineStep {
+  key: string
+  label: string
+  status: string
+  iteration_count?: number
+  max_iterations?: number
+  review_status?: string | null
+}
+
+export interface AIStrategyPipelineSummary {
+  current_stage: string
+  status: string
+  progress: number
+  ready_for_live: boolean
+  steps: AIStrategyPipelineStep[]
 }
 
 export interface StrategyScoreDimension {
@@ -435,6 +511,18 @@ export const strategyApi = {
     return api.post<AIStrategyPaperTradingStart, AIStrategyPaperTradingStartRequest>(
       `/strategy/ai-research/runs/${runId}/paper-trading`,
       data
+    )
+  },
+
+  async reviewAIResearchPaperTrading(
+    runId: string,
+    researchWorkspaceId?: string | null
+  ): Promise<AIStrategyPaperTradingReview> {
+    return api.get<AIStrategyPaperTradingReview>(
+      `/strategy/ai-research/runs/${runId}/paper-trading/review`,
+      {
+        params: { research_workspace_id: researchWorkspaceId || undefined },
+      }
     )
   },
 
