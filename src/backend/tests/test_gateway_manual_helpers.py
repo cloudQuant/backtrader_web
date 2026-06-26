@@ -32,6 +32,14 @@ class _FakePositionAdapter:
         return self.payload
 
 
+class _FakeTradeAdapter:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def get_trades(self, **_kwargs):
+        return self.payload
+
+
 class TestManualPorts:
     def test_parse_base_url_endpoint_defaults_https_port(self):
         assert manual_ports.parse_base_url_endpoint("https://LOCALHOST/v1/api") == (
@@ -271,6 +279,58 @@ class TestManualGatewayPositions:
         rows = manual_gateway_service.query_gateway_positions(gateways, "gw-1", strict=True)
 
         assert rows == [{"description": "SPY", "quantity": 5, "mktPrice": 471.16}]
+
+
+class TestManualGatewayTrades:
+    def test_query_gateway_trades_unwraps_bybit_v5_result_list(self):
+        adapter = _FakeTradeAdapter(
+            {
+                "retCode": 0,
+                "retMsg": "OK",
+                "result": {
+                    "category": "linear",
+                    "list": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "side": "Sell",
+                            "execQty": "0.1",
+                            "execPrice": "60000",
+                            "execFee": "3",
+                            "feeCurrency": "USDT",
+                            "execTime": "1672282722429",
+                        }
+                    ],
+                },
+            }
+        )
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        rows = manual_gateway_service.query_gateway_trades(
+            gateways,
+            "gw-1",
+            symbol="BTCUSDT",
+            strict=True,
+        )
+
+        assert rows == [
+            {
+                "symbol": "BTCUSDT",
+                "side": "Sell",
+                "execQty": "0.1",
+                "execPrice": "60000",
+                "execFee": "3",
+                "feeCurrency": "USDT",
+                "execTime": "1672282722429",
+            }
+        ]
+
+    def test_query_gateway_trades_does_not_return_result_wrapper_as_trade(self):
+        adapter = _FakeTradeAdapter({"result": {"category": "linear", "nextPageCursor": ""}})
+        gateways = {"gw-1": {"runtime": SimpleNamespace(adapter=adapter)}}
+
+        rows = manual_gateway_service.query_gateway_trades(gateways, "gw-1")
+
+        assert rows == []
 
 
 class TestManualGatewayOrderCancellation:

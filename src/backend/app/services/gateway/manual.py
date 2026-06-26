@@ -1894,6 +1894,55 @@ def query_gateway_trades(
             raise RuntimeError(f"Gateway {gateway_key!r} has no runtime")
         return []
 
+    def _looks_like_trade_row(row: dict[str, Any]) -> bool:
+        symbol_keys = (
+            "symbol",
+            "data_name",
+            "instrument",
+            "InstrumentID",
+            "instId",
+            "trade_symbol",
+            "position_symbol_name",
+            "symbol_name",
+        )
+        trade_keys = (
+            "side",
+            "trade_side",
+            "direction",
+            "action",
+            "qty",
+            "quantity",
+            "size",
+            "volume",
+            "fillSz",
+            "fill_size",
+            "execQty",
+            "exec_qty",
+            "trade_volume",
+            "price",
+            "fillPx",
+            "fill_px",
+            "execPrice",
+            "exec_price",
+            "avgPx",
+            "avg_price",
+            "avgPrice",
+            "commission",
+            "comm",
+            "fee",
+            "trade_fee",
+            "trade_commission",
+            "fillFee",
+            "fill_fee",
+            "execFee",
+            "exec_fee",
+            "pnl",
+            "pnlcomm",
+        )
+        return any(row.get(key) not in (None, "") for key in symbol_keys) and any(
+            row.get(key) not in (None, "") for key in trade_keys
+        )
+
     def _rows_from_raw(raw: Any, *, depth: int = 0) -> list[dict[str, Any]]:
         if depth > 6:
             if strict:
@@ -1906,11 +1955,27 @@ def query_gateway_trades(
             if status == "error":
                 message = str(raw.get("message") or raw.get("error") or "trade query failed")
                 raise RuntimeError(message)
-            for key in ("trades", "fills", "data", "result"):
+            for key in (
+                "trades",
+                "fills",
+                "executions",
+                "orders",
+                "data",
+                "result",
+                "list",
+                "items",
+                "rows",
+            ):
                 data = raw.get(key)
                 if data is not None:
                     return _rows_from_raw(data, depth=depth + 1)
-            return [dict(raw)]
+            if _looks_like_trade_row(raw):
+                return [dict(raw)]
+            rows: list[dict[str, Any]] = []
+            for item in raw.values():
+                if isinstance(item, (dict, list, tuple, set)):
+                    rows.extend(_rows_from_raw(item, depth=depth + 1))
+            return rows
         if isinstance(raw, (list, tuple, set)):
             return [dict(item) for item in raw if isinstance(item, dict)]
         if strict:
