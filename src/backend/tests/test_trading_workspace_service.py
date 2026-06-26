@@ -663,6 +663,33 @@ def test_latest_position_rows_keeps_dual_side_and_flat_clears_stale():
     assert flat_result[0]["size"] == 0
 
 
+def test_latest_position_rows_keeps_bybit_position_idx_dual_side_rows():
+    """Bybit hedge logs use positive size plus positionIdx for long/short legs."""
+    rows = [
+        {
+            "datetime": "2026-06-24 11:00:00",
+            "data_name": "BTCUSDT",
+            "positionIdx": "1",
+            "size": 0.1,
+            "price": 60000.0,
+        },
+        {
+            "datetime": "2026-06-24 11:01:00",
+            "data_name": "BTCUSDT",
+            "positionIdx": "2",
+            "size": 0.2,
+            "price": 60100.0,
+        },
+    ]
+
+    result = TradingWorkspaceService._latest_position_rows(rows)
+
+    assert len(result) == 2
+    by_idx = {str(row["positionIdx"]): row for row in result}
+    assert by_idx["1"]["price"] == pytest.approx(60000.0)
+    assert by_idx["2"]["price"] == pytest.approx(60100.0)
+
+
 def test_latest_position_rows_directional_flat_keeps_opposite_side():
     rows = [
         {

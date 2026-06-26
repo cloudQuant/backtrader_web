@@ -217,6 +217,28 @@ class TestParsePositionLog:
         assert valued.market_value == 1_500_300.0
         assert valued.pnl == 265.5
 
+    def test_parse_json_position_preserves_bybit_position_idx(self, tmp_path: Path):
+        """Bybit hedge positionIdx must survive log parsing for later side detection."""
+        (tmp_path / "position.log").write_text(
+            json.dumps(
+                {
+                    "datetime": "2026-06-24 11:02:00",
+                    "symbol": "BTCUSDT",
+                    "positionIdx": "2",
+                    "size": 0.2,
+                    "avgPrice": 60100.0,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        positions = parse_position_log(tmp_path)
+
+        assert len(positions) == 1
+        assert positions[0]["positionIdx"] == "2"
+        assert positions[0]["size"] == 0.2
+
     def test_empty_dir(self, tmp_path: Path):
         """Test parsing with empty directory."""
         assert parse_position_log(tmp_path) == []

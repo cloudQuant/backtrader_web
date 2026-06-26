@@ -115,6 +115,40 @@ def test_parse_positions_for_portfolio_keeps_dual_side_same_symbol(monkeypatch, 
     assert by_direction["short"]["price"] == 5010.0
 
 
+def test_parse_positions_for_portfolio_keeps_bybit_position_idx_dual_side(
+    monkeypatch, tmp_path
+):
+    """Bybit hedge logs with positive sizes must keep both positionIdx legs."""
+    from app.api import portfolio_api
+
+    precise_log = [
+        {
+            "datetime": "2026-06-24 11:00:00",
+            "data_name": "BTCUSDT",
+            "positionIdx": "1",
+            "size": 0.1,
+            "price": 60000.0,
+        },
+        {
+            "datetime": "2026-06-24 11:01:00",
+            "data_name": "BTCUSDT",
+            "positionIdx": "2",
+            "size": 0.2,
+            "price": 60100.0,
+        },
+    ]
+
+    monkeypatch.setattr(portfolio_api, "parse_current_position", lambda _log_dir: [])
+    monkeypatch.setattr(portfolio_api, "parse_position_log", lambda _log_dir: precise_log)
+
+    result = portfolio_api._parse_positions_for_portfolio(tmp_path)
+
+    assert len(result) == 2
+    by_idx = {str(row["positionIdx"]): row for row in result}
+    assert by_idx["1"]["price"] == pytest.approx(60000.0)
+    assert by_idx["2"]["price"] == pytest.approx(60100.0)
+
+
 def test_parse_positions_for_portfolio_flat_log_clears_stale_position(monkeypatch, tmp_path):
     """A latest flat log row must clear earlier position rows and stale snapshots."""
     from app.api import portfolio_api

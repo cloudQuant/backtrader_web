@@ -596,6 +596,8 @@ def _position_row_direction(row: dict[str, Any], size: float) -> str:
         "position_side",
         "positionSide",
         "PositionSide",
+        "positionIdx",
+        "position_idx",
         "posSide",
         "trade_action",
         "position_type",
@@ -629,6 +631,13 @@ def _position_row_direction(row: dict[str, Any], size: float) -> str:
                 return "long"
             if code == 3:
                 return "short"
+        if key_text in {"positionidx", "position_idx"}:
+            if code == 1:
+                return "long"
+            if code == 2:
+                return "short"
+            if code == 0:
+                return "flat"
     if abs(size) <= EPSILON:
         return "flat"
     return "short" if size < 0 else "long"

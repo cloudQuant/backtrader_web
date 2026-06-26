@@ -944,6 +944,8 @@ class DirectOrderService:
             "position_side",
             "position_direction",
             "positionSide",
+            "positionIdx",
+            "position_idx",
             "posSide",
             "PositionSide",
             "PosiDirection",
@@ -982,6 +984,11 @@ class DirectOrderService:
             if code == 2:
                 return "long"
             if code == 3:
+                return "short"
+        if key_text in {"positionidx", "position_idx"}:
+            if code == 1:
+                return "long"
+            if code == 2:
                 return "short"
         return None
 
@@ -1086,6 +1093,8 @@ class DirectOrderService:
             "position_side",
             "PositionSide",
             "holdSide",
+            "positionIdx",
+            "position_idx",
         ):
             value = row.get(key)
             if value in (None, ""):
@@ -1093,6 +1102,16 @@ class DirectOrderService:
             text = str(value).strip().lower()
             if text in {"long", "short"}:
                 return text
+            try:
+                code = int(float(text))
+            except (TypeError, ValueError):
+                code = None
+            key_text = str(key or "").strip().lower()
+            if key_text in {"positionidx", "position_idx"}:
+                if code == 1:
+                    return "long"
+                if code == 2:
+                    return "short"
         return None
 
     @classmethod

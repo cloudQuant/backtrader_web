@@ -470,6 +470,8 @@ class TradingWorkspaceService:
             "position_side",
             "positionSide",
             "PositionSide",
+            "positionIdx",
+            "position_idx",
             "posSide",
             "trade_action",
             "position_type",
@@ -503,6 +505,13 @@ class TradingWorkspaceService:
                     return "long"
                 if code == 3:
                     return "short"
+            if key_text in {"positionidx", "position_idx"}:
+                if code == 1:
+                    return "long"
+                if code == 2:
+                    return "short"
+                if code == 0:
+                    return "flat"
         if abs(size) <= EPSILON:
             return "flat"
         return "short" if size < 0 else "long"

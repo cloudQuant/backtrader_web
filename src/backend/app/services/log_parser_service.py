@@ -278,6 +278,8 @@ def _position_extra_fields(row: dict[str, Any]) -> dict[str, Any]:
         "position_side",
         "positionSide",
         "PositionSide",
+        "positionIdx",
+        "position_idx",
         "trade_action",
         "position_type",
         "type",
