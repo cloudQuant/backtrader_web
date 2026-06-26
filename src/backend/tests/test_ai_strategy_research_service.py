@@ -559,7 +559,18 @@ async def test_research_loop_improves_until_sharpe_target_then_starts_paper():
     assert len(result.iterations) == 2
     assert result.iterations[1].improvement_notes
     assert len(strategy_service.submitted_drafts) == 2
+    first_draft = strategy_service.submitted_drafts[0]
+    assert first_draft.data_source.symbol == "000001.SZ"
+    assert first_draft.data_source.symbol_name == "平安银行"
+    assert first_draft.data_source.timeframe == "1d"
+    assert first_draft.backtest_defaults.initial_cash == pytest.approx(100000.0)
+    assert first_draft.backtest_defaults.commission == pytest.approx(0.001)
     assert strategy_service.submitted_drafts[1].name.endswith("v2")
+    improved_draft = strategy_service.submitted_drafts[1]
+    assert improved_draft.data_source.symbol == "000001.SZ"
+    assert improved_draft.backtest_defaults.initial_cash == pytest.approx(100000.0)
+    assert improved_draft.suggested_symbol == "000001.SZ"
+    assert "模拟交易" in improved_draft.next_steps[2]
     assert result.paper_trading is not None
     assert result.paper_trading.started is True
     assert result.paper_trading.handoff is not None
@@ -851,6 +862,9 @@ async def test_research_loop_enriches_backtest_with_asset_specs(monkeypatch):
     assert '"multiplier": 300' in initial_prompt
     assert '"commission_source": "asset_specs_or_default"' in initial_prompt
     assert "local_futures_commission" in initial_prompt
+    assert strategy_service.submitted_drafts[0].backtest_defaults.commission == pytest.approx(
+        0.000023
+    )
     assert result.run_record is not None
     assert result.run_record.commission == pytest.approx(0.000023)
 

@@ -346,7 +346,7 @@ class AIStrategyResearchService:
                     thinking_mode=request.thinking_mode,
                 ),
             )
-            draft = draft_response.strategy_draft
+            draft = _normalize_research_draft(draft_response.strategy_draft, request)
 
         iterations: list[AIStrategyResearchIteration] = []
         best_iteration: AIStrategyResearchIteration | None = None
@@ -364,7 +364,7 @@ class AIStrategyResearchService:
                 user_id=user_id,
                 request=request,
             )
-            draft = improvement.draft
+            draft = _normalize_research_draft(improvement.draft, request)
             pending_improvement_notes = [
                 "基于上一轮模拟交易复核结果生成 continuation 改进版。",
                 *improvement.notes,
@@ -664,7 +664,7 @@ class AIStrategyResearchService:
                     user_id=user_id,
                     request=request,
                 )
-                draft = improvement.draft
+                draft = _normalize_research_draft(improvement.draft, request)
                 pending_improvement_notes = improvement.notes
 
         paper_trading = None
@@ -2214,6 +2214,92 @@ def _draft_from_strategy(
         ],
         suggested_symbol=request.symbol,
         suggested_timeframe=request.timeframe,
+    )
+
+
+def _normalize_research_draft(
+    draft: AIStrategyDraft,
+    request: AIStrategyResearchRunRequest,
+) -> AIStrategyDraft:
+    """Keep generated/improved drafts aligned with the active research run."""
+
+    return draft.model_copy(
+        update={
+            "data_source": AIStrategyDataSourceSpec(
+                type=draft.data_source.type if draft.data_source else "workspace",
+                symbol=request.symbol,
+                symbol_name=request.symbol_name or request.symbol,
+                timeframe=request.timeframe,
+                timeframe_n=request.timeframe_n,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                adjustment=draft.data_source.adjustment if draft.data_source else None,
+            ),
+            "backtest_defaults": _research_backtest_defaults(request),
+            "execution_plan": AIStrategyExecutionPlan(
+                workspace_type="research",
+                group_name=request.group_name
+                or (draft.execution_plan.group_name if draft.execution_plan else None)
+                or draft.name,
+                run_parallel=False,
+            ),
+            "assumptions": list(
+                dict.fromkeys(
+                    [
+                        *list(draft.assumptions or []),
+                        (
+                            f"本轮投研固定使用 {request.symbol}"
+                            f"（{request.symbol_name or request.symbol}）"
+                            f" / {request.timeframe_n}{request.timeframe} 数据。"
+                        ),
+                    ]
+                )
+            ),
+            "risk_points": list(
+                dict.fromkeys(
+                    [
+                        *list(draft.risk_points or []),
+                        "策略评估必须使用本轮投研配置的资金、手续费、合约规格和质量门槛。",
+                    ]
+                )
+            ),
+            "next_steps": list(
+                dict.fromkeys(
+                    [
+                        "运行投研回测并检查 Sharpe、回撤、交易次数和样本外验证。",
+                        "未达标时按质量门槛失败原因自动生成下一版策略。",
+                        "达标后进入模拟交易并复核成交成本、持仓估值和资产规格。",
+                        *list(draft.next_steps or []),
+                    ]
+                )
+            ),
+            "suggested_symbol": request.symbol,
+            "suggested_timeframe": request.timeframe,
+        }
+    )
+
+
+def _research_backtest_defaults(request: AIStrategyResearchRunRequest) -> AIStrategyBacktestSpec:
+    commission = request.commission
+    if not _request_has_explicit_commission(request):
+        asset_specs = _resolve_research_asset_specs(request)
+        primary = next((value for value in asset_specs.values() if isinstance(value, dict)), None)
+        if primary:
+            asset_commission = _first_asset_spec_number(
+                primary,
+                "commission_rate",
+                "open_commission_rate",
+                "taker_commission_rate",
+                "maker_commission_rate",
+            )
+            if asset_commission is not None:
+                commission = max(asset_commission, 0.0)
+    return AIStrategyBacktestSpec(
+        initial_cash=request.initial_cash,
+        commission=commission,
+        annual_days=request.annual_days,
+        calc_method=request.calc_method,
+        weight_mode=request.weight_mode,
     )
 
 
