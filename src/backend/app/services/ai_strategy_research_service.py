@@ -51,6 +51,7 @@ from app.services.ai_router.preferences import (
     ResolvedAIModelPreference,
 )
 from app.services.ai_router.router import AIChatRouter, get_ai_chat_router
+from app.services.strategy.ai_draft import build_ai_strategy_draft
 from app.services.strategy.inference import render_param_default
 from app.services.strategy_service import StrategyService
 from app.services.trading_asset_info_service import resolve_asset_specs
@@ -327,6 +328,7 @@ class AIStrategyResearchService:
         )
         request, draft = await self._prepare_initial_draft(user_id, request)
         research_workspace = await self._ensure_research_workspace(user_id, request)
+        initial_draft_notes: list[str] = []
         if draft is None:
             await _emit_research_progress(
                 progress_callback,
@@ -347,11 +349,12 @@ class AIStrategyResearchService:
                 ),
             )
             draft = _normalize_research_draft(draft_response.strategy_draft, request)
+            draft, initial_draft_notes = _ensure_runnable_initial_draft(draft, request)
 
         iterations: list[AIStrategyResearchIteration] = []
         best_iteration: AIStrategyResearchIteration | None = None
         selected_iteration: AIStrategyResearchIteration | None = None
-        pending_improvement_notes: list[str] = []
+        pending_improvement_notes: list[str] = initial_draft_notes
         continuation_failures = _continuation_quality_gate_failures(request.continuation_context)
         validation_window = _out_of_sample_window(request)
         if continuation_failures:
@@ -2277,6 +2280,20 @@ def _normalize_research_draft(
             "suggested_timeframe": request.timeframe,
         }
     )
+
+
+def _ensure_runnable_initial_draft(
+    draft: AIStrategyDraft,
+    request: AIStrategyResearchRunRequest,
+) -> tuple[AIStrategyDraft, list[str]]:
+    try:
+        _validate_strategy_code_draft(draft.code)
+        return draft, []
+    except ValueError as exc:
+        fallback = _normalize_research_draft(build_ai_strategy_draft(request.prompt), request)
+        return fallback, [
+            f"AI初始策略代码不可运行，已使用本地可运行草案继续投研：{exc}",
+        ]
 
 
 def _research_backtest_defaults(request: AIStrategyResearchRunRequest) -> AIStrategyBacktestSpec:

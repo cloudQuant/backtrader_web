@@ -314,8 +314,10 @@ class FakeStrategyService:
 
 
 class FakeInvalidDraftStrategyService:
-    def __init__(self) -> None:
+    def __init__(self, workspace_service: FakeWorkspaceService) -> None:
+        self.workspace_service = workspace_service
         self.backtest_called = False
+        self.submitted_drafts: list[AIStrategyDraft] = []
 
     async def generate_copilot_draft(self, user_id: str, request):
         draft = build_ai_strategy_draft(request.prompt).model_copy(
@@ -333,7 +335,40 @@ class FakeInvalidDraftStrategyService:
 
     async def backtest_copilot_draft(self, user_id: str, workspace_id: str, request):
         self.backtest_called = True
-        raise AssertionError("invalid strategy draft should not be submitted to backtest")
+        self.submitted_drafts.append(request.strategy_draft)
+        assert "not_a_strategy" not in request.strategy_draft.code
+        strategy = _strategy("fallback-strategy", request.strategy_draft)
+        metrics = {"sharpe_ratio": 1.2, "total_trades": 4, "max_drawdown": -4.0}
+        unit = _unit("fallback-unit", workspace_id, strategy, metrics=metrics).model_copy(
+            update={
+                "data_config": request.data_config,
+                "unit_settings": request.unit_settings,
+                "optimization_config": request.optimization_config,
+            }
+        )
+        self.workspace_service.units[unit.id] = unit
+        self.workspace_service.statuses[unit.id] = UnitStatusResponse(
+            id=unit.id,
+            run_status="completed",
+            last_task_id="fallback-task",
+            metrics_snapshot=metrics,
+            run_count=1,
+            trading_mode="paper",
+        )
+        return StrategyCopilotBacktestResponse(
+            workspace_id=workspace_id,
+            created_strategy=True,
+            strategy=strategy,
+            unit=unit,
+            run_result=StrategyCopilotRunResult(
+                unit_id=unit.id,
+                task_id="fallback-task",
+                status="running",
+            ),
+            unit_status=None,
+            report_ready=False,
+            report=None,
+        )
 
 
 async def _noop_sleep(_: float) -> None:
@@ -1407,9 +1442,9 @@ async def test_research_loop_continuation_uses_failed_paper_review_before_backte
 
 
 @pytest.mark.asyncio
-async def test_research_loop_rejects_invalid_generated_strategy_before_backtest():
+async def test_research_loop_falls_back_when_initial_generated_strategy_is_invalid():
     workspace_service = FakeWorkspaceService()
-    strategy_service = FakeInvalidDraftStrategyService()
+    strategy_service = FakeInvalidDraftStrategyService(workspace_service)
     service = AIStrategyResearchService(
         strategy_service=strategy_service,
         workspace_service=workspace_service,
@@ -1417,18 +1452,22 @@ async def test_research_loop_rejects_invalid_generated_strategy_before_backtest(
         sleep=_noop_sleep,
     )
 
-    with pytest.raises(ValueError, match="Generated strategy code validation failed"):
-        await service.run(
-            "user-1",
-            AIStrategyResearchRunRequest(
-                prompt="请生成一个无效策略",
-                symbol="000001.SZ",
-                max_iterations=1,
-                poll_interval_seconds=0.1,
-            ),
-        )
+    result = await service.run(
+        "user-1",
+        AIStrategyResearchRunRequest(
+            prompt="请生成一个无效策略",
+            symbol="000001.SZ",
+            max_iterations=1,
+            poll_interval_seconds=0.1,
+            start_paper_trading=False,
+        ),
+    )
 
-    assert strategy_service.backtest_called is False
+    assert result.achieved is True
+    assert strategy_service.backtest_called is True
+    assert strategy_service.submitted_drafts
+    assert "class AIGeneratedStrategy" in strategy_service.submitted_drafts[0].code
+    assert result.iterations[0].improvement_notes[0].startswith("AI初始策略代码不可运行")
 
 
 @pytest.mark.asyncio
