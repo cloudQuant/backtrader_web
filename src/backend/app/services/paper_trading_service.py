@@ -8,6 +8,7 @@ import asyncio
 import logging
 import math
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from app.db.sql_repository import SQLRepository
 from app.models.paper_trading import (
@@ -34,6 +35,7 @@ _MIN_SIZE_KEYS = (
     "min_qty",
     "minQty",
     "minSz",
+    "minOrderQty",
     "min_volume",
     "volume_min",
     "min_lot",
@@ -45,12 +47,15 @@ _MARKET_MAX_SIZE_KEYS = (
     "max_market_order_size",
     "max_mkt_order_size",
     "maxMktSz",
+    "maxMktOrderQty",
+    "maxMarketOrderQty",
 )
 _LIMIT_MAX_SIZE_KEYS = (
     "limit_max_order_size",
     "max_limit_order_size",
     "max_lmt_order_size",
     "maxLmtSz",
+    "maxLimitOrderQty",
 )
 _MAX_SIZE_KEYS = (
     "max_order_size",
@@ -58,6 +63,7 @@ _MAX_SIZE_KEYS = (
     "max_size",
     "max_qty",
     "maxQty",
+    "maxOrderQty",
     "max_volume",
     "volume_max",
     "max_lot",
@@ -74,6 +80,7 @@ _SIZE_STEP_KEYS = (
     "lot_step",
     "step_size",
     "stepSize",
+    "qtyStep",
     "lotSz",
     "SYMBOL_VOLUME_STEP",
 )
@@ -197,17 +204,26 @@ class PaperTradingService:
 
     @classmethod
     def _first_asset_number(cls, asset_spec: dict | None, *keys: str) -> float | None:
-        if not isinstance(asset_spec, dict):
-            return None
         for key in keys:
-            value = asset_spec.get(key)
-            if value in (None, ""):
-                continue
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                continue
+            for value in cls._iter_asset_values(asset_spec, key):
+                if value in (None, ""):
+                    continue
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    continue
         return None
+
+    @classmethod
+    def _iter_asset_values(cls, value: object, key: str):
+        if isinstance(value, dict):
+            if key in value:
+                yield value.get(key)
+            for child in value.values():
+                yield from cls._iter_asset_values(child, key)
+        elif isinstance(value, list):
+            for item in value:
+                yield from cls._iter_asset_values(item, key)
 
     @staticmethod
     def _asset_spec_requires_integer_lot(asset_spec: dict | None) -> bool:
@@ -647,7 +663,7 @@ class PaperTradingService:
         return max(opening_short_notional + commission - closing_long_proceeds, 0.0)
 
     @classmethod
-    def _position_equity_component(cls, position: Position) -> float:
+    def _position_equity_component(cls, position: object) -> float:
         market_value = cls._safe_float(getattr(position, "market_value", 0.0), 0.0)
         margin_value = cls._safe_float(getattr(position, "margin_value", 0.0), 0.0)
         unrealized_pnl = cls._safe_float(getattr(position, "unrealized_pnl", 0.0), 0.0)
@@ -666,8 +682,66 @@ class PaperTradingService:
         return market_value
 
     @classmethod
-    def _is_open_position(cls, position: Position) -> bool:
+    def _is_open_position(cls, position: object) -> bool:
         return abs(cls._safe_float(getattr(position, "size", 0.0), 0.0)) > 1e-12
+
+    @classmethod
+    def _merge_position_snapshot(
+        cls,
+        positions: list[object],
+        snapshot: object | None,
+    ) -> list[object]:
+        if snapshot is None:
+            return positions
+
+        snapshot_id = getattr(snapshot, "id", None)
+        snapshot_account_id = getattr(snapshot, "account_id", None)
+        snapshot_symbol = getattr(snapshot, "symbol", None)
+        merged: list[object] = []
+        replaced = False
+        for position in positions:
+            same_id = (
+                snapshot_id is not None
+                and getattr(position, "id", None) is not None
+                and str(getattr(position, "id")) == str(snapshot_id)
+            )
+            same_symbol = (
+                snapshot_account_id is not None
+                and snapshot_symbol is not None
+                and getattr(position, "account_id", None) is not None
+                and getattr(position, "symbol", None) is not None
+                and str(getattr(position, "account_id")) == str(snapshot_account_id)
+                and str(getattr(position, "symbol")) == str(snapshot_symbol)
+            )
+            if same_id or same_symbol:
+                merged.append(snapshot)
+                replaced = True
+            else:
+                merged.append(position)
+
+        if not replaced and cls._is_open_position(snapshot):
+            merged.append(snapshot)
+        return merged
+
+    @staticmethod
+    def _position_snapshot(
+        position: Position,
+        updates: dict[str, object],
+    ) -> object:
+        data = {
+            "id": getattr(position, "id", None),
+            "account_id": getattr(position, "account_id", None),
+            "symbol": getattr(position, "symbol", None),
+            "size": getattr(position, "size", 0.0),
+            "avg_price": getattr(position, "avg_price", 0.0),
+            "market_value": getattr(position, "market_value", 0.0),
+            "margin_value": getattr(position, "margin_value", 0.0),
+            "multiplier": getattr(position, "multiplier", 1.0),
+            "margin_rate": getattr(position, "margin_rate", 1.0),
+            "unrealized_pnl": getattr(position, "unrealized_pnl", 0.0),
+        }
+        data.update(updates)
+        return SimpleNamespace(**data)
 
     @classmethod
     def _positive_finite(cls, value: object, field_name: str) -> float:
@@ -1052,7 +1126,7 @@ class PaperTradingService:
         commission_breakdown: dict[str, float | str] | None = None,
         position_repo: SQLRepository[Position] | None = None,
         trade_repo: SQLRepository[PaperTrade] | None = None,
-    ) -> dict[str, float | bool]:
+    ) -> dict[str, object]:
         """Update position after order fill.
 
         Args:
@@ -1132,6 +1206,7 @@ class PaperTradingService:
             )
 
             await position_repo.create(position)
+            position_snapshot = position
 
         else:
             # Update existing position
@@ -1193,6 +1268,7 @@ class PaperTradingService:
                 position.id,
                 position_update,
             )
+            position_snapshot = self._position_snapshot(position, position_update)
 
             # Update trade record PnL (if closing position)
             if old_size * signed_fill_size < 0:
@@ -1234,6 +1310,7 @@ class PaperTradingService:
             "closing_commission": closing_commission,
             "opening_commission": opening_commission,
             "margin_accounting": margin_accounting,
+            "position_snapshot": position_snapshot,
         }
 
     async def _update_account(
@@ -1244,7 +1321,7 @@ class PaperTradingService:
         commission: float,
         *,
         spec: PositionSpec | None = None,
-        position_event: dict[str, float | bool] | None = None,
+        position_event: dict[str, object] | None = None,
         account_repo: SQLRepository[Account] | None = None,
         position_repo: SQLRepository[Position] | None = None,
     ) -> None:
@@ -1259,6 +1336,11 @@ class PaperTradingService:
         account_repo = account_repo or self.account_repo
         position_repo = position_repo or self.position_repo
         positions = await position_repo.list(filters={"account_id": account.id})
+        if position_event is not None:
+            positions = self._merge_position_snapshot(
+                positions,
+                position_event.get("position_snapshot"),
+            )
 
         # Update cash
         if position_event is not None:

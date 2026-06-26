@@ -305,6 +305,65 @@ class TestSubmitOrder:
 
         service.order_repo.create.assert_not_awaited()
 
+    async def test_submit_order_rejects_raw_bybit_v5_nested_lot_constraints(self):
+        """Paper simulation should validate raw Bybit v5 lotSizeFilter fields."""
+        service = PaperTradingService()
+
+        mock_account = Mock()
+        mock_account.id = "acc_123"
+        mock_account.commission_rate = 0.001
+
+        service.account_repo = AsyncMock()
+        service.account_repo.get_by_id = AsyncMock(return_value=mock_account)
+        service.order_repo = AsyncMock()
+        service.order_repo.create = AsyncMock()
+
+        raw_bybit_spec = {
+            "symbol": "BTCUSDT",
+            "source": "bybit_get_exchange_info",
+            "contractType": "LinearPerpetual",
+            "lotSizeFilter": {
+                "minOrderQty": "0.001",
+                "maxOrderQty": "100",
+                "maxMktOrderQty": "50",
+                "qtyStep": "0.001",
+            },
+            "priceFilter": {"tickSize": "0.1"},
+        }
+        with patch(
+            "app.services.paper_trading_service.query_local_asset_spec",
+            return_value=raw_bybit_spec,
+        ):
+            with pytest.raises(ValueError, match="minimum allowed size 0.001"):
+                await service.submit_order(
+                    "acc_123",
+                    "BTCUSDT",
+                    "market",
+                    "buy",
+                    0.0005,
+                    price=60000.0,
+                )
+            with pytest.raises(ValueError, match="size step 0.001"):
+                await service.submit_order(
+                    "acc_123",
+                    "BTCUSDT",
+                    "market",
+                    "buy",
+                    0.0015,
+                    price=60000.0,
+                )
+            with pytest.raises(ValueError, match="maximum allowed size 50.0"):
+                await service.submit_order(
+                    "acc_123",
+                    "BTCUSDT",
+                    "market",
+                    "buy",
+                    60,
+                    price=60000.0,
+                )
+
+        service.order_repo.create.assert_not_awaited()
+
     async def test_submit_order_rejects_raw_okx_tick_size_alias(self):
         """Paper limit orders should validate raw OKX tickSz before submission."""
         service = PaperTradingService()
@@ -1665,6 +1724,67 @@ class TestUpdateAccount:
         assert account_update["current_cash"] == pytest.approx(49965.5)
         assert account_update["total_equity"] == pytest.approx(199965.5)
         assert account_update["profit_loss"] == pytest.approx(-34.5)
+
+    async def test_update_account_prefers_filled_position_snapshot_for_equity(self):
+        """Account PnL should use the just-computed position, not stale repository state."""
+        service = PaperTradingService()
+
+        mock_account = Mock()
+        mock_account.id = "acc_123"
+        mock_account.initial_cash = 200000.0
+        mock_account.current_cash = 200000.0
+
+        mock_order = Mock()
+        mock_order.id = "order_123"
+        mock_order.side = OrderSide.BUY
+        mock_order.size = 1
+        mock_order.symbol = "IF2609"
+
+        stale_position = Mock()
+        stale_position.id = "pos_123"
+        stale_position.account_id = "acc_123"
+        stale_position.symbol = "IF2609"
+        stale_position.size = 1
+        stale_position.market_value = 0.0
+        stale_position.margin_value = 0.0
+        stale_position.unrealized_pnl = 0.0
+        stale_position.multiplier = 300.0
+        stale_position.margin_rate = 0.1
+
+        fresh_position = Mock()
+        fresh_position.id = "pos_123"
+        fresh_position.account_id = "acc_123"
+        fresh_position.symbol = "IF2609"
+        fresh_position.size = 1
+        fresh_position.market_value = 1_500_000.0
+        fresh_position.margin_value = 150_000.0
+        fresh_position.unrealized_pnl = 300.0
+        fresh_position.multiplier = 300.0
+        fresh_position.margin_rate = 0.1
+
+        service.position_repo = AsyncMock()
+        service.position_repo.list = AsyncMock(return_value=[stale_position])
+        service.account_repo = AsyncMock()
+        service.account_repo.update = AsyncMock()
+
+        with patch.object(service, "_notify_account_update", new_callable=AsyncMock):
+            with patch.object(service, "_notify_position_update", new_callable=AsyncMock) as notify_pos:
+                await service._update_account(
+                    mock_account,
+                    mock_order,
+                    5000.0,
+                    34.5,
+                    position_event={
+                        "cash_delta": -150034.5,
+                        "position_snapshot": fresh_position,
+                    },
+                )
+
+        _account_id, account_update = service.account_repo.update.await_args.args
+        assert account_update["current_cash"] == pytest.approx(49965.5)
+        assert account_update["total_equity"] == pytest.approx(200265.5)
+        assert account_update["profit_loss"] == pytest.approx(265.5)
+        notify_pos.assert_awaited_once_with(fresh_position)
 
     async def test_position_equity_component_uses_margin_for_full_margin_short_contract(self):
         """Full-margin contract shorts still use positive margin equity, not negative notional."""
