@@ -1151,9 +1151,15 @@ class PaperTradingService:
         """
         position_repo = position_repo or self.position_repo
         positions = await position_repo.list(
-            filters={"account_id": account_id, "symbol": symbol}, limit=1
+            filters={"account_id": account_id, "symbol": symbol},
+            limit=50,
+            sort_by="updated_at",
+            sort_order="desc",
         )
 
+        for position in positions:
+            if self._is_open_position(position):
+                return position
         return positions[0] if positions else None
 
     async def _update_position(

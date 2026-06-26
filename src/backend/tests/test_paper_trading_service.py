@@ -850,6 +850,54 @@ class TestProcessOrder:
         mock_pos.assert_awaited_once()
         mock_acct.assert_awaited_once()
 
+    async def test_process_order_ignores_flat_row_when_reducing_open_position(self):
+        """A stale flat row must not make a reducing sell look like a new short."""
+        service = PaperTradingService()
+
+        mock_order = Mock()
+        mock_order.id = "order_123"
+        mock_order.account_id = "acc_123"
+        mock_order.symbol = "BTC/USDT"
+        mock_order.side = OrderSide.SELL
+        mock_order.size = 5
+        mock_order.order_type = "market"
+        mock_order.status = OrderStatus.PENDING
+
+        mock_account = Mock()
+        mock_account.id = "acc_123"
+        mock_account.slippage_rate = 0.001
+        mock_account.current_cash = 300.0
+        mock_account.commission_rate = 0.001
+
+        flat_position = Mock()
+        flat_position.id = "pos_flat"
+        flat_position.size = 0
+        open_position = Mock()
+        open_position.id = "pos_open"
+        open_position.size = 10
+        open_position.avg_price = 50000.0
+
+        service.order_repo = AsyncMock()
+        service.order_repo.get_by_id = AsyncMock(return_value=mock_order)
+        service.position_repo = AsyncMock()
+        service.position_repo.list = AsyncMock(return_value=[flat_position, open_position])
+
+        with patch.object(service, "_get_simulated_price", return_value=50000.0):
+            with patch.object(service, "_reject_order", new_callable=AsyncMock) as mock_reject:
+                with patch.object(service, "_fill_order", new_callable=AsyncMock) as mock_fill:
+                    with patch.object(service, "_update_position", new_callable=AsyncMock) as mock_pos:
+                        with patch.object(
+                            service,
+                            "_update_account",
+                            new_callable=AsyncMock,
+                        ) as mock_acct:
+                            await service._process_order("order_123", "acc_123", mock_account)
+
+        mock_reject.assert_not_awaited()
+        mock_fill.assert_awaited_once()
+        assert mock_pos.await_args.kwargs["current_position"] is open_position
+        mock_acct.assert_awaited_once()
+
     async def test_process_order_spot_sell_long_uses_sale_proceeds_for_commission(self):
         """Closing a cash position should be allowed even when idle cash is zero."""
         service = PaperTradingService()
@@ -2577,6 +2625,42 @@ class TestHelperFunctions:
 
         assert result is not None
         assert result.id == "pos_123"
+
+    async def test_get_position_prefers_open_position_over_flat_row(self):
+        """Order processing must not treat stale zero rows as the current position."""
+        service = PaperTradingService()
+
+        flat_position = Mock()
+        flat_position.id = "pos_flat"
+        flat_position.size = 0
+        open_position = Mock()
+        open_position.id = "pos_open"
+        open_position.size = 3
+
+        service.position_repo = AsyncMock()
+        service.position_repo.list = AsyncMock(return_value=[flat_position, open_position])
+
+        result = await service._get_position("acc_123", "BTC/USDT")
+
+        assert result is open_position
+        service.position_repo.list.assert_awaited_once()
+        assert service.position_repo.list.await_args.kwargs["limit"] == 50
+        assert service.position_repo.list.await_args.kwargs["sort_by"] == "updated_at"
+
+    async def test_get_position_reuses_flat_row_when_no_open_position_exists(self):
+        """A fully closed row can still be reused when reopening the same symbol."""
+        service = PaperTradingService()
+
+        flat_position = Mock()
+        flat_position.id = "pos_flat"
+        flat_position.size = 0
+
+        service.position_repo = AsyncMock()
+        service.position_repo.list = AsyncMock(return_value=[flat_position])
+
+        result = await service._get_position("acc_123", "BTC/USDT")
+
+        assert result is flat_position
 
     async def test_get_position_not_exists(self):
         """Test retrieving non-existent position returns None."""
