@@ -1461,6 +1461,29 @@ def _normalized_pnl_amount(
     return amount * conversion_rate
 
 
+def _should_recalculate_generic_pnl(
+    *,
+    field_key: str | None,
+    explicit_net_pnl_value: Any,
+    size: float,
+    entry_price: float,
+    current_price: Any,
+    multiplier: float,
+) -> bool:
+    if explicit_net_pnl_value is not None:
+        return False
+    if field_key not in MARKABLE_NET_PNL_FIELD_KEYS:
+        return False
+    current_price_number = _safe_float(current_price)
+    return (
+        abs(size) > 1e-12
+        and entry_price > 0
+        and current_price_number is not None
+        and current_price_number > 0
+        and multiplier > 0
+    )
+
+
 def _valuation_currency_candidates(
     symbol: str,
     asset_spec: dict[str, Any] | None = None,
@@ -1812,6 +1835,16 @@ def normalize_gateway_position(
     )
     if explicit_net_pnl_key and explicit_net_pnl_key == gross_pnl_key:
         gross_pnl = None
+    generic_pnl_recalculated = _should_recalculate_generic_pnl(
+        field_key=gross_pnl_key,
+        explicit_net_pnl_value=explicit_net_pnl_value,
+        size=size,
+        entry_price=price,
+        current_price=current_price,
+        multiplier=multiplier,
+    )
+    if generic_pnl_recalculated:
+        gross_pnl = None
     net_pnl = None
     if explicit_net_pnl is not None:
         net_pnl = explicit_net_pnl
@@ -1890,6 +1923,8 @@ def normalize_gateway_position(
         normalized["position_pnl"] = net_pnl
     if gross_pnl is not None:
         normalized["gross_pnl"] = gross_pnl
+    if generic_pnl_recalculated:
+        normalized["generic_pnl_recalculated"] = True
     market_value = _first_value(
         row,
         "market_value",

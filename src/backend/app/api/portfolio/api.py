@@ -994,8 +994,10 @@ def _position_valuation_warnings(
         warnings.append("成交手续费币种与盈亏计价币种不一致，当前按资产费率估算手续费")
     if not getattr(spec, "has_commission", False) and not has_real_commission:
         warnings.append("手续费未确认，持仓盈亏未扣除真实手续费")
-    elif getattr(spec, "has_commission", False) and not has_real_commission and _has_any(
-        row, *_GROSS_PNL_FIELD_KEYS
+    elif (
+        getattr(spec, "has_commission", False)
+        and not has_real_commission
+        and (row.get("generic_pnl_recalculated") or _has_any(row, *_GROSS_PNL_FIELD_KEYS))
     ):
         warnings.append("持仓手续费未从交易所成交/持仓回报确认，当前按资产费率估算")
     return warnings

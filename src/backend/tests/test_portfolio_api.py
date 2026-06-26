@@ -2557,8 +2557,8 @@ async def test_portfolio_positions_split_today_history_aliases_for_exit_fee():
 
 
 @pytest.mark.asyncio
-async def test_portfolio_positions_treat_gateway_position_pnl_as_gross_without_fee():
-    """Raw gateway position_pnl is a floating-PnL alias unless net_pnl/pnlcomm is explicit."""
+async def test_portfolio_positions_recalculate_generic_gateway_position_pnl():
+    """Generic gateway position_pnl must be recalculated with asset specs."""
     from app.api.portfolio_api import get_portfolio_positions
 
     class GatewayManager(_MockManager):
@@ -2575,7 +2575,7 @@ async def test_portfolio_positions_treat_gateway_position_pnl_as_gross_without_f
                     "Position": 1,
                     "Price": 5000.0,
                     "LastPrice": 5010.0,
-                    "position_pnl": 3000.0,
+                    "position_pnl": 10.0,
                 }
             ]
 

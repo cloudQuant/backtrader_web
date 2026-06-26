@@ -1720,6 +1720,27 @@ def _normalized_pnl_amount(
     return amount * conversion_rate
 
 
+def _should_recalculate_generic_pnl(
+    *,
+    field_key: str | None,
+    explicit_net_pnl_value: Any,
+    size: float,
+    entry_price: float,
+    current_price: float,
+    multiplier: float,
+) -> bool:
+    if explicit_net_pnl_value is not None:
+        return False
+    if field_key not in MARKABLE_NET_PNL_FIELD_KEYS:
+        return False
+    return (
+        abs(size) > EPSILON
+        and entry_price > EPSILON
+        and current_price > EPSILON
+        and multiplier > EPSILON
+    )
+
+
 def _row_commission(
     row: dict[str, Any],
     spec: PositionSpec,
@@ -2219,16 +2240,26 @@ def value_position(
         or explicit_gross_pnl_key in MARKABLE_NET_PNL_FIELD_KEYS
     ):
         explicit_gross_pnl = None
+    calculated_gross_pnl = _calculated_gross_pnl(
+        size=size,
+        entry_price=entry_price,
+        current_price=current_price,
+        multiplier=multiplier,
+        inverse_contract=inverse_contract,
+    )
+    if _should_recalculate_generic_pnl(
+        field_key=explicit_gross_pnl_key,
+        explicit_net_pnl_value=explicit_net_pnl_value,
+        size=size,
+        entry_price=entry_price,
+        current_price=current_price,
+        multiplier=multiplier,
+    ):
+        explicit_gross_pnl = None
     gross_pnl = (
         explicit_gross_pnl
         if explicit_gross_pnl is not None
-        else _calculated_gross_pnl(
-            size=size,
-            entry_price=entry_price,
-            current_price=current_price,
-            multiplier=multiplier,
-            inverse_contract=inverse_contract,
-        )
+        else calculated_gross_pnl
     )
     commission = _row_commission(
         row,

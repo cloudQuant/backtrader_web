@@ -1468,7 +1468,7 @@ def test_gateway_asset_spec_query_uses_instrument_for_exchange_prefixed_symbol()
     assert spec["price_tick"] == pytest.approx(0.2)
 
 
-def test_position_valuation_prefers_exchange_margin_and_pnl():
+def test_position_valuation_uses_exchange_margin_and_recalculates_generic_pnl():
     spec = normalize_asset_spec(
         {
             "symbol": "IF2506",
@@ -1500,8 +1500,8 @@ def test_position_valuation_prefers_exchange_margin_and_pnl():
     assert valued.market_value == pytest.approx(12_060_000.0)
     assert valued.margin_value == pytest.approx(1_440_000.0)
     assert valued.commission == pytest.approx(45.0)
-    assert valued.gross_pnl == pytest.approx(30_000.0)
-    assert valued.pnl == pytest.approx(29_955.0)
+    assert valued.gross_pnl == pytest.approx(60_000.0)
+    assert valued.pnl == pytest.approx(59_955.0)
 
 
 def test_inverse_okx_contract_uses_contract_value_for_quote_valuation():
@@ -2374,7 +2374,7 @@ def test_normalize_gateway_position_keeps_fee_estimation_when_only_swap_is_prese
     )
 
     assert "position_pnl" not in row
-    assert row["gross_pnl"] == pytest.approx(2.0)
+    assert row["generic_pnl_recalculated"] is True
     assert row["swap"] == pytest.approx(-0.1)
 
     valued = value_position(
@@ -2413,7 +2413,7 @@ def test_normalize_gateway_position_estimates_fee_when_position_commission_is_ze
 
     assert "commission" not in row
     assert "position_pnl" not in row
-    assert row["gross_pnl"] == pytest.approx(2.0)
+    assert row["generic_pnl_recalculated"] is True
 
     valued = value_position(
         row,
@@ -2462,7 +2462,7 @@ def test_normalize_gateway_position_zero_commission_does_not_block_trade_fees():
     assert row["position_pnl"] == pytest.approx(19.5)
 
 
-def test_position_valuation_treats_profit_alias_as_gross_pnl():
+def test_position_valuation_recalculates_generic_profit_alias_from_asset_spec():
     valued = value_position(
         {
             "data_name": "IF2609",
@@ -2485,12 +2485,12 @@ def test_position_valuation_treats_profit_alias_as_gross_pnl():
     )
 
     assert valued is not None
-    assert valued.gross_pnl == pytest.approx(3000.0)
+    assert valued.gross_pnl == pytest.approx(2400.0)
     assert valued.commission == pytest.approx(34.5)
-    assert valued.pnl == pytest.approx(2965.5)
+    assert valued.pnl == pytest.approx(2365.5)
 
 
-def test_gateway_position_pnl_alias_is_gross_until_explicitly_net():
+def test_gateway_position_pnl_alias_is_recalculated_until_explicitly_net():
     spec = normalize_asset_spec(
         {
             "InstrumentID": "IF2609",
@@ -2509,7 +2509,7 @@ def test_gateway_position_pnl_alias_is_gross_until_explicitly_net():
             "Position": 1,
             "Price": 5000.0,
             "LastPrice": 5010.0,
-            "position_pnl": 3000.0,
+            "position_pnl": 10.0,
         },
         asset_spec=spec,
     )
@@ -2520,14 +2520,14 @@ def test_gateway_position_pnl_alias_is_gross_until_explicitly_net():
             "size": 1,
             "price": 5000.0,
             "current_price": 5010.0,
-            "position_pnl": 3000.0,
+            "position_pnl": 10.0,
         },
         spec=contract_spec,
     )
 
     assert "pnlcomm" not in row
     assert "position_pnl" not in row
-    assert row["gross_pnl"] == pytest.approx(3000.0)
+    assert "gross_pnl" not in row
     assert valued is not None
     assert valued.gross_pnl == pytest.approx(3000.0)
     assert valued.commission == pytest.approx(34.5)
