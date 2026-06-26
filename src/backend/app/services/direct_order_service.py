@@ -993,6 +993,72 @@ class DirectOrderService:
         return None
 
     @classmethod
+    def _desired_close_direction(cls, intent: TradingIntent) -> str | None:
+        params = intent.additional_params if isinstance(intent.additional_params, dict) else {}
+        for key in (
+            "position_side",
+            "positionSide",
+            "posSide",
+            "close_side",
+            "closeSide",
+            "side_to_close",
+            "sideToClose",
+            "target_side",
+            "targetSide",
+            "position_direction",
+            "positionDirection",
+            "direction",
+            "side",
+        ):
+            direction = cls._position_direction_from_value(key, params.get(key))
+            if direction:
+                return direction
+        return cls._desired_close_direction_from_text(intent.raw_input)
+
+    @staticmethod
+    def _desired_close_direction_from_text(value: Any) -> str | None:
+        text = str(value or "").strip().lower()
+        if not text:
+            return None
+
+        long_markers = (
+            "平多",
+            "平多仓",
+            "平掉多",
+            "平掉多仓",
+            "平掉多单",
+            "多头平仓",
+            "多单平仓",
+            "多仓",
+            "多单",
+            "多头",
+            "close long",
+            "close the long",
+            "sell long",
+        )
+        short_markers = (
+            "平空",
+            "平空仓",
+            "平掉空",
+            "平掉空仓",
+            "平掉空单",
+            "空头平仓",
+            "空单平仓",
+            "空仓",
+            "空单",
+            "空头",
+            "close short",
+            "close the short",
+            "cover short",
+            "buy to cover",
+        )
+        wants_long = any(marker in text for marker in long_markers)
+        wants_short = any(marker in text for marker in short_markers)
+        if wants_long == wants_short:
+            return None
+        return "long" if wants_long else "short"
+
+    @classmethod
     def _select_close_position(
         cls, positions: list[dict[str, Any]], symbol: str | None
     ) -> tuple[dict[str, Any] | None, str | None]:
@@ -1013,7 +1079,10 @@ class DirectOrderService:
 
     @classmethod
     def _matching_close_positions(
-        cls, positions: list[dict[str, Any]], symbol: str | None
+        cls,
+        positions: list[dict[str, Any]],
+        symbol: str | None,
+        desired_direction: str | None = None,
     ) -> tuple[list[dict[str, Any]], str | None]:
         nonzero = [pos for pos in positions if abs(cls._position_size(pos)) > 0]
         if symbol:
@@ -1025,6 +1094,9 @@ class DirectOrderService:
             ]
         else:
             matches = nonzero
+
+        if desired_direction in {"long", "short"}:
+            matches = [pos for pos in matches if cls._position_direction(pos) == desired_direction]
 
         if not matches:
             return [], "no_position"
@@ -1409,7 +1481,12 @@ class DirectOrderService:
             }
 
         positions = [pos for pos in positions_payload if isinstance(pos, dict)]
-        matches, select_error = self._matching_close_positions(positions, intent.symbol)
+        desired_direction = self._desired_close_direction(intent)
+        matches, select_error = self._matching_close_positions(
+            positions,
+            intent.symbol,
+            desired_direction=desired_direction,
+        )
 
         if not matches:
             if select_error == "ambiguous_position":
@@ -1670,9 +1747,14 @@ class DirectOrderService:
             )
             target = None
             requested = self._symbol_candidates(intent.symbol)
+            desired_direction = self._desired_close_direction(intent)
             for p in positions:
                 position_symbol = getattr(p, "symbol", "")
                 if requested and requested & self._symbol_candidates(position_symbol):
+                    size = float(getattr(p, "size", 0.0) or 0.0)
+                    direction = "short" if size < 0 else "long"
+                    if desired_direction and direction != desired_direction:
+                        continue
                     target = p
                     break
 

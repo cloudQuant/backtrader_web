@@ -2482,6 +2482,112 @@ class TestDirectOrderServiceLiveTrade:
         assert payload["posSide"] == "short"
 
     @pytest.mark.asyncio
+    async def test_live_close_rejects_hedged_symbol_without_requested_side(self):
+        """Hedged long/short legs must not be closed without an explicit side."""
+        service = DirectOrderService()
+        intent = TradingIntent(
+            action=TradeAction.CLOSE,
+            symbol="BTCUSDT",
+            exchange="bybit",
+            confidence=0.9,
+        )
+        positions = [
+            {"symbol": "BTCUSDT", "positionIdx": "1", "size": "0.4"},
+            {"symbol": "BTCUSDT", "positionIdx": "2", "size": "0.5"},
+        ]
+
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
+            ),
+            patch.object(service, "_send_gateway_command", return_value=positions) as send_cmd,
+        ):
+            result = await service.execute_live_trade(
+                intent, user_id="user1", gateway_id="manual:BYBIT:demo"
+            )
+
+        assert result["success"] is False
+        assert result["error"] == "ambiguous_position"
+        assert "方向" in result["message"]
+        assert send_cmd.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_live_close_uses_explicit_position_side_for_hedged_symbol(self):
+        """A close-short intent must close only the short leg in hedge mode."""
+        service = DirectOrderService()
+        intent = TradingIntent(
+            action=TradeAction.CLOSE,
+            symbol="BTCUSDT",
+            exchange="bybit",
+            quantity=0.25,
+            confidence=0.9,
+            additional_params={"position_side": "short"},
+        )
+        positions = [
+            {"symbol": "BTCUSDT", "positionIdx": "1", "size": "0.4"},
+            {"symbol": "BTCUSDT", "positionIdx": "2", "size": "0.5"},
+        ]
+
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
+            ),
+            patch.object(
+                service,
+                "_send_gateway_command",
+                side_effect=[positions, {"order_id": "close-short"}],
+            ) as send_cmd,
+        ):
+            result = await service.execute_live_trade(
+                intent, user_id="user1", gateway_id="manual:BYBIT:demo"
+            )
+
+        assert result["success"] is True
+        _, command, payload = send_cmd.call_args_list[1].args
+        assert command == "place_order"
+        assert payload["side"] == "buy"
+        assert payload["size"] == pytest.approx(0.25)
+        assert payload["position_side"] == "short"
+        assert payload["posSide"] == "short"
+
+    @pytest.mark.asyncio
+    async def test_live_close_infers_short_side_from_raw_instruction(self):
+        """Raw Chinese close-short wording should disambiguate hedged legs."""
+        service = DirectOrderService()
+        intent = TradingIntent(
+            action=TradeAction.CLOSE,
+            symbol="BTCUSDT",
+            exchange="bybit",
+            confidence=0.9,
+            raw_input="平掉BTCUSDT空单",
+        )
+        positions = [
+            {"symbol": "BTCUSDT", "positionIdx": "1", "size": "0.4"},
+            {"symbol": "BTCUSDT", "positionIdx": "2", "size": "0.5"},
+        ]
+
+        with (
+            patch.object(
+                service, "_get_gateway_command_endpoint", return_value="tcp://localhost:5555"
+            ),
+            patch.object(
+                service,
+                "_send_gateway_command",
+                side_effect=[positions, {"order_id": "close-short"}],
+            ) as send_cmd,
+        ):
+            result = await service.execute_live_trade(
+                intent, user_id="user1", gateway_id="manual:BYBIT:demo"
+            )
+
+        assert result["success"] is True
+        _, command, payload = send_cmd.call_args_list[1].args
+        assert command == "place_order"
+        assert payload["side"] == "buy"
+        assert payload["size"] == pytest.approx(0.5)
+        assert payload["position_side"] == "short"
+
+    @pytest.mark.asyncio
     async def test_live_close_rejects_gateway_error_payload(self):
         service = DirectOrderService()
         intent = TradingIntent(

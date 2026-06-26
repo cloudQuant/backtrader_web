@@ -64,6 +64,7 @@ JSON 结构：
   "order_type": "market|limit|stop|stop_limit",
   "stop_loss": 止损价（数字或null）,
   "take_profit": 止盈价（数字或null）,
+  "position_side": "long|short|null，只有平多/平空等指定持仓腿时填写",
   "reason": "解析理由说明",
   "confidence": 0.0-1.0的置信度,
   "risk_level": "low|medium|high|critical"
@@ -80,6 +81,8 @@ JSON 结构：
 8. "手" 在期货中通常是合约数量单位
 9. 如果无法确定品种，symbol 设为 null，confidence 降低
 10. 如果指令模糊或有歧义，confidence 应低于 0.5
+11. "平多"/"平多仓"/"平掉多单"/"close long" → action: "close", position_side: "long"
+12. "平空"/"平空仓"/"平掉空单"/"close short"/"cover short" → action: "close", position_side: "short"
 
 品种识别：
 - 螺纹钢/螺纹 → rb（主力合约自动匹配）

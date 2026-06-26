@@ -247,6 +247,16 @@ class TestParseTradingIntent:
             assert result.additional_params.get("extra") == 42
 
     @pytest.mark.asyncio
+    async def test_close_short_position_side_is_captured(self):
+        """Close-short parsing metadata must survive for hedge-mode execution."""
+        mock_response = '{"action": "close", "symbol": "BTCUSDT", "exchange": "bybit", "quantity": 0.2, "confidence": 0.9, "position_side": "short"}'
+        with patch("app.services.trading_intent_parser._call_llm") as mock_llm:
+            mock_llm.return_value = mock_response
+            result = await parse_trading_intent("平掉BTCUSDT空单0.2")
+            assert result.action == TradeAction.CLOSE
+            assert result.additional_params.get("position_side") == "short"
+
+    @pytest.mark.asyncio
     async def test_market_context_passed(self):
         """Market context is passed to the LLM call."""
         mock_response = '{"action": "query", "confidence": 0.9}'
